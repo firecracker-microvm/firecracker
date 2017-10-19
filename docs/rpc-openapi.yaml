@@ -205,6 +205,96 @@ paths:
       responses:
         400:
           description: "Invalid uuid supplied"
+  /drive/{uuid}/addRateLimiter:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Apply rate limiter to drive"
+      description: ""
+      operationId: "driveAddLimiter"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "uuid"
+        in: "path"
+        description: "uuid of drive to apply rate limiter to"
+        required: true
+        type: "string"
+      - in: "query"
+        name: "LimiterID"
+        description: "ID of rate limiter to apply"
+        required: true
+        type: "integer"
+      responses:
+        400:
+          description: "Invalid uuid supplied"
+        404:
+          description: "Drive not found"
+  /drive/{uuid}/removeRateLimiter:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Remove rate limiter from drive"
+      description: ""
+      operationId: "driveRemoveLimiter"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "uuid"
+        in: "path"
+        description: "uuid of drive to remove rate limiter from"
+        required: true
+        type: "string"
+      - in: "query"
+        name: "LimiterID"
+        description: "ID of rate limiter to remove"
+        required: true
+        type: "integer"
+      responses:
+        400:
+          description: "Invalid uuid supplied"
+        404:
+          description: "Drive not found"
+  /drive/{uuid}/attach:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Attach drive"
+      description: ""
+      operationId: "driveAttach"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "uuid"
+        in: "path"
+        description: "uuid of drive to attach"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid uuid supplied"
+        404:
+          description: "Drive not found"
+  /drive/{uuid}/detach:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Detach drive"
+      description: ""
+      operationId: "driveDetach"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "uuid"
+        in: "path"
+        description: "uuid of drive to detach"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid uuid supplied"
+        404:
+          description: "Drive not found"
   /limiter:
     post:
       tags:
@@ -249,7 +339,7 @@ paths:
     get:
       tags:
       - "firecracker"
-      summary: "Get limiter by uuid"
+      summary: "Get limiter by id"
       description: ""
       operationId: "getLimiterById"
       produces:
@@ -320,9 +410,9 @@ definitions:
         type: "integer"
       name:
         type: "string"
-      type:
+      metric:
         type: "string"
-        description: "limiter applies to"
+        description: "metric used by the rate limiter"
         enum:
         - "ops/s"
         - "bandwidth"
@@ -339,10 +429,10 @@ definitions:
         type: "string"
       name:
         type: "string"
-      hasLimiter:
-        type: "boolean"
-      limiterID:
-        type: "integer"
+      activeLimitersIDs:
+        type: "array"
+        items:
+          type: "integer"
   Meminfo:
     type: "object"
     properties:
