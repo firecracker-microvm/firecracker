@@ -95,6 +95,112 @@ paths:
       responses:
         default:
           description: "successful operation"
+  /limiter:
+    post:
+      tags:
+      - "firecracker"
+      summary: Create rate limiter
+      description: Creates a new rate limiter
+      operationId: "addLimiter"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "Rate limiter to add"
+        required: true
+        schema:
+          $ref: "#/definitions/Limiter"
+      responses:
+        default:
+          description: "successful operation"
+  /limiter/createWithList:
+    post:
+      tags:
+      - "firecracker"
+      summary: Create rate limiters from list
+      description: Creates multiple rate limiters
+      operationId: "addLimitersWithListInput"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "List of rate limiters"
+        required: true
+        schema:
+          type: "array"
+          items:
+            $ref: "#/definitions/Limiter"
+      responses:
+        default:
+          description: "successful operation"
+  /limiter/{id}:
+    get:
+      tags:
+      - "firecracker"
+      summary: "Get limiter by id"
+      description: ""
+      operationId: "getLimiterById"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "The id of the rate limiter to fetch."
+        required: true
+        type: "string"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/Limiter"
+        400:
+          description: "Invalid rate limiter id supplied"
+        404:
+          description: "Rate limiter not found"
+    put:
+      tags:
+      - "firecracker"
+      summary: "Update rate limiter"
+      description: ""
+      operationId: "updateLimiter"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "The id of the rate limiter to update."
+        required: true
+        type: "string"
+      - in: "body"
+        name: "body"
+        description: "Rate limiter properties"
+        required: true
+        schema:
+          $ref: "#/definitions/Limiter"
+      responses:
+        400:
+          description: "Invalid rate limiter id supplied"
+        404:
+          description: "Rate limiter not found"
+    delete:
+      tags:
+      - "firecracker"
+      summary: "Delete rate limiter"
+      description: ""
+      operationId: "deleteLimiter"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "The id of the rate limiter to delete."
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid rate limiter id supplied"
   /drive:
     post:
       tags:
@@ -295,112 +401,6 @@ paths:
           description: "Invalid uuid supplied"
         404:
           description: "Drive not found"
-  /limiter:
-    post:
-      tags:
-      - "firecracker"
-      summary: Create rate limiter
-      description: Creates a new rate limiter
-      operationId: "addLimiter"
-      produces:
-      - "application/json"
-      parameters:
-      - in: "body"
-        name: "body"
-        description: "Rate limiter to add"
-        required: true
-        schema:
-          $ref: "#/definitions/Limiter"
-      responses:
-        default:
-          description: "successful operation"
-  /limiter/createWithList:
-    post:
-      tags:
-      - "firecracker"
-      summary: Create rate limiters from list
-      description: Creates multiple rate limiters
-      operationId: "addLimitersWithListInput"
-      produces:
-      - "application/json"
-      parameters:
-      - in: "body"
-        name: "body"
-        description: "List of rate limiters"
-        required: true
-        schema:
-          type: "array"
-          items:
-            $ref: "#/definitions/Limiter"
-      responses:
-        default:
-          description: "successful operation"
-  /limiter/{id}:
-    get:
-      tags:
-      - "firecracker"
-      summary: "Get limiter by id"
-      description: ""
-      operationId: "getLimiterById"
-      produces:
-      - "application/json"
-      parameters:
-      - name: "id"
-        in: "path"
-        description: "The id of the rate limiter to fetch."
-        required: true
-        type: "string"
-      responses:
-        200:
-          description: "successful operation"
-          schema:
-            $ref: "#/definitions/Limiter"
-        400:
-          description: "Invalid rate limiter id supplied"
-        404:
-          description: "Rate limiter not found"
-    put:
-      tags:
-      - "firecracker"
-      summary: "Update rate limiter"
-      description: ""
-      operationId: "updateLimiter"
-      produces:
-      - "application/json"
-      parameters:
-      - name: "id"
-        in: "path"
-        description: "The id of the rate limiter to update."
-        required: true
-        type: "string"
-      - in: "body"
-        name: "body"
-        description: "Rate limiter properties"
-        required: true
-        schema:
-          $ref: "#/definitions/Limiter"
-      responses:
-        400:
-          description: "Invalid rate limiter id supplied"
-        404:
-          description: "Rate limiter not found"
-    delete:
-      tags:
-      - "firecracker"
-      summary: "Delete rate limiter"
-      description: ""
-      operationId: "deleteLimiter"
-      produces:
-      - "application/json"
-      parameters:
-      - name: "id"
-        in: "path"
-        description: "The id of the rate limiter to delete."
-        required: true
-        type: "string"
-      responses:
-        400:
-          description: "Invalid rate limiter id supplied"
   /network:
     post:
       tags:
