@@ -601,6 +601,206 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Network not found"
+  /vsock:
+    post:
+      tags:
+      - "firecracker"
+      summary: Create vsock
+      description: "Creates a new vsock. Socket FD is expected along with this call."
+      operationId: "addVsock"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "Vsock to add"
+        required: true
+        schema:
+          $ref: "#/definitions/Vsock"
+      responses:
+        default:
+          description: "successful operation"
+  /vsock/createWithList:
+    post:
+      tags:
+      - "firecracker"
+      summary: Create list of vsocks
+      description: "Creates multiple new vsocks. Socket FDs are expected along with this call."
+      operationId: "addVsockWithListInput"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "List of vsock objects"
+        required: true
+        schema:
+          type: "array"
+          items:
+            $ref: "#/definitions/Vsock"
+      responses:
+        default:
+          description: "successful operation"
+  /sock/{id}:
+    get:
+      tags:
+      - "firecracker"
+      summary: "Get vsock by id"
+      description: ""
+      operationId: "getVsockById"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "The id of the vsock to be fetched."
+        required: true
+        type: "string"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/Vsock"
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Vsock not found"
+    put:
+      tags:
+      - "firecracker"
+      summary: "Update vsock"
+      description: ""
+      operationId: "updateVsock"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of vsock to update"
+        required: true
+        type: "string"
+      - name: "fdUpdate"
+        in: "query"
+        description: "backing FD is also updated?"
+        type: "boolean"
+      - name: "body"
+        in: "body"
+        description: "Vsock properties"
+        required: true
+        schema:
+          $ref: "#/definitions/Vsock"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Vsock not found"
+    delete:
+      tags:
+      - "firecracker"
+      summary: "Delete vsock"
+      description: ""
+      operationId: "deleteVsock"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of vsock to delete"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid id supplied"
+  /sock/{id}/addRateLimiter:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Apply rate limiter to vsock"
+      description: ""
+      operationId: "vsockAddLimiter"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of vsock to apply rate limiter to"
+        required: true
+        type: "string"
+      - in: "query"
+        name: "LimiterID"
+        description: "ID of rate limiter to apply"
+        required: true
+        type: "integer"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Vsock not found"
+  /vsock/{id}/removeRateLimiter:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Remove rate limiter from vsock"
+      description: ""
+      operationId: "vsockRemoveLimiter"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of vsock to remove rate limiter from"
+        required: true
+        type: "string"
+      - in: "query"
+        name: "LimiterID"
+        description: "ID of rate limiter to remove"
+        required: true
+        type: "integer"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Vsock not found"
+  /vsock/{id}/attach:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Attach vsock"
+      description: ""
+      operationId: "vsockAttach"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of vsock to attach"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Vsock not found"
+  /vsock/{id}/detach:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Detach vsock"
+      description: ""
+      operationId: "vsockDetach"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of vsock to detach"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Vsock not found"
 
 definitions:
   Limiter:
@@ -641,6 +841,17 @@ definitions:
       name:
         type: "string"
       mac:
+        type: "string"
+      activeLimitersIDs:
+        type: "array"
+        items:
+          type: "integer"
+  Vsock:
+    type: "object"
+    properties:
+      id:
+        type: "string"
+      name:
         type: "string"
       activeLimitersIDs:
         type: "array"
