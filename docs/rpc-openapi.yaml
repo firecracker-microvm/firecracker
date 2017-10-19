@@ -1,0 +1,257 @@
+swagger: "2.0"
+info:
+  description: "Firecraker RPC API"
+  version: "1.0.0"
+  title: "Firecraker RPC API"
+  termsOfService: "http://swagger.io/terms/"
+  contact:
+    email: "acatan@amazon.com"
+  license:
+    name: "Apache 2.0"
+    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
+host: "localhost"
+basePath: "/"
+
+tags:
+- name: "firecracker"
+  description: "Operations for firecracker"
+  externalDocs:
+    description: "compute capsule"
+    url: "http://localhost"
+
+schemes:
+- "http"
+
+paths:
+  /memory:
+    get:
+      tags:
+      - "firecracker"
+      summary: Current memory info
+      description: Returns current memory config
+      operationId: "getMemory"
+      produces:
+      - "application/json"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/Meminfo"
+        500:
+          $ref: "#/responses/Standard500ErrorResponse"
+    put:
+      tags:
+      - "firecracker"
+      summary: Current memory info
+      description: Sets memory config
+      operationId: "putMemory"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "data"
+        description: "Memory object"
+        required: true
+        schema:
+          $ref: "#/definitions/Meminfo"
+      - in: "query"
+        name: "new_fd"
+        required: true
+        type: "boolean"
+      responses:
+        default:
+          description: "successful operation"
+  /cpu:
+    get:
+      tags:
+      - "firecracker"
+      summary: Current memory info
+      description: Returns current memory config
+      operationId: "getCpu"
+      produces:
+      - "application/json"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/CPU"
+        500:
+          $ref: "#/responses/Standard500ErrorResponse"
+    put:
+      tags:
+      - "firecracker"
+      summary: Current cpu info
+      description: Sets cpu config
+      operationId: "postCpu"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "Created cpu object"
+        required: true
+        schema:
+          $ref: "#/definitions/CPU"
+      responses:
+        default:
+          description: "successful operation"
+  /drive:
+    post:
+      tags:
+      - "firecracker"
+      summary: Create drive
+      description: "Creates a new drive. Drive FD is expected along with this call."
+      operationId: "addDrive"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "Drive to add"
+        required: true
+        schema:
+          $ref: "#/definitions/Drive"
+      responses:
+        default:
+          description: "successful operation"
+  /drive/createWithList:
+    post:
+      tags:
+      - "firecracker"
+      summary: Create list of drives
+      description: "Creates multiple new drives. Drives' FDs are expected along with this call."
+      operationId: "addDrivesWithListInput"
+      produces:
+      - "application/xml"
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "List of user object"
+        required: true
+        schema:
+          type: "array"
+          items:
+            $ref: "#/definitions/Drive"
+      responses:
+        default:
+          description: "successful operation"
+  /drive/{uuid}:
+    get:
+      tags:
+      - "firecracker"
+      summary: "Get drive by uuid"
+      description: ""
+      operationId: "getDriveByUUID"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "uuid"
+        in: "path"
+        description: "The uuid of the drive that needs to be fetched."
+        required: true
+        type: "string"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/Drive"
+        400:
+          description: "Invalid uuid supplied"
+        404:
+          description: "Drive not found"
+    put:
+      tags:
+      - "firecracker"
+      summary: "Update drive"
+      description: ""
+      operationId: "updateDrive"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "uuid"
+        in: "path"
+        description: "uuid of drive to update"
+        required: true
+        type: "string"
+      - name: "fdUpdate"
+        in: "query"
+        description: "backing FD is also updated?"
+        type: "boolean"
+      - name: "body"
+        in: "body"
+        description: "Drive properties"
+        required: true
+        schema:
+          $ref: "#/definitions/Drive"
+      responses:
+        400:
+          description: "Invalid uuid supplied"
+        404:
+          description: "Drive not found"
+    delete:
+      tags:
+      - "firecracker"
+      summary: "Delete drive"
+      description: ""
+      operationId: "deleteDrive"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "uuid"
+        in: "path"
+        description: "uuid of drive to delete"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid uuid supplied"
+
+definitions:
+  Drive:
+    type: "object"
+    properties:
+      uuid:
+        type: "string"
+      name:
+        type: "string"
+      hasLimiter:
+        type: "boolean"
+      limiterID:
+        type: "integer"
+  Meminfo:
+    type: "object"
+    properties:
+      size:
+        type: "integer"
+        format: "int64"
+  CpuFeatureSet:
+    type: "object"
+    properties:
+      id:
+        type: "integer"
+      features:
+        type: "array"
+        items:
+          type: "integer"
+          format: "int16"
+  CPU:
+    type: "object"
+    properties:
+      count:
+        type: "integer"
+        format: "int64"
+      featureSet:
+        $ref: "#/definitions/CpuFeatureSet"
+  Error:
+    properties:
+      code:
+        type: string
+      message:
+        type: string
+
+responses:
+  Standard500ErrorResponse:
+    description: An unexpected error occured.
+    schema:
+      $ref: "#/definitions/Error"
