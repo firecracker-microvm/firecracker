@@ -126,7 +126,7 @@ paths:
       parameters:
       - in: "body"
         name: "body"
-        description: "List of user object"
+        description: "List of drive objects"
         required: true
         schema:
           type: "array"
@@ -401,6 +401,206 @@ paths:
       responses:
         400:
           description: "Invalid rate limiter id supplied"
+  /network:
+    post:
+      tags:
+      - "firecracker"
+      summary: Create network
+      description: "Creates a new network. TUN/TAP FD is expected along with this call."
+      operationId: "addNetwork"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "Network to add"
+        required: true
+        schema:
+          $ref: "#/definitions/Network"
+      responses:
+        default:
+          description: "successful operation"
+  /network/createWithList:
+    post:
+      tags:
+      - "firecracker"
+      summary: Create list of networks
+      description: "Creates multiple new networks. TUN/TAPs FDs are expected along with this call."
+      operationId: "addNetworksWithListInput"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "List of network objects"
+        required: true
+        schema:
+          type: "array"
+          items:
+            $ref: "#/definitions/Network"
+      responses:
+        default:
+          description: "successful operation"
+  /network/{id}:
+    get:
+      tags:
+      - "firecracker"
+      summary: "Get network by id"
+      description: ""
+      operationId: "getNetworkById"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "The id of the network to be fetched."
+        required: true
+        type: "string"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/Network"
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Network not found"
+    put:
+      tags:
+      - "firecracker"
+      summary: "Update network"
+      description: ""
+      operationId: "updateNetwork"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of network to update"
+        required: true
+        type: "string"
+      - name: "fdUpdate"
+        in: "query"
+        description: "backing FD is also updated?"
+        type: "boolean"
+      - name: "body"
+        in: "body"
+        description: "Network properties"
+        required: true
+        schema:
+          $ref: "#/definitions/Network"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Network not found"
+    delete:
+      tags:
+      - "firecracker"
+      summary: "Delete network"
+      description: ""
+      operationId: "deleteNetwork"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of network to delete"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid id supplied"
+  /network/{id}/addRateLimiter:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Apply rate limiter to network"
+      description: ""
+      operationId: "networkAddLimiter"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of network to apply rate limiter to"
+        required: true
+        type: "string"
+      - in: "query"
+        name: "LimiterID"
+        description: "ID of rate limiter to apply"
+        required: true
+        type: "integer"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Network not found"
+  /network/{id}/removeRateLimiter:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Remove rate limiter from network"
+      description: ""
+      operationId: "networkRemoveLimiter"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of network to remove rate limiter from"
+        required: true
+        type: "string"
+      - in: "query"
+        name: "LimiterID"
+        description: "ID of rate limiter to remove"
+        required: true
+        type: "integer"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Network not found"
+  /network/{id}/attach:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Attach network"
+      description: ""
+      operationId: "networkAttach"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of network to attach"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Network not found"
+  /network/{id}/detach:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Detach network"
+      description: ""
+      operationId: "networkDetach"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of network to detach"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Network not found"
 
 definitions:
   Limiter:
@@ -428,6 +628,19 @@ definitions:
       uuid:
         type: "string"
       name:
+        type: "string"
+      activeLimitersIDs:
+        type: "array"
+        items:
+          type: "integer"
+  Network:
+    type: "object"
+    properties:
+      id:
+        type: "string"
+      name:
+        type: "string"
+      mac:
         type: "string"
       activeLimitersIDs:
         type: "array"
