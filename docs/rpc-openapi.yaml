@@ -567,15 +567,15 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: "Attach network"
+      summary: "Connect network"
       description: ""
-      operationId: "networkAttach"
+      operationId: "networkConnect"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: "path"
-        description: "id of network to attach"
+        description: "id of network to connect"
         required: true
         type: "string"
       responses:
@@ -587,15 +587,15 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: "Detach network"
+      summary: "Disconnect network"
       description: ""
-      operationId: "networkDetach"
+      operationId: "networkDisconnect"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: "path"
-        description: "id of network to detach"
+        description: "id of network to disconnect"
         required: true
         type: "string"
       responses:
@@ -768,15 +768,15 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: "Attach vsock"
+      summary: "Connect vsock"
       description: ""
-      operationId: "vsockAttach"
+      operationId: "vsockConnect"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: "path"
-        description: "id of vsock to attach"
+        description: "id of vsock to connect"
         required: true
         type: "string"
       responses:
@@ -788,15 +788,15 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: "Detach vsock"
+      summary: "Disconnect vsock"
       description: ""
-      operationId: "vsockDetach"
+      operationId: "vsockDisconnect"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: "path"
-        description: "id of vsock to detach"
+        description: "id of vsock to disconnect"
         required: true
         type: "string"
       responses:
