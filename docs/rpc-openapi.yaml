@@ -3,7 +3,7 @@ info:
   description: "Firecraker RPC API"
   version: "1.0.0"
   title: "Firecraker RPC API"
-  termsOfService: "http://swagger.io/terms/"
+  termsOfService: ""
   contact:
     email: "acatan@amazon.com"
   license:
@@ -95,7 +95,7 @@ paths:
       responses:
         default:
           description: "successful operation"
-  /limiter:
+  /limiters:
     post:
       tags:
       - "firecracker"
@@ -114,7 +114,7 @@ paths:
       responses:
         default:
           description: "successful operation"
-  /limiter/createWithList:
+  /limiters/createWithList:
     post:
       tags:
       - "firecracker"
@@ -135,7 +135,7 @@ paths:
       responses:
         default:
           description: "successful operation"
-  /limiter/{id}:
+  /limiters/{id}:
     get:
       tags:
       - "firecracker"
@@ -201,7 +201,7 @@ paths:
       responses:
         400:
           description: "Invalid rate limiter id supplied"
-  /drive:
+  /drives:
     post:
       tags:
       - "firecracker"
@@ -220,7 +220,7 @@ paths:
       responses:
         default:
           description: "successful operation"
-  /drive/createWithList:
+  /drives/createWithList:
     post:
       tags:
       - "firecracker"
@@ -241,7 +241,7 @@ paths:
       responses:
         default:
           description: "successful operation"
-  /drive/{uuid}:
+  /drives/{uuid}:
     get:
       tags:
       - "firecracker"
@@ -311,7 +311,7 @@ paths:
       responses:
         400:
           description: "Invalid uuid supplied"
-  /drive/{uuid}/addRateLimiter:
+  /drives/{uuid}/addRateLimiter:
     put:
       tags:
       - "firecracker"
@@ -336,7 +336,7 @@ paths:
           description: "Invalid uuid supplied"
         404:
           description: "Drive not found"
-  /drive/{uuid}/removeRateLimiter:
+  /drives/{uuid}/removeRateLimiter:
     put:
       tags:
       - "firecracker"
@@ -361,7 +361,7 @@ paths:
           description: "Invalid uuid supplied"
         404:
           description: "Drive not found"
-  /drive/{uuid}/attach:
+  /drives/{uuid}/attach:
     put:
       tags:
       - "firecracker"
@@ -381,7 +381,7 @@ paths:
           description: "Invalid uuid supplied"
         404:
           description: "Drive not found"
-  /drive/{uuid}/detach:
+  /drives/{uuid}/detach:
     put:
       tags:
       - "firecracker"
@@ -401,7 +401,7 @@ paths:
           description: "Invalid uuid supplied"
         404:
           description: "Drive not found"
-  /network:
+  /networks:
     post:
       tags:
       - "firecracker"
@@ -420,7 +420,7 @@ paths:
       responses:
         default:
           description: "successful operation"
-  /network/createWithList:
+  /networks/createWithList:
     post:
       tags:
       - "firecracker"
@@ -441,7 +441,7 @@ paths:
       responses:
         default:
           description: "successful operation"
-  /network/{id}:
+  /networks/{id}:
     get:
       tags:
       - "firecracker"
@@ -511,7 +511,7 @@ paths:
       responses:
         400:
           description: "Invalid id supplied"
-  /network/{id}/addRateLimiter:
+  /networks/{id}/addRateLimiter:
     put:
       tags:
       - "firecracker"
@@ -561,7 +561,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Network not found"
-  /network/{id}/attach:
+  /networks/{id}/connect:
     put:
       tags:
       - "firecracker"
@@ -581,7 +581,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Network not found"
-  /network/{id}/detach:
+  /networks/{id}/disconnect:
     put:
       tags:
       - "firecracker"
@@ -601,7 +601,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Network not found"
-  /vsock:
+  /vsocks:
     post:
       tags:
       - "firecracker"
@@ -620,7 +620,7 @@ paths:
       responses:
         default:
           description: "successful operation"
-  /vsock/createWithList:
+  /vsocks/createWithList:
     post:
       tags:
       - "firecracker"
@@ -641,7 +641,7 @@ paths:
       responses:
         default:
           description: "successful operation"
-  /sock/{id}:
+  /vsocks/{id}:
     get:
       tags:
       - "firecracker"
@@ -711,7 +711,7 @@ paths:
       responses:
         400:
           description: "Invalid id supplied"
-  /sock/{id}/addRateLimiter:
+  /vsocks/{id}/addRateLimiter:
     put:
       tags:
       - "firecracker"
@@ -736,7 +736,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Vsock not found"
-  /vsock/{id}/removeRateLimiter:
+  /vsocks/{id}/removeRateLimiter:
     put:
       tags:
       - "firecracker"
@@ -761,7 +761,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Vsock not found"
-  /vsock/{id}/attach:
+  /vsocks/{id}/connect:
     put:
       tags:
       - "firecracker"
@@ -781,7 +781,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Vsock not found"
-  /vsock/{id}/detach:
+  /vsocks/{id}/disconnect:
     put:
       tags:
       - "firecracker"
