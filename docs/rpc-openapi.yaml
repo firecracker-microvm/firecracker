@@ -282,6 +282,7 @@ paths:
       - name: "fdUpdate"
         in: "query"
         description: "backing FD is also updated?"
+        required: true
         type: "boolean"
       - name: "body"
         in: "body"
@@ -482,6 +483,7 @@ paths:
       - name: "fdUpdate"
         in: "query"
         description: "backing FD is also updated?"
+        required: true
         type: "boolean"
       - name: "body"
         in: "body"
@@ -682,6 +684,7 @@ paths:
       - name: "fdUpdate"
         in: "query"
         description: "backing FD is also updated?"
+        required: true
         type: "boolean"
       - name: "body"
         in: "body"
