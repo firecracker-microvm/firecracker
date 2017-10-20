@@ -804,6 +804,156 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Vsock not found"
+  /consoles:
+    post:
+      tags:
+      - "firecracker"
+      summary: Create console
+      description: "Creates a new console. Console FDs are expected along with this call."
+      operationId: "addConsole"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "Console to add"
+        required: true
+        schema:
+          $ref: "#/definitions/Console"
+      responses:
+        default:
+          description: "successful operation"
+  /consoles/{id}:
+    get:
+      tags:
+      - "firecracker"
+      summary: "Get console by id"
+      description: ""
+      operationId: "getConsoleById"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "The id of the console to be fetched."
+        required: true
+        type: "string"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/Console"
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "console not found"
+    delete:
+      tags:
+      - "firecracker"
+      summary: "Delete console"
+      description: ""
+      operationId: "deleteConsole"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of console to delete"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid id supplied"
+  /consoles/{id}/stdout:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Provide new FD or disable console STDOUT"
+      description: ""
+      operationId: "consolePutStdout"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of console to modify"
+        required: true
+        type: "string"
+      - name: "active"
+        in: "query"
+        description: "FD is expected if active='true'"
+        required: true
+        type: "boolean"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Console not found"
+  /consoles/{id}/stderr:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Provide new FD or disable console STDERR"
+      description: ""
+      operationId: "consolePutStderr"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of console to modify"
+        required: true
+        type: "string"
+      - name: "active"
+        in: "query"
+        description: "FD is expected if active='true'"
+        required: true
+        type: "boolean"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Console not found"
+  /consoles/{id}/connect:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Connect console"
+      description: ""
+      operationId: "consoleConnect"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of console to connect"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Console not found"
+  /consoles/{id}/disconnect:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Disconnect console"
+      description: ""
+      operationId: "consoleDisconnect"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of console to disconnect"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "Console not found"
 
 definitions:
   Limiter:
@@ -860,6 +1010,15 @@ definitions:
         type: "array"
         items:
           type: "integer"
+  Console:
+    type: "object"
+    properties:
+      name:
+        type: "string"
+      stdoutActive:
+        type: "boolean"
+      stderrActive:
+        type: "boolean"
   Meminfo:
     type: "object"
     properties:
