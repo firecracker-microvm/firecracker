@@ -112,8 +112,12 @@ paths:
         schema:
           $ref: "#/definitions/Limiter"
       responses:
-        default:
+        200:
           description: "successful operation"
+          schema:
+            $ref: "#/definitions/Limiter"
+        400:
+          description: "Invalid name supplied"
   /limiters/createWithList:
     post:
       tags:
@@ -135,6 +139,10 @@ paths:
       responses:
         default:
           description: "successful operation"
+          schema:
+            type: "array"
+            items:
+              $ref: "#/definitions/Limiter"
   /limiters/{id}:
     get:
       tags:
@@ -218,8 +226,12 @@ paths:
         schema:
           $ref: "#/definitions/Drive"
       responses:
-        default:
+        200:
           description: "successful operation"
+          schema:
+            $ref: "#/definitions/Drive"
+        400:
+          description: "Invalid name supplied"
   /drives/createWithList:
     post:
       tags:
@@ -241,6 +253,10 @@ paths:
       responses:
         default:
           description: "successful operation"
+          schema:
+            type: "array"
+            items:
+              $ref: "#/definitions/Drive"
   /drives/{uuid}:
     get:
       tags:
@@ -419,8 +435,12 @@ paths:
         schema:
           $ref: "#/definitions/Network"
       responses:
-        default:
+        200:
           description: "successful operation"
+          schema:
+            $ref: "#/definitions/Network"
+        400:
+          description: "Invalid name supplied"
   /networks/createWithList:
     post:
       tags:
@@ -442,6 +462,10 @@ paths:
       responses:
         default:
           description: "successful operation"
+          schema:
+            type: "array"
+            items:
+              $ref: "#/definitions/Network"
   /networks/{id}:
     get:
       tags:
@@ -620,8 +644,12 @@ paths:
         schema:
           $ref: "#/definitions/Vsock"
       responses:
-        default:
+        200:
           description: "successful operation"
+          schema:
+            $ref: "#/definitions/Vsock"
+        400:
+          description: "Invalid name supplied"
   /vsocks/createWithList:
     post:
       tags:
@@ -643,6 +671,10 @@ paths:
       responses:
         default:
           description: "successful operation"
+          schema:
+            type: "array"
+            items:
+              $ref: "#/definitions/Vsock"
   /vsocks/{id}:
     get:
       tags:
@@ -821,8 +853,12 @@ paths:
         schema:
           $ref: "#/definitions/Console"
       responses:
-        default:
+        200:
           description: "successful operation"
+          schema:
+            $ref: "#/definitions/Console"
+        400:
+          description: "Invalid name supplied"
   /consoles/{id}:
     get:
       tags:
