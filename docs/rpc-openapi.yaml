@@ -1299,6 +1299,84 @@ paths:
       responses:
         400:
           description: "Not found"
+  /vmcmds/start:
+    put:
+      tags:
+      - "firecracker"
+      summary: Starts the VM
+      description: "Starts the VM."
+      operationId: "vmStart"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "query"
+        name: "delay"
+        description: ""
+        type: "integer"
+      responses:
+        200:
+          description: "successful operation"
+  /vmcmds/stop:
+    put:
+      tags:
+      - "firecracker"
+      summary: Stops the VM
+      description: "Stops the VM."
+      operationId: "vmStop"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "query"
+        name: "delay"
+        description: ""
+        type: "integer"
+      - in: "query"
+        name: "force"
+        description: "True if force kill/shutdown is wanted."
+        type: "boolean"
+      responses:
+        200:
+          description: "successful operation"
+  /vmcmds/reboot:
+    put:
+      tags:
+      - "firecracker"
+      summary: Reboots the VM
+      description: "Reboots the VM."
+      operationId: "vmReboot"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "query"
+        name: "delay"
+        description: ""
+        type: "integer"
+      - in: "query"
+        name: "force"
+        description: "True if force reboot/powercycle is wanted."
+        type: "boolean"
+      responses:
+        200:
+          description: "successful operation"
+  /vmcmds/update:
+    put:
+      tags:
+      - "firecracker"
+      summary: Updates the VM
+      description: "Updates the VM."
+      operationId: "vmUpdate"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "Live Update Data"
+        description: ""
+        required: true
+        schema:
+          $ref: "#/definitions/LiveUpdateData"
+      responses:
+        200:
+          description: "successful operation"
 
 definitions:
   Limiter:
@@ -1421,6 +1499,11 @@ definitions:
       sourceID:
         type: "integer"
         description: "unique identifier for the boot resource"
+  LiveUpdateData:
+    type: "object"
+    properties:
+      TBD:
+        type: "string"
   Error:
     properties:
       code:
