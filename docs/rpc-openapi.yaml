@@ -1015,7 +1015,7 @@ definitions:
     type: "object"
     properties:
       uuid:
-        type: "string"
+        type: "integer"
       name:
         type: "string"
       activeLimitersIDs:
@@ -1026,7 +1026,7 @@ definitions:
     type: "object"
     properties:
       id:
-        type: "string"
+        type: "integer"
       name:
         type: "string"
       mac:
@@ -1039,7 +1039,7 @@ definitions:
     type: "object"
     properties:
       id:
-        type: "string"
+        type: "integer"
       name:
         type: "string"
       activeLimitersIDs:
@@ -1050,7 +1050,7 @@ definitions:
     type: "object"
     properties:
       name:
-        type: "string"
+        type: "integer"
       stdoutActive:
         type: "boolean"
       stderrActive:
