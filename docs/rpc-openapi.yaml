@@ -1112,6 +1112,53 @@ paths:
       responses:
         400:
           description: "Invalid id supplied"
+  /boot/source:
+    put:
+      tags:
+      - "firecracker"
+      summary: Provide source
+      description: "Provides firecracker with a boot source."
+      operationId: "addBootSource"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: ""
+        required: true
+        schema:
+          $ref: "#/definitions/BootSource"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/BootSource"
+    get:
+      tags:
+      - "firecracker"
+      summary: "Get boot source"
+      description: ""
+      operationId: "getBootSource"
+      produces:
+      - "application/json"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/BootSource"
+        400:
+          description: "No available boot source"
+    delete:
+      tags:
+      - "firecracker"
+      summary: "Delete boot source"
+      description: ""
+      operationId: "deleteBootSource"
+      produces:
+      - "application/json"
+      responses:
+        400:
+          description: "Not found"
 
 definitions:
   Limiter:
@@ -1219,6 +1266,21 @@ definitions:
       initrdFileID:
         type: "integer"
         description: "unique id of File obj representing the initrd"
+  BootSource:
+    type: "object"
+    properties:
+      id:
+        type: "integer"
+      sourceType:
+        type: "string"
+        description: "type of boot source"
+        enum:
+        - "localresources"
+        - "Drive"
+        - "Network"
+      sourceID:
+        type: "integer"
+        description: "unique identifier for the boot resource"
   Error:
     properties:
       code:
