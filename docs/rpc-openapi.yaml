@@ -1499,6 +1499,9 @@ definitions:
       sourceID:
         type: "integer"
         description: "unique identifier for the boot resource"
+      bootArgs:
+        type: "string"
+        description: "kernel boot arguments"
   LiveUpdateData:
     type: "object"
     properties:
