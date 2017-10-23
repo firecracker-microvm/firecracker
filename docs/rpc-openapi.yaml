@@ -118,6 +118,26 @@ paths:
             $ref: "#/definitions/Limiter"
         400:
           description: "Invalid name supplied"
+    get:
+      tags:
+      - "firecracker"
+      summary: "All limiters"
+      description: "Returns firecracker list of limiters."
+      operationId: "getLimiters"
+      produces:
+      - "application/json"
+      parameters:
+       - $ref: "#/parameters/pageSize"
+       - $ref: "#/parameters/pageNumber"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Limiter"
+        400:
+          description: "No available limiters."
   /limiters/createWithList:
     post:
       tags:
@@ -232,6 +252,26 @@ paths:
             $ref: "#/definitions/Drive"
         400:
           description: "Invalid name supplied"
+    get:
+      tags:
+      - "firecracker"
+      summary: "All drives"
+      description: "Returns firecracker list of drives."
+      operationId: "getDrives"
+      produces:
+      - "application/json"
+      parameters:
+       - $ref: "#/parameters/pageSize"
+       - $ref: "#/parameters/pageNumber"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Drive"
+        400:
+          description: "No available drives."
   /drives/createWithList:
     post:
       tags:
@@ -441,6 +481,26 @@ paths:
             $ref: "#/definitions/Network"
         400:
           description: "Invalid name supplied"
+    get:
+      tags:
+      - "firecracker"
+      summary: "All networks"
+      description: "Returns firecracker list of networks."
+      operationId: "getNetworks"
+      produces:
+      - "application/json"
+      parameters:
+       - $ref: "#/parameters/pageSize"
+       - $ref: "#/parameters/pageNumber"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Network"
+        400:
+          description: "No available networks."
   /networks/createWithList:
     post:
       tags:
@@ -650,6 +710,26 @@ paths:
             $ref: "#/definitions/Vsock"
         400:
           description: "Invalid name supplied"
+    get:
+      tags:
+      - "firecracker"
+      summary: "All vsocks"
+      description: "Returns firecracker list of vsocks."
+      operationId: "getVsocks"
+      produces:
+      - "application/json"
+      parameters:
+       - $ref: "#/parameters/pageSize"
+       - $ref: "#/parameters/pageNumber"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Vsock"
+        400:
+          description: "No available vsocks."
   /vsocks/createWithList:
     post:
       tags:
@@ -859,6 +939,26 @@ paths:
             $ref: "#/definitions/Console"
         400:
           description: "Invalid name supplied"
+    get:
+      tags:
+      - "firecracker"
+      summary: "All consoles"
+      description: "Returns firecracker list of consoles."
+      operationId: "getConsoles"
+      produces:
+      - "application/json"
+      parameters:
+       - $ref: "#/parameters/pageSize"
+       - $ref: "#/parameters/pageNumber"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Console"
+        400:
+          description: "No available consoles."
   /consoles/{id}:
     get:
       tags:
@@ -1011,6 +1111,26 @@ paths:
           description: "successful operation"
           schema:
             $ref: "#/definitions/File"
+    get:
+      tags:
+      - "firecracker"
+      summary: "All files"
+      description: "Returns firecracker list of files."
+      operationId: "getFiles"
+      produces:
+      - "application/json"
+      parameters:
+       - $ref: "#/parameters/pageSize"
+       - $ref: "#/parameters/pageNumber"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/File"
+        400:
+          description: "No available files."
   /files/{id}:
     get:
       tags:
@@ -1073,6 +1193,26 @@ paths:
           description: "successful operation"
           schema:
             $ref: "#/definitions/LocalBootRes"
+    get:
+      tags:
+      - "firecracker"
+      summary: "All boot local resources"
+      description: "Returns firecracker list of boot local resources."
+      operationId: "getAllLocalBootImages"
+      produces:
+      - "application/json"
+      parameters:
+       - $ref: "#/parameters/pageSize"
+       - $ref: "#/parameters/pageNumber"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/LocalBootRes"
+        400:
+          description: "No available boot local resources."
   /boot/localresources/{id}:
     get:
       tags:
@@ -1287,6 +1427,18 @@ definitions:
         type: string
       message:
         type: string
+
+parameters:
+  pageSize:
+    name: pageSize
+    in: query
+    description: Number of items returned
+    type: integer
+  pageNumber:
+    name: pageNumber
+    in: query
+    description: Page number
+    type: integer
 
 responses:
   Standard500ErrorResponse:
