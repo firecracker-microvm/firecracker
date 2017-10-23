@@ -990,6 +990,68 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Console not found"
+  /files:
+    post:
+      tags:
+      - "firecracker"
+      summary: Provide access to a file
+      description: "Provides firecracker with access to a file. FD is expected with this call."
+      operationId: "addFile"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "File to add"
+        required: true
+        schema:
+          $ref: "#/definitions/File"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/File"
+  /files/{id}:
+    get:
+      tags:
+      - "firecracker"
+      summary: "Get file by id"
+      description: ""
+      operationId: "getFileById"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "The id of the file to be fetched."
+        required: true
+        type: "string"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/File"
+        400:
+          description: "Invalid id supplied"
+        404:
+          description: "file not found"
+    delete:
+      tags:
+      - "firecracker"
+      summary: "Delete file"
+      description: ""
+      operationId: "deleteFile"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of file to delete"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid id supplied"
 
 definitions:
   Limiter:
@@ -1079,6 +1141,13 @@ definitions:
         format: "int64"
       featureSet:
         $ref: "#/definitions/CpuFeatureSet"
+  File:
+    type: "object"
+    properties:
+      id:
+        type: "integer"
+      path:
+        type: "string"
   Error:
     properties:
       code:
