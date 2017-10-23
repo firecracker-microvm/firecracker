@@ -1052,6 +1052,66 @@ paths:
       responses:
         400:
           description: "Invalid id supplied"
+  /boot/localresources:
+    post:
+      tags:
+      - "firecracker"
+      summary: Provide boot images
+      description: "Provides firecracker with access to the kernel image and inird files. FDs are expected with this call."
+      operationId: "addLocalBootImage"
+      produces:
+      - "application/json"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: ""
+        required: true
+        schema:
+          $ref: "#/definitions/LocalBootRes"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/LocalBootRes"
+  /boot/localresources/{id}:
+    get:
+      tags:
+      - "firecracker"
+      summary: "Get localresources by id"
+      description: ""
+      operationId: "getLocalBootById"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "The id of the localresource to be fetched."
+        required: true
+        type: "string"
+      responses:
+        200:
+          description: "successful operation"
+          schema:
+            $ref: "#/definitions/LocalBootRes"
+        400:
+          description: "Invalid id supplied"
+    delete:
+      tags:
+      - "firecracker"
+      summary: "Delete boot localresource"
+      description: ""
+      operationId: "deleteLocalBoot"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "id of localresource to delete"
+        required: true
+        type: "string"
+      responses:
+        400:
+          description: "Invalid id supplied"
 
 definitions:
   Limiter:
@@ -1148,6 +1208,17 @@ definitions:
         type: "integer"
       path:
         type: "string"
+  LocalBootRes:
+    type: "object"
+    properties:
+      id:
+        type: "integer"
+      kernelImageFileID:
+        type: "integer"
+        description: "unique id of File obj representing the kernel image"
+      initrdFileID:
+        type: "integer"
+        description: "unique id of File obj representing the initrd"
   Error:
     properties:
       code:
