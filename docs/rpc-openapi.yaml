@@ -27,7 +27,7 @@ paths:
     get:
       tags:
       - "firecracker"
-      summary: Current memory info
+      summary: Get current memory info
       description: Returns current memory config
       operationId: "getMemory"
       produces:
@@ -42,7 +42,7 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: Current memory info
+      summary: Update current memory info
       description: Sets memory config
       operationId: "putMemory"
       produces:
@@ -65,8 +65,8 @@ paths:
     get:
       tags:
       - "firecracker"
-      summary: Current memory info
-      description: Returns current memory config
+      summary: Get current cpu info
+      description: Returns current cpu config
       operationId: "getCpu"
       produces:
       - "application/json"
@@ -80,7 +80,7 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: Current cpu info
+      summary: Update current cpu info
       description: Sets cpu config
       operationId: "postCpu"
       produces:
