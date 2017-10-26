@@ -234,7 +234,7 @@ paths:
       tags:
       - "firecracker"
       summary: Create drive
-      description: "Creates a new drive. Drive FD is expected along with this call."
+      description: "Creates a new drive. Drive FD is required as ancillary data to this message."
       operationId: "addDrive"
       produces:
       - "application/json"
@@ -277,7 +277,7 @@ paths:
       tags:
       - "firecracker"
       summary: Create list of drives
-      description: "Creates multiple new drives. Drives' FDs are expected along with this call."
+      description: "Creates multiple new drives. Drives' FDs are required as ancillary data to this message."
       operationId: "addDrivesWithListInput"
       produces:
       - "application/json"
@@ -337,7 +337,7 @@ paths:
         type: "string"
       - name: "fdUpdate"
         in: "query"
-        description: "backing FD is also updated?"
+        description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
         type: "boolean"
       - name: "body"
@@ -463,7 +463,7 @@ paths:
       tags:
       - "firecracker"
       summary: Create network
-      description: "Creates a new network. TUN/TAP FD is expected along with this call."
+      description: "Creates a new network. TUN/TAP FD is required as ancillary data to this message."
       operationId: "addNetwork"
       produces:
       - "application/json"
@@ -506,7 +506,7 @@ paths:
       tags:
       - "firecracker"
       summary: Create list of networks
-      description: "Creates multiple new networks. TUN/TAPs FDs are expected along with this call."
+      description: "Creates multiple new networks. TUN/TAPs FDs are required as ancillary data to this message."
       operationId: "addNetworksWithListInput"
       produces:
       - "application/json"
@@ -566,7 +566,7 @@ paths:
         type: "string"
       - name: "fdUpdate"
         in: "query"
-        description: "backing FD is also updated?"
+        description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
         type: "boolean"
       - name: "body"
@@ -692,7 +692,7 @@ paths:
       tags:
       - "firecracker"
       summary: Create vsock
-      description: "Creates a new vsock. Socket FD is expected along with this call."
+      description: "Creates a new vsock. Socket FD is required as ancillary data to this message."
       operationId: "addVsock"
       produces:
       - "application/json"
@@ -735,7 +735,7 @@ paths:
       tags:
       - "firecracker"
       summary: Create list of vsocks
-      description: "Creates multiple new vsocks. Socket FDs are expected along with this call."
+      description: "Creates multiple new vsocks. Socket FDs are required as ancillary data to this message."
       operationId: "addVsockWithListInput"
       produces:
       - "application/json"
@@ -795,7 +795,7 @@ paths:
         type: "string"
       - name: "fdUpdate"
         in: "query"
-        description: "backing FD is also updated?"
+        description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
         type: "boolean"
       - name: "body"
@@ -921,7 +921,7 @@ paths:
       tags:
       - "firecracker"
       summary: Create console
-      description: "Creates a new console. Console FDs are expected along with this call."
+      description: "Creates a new console. Console FDs are required as ancillary data to this message."
       operationId: "addConsole"
       produces:
       - "application/json"
