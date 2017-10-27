@@ -27,8 +27,8 @@ paths:
     get:
       tags:
       - "firecracker"
-      summary: Get current memory info
-      description: Returns current memory config
+      summary: "Get current memory info"
+      description: "Returns current memory config"
       operationId: "getMemory"
       produces:
       - "application/json"
@@ -42,22 +42,23 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: Update current memory info
-      description: Sets memory config
+      summary: "Update current memory info"
+      description: "Sets memory config"
       operationId: "putMemory"
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: query
+        name: "fdUpdate"
+        description: "True if FD is also updated (new FD sent as ancillary data to this message)."
+        required: true
+        type: boolean
+      - in: body
         name: "data"
         description: "Memory object"
         required: true
         schema:
           $ref: "#/definitions/Meminfo"
-      - in: "query"
-        name: "new_fd"
-        required: true
-        type: "boolean"
       responses:
         default:
           description: "successful operation"
@@ -65,8 +66,8 @@ paths:
     get:
       tags:
       - "firecracker"
-      summary: Get current cpu info
-      description: Returns current cpu config
+      summary: "Get current cpu info"
+      description: "Returns current cpu config"
       operationId: "getCpu"
       produces:
       - "application/json"
@@ -80,13 +81,13 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: Update current cpu info
-      description: Sets cpu config
+      summary: "Update current cpu info"
+      description: "Sets cpu config"
       operationId: "postCpu"
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: "Created cpu object"
         required: true
@@ -105,7 +106,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: "Rate limiter to add"
         required: true
@@ -148,19 +149,19 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: "List of rate limiters"
         required: true
         schema:
-          type: "array"
+          type: array
           items:
             $ref: "#/definitions/Limiter"
       responses:
         default:
           description: "successful operation"
           schema:
-            type: "array"
+            type: array
             items:
               $ref: "#/definitions/Limiter"
   /limiters/{id}:
@@ -174,10 +175,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "The id of the rate limiter to fetch."
         required: true
-        type: "string"
+        type: string
       responses:
         200:
           description: "successful operation"
@@ -197,11 +198,11 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "The id of the rate limiter to update."
         required: true
-        type: "string"
-      - in: "body"
+        type: string
+      - in: body
         name: "body"
         description: "Rate limiter properties"
         required: true
@@ -222,10 +223,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "The id of the rate limiter to delete."
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid rate limiter id supplied"
@@ -239,7 +240,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: "Drive to add"
         required: true
@@ -282,19 +283,19 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: "List of drive objects"
         required: true
         schema:
-          type: "array"
+          type: array
           items:
             $ref: "#/definitions/Drive"
       responses:
         default:
           description: "successful operation"
           schema:
-            type: "array"
+            type: array
             items:
               $ref: "#/definitions/Drive"
   /drives/{uuid}:
@@ -308,10 +309,10 @@ paths:
       - "application/json"
       parameters:
       - name: "uuid"
-        in: "path"
+        in: path
         description: "The uuid of the drive to be fetched."
         required: true
-        type: "string"
+        type: string
       responses:
         200:
           description: "successful operation"
@@ -331,17 +332,17 @@ paths:
       - "application/json"
       parameters:
       - name: "uuid"
-        in: "path"
+        in: path
         description: "uuid of drive to update"
         required: true
-        type: "string"
+        type: string
       - name: "fdUpdate"
-        in: "query"
+        in: query
         description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
-        type: "boolean"
+        type: boolean
       - name: "body"
-        in: "body"
+        in: body
         description: "Drive properties"
         required: true
         schema:
@@ -361,10 +362,10 @@ paths:
       - "application/json"
       parameters:
       - name: "uuid"
-        in: "path"
+        in: path
         description: "uuid of drive to delete"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid uuid supplied"
@@ -379,15 +380,15 @@ paths:
       - "application/json"
       parameters:
       - name: "uuid"
-        in: "path"
-        description: "uuid of drive to apply rate limiter to"
+        in: path
+        description: "uuid of drive to apply rate limiter to."
         required: true
-        type: "string"
-      - in: "query"
+        type: string
+      - in: query
         name: "LimiterID"
-        description: "ID of rate limiter to apply"
+        description: "Unique id of rate limiter to use."
         required: true
-        type: "integer"
+        type: string
       responses:
         400:
           description: "Invalid uuid supplied"
@@ -404,15 +405,15 @@ paths:
       - "application/json"
       parameters:
       - name: "uuid"
-        in: "path"
+        in: path
         description: "uuid of drive to remove rate limiter from"
         required: true
-        type: "string"
-      - in: "query"
+        type: string
+      - in: query
         name: "LimiterID"
-        description: "ID of rate limiter to remove"
+        description: "Unique id of rate limiter to remove."
         required: true
-        type: "integer"
+        type: string
       responses:
         400:
           description: "Invalid uuid supplied"
@@ -429,10 +430,10 @@ paths:
       - "application/json"
       parameters:
       - name: "uuid"
-        in: "path"
+        in: path
         description: "uuid of drive to attach"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid uuid supplied"
@@ -449,10 +450,10 @@ paths:
       - "application/json"
       parameters:
       - name: "uuid"
-        in: "path"
+        in: path
         description: "uuid of drive to detach"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid uuid supplied"
@@ -468,7 +469,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: "Network to add"
         required: true
@@ -511,19 +512,19 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: "List of network objects"
         required: true
         schema:
-          type: "array"
+          type: array
           items:
             $ref: "#/definitions/Network"
       responses:
         default:
           description: "successful operation"
           schema:
-            type: "array"
+            type: array
             items:
               $ref: "#/definitions/Network"
   /networks/{id}:
@@ -537,10 +538,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "The id of the network to be fetched."
         required: true
-        type: "string"
+        type: string
       responses:
         200:
           description: "successful operation"
@@ -560,17 +561,17 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of network to update"
         required: true
-        type: "string"
+        type: string
       - name: "fdUpdate"
-        in: "query"
+        in: query
         description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
-        type: "boolean"
+        type: boolean
       - name: "body"
-        in: "body"
+        in: body
         description: "Network properties"
         required: true
         schema:
@@ -590,10 +591,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of network to delete"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -608,15 +609,15 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of network to apply rate limiter to"
         required: true
-        type: "string"
-      - in: "query"
+        type: string
+      - in: query
         name: "LimiterID"
-        description: "ID of rate limiter to apply"
+        description: "Unique id of rate limiter to use."
         required: true
-        type: "integer"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -633,15 +634,15 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of network to remove rate limiter from"
         required: true
-        type: "string"
-      - in: "query"
+        type: string
+      - in: query
         name: "LimiterID"
-        description: "ID of rate limiter to remove"
+        description: "Unique id of rate limiter to remove."
         required: true
-        type: "integer"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -658,10 +659,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of network to connect"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -678,10 +679,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of network to disconnect"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -697,7 +698,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: "Vsock to add"
         required: true
@@ -740,19 +741,19 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: "List of vsock objects"
         required: true
         schema:
-          type: "array"
+          type: array
           items:
             $ref: "#/definitions/Vsock"
       responses:
         default:
           description: "successful operation"
           schema:
-            type: "array"
+            type: array
             items:
               $ref: "#/definitions/Vsock"
   /vsocks/{id}:
@@ -766,10 +767,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "The id of the vsock to be fetched."
         required: true
-        type: "string"
+        type: string
       responses:
         200:
           description: "successful operation"
@@ -789,17 +790,17 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of vsock to update"
         required: true
-        type: "string"
+        type: string
       - name: "fdUpdate"
-        in: "query"
+        in: query
         description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
-        type: "boolean"
+        type: boolean
       - name: "body"
-        in: "body"
+        in: body
         description: "Vsock properties"
         required: true
         schema:
@@ -819,10 +820,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of vsock to delete"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -837,15 +838,15 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of vsock to apply rate limiter to"
         required: true
-        type: "string"
-      - in: "query"
+        type: string
+      - in: query
         name: "LimiterID"
-        description: "ID of rate limiter to apply"
+        description: "Unique id of rate limiter to use."
         required: true
-        type: "integer"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -862,15 +863,15 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of vsock to remove rate limiter from"
         required: true
-        type: "string"
-      - in: "query"
+        type: string
+      - in: query
         name: "LimiterID"
-        description: "ID of rate limiter to remove"
+        description: "Unique id of rate limiter to remove."
         required: true
-        type: "integer"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -887,10 +888,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of vsock to connect"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -907,10 +908,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of vsock to disconnect"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -926,7 +927,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: "Console to add"
         required: true
@@ -970,10 +971,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "The id of the console to be fetched."
         required: true
-        type: "string"
+        type: string
       responses:
         200:
           description: "successful operation"
@@ -993,10 +994,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of console to delete"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -1011,15 +1012,15 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of console to modify"
         required: true
-        type: "string"
+        type: string
       - name: "active"
-        in: "query"
+        in: query
         description: "FD is expected if active='true'"
         required: true
-        type: "boolean"
+        type: boolean
       responses:
         400:
           description: "Invalid id supplied"
@@ -1036,15 +1037,15 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of console to modify"
         required: true
-        type: "string"
+        type: string
       - name: "active"
-        in: "query"
+        in: query
         description: "FD is expected if active='true'"
         required: true
-        type: "boolean"
+        type: boolean
       responses:
         400:
           description: "Invalid id supplied"
@@ -1061,10 +1062,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of console to connect"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -1081,10 +1082,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of console to disconnect"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -1100,7 +1101,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: "File to add"
         required: true
@@ -1142,10 +1143,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "The id of the file to be fetched."
         required: true
-        type: "string"
+        type: string
       responses:
         200:
           description: "successful operation"
@@ -1165,10 +1166,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of file to delete"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -1182,7 +1183,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: ""
         required: true
@@ -1224,10 +1225,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "The id of the localresource to be fetched."
         required: true
-        type: "string"
+        type: string
       responses:
         200:
           description: "successful operation"
@@ -1245,10 +1246,10 @@ paths:
       - "application/json"
       parameters:
       - name: "id"
-        in: "path"
+        in: path
         description: "id of localresource to delete"
         required: true
-        type: "string"
+        type: string
       responses:
         400:
           description: "Invalid id supplied"
@@ -1256,13 +1257,13 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: Provide source
+      summary: "Provide source"
       description: "Provides firecracker with a boot source."
       operationId: "addBootSource"
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "body"
         description: ""
         required: true
@@ -1303,16 +1304,17 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: Starts the VM
+      summary: "Starts the VM"
       description: "Starts the VM."
       operationId: "vmStart"
       produces:
       - "application/json"
       parameters:
-      - in: "query"
+      - in: query
         name: "delay"
         description: ""
-        type: "integer"
+        type: integer
+        minimum: 0
       responses:
         200:
           description: "successful operation"
@@ -1320,20 +1322,21 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: Stops the VM
+      summary: "Stops the VM"
       description: "Stops the VM."
       operationId: "vmStop"
       produces:
       - "application/json"
       parameters:
-      - in: "query"
+      - in: query
         name: "delay"
         description: ""
-        type: "integer"
-      - in: "query"
+        type: integer
+        minimum: 0
+      - in: query
         name: "force"
         description: "True if force kill/shutdown is wanted."
-        type: "boolean"
+        type: boolean
       responses:
         200:
           description: "successful operation"
@@ -1341,20 +1344,21 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: Reboots the VM
+      summary: "Reboots the VM"
       description: "Reboots the VM."
       operationId: "vmReboot"
       produces:
       - "application/json"
       parameters:
-      - in: "query"
+      - in: query
         name: "delay"
         description: ""
-        type: "integer"
-      - in: "query"
+        type: integer
+        minimum: 0
+      - in: query
         name: "force"
         description: "True if force reboot/powercycle is wanted."
-        type: "boolean"
+        type: boolean
       responses:
         200:
           description: "successful operation"
@@ -1362,13 +1366,13 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: Updates the VM
+      summary: "Updates the VM"
       description: "Updates the VM."
       operationId: "vmUpdate"
       produces:
       - "application/json"
       parameters:
-      - in: "body"
+      - in: body
         name: "Live Update Data"
         description: ""
         required: true
@@ -1380,133 +1384,129 @@ paths:
 
 definitions:
   Limiter:
-    type: "object"
+    type: object
     properties:
       id:
-        type: "integer"
-      name:
-        type: "string"
+        type: string
       metric:
-        type: "string"
+        type: string
         description: "metric used by the rate limiter"
         enum:
         - "ops/s"
         - "bandwidth"
       maxCredits:
-        type: "integer"
+        type: integer
       initialCredits:
-        type: "integer"
+        type: integer
       refillRate:
-        type: "integer"
+        type: integer
   Drive:
-    type: "object"
+    type: object
     properties:
       uuid:
-        type: "integer"
-      name:
-        type: "string"
+        type: string
       activeLimitersIDs:
-        type: "array"
+        type: array
         items:
-          type: "integer"
+          type: string
   Network:
-    type: "object"
+    type: object
     properties:
       id:
-        type: "integer"
-      name:
-        type: "string"
+        type: string
       mac:
-        type: "string"
+        type: string
       activeLimitersIDs:
-        type: "array"
+        type: array
         items:
-          type: "integer"
+          type: string
   Vsock:
-    type: "object"
+    type: object
     properties:
       id:
-        type: "integer"
-      name:
-        type: "string"
+        type: string
       activeLimitersIDs:
-        type: "array"
+        type: array
         items:
-          type: "integer"
+          type: string
   Console:
-    type: "object"
+    type: object
     properties:
-      name:
-        type: "integer"
+      id:
+        type: string
       stdoutActive:
-        type: "boolean"
+        type: boolean
       stderrActive:
-        type: "boolean"
+        type: boolean
   Meminfo:
-    type: "object"
+    type: object
     properties:
       size:
-        type: "integer"
+        type: integer
         format: "int64"
+        minimum: 0
   CpuFeatureSet:
-    type: "object"
+    type: object
     properties:
       id:
-        type: "integer"
+        type: string
       features:
-        type: "array"
+        type: array
         items:
-          type: "integer"
-          format: "int16"
+          type: integer
+          format: "int64"
+          minimum: 0
   CPU:
-    type: "object"
+    type: object
     properties:
       count:
-        type: "integer"
-        format: "int64"
+        type: integer
+        minimum: 1
       featureSet:
         $ref: "#/definitions/CpuFeatureSet"
   File:
-    type: "object"
+    type: object
     properties:
       id:
-        type: "integer"
+        type: string
       path:
-        type: "string"
+        type: string
   LocalBootRes:
-    type: "object"
+    type: object
     properties:
       id:
-        type: "integer"
+        type: string
       kernelImageFileID:
-        type: "integer"
+        type: integer
+        minimum: 0
         description: "unique id of File obj representing the kernel image"
       initrdFileID:
-        type: "integer"
+        type: integer
+        minimum: 0
         description: "unique id of File obj representing the initrd"
   BootSource:
-    type: "object"
+    type: object
     properties:
       id:
-        type: "integer"
+        type: string
       sourceType:
-        type: "string"
+        type: string
         description: "type of boot source"
         enum:
         - "localresources"
         - "Drive"
         - "Network"
       sourceID:
-        type: "integer"
+        type: string
         description: "unique identifier for the boot resource"
       bootArgs:
-        type: "string"
+        type: string
         description: "kernel boot arguments"
   LiveUpdateData:
-    type: "object"
+    type: object
     properties:
       TBD:
-        type: "string"
+        type: string
   Error:
     properties:
       code:
@@ -1516,18 +1516,20 @@ definitions:
 
 parameters:
   pageSize:
-    name: pageSize
     in: query
-    description: Number of items returned
+    name: "pageSize"
+    description: "Number of items returned"
     type: integer
+    minimum: 0
   pageNumber:
-    name: pageNumber
     in: query
-    description: Page number
+    name: "pageNumber"
+    description: "Page number"
     type: integer
+    minimum: 0
 
 responses:
   Standard500ErrorResponse:
-    description: An unexpected error occured.
+    description: "An unexpected error occured."
     schema:
       $ref: "#/definitions/Error"
