@@ -23,13 +23,13 @@ schemes:
 - "http"
 
 paths:
-  /memory:
+  /guest/memory:
     get:
       tags:
       - "firecracker"
-      summary: "Get current memory info"
-      description: "Returns current memory config"
-      operationId: "getMemory"
+      summary: "Get guest current memory info"
+      description: "Returns guest current memory config"
+      operationId: "getGuestMemory"
       produces:
       - "application/json"
       responses:
@@ -42,14 +42,14 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: "Update current memory info"
-      description: "Sets memory config"
-      operationId: "putMemory"
+      summary: "Update guest current memory info"
+      description: "Sets guest memory config"
+      operationId: "putGuestMemory"
       produces:
       - "application/json"
       parameters:
       - in: query
-        name: "fdUpdate"
+        name: "fd-update"
         description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
         type: boolean
@@ -62,13 +62,13 @@ paths:
       responses:
         default:
           description: "successful operation"
-  /cpu:
+  /guest/cpu:
     get:
       tags:
       - "firecracker"
-      summary: "Get current cpu info"
-      description: "Returns current cpu config"
-      operationId: "getCpu"
+      summary: "Get guest current cpu info"
+      description: "Returns guest current cpu config"
+      operationId: "getGuestCpu"
       produces:
       - "application/json"
       responses:
@@ -81,8 +81,8 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: "Update current cpu info"
-      description: "Sets cpu config"
+      summary: "Update guest current cpu info"
+      description: "Sets guest cpu config"
       operationId: "postCpu"
       produces:
       - "application/json"
@@ -96,35 +96,35 @@ paths:
       responses:
         default:
           description: "successful operation"
-  /limiters:
+  /guest/io-limiters:
     post:
       tags:
       - "firecracker"
-      summary: Create rate limiter
-      description: Creates a new rate limiter
-      operationId: "addLimiter"
+      summary: "Create guest IO rate limiter"
+      description: "Creates a new guest IO rate limiter"
+      operationId: "postGuestIOLimiter"
       produces:
       - "application/json"
       parameters:
       - in: body
         name: "body"
-        description: "Rate limiter to add"
+        description: "Guest IO rate limiter to add"
         required: true
         schema:
-          $ref: "#/definitions/Limiter"
+          $ref: "#/definitions/IOLimiter"
       responses:
         200:
           description: "successful operation"
           schema:
-            $ref: "#/definitions/Limiter"
+            $ref: "#/definitions/IOLimiter"
         400:
-          description: "Invalid name supplied"
+          description: "Invalid id supplied"
     get:
       tags:
       - "firecracker"
-      summary: "All limiters"
-      description: "Returns firecracker list of limiters."
-      operationId: "getLimiters"
+      summary: "All guest IO rate limiters"
+      description: "Returns guest list of limiters."
+      operationId: "getGuestIOLimiters"
       produces:
       - "application/json"
       parameters:
@@ -136,113 +136,113 @@ paths:
           schema:
             type: array
             items:
-              $ref: "#/definitions/Limiter"
+              $ref: "#/definitions/IOLimiter"
         400:
-          description: "No available limiters."
-  /limiters/createWithList:
+          description: "No available IO limiters on guest."
+  /guest/io-limiters/create-with-list:
     post:
       tags:
       - "firecracker"
-      summary: Create rate limiters from list
-      description: Creates multiple rate limiters
-      operationId: "addLimitersWithListInput"
+      summary: "Create guest IO rate limiters from list"
+      description: "Creates guest multiple IO rate limiters"
+      operationId: "postGuestIOLimitersWithListInput"
       produces:
       - "application/json"
       parameters:
       - in: body
         name: "body"
-        description: "List of rate limiters"
+        description: "List of guest IO rate limiters"
         required: true
         schema:
           type: array
           items:
-            $ref: "#/definitions/Limiter"
+            $ref: "#/definitions/IOLimiter"
       responses:
         default:
           description: "successful operation"
           schema:
             type: array
             items:
-              $ref: "#/definitions/Limiter"
-  /limiters/{id}:
+              $ref: "#/definitions/IOLimiter"
+  /guest/io-limiters/{id}:
     get:
       tags:
       - "firecracker"
-      summary: "Get limiter by id"
+      summary: "Get guest IO rate limiter by id"
       description: ""
-      operationId: "getLimiterById"
+      operationId: "getGuestIOLimiterById"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "The id of the rate limiter to fetch."
+        description: "The id of the guest IO rate limiter to fetch."
         required: true
         type: string
       responses:
         200:
           description: "successful operation"
           schema:
-            $ref: "#/definitions/Limiter"
+            $ref: "#/definitions/IOLimiter"
         400:
-          description: "Invalid rate limiter id supplied"
+          description: "Invalid IO rate limiter id supplied"
         404:
-          description: "Rate limiter not found"
+          description: "IO rate limiter not found"
     put:
       tags:
       - "firecracker"
-      summary: "Update rate limiter"
+      summary: "Update guest IO rate limiter"
       description: ""
-      operationId: "updateLimiter"
+      operationId: "updateGuestIOLimiter"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "The id of the rate limiter to update."
+        description: "The id of the IO rate limiter to update."
         required: true
         type: string
       - in: body
         name: "body"
-        description: "Rate limiter properties"
+        description: "IO rate limiter properties"
         required: true
         schema:
-          $ref: "#/definitions/Limiter"
+          $ref: "#/definitions/IOLimiter"
       responses:
         400:
-          description: "Invalid rate limiter id supplied"
+          description: "Invalid guest IO rate limiter id supplied"
         404:
-          description: "Rate limiter not found"
+          description: "Guest IO rate limiter not found"
     delete:
       tags:
       - "firecracker"
-      summary: "Delete rate limiter"
+      summary: "Delete guest IO rate limiter"
       description: ""
-      operationId: "deleteLimiter"
+      operationId: "deleteGuestIOLimiter"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "The id of the rate limiter to delete."
+        description: "The id of the guest IO rate limiter to delete."
         required: true
         type: string
       responses:
         400:
-          description: "Invalid rate limiter id supplied"
-  /drives:
+          description: "Invalid IO rate limiter id."
+  /guest/drives:
     post:
       tags:
       - "firecracker"
-      summary: Create drive
-      description: "Creates a new drive. Drive FD is required as ancillary data to this message."
-      operationId: "addDrive"
+      summary: "Create guest storage drive"
+      description: "Creates a new storage drive on guest. Drive FD is required as ancillary data to this message."
+      operationId: "postGuestDrive"
       produces:
       - "application/json"
       parameters:
       - in: body
         name: "body"
-        description: "Drive to add"
+        description: "Guest drive to add"
         required: true
         schema:
           $ref: "#/definitions/Drive"
@@ -252,13 +252,13 @@ paths:
           schema:
             $ref: "#/definitions/Drive"
         400:
-          description: "Invalid name supplied"
+          description: "Invalid id supplied"
     get:
       tags:
       - "firecracker"
-      summary: "All drives"
-      description: "Returns firecracker list of drives."
-      operationId: "getDrives"
+      summary: "All guest drives"
+      description: "Returns list of guest storage drives."
+      operationId: "getGuestDrives"
       produces:
       - "application/json"
       parameters:
@@ -273,19 +273,19 @@ paths:
               $ref: "#/definitions/Drive"
         400:
           description: "No available drives."
-  /drives/createWithList:
+  /guest/drives/create-with-list:
     post:
       tags:
       - "firecracker"
-      summary: Create list of drives
-      description: "Creates multiple new drives. Drives' FDs are required as ancillary data to this message."
-      operationId: "addDrivesWithListInput"
+      summary: "Create multiple guest storage drives"
+      description: "Creates multiple new drives on guest. Drives' FDs are required as ancillary data to this message."
+      operationId: "postGuestDrivesWithListInput"
       produces:
       - "application/json"
       parameters:
       - in: body
         name: "body"
-        description: "List of drive objects"
+        description: "List of guest drive objects"
         required: true
         schema:
           type: array
@@ -298,19 +298,19 @@ paths:
             type: array
             items:
               $ref: "#/definitions/Drive"
-  /drives/{uuid}:
+  /guest/drives/{id}:
     get:
       tags:
       - "firecracker"
-      summary: "Get drive by uuid"
+      summary: "Get guest drive by id"
       description: ""
-      operationId: "getDriveByUUID"
+      operationId: "getGuestDriveByID"
       produces:
       - "application/json"
       parameters:
-      - name: "uuid"
+      - name: "id"
         in: path
-        description: "The uuid of the drive to be fetched."
+        description: "The id of the guest drive to be fetched."
         required: true
         type: string
       responses:
@@ -319,159 +319,159 @@ paths:
           schema:
             $ref: "#/definitions/Drive"
         400:
-          description: "Invalid uuid supplied"
+          description: "Invalid guest drive id supplied"
         404:
           description: "Drive not found"
     put:
       tags:
       - "firecracker"
-      summary: "Update drive"
+      summary: "Update guest drive"
       description: ""
-      operationId: "updateDrive"
+      operationId: "updateGuestDrive"
       produces:
       - "application/json"
       parameters:
-      - name: "uuid"
+      - name: "id"
         in: path
-        description: "uuid of drive to update"
+        description: "id of guest drive to update"
         required: true
         type: string
-      - name: "fdUpdate"
+      - name: "fd-update"
         in: query
         description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
         type: boolean
       - name: "body"
         in: body
-        description: "Drive properties"
+        description: "Guest drive properties"
         required: true
         schema:
           $ref: "#/definitions/Drive"
       responses:
         400:
-          description: "Invalid uuid supplied"
+          description: "Invalid id supplied"
         404:
           description: "Drive not found"
     delete:
       tags:
       - "firecracker"
-      summary: "Delete drive"
+      summary: "Delete guest drive"
       description: ""
-      operationId: "deleteDrive"
+      operationId: "deleteGuestDrive"
       produces:
       - "application/json"
       parameters:
-      - name: "uuid"
+      - name: "id"
         in: path
-        description: "uuid of drive to delete"
+        description: "id of guest drive to delete"
         required: true
         type: string
       responses:
         400:
-          description: "Invalid uuid supplied"
-  /drives/{uuid}/addRateLimiter:
+          description: "Invalid id supplied"
+  /guest/drives/{id}/add-rate-io-limiter:
     put:
       tags:
       - "firecracker"
-      summary: "Apply rate limiter to drive"
+      summary: "Apply IO rate limiter to guest drive"
       description: ""
-      operationId: "driveAddLimiter"
+      operationId: "putGuestDriveAddIOLimiter"
       produces:
       - "application/json"
       parameters:
-      - name: "uuid"
+      - name: "id"
         in: path
-        description: "uuid of drive to apply rate limiter to."
+        description: "id of guest drive to apply IO rate limiter to."
         required: true
         type: string
       - in: query
-        name: "LimiterID"
+        name: "io-limiter-id"
         description: "Unique id of rate limiter to use."
         required: true
         type: string
       responses:
         400:
-          description: "Invalid uuid supplied"
+          description: "Invalid id supplied"
         404:
           description: "Drive not found"
-  /drives/{uuid}/removeRateLimiter:
+  /guest/drives/{id}/remove-rate-io-limiter:
     put:
       tags:
       - "firecracker"
-      summary: "Remove rate limiter from drive"
+      summary: "Remove IO rate limiter from guest drive"
       description: ""
-      operationId: "driveRemoveLimiter"
+      operationId: "putGuestDriveRemoveIOLimiter"
       produces:
       - "application/json"
       parameters:
-      - name: "uuid"
+      - name: "id"
         in: path
-        description: "uuid of drive to remove rate limiter from"
+        description: "id of guest drive to remove IO rate limiter from."
         required: true
         type: string
       - in: query
-        name: "LimiterID"
+        name: "io-limiter-id"
         description: "Unique id of rate limiter to remove."
         required: true
         type: string
       responses:
         400:
-          description: "Invalid uuid supplied"
+          description: "Invalid guest drive id supplied"
         404:
           description: "Drive not found"
-  /drives/{uuid}/attach:
+  /guest/drives/{id}/attach:
     put:
       tags:
       - "firecracker"
-      summary: "Attach drive"
+      summary: "Attach/Enable guest drive"
       description: ""
-      operationId: "driveAttach"
+      operationId: "putGuestDriveAttach"
       produces:
       - "application/json"
       parameters:
-      - name: "uuid"
+      - name: "id"
         in: path
-        description: "uuid of drive to attach"
+        description: "id of guest drive to attach"
         required: true
         type: string
       responses:
         400:
-          description: "Invalid uuid supplied"
+          description: "Invalid id supplied"
         404:
           description: "Drive not found"
-  /drives/{uuid}/detach:
+  /guest/drives/{id}/detach:
     put:
       tags:
       - "firecracker"
-      summary: "Detach drive"
+      summary: "Detach/disable guest drive"
       description: ""
-      operationId: "driveDetach"
+      operationId: "putGuestDriveDetach"
       produces:
       - "application/json"
       parameters:
-      - name: "uuid"
+      - name: "id"
         in: path
-        description: "uuid of drive to detach"
+        description: "id of guest drive to detach"
         required: true
         type: string
       responses:
         400:
-          description: "Invalid uuid supplied"
+          description: "Invalid guest drive id supplied"
         404:
           description: "Drive not found"
-  /networks:
+  /guest/network-interfaces:
     post:
       tags:
       - "firecracker"
-      summary: Create network
-      description: "Creates a new network. TUN/TAP FD is required as ancillary data to this message."
-      operationId: "addNetwork"
+      summary: "Create guest network interface"
+      description: "Creates a new network interface on guest. TUN/TAP FD is required as ancillary data to this message."
+      operationId: "postGuestNetworkInterface"
       produces:
       - "application/json"
       parameters:
       - in: body
         name: "body"
-        description: "Network to add"
+        description: "Network interface to add"
         required: true
         schema:
           $ref: "#/definitions/Network"
@@ -481,13 +481,13 @@ paths:
           schema:
             $ref: "#/definitions/Network"
         400:
-          description: "Invalid name supplied"
+          description: "Invalid id supplied"
     get:
       tags:
       - "firecracker"
-      summary: "All networks"
-      description: "Returns firecracker list of networks."
-      operationId: "getNetworks"
+      summary: "All guest network interfaces"
+      description: "Returns list of guest network interfaces."
+      operationId: "getGuestNetworkInterfaces"
       produces:
       - "application/json"
       parameters:
@@ -502,19 +502,19 @@ paths:
               $ref: "#/definitions/Network"
         400:
           description: "No available networks."
-  /networks/createWithList:
+  /guest/network-interfaces/create-with-list:
     post:
       tags:
       - "firecracker"
-      summary: Create list of networks
-      description: "Creates multiple new networks. TUN/TAPs FDs are required as ancillary data to this message."
-      operationId: "addNetworksWithListInput"
+      summary: "Create multiple guest network interfaces"
+      description: "Creates multiple new network interfaces. TUN/TAPs FDs are required as ancillary data to this message."
+      operationId: "postGuestNetworkInterfacesWithListInput"
       produces:
       - "application/json"
       parameters:
       - in: body
         name: "body"
-        description: "List of network objects"
+        description: "List of guest network interfaces"
         required: true
         schema:
           type: array
@@ -527,19 +527,19 @@ paths:
             type: array
             items:
               $ref: "#/definitions/Network"
-  /networks/{id}:
+  /guest/network-interfaces/{id}:
     get:
       tags:
       - "firecracker"
-      summary: "Get network by id"
+      summary: "Get guest network interface by id"
       description: ""
-      operationId: "getNetworkById"
+      operationId: "getGuestNetworkInterfaceById"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "The id of the network to be fetched."
+        description: "The id of the guest network interface to be fetched."
         required: true
         type: string
       responses:
@@ -554,25 +554,25 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: "Update network"
+      summary: "Update guest network interface"
       description: ""
-      operationId: "updateNetwork"
+      operationId: "putGuestNetworkInterface"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of network to update"
+        description: "id of guest network interface to update"
         required: true
         type: string
-      - name: "fdUpdate"
+      - name: "fd-update"
         in: query
         description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
         type: boolean
       - name: "body"
         in: body
-        description: "Network properties"
+        description: "Network interface properties"
         required: true
         schema:
           $ref: "#/definitions/Network"
@@ -584,37 +584,37 @@ paths:
     delete:
       tags:
       - "firecracker"
-      summary: "Delete network"
+      summary: "Delete guest network interface"
       description: ""
-      operationId: "deleteNetwork"
+      operationId: "deleteGuestNetworkInterface"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of network to delete"
+        description: "id of guest network interface to delete"
         required: true
         type: string
       responses:
         400:
           description: "Invalid id supplied"
-  /networks/{id}/addRateLimiter:
+  /guest/network-interfaces/{id}/add-rate-io-limiter:
     put:
       tags:
       - "firecracker"
-      summary: "Apply rate limiter to network"
+      summary: "Apply IO rate limiter to guest network interface"
       description: ""
-      operationId: "networkAddLimiter"
+      operationId: "putGuestNetworkAddIOLimiter"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of network to apply rate limiter to"
+        description: "id of guest network interface to apply IO rate limiter to"
         required: true
         type: string
       - in: query
-        name: "LimiterID"
+        name: "io-limiter-id"
         description: "Unique id of rate limiter to use."
         required: true
         type: string
@@ -622,85 +622,85 @@ paths:
         400:
           description: "Invalid id supplied"
         404:
-          description: "Network not found"
-  /network/{id}/removeRateLimiter:
+          description: "Network interface not found"
+  /network/{id}/remove-rate-io-limiter:
     put:
       tags:
       - "firecracker"
-      summary: "Remove rate limiter from network"
+      summary: "Remove rate limiter from guest network interface"
       description: ""
-      operationId: "networkRemoveLimiter"
+      operationId: "putGuestNetworkRemoveIOLimiter"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of network to remove rate limiter from"
+        description: "id of guest network interface to remove IO rate limiter from"
         required: true
         type: string
       - in: query
-        name: "LimiterID"
-        description: "Unique id of rate limiter to remove."
+        name: "io-limiter-id"
+        description: "Unique id of IO rate limiter to remove."
         required: true
         type: string
       responses:
         400:
           description: "Invalid id supplied"
         404:
-          description: "Network not found"
-  /networks/{id}/connect:
+          description: "Network interface not found"
+  /guest/network-interfaces/{id}/connect:
     put:
       tags:
       - "firecracker"
-      summary: "Connect network"
+      summary: "Connect/enable guest network interface"
       description: ""
-      operationId: "networkConnect"
+      operationId: "putGuestNetworkInterfaceConnect"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of network to connect"
+        description: "id of guest network interface to connect"
         required: true
         type: string
       responses:
         400:
           description: "Invalid id supplied"
         404:
-          description: "Network not found"
-  /networks/{id}/disconnect:
+          description: "Network interface not found"
+  /guest/network-interfaces/{id}/disconnect:
     put:
       tags:
       - "firecracker"
-      summary: "Disconnect network"
+      summary: "Disconnect/disable guest network interface"
       description: ""
-      operationId: "networkDisconnect"
+      operationId: "putGuestNetworkInterfaceDisconnect"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of network to disconnect"
+        description: "id of guest network interface to disconnect"
         required: true
         type: string
       responses:
         400:
           description: "Invalid id supplied"
         404:
-          description: "Network not found"
-  /vsocks:
+          description: "Network interface not found"
+  /guest/vsocks:
     post:
       tags:
       - "firecracker"
-      summary: Create vsock
-      description: "Creates a new vsock. Socket FD is required as ancillary data to this message."
-      operationId: "addVsock"
+      summary: "Create vsock"
+      description: "Creates a new guest vsock. Socket FD is required as ancillary data to this message."
+      operationId: "postGuestVsock"
       produces:
       - "application/json"
       parameters:
       - in: body
         name: "body"
-        description: "Vsock to add"
+        description: "Guest vsock to add"
         required: true
         schema:
           $ref: "#/definitions/Vsock"
@@ -710,13 +710,13 @@ paths:
           schema:
             $ref: "#/definitions/Vsock"
         400:
-          description: "Invalid name supplied"
+          description: "Invalid guest vsock id supplied"
     get:
       tags:
       - "firecracker"
-      summary: "All vsocks"
-      description: "Returns firecracker list of vsocks."
-      operationId: "getVsocks"
+      summary: "All guest vsocks"
+      description: "Returns list of guest vsocks."
+      operationId: "getGuestVsocks"
       produces:
       - "application/json"
       parameters:
@@ -731,19 +731,19 @@ paths:
               $ref: "#/definitions/Vsock"
         400:
           description: "No available vsocks."
-  /vsocks/createWithList:
+  /guest/vsocks/create-with-list:
     post:
       tags:
       - "firecracker"
-      summary: Create list of vsocks
-      description: "Creates multiple new vsocks. Socket FDs are required as ancillary data to this message."
-      operationId: "addVsockWithListInput"
+      summary: "Create multiple of guest vsocks"
+      description: "Creates multiple new guest vsocks. Socket FDs are required as ancillary data to this message."
+      operationId: "postGuestVsockWithListInput"
       produces:
       - "application/json"
       parameters:
       - in: body
         name: "body"
-        description: "List of vsock objects"
+        description: "List of guest vsock objects"
         required: true
         schema:
           type: array
@@ -756,19 +756,19 @@ paths:
             type: array
             items:
               $ref: "#/definitions/Vsock"
-  /vsocks/{id}:
+  /guest/vsocks/{id}:
     get:
       tags:
       - "firecracker"
-      summary: "Get vsock by id"
+      summary: "Get guest vsock by id"
       description: ""
-      operationId: "getVsockById"
+      operationId: "getGuestVsockById"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "The id of the vsock to be fetched."
+        description: "The id of the guest vsock to be fetched."
         required: true
         type: string
       responses:
@@ -777,74 +777,74 @@ paths:
           schema:
             $ref: "#/definitions/Vsock"
         400:
-          description: "Invalid id supplied"
+          description: "Invalid guest vsock id supplied"
         404:
           description: "Vsock not found"
     put:
       tags:
       - "firecracker"
-      summary: "Update vsock"
+      summary: "Update guest vsock"
       description: ""
-      operationId: "updateVsock"
+      operationId: "putGuestVsock"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of vsock to update"
+        description: "id of guest vsock to update"
         required: true
         type: string
-      - name: "fdUpdate"
+      - name: "fd-update"
         in: query
         description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
         type: boolean
       - name: "body"
         in: body
-        description: "Vsock properties"
+        description: "Guest vsock properties"
         required: true
         schema:
           $ref: "#/definitions/Vsock"
       responses:
         400:
-          description: "Invalid id supplied"
+          description: "Invalid guest vsock id"
         404:
           description: "Vsock not found"
     delete:
       tags:
       - "firecracker"
-      summary: "Delete vsock"
+      summary: "Delete guest vsock"
       description: ""
-      operationId: "deleteVsock"
+      operationId: "deleteGuestVsock"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of vsock to delete"
+        description: "id of guest vsock to delete"
         required: true
         type: string
       responses:
         400:
           description: "Invalid id supplied"
-  /vsocks/{id}/addRateLimiter:
+  /guest/vsocks/{id}/add-rate-io-limiter:
     put:
       tags:
       - "firecracker"
-      summary: "Apply rate limiter to vsock"
+      summary: "Apply IO rate limiter to guest vsock"
       description: ""
-      operationId: "vsockAddLimiter"
+      operationId: "putGuestVsockAddIOLimiter"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of vsock to apply rate limiter to"
+        description: "id of guest vsock to apply IO rate limiter to"
         required: true
         type: string
       - in: query
-        name: "LimiterID"
-        description: "Unique id of rate limiter to use."
+        name: "io-limiter-id"
+        description: "Unique id of IO rate limiter to use."
         required: true
         type: string
       responses:
@@ -852,24 +852,24 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Vsock not found"
-  /vsocks/{id}/removeRateLimiter:
+  /guest/vsocks/{id}/remove-rate-io-limiter:
     put:
       tags:
       - "firecracker"
-      summary: "Remove rate limiter from vsock"
+      summary: "Remove guest rate limiter from vsock"
       description: ""
-      operationId: "vsockRemoveLimiter"
+      operationId: "putGuestVsockRemoveIOLimiter"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of vsock to remove rate limiter from"
+        description: "id of guest vsock to remove IO rate limiter from"
         required: true
         type: string
       - in: query
-        name: "LimiterID"
-        description: "Unique id of rate limiter to remove."
+        name: "io-limiter-id"
+        description: "Unique id of IO rate limiter to remove."
         required: true
         type: string
       responses:
@@ -877,59 +877,59 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Vsock not found"
-  /vsocks/{id}/connect:
+  /guest/vsocks/{id}/connect:
     put:
       tags:
       - "firecracker"
-      summary: "Connect vsock"
+      summary: "Connect/enable guest vsock"
       description: ""
-      operationId: "vsockConnect"
+      operationId: "putGuestVsockConnect"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of vsock to connect"
+        description: "id of guest vsock to connect"
         required: true
         type: string
       responses:
         400:
-          description: "Invalid id supplied"
+          description: "Invalid guest vsock id supplied"
         404:
           description: "Vsock not found"
-  /vsocks/{id}/disconnect:
+  /guest/vsocks/{id}/disconnect:
     put:
       tags:
       - "firecracker"
-      summary: "Disconnect vsock"
+      summary: "Disconnect/disable guest vsock"
       description: ""
-      operationId: "vsockDisconnect"
+      operationId: "putGuestVsockDisconnect"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of vsock to disconnect"
+        description: "id of guest vsock to disconnect"
         required: true
         type: string
       responses:
         400:
-          description: "Invalid id supplied"
+          description: "Invalid guest vsock id supplied"
         404:
           description: "Vsock not found"
-  /consoles:
+  /guest/serial-consoles:
     post:
       tags:
       - "firecracker"
-      summary: Create console
-      description: "Creates a new console. Console FDs are required as ancillary data to this message."
-      operationId: "addConsole"
+      summary: "Create guest serial console"
+      description: "Creates a new guest serial console. Console FDs are required as ancillary data to this message."
+      operationId: "postGuestSerialConsole"
       produces:
       - "application/json"
       parameters:
       - in: body
         name: "body"
-        description: "Console to add"
+        description: "Guest serial console to add"
         required: true
         schema:
           $ref: "#/definitions/Console"
@@ -939,13 +939,13 @@ paths:
           schema:
             $ref: "#/definitions/Console"
         400:
-          description: "Invalid name supplied"
+          description: "Invalid id supplied"
     get:
       tags:
       - "firecracker"
-      summary: "All consoles"
-      description: "Returns firecracker list of consoles."
-      operationId: "getConsoles"
+      summary: "Get all guest serial consoles"
+      description: "Returns list of guest serial consoles."
+      operationId: "getGuestSerialConsoles"
       produces:
       - "application/json"
       parameters:
@@ -960,19 +960,19 @@ paths:
               $ref: "#/definitions/Console"
         400:
           description: "No available consoles."
-  /consoles/{id}:
+  /guest/consoles/{id}:
     get:
       tags:
       - "firecracker"
-      summary: "Get console by id"
+      summary: "Get guest serial console by id"
       description: ""
-      operationId: "getConsoleById"
+      operationId: "getGuestConsoleById"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "The id of the console to be fetched."
+        description: "The id of the guest serial console to be fetched."
         required: true
         type: string
       responses:
@@ -983,127 +983,137 @@ paths:
         400:
           description: "Invalid id supplied"
         404:
-          description: "console not found"
+          description: "Guest serial console not found"
     delete:
       tags:
       - "firecracker"
-      summary: "Delete console"
+      summary: "Delete guest serial console"
       description: ""
-      operationId: "deleteConsole"
+      operationId: "deleteGuestSerialConsole"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of console to delete"
+        description: "id of guest serial console to delete"
         required: true
         type: string
       responses:
         400:
           description: "Invalid id supplied"
-  /consoles/{id}/stdout:
+  /guest/consoles/{id}/stdout:
     put:
       tags:
       - "firecracker"
-      summary: "Provide new FD or disable console STDOUT"
+      summary: "Provide new FD for guest serial console STDOUT or enable/disable it"
       description: ""
-      operationId: "consolePutStdout"
+      operationId: "putGuestSerialConsoleStdout"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of console to modify"
+        description: "id of guest serial console to modify"
         required: true
         type: string
       - name: "active"
         in: query
-        description: "FD is expected if active='true'"
+        description: "Specifies if stdout of serial console is active or not"
+        required: true
+        type: boolean
+      - name: "fd-update"
+        in: query
+        description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
         type: boolean
       responses:
         400:
           description: "Invalid id supplied"
         404:
-          description: "Console not found"
-  /consoles/{id}/stderr:
+          description: "Serial console not found"
+  /guest/consoles/{id}/stderr:
     put:
       tags:
       - "firecracker"
-      summary: "Provide new FD or disable console STDERR"
+      summary: "Provide new FD for guest serial console STDERR or enable/disable it"
       description: ""
-      operationId: "consolePutStderr"
+      operationId: "putGuestSerialConsoleStderr"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of console to modify"
+        description: "id of guest serial console to modify"
         required: true
         type: string
       - name: "active"
         in: query
-        description: "FD is expected if active='true'"
+        description: "Specifies if stderr of serial console is active or not"
+        required: true
+        type: boolean
+      - name: "fd-update"
+        in: query
+        description: "True if FD is also updated (new FD sent as ancillary data to this message)."
         required: true
         type: boolean
       responses:
         400:
           description: "Invalid id supplied"
         404:
-          description: "Console not found"
-  /consoles/{id}/connect:
+          description: "Serial console not found"
+  /guest/consoles/{id}/connect:
     put:
       tags:
       - "firecracker"
-      summary: "Connect console"
+      summary: "Connect/enable guest serial console"
       description: ""
-      operationId: "consoleConnect"
+      operationId: "putGuestSerialConsoleConnect"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of console to connect"
+        description: "id of guest serial console to connect"
         required: true
         type: string
       responses:
         400:
           description: "Invalid id supplied"
         404:
-          description: "Console not found"
-  /consoles/{id}/disconnect:
+          description: "Serial console not found"
+  /guest/consoles/{id}/disconnect:
     put:
       tags:
       - "firecracker"
-      summary: "Disconnect console"
+      summary: "Disconnect/disable guest serial console"
       description: ""
-      operationId: "consoleDisconnect"
+      operationId: "putGuestSerialConsoleDisconnect"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of console to disconnect"
+        description: "id of guest serial console to disconnect"
         required: true
         type: string
       responses:
         400:
           description: "Invalid id supplied"
         404:
-          description: "Console not found"
-  /files:
+          description: "Serial console not found"
+  /guest/files:
     post:
       tags:
       - "firecracker"
-      summary: Provide access to a file
-      description: "Provides firecracker with access to a file. FD is expected with this call."
-      operationId: "addFile"
+      summary: "Provide guest access to a host file"
+      description: "Provides guest with access to a host file. FD is expected as ancillary data with this call."
+      operationId: "postGuestAccessToHostFile"
       produces:
       - "application/json"
       parameters:
       - in: body
         name: "body"
-        description: "File to add"
+        description: "Host file to be accessed from guest"
         required: true
         schema:
           $ref: "#/definitions/File"
@@ -1115,9 +1125,9 @@ paths:
     get:
       tags:
       - "firecracker"
-      summary: "All files"
-      description: "Returns firecracker list of files."
-      operationId: "getFiles"
+      summary: "Get list of files accessible by guest"
+      description: "Returns list of files accessible by guest."
+      operationId: "getGuestAccessToHostFiles"
       produces:
       - "application/json"
       parameters:
@@ -1131,14 +1141,14 @@ paths:
             items:
               $ref: "#/definitions/File"
         400:
-          description: "No available files."
-  /files/{id}:
+          description: "No available files accessible by guest."
+  /guest/files/{id}:
     get:
       tags:
       - "firecracker"
-      summary: "Get file by id"
+      summary: "Get file accessible by guest by id"
       description: ""
-      operationId: "getFileById"
+      operationId: "getGuestFileAccessibleByGuestById"
       produces:
       - "application/json"
       parameters:
@@ -1159,27 +1169,27 @@ paths:
     delete:
       tags:
       - "firecracker"
-      summary: "Delete file"
+      summary: "Delete guest access to host file"
       description: ""
-      operationId: "deleteFile"
+      operationId: "deleteAccessToHostFile"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of file to delete"
+        description: "id of file to delete access to guest"
         required: true
         type: string
       responses:
         400:
           description: "Invalid id supplied"
-  /boot/localresources:
+  /guest/boot/local-images:
     post:
       tags:
       - "firecracker"
-      summary: Provide boot images
-      description: "Provides firecracker with access to the kernel image and inird files. FDs are expected with this call."
-      operationId: "addLocalBootImage"
+      summary: "Add guest boot images"
+      description: "Provides guest with IDs of files to be used as the kernel image and inird."
+      operationId: "postGuestLocalBootImages"
       produces:
       - "application/json"
       parameters:
@@ -1197,9 +1207,9 @@ paths:
     get:
       tags:
       - "firecracker"
-      summary: "All boot local resources"
-      description: "Returns firecracker list of boot local resources."
-      operationId: "getAllLocalBootImages"
+      summary: "Get all guest boot local images"
+      description: "Returns list of guest boot local images."
+      operationId: "getGuestAllLocalBootImages"
       produces:
       - "application/json"
       parameters:
@@ -1213,20 +1223,20 @@ paths:
             items:
               $ref: "#/definitions/LocalBootRes"
         400:
-          description: "No available boot local resources."
-  /boot/localresources/{id}:
+          description: "No available guest boot local images."
+  /guest/boot/local-images/{id}:
     get:
       tags:
       - "firecracker"
-      summary: "Get localresources by id"
+      summary: "Get guest local boot image by id"
       description: ""
-      operationId: "getLocalBootById"
+      operationId: "getGuestLocalBootImageById"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "The id of the localresource to be fetched."
+        description: "The id of the local image pair to be fetched."
         required: true
         type: string
       responses:
@@ -1239,27 +1249,27 @@ paths:
     delete:
       tags:
       - "firecracker"
-      summary: "Delete boot localresource"
+      summary: "Delete boot guest local images pair"
       description: ""
-      operationId: "deleteLocalBoot"
+      operationId: "deleteGuestLocalBootImage"
       produces:
       - "application/json"
       parameters:
       - name: "id"
         in: path
-        description: "id of localresource to delete"
+        description: "id of guest local image pair to delete"
         required: true
         type: string
       responses:
         400:
           description: "Invalid id supplied"
-  /boot/source:
+  /guest/boot/source:
     put:
       tags:
       - "firecracker"
-      summary: "Provide source"
-      description: "Provides firecracker with a boot source."
-      operationId: "addBootSource"
+      summary: "Set guest boot source"
+      description: "Provides/sets the guest boot source."
+      operationId: "putGuestBootSource"
       produces:
       - "application/json"
       parameters:
@@ -1277,9 +1287,9 @@ paths:
     get:
       tags:
       - "firecracker"
-      summary: "Get boot source"
+      summary: "Get guest boot source"
       description: ""
-      operationId: "getBootSource"
+      operationId: "getGuestBootSource"
       produces:
       - "application/json"
       responses:
@@ -1292,67 +1302,67 @@ paths:
     delete:
       tags:
       - "firecracker"
-      summary: "Delete boot source"
+      summary: "Delete guest boot source"
       description: ""
-      operationId: "deleteBootSource"
+      operationId: "deleteGuestBootSource"
       produces:
       - "application/json"
       responses:
         400:
           description: "Not found"
-  /vmcmds/start:
+  /firecracker/start-guest:
     put:
       tags:
       - "firecracker"
-      summary: "Starts the VM"
-      description: "Starts the VM."
-      operationId: "vmStart"
+      summary: "Starts the guest VM"
+      description: "Starts the guest VM."
+      operationId: "putGuestStart"
       produces:
       - "application/json"
       parameters:
       - in: query
         name: "delay"
-        description: ""
+        description: "number of seconds this operation is delayed"
         type: integer
         minimum: 0
       responses:
         200:
           description: "successful operation"
-  /vmcmds/stop:
+  /firecracker/stop-guest:
     put:
       tags:
       - "firecracker"
-      summary: "Stops the VM"
-      description: "Stops the VM."
-      operationId: "vmStop"
+      summary: "Stops the guest VM"
+      description: "Stops the guest VM."
+      operationId: "putGuestStop"
       produces:
       - "application/json"
       parameters:
       - in: query
         name: "delay"
-        description: ""
+        description: "number of seconds this operation is delayed"
         type: integer
         minimum: 0
       - in: query
         name: "force"
-        description: "True if force kill/shutdown is wanted."
+        description: "true if force kill/shutdown is wanted."
         type: boolean
       responses:
         200:
           description: "successful operation"
-  /vmcmds/reboot:
+  /firecracker/reboot:
     put:
       tags:
       - "firecracker"
-      summary: "Reboots the VM"
-      description: "Reboots the VM."
-      operationId: "vmReboot"
+      summary: "Reboots the guest VM"
+      description: "Reboots the guest VM."
+      operationId: "putGuestReboot"
       produces:
       - "application/json"
       parameters:
       - in: query
         name: "delay"
-        description: ""
+        description: "number of seconds this operation is delayed"
         type: integer
         minimum: 0
       - in: query
@@ -1362,18 +1372,18 @@ paths:
       responses:
         200:
           description: "successful operation"
-  /vmcmds/update:
+  /firecracker/update:
     put:
       tags:
       - "firecracker"
-      summary: "Updates the VM"
-      description: "Updates the VM."
-      operationId: "vmUpdate"
+      summary: "Live updates the guest VM"
+      description: "Live updates the guest VM."
+      operationId: "putGuestLiveUpdate"
       produces:
       - "application/json"
       parameters:
       - in: body
-        name: "Live Update Data"
+        name: "Guest live update data"
         description: ""
         required: true
         schema:
@@ -1383,7 +1393,7 @@ paths:
           description: "successful operation"
 
 definitions:
-  Limiter:
+  IOLimiter:
     type: object
     properties:
       id:
@@ -1403,9 +1413,9 @@ definitions:
   Drive:
     type: object
     properties:
-      uuid:
+      id:
         type: string
-      activeLimitersIDs:
+      activeIOLimitersIDs:
         type: array
         items:
           type: string
@@ -1416,7 +1426,7 @@ definitions:
         type: string
       mac:
         type: string
-      activeLimitersIDs:
+      activeIOLimitersIDs:
         type: array
         items:
           type: string
@@ -1425,7 +1435,7 @@ definitions:
     properties:
       id:
         type: string
-      activeLimitersIDs:
+      activeIOLimitersIDs:
         type: array
         items:
           type: string
@@ -1445,25 +1455,17 @@ definitions:
         type: integer
         format: "int64"
         minimum: 0
-  CpuFeatureSet:
+  CPU:
     type: object
     properties:
-      id:
-        type: string
+      core_count:
+        type: integer
+        minimum: 1
       features:
         type: array
         items:
           type: integer
-          format: "int64"
           minimum: 0
-  CPU:
-    type: object
-    properties:
-      count:
-        type: integer
-        minimum: 1
-      featureSet:
-        $ref: "#/definitions/CpuFeatureSet"
   File:
     type: object
     properties:
@@ -1493,7 +1495,7 @@ definitions:
         type: string
         description: "type of boot source"
         enum:
-        - "localresources"
+        - "local-images"
         - "Drive"
         - "Network"
       sourceID:
