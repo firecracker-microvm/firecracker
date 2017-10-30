@@ -1372,6 +1372,30 @@ paths:
       responses:
         200:
           description: "successful operation"
+  /firecracker/suspend-to-ram:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Suspends the guest VM to host RAM"
+      description: "Suspends the guest VM saving its state in host RAM."
+      operationId: "putGuestSuspendToRam"
+      produces:
+      - "application/json"
+      responses:
+        200:
+          description: "successful operation"
+  /firecracker/suspend-to-disk:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Suspends the guest VM to host disk"
+      description: "Suspends the guest VM saving its state in a host disk."
+      operationId: "putGuestSuspendToDisk"
+      produces:
+      - "application/json"
+      responses:
+        200:
+          description: "successful operation"
   /firecracker/update:
     put:
       tags:
