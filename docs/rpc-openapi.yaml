@@ -1,6 +1,16 @@
 swagger: "2.0"
 info:
-  description: "Firecraker RPC API"
+  description: "Firecraker RPC RESTful API.
+
+
+  The API is accessible through HTTP calls on specific URLs carrying JSON modeled data. The transport medium is a Unix Domain Socket.
+
+
+  Firecracker runs as a sandboxed, deprivileged, seccomp'ed user-space process and cannot open or access by itself any host-level resources. Because of this, all host-level resources need to be set up in advance and Firecracker will take already set-up file descriptors as part of some API calls.
+
+
+  File Descriptor (FD) passing is done through the same Unix Domain Socket as the HTTP communication and FDs shall be sent as ancillary data in the same 'sendmsg()' call with the HTTP requests they relate to.
+  "
   version: "1.0.0"
   title: "Firecraker RPC API"
   termsOfService: ""
