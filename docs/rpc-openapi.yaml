@@ -1376,8 +1376,8 @@ paths:
     put:
       tags:
       - "firecracker"
-      summary: "Live updates the guest VM"
-      description: "Live updates the guest VM."
+      summary: "Live updates the firecracker instance"
+      description: "Live updates the firecracker process completely transparent to the guest VM."
       operationId: "putGuestLiveUpdate"
       produces:
       - "application/json"
