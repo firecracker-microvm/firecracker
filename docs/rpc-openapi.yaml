@@ -1,6 +1,6 @@
 swagger: "2.0"
 info:
-  description: "Firecraker RPC RESTful API.
+  description: "RPC RESTful API between Firestarter and Firecracker
 
 
   The API is accessible through HTTP calls on specific URLs carrying JSON modeled data. The transport medium is a Unix Domain Socket.
@@ -12,7 +12,7 @@ info:
   File Descriptor (FD) passing is done through the same Unix Domain Socket as the HTTP communication and FDs shall be sent as ancillary data in the same 'sendmsg()' call with the HTTP requests they relate to.
   "
   version: "1.0.0"
-  title: "Firecraker RPC API"
+  title: "Firecraker internal RPC API"
   termsOfService: ""
   contact:
     email: "acatan@amazon.com"
@@ -93,7 +93,7 @@ paths:
       - "firecracker"
       summary: "Update guest current cpu info"
       description: "Sets guest cpu config"
-      operationId: "postCpu"
+      operationId: "putGuestCpu"
       produces:
       - "application/json"
       parameters:
@@ -138,8 +138,8 @@ paths:
       produces:
       - "application/json"
       parameters:
-       - $ref: "#/parameters/pageSize"
-       - $ref: "#/parameters/pageNumber"
+      - $ref: "#/parameters/pageSize"
+      - $ref: "#/parameters/pageNumber"
       responses:
         200:
           description: "successful operation"
@@ -174,7 +174,7 @@ paths:
             type: array
             items:
               $ref: "#/definitions/IOLimiter"
-  /guest/io-limiters/{id}:
+  /guest/io-limiters/{limiter_id}:
     get:
       tags:
       - "firecracker"
@@ -184,7 +184,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "limiter_id"
         in: path
         description: "The id of the guest IO rate limiter to fetch."
         required: true
@@ -207,7 +207,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "limiter_id"
         in: path
         description: "The id of the IO rate limiter to update."
         required: true
@@ -232,7 +232,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "limiter_id"
         in: path
         description: "The id of the guest IO rate limiter to delete."
         required: true
@@ -272,8 +272,8 @@ paths:
       produces:
       - "application/json"
       parameters:
-       - $ref: "#/parameters/pageSize"
-       - $ref: "#/parameters/pageNumber"
+      - $ref: "#/parameters/pageSize"
+      - $ref: "#/parameters/pageNumber"
       responses:
         200:
           description: "successful operation"
@@ -308,7 +308,7 @@ paths:
             type: array
             items:
               $ref: "#/definitions/Drive"
-  /guest/drives/{id}:
+  /guest/drives/{drive_id}:
     get:
       tags:
       - "firecracker"
@@ -318,7 +318,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "drive_id"
         in: path
         description: "The id of the guest drive to be fetched."
         required: true
@@ -341,7 +341,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "drive_id"
         in: path
         description: "id of guest drive to update"
         required: true
@@ -371,7 +371,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "drive_id"
         in: path
         description: "id of guest drive to delete"
         required: true
@@ -379,7 +379,7 @@ paths:
       responses:
         400:
           description: "Invalid id supplied"
-  /guest/drives/{id}/add-rate-io-limiter:
+  /guest/drives/{drive_id}/add-io-rate-limiter:
     put:
       tags:
       - "firecracker"
@@ -389,13 +389,13 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "drive_id"
         in: path
         description: "id of guest drive to apply IO rate limiter to."
         required: true
         type: string
       - in: query
-        name: "io-limiter-id"
+        name: "io_limiter_id"
         description: "Unique id of rate limiter to use."
         required: true
         type: string
@@ -404,7 +404,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Drive not found"
-  /guest/drives/{id}/remove-rate-io-limiter:
+  /guest/drives/{drive_id}/remove-io-rate-limiter:
     put:
       tags:
       - "firecracker"
@@ -414,13 +414,13 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "drive_id"
         in: path
         description: "id of guest drive to remove IO rate limiter from."
         required: true
         type: string
       - in: query
-        name: "io-limiter-id"
+        name: "io_limiter_id"
         description: "Unique id of rate limiter to remove."
         required: true
         type: string
@@ -429,7 +429,7 @@ paths:
           description: "Invalid guest drive id supplied"
         404:
           description: "Drive not found"
-  /guest/drives/{id}/attach:
+  /guest/drives/{drive_id}/attach:
     put:
       tags:
       - "firecracker"
@@ -439,7 +439,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "drive_id"
         in: path
         description: "id of guest drive to attach"
         required: true
@@ -449,7 +449,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Drive not found"
-  /guest/drives/{id}/detach:
+  /guest/drives/{drive_id}/detach:
     put:
       tags:
       - "firecracker"
@@ -459,7 +459,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "drive_id"
         in: path
         description: "id of guest drive to detach"
         required: true
@@ -501,8 +501,8 @@ paths:
       produces:
       - "application/json"
       parameters:
-       - $ref: "#/parameters/pageSize"
-       - $ref: "#/parameters/pageNumber"
+      - $ref: "#/parameters/pageSize"
+      - $ref: "#/parameters/pageNumber"
       responses:
         200:
           description: "successful operation"
@@ -537,7 +537,7 @@ paths:
             type: array
             items:
               $ref: "#/definitions/Network"
-  /guest/network-interfaces/{id}:
+  /guest/network-interfaces/{iface_id}:
     get:
       tags:
       - "firecracker"
@@ -547,7 +547,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "iface_id"
         in: path
         description: "The id of the guest network interface to be fetched."
         required: true
@@ -570,7 +570,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "iface_id"
         in: path
         description: "id of guest network interface to update"
         required: true
@@ -600,7 +600,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "iface_id"
         in: path
         description: "id of guest network interface to delete"
         required: true
@@ -608,7 +608,7 @@ paths:
       responses:
         400:
           description: "Invalid id supplied"
-  /guest/network-interfaces/{id}/add-rate-io-limiter:
+  /guest/network-interfaces/{iface_id}/add-io-rate-limiter:
     put:
       tags:
       - "firecracker"
@@ -618,13 +618,13 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "iface_id"
         in: path
         description: "id of guest network interface to apply IO rate limiter to"
         required: true
         type: string
       - in: query
-        name: "io-limiter-id"
+        name: "io_limiter_id"
         description: "Unique id of rate limiter to use."
         required: true
         type: string
@@ -633,7 +633,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Network interface not found"
-  /network/{id}/remove-rate-io-limiter:
+  /guest/network-interfaces/{iface_id}/remove-io-rate-limiter:
     put:
       tags:
       - "firecracker"
@@ -643,13 +643,13 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "iface_id"
         in: path
         description: "id of guest network interface to remove IO rate limiter from"
         required: true
         type: string
       - in: query
-        name: "io-limiter-id"
+        name: "io_limiter_id"
         description: "Unique id of IO rate limiter to remove."
         required: true
         type: string
@@ -658,7 +658,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Network interface not found"
-  /guest/network-interfaces/{id}/connect:
+  /guest/network-interfaces/{iface_id}/connect:
     put:
       tags:
       - "firecracker"
@@ -668,7 +668,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "iface_id"
         in: path
         description: "id of guest network interface to connect"
         required: true
@@ -678,7 +678,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Network interface not found"
-  /guest/network-interfaces/{id}/disconnect:
+  /guest/network-interfaces/{iface_id}/disconnect:
     put:
       tags:
       - "firecracker"
@@ -688,7 +688,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "iface_id"
         in: path
         description: "id of guest network interface to disconnect"
         required: true
@@ -730,8 +730,8 @@ paths:
       produces:
       - "application/json"
       parameters:
-       - $ref: "#/parameters/pageSize"
-       - $ref: "#/parameters/pageNumber"
+      - $ref: "#/parameters/pageSize"
+      - $ref: "#/parameters/pageNumber"
       responses:
         200:
           description: "successful operation"
@@ -766,7 +766,7 @@ paths:
             type: array
             items:
               $ref: "#/definitions/Vsock"
-  /guest/vsocks/{id}:
+  /guest/vsocks/{vsock_id}:
     get:
       tags:
       - "firecracker"
@@ -776,7 +776,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "vsock_id"
         in: path
         description: "The id of the guest vsock to be fetched."
         required: true
@@ -799,7 +799,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "vsock_id"
         in: path
         description: "id of guest vsock to update"
         required: true
@@ -829,7 +829,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "vsock_id"
         in: path
         description: "id of guest vsock to delete"
         required: true
@@ -837,7 +837,7 @@ paths:
       responses:
         400:
           description: "Invalid id supplied"
-  /guest/vsocks/{id}/add-rate-io-limiter:
+  /guest/vsocks/{vsock_id}/add-io-rate-limiter:
     put:
       tags:
       - "firecracker"
@@ -847,13 +847,13 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "vsock_id"
         in: path
         description: "id of guest vsock to apply IO rate limiter to"
         required: true
         type: string
       - in: query
-        name: "io-limiter-id"
+        name: "io_limiter_id"
         description: "Unique id of IO rate limiter to use."
         required: true
         type: string
@@ -862,7 +862,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Vsock not found"
-  /guest/vsocks/{id}/remove-rate-io-limiter:
+  /guest/vsocks/{vsock_id}/remove-io-rate-limiter:
     put:
       tags:
       - "firecracker"
@@ -872,13 +872,13 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "vsock_id"
         in: path
         description: "id of guest vsock to remove IO rate limiter from"
         required: true
         type: string
       - in: query
-        name: "io-limiter-id"
+        name: "io_limiter_id"
         description: "Unique id of IO rate limiter to remove."
         required: true
         type: string
@@ -887,7 +887,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Vsock not found"
-  /guest/vsocks/{id}/connect:
+  /guest/vsocks/{vsock_id}/connect:
     put:
       tags:
       - "firecracker"
@@ -897,7 +897,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "vsock_id"
         in: path
         description: "id of guest vsock to connect"
         required: true
@@ -907,7 +907,7 @@ paths:
           description: "Invalid guest vsock id supplied"
         404:
           description: "Vsock not found"
-  /guest/vsocks/{id}/disconnect:
+  /guest/vsocks/{vsock_id}/disconnect:
     put:
       tags:
       - "firecracker"
@@ -917,7 +917,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "vsock_id"
         in: path
         description: "id of guest vsock to disconnect"
         required: true
@@ -959,8 +959,8 @@ paths:
       produces:
       - "application/json"
       parameters:
-       - $ref: "#/parameters/pageSize"
-       - $ref: "#/parameters/pageNumber"
+      - $ref: "#/parameters/pageSize"
+      - $ref: "#/parameters/pageNumber"
       responses:
         200:
           description: "successful operation"
@@ -970,7 +970,7 @@ paths:
               $ref: "#/definitions/Console"
         400:
           description: "No available consoles."
-  /guest/consoles/{id}:
+  /guest/consoles/{console_id}:
     get:
       tags:
       - "firecracker"
@@ -980,7 +980,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "console_id"
         in: path
         description: "The id of the guest serial console to be fetched."
         required: true
@@ -1003,7 +1003,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "console_id"
         in: path
         description: "id of guest serial console to delete"
         required: true
@@ -1011,7 +1011,7 @@ paths:
       responses:
         400:
           description: "Invalid id supplied"
-  /guest/consoles/{id}/stdout:
+  /guest/consoles/{console_id}/stdout:
     put:
       tags:
       - "firecracker"
@@ -1021,7 +1021,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "console_id"
         in: path
         description: "id of guest serial console to modify"
         required: true
@@ -1041,7 +1041,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Serial console not found"
-  /guest/consoles/{id}/stderr:
+  /guest/consoles/{console_id}/stderr:
     put:
       tags:
       - "firecracker"
@@ -1051,7 +1051,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "console_id"
         in: path
         description: "id of guest serial console to modify"
         required: true
@@ -1071,7 +1071,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Serial console not found"
-  /guest/consoles/{id}/connect:
+  /guest/consoles/{console_id}/connect:
     put:
       tags:
       - "firecracker"
@@ -1081,7 +1081,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "console_id"
         in: path
         description: "id of guest serial console to connect"
         required: true
@@ -1091,7 +1091,7 @@ paths:
           description: "Invalid id supplied"
         404:
           description: "Serial console not found"
-  /guest/consoles/{id}/disconnect:
+  /guest/consoles/{console_id}/disconnect:
     put:
       tags:
       - "firecracker"
@@ -1101,7 +1101,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "console_id"
         in: path
         description: "id of guest serial console to disconnect"
         required: true
@@ -1141,8 +1141,8 @@ paths:
       produces:
       - "application/json"
       parameters:
-       - $ref: "#/parameters/pageSize"
-       - $ref: "#/parameters/pageNumber"
+      - $ref: "#/parameters/pageSize"
+      - $ref: "#/parameters/pageNumber"
       responses:
         200:
           description: "successful operation"
@@ -1152,7 +1152,7 @@ paths:
               $ref: "#/definitions/File"
         400:
           description: "No available files accessible by guest."
-  /guest/files/{id}:
+  /guest/files/{file_id}:
     get:
       tags:
       - "firecracker"
@@ -1162,7 +1162,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "file_id"
         in: path
         description: "The id of the file to be fetched."
         required: true
@@ -1185,7 +1185,7 @@ paths:
       produces:
       - "application/json"
       parameters:
-      - name: "id"
+      - name: "file_id"
         in: path
         description: "id of file to delete access to guest"
         required: true
@@ -1223,8 +1223,8 @@ paths:
       produces:
       - "application/json"
       parameters:
-       - $ref: "#/parameters/pageSize"
-       - $ref: "#/parameters/pageNumber"
+      - $ref: "#/parameters/pageSize"
+      - $ref: "#/parameters/pageNumber"
       responses:
         200:
           description: "successful operation"
@@ -1430,7 +1430,7 @@ definitions:
   IOLimiter:
     type: object
     properties:
-      id:
+      limiter_id:
         type: string
       metric:
         type: string
@@ -1438,49 +1438,49 @@ definitions:
         enum:
         - "ops/s"
         - "bandwidth"
-      maxCredits:
+      max_credits:
         type: integer
-      initialCredits:
+      initial_credits:
         type: integer
-      refillRate:
+      refill_rate:
         type: integer
   Drive:
     type: object
     properties:
-      id:
+      drive_id:
         type: string
-      activeIOLimitersIDs:
+      active_io_limiters_ids:
         type: array
         items:
           type: string
   Network:
     type: object
     properties:
-      id:
+      iface_id:
         type: string
       mac:
         type: string
-      activeIOLimitersIDs:
+      active_io_limiters_ids:
         type: array
         items:
           type: string
   Vsock:
     type: object
     properties:
-      id:
+      vsock_id:
         type: string
-      activeIOLimitersIDs:
+      active_io_limiters_ids:
         type: array
         items:
           type: string
   Console:
     type: object
     properties:
-      id:
+      console_id:
         type: string
-      stdoutActive:
+      stdout_active:
         type: boolean
-      stderrActive:
+      stderr_active:
         type: boolean
   Meminfo:
     type: object
@@ -1503,39 +1503,39 @@ definitions:
   File:
     type: object
     properties:
-      id:
+      fileId:
         type: string
       path:
         type: string
   LocalBootRes:
     type: object
     properties:
-      id:
+      local_boot_image_id:
         type: string
-      kernelImageFileID:
+      kernel_image_file_id:
         type: integer
         minimum: 0
         description: "unique id of File obj representing the kernel image"
-      initrdFileID:
+      initrd_file_id:
         type: integer
         minimum: 0
         description: "unique id of File obj representing the initrd"
   BootSource:
     type: object
     properties:
-      id:
+      boot_source_id:
         type: string
-      sourceType:
+      source_type:
         type: string
         description: "type of boot source"
         enum:
         - "local-images"
         - "Drive"
         - "Network"
-      sourceID:
+      source_id:
         type: string
         description: "unique identifier for the boot resource"
-      bootArgs:
+      boot_args:
         type: string
         description: "kernel boot arguments"
   LiveUpdateData:
