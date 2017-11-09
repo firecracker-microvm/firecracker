@@ -1,8 +1,8 @@
 firecracker
 ===========
 
-A virtualization technology that replaces the container runtime with a light weight
-*micro-*Virtual Machine (micro-VM). Micro-VMs combine the security and workload
+A virtualization technology implemented in [rust](https://www.rust-lang.org) that replaces the container runtime with a light weight
+*micro*-Virtual Machine (micro-VM). Micro-VMs combine the security and workload
 isolation properties of traditional VMs with the speed and resource efficiency of containers.
 
 ## Usage
