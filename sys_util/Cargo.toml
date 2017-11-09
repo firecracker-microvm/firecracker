@@ -1,0 +1,13 @@
+[package]
+name = "sys_util"
+version = "0.1.0"
+authors = ["The Chromium OS Authors"]
+build = "build.rs"
+
+[dependencies]
+data_model = { path = "../data_model" }
+libc = "*"
+syscall_defines = { path = "../syscall_defines" }
+
+[build-dependencies]
+gcc = "=0.3.54"
