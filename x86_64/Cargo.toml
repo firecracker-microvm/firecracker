@@ -1,0 +1,12 @@
+[package]
+name = "x86_64"
+version = "0.1.0"
+authors = ["The Chromium OS Authors"]
+
+[dependencies]
+data_model = { path = "../data_model" }
+kvm_sys = { path = "../kvm_sys" }
+kvm = { path = "../kvm" }
+sys_util = { path = "../sys_util" }
+libc = "*"
+byteorder = "*"

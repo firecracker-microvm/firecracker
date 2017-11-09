@@ -1,11 +1,92 @@
 extern crate sys_util;
 extern crate kvm_sys;
 extern crate kvm;
+extern crate kernel_loader;
+extern crate x86_64;
 
+use std::fs::File;
 use std::io::{self, Write};
+use std::ffi::CStr;
 use kvm::*;
 use kvm_sys::kvm_regs;
 use sys_util::{GuestAddress, GuestMemory};
+
+const KERNEL_START_OFFSET: usize = 0x200000;
+const CMDLINE_OFFSET: usize = 0x20000;
+
+pub fn boot_kernel() {
+    // FIXME branciog@ do not hardcode the vm mem size
+    // Hardcoding the vm memory size to 128MB
+    let mem_size = 128 << 20;
+    let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
+    let mut kernel_image = File::open("vmlinux.bin").expect("open kernel file failed");
+    let cmdline = unsafe { CStr::from_bytes_with_nul_unchecked(
+        b"console=ttyS0,115200n8 init=/init tsc=reliable no_timer_check cryptomgr.notests\0") };
+    let vcpu_count = 1;
+
+    let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
+    let cmdline_addr = GuestAddress(CMDLINE_OFFSET);
+
+    let guest_mem =
+        GuestMemory::new(&arch_mem_regions).expect("new mmap failed");
+
+    let kvm = Kvm::new().expect("new kvm failed");
+    let vm = Vm::new(&kvm, guest_mem).expect("new vm failed");
+
+    let tss_addr = GuestAddress(0xfffbd000);
+    vm.set_tss_addr(tss_addr).expect("set tss addr failed");
+    vm.create_pit().expect("create pit failed");
+    vm.create_irq_chip().expect("create irq chip failed");
+
+    kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr,
+        &mut kernel_image).expect("loading kernel failed");
+    kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, cmdline)
+        .expect("loading kernel cmdline failed");
+
+    x86_64::configure_system(vm.get_memory(),
+                             kernel_start_addr,
+                             cmdline_addr,
+                             cmdline.to_bytes().len() + 1,
+                             vcpu_count as u8).expect("configure x86 boot params failed");
+
+
+    let vcpu = Vcpu::new(0, &kvm, &vm).expect("new vcpu failed");
+
+    x86_64::configure_vcpu(vm.get_memory(),
+                           kernel_start_addr,
+                           &kvm,
+                           &vcpu,
+                           0,
+                           vcpu_count as u64).expect("configure vcpu failed");
+
+    loop {
+        match vcpu.run().expect("run failed") {
+            VcpuExit::IoIn(_addr, _data) => {
+                //io_bus.read(addr as u64, data);
+            }
+            VcpuExit::IoOut(0x3f8, data) => {
+                io::stdout().write(data).unwrap();
+            },
+            VcpuExit::IoOut(_addr, _data) => {
+                //io_bus.write(addr as u64, data);
+            },
+            VcpuExit::MmioRead(_addr, _data) => {
+                //mmio_bus.read(addr, data);
+            }
+            VcpuExit::MmioWrite(_addr, _data) => {
+                //mmio_bus.write(addr, data);
+            }
+            VcpuExit::Hlt => {
+                io::stdout().write(b"KVM_EXIT_HLT\n").unwrap();
+                break
+            },
+            VcpuExit::Shutdown => break,
+            r => panic!("unexpected exit reason: {:?}", r),
+        }
+    }
+}
+
+
 
 pub fn run_x86_code() {
     // This example based on https://lwn.net/Articles/658511/
