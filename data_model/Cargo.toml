@@ -1,0 +1,6 @@
+[package]
+name = "data_model"
+version = "0.1.0"
+authors = ["The Chromium OS Authors"]
+
+[dependencies]

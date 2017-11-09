@@ -1,0 +1,8 @@
+[package]
+name = "kvm_sys"
+version = "0.1.0"
+authors = ["The Chromium OS Authors"]
+
+[dependencies]
+libc = "*"
+sys_util = { path = "../sys_util" }
