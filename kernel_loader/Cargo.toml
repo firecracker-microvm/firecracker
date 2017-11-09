@@ -1,0 +1,7 @@
+[package]
+name = "kernel_loader"
+version = "0.1.0"
+
+[dependencies]
+libc = "*"
+sys_util = { path = "../sys_util" }

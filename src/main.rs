@@ -1,7 +1,7 @@
 extern crate vmm;
 
-use vmm::run_x86_code;
+use vmm::boot_kernel;
 
 fn main() {
-    run_x86_code();
+    boot_kernel();
 }
