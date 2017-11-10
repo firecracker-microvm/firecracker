@@ -33,6 +33,111 @@ schemes:
 - "http"
 
 paths:
+  /firecracker/start-guest:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Starts the guest VM"
+      description: "Starts the guest VM."
+      operationId: "putGuestStart"
+      produces:
+      - "application/json"
+      parameters:
+      - in: query
+        name: "delay"
+        description: "number of seconds this operation is delayed"
+        type: integer
+        minimum: 0
+      responses:
+        200:
+          description: "successful operation"
+  /firecracker/stop-guest:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Stops the guest VM"
+      description: "Stops the guest VM."
+      operationId: "putGuestStop"
+      produces:
+      - "application/json"
+      parameters:
+      - in: query
+        name: "delay"
+        description: "number of seconds this operation is delayed"
+        type: integer
+        minimum: 0
+      - in: query
+        name: "force"
+        description: "true if force kill/shutdown is wanted."
+        type: boolean
+      responses:
+        200:
+          description: "successful operation"
+  /firecracker/reboot:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Reboots the guest VM"
+      description: "Reboots the guest VM."
+      operationId: "putGuestReboot"
+      produces:
+      - "application/json"
+      parameters:
+      - in: query
+        name: "delay"
+        description: "number of seconds this operation is delayed"
+        type: integer
+        minimum: 0
+      - in: query
+        name: "force"
+        description: "True if force reboot/powercycle is wanted."
+        type: boolean
+      responses:
+        200:
+          description: "successful operation"
+  /firecracker/suspend-to-ram:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Suspends the guest VM to host RAM"
+      description: "Suspends the guest VM saving its state in host RAM."
+      operationId: "putGuestSuspendToRam"
+      produces:
+      - "application/json"
+      responses:
+        200:
+          description: "successful operation"
+  /firecracker/suspend-to-disk:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Suspends the guest VM to host disk"
+      description: "Suspends the guest VM saving its state in a host disk."
+      operationId: "putGuestSuspendToDisk"
+      produces:
+      - "application/json"
+      responses:
+        200:
+          description: "successful operation"
+  /firecracker/update:
+    put:
+      tags:
+      - "firecracker"
+      summary: "Live updates the firecracker instance"
+      description: "Live updates the firecracker process completely transparent to the guest VM."
+      operationId: "putGuestLiveUpdate"
+      produces:
+      - "application/json"
+      parameters:
+      - in: body
+        name: "Guest live update data"
+        description: ""
+        required: true
+        schema:
+          $ref: "#/definitions/LiveUpdateData"
+      responses:
+        200:
+          description: "successful operation"
   /guest/memory:
     get:
       tags:
@@ -1320,111 +1425,6 @@ paths:
       responses:
         400:
           description: "Not found"
-  /firecracker/start-guest:
-    put:
-      tags:
-      - "firecracker"
-      summary: "Starts the guest VM"
-      description: "Starts the guest VM."
-      operationId: "putGuestStart"
-      produces:
-      - "application/json"
-      parameters:
-      - in: query
-        name: "delay"
-        description: "number of seconds this operation is delayed"
-        type: integer
-        minimum: 0
-      responses:
-        200:
-          description: "successful operation"
-  /firecracker/stop-guest:
-    put:
-      tags:
-      - "firecracker"
-      summary: "Stops the guest VM"
-      description: "Stops the guest VM."
-      operationId: "putGuestStop"
-      produces:
-      - "application/json"
-      parameters:
-      - in: query
-        name: "delay"
-        description: "number of seconds this operation is delayed"
-        type: integer
-        minimum: 0
-      - in: query
-        name: "force"
-        description: "true if force kill/shutdown is wanted."
-        type: boolean
-      responses:
-        200:
-          description: "successful operation"
-  /firecracker/reboot:
-    put:
-      tags:
-      - "firecracker"
-      summary: "Reboots the guest VM"
-      description: "Reboots the guest VM."
-      operationId: "putGuestReboot"
-      produces:
-      - "application/json"
-      parameters:
-      - in: query
-        name: "delay"
-        description: "number of seconds this operation is delayed"
-        type: integer
-        minimum: 0
-      - in: query
-        name: "force"
-        description: "True if force reboot/powercycle is wanted."
-        type: boolean
-      responses:
-        200:
-          description: "successful operation"
-  /firecracker/suspend-to-ram:
-    put:
-      tags:
-      - "firecracker"
-      summary: "Suspends the guest VM to host RAM"
-      description: "Suspends the guest VM saving its state in host RAM."
-      operationId: "putGuestSuspendToRam"
-      produces:
-      - "application/json"
-      responses:
-        200:
-          description: "successful operation"
-  /firecracker/suspend-to-disk:
-    put:
-      tags:
-      - "firecracker"
-      summary: "Suspends the guest VM to host disk"
-      description: "Suspends the guest VM saving its state in a host disk."
-      operationId: "putGuestSuspendToDisk"
-      produces:
-      - "application/json"
-      responses:
-        200:
-          description: "successful operation"
-  /firecracker/update:
-    put:
-      tags:
-      - "firecracker"
-      summary: "Live updates the firecracker instance"
-      description: "Live updates the firecracker process completely transparent to the guest VM."
-      operationId: "putGuestLiveUpdate"
-      produces:
-      - "application/json"
-      parameters:
-      - in: body
-        name: "Guest live update data"
-        description: ""
-        required: true
-        schema:
-          $ref: "#/definitions/LiveUpdateData"
-      responses:
-        200:
-          description: "successful operation"
 
 definitions:
   IOLimiter:
