@@ -3,25 +3,35 @@ extern crate kvm_sys;
 extern crate kvm;
 extern crate kernel_loader;
 extern crate x86_64;
+extern crate clap;
 
-use std::fs::File;
+pub mod machine;
+
+use std::ffi::{CStr, CString};
 use std::io::{self, Write};
-use std::ffi::CStr;
 use kvm::*;
 use kvm_sys::kvm_regs;
 use sys_util::{GuestAddress, GuestMemory};
+use machine::MachineCfg;
 
 const KERNEL_START_OFFSET: usize = 0x200000;
 const CMDLINE_OFFSET: usize = 0x20000;
 
-pub fn boot_kernel() {
+pub fn boot_kernel(cfg: &MachineCfg) {
     // FIXME branciog@ do not hardcode the vm mem size
     // Hardcoding the vm memory size to 128MB
     let mem_size = 128 << 20;
     let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
-    let mut kernel_image = File::open("vmlinux.bin").expect("open kernel file failed");
-    let cmdline = unsafe { CStr::from_bytes_with_nul_unchecked(
-        b"console=ttyS0,115200n8 init=/init tsc=reliable no_timer_check cryptomgr.notests\0") };
+
+    let mut kernel_image = match cfg.kernel_fd() {
+        &Some(ref v) => v,
+        _ => panic!(),
+    };
+    let cmdline: CString = match cfg.kernel_cmdline() {
+        &Some(ref v) => CString::new(v.as_bytes()).unwrap(),
+        _ => panic!(),
+    };
+    let cmdline: &CStr = &cmdline;
     let vcpu_count = 1;
 
     let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
