@@ -4,14 +4,16 @@ extern crate kvm;
 extern crate kernel_loader;
 extern crate x86_64;
 extern crate clap;
+extern crate devices;
 
 pub mod machine;
 
 use std::ffi::{CStr, CString};
-use std::io::{self, Write};
+use std::io::{self, stdout, Write};
+use std::sync::{Arc, Mutex};
 use kvm::*;
 use kvm_sys::kvm_regs;
-use sys_util::{GuestAddress, GuestMemory};
+use sys_util::{EventFd, GuestAddress, GuestMemory};
 use machine::MachineCfg;
 
 const KERNEL_START_OFFSET: usize = 0x200000;
@@ -69,23 +71,27 @@ pub fn boot_kernel(cfg: &MachineCfg) {
                            0,
                            vcpu_count as u64).expect("configure vcpu failed");
 
+    let mut io_bus = devices::Bus::new();
+    let com_evt = EventFd::new().expect("failed to init eventfd");
+    let stdio_serial =
+        Arc::new(Mutex::new(
+                    devices::Serial::new_out(com_evt, Box::new(stdout()))));
+    io_bus.insert(stdio_serial, 0x3f8, 0x8).unwrap();
+
     loop {
         match vcpu.run().expect("run failed") {
             VcpuExit::IoIn(_addr, _data) => {
-                //io_bus.read(addr as u64, data);
-            }
-            VcpuExit::IoOut(0x3f8, data) => {
-                io::stdout().write(data).unwrap();
+                io_bus.read(_addr as u64, _data);
             },
             VcpuExit::IoOut(_addr, _data) => {
-                //io_bus.write(addr as u64, data);
+                io_bus.write(_addr as u64, _data);
             },
             VcpuExit::MmioRead(_addr, _data) => {
                 //mmio_bus.read(addr, data);
-            }
+            },
             VcpuExit::MmioWrite(_addr, _data) => {
                 //mmio_bus.write(addr, data);
-            }
+            },
             VcpuExit::Hlt => {
                 io::stdout().write(b"KVM_EXIT_HLT\n").unwrap();
                 break
