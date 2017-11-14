@@ -11,3 +11,4 @@ kvm_sys = { path = "../kvm_sys" }
 sys_util = { path = "../sys_util" }
 kernel_loader = { path = "../kernel_loader" }
 x86_64 = { path = "../x86_64" }
+devices = { path = "../devices" }
