@@ -1,0 +1,18 @@
+swagger: "2.0"
+info:
+  title: Firecracker MVP API
+  description: "Firecraker MVP - RESTful public-facing API.
+
+
+  The API is accessible through HTTP calls on specific URLs carrying JSON modeled data. The transport medium is a Unix Domain Socket."
+
+  version: experimental
+  termsOfService: ""
+  contact:
+    email: "acatan@amazon.com"
+  license:
+    name: "Apache 2.0"
+    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
+
+host: "localhost"
+basePath: "/"
