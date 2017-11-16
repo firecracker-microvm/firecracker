@@ -1,0 +1,188 @@
+swagger: "2.0"
+info:
+  title: Firecracker Limiters API
+  description: The limiters section of the Firecracker API.
+  version: experimental
+  termsOfService: ""
+  contact:
+    email: "acatan@amazon.com"
+  license:
+    name: "Apache 2.0"
+    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
+
+host: "localhost"
+basePath: "/"
+
+schemes:
+  - http
+consumes:
+  - application/json
+produces:
+  - application/json
+
+paths:
+  /limiters:
+    get:
+      summary: Retrieves list of currently created limiters.
+      operationId: listLimiters
+      parameters:
+        - name: next_token
+          in: query
+          type: string
+          description: |
+            Opaque token that specifies where to start the next list of limiters. If not provided or
+            NULL, start from the beginning.
+      responses:
+        200:
+          description: List of limiters.
+          schema:
+            $ref: '#/definitions/LimiterList'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+  /limiters/{limiter_id}:
+    get:
+      summary: "Retrieves limiter specified by 'limiter_id' path parameter."
+      operationId: describeLimiter
+      parameters:
+        - name: limiter_id
+          in: path
+          description: Id of the limiter to retrieve.
+          required: true
+          type: string
+      responses:
+        200:
+          description: Specified limiter.
+          schema:
+            $ref: '#/definitions/Limiter'
+        404:
+          description: Limiter does not exist.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+    put:
+      summary: "Creates new limiter with ID specified by 'limiter_id' path parameter. If limiter with specified ID
+                already exists, updates its state based on new input. May fail if update is not possible."
+      operationId: updateLimiter
+      parameters:
+        - name: limiter_id
+          in: path
+          description: Id of the limiter to retrieve.
+          required: true
+          type: string
+        - name: limiter
+          in: body
+          description: Limiter to create or update.
+          required: true
+          schema:
+            $ref: '#/definitions/Limiter'
+      responses:
+        201:
+          description: Limiter created.
+        204:
+          description: Limiter updated.
+        400:
+          description: Limiter cannot be created due to bad input.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+    delete:
+      summary: "Deletes limiter with ID specified by 'limiter_id' path parameter.
+                Will clean up any resources associated with this limiter."
+      operationId: deleteLimiter
+      parameters:
+        - name: limiter_id
+          in: path
+          description: Id of the limiter to retrieve.
+          required: true
+          type: string
+      responses:
+        202:
+          description: Limiter deleted.
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+
+definitions:
+  Error:
+    type: object
+    properties:
+      subcode:
+        type: integer
+        format: int32
+  LimiterCounters:
+    type: object
+    properties:
+      packets:
+        type: integer
+        format: int64
+      bytes:
+        type: integer
+        format: int64
+      dropped_packets:
+        type: integer
+        format: int64
+      dropped_bytes:
+        type: integer
+        format: int64
+  TokenBucket:
+    type: object
+    properties:
+      size:
+        type: integer
+        format: int64
+      cost:
+        type: integer
+        format: int64
+      initial_value:
+        type: integer
+        format: int64
+      refill_rate:
+        type: integer
+        format: int64
+  LimiterConfig:
+    type: object
+    properties:
+      bandwidth:
+        $ref: '#/definitions/TokenBucket'
+        description: In bits.
+      pps:
+        $ref: '#/definitions/TokenBucket'
+        description: In packets or ops.
+      max_queue_len:
+        type: integer
+        format: int64
+  Limiter:
+    type: object
+    properties:
+      limiter_id:
+        description: Id of this limiter.
+        type: string
+      egress:
+        $ref: '#/definitions/LimiterConfig'
+      ingress:
+        $ref: '#/definitions/LimiterConfig'
+      egress_counters:
+        $ref: '#/definitions/LimiterCounters'
+      ingress_counters:
+        $ref: '#/definitions/LimiterCounters'
+  LimiterList:
+    type: object
+    properties:
+      next_token:
+        type: string
+        description: |
+          Opaque token that specifies where to start the next list of limiters. If not present or
+          NULL, there are no more limiters to list.
+      limiters:
+        type: array
+        items:
+          $ref: '#/definitions/Limiter'
