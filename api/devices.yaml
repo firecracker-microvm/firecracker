@@ -1,0 +1,132 @@
+swagger: "2.0"
+info:
+  title: Firecracker Devices API
+  description: The devices section of the Firecracker API.
+  version: experimental
+  termsOfService: ""
+  contact:
+    email: "acatan@amazon.com"
+  license:
+    name: "Apache 2.0"
+    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
+
+host: "localhost"
+basePath: "/"
+
+schemes:
+  - http
+consumes:
+  - application/json
+produces:
+  - application/json
+
+paths:
+  /drives:
+    get:
+      summary: "All guest drives"
+      description: "Returns list of guest storage drives."
+      operationId: "getGuestDrives"
+      responses:
+        205:
+          description: List of guest drives
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Drive"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+  /drives/{drive_id}:
+    get:
+      summary: "Get guest drive by 'drive_id' path parameter."
+      operationId: "getGuestDriveByID"
+      parameters:
+      - name: "drive_id"
+        in: path
+        description: "The id of the guest drive."
+        required: true
+        type: string
+      responses:
+        205:
+          description: Specified drive.
+          schema:
+            $ref: "#/definitions/Drive"
+        404:
+          description: Drive does not exist.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+    put:
+      summary: "Creates new drive with ID specified by 'drive_id' path parameter. If drive with specified ID
+                already exists, updates its state based on new input. May fail if update is not possible."
+      operationId: "putGuestDriveByID"
+      parameters:
+      - name: "drive_id"
+        in: path
+        description: "The id of the guest drive."
+        required: true
+        type: string
+      - name: "body"
+        in: body
+        description: "Guest drive properties"
+        required: true
+        schema:
+          $ref: "#/definitions/Drive"
+      responses:
+        201:
+          description: Drive created.
+        400:
+          description: Drive cannot be created due to bad input.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+    delete:
+      summary: "Deletes drive with ID specified by 'drive_id' path parameter.
+                Will clean up any resources associated with this drive."
+      operationId: "deleteGuestDriveByID"
+      parameters:
+      - name: "drive_id"
+        in: path
+        description: "The id of guest drive to delete."
+        required: true
+        type: string
+      responses:
+        202:
+          description: Drive deleted.
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+
+definitions:
+  DeviceState:
+    type: string
+    enum:
+      - "attached"
+      - "detaching"
+      - "detached"
+  Drive:
+    type: object
+    required:
+      - drive_id
+    properties:
+      drive_id:
+        type: string
+      path_on_host:
+        type: string
+        description: "host level path for the guest drive"
+      state:
+        $ref: '#/definitions/DeviceState'
+
+  Error:
+    properties:
+      faultMessage:
+        type: string
+        description: A description of the error condition.
