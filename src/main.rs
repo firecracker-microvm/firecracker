@@ -12,11 +12,10 @@ fn main() {
         .version(crate_version!())
         .author(crate_authors!())
         .about("Launch a microvm.")
-        .arg(Arg::with_name("kernel")
+        .arg(Arg::with_name("kernel_path")
             .short("k")
-            .long("kernel")
-            .value_name("FILE")
-            .help("Filename of the kernel (vmlinux.bin)")
+            .long("kernel-path")
+            .help("The kernel's file path (vmlinux.bin)")
             .required(true)
             .takes_value(true))
         .arg(Arg::with_name("kernel_cmdline")
@@ -28,5 +27,5 @@ fn main() {
     let mut cfg = MachineCfg::new();
     cfg.populate(matches).expect("parsing arguments failed");
 
-    boot_kernel(&cfg);
+    boot_kernel(&cfg).ok().expect("cannot boot kernel");
 }

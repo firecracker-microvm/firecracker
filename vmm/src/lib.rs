@@ -9,6 +9,7 @@ extern crate devices;
 pub mod machine;
 
 use std::ffi::{CStr, CString};
+use std::fs::File;
 use std::io::{self, stdout, Write};
 use std::sync::{Arc, Mutex};
 use kvm::*;
@@ -19,19 +20,55 @@ use machine::MachineCfg;
 const KERNEL_START_OFFSET: usize = 0x200000;
 const CMDLINE_OFFSET: usize = 0x20000;
 
-pub fn boot_kernel(cfg: &MachineCfg) {
+pub enum Error {
+    ConfigureSystem(x86_64::Error),
+    EventFd(sys_util::Error),
+    GuestMemory(sys_util::GuestMemoryError),
+    Kernel(std::io::Error),
+    KernelLoader(kernel_loader::Error),
+    Kvm(sys_util::Error),
+    Vcpu(sys_util::Error),
+    Vm(sys_util::Error),
+}
+
+impl std::convert::From<kernel_loader::Error> for Error {
+    fn from(e: kernel_loader::Error) -> Error {
+        Error::KernelLoader(e)
+    }
+}
+
+impl std::convert::From<x86_64::Error> for Error {
+    fn from(e: x86_64::Error) -> Error {
+        Error::ConfigureSystem(e)
+    }
+}
+
+type Result<T> = std::result::Result<T, Error>;
+
+pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     // FIXME branciog@ do not hardcode the vm mem size
     // Hardcoding the vm memory size to 128MB
     let mem_size = 128 << 20;
     let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
 
-    let mut kernel_image = match cfg.kernel_fd() {
-        &Some(ref v) => v,
-        _ => panic!(),
-    };
-    let cmdline: CString = match cfg.kernel_cmdline() {
-        &Some(ref v) => CString::new(v.as_bytes()).unwrap(),
-        _ => panic!(),
+    let mut kernel_file;
+    match cfg.kernel_path {
+        Some(ref kernel_path) => {
+            kernel_file = File::open(kernel_path.as_path())
+                    .map_err(Error::Kernel)?
+        },
+        None => {
+            return Err(Error::Kernel(
+                    io::Error::new(io::ErrorKind::NotFound,
+                                   "missing kernel path")))
+        }
+    }
+
+    let cmdline: CString = match cfg.kernel_cmdline {
+        Some(ref v) => CString::new(v.as_bytes()).unwrap(),
+        _ => return Err(Error::Kernel(
+                io::Error::new(io::ErrorKind::NotFound,
+                               "missing kernel cmdline")))
     };
     let cmdline: &CStr = &cmdline;
     let vcpu_count = 1;
@@ -39,47 +76,46 @@ pub fn boot_kernel(cfg: &MachineCfg) {
     let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
     let cmdline_addr = GuestAddress(CMDLINE_OFFSET);
 
-    let guest_mem =
-        GuestMemory::new(&arch_mem_regions).expect("new mmap failed");
+    let guest_mem = GuestMemory::new(&arch_mem_regions)
+            .map_err(Error::GuestMemory)?;
 
-    let kvm = Kvm::new().expect("new kvm failed");
-    let vm = Vm::new(&kvm, guest_mem).expect("new vm failed");
+    let kvm = Kvm::new().map_err(Error::Kvm)?;
+    let vm = Vm::new(&kvm, guest_mem).map_err(Error::Vm)?;
 
     let tss_addr = GuestAddress(0xfffbd000);
-    vm.set_tss_addr(tss_addr).expect("set tss addr failed");
-    vm.create_pit().expect("create pit failed");
-    vm.create_irq_chip().expect("create irq chip failed");
+    vm.set_tss_addr(tss_addr).map_err(Error::Vm)?;
+    vm.create_pit().map_err(Error::Vm)?;
+    vm.create_irq_chip().map_err(Error::Vm)?;
 
     kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr,
-        &mut kernel_image).expect("loading kernel failed");
-    kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, cmdline)
-        .expect("loading kernel cmdline failed");
+                               &mut kernel_file)?;
+    kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, cmdline)?;
 
     x86_64::configure_system(vm.get_memory(),
                              kernel_start_addr,
                              cmdline_addr,
                              cmdline.to_bytes().len() + 1,
-                             vcpu_count as u8).expect("configure x86 boot params failed");
+                             vcpu_count as u8)?;
 
 
-    let vcpu = Vcpu::new(0, &kvm, &vm).expect("new vcpu failed");
+    let vcpu = Vcpu::new(0, &kvm, &vm).map_err(Error::Vcpu)?;
 
     x86_64::configure_vcpu(vm.get_memory(),
                            kernel_start_addr,
                            &kvm,
                            &vcpu,
                            0,
-                           vcpu_count as u64).expect("configure vcpu failed");
+                           vcpu_count as u64)?;
 
     let mut io_bus = devices::Bus::new();
-    let com_evt = EventFd::new().expect("failed to init eventfd");
+    let com_evt = EventFd::new().map_err(Error::EventFd)?;
     let stdio_serial =
         Arc::new(Mutex::new(
                     devices::Serial::new_out(com_evt, Box::new(stdout()))));
     io_bus.insert(stdio_serial, 0x3f8, 0x8).unwrap();
 
     loop {
-        match vcpu.run().expect("run failed") {
+        match vcpu.run().map_err(Error::Vcpu)? {
             VcpuExit::IoIn(_addr, _data) => {
                 io_bus.read(_addr as u64, _data);
             },
@@ -93,13 +129,21 @@ pub fn boot_kernel(cfg: &MachineCfg) {
                 //mmio_bus.write(addr, data);
             },
             VcpuExit::Hlt => {
-                io::stdout().write(b"KVM_EXIT_HLT\n").unwrap();
-                break
+                println!("KVM_EXIT_HLT");
+                break;
             },
-            VcpuExit::Shutdown => break,
-            r => panic!("unexpected exit reason: {:?}", r),
+            VcpuExit::Shutdown => {
+                println!("KVM_EXIT_SHUTDOWN");
+                break;
+            },
+            r => {
+                println!("unexpected exit reason: {:?}", r);
+                break;
+            }
         }
     }
+
+    Ok(())
 }
 
 
