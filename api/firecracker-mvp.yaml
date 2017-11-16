@@ -16,3 +16,111 @@ info:
 
 host: "localhost"
 basePath: "/"
+
+schemes:
+  - http
+consumes:
+  - application/json
+produces:
+  - application/json
+
+paths:
+  /:
+    get:
+      summary: Return general information about an instance.
+      operationId: describeInstance
+      responses:
+        200:
+          description: The instance information.
+          schema:
+            $ref: '#/definitions/InstanceInfo'
+        default:
+          description: Unexpected error.
+          schema:
+            $ref: '#/definitions/Error'
+  /metadata:
+    get:
+      summary: Return metadata about an instance.
+      operationId: getMetadata
+      responses:
+        200:
+          description: The instance metadata.
+          schema:
+            $ref: '#/definitions/InstanceMetadata'
+        default:
+          description: Unexpected error.
+          schema:
+            $ref: '#/definitions/Error'
+
+definitions:
+  NodeInfo:
+    description: Node information for this instance.
+    properties:
+      nr_huge_pages:
+        type: integer
+        format: int32
+        description: The number of 2MiB pages of memory in this instance.
+      cores:
+        type: integer
+        format: int32
+        description: The number of CPU cores in this instance.
+      cpu_features:
+        type: integer
+        format: int64
+        description: Bitmask for the active CPU features in this instance.
+
+  InstanceMetadata:
+    description: Instance metadata or metainformation.
+    properties:
+      virt_id:
+        type: integer
+        format: int64
+        description: The numeric instance-id.
+      account_id:
+        type: string
+        description: The AWS account ID of the instance's owner
+      instance_type:
+        type: string
+        description: The instance type - e.g. 'm3.xlarge', etc.
+      image_id:
+        type: integer
+        format: int64
+        description: The numeric image id (ami) of the instance.
+      detailed_monitoring:
+        type: boolean
+        description: True for enabling detailed monitoring
+
+  InstanceInfo:
+    properties:
+      instance_id:
+        type: string
+      state:
+        description: |
+          The current detailed state of the Firecracker instance. This value is
+          read-only by the control-plane.
+        type: string
+        enum:
+          - Initializing
+          - Initialized
+          - Starting
+          - Running
+          - Pausing
+          - Paused
+          - Unpausing
+          - Halting
+          - Halted
+          - Rebooting
+          - Resetting
+          - Reset
+          - Terminating
+          - Terminated
+          - Destroying
+          - Destroyed
+      node_info:
+        $ref: '#/definitions/NodeInfo'
+
+  Error:
+    properties:
+      faultMessage:
+        type: string
+        description: A description of the error condition.
