@@ -1,3 +1,4 @@
+extern crate libc;
 extern crate sys_util;
 extern crate kvm_sys;
 extern crate kvm;
@@ -11,10 +12,14 @@ pub mod machine;
 use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::{self, stdout, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Barrier, Mutex};
+use std::thread;
+use std::thread::{JoinHandle};
 use kvm::*;
 use kvm_sys::kvm_regs;
-use sys_util::{EventFd, GuestAddress, GuestMemory};
+use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory,
+               Killable, Pollable, Poller};
 use machine::MachineCfg;
 
 const KERNEL_START_OFFSET: usize = 0x200000;
@@ -28,6 +33,7 @@ pub enum Error {
     KernelLoader(kernel_loader::Error),
     Kvm(sys_util::Error),
     Vcpu(sys_util::Error),
+    VcpuSpawn(std::io::Error),
     Vm(sys_util::Error),
 }
 
@@ -97,16 +103,6 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
                              cmdline.to_bytes().len() + 1,
                              vcpu_count as u8)?;
 
-
-    let vcpu = Vcpu::new(0, &kvm, &vm).map_err(Error::Vcpu)?;
-
-    x86_64::configure_vcpu(vm.get_memory(),
-                           kernel_start_addr,
-                           &kvm,
-                           &vcpu,
-                           0,
-                           vcpu_count as u64)?;
-
     let mut io_bus = devices::Bus::new();
     let com_evt = EventFd::new().map_err(Error::EventFd)?;
     let stdio_serial =
@@ -114,32 +110,123 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
                     devices::Serial::new_out(com_evt, Box::new(stdout()))));
     io_bus.insert(stdio_serial, 0x3f8, 0x8).unwrap();
 
-    loop {
-        match vcpu.run().map_err(Error::Vcpu)? {
-            VcpuExit::IoIn(_addr, _data) => {
-                io_bus.read(_addr as u64, _data);
-            },
-            VcpuExit::IoOut(_addr, _data) => {
-                io_bus.write(_addr as u64, _data);
-            },
-            VcpuExit::MmioRead(_addr, _data) => {
-                //mmio_bus.read(addr, data);
-            },
-            VcpuExit::MmioWrite(_addr, _data) => {
-                //mmio_bus.write(addr, data);
-            },
-            VcpuExit::Hlt => {
-                println!("KVM_EXIT_HLT");
-                break;
-            },
-            VcpuExit::Shutdown => {
-                println!("KVM_EXIT_SHUTDOWN");
-                break;
-            },
-            r => {
-                println!("unexpected exit reason: {:?}", r);
+    let exit_evt = EventFd::new().map_err(Error::EventFd)?;
+    let mut vcpu_handles = Vec::with_capacity(vcpu_count as usize);
+    let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
+    let kill_signaled = Arc::new(AtomicBool::new(false));
+
+    for cpu_id in 0..vcpu_count {
+        let io_bus = io_bus.clone();
+        let kill_signaled = kill_signaled.clone();
+        let vcpu_thread_barrier = vcpu_thread_barrier.clone();
+        let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
+
+        let vcpu = Vcpu::new(cpu_id as libc::c_ulong, &kvm, &vm).map_err(Error::Vcpu)?;
+        x86_64::configure_vcpu(vm.get_memory(), kernel_start_addr, &kvm,
+                               &vcpu, cpu_id as u64, vcpu_count as u64)?;
+        vcpu_handles.push(thread::Builder::new()
+                .name(format!("fc_vcpu{}", cpu_id))
+                .spawn(move || {
+            unsafe {
+                extern "C" fn handle_signal() {}
+                // Our signal handler does nothing and is trivially async signal safe.
+                register_signal_handler(0, handle_signal)
+                        .expect("failed to register vcpu signal handler");
+            }
+
+            vcpu_thread_barrier.wait();
+
+            loop {
+                match vcpu.run() {
+                    Ok(run) => match run {
+                        VcpuExit::IoIn(addr, data) => {
+                            io_bus.read(addr as u64, data);
+                        },
+                        VcpuExit::IoOut(addr, data) => {
+                            io_bus.write(addr as u64, data);
+                        },
+                        VcpuExit::MmioRead(_, _) => {},
+                        VcpuExit::MmioWrite(_, _) => {},
+                        VcpuExit::Hlt => {
+                            println!("KVM_EXIT_HLT");
+                            break;
+                        },
+                        VcpuExit::Shutdown => {
+                            println!("KVM_EXIT_SHUTDOWN");
+                            break;
+                        },
+                        r => {
+                            println!("unexpected exit reason: {:?}", r);
+                            break;
+                        }
+                    },
+                    Err(e) => {
+                        match e.errno() {
+                            libc::EAGAIN | libc::EINTR => {},
+                            _ => {
+                                println!("vcpu hit unknown error: {:?}", e);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if kill_signaled.load(Ordering::SeqCst) {
+                    break;
+                }
+            }
+
+            vcpu_exit_evt
+                .write(1)
+                .expect("failed to signal vcpu exit eventfd");
+
+        }).map_err(Error::VcpuSpawn)?);
+    }
+
+    vcpu_thread_barrier.wait();
+
+    run_control(exit_evt, kill_signaled, vcpu_handles)
+}
+
+fn run_control(exit_evt: EventFd,
+               kill_signaled: Arc<AtomicBool>,
+               vcpu_handles: Vec<JoinHandle<()>>) -> Result<()> {
+    const EXIT: u32 = 0;
+
+    let mut pollables = Vec::new();
+    pollables.push((EXIT, &exit_evt as &Pollable));
+
+    let mut poller = Poller::new(pollables.len());
+
+    'poll: loop {
+        let tokens = match poller.poll(&pollables[..]) {
+            Ok(v) => v,
+            Err(e) => {
+                println!("failed to poll: {:?}", e);
                 break;
             }
+        };
+
+        for &token in tokens {
+            match token {
+                EXIT => {
+                    println!("vcpu requested shutdown");
+                    break 'poll;
+                },
+                _ => {}
+            }
+        }
+    }
+
+    kill_signaled.store(true, Ordering::SeqCst);
+    for handle in vcpu_handles {
+        match handle.kill(0) {
+            Ok(_) => {
+                if let Err(e) = handle.join() {
+                    println!("failed to join vcpu thread: {:?}", e);
+                }
+            },
+            Err(e) => println!("failed to kill vcpu thread: {:?}", e),
         }
     }
 
