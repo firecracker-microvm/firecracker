@@ -25,6 +25,7 @@ use machine::MachineCfg;
 const KERNEL_START_OFFSET: usize = 0x200000;
 const CMDLINE_OFFSET: usize = 0x20000;
 
+#[derive(Debug)]
 pub enum Error {
     ConfigureSystem(x86_64::Error),
     EventFd(sys_util::Error),
