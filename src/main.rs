@@ -27,5 +27,5 @@ fn main() {
     let mut cfg = MachineCfg::new();
     cfg.populate(matches).expect("parsing arguments failed");
 
-    boot_kernel(&cfg).ok().expect("cannot boot kernel");
+    boot_kernel(&cfg).expect("cannot boot kernel");
 }
