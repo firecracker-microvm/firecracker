@@ -29,6 +29,7 @@ pub enum Error {
     ConfigureSystem(x86_64::Error),
     EventFd(sys_util::Error),
     GuestMemory(sys_util::GuestMemoryError),
+    Irq(sys_util::Error),
     Kernel(std::io::Error),
     KernelLoader(kernel_loader::Error),
     Kvm(sys_util::Error),
@@ -104,11 +105,27 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
                              vcpu_count as u8)?;
 
     let mut io_bus = devices::Bus::new();
-    let com_evt = EventFd::new().map_err(Error::EventFd)?;
-    let stdio_serial =
-        Arc::new(Mutex::new(
-                    devices::Serial::new_out(com_evt, Box::new(stdout()))));
+    let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
+    let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
+    let stdio_serial = Arc::new(Mutex::new(devices::Serial::new_out(
+            com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+            Box::new(stdout()))));
+
     io_bus.insert(stdio_serial, 0x3f8, 0x8).unwrap();
+    io_bus.insert(Arc::new(Mutex::new(devices::Serial::new_sink(
+            com_evt_2_4.try_clone().map_err(Error::EventFd)?))), 0x2f8, 0x8)
+            .unwrap();
+    io_bus.insert(Arc::new(Mutex::new(devices::Serial::new_sink(
+            com_evt_1_3.try_clone().map_err(Error::EventFd)?))), 0x3e8, 0x8)
+            .unwrap();
+    io_bus.insert(Arc::new(Mutex::new(devices::Serial::new_sink(
+            com_evt_2_4.try_clone().map_err(Error::EventFd)?))), 0x2e8, 0x8)
+            .unwrap();
+
+    vm.register_irqfd(&com_evt_1_3, 4)
+            .map_err(Error::Irq)?;
+    vm.register_irqfd(&com_evt_2_4, 3)
+            .map_err(Error::Irq)?;
 
     let exit_evt = EventFd::new().map_err(Error::EventFd)?;
     let mut vcpu_handles = Vec::with_capacity(vcpu_count as usize);
