@@ -159,6 +159,91 @@ paths:
           schema:
             $ref: '#/definitions/Error'
 
+  /network-interfaces:
+    get:
+      summary: "All guest network interfaces"
+      description: "Returns list of guest network interfaces."
+      operationId: "getGuestNetworkInterfaces"
+      responses:
+        205:
+          description: List of guest network interfaces
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/NetworkInterface"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+  /network-interfaces/{iface_id}:
+    get:
+      summary: "Get guest network interface by 'iface_id' path parameter."
+      operationId: "getGuestNetworkInterfaceByID"
+      parameters:
+      - name: "iface_id"
+        in: path
+        description: "The id of the guest network interface."
+        required: true
+        type: string
+      responses:
+        205:
+          description: Specified network interface.
+          schema:
+            $ref: "#/definitions/NetworkInterface"
+        404:
+          description: Network interface does not exist.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+    put:
+      summary: "Creates new network interface with ID specified by 'iface_id' path parameter.
+                If network interface with specified ID already exists,
+                updates its state based on new input. May fail if update is not possible."
+      operationId: "putGuestNetworkInterfaceByID"
+      parameters:
+      - name: "iface_id"
+        in: path
+        description: "The id of the guest network interface."
+        required: true
+        type: string
+      - name: "body"
+        in: body
+        description: "Guest network interface properties"
+        required: true
+        schema:
+          $ref: "#/definitions/NetworkInterface"
+      responses:
+        201:
+          description: Network interface created.
+        400:
+          description: Network interface cannot be created due to bad input.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+    delete:
+      summary: "Deletes network interface with ID specified by 'iface_id' path parameter.
+                Will clean up any resources associated with this network interface."
+      operationId: "deleteGuestNetworkInterfaceByID"
+      parameters:
+      - name: "iface_id"
+        in: path
+        description: "The id of guest network interface to delete."
+        required: true
+        type: string
+      responses:
+        202:
+          description: Network interface deleted.
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+
 definitions:
   DeviceState:
     type: string
@@ -176,6 +261,20 @@ definitions:
       path_on_host:
         type: string
         description: "host level path for the guest drive"
+      state:
+        $ref: '#/definitions/DeviceState'
+  NetworkInterface:
+    type: object
+    required:
+      - iface_id
+    properties:
+      iface_id:
+        type: string
+      mac:
+        type: string
+      path_on_host:
+        type: string
+        description: "host level path for the guest network interface"
       state:
         $ref: '#/definitions/DeviceState'
 
