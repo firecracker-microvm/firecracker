@@ -19,7 +19,7 @@ use std::thread::{JoinHandle};
 use kvm::*;
 use kvm_sys::kvm_regs;
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory,
-               Killable, Pollable, Poller};
+               Killable, Pollable, Poller, Terminal};
 use machine::MachineCfg;
 
 const KERNEL_START_OFFSET: usize = 0x200000;
@@ -111,7 +111,7 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
             com_evt_1_3.try_clone().map_err(Error::EventFd)?,
             Box::new(stdout()))));
 
-    io_bus.insert(stdio_serial, 0x3f8, 0x8).unwrap();
+    io_bus.insert(stdio_serial.clone(), 0x3f8, 0x8).unwrap();
     io_bus.insert(Arc::new(Mutex::new(devices::Serial::new_sink(
             com_evt_2_4.try_clone().map_err(Error::EventFd)?))), 0x2f8, 0x8)
             .unwrap();
@@ -202,16 +202,25 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
 
     vcpu_thread_barrier.wait();
 
-    run_control(exit_evt, kill_signaled, vcpu_handles)
+    run_control(stdio_serial, exit_evt, kill_signaled, vcpu_handles)
 }
 
-fn run_control(exit_evt: EventFd,
+fn run_control(stdio_serial: Arc<Mutex<devices::Serial>>,
+               exit_evt: EventFd,
                kill_signaled: Arc<AtomicBool>,
                vcpu_handles: Vec<JoinHandle<()>>) -> Result<()> {
     const EXIT: u32 = 0;
+    const STDIN: u32 = 1;
+
+    let stdin_handle = io::stdin();
+    let stdin_lock = stdin_handle.lock();
+    stdin_lock
+            .set_raw_mode()
+            .expect("failed to set terminal raw mode");
 
     let mut pollables = Vec::new();
     pollables.push((EXIT, &exit_evt as &Pollable));
+    pollables.push((STDIN, &stdin_lock as &Pollable));
 
     let mut poller = Poller::new(pollables.len());
 
@@ -230,6 +239,26 @@ fn run_control(exit_evt: EventFd,
                     println!("vcpu requested shutdown");
                     break 'poll;
                 },
+                STDIN => {
+                    let mut out = [0u8; 64];
+                    match stdin_lock.read_raw(&mut out[..]) {
+                        Ok(0) => {
+                            // Zero-length read indicates EOF. Remove from pollables.
+                            pollables.retain(|&pollable| pollable.0 != STDIN);
+                        },
+                        Err(e) => {
+                            println!("error while reading stdin: {:?}", e);
+                            pollables.retain(|&pollable| pollable.0 != STDIN);
+                        },
+                        Ok(count) => {
+                            stdio_serial
+                                    .lock()
+                                    .unwrap()
+                                    .queue_input_bytes(&out[..count])
+                                    .expect("failed to queue bytes into serial port");
+                        },
+                    }
+                }
                 _ => {}
             }
         }
@@ -246,6 +275,10 @@ fn run_control(exit_evt: EventFd,
             Err(e) => println!("failed to kill vcpu thread: {:?}", e),
         }
     }
+
+    stdin_lock
+            .set_canon_mode()
+            .expect("failed to restore canonical mode for terminal");
 
     Ok(())
 }
