@@ -27,7 +27,7 @@ paths:
       description: "Returns list of guest storage drives."
       operationId: "getGuestDrives"
       responses:
-        205:
+        200:
           description: List of guest drives
           schema:
             type: array
@@ -48,7 +48,7 @@ paths:
         required: true
         type: string
       responses:
-        205:
+        200:
           description: Specified drive.
           schema:
             $ref: "#/definitions/Drive"
@@ -79,6 +79,8 @@ paths:
       responses:
         201:
           description: Drive created.
+        204:
+          description: Drive updated.
         400:
           description: Drive cannot be created due to bad input.
           schema:
@@ -100,6 +102,58 @@ paths:
       responses:
         202:
           description: Drive deleted.
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+  /drives/{drive_id}/limiters:
+    get:
+      summary: Retrieves list of limiters IDs currently applied to the drive with 'drive_id'.
+      operationId: "getLimitersForGuestDrive"
+      parameters:
+      - name: "drive_id"
+        in: path
+        description: "The id of the guest drive to get limiters for."
+        required: true
+        type: string
+      responses:
+        200:
+          description: List of limiters IDs currently applied to this drive.
+          schema:
+            type: array
+            items:
+              type: integer
+              format: int32
+        404:
+          description: Drive does not exist.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+  /drives/{drive_id}/limiters/{limiter_id}:
+    put:
+      summary: Applies limiter 'limiter_id' to drive 'drive_id'
+      operationId: applyLimiterToDrive
+      parameters:
+      - name: "drive_id"
+        in: path
+        description: "The id of the guest drive to apply limiter 'limiter_id' to."
+        required: true
+        type: string
+      - name: "limiter_id"
+        in: path
+        description: "The id of the limiter to be applied to drive 'drive_id'."
+        required: true
+        type: string
+      responses:
+        200:
+          description: Limiter applied.
+        400:
+          description: Limiter cannot be applied due to bad input.
+          schema:
+            $ref: '#/definitions/Error'
         default:
           description: Internal server error.
           schema:
