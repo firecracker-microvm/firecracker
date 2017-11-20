@@ -52,72 +52,116 @@ pub struct mpf_intel {
 }
 #[test]
 fn bindgen_test_layout_mpf_intel() {
-    assert_eq!(::std::mem::size_of::<mpf_intel>(),
-               16usize,
-               concat!("Size of: ", stringify!(mpf_intel)));
-    assert_eq!(::std::mem::align_of::<mpf_intel>(),
-               4usize,
-               concat!("Alignment of ", stringify!(mpf_intel)));
-    assert_eq!(unsafe { &(*(0 as *const mpf_intel)).signature as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpf_intel),
-                       "::",
-                       stringify!(signature)));
-    assert_eq!(unsafe { &(*(0 as *const mpf_intel)).physptr as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpf_intel),
-                       "::",
-                       stringify!(physptr)));
-    assert_eq!(unsafe { &(*(0 as *const mpf_intel)).length as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpf_intel),
-                       "::",
-                       stringify!(length)));
-    assert_eq!(unsafe { &(*(0 as *const mpf_intel)).specification as *const _ as usize },
-               9usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpf_intel),
-                       "::",
-                       stringify!(specification)));
-    assert_eq!(unsafe { &(*(0 as *const mpf_intel)).checksum as *const _ as usize },
-               10usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpf_intel),
-                       "::",
-                       stringify!(checksum)));
-    assert_eq!(unsafe { &(*(0 as *const mpf_intel)).feature1 as *const _ as usize },
-               11usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpf_intel),
-                       "::",
-                       stringify!(feature1)));
-    assert_eq!(unsafe { &(*(0 as *const mpf_intel)).feature2 as *const _ as usize },
-               12usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpf_intel),
-                       "::",
-                       stringify!(feature2)));
-    assert_eq!(unsafe { &(*(0 as *const mpf_intel)).feature3 as *const _ as usize },
-               13usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpf_intel),
-                       "::",
-                       stringify!(feature3)));
-    assert_eq!(unsafe { &(*(0 as *const mpf_intel)).feature4 as *const _ as usize },
-               14usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpf_intel),
-                       "::",
-                       stringify!(feature4)));
-    assert_eq!(unsafe { &(*(0 as *const mpf_intel)).feature5 as *const _ as usize },
-               15usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpf_intel),
-                       "::",
-                       stringify!(feature5)));
+    assert_eq!(
+        ::std::mem::size_of::<mpf_intel>(),
+        16usize,
+        concat!("Size of: ", stringify!(mpf_intel))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<mpf_intel>(),
+        4usize,
+        concat!("Alignment of ", stringify!(mpf_intel))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpf_intel)).signature as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpf_intel),
+            "::",
+            stringify!(signature)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpf_intel)).physptr as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpf_intel),
+            "::",
+            stringify!(physptr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpf_intel)).length as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpf_intel),
+            "::",
+            stringify!(length)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpf_intel)).specification as *const _ as usize },
+        9usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpf_intel),
+            "::",
+            stringify!(specification)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpf_intel)).checksum as *const _ as usize },
+        10usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpf_intel),
+            "::",
+            stringify!(checksum)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpf_intel)).feature1 as *const _ as usize },
+        11usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpf_intel),
+            "::",
+            stringify!(feature1)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpf_intel)).feature2 as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpf_intel),
+            "::",
+            stringify!(feature2)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpf_intel)).feature3 as *const _ as usize },
+        13usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpf_intel),
+            "::",
+            stringify!(feature3)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpf_intel)).feature4 as *const _ as usize },
+        14usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpf_intel),
+            "::",
+            stringify!(feature4)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpf_intel)).feature5 as *const _ as usize },
+        15usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpf_intel),
+            "::",
+            stringify!(feature5)
+        )
+    );
 }
 impl Clone for mpf_intel {
     fn clone(&self) -> Self {
@@ -141,78 +185,126 @@ pub struct mpc_table {
 }
 #[test]
 fn bindgen_test_layout_mpc_table() {
-    assert_eq!(::std::mem::size_of::<mpc_table>(),
-               44usize,
-               concat!("Size of: ", stringify!(mpc_table)));
-    assert_eq!(::std::mem::align_of::<mpc_table>(),
-               4usize,
-               concat!("Alignment of ", stringify!(mpc_table)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_table)).signature as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_table),
-                       "::",
-                       stringify!(signature)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_table)).length as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_table),
-                       "::",
-                       stringify!(length)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_table)).spec as *const _ as usize },
-               6usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_table),
-                       "::",
-                       stringify!(spec)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_table)).checksum as *const _ as usize },
-               7usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_table),
-                       "::",
-                       stringify!(checksum)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_table)).oem as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_table),
-                       "::",
-                       stringify!(oem)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_table)).productid as *const _ as usize },
-               16usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_table),
-                       "::",
-                       stringify!(productid)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_table)).oemptr as *const _ as usize },
-               28usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_table),
-                       "::",
-                       stringify!(oemptr)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_table)).oemsize as *const _ as usize },
-               32usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_table),
-                       "::",
-                       stringify!(oemsize)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_table)).oemcount as *const _ as usize },
-               34usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_table),
-                       "::",
-                       stringify!(oemcount)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_table)).lapic as *const _ as usize },
-               36usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_table),
-                       "::",
-                       stringify!(lapic)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_table)).reserved as *const _ as usize },
-               40usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_table),
-                       "::",
-                       stringify!(reserved)));
+    assert_eq!(
+        ::std::mem::size_of::<mpc_table>(),
+        44usize,
+        concat!("Size of: ", stringify!(mpc_table))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<mpc_table>(),
+        4usize,
+        concat!("Alignment of ", stringify!(mpc_table))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_table)).signature as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_table),
+            "::",
+            stringify!(signature)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_table)).length as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_table),
+            "::",
+            stringify!(length)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_table)).spec as *const _ as usize },
+        6usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_table),
+            "::",
+            stringify!(spec)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_table)).checksum as *const _ as usize },
+        7usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_table),
+            "::",
+            stringify!(checksum)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_table)).oem as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_table),
+            "::",
+            stringify!(oem)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_table)).productid as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_table),
+            "::",
+            stringify!(productid)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_table)).oemptr as *const _ as usize },
+        28usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_table),
+            "::",
+            stringify!(oemptr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_table)).oemsize as *const _ as usize },
+        32usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_table),
+            "::",
+            stringify!(oemsize)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_table)).oemcount as *const _ as usize },
+        34usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_table),
+            "::",
+            stringify!(oemcount)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_table)).lapic as *const _ as usize },
+        36usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_table),
+            "::",
+            stringify!(lapic)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_table)).reserved as *const _ as usize },
+        40usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_table),
+            "::",
+            stringify!(reserved)
+        )
+    );
 }
 impl Clone for mpc_table {
     fn clone(&self) -> Self {
@@ -232,54 +324,86 @@ pub struct mpc_cpu {
 }
 #[test]
 fn bindgen_test_layout_mpc_cpu() {
-    assert_eq!(::std::mem::size_of::<mpc_cpu>(),
-               20usize,
-               concat!("Size of: ", stringify!(mpc_cpu)));
-    assert_eq!(::std::mem::align_of::<mpc_cpu>(),
-               4usize,
-               concat!("Alignment of ", stringify!(mpc_cpu)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_cpu)).type_ as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_cpu),
-                       "::",
-                       stringify!(type_)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_cpu)).apicid as *const _ as usize },
-               1usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_cpu),
-                       "::",
-                       stringify!(apicid)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_cpu)).apicver as *const _ as usize },
-               2usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_cpu),
-                       "::",
-                       stringify!(apicver)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_cpu)).cpuflag as *const _ as usize },
-               3usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_cpu),
-                       "::",
-                       stringify!(cpuflag)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_cpu)).cpufeature as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_cpu),
-                       "::",
-                       stringify!(cpufeature)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_cpu)).featureflag as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_cpu),
-                       "::",
-                       stringify!(featureflag)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_cpu)).reserved as *const _ as usize },
-               12usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_cpu),
-                       "::",
-                       stringify!(reserved)));
+    assert_eq!(
+        ::std::mem::size_of::<mpc_cpu>(),
+        20usize,
+        concat!("Size of: ", stringify!(mpc_cpu))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<mpc_cpu>(),
+        4usize,
+        concat!("Alignment of ", stringify!(mpc_cpu))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_cpu)).type_ as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_cpu),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_cpu)).apicid as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_cpu),
+            "::",
+            stringify!(apicid)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_cpu)).apicver as *const _ as usize },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_cpu),
+            "::",
+            stringify!(apicver)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_cpu)).cpuflag as *const _ as usize },
+        3usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_cpu),
+            "::",
+            stringify!(cpuflag)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_cpu)).cpufeature as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_cpu),
+            "::",
+            stringify!(cpufeature)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_cpu)).featureflag as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_cpu),
+            "::",
+            stringify!(featureflag)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_cpu)).reserved as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_cpu),
+            "::",
+            stringify!(reserved)
+        )
+    );
 }
 impl Clone for mpc_cpu {
     fn clone(&self) -> Self {
@@ -295,30 +419,46 @@ pub struct mpc_bus {
 }
 #[test]
 fn bindgen_test_layout_mpc_bus() {
-    assert_eq!(::std::mem::size_of::<mpc_bus>(),
-               8usize,
-               concat!("Size of: ", stringify!(mpc_bus)));
-    assert_eq!(::std::mem::align_of::<mpc_bus>(),
-               1usize,
-               concat!("Alignment of ", stringify!(mpc_bus)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_bus)).type_ as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_bus),
-                       "::",
-                       stringify!(type_)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_bus)).busid as *const _ as usize },
-               1usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_bus),
-                       "::",
-                       stringify!(busid)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_bus)).bustype as *const _ as usize },
-               2usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_bus),
-                       "::",
-                       stringify!(bustype)));
+    assert_eq!(
+        ::std::mem::size_of::<mpc_bus>(),
+        8usize,
+        concat!("Size of: ", stringify!(mpc_bus))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<mpc_bus>(),
+        1usize,
+        concat!("Alignment of ", stringify!(mpc_bus))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_bus)).type_ as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_bus),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_bus)).busid as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_bus),
+            "::",
+            stringify!(busid)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_bus)).bustype as *const _ as usize },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_bus),
+            "::",
+            stringify!(bustype)
+        )
+    );
 }
 impl Clone for mpc_bus {
     fn clone(&self) -> Self {
@@ -336,42 +476,66 @@ pub struct mpc_ioapic {
 }
 #[test]
 fn bindgen_test_layout_mpc_ioapic() {
-    assert_eq!(::std::mem::size_of::<mpc_ioapic>(),
-               8usize,
-               concat!("Size of: ", stringify!(mpc_ioapic)));
-    assert_eq!(::std::mem::align_of::<mpc_ioapic>(),
-               4usize,
-               concat!("Alignment of ", stringify!(mpc_ioapic)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_ioapic)).type_ as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_ioapic),
-                       "::",
-                       stringify!(type_)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_ioapic)).apicid as *const _ as usize },
-               1usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_ioapic),
-                       "::",
-                       stringify!(apicid)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_ioapic)).apicver as *const _ as usize },
-               2usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_ioapic),
-                       "::",
-                       stringify!(apicver)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_ioapic)).flags as *const _ as usize },
-               3usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_ioapic),
-                       "::",
-                       stringify!(flags)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_ioapic)).apicaddr as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_ioapic),
-                       "::",
-                       stringify!(apicaddr)));
+    assert_eq!(
+        ::std::mem::size_of::<mpc_ioapic>(),
+        8usize,
+        concat!("Size of: ", stringify!(mpc_ioapic))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<mpc_ioapic>(),
+        4usize,
+        concat!("Alignment of ", stringify!(mpc_ioapic))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_ioapic)).type_ as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_ioapic),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_ioapic)).apicid as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_ioapic),
+            "::",
+            stringify!(apicid)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_ioapic)).apicver as *const _ as usize },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_ioapic),
+            "::",
+            stringify!(apicver)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_ioapic)).flags as *const _ as usize },
+        3usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_ioapic),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_ioapic)).apicaddr as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_ioapic),
+            "::",
+            stringify!(apicaddr)
+        )
+    );
 }
 impl Clone for mpc_ioapic {
     fn clone(&self) -> Self {
@@ -391,54 +555,86 @@ pub struct mpc_intsrc {
 }
 #[test]
 fn bindgen_test_layout_mpc_intsrc() {
-    assert_eq!(::std::mem::size_of::<mpc_intsrc>(),
-               8usize,
-               concat!("Size of: ", stringify!(mpc_intsrc)));
-    assert_eq!(::std::mem::align_of::<mpc_intsrc>(),
-               2usize,
-               concat!("Alignment of ", stringify!(mpc_intsrc)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_intsrc)).type_ as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_intsrc),
-                       "::",
-                       stringify!(type_)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_intsrc)).irqtype as *const _ as usize },
-               1usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_intsrc),
-                       "::",
-                       stringify!(irqtype)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_intsrc)).irqflag as *const _ as usize },
-               2usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_intsrc),
-                       "::",
-                       stringify!(irqflag)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_intsrc)).srcbus as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_intsrc),
-                       "::",
-                       stringify!(srcbus)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_intsrc)).srcbusirq as *const _ as usize },
-               5usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_intsrc),
-                       "::",
-                       stringify!(srcbusirq)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_intsrc)).dstapic as *const _ as usize },
-               6usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_intsrc),
-                       "::",
-                       stringify!(dstapic)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_intsrc)).dstirq as *const _ as usize },
-               7usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_intsrc),
-                       "::",
-                       stringify!(dstirq)));
+    assert_eq!(
+        ::std::mem::size_of::<mpc_intsrc>(),
+        8usize,
+        concat!("Size of: ", stringify!(mpc_intsrc))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<mpc_intsrc>(),
+        2usize,
+        concat!("Alignment of ", stringify!(mpc_intsrc))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_intsrc)).type_ as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_intsrc),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_intsrc)).irqtype as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_intsrc),
+            "::",
+            stringify!(irqtype)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_intsrc)).irqflag as *const _ as usize },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_intsrc),
+            "::",
+            stringify!(irqflag)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_intsrc)).srcbus as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_intsrc),
+            "::",
+            stringify!(srcbus)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_intsrc)).srcbusirq as *const _ as usize },
+        5usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_intsrc),
+            "::",
+            stringify!(srcbusirq)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_intsrc)).dstapic as *const _ as usize },
+        6usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_intsrc),
+            "::",
+            stringify!(dstapic)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_intsrc)).dstirq as *const _ as usize },
+        7usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_intsrc),
+            "::",
+            stringify!(dstirq)
+        )
+    );
 }
 impl Clone for mpc_intsrc {
     fn clone(&self) -> Self {
@@ -463,54 +659,86 @@ pub struct mpc_lintsrc {
 }
 #[test]
 fn bindgen_test_layout_mpc_lintsrc() {
-    assert_eq!(::std::mem::size_of::<mpc_lintsrc>(),
-               8usize,
-               concat!("Size of: ", stringify!(mpc_lintsrc)));
-    assert_eq!(::std::mem::align_of::<mpc_lintsrc>(),
-               2usize,
-               concat!("Alignment of ", stringify!(mpc_lintsrc)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_lintsrc)).type_ as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_lintsrc),
-                       "::",
-                       stringify!(type_)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_lintsrc)).irqtype as *const _ as usize },
-               1usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_lintsrc),
-                       "::",
-                       stringify!(irqtype)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_lintsrc)).irqflag as *const _ as usize },
-               2usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_lintsrc),
-                       "::",
-                       stringify!(irqflag)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_lintsrc)).srcbusid as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_lintsrc),
-                       "::",
-                       stringify!(srcbusid)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_lintsrc)).srcbusirq as *const _ as usize },
-               5usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_lintsrc),
-                       "::",
-                       stringify!(srcbusirq)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_lintsrc)).destapic as *const _ as usize },
-               6usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_lintsrc),
-                       "::",
-                       stringify!(destapic)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_lintsrc)).destapiclint as *const _ as usize },
-               7usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_lintsrc),
-                       "::",
-                       stringify!(destapiclint)));
+    assert_eq!(
+        ::std::mem::size_of::<mpc_lintsrc>(),
+        8usize,
+        concat!("Size of: ", stringify!(mpc_lintsrc))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<mpc_lintsrc>(),
+        2usize,
+        concat!("Alignment of ", stringify!(mpc_lintsrc))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_lintsrc)).type_ as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_lintsrc),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_lintsrc)).irqtype as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_lintsrc),
+            "::",
+            stringify!(irqtype)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_lintsrc)).irqflag as *const _ as usize },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_lintsrc),
+            "::",
+            stringify!(irqflag)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_lintsrc)).srcbusid as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_lintsrc),
+            "::",
+            stringify!(srcbusid)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_lintsrc)).srcbusirq as *const _ as usize },
+        5usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_lintsrc),
+            "::",
+            stringify!(srcbusirq)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_lintsrc)).destapic as *const _ as usize },
+        6usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_lintsrc),
+            "::",
+            stringify!(destapic)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_lintsrc)).destapiclint as *const _ as usize },
+        7usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_lintsrc),
+            "::",
+            stringify!(destapiclint)
+        )
+    );
 }
 impl Clone for mpc_lintsrc {
     fn clone(&self) -> Self {
@@ -528,42 +756,66 @@ pub struct mpc_oemtable {
 }
 #[test]
 fn bindgen_test_layout_mpc_oemtable() {
-    assert_eq!(::std::mem::size_of::<mpc_oemtable>(),
-               16usize,
-               concat!("Size of: ", stringify!(mpc_oemtable)));
-    assert_eq!(::std::mem::align_of::<mpc_oemtable>(),
-               2usize,
-               concat!("Alignment of ", stringify!(mpc_oemtable)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_oemtable)).signature as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_oemtable),
-                       "::",
-                       stringify!(signature)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_oemtable)).length as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_oemtable),
-                       "::",
-                       stringify!(length)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_oemtable)).rev as *const _ as usize },
-               6usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_oemtable),
-                       "::",
-                       stringify!(rev)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_oemtable)).checksum as *const _ as usize },
-               7usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_oemtable),
-                       "::",
-                       stringify!(checksum)));
-    assert_eq!(unsafe { &(*(0 as *const mpc_oemtable)).mpc as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(mpc_oemtable),
-                       "::",
-                       stringify!(mpc)));
+    assert_eq!(
+        ::std::mem::size_of::<mpc_oemtable>(),
+        16usize,
+        concat!("Size of: ", stringify!(mpc_oemtable))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<mpc_oemtable>(),
+        2usize,
+        concat!("Alignment of ", stringify!(mpc_oemtable))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_oemtable)).signature as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_oemtable),
+            "::",
+            stringify!(signature)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_oemtable)).length as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_oemtable),
+            "::",
+            stringify!(length)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_oemtable)).rev as *const _ as usize },
+        6usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_oemtable),
+            "::",
+            stringify!(rev)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_oemtable)).checksum as *const _ as usize },
+        7usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_oemtable),
+            "::",
+            stringify!(checksum)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const mpc_oemtable)).mpc as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(mpc_oemtable),
+            "::",
+            stringify!(mpc)
+        )
+    );
 }
 impl Clone for mpc_oemtable {
     fn clone(&self) -> Self {

@@ -59,13 +59,17 @@ pub fn set_lint(vcpu: &kvm::Vcpu) -> Result<()> {
     let mut klapic = vcpu.get_lapic().map_err(Error::GetLapic)?;
 
     let lvt_lint0 = get_klapic_reg(&klapic, APIC_LVT0);
-    set_klapic_reg(&mut klapic,
-                   APIC_LVT0,
-                   set_apic_delivery_mode(lvt_lint0, APIC_MODE_EXTINT));
+    set_klapic_reg(
+        &mut klapic,
+        APIC_LVT0,
+        set_apic_delivery_mode(lvt_lint0, APIC_MODE_EXTINT),
+    );
     let lvt_lint1 = get_klapic_reg(&klapic, APIC_LVT1);
-    set_klapic_reg(&mut klapic,
-                   APIC_LVT1,
-                   set_apic_delivery_mode(lvt_lint1, APIC_MODE_NMI));
+    set_klapic_reg(
+        &mut klapic,
+        APIC_LVT1,
+        set_apic_delivery_mode(lvt_lint1, APIC_MODE_NMI),
+    );
 
     vcpu.set_lapic(&klapic).map_err(Error::SetLapic)
 }
