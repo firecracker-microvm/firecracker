@@ -15,11 +15,11 @@ use std::io::{self, stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
-use std::thread::{JoinHandle};
+use std::thread::JoinHandle;
 use kvm::*;
 use kvm_sys::kvm_regs;
-use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory,
-               Killable, Pollable, Poller, Terminal};
+use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Pollable,
+               Poller, Terminal};
 use machine::MachineCfg;
 
 const KERNEL_START_OFFSET: usize = 0x200000;
@@ -62,21 +62,24 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     let mut kernel_file;
     match cfg.kernel_path {
         Some(ref kernel_path) => {
-            kernel_file = File::open(kernel_path.as_path())
-                    .map_err(Error::Kernel)?
-        },
+            kernel_file = File::open(kernel_path.as_path()).map_err(Error::Kernel)?
+        }
         None => {
-            return Err(Error::Kernel(
-                    io::Error::new(io::ErrorKind::NotFound,
-                                   "missing kernel path")))
+            return Err(Error::Kernel(io::Error::new(
+                io::ErrorKind::NotFound,
+                "missing kernel path",
+            )))
         }
     }
 
     let cmdline: CString = match cfg.kernel_cmdline {
         Some(ref v) => CString::new(v.as_bytes()).unwrap(),
-        _ => return Err(Error::Kernel(
-                io::Error::new(io::ErrorKind::NotFound,
-                               "missing kernel cmdline")))
+        _ => {
+            return Err(Error::Kernel(io::Error::new(
+                io::ErrorKind::NotFound,
+                "missing kernel cmdline",
+            )))
+        }
     };
     let cmdline: &CStr = &cmdline;
     let vcpu_count = 1;
@@ -84,8 +87,9 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
     let cmdline_addr = GuestAddress(CMDLINE_OFFSET);
 
-    let guest_mem = GuestMemory::new(&arch_mem_regions)
-            .map_err(Error::GuestMemory)?;
+    let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(
+        Error::GuestMemory,
+    )?;
 
     let kvm = Kvm::new().map_err(Error::Kvm)?;
     let vm = Vm::new(&kvm, guest_mem).map_err(Error::Vm)?;
@@ -95,38 +99,56 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     vm.create_pit().map_err(Error::Vm)?;
     vm.create_irq_chip().map_err(Error::Vm)?;
 
-    kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr,
-                               &mut kernel_file)?;
+    kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr, &mut kernel_file)?;
     kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, cmdline)?;
 
-    x86_64::configure_system(vm.get_memory(),
-                             kernel_start_addr,
-                             cmdline_addr,
-                             cmdline.to_bytes().len() + 1,
-                             vcpu_count as u8)?;
+    x86_64::configure_system(
+        vm.get_memory(),
+        kernel_start_addr,
+        cmdline_addr,
+        cmdline.to_bytes().len() + 1,
+        vcpu_count as u8,
+    )?;
 
     let mut io_bus = devices::Bus::new();
     let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
     let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
     let stdio_serial = Arc::new(Mutex::new(devices::Serial::new_out(
-            com_evt_1_3.try_clone().map_err(Error::EventFd)?,
-            Box::new(stdout()))));
+        com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+        Box::new(stdout()),
+    )));
 
     io_bus.insert(stdio_serial.clone(), 0x3f8, 0x8).unwrap();
-    io_bus.insert(Arc::new(Mutex::new(devices::Serial::new_sink(
-            com_evt_2_4.try_clone().map_err(Error::EventFd)?))), 0x2f8, 0x8)
-            .unwrap();
-    io_bus.insert(Arc::new(Mutex::new(devices::Serial::new_sink(
-            com_evt_1_3.try_clone().map_err(Error::EventFd)?))), 0x3e8, 0x8)
-            .unwrap();
-    io_bus.insert(Arc::new(Mutex::new(devices::Serial::new_sink(
-            com_evt_2_4.try_clone().map_err(Error::EventFd)?))), 0x2e8, 0x8)
-            .unwrap();
+    io_bus
+        .insert(
+            Arc::new(Mutex::new(devices::Serial::new_sink(
+                com_evt_2_4.try_clone().map_err(Error::EventFd)?,
+            ))),
+            0x2f8,
+            0x8,
+        )
+        .unwrap();
+    io_bus
+        .insert(
+            Arc::new(Mutex::new(devices::Serial::new_sink(
+                com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+            ))),
+            0x3e8,
+            0x8,
+        )
+        .unwrap();
+    io_bus
+        .insert(
+            Arc::new(Mutex::new(devices::Serial::new_sink(
+                com_evt_2_4.try_clone().map_err(Error::EventFd)?,
+            ))),
+            0x2e8,
+            0x8,
+        )
+        .unwrap();
 
-    vm.register_irqfd(&com_evt_1_3, 4)
-            .map_err(Error::Irq)?;
-    vm.register_irqfd(&com_evt_2_4, 3)
-            .map_err(Error::Irq)?;
+    vm.register_irqfd(&com_evt_1_3, 4).map_err(Error::Irq)?;
+    vm.register_irqfd(&com_evt_2_4, 3).map_err(Error::Irq)?;
 
     let exit_evt = EventFd::new().map_err(Error::EventFd)?;
     let mut vcpu_handles = Vec::with_capacity(vcpu_count as usize);
@@ -139,66 +161,78 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
         let vcpu_thread_barrier = vcpu_thread_barrier.clone();
         let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
 
-        let vcpu = Vcpu::new(cpu_id as libc::c_ulong, &kvm, &vm).map_err(Error::Vcpu)?;
-        x86_64::configure_vcpu(vm.get_memory(), kernel_start_addr, &kvm,
-                               &vcpu, cpu_id as u64, vcpu_count as u64)?;
+        let vcpu = Vcpu::new(cpu_id as libc::c_ulong, &kvm, &vm).map_err(
+            Error::Vcpu,
+        )?;
+        x86_64::configure_vcpu(
+            vm.get_memory(),
+            kernel_start_addr,
+            &kvm,
+            &vcpu,
+            cpu_id as u64,
+            vcpu_count as u64,
+        )?;
         vcpu_handles.push(thread::Builder::new()
-                .name(format!("fc_vcpu{}", cpu_id))
-                .spawn(move || {
-            unsafe {
-                extern "C" fn handle_signal() {}
-                // Our signal handler does nothing and is trivially async signal safe.
-                register_signal_handler(0, handle_signal)
-                        .expect("failed to register vcpu signal handler");
-            }
+            .name(format!("fc_vcpu{}", cpu_id))
+            .spawn(move || {
+                unsafe {
+                    extern "C" fn handle_signal() {}
+                    // Our signal handler does nothing and is trivially async signal safe.
+                    register_signal_handler(0, handle_signal).expect(
+                        "failed to register vcpu signal handler",
+                    );
+                }
 
-            vcpu_thread_barrier.wait();
+                vcpu_thread_barrier.wait();
 
-            loop {
-                match vcpu.run() {
-                    Ok(run) => match run {
-                        VcpuExit::IoIn(addr, data) => {
-                            io_bus.read(addr as u64, data);
-                        },
-                        VcpuExit::IoOut(addr, data) => {
-                            io_bus.write(addr as u64, data);
-                        },
-                        VcpuExit::MmioRead(_, _) => {},
-                        VcpuExit::MmioWrite(_, _) => {},
-                        VcpuExit::Hlt => {
-                            println!("KVM_EXIT_HLT");
-                            break;
-                        },
-                        VcpuExit::Shutdown => {
-                            println!("KVM_EXIT_SHUTDOWN");
-                            break;
-                        },
-                        r => {
-                            println!("unexpected exit reason: {:?}", r);
-                            break;
+                loop {
+                    match vcpu.run() {
+                        Ok(run) => {
+                            match run {
+                                VcpuExit::IoIn(addr, data) => {
+                                    io_bus.read(addr as u64, data);
+                                }
+                                VcpuExit::IoOut(addr, data) => {
+                                    io_bus.write(addr as u64, data);
+                                }
+                                VcpuExit::MmioRead(_, _) => {}
+                                VcpuExit::MmioWrite(_, _) => {}
+                                VcpuExit::Hlt => {
+                                    println!("KVM_EXIT_HLT");
+                                    break;
+                                }
+                                VcpuExit::Shutdown => {
+                                    println!("KVM_EXIT_SHUTDOWN");
+                                    break;
+                                }
+                                r => {
+                                    println!("unexpected exit reason: {:?}", r);
+                                    break;
+                                }
+                            }
                         }
-                    },
-                    Err(e) => {
-                        match e.errno() {
-                            libc::EAGAIN | libc::EINTR => {},
-                            _ => {
-                                println!("vcpu hit unknown error: {:?}", e);
-                                break;
+                        Err(e) => {
+                            match e.errno() {
+                                libc::EAGAIN | libc::EINTR => {}
+                                _ => {
+                                    println!("vcpu hit unknown error: {:?}", e);
+                                    break;
+                                }
                             }
                         }
                     }
+
+                    if kill_signaled.load(Ordering::SeqCst) {
+                        break;
+                    }
                 }
 
-                if kill_signaled.load(Ordering::SeqCst) {
-                    break;
-                }
-            }
+                vcpu_exit_evt.write(1).expect(
+                    "failed to signal vcpu exit eventfd",
+                );
 
-            vcpu_exit_evt
-                .write(1)
-                .expect("failed to signal vcpu exit eventfd");
-
-        }).map_err(Error::VcpuSpawn)?);
+            })
+            .map_err(Error::VcpuSpawn)?);
     }
 
     vcpu_thread_barrier.wait();
@@ -206,18 +240,20 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     run_control(stdio_serial, exit_evt, kill_signaled, vcpu_handles)
 }
 
-fn run_control(stdio_serial: Arc<Mutex<devices::Serial>>,
-               exit_evt: EventFd,
-               kill_signaled: Arc<AtomicBool>,
-               vcpu_handles: Vec<JoinHandle<()>>) -> Result<()> {
+fn run_control(
+    stdio_serial: Arc<Mutex<devices::Serial>>,
+    exit_evt: EventFd,
+    kill_signaled: Arc<AtomicBool>,
+    vcpu_handles: Vec<JoinHandle<()>>,
+) -> Result<()> {
     const EXIT: u32 = 0;
     const STDIN: u32 = 1;
 
     let stdin_handle = io::stdin();
     let stdin_lock = stdin_handle.lock();
-    stdin_lock
-            .set_raw_mode()
-            .expect("failed to set terminal raw mode");
+    stdin_lock.set_raw_mode().expect(
+        "failed to set terminal raw mode",
+    );
 
     let mut pollables = Vec::new();
     pollables.push((EXIT, &exit_evt as &Pollable));
@@ -239,25 +275,25 @@ fn run_control(stdio_serial: Arc<Mutex<devices::Serial>>,
                 EXIT => {
                     println!("vcpu requested shutdown");
                     break 'poll;
-                },
+                }
                 STDIN => {
                     let mut out = [0u8; 64];
                     match stdin_lock.read_raw(&mut out[..]) {
                         Ok(0) => {
                             // Zero-length read indicates EOF. Remove from pollables.
                             pollables.retain(|&pollable| pollable.0 != STDIN);
-                        },
+                        }
                         Err(e) => {
                             println!("error while reading stdin: {:?}", e);
                             pollables.retain(|&pollable| pollable.0 != STDIN);
-                        },
+                        }
                         Ok(count) => {
                             stdio_serial
-                                    .lock()
-                                    .unwrap()
-                                    .queue_input_bytes(&out[..count])
-                                    .expect("failed to queue bytes into serial port");
-                        },
+                                .lock()
+                                .unwrap()
+                                .queue_input_bytes(&out[..count])
+                                .expect("failed to queue bytes into serial port");
+                        }
                     }
                 }
                 _ => {}
@@ -272,14 +308,14 @@ fn run_control(stdio_serial: Arc<Mutex<devices::Serial>>,
                 if let Err(e) = handle.join() {
                     println!("failed to join vcpu thread: {:?}", e);
                 }
-            },
+            }
             Err(e) => println!("failed to kill vcpu thread: {:?}", e),
         }
     }
 
-    stdin_lock
-            .set_canon_mode()
-            .expect("failed to restore canonical mode for terminal");
+    stdin_lock.set_canon_mode().expect(
+        "failed to restore canonical mode for terminal",
+    );
 
     Ok(())
 }
@@ -341,11 +377,11 @@ pub fn run_x86_code() {
             VcpuExit::IoOut(0x3f8, data) => {
                 assert_eq!(data.len(), 1);
                 io::stdout().write(data).unwrap();
-            },
+            }
             VcpuExit::Hlt => {
                 io::stdout().write(b"KVM_EXIT_HLT\n").unwrap();
-                break
-            },
+                break;
+            }
             r => panic!("unexpected exit reason: {:?}", r),
         }
     }
