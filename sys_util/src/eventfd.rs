@@ -37,9 +37,11 @@ impl EventFd {
         // This is safe because we made this fd and the pointer we pass can not overflow because we
         // give the syscall's size parameter properly.
         let ret = unsafe {
-            write(self.as_raw_fd(),
-                  &v as *const u64 as *const c_void,
-                  mem::size_of::<u64>())
+            write(
+                self.as_raw_fd(),
+                &v as *const u64 as *const c_void,
+                mem::size_of::<u64>(),
+            )
         };
         if ret <= 0 {
             return errno_result();
@@ -53,9 +55,11 @@ impl EventFd {
         let ret = unsafe {
             // This is safe because we made this fd and the pointer we pass can not overflow because
             // we give the syscall's size parameter properly.
-            read(self.as_raw_fd(),
-                 &mut buf as *mut u64 as *mut c_void,
-                 mem::size_of::<u64>())
+            read(
+                self.as_raw_fd(),
+                &mut buf as *mut u64 as *mut c_void,
+                mem::size_of::<u64>(),
+            )
         };
         if ret <= 0 {
             return errno_result();

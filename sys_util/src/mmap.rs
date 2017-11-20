@@ -56,20 +56,22 @@ impl MemoryMapping {
         // This is safe because we are creating an anonymous mapping in a place not already used by
         // any other area in this process.
         let addr = unsafe {
-            libc::mmap(null_mut(),
-                       size,
-                       libc::PROT_READ | libc::PROT_WRITE,
-                       libc::MAP_ANONYMOUS | libc::MAP_SHARED | libc::MAP_NORESERVE,
-                       -1,
-                       0)
+            libc::mmap(
+                null_mut(),
+                size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_ANONYMOUS | libc::MAP_SHARED | libc::MAP_NORESERVE,
+                -1,
+                0,
+            )
         };
         if addr.is_null() {
             return Err(Error::SystemCallFailed(errno::Error::last()));
         }
         Ok(MemoryMapping {
-               addr: addr as *mut u8,
-               size: size,
-           })
+            addr: addr as *mut u8,
+            size: size,
+        })
     }
 
     /// Maps the first `size` bytes of the given `fd`.
@@ -81,20 +83,22 @@ impl MemoryMapping {
         // This is safe because we are creating a mapping in a place not already used by any other
         // area in this process.
         let addr = unsafe {
-            libc::mmap(null_mut(),
-                       size,
-                       libc::PROT_READ | libc::PROT_WRITE,
-                       libc::MAP_SHARED,
-                       fd.as_raw_fd(),
-                       0)
+            libc::mmap(
+                null_mut(),
+                size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd.as_raw_fd(),
+                0,
+            )
         };
         if addr.is_null() {
             return Err(Error::SystemCallFailed(errno::Error::last()));
         }
         Ok(MemoryMapping {
-               addr: addr as *mut u8,
-               size: size,
-           })
+            addr: addr as *mut u8,
+            size: size,
+        })
     }
 
     /// Returns a pointer to the begining of the memory region.  Should only be
@@ -213,7 +217,9 @@ impl MemoryMapping {
         unsafe {
             // This is safe because by definition Copy types can have their bits
             // set arbitrarily and still be valid.
-            Ok(std::ptr::read_volatile(&self.as_slice()[offset..] as *const _ as *const T))
+            Ok(std::ptr::read_volatile(
+                &self.as_slice()[offset..] as *const _ as *const T,
+            ))
         }
     }
 
@@ -241,7 +247,8 @@ impl MemoryMapping {
     /// # }
     /// ```
     pub fn read_to_memory<F>(&self, mem_offset: usize, src: &mut F, count: usize) -> Result<()>
-        where F: Read
+    where
+        F: Read,
     {
         let mem_end = mem_offset + count;
         if mem_end > self.size() {
@@ -280,7 +287,8 @@ impl MemoryMapping {
     /// # }
     /// ```
     pub fn write_from_memory<F>(&self, mem_offset: usize, dst: &mut F, count: usize) -> Result<()>
-        where F: Write
+    where
+        F: Write,
     {
         let mem_end = match mem_offset.checked_add(count) {
             None => return Err(Error::InvalidRange(mem_offset, count)),
@@ -321,7 +329,9 @@ impl VolatileMemory for MemoryMapping {
 
         // Safe because we checked that offset + count was within our range and we only ever hand
         // out volatile accessors.
-        Ok(unsafe { VolatileSlice::new((self.addr as usize + offset) as *mut _, count) })
+        Ok(unsafe {
+            VolatileSlice::new((self.addr as usize + offset) as *mut _, count)
+        })
     }
 }
 
@@ -381,11 +391,13 @@ mod tests {
         use std::usize;
         let m = MemoryMapping::new(5).unwrap();
         let res = m.get_slice(usize::MAX, 3).unwrap_err();
-        assert_eq!(res,
-                   VolatileMemoryError::Overflow {
-                       base: usize::MAX,
-                       offset: 3,
-                   });
+        assert_eq!(
+            res,
+            VolatileMemoryError::Overflow {
+                base: usize::MAX,
+                offset: 3,
+            }
+        );
 
     }
     #[test]
