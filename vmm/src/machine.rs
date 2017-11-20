@@ -15,7 +15,7 @@ impl MachineCfg {
         MachineCfg {
             kernel_path: None,
             kernel_cmdline: Some(String::from(
-                "console=ttyS0,115200n8 init=/init tsc=reliable no_timer_check cryptomgr.notests",
+                "console=ttyS0 noapic noacpi reboot=k panic=1 pci=off",
             )),
         }
     }
