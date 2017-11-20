@@ -38,8 +38,10 @@ pub unsafe fn read_struct<T: Copy, F: Read>(f: &mut F, out: &mut T) -> Result<()
 pub unsafe fn read_struct_slice<T: Copy, F: Read>(f: &mut F, len: usize) -> Result<Vec<T>> {
     let mut out: Vec<T> = Vec::with_capacity(len);
     out.set_len(len);
-    let out_slice = std::slice::from_raw_parts_mut(out.as_ptr() as *mut T as *mut u8,
-                                                   mem::size_of::<T>() * len);
+    let out_slice = std::slice::from_raw_parts_mut(
+        out.as_ptr() as *mut T as *mut u8,
+        mem::size_of::<T>() * len,
+    );
     f.read_exact(out_slice).map_err(|_| Error::ReadStruct)?;
     Ok(out)
 }
@@ -70,8 +72,10 @@ mod test {
         };
         let source = unsafe {
             // Don't worry it's a test
-            std::slice::from_raw_parts(&orig as *const _ as *const u8,
-                                       std::mem::size_of::<TestRead>())
+            std::slice::from_raw_parts(
+                &orig as *const _ as *const u8,
+                std::mem::size_of::<TestRead>(),
+            )
         };
         assert_eq!(mem::size_of::<TestRead>(), mem::size_of_val(&source));
         let mut tr: TestRead = Default::default();
@@ -92,8 +96,10 @@ mod test {
         };
         let source = unsafe {
             // Don't worry it's a test
-            std::slice::from_raw_parts(&orig as *const _ as *const u8,
-                                       std::mem::size_of::<TestRead>() - 1)
+            std::slice::from_raw_parts(
+                &orig as *const _ as *const u8,
+                std::mem::size_of::<TestRead>() - 1,
+            )
         };
         let mut tr: TestRead = Default::default();
         unsafe {
@@ -103,31 +109,35 @@ mod test {
 
     #[test]
     fn struct_slice_read() {
-        let orig = vec![TestRead {
-                            a: 0x7766554433221100,
-                            b: 0x88,
-                            c: 0x99,
-                            d: 0xaa,
-                            e: 0xbb,
-                        },
-                        TestRead {
-                            a: 0x7867564534231201,
-                            b: 0x02,
-                            c: 0x13,
-                            d: 0x24,
-                            e: 0x35,
-                        },
-                        TestRead {
-                            a: 0x7a69584736251403,
-                            b: 0x04,
-                            c: 0x15,
-                            d: 0x26,
-                            e: 0x37,
-                        }];
+        let orig = vec![
+            TestRead {
+                a: 0x7766554433221100,
+                b: 0x88,
+                c: 0x99,
+                d: 0xaa,
+                e: 0xbb,
+            },
+            TestRead {
+                a: 0x7867564534231201,
+                b: 0x02,
+                c: 0x13,
+                d: 0x24,
+                e: 0x35,
+            },
+            TestRead {
+                a: 0x7a69584736251403,
+                b: 0x04,
+                c: 0x15,
+                d: 0x26,
+                e: 0x37,
+            },
+        ];
         let source = unsafe {
             // Don't worry it's a test
-            std::slice::from_raw_parts(orig.as_ptr() as *const u8,
-                                       std::mem::size_of::<TestRead>() * 3)
+            std::slice::from_raw_parts(
+                orig.as_ptr() as *const u8,
+                std::mem::size_of::<TestRead>() * 3,
+            )
         };
 
         let tr: Vec<TestRead> = unsafe { read_struct_slice(&mut Cursor::new(source), 3).unwrap() };

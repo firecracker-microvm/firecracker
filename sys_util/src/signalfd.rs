@@ -75,8 +75,7 @@ impl SignalFd {
         // supplied signal, and then block the normal handler. At each
         // step, we check return values.
         unsafe {
-            let sigset = SignalFd::create_sigset(signal)
-                .map_err(Error::CreateSigset)?;
+            let sigset = SignalFd::create_sigset(signal).map_err(Error::CreateSigset)?;
             let fd = signalfd(-1, &sigset, SFD_CLOEXEC | SFD_NONBLOCK);
             if fd < 0 {
                 return Err(Error::CreateSignalFd(errno::Error::last()));
@@ -99,10 +98,10 @@ impl SignalFd {
             // This is safe because we checked fd for success and know the
             // kernel gave us an fd that we own.
             Ok(SignalFd {
-                   signalfd: File::from_raw_fd(fd),
-                   signal: signal,
-                   sigset: sigset,
-               })
+                signalfd: File::from_raw_fd(fd),
+                signal: signal,
+                sigset: sigset,
+            })
         }
     }
 
@@ -118,9 +117,11 @@ impl SignalFd {
         // was specified. signalfds will always read in increments of
         // sizeof(signalfd_siginfo); see man 2 signalfd.
         let ret = unsafe {
-            read(self.signalfd.as_raw_fd(),
-                 &mut siginfo as *mut signalfd_siginfo as *mut c_void,
-                 siginfo_size)
+            read(
+                self.signalfd.as_raw_fd(),
+                &mut siginfo as *mut signalfd_siginfo as *mut c_void,
+                siginfo_size,
+            )
         };
 
         if ret < 0 {
@@ -190,7 +191,8 @@ mod tests {
         let sigid = SIGRTMIN() + 2;
 
         // Put the SignalFd in a block where it will be dropped at the end.
-        #[allow(unused_variables)] {
+        #[allow(unused_variables)]
+        {
             let sigrt_fd = SignalFd::new(sigid).unwrap();
             unsafe {
                 let mut sigset: sigset_t = mem::zeroed();

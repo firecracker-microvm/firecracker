@@ -188,7 +188,10 @@ mod tests {
             let mut dummy = || {
                 count -= 1;
                 if count > 99 {
-                    Err(io::Error::new(io::ErrorKind::Interrupted, "interrupted again :("))
+                    Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "interrupted again :(",
+                    ))
                 } else {
                     Ok(32)
                 }

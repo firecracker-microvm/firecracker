@@ -109,12 +109,12 @@ pub unsafe fn ioctl_with_mut_ptr<F: AsRawFd, T>(fd: &F, nr: c_ulong, arg: *mut T
 #[cfg(test)]
 mod tests {
     const TUNTAP: ::std::os::raw::c_uint = 0x54;
-    const VHOST:  ::std::os::raw::c_uint = 0xaf;
+    const VHOST: ::std::os::raw::c_uint = 0xaf;
 
-    ioctl_io_nr!(VHOST_SET_OWNER,        VHOST,  0x01);
-    ioctl_ior_nr!(TUNGETFEATURES,        TUNTAP, 0xcf, ::std::os::raw::c_uint);
-    ioctl_iow_nr!(TUNSETQUEUE,           TUNTAP, 0xd9, ::std::os::raw::c_int);
-    ioctl_iowr_nr!(VHOST_GET_VRING_BASE, VHOST,  0x12, ::std::os::raw::c_int);
+    ioctl_io_nr!(VHOST_SET_OWNER, VHOST, 0x01);
+    ioctl_ior_nr!(TUNGETFEATURES, TUNTAP, 0xcf, ::std::os::raw::c_uint);
+    ioctl_iow_nr!(TUNSETQUEUE, TUNTAP, 0xd9, ::std::os::raw::c_int);
+    ioctl_iowr_nr!(VHOST_GET_VRING_BASE, VHOST, 0x12, ::std::os::raw::c_int);
 
     #[test]
     fn ioctl_macros() {
