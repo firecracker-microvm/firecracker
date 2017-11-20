@@ -45,7 +45,7 @@ fn filter_cpuid(cpu_id: u64, cpu_count: u64, kvm_cpuid: &mut kvm::CpuId) -> Resu
                     entry.ecx |= 1 << ECX_HYPERVISOR_SHIFT;
                 }
                 entry.ebx = (cpu_id << EBX_CPUID_SHIFT) as u32 |
-                            (EBX_CLFLUSH_CACHELINE << EBX_CLFLUSH_SIZE_SHIFT);
+                    (EBX_CLFLUSH_CACHELINE << EBX_CLFLUSH_SIZE_SHIFT);
                 if cpu_count > 1 {
                     entry.ebx |= (cpu_count as u32) << EBX_CPU_COUNT_SHIFT;
                     entry.edx |= 1 << EDX_HTT_SHIFT;
@@ -72,13 +72,15 @@ fn filter_cpuid(cpu_id: u64, cpu_count: u64, kvm_cpuid: &mut kvm::CpuId) -> Resu
 /// * `cpu_id` - The index of the CPU `vcpu` is for.
 /// * `nrcpus` - The number of vcpus being used by this VM.
 pub fn setup_cpuid(kvm: &kvm::Kvm, vcpu: &kvm::Vcpu, cpu_id: u64, nrcpus: u64) -> Result<()> {
-    let mut kvm_cpuid = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
-        .map_err(Error::GetSupportedCpusFailed)?;
+    let mut kvm_cpuid = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).map_err(
+        Error::GetSupportedCpusFailed,
+    )?;
 
     filter_cpuid(cpu_id, nrcpus, &mut kvm_cpuid)?;
 
-    vcpu.set_cpuid2(&kvm_cpuid)
-        .map_err(Error::SetSupportedCpusFailed)
+    vcpu.set_cpuid2(&kvm_cpuid).map_err(
+        Error::SetSupportedCpusFailed,
+    )
 }
 
 #[cfg(test)]
@@ -105,8 +107,10 @@ mod tests {
             assert_eq!(entries[0].edx, VENDOR_EDX_VAL);
             assert_eq!(1, (entries[1].ebx >> EBX_CPUID_SHIFT) & 0x000000ff);
             assert_eq!(2, (entries[1].ebx >> EBX_CPU_COUNT_SHIFT) & 0x000000ff);
-            assert_eq!(EBX_CLFLUSH_CACHELINE,
-                       (entries[1].ebx >> EBX_CLFLUSH_SIZE_SHIFT) & 0x000000ff);
+            assert_eq!(
+                EBX_CLFLUSH_CACHELINE,
+                (entries[1].ebx >> EBX_CLFLUSH_SIZE_SHIFT) & 0x000000ff
+            );
             assert_ne!(0, entries[1].ecx & (1 << ECX_HYPERVISOR_SHIFT));
             assert_ne!(0, entries[1].edx & (1 << EDX_HTT_SHIFT));
         }
