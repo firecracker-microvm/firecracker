@@ -71,20 +71,21 @@ impl Poller {
     pub fn poll(&mut self, pollables: &[(u32, &Pollable)]) -> Result<&[u32]> {
         self.pollfds.clear();
         for pollable in pollables.iter() {
-            self.pollfds
-                .push(pollfd {
-                          fd: pollable.1.pollable_fd(),
-                          events: POLLIN,
-                          revents: 0,
-                      });
+            self.pollfds.push(pollfd {
+                fd: pollable.1.pollable_fd(),
+                events: POLLIN,
+                revents: 0,
+            });
         }
 
         // Safe because poll is given the correct length of properly initialized pollfds, and we
         // check the return result.
         let ret = unsafe {
-            handle_eintr!(poll(self.pollfds.as_mut_ptr(),
-                       self.pollfds.len() as nfds_t,
-                       -1))
+            handle_eintr!(poll(
+                self.pollfds.as_mut_ptr(),
+                self.pollfds.len() as nfds_t,
+                -1,
+            ))
         };
         if ret < 0 {
             return errno_result();

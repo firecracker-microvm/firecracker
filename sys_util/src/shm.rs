@@ -34,8 +34,10 @@ impl SharedMemory {
     ///
     /// The file descriptor is opened with the close on exec flag.
     pub fn new(name: Option<&CStr>) -> Result<SharedMemory> {
-        let shm_name = name.map(|n| n.as_ptr())
-            .unwrap_or(b"/crosvm_shm\0".as_ptr() as *const c_char);
+        let shm_name = name.map(|n| n.as_ptr()).unwrap_or(
+            b"/crosvm_shm\0".as_ptr() as
+                *const c_char,
+        );
         // The following are safe because we give a valid C string and check the
         // results of the memfd_create call.
         let fd = unsafe { memfd_create(shm_name, MFD_CLOEXEC) };
@@ -57,9 +59,9 @@ impl SharedMemory {
         let mut file = unsafe { File::from_raw_fd(fd.into_raw_fd()) };
         let file_size = file.seek(SeekFrom::End(0))?;
         Ok(SharedMemory {
-               fd: file,
-               size: file_size as u64,
-           })
+            fd: file,
+            size: file_size as u64,
+        })
     }
 
     /// Gets the size in bytes of the shared memory.
@@ -111,16 +113,18 @@ mod tests {
     #[test]
     fn new_sized() {
         let mut shm = SharedMemory::new(None).expect("failed to create shared memory");
-        shm.set_size(1024)
-            .expect("failed to set shared memory size");
+        shm.set_size(1024).expect(
+            "failed to set shared memory size",
+        );
         assert_eq!(shm.size(), 1024);
     }
 
     #[test]
     fn new_huge() {
         let mut shm = SharedMemory::new(None).expect("failed to create shared memory");
-        shm.set_size(0x7fff_ffff_ffff_ffff)
-            .expect("failed to set shared memory size");
+        shm.set_size(0x7fff_ffff_ffff_ffff).expect(
+            "failed to set shared memory size",
+        );
         assert_eq!(shm.size(), 0x7fff_ffff_ffff_ffff);
     }
 
@@ -145,16 +149,19 @@ mod tests {
     #[test]
     fn mmap_page() {
         let mut shm = SharedMemory::new(None).expect("failed to create shared memory");
-        shm.set_size(4096)
-            .expect("failed to set shared memory size");
+        shm.set_size(4096).expect(
+            "failed to set shared memory size",
+        );
 
         let mmap1 =
             MemoryMapping::from_fd(&shm, shm.size() as usize).expect("failed to map shared memory");
         let mmap2 =
             MemoryMapping::from_fd(&shm, shm.size() as usize).expect("failed to map shared memory");
 
-        assert_ne!(mmap1.get_slice(0, 1).unwrap().as_ptr(),
-                   mmap2.get_slice(0, 1).unwrap().as_ptr());
+        assert_ne!(
+            mmap1.get_slice(0, 1).unwrap().as_ptr(),
+            mmap2.get_slice(0, 1).unwrap().as_ptr()
+        );
 
         mmap1
             .get_slice(0, 4096)

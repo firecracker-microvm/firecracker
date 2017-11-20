@@ -184,12 +184,12 @@ impl State {
     fn new() -> Result<State, Error> {
         let s = openlog_and_get_socket()?;
         Ok(State {
-               stderr: true,
-               socket: Some(s),
-               file: None,
-               hostname: get_hostname().ok(),
-               proc_name: get_proc_name(),
-           })
+            stderr: true,
+            socket: Some(s),
+            file: None,
+            hostname: get_hostname().ok(),
+            proc_name: get_proc_name(),
+        })
     }
 }
 
@@ -208,10 +208,10 @@ fn new_mutex_ptr<T>(inner: T) -> *const Mutex<T> {
 pub fn init() -> Result<(), Error> {
     let mut err = Error::Poisoned;
     STATE_ONCE.call_once(|| match State::new() {
-                             // Safe because STATE mutation is guarded by `Once`.
-                             Ok(state) => unsafe { STATE = new_mutex_ptr(state) },
-                             Err(e) => err = e,
-                         });
+        // Safe because STATE mutation is guarded by `Once`.
+        Ok(state) => unsafe { STATE = new_mutex_ptr(state) },
+        Err(e) => err = e,
+    });
 
     if unsafe { STATE.is_null() } {
         Err(err)
@@ -289,7 +289,7 @@ pub fn echo_syslog(enable: bool) -> Result<(), Error> {
     let mut state = lock().map_err(|_| Error::Poisoned)?;
 
     match state.socket.take() {
-        Some(_) if enable => {},
+        Some(_) if enable => {}
         Some(s) => {
             // Because `openlog_and_get_socket` actually just "borrows" the syslog FD, this module
             // does not own the syslog connection and therefore should not destroy it.
@@ -410,8 +410,20 @@ fn get_localtime() -> tm {
 /// # }
 /// ```
 pub fn log(pri: Priority, fac: Facility, file_name: &str, line: u32, args: fmt::Arguments) {
-    const MONTHS: [&'static str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
-                                        "Sep", "Oct", "Nov", "Dec"];
+    const MONTHS: [&'static str; 12] = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ];
 
     let mut state = lock!();
     let mut buf = [0u8; 1024];
@@ -420,7 +432,9 @@ pub fn log(pri: Priority, fac: Facility, file_name: &str, line: u32, args: fmt::
         let prifac = (pri as u8) | (fac as u8);
         let (res, len) = {
             let mut buf_cursor = Cursor::new(&mut buf[..]);
-            (write!(&mut buf_cursor,
+            (
+                write!(
+                    &mut buf_cursor,
                     "<{}>{} {:02} {:02}:{:02}:{:02} {} {}[{}]: [{}:{}] {}",
                     prifac,
                     MONTHS[tm.tm_mon as usize],
@@ -428,21 +442,15 @@ pub fn log(pri: Priority, fac: Facility, file_name: &str, line: u32, args: fmt::
                     tm.tm_hour,
                     tm.tm_min,
                     tm.tm_sec,
-                    state
-                        .hostname
-                        .as_ref()
-                        .map(|s| s.as_ref())
-                        .unwrap_or("-"),
-                    state
-                        .proc_name
-                        .as_ref()
-                        .map(|s| s.as_ref())
-                        .unwrap_or("-"),
+                    state.hostname.as_ref().map(|s| s.as_ref()).unwrap_or("-"),
+                    state.proc_name.as_ref().map(|s| s.as_ref()).unwrap_or("-"),
                     getpid(),
                     file_name,
                     line,
-                    args),
-             buf_cursor.position() as usize)
+                    args
+                ),
+                buf_cursor.position() as usize,
+            )
         };
 
         if res.is_ok() {
@@ -452,13 +460,17 @@ pub fn log(pri: Priority, fac: Facility, file_name: &str, line: u32, args: fmt::
 
     let (res, len) = {
         let mut buf_cursor = Cursor::new(&mut buf[..]);
-        (write!(&mut buf_cursor,
+        (
+            write!(
+                &mut buf_cursor,
                 "[{}:{}:{}] {}\n",
                 pri,
                 file_name,
                 line,
-                args),
-         buf_cursor.position() as usize)
+                args
+            ),
+            buf_cursor.position() as usize,
+        )
     };
     if res.is_ok() {
         if let Some(ref mut file) = state.file {
@@ -542,27 +554,33 @@ mod tests {
     #[test]
     fn syslog_log() {
         init().unwrap();
-        log(Priority::Error,
+        log(
+            Priority::Error,
             Facility::User,
             file!(),
             line!(),
-            format_args!("hello syslog"));
+            format_args!("hello syslog"),
+        );
     }
 
     #[test]
     fn proc_name() {
         init().unwrap();
-        log(Priority::Error,
+        log(
+            Priority::Error,
             Facility::User,
             file!(),
             line!(),
-            format_args!("before proc name"));
+            format_args!("before proc name"),
+        );
         set_proc_name("sys_util-test");
-        log(Priority::Error,
+        log(
+            Priority::Error,
             Facility::User,
             file!(),
             line!(),
-            format_args!("after proc name"));
+            format_args!("after proc name"),
+        );
     }
 
     #[test]
@@ -576,22 +594,25 @@ mod tests {
             File::from_raw_fd(fd)
         };
 
-        let syslog_file = file.try_clone()
-            .expect("error cloning shared memory file");
+        let syslog_file = file.try_clone().expect("error cloning shared memory file");
         echo_file(Some(syslog_file));
 
         const TEST_STR: &'static str = "hello shared memory file";
-        log(Priority::Error,
+        log(
+            Priority::Error,
             Facility::User,
             file!(),
             line!(),
-            format_args!("{}", TEST_STR));
+            format_args!("{}", TEST_STR),
+        );
 
-        file.seek(SeekFrom::Start(0))
-            .expect("error seeking shared memory file");
+        file.seek(SeekFrom::Start(0)).expect(
+            "error seeking shared memory file",
+        );
         let mut buf = String::new();
-        file.read_to_string(&mut buf)
-            .expect("error reading shared memory file");
+        file.read_to_string(&mut buf).expect(
+            "error reading shared memory file",
+        );
         assert!(buf.contains(TEST_STR));
     }
 

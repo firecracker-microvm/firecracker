@@ -51,7 +51,9 @@ impl TempDir {
             return errno_result();
         }
         dir_bytes.pop(); // Remove the null becasue from_vec can't handle it.
-        Ok(TempDir { path: Some(PathBuf::from(OsString::from_vec(dir_bytes))) })
+        Ok(TempDir {
+            path: Some(PathBuf::from(OsString::from_vec(dir_bytes))),
+        })
     }
 
     /// Removes the temporary directory.  Calling this is optional as dropping a `TempDir` object
