@@ -45,10 +45,12 @@ impl fmt::Display for VolatileMemoryError {
                 write!(f, "address 0x{:x} is out of bounds", addr)
             }
             &VolatileMemoryError::Overflow { base, offset } => {
-                write!(f,
-                       "address 0x{:x} offset by 0x{:x} would overflow",
-                       base,
-                       offset)
+                write!(
+                    f,
+                    "address 0x{:x} offset by 0x{:x} would overflow",
+                    base,
+                    offset
+                )
             }
         }
     }
@@ -79,9 +81,9 @@ pub fn calc_offset(base: usize, offset: usize) -> Result<usize> {
     match base.checked_add(offset) {
         None => {
             Err(Error::Overflow {
-                    base: base,
-                    offset: offset,
-                })
+                base: base,
+                offset: offset,
+            })
         }
         Some(m) => Ok(m),
     }
@@ -97,9 +99,9 @@ pub trait VolatileMemory {
     fn get_ref<T: DataInit>(&self, offset: usize) -> Result<VolatileRef<T>> {
         let slice = self.get_slice(offset, size_of::<T>())?;
         Ok(VolatileRef {
-               addr: slice.addr as *mut T,
-               phantom: PhantomData,
-           })
+            addr: slice.addr as *mut T,
+            phantom: PhantomData,
+        })
     }
 }
 
@@ -109,7 +111,9 @@ impl<'a> VolatileMemory for &'a mut [u8] {
         if mem_end > self.len() {
             return Err(Error::OutOfBounds { addr: mem_end });
         }
-        Ok(unsafe { VolatileSlice::new((self.as_ptr() as usize + offset) as *mut _, count) })
+        Ok(unsafe {
+            VolatileSlice::new((self.as_ptr() as usize + offset) as *mut _, count)
+        })
     }
 }
 
@@ -170,7 +174,8 @@ impl<'a> VolatileSlice<'a> {
     /// # }
     /// ```
     pub fn copy_to<T>(&self, buf: &mut [T])
-        where T: DataInit
+    where
+        T: DataInit,
     {
         let mut addr = self.addr;
         for v in buf.iter_mut().take(self.size / size_of::<T>()) {
@@ -205,7 +210,8 @@ impl<'a> VolatileSlice<'a> {
     /// # }
     /// ```
     pub fn copy_from<T>(&self, buf: &[T])
-        where T: DataInit
+    where
+        T: DataInit,
     {
         let mut addr = self.addr;
         for &v in buf.iter().take(self.size / size_of::<T>()) {
@@ -340,10 +346,10 @@ impl<'a> VolatileMemory for VolatileSlice<'a> {
             return Err(Error::OutOfBounds { addr: mem_end });
         }
         Ok(VolatileSlice {
-               addr: (self.addr as usize + offset) as *mut _,
-               size: count,
-               phantom: PhantomData,
-           })
+            addr: (self.addr as usize + offset) as *mut _,
+            size: count,
+            phantom: PhantomData,
+        })
     }
 }
 
@@ -361,7 +367,8 @@ impl<'a> VolatileMemory for VolatileSlice<'a> {
 ///   assert_eq!(v, 500);
 #[derive(Debug)]
 pub struct VolatileRef<'a, T: DataInit>
-    where T: 'a
+where
+    T: 'a,
 {
     addr: *mut T,
     phantom: PhantomData<&'a T>,
@@ -449,8 +456,8 @@ mod tests {
                 return Err(Error::OutOfBounds { addr: mem_end });
             }
             Ok(unsafe {
-                   VolatileSlice::new((self.mem.as_ptr() as usize + offset) as *mut _, count)
-               })
+                VolatileSlice::new((self.mem.as_ptr() as usize + offset) as *mut _, count)
+            })
         }
     }
 
@@ -501,10 +508,10 @@ mod tests {
         let v_ref = a.get_ref::<u8>(0).unwrap();
         v_ref.store(99);
         spawn(move || {
-                  sleep(Duration::from_millis(10));
-                  let clone_v_ref = a_clone.get_ref::<u8>(0).unwrap();
-                  clone_v_ref.store(0);
-              });
+            sleep(Duration::from_millis(10));
+            let clone_v_ref = a_clone.get_ref::<u8>(0).unwrap();
+            clone_v_ref.store(0);
+        });
 
         // Technically this is a race condition but we have to observe the v_ref's value changing
         // somehow and this helps to ensure the sleep actually happens before the store rather then
@@ -550,11 +557,13 @@ mod tests {
         use std::usize::MAX;
         let a = VecMem::new(1);
         let res = a.get_slice(MAX, 1).unwrap_err();
-        assert_eq!(res,
-                   Error::Overflow {
-                       base: MAX,
-                       offset: 1,
-                   });
+        assert_eq!(
+            res,
+            Error::Overflow {
+                base: MAX,
+                offset: 1,
+            }
+        );
     }
 
     #[test]
@@ -570,11 +579,13 @@ mod tests {
         use std::usize::MAX;
         let a = VecMem::new(1);
         let res = a.get_ref::<u8>(MAX).unwrap_err();
-        assert_eq!(res,
-                   Error::Overflow {
-                       base: MAX,
-                       offset: 1,
-                   });
+        assert_eq!(
+            res,
+            Error::Overflow {
+                base: MAX,
+                offset: 1,
+            }
+        );
     }
 
     #[test]
