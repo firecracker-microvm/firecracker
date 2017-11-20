@@ -39,57 +39,57 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
     let mut entries = Vec::<kvm_msr_entry>::new();
 
     entries.push(kvm_msr_entry {
-                     index: ::msr_index::MSR_IA32_SYSENTER_CS,
-                     data: 0x0,
-                     ..Default::default()
-                 });
+        index: ::msr_index::MSR_IA32_SYSENTER_CS,
+        data: 0x0,
+        ..Default::default()
+    });
     entries.push(kvm_msr_entry {
-                     index: ::msr_index::MSR_IA32_SYSENTER_ESP,
-                     data: 0x0,
-                     ..Default::default()
-                 });
+        index: ::msr_index::MSR_IA32_SYSENTER_ESP,
+        data: 0x0,
+        ..Default::default()
+    });
     entries.push(kvm_msr_entry {
-                     index: ::msr_index::MSR_IA32_SYSENTER_EIP,
-                     data: 0x0,
-                     ..Default::default()
-                 });
+        index: ::msr_index::MSR_IA32_SYSENTER_EIP,
+        data: 0x0,
+        ..Default::default()
+    });
     // x86_64 specific msrs, we only run on x86_64 not x86
     entries.push(kvm_msr_entry {
-                     index: ::msr_index::MSR_STAR,
-                     data: 0x0,
-                     ..Default::default()
-                 });
+        index: ::msr_index::MSR_STAR,
+        data: 0x0,
+        ..Default::default()
+    });
     entries.push(kvm_msr_entry {
-                     index: ::msr_index::MSR_CSTAR,
-                     data: 0x0,
-                     ..Default::default()
-                 });
+        index: ::msr_index::MSR_CSTAR,
+        data: 0x0,
+        ..Default::default()
+    });
     entries.push(kvm_msr_entry {
-                     index: ::msr_index::MSR_KERNEL_GS_BASE,
-                     data: 0x0,
-                     ..Default::default()
-                 });
+        index: ::msr_index::MSR_KERNEL_GS_BASE,
+        data: 0x0,
+        ..Default::default()
+    });
     entries.push(kvm_msr_entry {
-                     index: ::msr_index::MSR_SYSCALL_MASK,
-                     data: 0x0,
-                     ..Default::default()
-                 });
+        index: ::msr_index::MSR_SYSCALL_MASK,
+        data: 0x0,
+        ..Default::default()
+    });
     entries.push(kvm_msr_entry {
-                     index: ::msr_index::MSR_LSTAR,
-                     data: 0x0,
-                     ..Default::default()
-                 });
+        index: ::msr_index::MSR_LSTAR,
+        data: 0x0,
+        ..Default::default()
+    });
     // end of x86_64 specific code
     entries.push(kvm_msr_entry {
-                     index: ::msr_index::MSR_IA32_TSC,
-                     data: 0x0,
-                     ..Default::default()
-                 });
+        index: ::msr_index::MSR_IA32_TSC,
+        data: 0x0,
+        ..Default::default()
+    });
     entries.push(kvm_msr_entry {
-                     index: ::msr_index::MSR_IA32_MISC_ENABLE,
-                     data: ::msr_index::MSR_IA32_MISC_ENABLE_FAST_STRING as u64,
-                     ..Default::default()
-                 });
+        index: ::msr_index::MSR_IA32_MISC_ENABLE,
+        data: ::msr_index::MSR_IA32_MISC_ENABLE_FAST_STRING as u64,
+        ..Default::default()
+    });
 
     entries
 }
@@ -102,7 +102,7 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
 pub fn setup_msrs(vcpu: &kvm::Vcpu) -> Result<()> {
     let entry_vec = create_msr_entries();
     let vec_size_bytes = mem::size_of::<kvm_msrs>() +
-                         (entry_vec.len() * mem::size_of::<kvm_msr_entry>());
+        (entry_vec.len() * mem::size_of::<kvm_msr_entry>());
     let vec: Vec<u8> = Vec::with_capacity(vec_size_bytes);
     let msrs: &mut kvm_msrs = unsafe {
         // Converting the vector's memory to a struct is unsafe.  Carefully using the read-only
@@ -158,8 +158,7 @@ pub fn setup_regs(vcpu: &kvm::Vcpu, boot_ip: u64, boot_sp: u64, boot_si: u64) ->
         ..Default::default()
     };
 
-    vcpu.set_regs(&regs)
-        .map_err(Error::SettingRegistersIoctl)?;
+    vcpu.set_regs(&regs).map_err(Error::SettingRegistersIoctl)?;
 
     Ok(())
 }
@@ -178,19 +177,23 @@ const BOOT_GDT_MAX: usize = 4;
 fn write_gdt_table(table: &[u64], guest_mem: &GuestMemory) -> Result<()> {
     let boot_gdt_addr = GuestAddress(BOOT_GDT_OFFSET);
     for (index, entry) in table.iter().enumerate() {
-        let addr = guest_mem.checked_offset(boot_gdt_addr, index * mem::size_of::<u64>())
+        let addr = guest_mem
+            .checked_offset(boot_gdt_addr, index * mem::size_of::<u64>())
             .ok_or(Error::WriteGDTFailure)?;
-        guest_mem.write_obj_at_addr(*entry, addr)
-            .map_err(|_| Error::WriteGDTFailure)?;
+        guest_mem.write_obj_at_addr(*entry, addr).map_err(|_| {
+            Error::WriteGDTFailure
+        })?;
     }
     Ok(())
 }
 
 fn write_idt_value(val: u64, guest_mem: &GuestMemory) -> Result<()> {
     let boot_idt_addr = GuestAddress(BOOT_IDT_OFFSET);
-    guest_mem
-        .write_obj_at_addr(val, boot_idt_addr)
-        .map_err(|_| Error::WriteIDTFailure)
+    guest_mem.write_obj_at_addr(val, boot_idt_addr).map_err(
+        |_| {
+            Error::WriteIDTFailure
+        },
+    )
 }
 
 fn configure_segments_and_sregs(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
@@ -236,8 +239,11 @@ fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
 
     mem.write_obj_at_addr(boot_pdpte_addr.offset() as u64 | 0x03, boot_pml4_addr)
         .map_err(|_| Error::WritePML4Address)?;
-    mem.write_obj_at_addr(0x83u64, boot_pdpte_addr)
-        .map_err(|_| Error::WritePDPTEAddress)?;
+    mem.write_obj_at_addr(0x83u64, boot_pdpte_addr).map_err(
+        |_| {
+            Error::WritePDPTEAddress
+        },
+    )?;
     sregs.cr3 = boot_pml4_addr.offset() as u64;
     sregs.cr4 |= X86_CR4_PAE;
     sregs.cr0 |= X86_CR0_PG;

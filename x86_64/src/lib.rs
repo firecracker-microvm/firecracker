@@ -110,7 +110,10 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     } else {
         regions.push((GuestAddress(0), end_32bit_gap_start.offset()));
         if mem_end > first_addr_past_32bits {
-            regions.push((first_addr_past_32bits, mem_end.offset_from(first_addr_past_32bits)));
+            regions.push((
+                first_addr_past_32bits,
+                mem_end.offset_from(first_addr_past_32bits),
+            ));
         }
     }
 
@@ -127,24 +130,36 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 /// * `vcpu` - The VCPU object to configure.
 /// * `cpu_id` - The id of the given `vcpu`.
 /// * `num_cpus` - Number of virtual CPUs the guest will have.
-pub fn configure_vcpu(guest_mem: &GuestMemory,
-                      kernel_load_addr: GuestAddress,
-                      kvm: &kvm::Kvm,
-                      vcpu: &kvm::Vcpu,
-                      cpu_id: u64,
-                      num_cpus: u64)
-                      -> Result<()> {
-    cpuid::setup_cpuid(kvm, vcpu, cpu_id, num_cpus).map_err(Error::CpuSetup)?;
+pub fn configure_vcpu(
+    guest_mem: &GuestMemory,
+    kernel_load_addr: GuestAddress,
+    kvm: &kvm::Kvm,
+    vcpu: &kvm::Vcpu,
+    cpu_id: u64,
+    num_cpus: u64,
+) -> Result<()> {
+    cpuid::setup_cpuid(kvm, vcpu, cpu_id, num_cpus).map_err(
+        Error::CpuSetup,
+    )?;
     regs::setup_msrs(vcpu).map_err(Error::RegisterConfiguration)?;
-    let kernel_end = guest_mem.checked_offset(kernel_load_addr, KERNEL_64BIT_ENTRY_OFFSET)
+    let kernel_end = guest_mem
+        .checked_offset(kernel_load_addr, KERNEL_64BIT_ENTRY_OFFSET)
         .ok_or(Error::KernelOffsetPastEnd)?;
-    regs::setup_regs(vcpu,
-                     (kernel_end).offset() as u64,
-                     BOOT_STACK_POINTER as u64,
-                     ZERO_PAGE_OFFSET as u64).map_err(Error::RegisterConfiguration)?;
-    regs::setup_fpu(vcpu).map_err(Error::FpuRegisterConfiguration)?;
-    regs::setup_sregs(guest_mem, vcpu).map_err(Error::SegmentRegisterConfiguration)?;
-    interrupts::set_lint(vcpu).map_err(Error::LocalIntConfiguration)?;
+    regs::setup_regs(
+        vcpu,
+        (kernel_end).offset() as u64,
+        BOOT_STACK_POINTER as u64,
+        ZERO_PAGE_OFFSET as u64,
+    ).map_err(Error::RegisterConfiguration)?;
+    regs::setup_fpu(vcpu).map_err(
+        Error::FpuRegisterConfiguration,
+    )?;
+    regs::setup_sregs(guest_mem, vcpu).map_err(
+        Error::SegmentRegisterConfiguration,
+    )?;
+    interrupts::set_lint(vcpu).map_err(
+        Error::LocalIntConfiguration,
+    )?;
     Ok(())
 }
 
@@ -157,12 +172,13 @@ pub fn configure_vcpu(guest_mem: &GuestMemory,
 /// * `cmdline_addr` - Address in `guest_mem` where the kernel command line was loaded.
 /// * `cmdline_size` - Size of the kernel command line in bytes including the null terminator.
 /// * `num_cpus` - Number of virtual CPUs the guest will have.
-pub fn configure_system(guest_mem: &GuestMemory,
-                        kernel_addr: GuestAddress,
-                        cmdline_addr: GuestAddress,
-                        cmdline_size: usize,
-                        num_cpus: u8)
-                        -> Result<()> {
+pub fn configure_system(
+    guest_mem: &GuestMemory,
+    kernel_addr: GuestAddress,
+    cmdline_addr: GuestAddress,
+    cmdline_size: usize,
+    num_cpus: u8,
+) -> Result<()> {
     const EBDA_START: u64 = 0x0009fc00;
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
     const KERNEL_HDR_MAGIC: u32 = 0x53726448;
@@ -172,7 +188,9 @@ pub fn configure_system(guest_mem: &GuestMemory,
     let end_32bit_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
 
     // Note that this puts the mptable at 0x0 in guest physical memory.
-    mptable::setup_mptable(guest_mem, num_cpus).map_err(Error::MpTableSetup)?;
+    mptable::setup_mptable(guest_mem, num_cpus).map_err(
+        Error::MpTableSetup,
+    )?;
 
     let mut params: boot_params = Default::default();
 
@@ -187,27 +205,35 @@ pub fn configure_system(guest_mem: &GuestMemory,
 
     let mem_end = guest_mem.end_addr();
     if mem_end < end_32bit_gap_start {
-        add_e820_entry(&mut params,
-                       kernel_addr.offset() as u64,
-                       mem_end.offset_from(kernel_addr) as u64,
-                       E820_RAM)?;
+        add_e820_entry(
+            &mut params,
+            kernel_addr.offset() as u64,
+            mem_end.offset_from(kernel_addr) as u64,
+            E820_RAM,
+        )?;
     } else {
-        add_e820_entry(&mut params,
-                       kernel_addr.offset() as u64,
-                       end_32bit_gap_start.offset_from(kernel_addr) as u64,
-                       E820_RAM)?;
+        add_e820_entry(
+            &mut params,
+            kernel_addr.offset() as u64,
+            end_32bit_gap_start.offset_from(kernel_addr) as u64,
+            E820_RAM,
+        )?;
         if mem_end > first_addr_past_32bits {
-            add_e820_entry(&mut params,
-                           first_addr_past_32bits.offset() as u64,
-                           mem_end.offset_from(first_addr_past_32bits) as u64,
-                           E820_RAM)?;
+            add_e820_entry(
+                &mut params,
+                first_addr_past_32bits.offset() as u64,
+                mem_end.offset_from(first_addr_past_32bits) as u64,
+                E820_RAM,
+            )?;
         }
     }
 
     let zero_page_addr = GuestAddress(ZERO_PAGE_OFFSET);
-    guest_mem.checked_offset(zero_page_addr, mem::size_of::<boot_params>())
+    guest_mem
+        .checked_offset(zero_page_addr, mem::size_of::<boot_params>())
         .ok_or(Error::ZeroPagePastRamEnd)?;
-    guest_mem.write_obj_at_addr(params, zero_page_addr)
+    guest_mem
+        .write_obj_at_addr(params, zero_page_addr)
         .map_err(|_| Error::ZeroPageSetup)?;
 
     Ok(())
