@@ -262,8 +262,10 @@ mod tests {
         serial.write(DATA as u64, &['a' as u8]);
         serial.write(DATA as u64, &['b' as u8]);
         serial.write(DATA as u64, &['c' as u8]);
-        assert_eq!(serial_out.buf.lock().unwrap().as_slice(),
-                   &['a' as u8, 'b' as u8, 'c' as u8]);
+        assert_eq!(
+            serial_out.buf.lock().unwrap().as_slice(),
+            &['a' as u8, 'b' as u8, 'c' as u8]
+        );
     }
 
     #[test]
@@ -271,11 +273,13 @@ mod tests {
         let intr_evt = EventFd::new().unwrap();
         let serial_out = SharedBuffer::new();
 
-        let mut serial = Serial::new_out(intr_evt.try_clone().unwrap(),
-                                         Box::new(serial_out.clone()));
+        let mut serial =
+            Serial::new_out(intr_evt.try_clone().unwrap(), Box::new(serial_out.clone()));
 
         serial.write(IER as u64, &[IER_RECV_BIT]);
-        serial.queue_input_bytes(&['a' as u8, 'b' as u8, 'c' as u8]).unwrap();
+        serial
+            .queue_input_bytes(&['a' as u8, 'b' as u8, 'c' as u8])
+            .unwrap();
 
         assert_eq!(intr_evt.read(), Ok(1));
         let mut data = [0u8; 1];
