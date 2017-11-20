@@ -151,6 +151,16 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     vm.register_irqfd(&com_evt_2_4, 3).map_err(Error::Irq)?;
 
     let exit_evt = EventFd::new().map_err(Error::EventFd)?;
+    io_bus
+        .insert(
+            Arc::new(Mutex::new(devices::I8042Device::new(
+                exit_evt.try_clone().map_err(Error::EventFd)?,
+            ))),
+            0x064,
+            0x1,
+        )
+        .unwrap();
+
     let mut vcpu_handles = Vec::with_capacity(vcpu_count as usize);
     let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
     let kill_signaled = Arc::new(AtomicBool::new(false));
