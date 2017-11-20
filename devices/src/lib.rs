@@ -9,7 +9,9 @@
 extern crate sys_util;
 
 mod bus;
+mod i8042;
 mod serial;
 
 pub use self::bus::{Bus, BusDevice};
+pub use self::i8042::I8042Device;
 pub use self::serial::Serial;
