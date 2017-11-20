@@ -46,8 +46,10 @@ impl<T> InterruptibleResult for io::Result<T> {
 /// The given expression `$x` can return
 ///
 /// * `i32` in which case the expression is retried if equal to `-EINTR`.
-/// * `sys_util::Result` in which case the expression is retried if the `Error::errno()` is `-EINTR`.
-/// * `std::io::Result` in which case the expression is retried if the `ErrorKind` is `ErrorKind::Interrupted`.
+/// * `sys_util::Result` in which case the expression is retried if the `Error::errno()` is
+/// `-EINTR`.
+/// * `std::io::Result` in which case the expression is retried if the `ErrorKind` is
+/// `ErrorKind::Interrupted`.
 ///
 /// In all cases where the result does not indicate that the expression was interrupted, the result
 /// is returned verbatim to the caller of this macro.
