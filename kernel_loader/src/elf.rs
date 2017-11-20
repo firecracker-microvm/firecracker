@@ -265,18 +265,26 @@ pub struct __kernel_fd_set {
 }
 #[test]
 fn bindgen_test_layout___kernel_fd_set() {
-    assert_eq!(::std::mem::size_of::<__kernel_fd_set>(),
-               128usize,
-               concat!("Size of: ", stringify!(__kernel_fd_set)));
-    assert_eq!(::std::mem::align_of::<__kernel_fd_set>(),
-               8usize,
-               concat!("Alignment of ", stringify!(__kernel_fd_set)));
-    assert_eq!(unsafe { &(*(0 as *const __kernel_fd_set)).fds_bits as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(__kernel_fd_set),
-                       "::",
-                       stringify!(fds_bits)));
+    assert_eq!(
+        ::std::mem::size_of::<__kernel_fd_set>(),
+        128usize,
+        concat!("Size of: ", stringify!(__kernel_fd_set))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<__kernel_fd_set>(),
+        8usize,
+        concat!("Alignment of ", stringify!(__kernel_fd_set))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const __kernel_fd_set)).fds_bits as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(__kernel_fd_set),
+            "::",
+            stringify!(fds_bits)
+        )
+    );
 }
 impl Clone for __kernel_fd_set {
     fn clone(&self) -> Self {
@@ -312,18 +320,26 @@ pub struct __kernel_fsid_t {
 }
 #[test]
 fn bindgen_test_layout___kernel_fsid_t() {
-    assert_eq!(::std::mem::size_of::<__kernel_fsid_t>(),
-               8usize,
-               concat!("Size of: ", stringify!(__kernel_fsid_t)));
-    assert_eq!(::std::mem::align_of::<__kernel_fsid_t>(),
-               4usize,
-               concat!("Alignment of ", stringify!(__kernel_fsid_t)));
-    assert_eq!(unsafe { &(*(0 as *const __kernel_fsid_t)).val as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(__kernel_fsid_t),
-                       "::",
-                       stringify!(val)));
+    assert_eq!(
+        ::std::mem::size_of::<__kernel_fsid_t>(),
+        8usize,
+        concat!("Size of: ", stringify!(__kernel_fsid_t))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<__kernel_fsid_t>(),
+        4usize,
+        concat!("Alignment of ", stringify!(__kernel_fsid_t))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const __kernel_fsid_t)).val as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(__kernel_fsid_t),
+            "::",
+            stringify!(val)
+        )
+    );
 }
 impl Clone for __kernel_fsid_t {
     fn clone(&self) -> Self {
@@ -375,24 +391,36 @@ pub struct dynamic__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_dynamic__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<dynamic__bindgen_ty_1>(),
-               4usize,
-               concat!("Size of: ", stringify!(dynamic__bindgen_ty_1)));
-    assert_eq!(::std::mem::align_of::<dynamic__bindgen_ty_1>(),
-               4usize,
-               concat!("Alignment of ", stringify!(dynamic__bindgen_ty_1)));
-    assert_eq!(unsafe { &(*(0 as *const dynamic__bindgen_ty_1)).d_val as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(dynamic__bindgen_ty_1),
-                       "::",
-                       stringify!(d_val)));
-    assert_eq!(unsafe { &(*(0 as *const dynamic__bindgen_ty_1)).d_ptr as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(dynamic__bindgen_ty_1),
-                       "::",
-                       stringify!(d_ptr)));
+    assert_eq!(
+        ::std::mem::size_of::<dynamic__bindgen_ty_1>(),
+        4usize,
+        concat!("Size of: ", stringify!(dynamic__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<dynamic__bindgen_ty_1>(),
+        4usize,
+        concat!("Alignment of ", stringify!(dynamic__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const dynamic__bindgen_ty_1)).d_val as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(dynamic__bindgen_ty_1),
+            "::",
+            stringify!(d_val)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const dynamic__bindgen_ty_1)).d_ptr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(dynamic__bindgen_ty_1),
+            "::",
+            stringify!(d_ptr)
+        )
+    );
 }
 impl Clone for dynamic__bindgen_ty_1 {
     fn clone(&self) -> Self {
@@ -401,24 +429,36 @@ impl Clone for dynamic__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_dynamic() {
-    assert_eq!(::std::mem::size_of::<dynamic>(),
-               8usize,
-               concat!("Size of: ", stringify!(dynamic)));
-    assert_eq!(::std::mem::align_of::<dynamic>(),
-               4usize,
-               concat!("Alignment of ", stringify!(dynamic)));
-    assert_eq!(unsafe { &(*(0 as *const dynamic)).d_tag as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(dynamic),
-                       "::",
-                       stringify!(d_tag)));
-    assert_eq!(unsafe { &(*(0 as *const dynamic)).d_un as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(dynamic),
-                       "::",
-                       stringify!(d_un)));
+    assert_eq!(
+        ::std::mem::size_of::<dynamic>(),
+        8usize,
+        concat!("Size of: ", stringify!(dynamic))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<dynamic>(),
+        4usize,
+        concat!("Alignment of ", stringify!(dynamic))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const dynamic)).d_tag as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(dynamic),
+            "::",
+            stringify!(d_tag)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const dynamic)).d_un as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(dynamic),
+            "::",
+            stringify!(d_un)
+        )
+    );
 }
 impl Clone for dynamic {
     fn clone(&self) -> Self {
@@ -441,24 +481,36 @@ pub struct Elf64_Dyn__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_Elf64_Dyn__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<Elf64_Dyn__bindgen_ty_1>(),
-               8usize,
-               concat!("Size of: ", stringify!(Elf64_Dyn__bindgen_ty_1)));
-    assert_eq!(::std::mem::align_of::<Elf64_Dyn__bindgen_ty_1>(),
-               8usize,
-               concat!("Alignment of ", stringify!(Elf64_Dyn__bindgen_ty_1)));
-    assert_eq!(unsafe { &(*(0 as *const Elf64_Dyn__bindgen_ty_1)).d_val as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(Elf64_Dyn__bindgen_ty_1),
-                       "::",
-                       stringify!(d_val)));
-    assert_eq!(unsafe { &(*(0 as *const Elf64_Dyn__bindgen_ty_1)).d_ptr as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(Elf64_Dyn__bindgen_ty_1),
-                       "::",
-                       stringify!(d_ptr)));
+    assert_eq!(
+        ::std::mem::size_of::<Elf64_Dyn__bindgen_ty_1>(),
+        8usize,
+        concat!("Size of: ", stringify!(Elf64_Dyn__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<Elf64_Dyn__bindgen_ty_1>(),
+        8usize,
+        concat!("Alignment of ", stringify!(Elf64_Dyn__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const Elf64_Dyn__bindgen_ty_1)).d_val as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(Elf64_Dyn__bindgen_ty_1),
+            "::",
+            stringify!(d_val)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const Elf64_Dyn__bindgen_ty_1)).d_ptr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(Elf64_Dyn__bindgen_ty_1),
+            "::",
+            stringify!(d_ptr)
+        )
+    );
 }
 impl Clone for Elf64_Dyn__bindgen_ty_1 {
     fn clone(&self) -> Self {
@@ -467,24 +519,36 @@ impl Clone for Elf64_Dyn__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_Elf64_Dyn() {
-    assert_eq!(::std::mem::size_of::<Elf64_Dyn>(),
-               16usize,
-               concat!("Size of: ", stringify!(Elf64_Dyn)));
-    assert_eq!(::std::mem::align_of::<Elf64_Dyn>(),
-               8usize,
-               concat!("Alignment of ", stringify!(Elf64_Dyn)));
-    assert_eq!(unsafe { &(*(0 as *const Elf64_Dyn)).d_tag as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(Elf64_Dyn),
-                       "::",
-                       stringify!(d_tag)));
-    assert_eq!(unsafe { &(*(0 as *const Elf64_Dyn)).d_un as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(Elf64_Dyn),
-                       "::",
-                       stringify!(d_un)));
+    assert_eq!(
+        ::std::mem::size_of::<Elf64_Dyn>(),
+        16usize,
+        concat!("Size of: ", stringify!(Elf64_Dyn))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<Elf64_Dyn>(),
+        8usize,
+        concat!("Alignment of ", stringify!(Elf64_Dyn))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const Elf64_Dyn)).d_tag as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(Elf64_Dyn),
+            "::",
+            stringify!(d_tag)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const Elf64_Dyn)).d_un as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(Elf64_Dyn),
+            "::",
+            stringify!(d_un)
+        )
+    );
 }
 impl Clone for Elf64_Dyn {
     fn clone(&self) -> Self {
@@ -499,24 +563,36 @@ pub struct elf32_rel {
 }
 #[test]
 fn bindgen_test_layout_elf32_rel() {
-    assert_eq!(::std::mem::size_of::<elf32_rel>(),
-               8usize,
-               concat!("Size of: ", stringify!(elf32_rel)));
-    assert_eq!(::std::mem::align_of::<elf32_rel>(),
-               4usize,
-               concat!("Alignment of ", stringify!(elf32_rel)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_rel)).r_offset as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_rel),
-                       "::",
-                       stringify!(r_offset)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_rel)).r_info as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_rel),
-                       "::",
-                       stringify!(r_info)));
+    assert_eq!(
+        ::std::mem::size_of::<elf32_rel>(),
+        8usize,
+        concat!("Size of: ", stringify!(elf32_rel))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf32_rel>(),
+        4usize,
+        concat!("Alignment of ", stringify!(elf32_rel))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_rel)).r_offset as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_rel),
+            "::",
+            stringify!(r_offset)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_rel)).r_info as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_rel),
+            "::",
+            stringify!(r_info)
+        )
+    );
 }
 impl Clone for elf32_rel {
     fn clone(&self) -> Self {
@@ -532,24 +608,36 @@ pub struct elf64_rel {
 }
 #[test]
 fn bindgen_test_layout_elf64_rel() {
-    assert_eq!(::std::mem::size_of::<elf64_rel>(),
-               16usize,
-               concat!("Size of: ", stringify!(elf64_rel)));
-    assert_eq!(::std::mem::align_of::<elf64_rel>(),
-               8usize,
-               concat!("Alignment of ", stringify!(elf64_rel)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_rel)).r_offset as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_rel),
-                       "::",
-                       stringify!(r_offset)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_rel)).r_info as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_rel),
-                       "::",
-                       stringify!(r_info)));
+    assert_eq!(
+        ::std::mem::size_of::<elf64_rel>(),
+        16usize,
+        concat!("Size of: ", stringify!(elf64_rel))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf64_rel>(),
+        8usize,
+        concat!("Alignment of ", stringify!(elf64_rel))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_rel)).r_offset as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_rel),
+            "::",
+            stringify!(r_offset)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_rel)).r_info as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_rel),
+            "::",
+            stringify!(r_info)
+        )
+    );
 }
 impl Clone for elf64_rel {
     fn clone(&self) -> Self {
@@ -566,30 +654,46 @@ pub struct elf32_rela {
 }
 #[test]
 fn bindgen_test_layout_elf32_rela() {
-    assert_eq!(::std::mem::size_of::<elf32_rela>(),
-               12usize,
-               concat!("Size of: ", stringify!(elf32_rela)));
-    assert_eq!(::std::mem::align_of::<elf32_rela>(),
-               4usize,
-               concat!("Alignment of ", stringify!(elf32_rela)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_rela)).r_offset as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_rela),
-                       "::",
-                       stringify!(r_offset)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_rela)).r_info as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_rela),
-                       "::",
-                       stringify!(r_info)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_rela)).r_addend as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_rela),
-                       "::",
-                       stringify!(r_addend)));
+    assert_eq!(
+        ::std::mem::size_of::<elf32_rela>(),
+        12usize,
+        concat!("Size of: ", stringify!(elf32_rela))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf32_rela>(),
+        4usize,
+        concat!("Alignment of ", stringify!(elf32_rela))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_rela)).r_offset as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_rela),
+            "::",
+            stringify!(r_offset)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_rela)).r_info as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_rela),
+            "::",
+            stringify!(r_info)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_rela)).r_addend as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_rela),
+            "::",
+            stringify!(r_addend)
+        )
+    );
 }
 impl Clone for elf32_rela {
     fn clone(&self) -> Self {
@@ -606,30 +710,46 @@ pub struct elf64_rela {
 }
 #[test]
 fn bindgen_test_layout_elf64_rela() {
-    assert_eq!(::std::mem::size_of::<elf64_rela>(),
-               24usize,
-               concat!("Size of: ", stringify!(elf64_rela)));
-    assert_eq!(::std::mem::align_of::<elf64_rela>(),
-               8usize,
-               concat!("Alignment of ", stringify!(elf64_rela)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_rela)).r_offset as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_rela),
-                       "::",
-                       stringify!(r_offset)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_rela)).r_info as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_rela),
-                       "::",
-                       stringify!(r_info)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_rela)).r_addend as *const _ as usize },
-               16usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_rela),
-                       "::",
-                       stringify!(r_addend)));
+    assert_eq!(
+        ::std::mem::size_of::<elf64_rela>(),
+        24usize,
+        concat!("Size of: ", stringify!(elf64_rela))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf64_rela>(),
+        8usize,
+        concat!("Alignment of ", stringify!(elf64_rela))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_rela)).r_offset as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_rela),
+            "::",
+            stringify!(r_offset)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_rela)).r_info as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_rela),
+            "::",
+            stringify!(r_info)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_rela)).r_addend as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_rela),
+            "::",
+            stringify!(r_addend)
+        )
+    );
 }
 impl Clone for elf64_rela {
     fn clone(&self) -> Self {
@@ -649,48 +769,76 @@ pub struct elf32_sym {
 }
 #[test]
 fn bindgen_test_layout_elf32_sym() {
-    assert_eq!(::std::mem::size_of::<elf32_sym>(),
-               16usize,
-               concat!("Size of: ", stringify!(elf32_sym)));
-    assert_eq!(::std::mem::align_of::<elf32_sym>(),
-               4usize,
-               concat!("Alignment of ", stringify!(elf32_sym)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_sym)).st_name as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_sym),
-                       "::",
-                       stringify!(st_name)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_sym)).st_value as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_sym),
-                       "::",
-                       stringify!(st_value)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_sym)).st_size as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_sym),
-                       "::",
-                       stringify!(st_size)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_sym)).st_info as *const _ as usize },
-               12usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_sym),
-                       "::",
-                       stringify!(st_info)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_sym)).st_other as *const _ as usize },
-               13usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_sym),
-                       "::",
-                       stringify!(st_other)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_sym)).st_shndx as *const _ as usize },
-               14usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_sym),
-                       "::",
-                       stringify!(st_shndx)));
+    assert_eq!(
+        ::std::mem::size_of::<elf32_sym>(),
+        16usize,
+        concat!("Size of: ", stringify!(elf32_sym))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf32_sym>(),
+        4usize,
+        concat!("Alignment of ", stringify!(elf32_sym))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_sym)).st_name as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_sym),
+            "::",
+            stringify!(st_name)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_sym)).st_value as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_sym),
+            "::",
+            stringify!(st_value)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_sym)).st_size as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_sym),
+            "::",
+            stringify!(st_size)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_sym)).st_info as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_sym),
+            "::",
+            stringify!(st_info)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_sym)).st_other as *const _ as usize },
+        13usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_sym),
+            "::",
+            stringify!(st_other)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_sym)).st_shndx as *const _ as usize },
+        14usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_sym),
+            "::",
+            stringify!(st_shndx)
+        )
+    );
 }
 impl Clone for elf32_sym {
     fn clone(&self) -> Self {
@@ -710,48 +858,76 @@ pub struct elf64_sym {
 }
 #[test]
 fn bindgen_test_layout_elf64_sym() {
-    assert_eq!(::std::mem::size_of::<elf64_sym>(),
-               24usize,
-               concat!("Size of: ", stringify!(elf64_sym)));
-    assert_eq!(::std::mem::align_of::<elf64_sym>(),
-               8usize,
-               concat!("Alignment of ", stringify!(elf64_sym)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_sym)).st_name as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_sym),
-                       "::",
-                       stringify!(st_name)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_sym)).st_info as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_sym),
-                       "::",
-                       stringify!(st_info)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_sym)).st_other as *const _ as usize },
-               5usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_sym),
-                       "::",
-                       stringify!(st_other)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_sym)).st_shndx as *const _ as usize },
-               6usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_sym),
-                       "::",
-                       stringify!(st_shndx)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_sym)).st_value as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_sym),
-                       "::",
-                       stringify!(st_value)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_sym)).st_size as *const _ as usize },
-               16usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_sym),
-                       "::",
-                       stringify!(st_size)));
+    assert_eq!(
+        ::std::mem::size_of::<elf64_sym>(),
+        24usize,
+        concat!("Size of: ", stringify!(elf64_sym))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf64_sym>(),
+        8usize,
+        concat!("Alignment of ", stringify!(elf64_sym))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_sym)).st_name as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_sym),
+            "::",
+            stringify!(st_name)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_sym)).st_info as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_sym),
+            "::",
+            stringify!(st_info)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_sym)).st_other as *const _ as usize },
+        5usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_sym),
+            "::",
+            stringify!(st_other)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_sym)).st_shndx as *const _ as usize },
+        6usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_sym),
+            "::",
+            stringify!(st_shndx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_sym)).st_value as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_sym),
+            "::",
+            stringify!(st_value)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_sym)).st_size as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_sym),
+            "::",
+            stringify!(st_size)
+        )
+    );
 }
 impl Clone for elf64_sym {
     fn clone(&self) -> Self {
@@ -779,96 +955,156 @@ pub struct elf32_hdr {
 }
 #[test]
 fn bindgen_test_layout_elf32_hdr() {
-    assert_eq!(::std::mem::size_of::<elf32_hdr>(),
-               52usize,
-               concat!("Size of: ", stringify!(elf32_hdr)));
-    assert_eq!(::std::mem::align_of::<elf32_hdr>(),
-               4usize,
-               concat!("Alignment of ", stringify!(elf32_hdr)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_ident as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_ident)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_type as *const _ as usize },
-               16usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_type)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_machine as *const _ as usize },
-               18usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_machine)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_version as *const _ as usize },
-               20usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_version)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_entry as *const _ as usize },
-               24usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_entry)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_phoff as *const _ as usize },
-               28usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_phoff)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_shoff as *const _ as usize },
-               32usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_shoff)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_flags as *const _ as usize },
-               36usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_flags)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_ehsize as *const _ as usize },
-               40usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_ehsize)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_phentsize as *const _ as usize },
-               42usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_phentsize)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_phnum as *const _ as usize },
-               44usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_phnum)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_shentsize as *const _ as usize },
-               46usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_shentsize)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_shnum as *const _ as usize },
-               48usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_shnum)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_hdr)).e_shstrndx as *const _ as usize },
-               50usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_hdr),
-                       "::",
-                       stringify!(e_shstrndx)));
+    assert_eq!(
+        ::std::mem::size_of::<elf32_hdr>(),
+        52usize,
+        concat!("Size of: ", stringify!(elf32_hdr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf32_hdr>(),
+        4usize,
+        concat!("Alignment of ", stringify!(elf32_hdr))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_ident as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_ident)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_type as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_type)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_machine as *const _ as usize },
+        18usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_machine)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_version as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_version)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_entry as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_entry)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_phoff as *const _ as usize },
+        28usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_phoff)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_shoff as *const _ as usize },
+        32usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_shoff)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_flags as *const _ as usize },
+        36usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_ehsize as *const _ as usize },
+        40usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_ehsize)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_phentsize as *const _ as usize },
+        42usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_phentsize)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_phnum as *const _ as usize },
+        44usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_phnum)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_shentsize as *const _ as usize },
+        46usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_shentsize)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_shnum as *const _ as usize },
+        48usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_shnum)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_hdr)).e_shstrndx as *const _ as usize },
+        50usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_hdr),
+            "::",
+            stringify!(e_shstrndx)
+        )
+    );
 }
 impl Clone for elf32_hdr {
     fn clone(&self) -> Self {
@@ -896,96 +1132,156 @@ pub struct elf64_hdr {
 }
 #[test]
 fn bindgen_test_layout_elf64_hdr() {
-    assert_eq!(::std::mem::size_of::<elf64_hdr>(),
-               64usize,
-               concat!("Size of: ", stringify!(elf64_hdr)));
-    assert_eq!(::std::mem::align_of::<elf64_hdr>(),
-               8usize,
-               concat!("Alignment of ", stringify!(elf64_hdr)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_ident as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_ident)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_type as *const _ as usize },
-               16usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_type)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_machine as *const _ as usize },
-               18usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_machine)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_version as *const _ as usize },
-               20usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_version)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_entry as *const _ as usize },
-               24usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_entry)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_phoff as *const _ as usize },
-               32usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_phoff)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_shoff as *const _ as usize },
-               40usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_shoff)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_flags as *const _ as usize },
-               48usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_flags)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_ehsize as *const _ as usize },
-               52usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_ehsize)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_phentsize as *const _ as usize },
-               54usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_phentsize)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_phnum as *const _ as usize },
-               56usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_phnum)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_shentsize as *const _ as usize },
-               58usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_shentsize)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_shnum as *const _ as usize },
-               60usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_shnum)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_hdr)).e_shstrndx as *const _ as usize },
-               62usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_hdr),
-                       "::",
-                       stringify!(e_shstrndx)));
+    assert_eq!(
+        ::std::mem::size_of::<elf64_hdr>(),
+        64usize,
+        concat!("Size of: ", stringify!(elf64_hdr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf64_hdr>(),
+        8usize,
+        concat!("Alignment of ", stringify!(elf64_hdr))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_ident as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_ident)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_type as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_type)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_machine as *const _ as usize },
+        18usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_machine)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_version as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_version)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_entry as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_entry)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_phoff as *const _ as usize },
+        32usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_phoff)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_shoff as *const _ as usize },
+        40usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_shoff)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_flags as *const _ as usize },
+        48usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_ehsize as *const _ as usize },
+        52usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_ehsize)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_phentsize as *const _ as usize },
+        54usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_phentsize)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_phnum as *const _ as usize },
+        56usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_phnum)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_shentsize as *const _ as usize },
+        58usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_shentsize)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_shnum as *const _ as usize },
+        60usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_shnum)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_hdr)).e_shstrndx as *const _ as usize },
+        62usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_hdr),
+            "::",
+            stringify!(e_shstrndx)
+        )
+    );
 }
 impl Clone for elf64_hdr {
     fn clone(&self) -> Self {
@@ -1007,60 +1303,96 @@ pub struct elf32_phdr {
 }
 #[test]
 fn bindgen_test_layout_elf32_phdr() {
-    assert_eq!(::std::mem::size_of::<elf32_phdr>(),
-               32usize,
-               concat!("Size of: ", stringify!(elf32_phdr)));
-    assert_eq!(::std::mem::align_of::<elf32_phdr>(),
-               4usize,
-               concat!("Alignment of ", stringify!(elf32_phdr)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_phdr)).p_type as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_phdr),
-                       "::",
-                       stringify!(p_type)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_phdr)).p_offset as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_phdr),
-                       "::",
-                       stringify!(p_offset)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_phdr)).p_vaddr as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_phdr),
-                       "::",
-                       stringify!(p_vaddr)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_phdr)).p_paddr as *const _ as usize },
-               12usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_phdr),
-                       "::",
-                       stringify!(p_paddr)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_phdr)).p_filesz as *const _ as usize },
-               16usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_phdr),
-                       "::",
-                       stringify!(p_filesz)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_phdr)).p_memsz as *const _ as usize },
-               20usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_phdr),
-                       "::",
-                       stringify!(p_memsz)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_phdr)).p_flags as *const _ as usize },
-               24usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_phdr),
-                       "::",
-                       stringify!(p_flags)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_phdr)).p_align as *const _ as usize },
-               28usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_phdr),
-                       "::",
-                       stringify!(p_align)));
+    assert_eq!(
+        ::std::mem::size_of::<elf32_phdr>(),
+        32usize,
+        concat!("Size of: ", stringify!(elf32_phdr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf32_phdr>(),
+        4usize,
+        concat!("Alignment of ", stringify!(elf32_phdr))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_phdr)).p_type as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_phdr),
+            "::",
+            stringify!(p_type)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_phdr)).p_offset as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_phdr),
+            "::",
+            stringify!(p_offset)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_phdr)).p_vaddr as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_phdr),
+            "::",
+            stringify!(p_vaddr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_phdr)).p_paddr as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_phdr),
+            "::",
+            stringify!(p_paddr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_phdr)).p_filesz as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_phdr),
+            "::",
+            stringify!(p_filesz)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_phdr)).p_memsz as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_phdr),
+            "::",
+            stringify!(p_memsz)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_phdr)).p_flags as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_phdr),
+            "::",
+            stringify!(p_flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_phdr)).p_align as *const _ as usize },
+        28usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_phdr),
+            "::",
+            stringify!(p_align)
+        )
+    );
 }
 impl Clone for elf32_phdr {
     fn clone(&self) -> Self {
@@ -1082,60 +1414,96 @@ pub struct elf64_phdr {
 }
 #[test]
 fn bindgen_test_layout_elf64_phdr() {
-    assert_eq!(::std::mem::size_of::<elf64_phdr>(),
-               56usize,
-               concat!("Size of: ", stringify!(elf64_phdr)));
-    assert_eq!(::std::mem::align_of::<elf64_phdr>(),
-               8usize,
-               concat!("Alignment of ", stringify!(elf64_phdr)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_phdr)).p_type as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_phdr),
-                       "::",
-                       stringify!(p_type)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_phdr)).p_flags as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_phdr),
-                       "::",
-                       stringify!(p_flags)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_phdr)).p_offset as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_phdr),
-                       "::",
-                       stringify!(p_offset)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_phdr)).p_vaddr as *const _ as usize },
-               16usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_phdr),
-                       "::",
-                       stringify!(p_vaddr)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_phdr)).p_paddr as *const _ as usize },
-               24usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_phdr),
-                       "::",
-                       stringify!(p_paddr)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_phdr)).p_filesz as *const _ as usize },
-               32usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_phdr),
-                       "::",
-                       stringify!(p_filesz)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_phdr)).p_memsz as *const _ as usize },
-               40usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_phdr),
-                       "::",
-                       stringify!(p_memsz)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_phdr)).p_align as *const _ as usize },
-               48usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_phdr),
-                       "::",
-                       stringify!(p_align)));
+    assert_eq!(
+        ::std::mem::size_of::<elf64_phdr>(),
+        56usize,
+        concat!("Size of: ", stringify!(elf64_phdr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf64_phdr>(),
+        8usize,
+        concat!("Alignment of ", stringify!(elf64_phdr))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_phdr)).p_type as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_phdr),
+            "::",
+            stringify!(p_type)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_phdr)).p_flags as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_phdr),
+            "::",
+            stringify!(p_flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_phdr)).p_offset as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_phdr),
+            "::",
+            stringify!(p_offset)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_phdr)).p_vaddr as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_phdr),
+            "::",
+            stringify!(p_vaddr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_phdr)).p_paddr as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_phdr),
+            "::",
+            stringify!(p_paddr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_phdr)).p_filesz as *const _ as usize },
+        32usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_phdr),
+            "::",
+            stringify!(p_filesz)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_phdr)).p_memsz as *const _ as usize },
+        40usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_phdr),
+            "::",
+            stringify!(p_memsz)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_phdr)).p_align as *const _ as usize },
+        48usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_phdr),
+            "::",
+            stringify!(p_align)
+        )
+    );
 }
 impl Clone for elf64_phdr {
     fn clone(&self) -> Self {
@@ -1159,72 +1527,116 @@ pub struct elf32_shdr {
 }
 #[test]
 fn bindgen_test_layout_elf32_shdr() {
-    assert_eq!(::std::mem::size_of::<elf32_shdr>(),
-               40usize,
-               concat!("Size of: ", stringify!(elf32_shdr)));
-    assert_eq!(::std::mem::align_of::<elf32_shdr>(),
-               4usize,
-               concat!("Alignment of ", stringify!(elf32_shdr)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_shdr)).sh_name as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_shdr),
-                       "::",
-                       stringify!(sh_name)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_shdr)).sh_type as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_shdr),
-                       "::",
-                       stringify!(sh_type)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_shdr)).sh_flags as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_shdr),
-                       "::",
-                       stringify!(sh_flags)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_shdr)).sh_addr as *const _ as usize },
-               12usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_shdr),
-                       "::",
-                       stringify!(sh_addr)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_shdr)).sh_offset as *const _ as usize },
-               16usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_shdr),
-                       "::",
-                       stringify!(sh_offset)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_shdr)).sh_size as *const _ as usize },
-               20usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_shdr),
-                       "::",
-                       stringify!(sh_size)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_shdr)).sh_link as *const _ as usize },
-               24usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_shdr),
-                       "::",
-                       stringify!(sh_link)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_shdr)).sh_info as *const _ as usize },
-               28usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_shdr),
-                       "::",
-                       stringify!(sh_info)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_shdr)).sh_addralign as *const _ as usize },
-               32usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_shdr),
-                       "::",
-                       stringify!(sh_addralign)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_shdr)).sh_entsize as *const _ as usize },
-               36usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_shdr),
-                       "::",
-                       stringify!(sh_entsize)));
+    assert_eq!(
+        ::std::mem::size_of::<elf32_shdr>(),
+        40usize,
+        concat!("Size of: ", stringify!(elf32_shdr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf32_shdr>(),
+        4usize,
+        concat!("Alignment of ", stringify!(elf32_shdr))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_shdr)).sh_name as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_shdr),
+            "::",
+            stringify!(sh_name)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_shdr)).sh_type as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_shdr),
+            "::",
+            stringify!(sh_type)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_shdr)).sh_flags as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_shdr),
+            "::",
+            stringify!(sh_flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_shdr)).sh_addr as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_shdr),
+            "::",
+            stringify!(sh_addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_shdr)).sh_offset as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_shdr),
+            "::",
+            stringify!(sh_offset)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_shdr)).sh_size as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_shdr),
+            "::",
+            stringify!(sh_size)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_shdr)).sh_link as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_shdr),
+            "::",
+            stringify!(sh_link)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_shdr)).sh_info as *const _ as usize },
+        28usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_shdr),
+            "::",
+            stringify!(sh_info)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_shdr)).sh_addralign as *const _ as usize },
+        32usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_shdr),
+            "::",
+            stringify!(sh_addralign)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_shdr)).sh_entsize as *const _ as usize },
+        36usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_shdr),
+            "::",
+            stringify!(sh_entsize)
+        )
+    );
 }
 impl Clone for elf32_shdr {
     fn clone(&self) -> Self {
@@ -1248,72 +1660,116 @@ pub struct elf64_shdr {
 }
 #[test]
 fn bindgen_test_layout_elf64_shdr() {
-    assert_eq!(::std::mem::size_of::<elf64_shdr>(),
-               64usize,
-               concat!("Size of: ", stringify!(elf64_shdr)));
-    assert_eq!(::std::mem::align_of::<elf64_shdr>(),
-               8usize,
-               concat!("Alignment of ", stringify!(elf64_shdr)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_shdr)).sh_name as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_shdr),
-                       "::",
-                       stringify!(sh_name)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_shdr)).sh_type as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_shdr),
-                       "::",
-                       stringify!(sh_type)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_shdr)).sh_flags as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_shdr),
-                       "::",
-                       stringify!(sh_flags)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_shdr)).sh_addr as *const _ as usize },
-               16usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_shdr),
-                       "::",
-                       stringify!(sh_addr)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_shdr)).sh_offset as *const _ as usize },
-               24usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_shdr),
-                       "::",
-                       stringify!(sh_offset)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_shdr)).sh_size as *const _ as usize },
-               32usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_shdr),
-                       "::",
-                       stringify!(sh_size)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_shdr)).sh_link as *const _ as usize },
-               40usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_shdr),
-                       "::",
-                       stringify!(sh_link)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_shdr)).sh_info as *const _ as usize },
-               44usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_shdr),
-                       "::",
-                       stringify!(sh_info)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_shdr)).sh_addralign as *const _ as usize },
-               48usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_shdr),
-                       "::",
-                       stringify!(sh_addralign)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_shdr)).sh_entsize as *const _ as usize },
-               56usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_shdr),
-                       "::",
-                       stringify!(sh_entsize)));
+    assert_eq!(
+        ::std::mem::size_of::<elf64_shdr>(),
+        64usize,
+        concat!("Size of: ", stringify!(elf64_shdr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf64_shdr>(),
+        8usize,
+        concat!("Alignment of ", stringify!(elf64_shdr))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_shdr)).sh_name as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_shdr),
+            "::",
+            stringify!(sh_name)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_shdr)).sh_type as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_shdr),
+            "::",
+            stringify!(sh_type)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_shdr)).sh_flags as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_shdr),
+            "::",
+            stringify!(sh_flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_shdr)).sh_addr as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_shdr),
+            "::",
+            stringify!(sh_addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_shdr)).sh_offset as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_shdr),
+            "::",
+            stringify!(sh_offset)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_shdr)).sh_size as *const _ as usize },
+        32usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_shdr),
+            "::",
+            stringify!(sh_size)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_shdr)).sh_link as *const _ as usize },
+        40usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_shdr),
+            "::",
+            stringify!(sh_link)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_shdr)).sh_info as *const _ as usize },
+        44usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_shdr),
+            "::",
+            stringify!(sh_info)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_shdr)).sh_addralign as *const _ as usize },
+        48usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_shdr),
+            "::",
+            stringify!(sh_addralign)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_shdr)).sh_entsize as *const _ as usize },
+        56usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_shdr),
+            "::",
+            stringify!(sh_entsize)
+        )
+    );
 }
 impl Clone for elf64_shdr {
     fn clone(&self) -> Self {
@@ -1330,30 +1786,46 @@ pub struct elf32_note {
 }
 #[test]
 fn bindgen_test_layout_elf32_note() {
-    assert_eq!(::std::mem::size_of::<elf32_note>(),
-               12usize,
-               concat!("Size of: ", stringify!(elf32_note)));
-    assert_eq!(::std::mem::align_of::<elf32_note>(),
-               4usize,
-               concat!("Alignment of ", stringify!(elf32_note)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_note)).n_namesz as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_note),
-                       "::",
-                       stringify!(n_namesz)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_note)).n_descsz as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_note),
-                       "::",
-                       stringify!(n_descsz)));
-    assert_eq!(unsafe { &(*(0 as *const elf32_note)).n_type as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf32_note),
-                       "::",
-                       stringify!(n_type)));
+    assert_eq!(
+        ::std::mem::size_of::<elf32_note>(),
+        12usize,
+        concat!("Size of: ", stringify!(elf32_note))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf32_note>(),
+        4usize,
+        concat!("Alignment of ", stringify!(elf32_note))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_note)).n_namesz as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_note),
+            "::",
+            stringify!(n_namesz)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_note)).n_descsz as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_note),
+            "::",
+            stringify!(n_descsz)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf32_note)).n_type as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf32_note),
+            "::",
+            stringify!(n_type)
+        )
+    );
 }
 impl Clone for elf32_note {
     fn clone(&self) -> Self {
@@ -1370,30 +1842,46 @@ pub struct elf64_note {
 }
 #[test]
 fn bindgen_test_layout_elf64_note() {
-    assert_eq!(::std::mem::size_of::<elf64_note>(),
-               12usize,
-               concat!("Size of: ", stringify!(elf64_note)));
-    assert_eq!(::std::mem::align_of::<elf64_note>(),
-               4usize,
-               concat!("Alignment of ", stringify!(elf64_note)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_note)).n_namesz as *const _ as usize },
-               0usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_note),
-                       "::",
-                       stringify!(n_namesz)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_note)).n_descsz as *const _ as usize },
-               4usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_note),
-                       "::",
-                       stringify!(n_descsz)));
-    assert_eq!(unsafe { &(*(0 as *const elf64_note)).n_type as *const _ as usize },
-               8usize,
-               concat!("Alignment of field: ",
-                       stringify!(elf64_note),
-                       "::",
-                       stringify!(n_type)));
+    assert_eq!(
+        ::std::mem::size_of::<elf64_note>(),
+        12usize,
+        concat!("Size of: ", stringify!(elf64_note))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<elf64_note>(),
+        4usize,
+        concat!("Alignment of ", stringify!(elf64_note))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_note)).n_namesz as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_note),
+            "::",
+            stringify!(n_namesz)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_note)).n_descsz as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_note),
+            "::",
+            stringify!(n_descsz)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const elf64_note)).n_type as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(elf64_note),
+            "::",
+            stringify!(n_type)
+        )
+    );
 }
 impl Clone for elf64_note {
     fn clone(&self) -> Self {
