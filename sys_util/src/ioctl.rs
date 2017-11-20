@@ -35,7 +35,8 @@ macro_rules! ioctl_io_nr {
 #[macro_export]
 macro_rules! ioctl_ior_nr {
     ($name:ident, $ty:expr, $nr:expr, $size:ty) => (
-        ioctl_ioc_nr!($name, $crate::ioctl::_IOC_READ, $ty, $nr, ::std::mem::size_of::<$size>() as u32);
+        ioctl_ioc_nr!(
+            $name, $crate::ioctl::_IOC_READ, $ty, $nr, ::std::mem::size_of::<$size>() as u32);
     )
 }
 
@@ -43,7 +44,8 @@ macro_rules! ioctl_ior_nr {
 #[macro_export]
 macro_rules! ioctl_iow_nr {
     ($name:ident, $ty:expr, $nr:expr, $size:ty) => (
-        ioctl_ioc_nr!($name, $crate::ioctl::_IOC_WRITE, $ty, $nr, ::std::mem::size_of::<$size>() as u32);
+        ioctl_ioc_nr!(
+            $name, $crate::ioctl::_IOC_WRITE, $ty, $nr, ::std::mem::size_of::<$size>() as u32);
     )
 }
 
@@ -51,7 +53,9 @@ macro_rules! ioctl_iow_nr {
 #[macro_export]
 macro_rules! ioctl_iowr_nr {
     ($name:ident, $ty:expr, $nr:expr, $size:ty) => (
-        ioctl_ioc_nr!($name, $crate::ioctl::_IOC_READ | $crate::ioctl::_IOC_WRITE, $ty, $nr, ::std::mem::size_of::<$size>() as u32);
+        ioctl_ioc_nr!(
+            $name, $crate::ioctl::_IOC_READ | $crate::ioctl::_IOC_WRITE, $ty, $nr,
+            ::std::mem::size_of::<$size>() as u32);
     )
 }
 

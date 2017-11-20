@@ -312,7 +312,8 @@ pub fn echo_syslog(enable: bool) -> Result<(), Error> {
 /// Does nothing if syslog was never initialized.
 ///
 /// # Arguments
-/// * `file` - `Some(file)` to echo to `file`, `None` to disable echoing to the file previously passed to `echo_file`.
+/// * `file` - `Some(file)` to echo to `file`, `None` to disable echoing to the file previously
+/// passed to `echo_file`.
 pub fn echo_file(file: Option<File>) {
     let mut state = lock!();
     state.file = file;
@@ -488,7 +489,8 @@ pub fn log(pri: Priority, fac: Facility, file_name: &str, line: u32, args: fmt::
 #[macro_export]
 macro_rules! log {
     ($pri:expr, $($args:tt)+) => ({
-        $crate::syslog::log($pri, $crate::syslog::Facility::User, file!(), line!(), format_args!($($args)+))
+        $crate::syslog::log(
+            $pri, $crate::syslog::Facility::User, file!(), line!(), format_args!($($args)+))
     })
 }
 
