@@ -110,9 +110,7 @@ impl Bus {
             }
         }
 
-        if self.devices
-               .insert(BusRange(base, len), device)
-               .is_some() {
+        if self.devices.insert(BusRange(base, len), device).is_some() {
             return Err(Error::Overlap);
         }
 
