@@ -8,7 +8,7 @@ info:
     Firecracker will only maintain a fixed-size list of the N most recent action requests
       for each instance.
   version: experimental
-basePath: /api-v1
+basePath: /
 schemes:
   - http
 consumes:
