@@ -8,9 +8,9 @@ use kvm;
 use sys_util;
 
 const MAX_KVM_CPUID_ENTRIES: usize = 256;
-const VENDOR_EBX_VAL: u32 = 0x534f5243;
-const VENDOR_ECX_VAL: u32 = 0x4d56534f;
-const VENDOR_EDX_VAL: u32 = 0x52434d56;
+const VENDOR_EBX_VAL: u32 = 0x45524946;
+const VENDOR_ECX_VAL: u32 = 0x0052454B;
+const VENDOR_EDX_VAL: u32 = 0x43415243;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -34,7 +34,7 @@ fn filter_cpuid(cpu_id: u64, cpu_count: u64, kvm_cpuid: &mut kvm::CpuId) -> Resu
     for entry in entries.iter_mut() {
         match entry.function {
             0 => {
-                // Vendor name "CROSVMCROSVM" in little endian.
+                // Vendor name "FIRECRACKER" in little endian.
                 entry.ebx = VENDOR_EBX_VAL;
                 entry.ecx = VENDOR_ECX_VAL;
                 entry.edx = VENDOR_EDX_VAL;
