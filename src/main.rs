@@ -1,13 +1,20 @@
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
+extern crate sys_util;
 extern crate vmm;
 
 use clap::{App, Arg};
+use sys_util::syslog;
 use vmm::boot_kernel;
 use vmm::machine::MachineCfg;
 
 
 fn main() {
+    if let Err(e) = syslog::init() {
+        println!("failed to initialize syslog: {:?}", e);
+        return;
+    }
+
     let matches = App::new("firecracker")
         .version(crate_version!())
         .author(crate_authors!())
