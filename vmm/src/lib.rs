@@ -1,4 +1,5 @@
 extern crate libc;
+#[macro_use]
 extern crate sys_util;
 extern crate kvm_sys;
 extern crate kvm;
@@ -208,15 +209,15 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
                                 VcpuExit::MmioRead(_, _) => {}
                                 VcpuExit::MmioWrite(_, _) => {}
                                 VcpuExit::Hlt => {
-                                    println!("KVM_EXIT_HLT");
+                                    info!("KVM_EXIT_HLT");
                                     break;
                                 }
                                 VcpuExit::Shutdown => {
-                                    println!("KVM_EXIT_SHUTDOWN");
+                                    info!("KVM_EXIT_SHUTDOWN");
                                     break;
                                 }
                                 r => {
-                                    println!("unexpected exit reason: {:?}", r);
+                                    error!("unexpected exit reason: {:?}", r);
                                     break;
                                 }
                             }
@@ -225,7 +226,7 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
                             match e.errno() {
                                 libc::EAGAIN | libc::EINTR => {}
                                 _ => {
-                                    println!("vcpu hit unknown error: {:?}", e);
+                                    error!("vcpu hit unknown error: {:?}", e);
                                     break;
                                 }
                             }
@@ -275,7 +276,7 @@ fn run_control(
         let tokens = match poller.poll(&pollables[..]) {
             Ok(v) => v,
             Err(e) => {
-                println!("failed to poll: {:?}", e);
+                error!("failed to poll: {:?}", e);
                 break;
             }
         };
@@ -283,7 +284,7 @@ fn run_control(
         for &token in tokens {
             match token {
                 EXIT => {
-                    println!("vcpu requested shutdown");
+                    info!("vcpu requested shutdown");
                     break 'poll;
                 }
                 STDIN => {
@@ -294,7 +295,7 @@ fn run_control(
                             pollables.retain(|&pollable| pollable.0 != STDIN);
                         }
                         Err(e) => {
-                            println!("error while reading stdin: {:?}", e);
+                            warn!("error while reading stdin: {:?}", e);
                             pollables.retain(|&pollable| pollable.0 != STDIN);
                         }
                         Ok(count) => {
@@ -316,10 +317,10 @@ fn run_control(
         match handle.kill(0) {
             Ok(_) => {
                 if let Err(e) = handle.join() {
-                    println!("failed to join vcpu thread: {:?}", e);
+                    error!("failed to join vcpu thread: {:?}", e);
                 }
             }
-            Err(e) => println!("failed to kill vcpu thread: {:?}", e),
+            Err(e) => error!("failed to kill vcpu thread: {:?}", e),
         }
     }
 
