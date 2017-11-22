@@ -1,17 +1,12 @@
-#![allow(missing_docs, unused_variables, trivial_casts)]
+#![allow(missing_docs, trivial_casts)]
 
 extern crate firecracker_api;
-#[allow(unused_extern_crates)]
 extern crate futures;
-#[allow(unused_extern_crates)]
 extern crate swagger;
-#[allow(unused_extern_crates)]
 extern crate uuid;
 extern crate clap;
 
-#[allow(unused_imports)]
 use futures::{Future, future, Stream, stream};
-#[allow(unused_imports)]
 use firecracker_api::{ApiNoContext, ContextWrapperExt,
                       ApiError,
                       ApplyLimiterToDriveResponse,

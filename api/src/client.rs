@@ -1,35 +1,19 @@
-#![allow(unused_extern_crates)]
-extern crate chrono;
-
 
 
 use hyper;
 use hyper::client::IntoUrl;
-use hyper::mime;
-use hyper::header::{Headers, ContentType};
-use hyper::mime::{Mime, TopLevel, SubLevel, Attr, Value};
-use hyper::Url;
+use hyper::header::ContentType;
 use futures;
-use futures::{Future, Stream};
-use futures::{future, stream};
+use futures::Future;
 use std::borrow::Cow;
-use std::io::{Read, Error};
+use std::io::Read;
 use std::error;
 use std::fmt;
-use std::path::Path;
 use std::sync::Arc;
 use std::str;
 
 use mimetypes;
-
 use serde_json;
-
-
-#[allow(unused_imports)]
-use std::collections::{HashMap, BTreeMap};
-#[allow(unused_imports)]
-use swagger;
-
 use swagger::{Context, ApiError, XSpanId};
 
 use {Api,
