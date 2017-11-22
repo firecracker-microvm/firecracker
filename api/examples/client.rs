@@ -1,6 +1,6 @@
 #![allow(missing_docs, unused_variables, trivial_casts)]
 
-extern crate swagger_client;
+extern crate firecracker_api;
 #[allow(unused_extern_crates)]
 extern crate futures;
 #[allow(unused_extern_crates)]
@@ -12,7 +12,7 @@ extern crate clap;
 #[allow(unused_imports)]
 use futures::{Future, future, Stream, stream};
 #[allow(unused_imports)]
-use swagger_client::{ApiNoContext, ContextWrapperExt,
+use firecracker_api::{ApiNoContext, ContextWrapperExt,
                       ApiError,
                       ApplyLimiterToDriveResponse,
                       ApplyLimiterToNetworkInterfaceResponse,
@@ -84,14 +84,14 @@ fn main() {
 
     let client = if matches.is_present("https") {
         // Using Simple HTTPS
-        swagger_client::Client::try_new_https("https://localhost:8080", "examples/ca.pem").expect("Failed to create HTTPS client")
+        firecracker_api::Client::try_new_https("https://localhost:8080", "examples/ca.pem").expect("Failed to create HTTPS client")
     } else {
         // Using HTTP
-        swagger_client::Client::try_new_http("http://localhost:8080").expect("Failed to create HTTP client")
+        firecracker_api::Client::try_new_http("http://localhost:8080").expect("Failed to create HTTP client")
     };
 
     // Using a non-default `Context` is not required; this is just an example!
-    let client = client.with_context(swagger_client::Context::new_with_span_id(self::uuid::Uuid::new_v4().to_string()));
+    let client = client.with_context(firecracker_api::Context::new_with_span_id(self::uuid::Uuid::new_v4().to_string()));
 
     match matches.value_of("operation") {
 
