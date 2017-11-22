@@ -1,13 +1,6 @@
-#![allow(missing_docs, unused_extern_crates)]
-extern crate chrono;
-extern crate swagger;
+
 
 use futures::{self, Future};
-
-
-#[allow(unused_imports)]
-use std::collections::HashMap;
-
 
 use firecracker_api::{Api, ApiError, Context,
                       ApplyLimiterToDriveResponse,
@@ -40,7 +33,6 @@ use firecracker_api::{Api, ApiError, Context,
                       PutGuestVsockByIDResponse,
                       UpdateLimiterResponse
 };
-#[allow(unused_imports)]
 use firecracker_api::models;
 
 #[derive(Copy, Clone)]
