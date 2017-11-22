@@ -1,5 +1,5 @@
 [package]
-name = "swagger_client"
+name = "firecracker_api"
 version = "0.1.0"
 authors = ["acatan@amazon.com"]
 

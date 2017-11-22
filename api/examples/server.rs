@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-extern crate swagger_client;
+extern crate firecracker_api;
 extern crate iron;
 extern crate futures;
 extern crate hyper_openssl;
@@ -40,10 +40,10 @@ fn main() {
         .get_matches();
 
     let server = server_lib::Server{};
-    let router = swagger_client::router(server);
+    let router = firecracker_api::router(server);
 
     let mut chain = Chain::new(router);
-    chain.link_before(swagger_client::server::ExtractAuthData);
+    chain.link_before(firecracker_api::server::ExtractAuthData);
     // add authentication middlewares into the chain here
     // for the purpose of this example, pretend we have authenticated a user
     chain.link_before(AllowAllMiddleware::new("cosmo"));

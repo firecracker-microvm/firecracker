@@ -9,7 +9,7 @@ use futures::{self, Future};
 use std::collections::HashMap;
 
 
-use swagger_client::{Api, ApiError, Context,
+use firecracker_api::{Api, ApiError, Context,
                       ApplyLimiterToDriveResponse,
                       ApplyLimiterToNetworkInterfaceResponse,
                       ApplyLimiterToVsockResponse,
@@ -41,7 +41,7 @@ use swagger_client::{Api, ApiError, Context,
                       UpdateLimiterResponse
 };
 #[allow(unused_imports)]
-use swagger_client::models;
+use firecracker_api::models;
 
 #[derive(Copy, Clone)]
 pub struct Server;
