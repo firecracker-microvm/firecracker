@@ -93,7 +93,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.put(
-        "//drives/:drive_id/limiters/:limiter_id",
+        "/drives/:drive_id/limiters/:limiter_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -176,7 +176,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.put(
-        "//network-interfaces/:iface_id/limiters/:limiter_id",
+        "/network-interfaces/:iface_id/limiters/:limiter_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -259,7 +259,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.put(
-        "//vsocks/:vsock_id/limiters/:limiter_id",
+        "/vsocks/:vsock_id/limiters/:limiter_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -342,7 +342,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.put(
-        "//action/:action_id",
+        "/action/:action_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -444,7 +444,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.delete(
-        "//drives/:drive_id",
+        "/drives/:drive_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -509,7 +509,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.delete(
-        "//network-interfaces/:iface_id",
+        "/network-interfaces/:iface_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -574,7 +574,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.delete(
-        "//vsocks/:vsock_id",
+        "/vsocks/:vsock_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -639,7 +639,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.delete(
-        "//limiters/:limiter_id",
+        "/limiters/:limiter_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -704,7 +704,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//",
+        "/",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -714,8 +714,6 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
                 context.x_span_id = Some(req.headers.get::<XSpanId>().map(XSpanId::to_string).unwrap_or_else(|| self::uuid::Uuid::new_v4().to_string()));
                 context.auth_data = req.extensions.remove::<AuthData>();
                 context.authorization = req.extensions.remove::<Authorization>();
-
-
 
 
 
@@ -761,7 +759,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//action/:action_id",
+        "/action/:action_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -827,7 +825,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//limiters/:limiter_id",
+        "/limiters/:limiter_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -904,7 +902,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//boot/source",
+        "/boot/source",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -972,7 +970,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//drives/:drive_id",
+        "/drives/:drive_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1049,7 +1047,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//drives",
+        "/drives",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1106,7 +1104,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//network-interfaces/:iface_id",
+        "/network-interfaces/:iface_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1183,7 +1181,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//network-interfaces",
+        "/network-interfaces",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1240,7 +1238,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//vsocks/:vsock_id",
+        "/vsocks/:vsock_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1317,7 +1315,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//vsocks",
+        "/vsocks",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1374,7 +1372,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//drives/:drive_id/limiters",
+        "/drives/:drive_id/limiters",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1451,7 +1449,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//network-interfaces/:iface_id/limiters",
+        "/network-interfaces/:iface_id/limiters",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1528,7 +1526,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//vsocks/:vsock_id/limiters",
+        "/vsocks/:vsock_id/limiters",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1605,7 +1603,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//metadata",
+        "/metadata",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1662,7 +1660,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//actions",
+        "/actions",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1719,7 +1717,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.get(
-        "//limiters",
+        "/limiters",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1781,7 +1779,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.put(
-        "//boot/source",
+        "/boot/source",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -1887,7 +1885,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.put(
-        "//drives/:drive_id",
+        "/drives/:drive_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -2002,7 +2000,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.put(
-        "//network-interfaces/:iface_id",
+        "/network-interfaces/:iface_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -2117,7 +2115,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.put(
-        "//vsocks/:vsock_id",
+        "/vsocks/:vsock_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
@@ -2232,7 +2230,7 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
 
     let api_clone = api.clone();
     router.put(
-        "//limiters/:limiter_id",
+        "/limiters/:limiter_id",
         move |req: &mut Request| {
             let mut context = Context::default();
 
