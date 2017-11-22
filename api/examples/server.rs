@@ -4,11 +4,9 @@ extern crate firecracker_api;
 extern crate iron;
 extern crate futures;
 extern crate clap;
-extern crate swagger;
 
 use clap::{App, Arg};
 use iron::{Iron, Chain};
-use swagger::auth::AllowAllMiddleware;
 
 // Import the module that defines the Server struct.
 mod server_lib;
@@ -25,11 +23,7 @@ fn main() {
     let server = server_lib::Server{};
     let router = firecracker_api::router(server);
 
-    let mut chain = Chain::new(router);
-    chain.link_before(firecracker_api::server::ExtractAuthData);
-    // add authentication middlewares into the chain here
-    // for the purpose of this example, pretend we have authenticated a user
-    chain.link_before(AllowAllMiddleware::new("cosmo"));
+    let chain = Chain::new(router);
 
     if matches.is_present("https") {
         // Using Simple HTTPS

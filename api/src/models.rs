@@ -1,14 +1,6 @@
-#![allow(unused_imports, unused_qualifications, unused_extern_crates)]
-extern crate chrono;
-extern crate uuid;
+#![allow(unused_qualifications)]
 
-
-use serde::ser::Serializer;
-
-use std::collections::HashMap;
 use models;
-use swagger;
-
 
 /// Boot source descriptor. 'source_type' will specify the boot source type and depending on its value: one and only one of 'local_image', 'drive_boot' or 'network_boot' should describe the boot resource in detail. 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

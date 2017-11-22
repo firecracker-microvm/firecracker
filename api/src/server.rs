@@ -1,20 +1,15 @@
-#![allow(unused_extern_crates)]
 extern crate serde_ignored;
 extern crate iron;
 extern crate router;
 extern crate bodyparser;
 extern crate urlencoded;
 extern crate uuid;
-extern crate chrono;
 
 
 use futures::Future;
-use futures::future;
-use futures::{stream, Stream};
-use hyper;
-use hyper::header::{Headers, ContentType};
+use hyper::header::ContentType;
 use self::iron::prelude::*;
-use self::iron::{status, modifiers, BeforeMiddleware};
+use self::iron::status;
 use self::iron::url::percent_encoding::percent_decode;
 use self::router::Router;
 use self::urlencoded::UrlEncodedQuery;
@@ -23,18 +18,8 @@ use mimetypes;
 
 use serde_json;
 
-
-#[allow(unused_imports)]
-use std::collections::{HashMap, BTreeMap};
-#[allow(unused_imports)]
-use swagger;
-use std::io::Error;
-
-#[allow(unused_imports)]
-use std::collections::BTreeSet;
-
-use swagger::auth::{Authorization, AuthData, Scopes};
-use swagger::{ApiError, Context, XSpanId};
+use swagger::auth::{Authorization, AuthData};
+use swagger::{Context, XSpanId};
 
 use {Api,
      ApplyLimiterToDriveResponse,
@@ -67,7 +52,6 @@ use {Api,
      PutGuestVsockByIDResponse,
      UpdateLimiterResponse
      };
-#[allow(unused_imports)]
 use models;
 
 header! { (Warning, "Warning") => [String] }

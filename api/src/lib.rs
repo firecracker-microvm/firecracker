@@ -1,11 +1,10 @@
-#![allow(missing_docs, trivial_casts, unused_variables, unused_mut, unused_imports, unused_extern_crates, non_camel_case_types)]
-extern crate serde;
+#![allow(missing_docs, trivial_casts, non_camel_case_types)]
+
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
 
 extern crate futures;
-extern crate chrono;
 
 #[macro_use]
 extern crate lazy_static;
@@ -18,12 +17,6 @@ extern crate log;
 extern crate hyper;
 
 extern crate swagger;
-
-use futures::Stream;
-use std::io::Error;
-
-#[allow(unused_imports)]
-use std::collections::HashMap;
 
 pub use futures::Future;
 
