@@ -84,7 +84,6 @@ fn main() {
 
     let client = if matches.is_present("https") {
         // Using Simple HTTPS
-        firecracker_api::Client::try_new_https("https://localhost:8080", "examples/ca.pem").expect("Failed to create HTTPS client")
     } else {
         // Using HTTP
         firecracker_api::Client::try_new_http("http://localhost:8080").expect("Failed to create HTTP client")
