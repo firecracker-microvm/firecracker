@@ -1,0 +1,18 @@
+[build]
+rustflags = [
+    "-W", "missing_docs",  # detects missing documentation for public members
+
+    "-W", "trivial_casts",  # detects trivial casts which could be removed
+
+    "-W", "trivial_numeric_casts",  # detects trivial casts of numeric types which could be removed
+
+    "-W", "unsafe_code",  # usage of `unsafe` code
+
+    "-W", "unused_qualifications",  # detects unnecessarily qualified names
+
+    "-W", "unused_extern_crates",  # extern crates that are never used
+
+    "-W", "unused_import_braces",  # unnecessary braces around an imported item
+
+    "-D", "warnings", # all warnings should be denied
+]

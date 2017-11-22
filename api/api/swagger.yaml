@@ -1,0 +1,1607 @@
+---
+swagger: "2.0"
+info:
+  description: "Firecraker MVP - RESTful public-facing API.\n\nThe API is accessible\
+    \ through HTTP calls on specific URLs carrying JSON modeled data. The transport\
+    \ medium is a Unix Domain Socket."
+  version: "0.1.0"
+  title: "Firecracker MVP API"
+  termsOfService: ""
+  contact:
+    email: "acatan@amazon.com"
+  license:
+    name: "Apache 2.0"
+    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
+host: "localhost"
+basePath: "/"
+schemes:
+- "http"
+consumes:
+- "application/json"
+produces:
+- "application/json"
+paths:
+  /:
+    get:
+      summary: "Return general information about an instance."
+      operationId: "describeInstance"
+      parameters: []
+      responses:
+        200:
+          description: "The instance information."
+          schema:
+            $ref: "#/definitions/InstanceInfo"
+          uppercase_operation_id: "DESCRIBE_INSTANCE"
+          uppercase_message: "THE_INSTANCE_INFORMATION"
+          uppercase_data_type: "INSTANCEINFO"
+        default:
+          description: "Unexpected error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "DESCRIBE_INSTANCE"
+          uppercase_message: "UNEXPECTED_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "describe_instance"
+      uppercase_operation_id: "DESCRIBE_INSTANCE"
+      path: "/"
+      HttpMethod: "Get"
+      httpmethod: "get"
+  /boot/source:
+    get:
+      summary: "Get configured boot source."
+      operationId: "getGuestBootSource"
+      parameters: []
+      responses:
+        200:
+          description: "Specified boot source."
+          schema:
+            $ref: "#/definitions/BootSource"
+          uppercase_operation_id: "GET_GUEST_BOOT_SOURCE"
+          uppercase_message: "SPECIFIED_BOOT_SOURCE"
+          uppercase_data_type: "BOOTSOURCE"
+        404:
+          description: "Boot source does not exist."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_GUEST_BOOT_SOURCE"
+          uppercase_message: "BOOT_SOURCE_DOES_NOT_EXIST"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_GUEST_BOOT_SOURCE"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "get_guest_boot_source"
+      uppercase_operation_id: "GET_GUEST_BOOT_SOURCE"
+      path: "/boot/source"
+      HttpMethod: "Get"
+      httpmethod: "get"
+    put:
+      summary: "Creates new boot source. If boot source already exists, updates its\
+        \ state based on new input. May fail if update is not possible."
+      operationId: "putGuestBootSource"
+      parameters:
+      - in: "body"
+        name: "body"
+        description: "Guest boot source properties"
+        required: true
+        schema:
+          $ref: "#/definitions/BootSource"
+        uppercase_data_type: "BOOTSOURCE"
+        refName: "BootSource"
+        formatString: "{:?}"
+        example: "???"
+        model_key: "Error"
+        uppercase_operation_id: "PUT_GUEST_BOOT_SOURCE"
+      responses:
+        201:
+          description: "Boot source created."
+          uppercase_operation_id: "PUT_GUEST_BOOT_SOURCE"
+          uppercase_message: "BOOT_SOURCE_CREATED"
+        204:
+          description: "Boot source updated."
+          uppercase_operation_id: "PUT_GUEST_BOOT_SOURCE"
+          uppercase_message: "BOOT_SOURCE_UPDATED"
+        400:
+          description: "Boot source cannot be created due to bad input."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "PUT_GUEST_BOOT_SOURCE"
+          uppercase_message: "BOOT_SOURCE_CANNOT_BE_CREATED_DUE_TO_BAD_INPUT"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "PUT_GUEST_BOOT_SOURCE"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "put_guest_boot_source"
+      uppercase_operation_id: "PUT_GUEST_BOOT_SOURCE"
+      path: "/boot/source"
+      HttpMethod: "Put"
+      httpmethod: "put"
+      noClientExample: true
+  /metadata:
+    get:
+      summary: "Return metadata about an instance."
+      operationId: "getMetadata"
+      parameters: []
+      responses:
+        200:
+          description: "The instance metadata."
+          schema:
+            $ref: "#/definitions/InstanceMetadata"
+          uppercase_operation_id: "GET_METADATA"
+          uppercase_message: "THE_INSTANCE_METADATA"
+          uppercase_data_type: "INSTANCEMETADATA"
+        default:
+          description: "Unexpected error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_METADATA"
+          uppercase_message: "UNEXPECTED_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "get_metadata"
+      uppercase_operation_id: "GET_METADATA"
+      path: "/metadata"
+      HttpMethod: "Get"
+      httpmethod: "get"
+  /actions:
+    get:
+      summary: "Return the list of (most recent) actions for an instance."
+      operationId: "listInstanceActions"
+      parameters: []
+      responses:
+        200:
+          description: "The (most recent) instance actions listed by action identifier."
+          schema:
+            type: "array"
+            items:
+              type: "string"
+          uppercase_operation_id: "LIST_INSTANCE_ACTIONS"
+          uppercase_message: "THE_"
+          uppercase_data_type: "VEC<STRING>"
+        default:
+          description: "Unexpected error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "LIST_INSTANCE_ACTIONS"
+          uppercase_message: "UNEXPECTED_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "list_instance_actions"
+      uppercase_operation_id: "LIST_INSTANCE_ACTIONS"
+      path: "/actions"
+      HttpMethod: "Get"
+      httpmethod: "get"
+  /action/{action_id}:
+    get:
+      summary: "Return detailed information about an action."
+      operationId: "describeInstanceAction"
+      parameters:
+      - name: "action_id"
+        in: "path"
+        description: "The action identifier."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"action_id_example\".to_string()"
+      responses:
+        200:
+          description: "The instance action information."
+          schema:
+            $ref: "#/definitions/InstanceActionInfo"
+          uppercase_operation_id: "DESCRIBE_INSTANCE_ACTION"
+          uppercase_message: "THE_INSTANCE_ACTION_INFORMATION"
+          uppercase_data_type: "INSTANCEACTIONINFO"
+        default:
+          description: "Unexpected error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "DESCRIBE_INSTANCE_ACTION"
+          uppercase_message: "UNEXPECTED_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "describe_instance_action"
+      uppercase_operation_id: "DESCRIBE_INSTANCE_ACTION"
+      path: "/action/:action_id"
+      HttpMethod: "Get"
+      httpmethod: "get"
+    put:
+      summary: "Create an instance action."
+      operationId: "createInstanceAction"
+      parameters:
+      - name: "action_id"
+        in: "path"
+        description: "The action identifier."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"action_id_example\".to_string()"
+      - in: "body"
+        name: "info"
+        required: true
+        schema:
+          $ref: "#/definitions/InstanceActionInfo"
+        uppercase_data_type: "INSTANCEACTIONINFO"
+        refName: "InstanceActionInfo"
+        formatString: "{:?}"
+        example: "???"
+        model_key: "Error"
+        uppercase_operation_id: "CREATE_INSTANCE_ACTION"
+      responses:
+        201:
+          description: "No previous action existed so a new one was created."
+          uppercase_operation_id: "CREATE_INSTANCE_ACTION"
+          uppercase_message: "NO_PREVIOUS_ACTION_EXISTED_SO_A_NEW_ONE_WAS_CREATED"
+        204:
+          description: "Action updated."
+          uppercase_operation_id: "CREATE_INSTANCE_ACTION"
+          uppercase_message: "ACTION_UPDATED"
+        default:
+          description: "Unexpected error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "CREATE_INSTANCE_ACTION"
+          uppercase_message: "UNEXPECTED_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "create_instance_action"
+      uppercase_operation_id: "CREATE_INSTANCE_ACTION"
+      path: "/action/:action_id"
+      HttpMethod: "Put"
+      httpmethod: "put"
+      noClientExample: true
+  /limiters:
+    get:
+      summary: "Retrieves list of currently created limiters."
+      operationId: "listLimiters"
+      parameters:
+      - name: "next_token"
+        in: "query"
+        description: "Opaque token that specifies where to start the next list of\
+          \ limiters. If not provided or\nNULL, start from the beginning.\n"
+        required: false
+        type: "string"
+        formatString: "{:?}"
+        example: "Some(\"next_token_example\".to_string())"
+      responses:
+        200:
+          description: "List of limiters."
+          schema:
+            $ref: "#/definitions/LimiterList"
+          uppercase_operation_id: "LIST_LIMITERS"
+          uppercase_message: "LIST_OF_LIMITERS"
+          uppercase_data_type: "LIMITERLIST"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "LIST_LIMITERS"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "list_limiters"
+      uppercase_operation_id: "LIST_LIMITERS"
+      path: "/limiters"
+      HttpMethod: "Get"
+      httpmethod: "get"
+  /limiters/{limiter_id}:
+    get:
+      summary: "Retrieves limiter specified by 'limiter_id' path parameter."
+      operationId: "describeLimiter"
+      parameters:
+      - name: "limiter_id"
+        in: "path"
+        description: "Id of the limiter to retrieve."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"limiter_id_example\".to_string()"
+      responses:
+        200:
+          description: "Specified limiter."
+          schema:
+            $ref: "#/definitions/Limiter"
+          uppercase_operation_id: "DESCRIBE_LIMITER"
+          uppercase_message: "SPECIFIED_LIMITER"
+          uppercase_data_type: "LIMITER"
+        404:
+          description: "Limiter does not exist."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "DESCRIBE_LIMITER"
+          uppercase_message: "LIMITER_DOES_NOT_EXIST"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "DESCRIBE_LIMITER"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "describe_limiter"
+      uppercase_operation_id: "DESCRIBE_LIMITER"
+      path: "/limiters/:limiter_id"
+      HttpMethod: "Get"
+      httpmethod: "get"
+    put:
+      summary: "Creates new limiter with ID specified by 'limiter_id' path parameter.\
+        \ If limiter with specified ID already exists, updates its state based on\
+        \ new input. May fail if update is not possible."
+      operationId: "updateLimiter"
+      parameters:
+      - name: "limiter_id"
+        in: "path"
+        description: "Id of the limiter to retrieve."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"limiter_id_example\".to_string()"
+      - in: "body"
+        name: "limiter"
+        description: "Limiter to create or update."
+        required: true
+        schema:
+          $ref: "#/definitions/Limiter"
+        uppercase_data_type: "LIMITER"
+        refName: "Limiter"
+        formatString: "{:?}"
+        example: "???"
+        model_key: "Error"
+        uppercase_operation_id: "UPDATE_LIMITER"
+      responses:
+        201:
+          description: "Limiter created."
+          uppercase_operation_id: "UPDATE_LIMITER"
+          uppercase_message: "LIMITER_CREATED"
+        204:
+          description: "Limiter updated."
+          uppercase_operation_id: "UPDATE_LIMITER"
+          uppercase_message: "LIMITER_UPDATED"
+        400:
+          description: "Limiter cannot be created due to bad input."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "UPDATE_LIMITER"
+          uppercase_message: "LIMITER_CANNOT_BE_CREATED_DUE_TO_BAD_INPUT"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "UPDATE_LIMITER"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "update_limiter"
+      uppercase_operation_id: "UPDATE_LIMITER"
+      path: "/limiters/:limiter_id"
+      HttpMethod: "Put"
+      httpmethod: "put"
+      noClientExample: true
+    delete:
+      summary: "Deletes limiter with ID specified by 'limiter_id' path parameter.\
+        \ Will clean up any resources associated with this limiter."
+      operationId: "deleteLimiter"
+      parameters:
+      - name: "limiter_id"
+        in: "path"
+        description: "Id of the limiter to retrieve."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"limiter_id_example\".to_string()"
+      responses:
+        202:
+          description: "Limiter deleted."
+          uppercase_operation_id: "DELETE_LIMITER"
+          uppercase_message: "LIMITER_DELETED"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "DELETE_LIMITER"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "delete_limiter"
+      uppercase_operation_id: "DELETE_LIMITER"
+      path: "/limiters/:limiter_id"
+      HttpMethod: "Delete"
+      httpmethod: "delete"
+  /drives:
+    get:
+      summary: "All guest drives"
+      description: "Returns list of guest storage drives."
+      operationId: "getGuestDrives"
+      parameters: []
+      responses:
+        200:
+          description: "List of guest drives"
+          schema:
+            type: "array"
+            items:
+              $ref: "#/definitions/Drive"
+          uppercase_operation_id: "GET_GUEST_DRIVES"
+          uppercase_message: "LIST_OF_GUEST_DRIVES"
+          uppercase_data_type: "VEC<DRIVE>"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_GUEST_DRIVES"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "get_guest_drives"
+      uppercase_operation_id: "GET_GUEST_DRIVES"
+      path: "/drives"
+      HttpMethod: "Get"
+      httpmethod: "get"
+  /drives/{drive_id}:
+    get:
+      summary: "Get guest drive by 'drive_id' path parameter."
+      operationId: "getGuestDriveByID"
+      parameters:
+      - name: "drive_id"
+        in: "path"
+        description: "The id of the guest drive."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"drive_id_example\".to_string()"
+      responses:
+        200:
+          description: "Specified drive."
+          schema:
+            $ref: "#/definitions/Drive"
+          uppercase_operation_id: "GET_GUEST_DRIVE_BY_ID"
+          uppercase_message: "SPECIFIED_DRIVE"
+          uppercase_data_type: "DRIVE"
+        404:
+          description: "Drive does not exist."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_GUEST_DRIVE_BY_ID"
+          uppercase_message: "DRIVE_DOES_NOT_EXIST"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_GUEST_DRIVE_BY_ID"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "get_guest_drive_by_id"
+      uppercase_operation_id: "GET_GUEST_DRIVE_BY_ID"
+      path: "/drives/:drive_id"
+      HttpMethod: "Get"
+      httpmethod: "get"
+    put:
+      summary: "Creates new drive with ID specified by 'drive_id' path parameter.\
+        \ If drive with specified ID already exists, updates its state based on new\
+        \ input. May fail if update is not possible."
+      operationId: "putGuestDriveByID"
+      parameters:
+      - name: "drive_id"
+        in: "path"
+        description: "The id of the guest drive."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"drive_id_example\".to_string()"
+      - in: "body"
+        name: "body"
+        description: "Guest drive properties"
+        required: true
+        schema:
+          $ref: "#/definitions/Drive"
+        uppercase_data_type: "DRIVE"
+        refName: "Drive"
+        formatString: "{:?}"
+        example: "???"
+        model_key: "Error"
+        uppercase_operation_id: "PUT_GUEST_DRIVE_BY_ID"
+      responses:
+        201:
+          description: "Drive created."
+          uppercase_operation_id: "PUT_GUEST_DRIVE_BY_ID"
+          uppercase_message: "DRIVE_CREATED"
+        204:
+          description: "Drive updated."
+          uppercase_operation_id: "PUT_GUEST_DRIVE_BY_ID"
+          uppercase_message: "DRIVE_UPDATED"
+        400:
+          description: "Drive cannot be created due to bad input."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "PUT_GUEST_DRIVE_BY_ID"
+          uppercase_message: "DRIVE_CANNOT_BE_CREATED_DUE_TO_BAD_INPUT"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "PUT_GUEST_DRIVE_BY_ID"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "put_guest_drive_by_id"
+      uppercase_operation_id: "PUT_GUEST_DRIVE_BY_ID"
+      path: "/drives/:drive_id"
+      HttpMethod: "Put"
+      httpmethod: "put"
+      noClientExample: true
+    delete:
+      summary: "Deletes drive with ID specified by 'drive_id' path parameter. Will\
+        \ clean up any resources associated with this drive."
+      operationId: "deleteGuestDriveByID"
+      parameters:
+      - name: "drive_id"
+        in: "path"
+        description: "The id of guest drive to delete."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"drive_id_example\".to_string()"
+      responses:
+        202:
+          description: "Drive deleted."
+          uppercase_operation_id: "DELETE_GUEST_DRIVE_BY_ID"
+          uppercase_message: "DRIVE_DELETED"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "DELETE_GUEST_DRIVE_BY_ID"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "delete_guest_drive_by_id"
+      uppercase_operation_id: "DELETE_GUEST_DRIVE_BY_ID"
+      path: "/drives/:drive_id"
+      HttpMethod: "Delete"
+      httpmethod: "delete"
+  /drives/{drive_id}/limiters:
+    get:
+      summary: "Retrieves list of limiters IDs currently applied to the drive with\
+        \ 'drive_id'."
+      operationId: "getLimitersForGuestDrive"
+      parameters:
+      - name: "drive_id"
+        in: "path"
+        description: "The id of the guest drive to get limiters for."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"drive_id_example\".to_string()"
+      responses:
+        200:
+          description: "List of limiters IDs currently applied to this drive."
+          schema:
+            type: "array"
+            items:
+              type: "integer"
+              format: "int32"
+          uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_DRIVE"
+          uppercase_message: "LIST_OF_LIMITERS_I_DS_CURRENTLY_APPLIED_TO_THIS_DRIVE"
+          uppercase_data_type: "VEC<I32>"
+        404:
+          description: "Drive does not exist."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_DRIVE"
+          uppercase_message: "DRIVE_DOES_NOT_EXIST"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_DRIVE"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "get_limiters_for_guest_drive"
+      uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_DRIVE"
+      path: "/drives/:drive_id/limiters"
+      HttpMethod: "Get"
+      httpmethod: "get"
+  /drives/{drive_id}/limiters/{limiter_id}:
+    put:
+      summary: "Applies limiter 'limiter_id' to drive 'drive_id'"
+      operationId: "applyLimiterToDrive"
+      parameters:
+      - name: "drive_id"
+        in: "path"
+        description: "The id of the guest drive to apply limiter 'limiter_id' to."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"drive_id_example\".to_string()"
+      - name: "limiter_id"
+        in: "path"
+        description: "The id of the limiter to be applied to drive 'drive_id'."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"limiter_id_example\".to_string()"
+      responses:
+        200:
+          description: "Limiter applied."
+          uppercase_operation_id: "APPLY_LIMITER_TO_DRIVE"
+          uppercase_message: "LIMITER_APPLIED"
+        400:
+          description: "Limiter cannot be applied due to bad input."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "APPLY_LIMITER_TO_DRIVE"
+          uppercase_message: "LIMITER_CANNOT_BE_APPLIED_DUE_TO_BAD_INPUT"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "APPLY_LIMITER_TO_DRIVE"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "apply_limiter_to_drive"
+      uppercase_operation_id: "APPLY_LIMITER_TO_DRIVE"
+      path: "/drives/:drive_id/limiters/:limiter_id"
+      HttpMethod: "Put"
+      httpmethod: "put"
+  /network-interfaces:
+    get:
+      summary: "All guest network interfaces"
+      description: "Returns list of guest network interfaces."
+      operationId: "getGuestNetworkInterfaces"
+      parameters: []
+      responses:
+        200:
+          description: "List of guest network interfaces"
+          schema:
+            type: "array"
+            items:
+              $ref: "#/definitions/NetworkInterface"
+          uppercase_operation_id: "GET_GUEST_NETWORK_INTERFACES"
+          uppercase_message: "LIST_OF_GUEST_NETWORK_INTERFACES"
+          uppercase_data_type: "VEC<NETWORKINTERFACE>"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_GUEST_NETWORK_INTERFACES"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "get_guest_network_interfaces"
+      uppercase_operation_id: "GET_GUEST_NETWORK_INTERFACES"
+      path: "/network-interfaces"
+      HttpMethod: "Get"
+      httpmethod: "get"
+  /network-interfaces/{iface_id}:
+    get:
+      summary: "Get guest network interface by 'iface_id' path parameter."
+      operationId: "getGuestNetworkInterfaceByID"
+      parameters:
+      - name: "iface_id"
+        in: "path"
+        description: "The id of the guest network interface."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"iface_id_example\".to_string()"
+      responses:
+        200:
+          description: "Specified network interface."
+          schema:
+            $ref: "#/definitions/NetworkInterface"
+          uppercase_operation_id: "GET_GUEST_NETWORK_INTERFACE_BY_ID"
+          uppercase_message: "SPECIFIED_NETWORK_INTERFACE"
+          uppercase_data_type: "NETWORKINTERFACE"
+        404:
+          description: "Network interface does not exist."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_GUEST_NETWORK_INTERFACE_BY_ID"
+          uppercase_message: "NETWORK_INTERFACE_DOES_NOT_EXIST"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_GUEST_NETWORK_INTERFACE_BY_ID"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "get_guest_network_interface_by_id"
+      uppercase_operation_id: "GET_GUEST_NETWORK_INTERFACE_BY_ID"
+      path: "/network-interfaces/:iface_id"
+      HttpMethod: "Get"
+      httpmethod: "get"
+    put:
+      summary: "Creates new network interface with ID specified by 'iface_id' path\
+        \ parameter. If network interface with specified ID already exists, updates\
+        \ its state based on new input. May fail if update is not possible."
+      operationId: "putGuestNetworkInterfaceByID"
+      parameters:
+      - name: "iface_id"
+        in: "path"
+        description: "The id of the guest network interface."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"iface_id_example\".to_string()"
+      - in: "body"
+        name: "body"
+        description: "Guest network interface properties"
+        required: true
+        schema:
+          $ref: "#/definitions/NetworkInterface"
+        uppercase_data_type: "NETWORKINTERFACE"
+        refName: "NetworkInterface"
+        formatString: "{:?}"
+        example: "???"
+        model_key: "Error"
+        uppercase_operation_id: "PUT_GUEST_NETWORK_INTERFACE_BY_ID"
+      responses:
+        201:
+          description: "Network interface created."
+          uppercase_operation_id: "PUT_GUEST_NETWORK_INTERFACE_BY_ID"
+          uppercase_message: "NETWORK_INTERFACE_CREATED"
+        204:
+          description: "Network interface updated."
+          uppercase_operation_id: "PUT_GUEST_NETWORK_INTERFACE_BY_ID"
+          uppercase_message: "NETWORK_INTERFACE_UPDATED"
+        400:
+          description: "Network interface cannot be created due to bad input."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "PUT_GUEST_NETWORK_INTERFACE_BY_ID"
+          uppercase_message: "NETWORK_INTERFACE_CANNOT_BE_CREATED_DUE_TO_BAD_INPUT"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "PUT_GUEST_NETWORK_INTERFACE_BY_ID"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "put_guest_network_interface_by_id"
+      uppercase_operation_id: "PUT_GUEST_NETWORK_INTERFACE_BY_ID"
+      path: "/network-interfaces/:iface_id"
+      HttpMethod: "Put"
+      httpmethod: "put"
+      noClientExample: true
+    delete:
+      summary: "Deletes network interface with ID specified by 'iface_id' path parameter.\
+        \ Will clean up any resources associated with this network interface."
+      operationId: "deleteGuestNetworkInterfaceByID"
+      parameters:
+      - name: "iface_id"
+        in: "path"
+        description: "The id of guest network interface to delete."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"iface_id_example\".to_string()"
+      responses:
+        202:
+          description: "Network interface deleted."
+          uppercase_operation_id: "DELETE_GUEST_NETWORK_INTERFACE_BY_ID"
+          uppercase_message: "NETWORK_INTERFACE_DELETED"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "DELETE_GUEST_NETWORK_INTERFACE_BY_ID"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "delete_guest_network_interface_by_id"
+      uppercase_operation_id: "DELETE_GUEST_NETWORK_INTERFACE_BY_ID"
+      path: "/network-interfaces/:iface_id"
+      HttpMethod: "Delete"
+      httpmethod: "delete"
+  /network-interfaces/{iface_id}/limiters:
+    get:
+      summary: "Retrieves list of limiters IDs currently applied to the network interface\
+        \ with 'iface_id'."
+      operationId: "getLimitersForGuestNetworkInterface"
+      parameters:
+      - name: "iface_id"
+        in: "path"
+        description: "The id of the guest network interface to get limiters for."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"iface_id_example\".to_string()"
+      responses:
+        200:
+          description: "List of limiters IDs currently applied to this network interface."
+          schema:
+            type: "array"
+            items:
+              type: "integer"
+              format: "int32"
+          uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_NETWORK_INTERFACE"
+          uppercase_message: "LIST_OF_LIMITERS_I_DS_CURRENTLY_APPLIED_TO_THIS_NETWORK_INTERFACE"
+          uppercase_data_type: "VEC<I32>"
+        404:
+          description: "Network interface does not exist."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_NETWORK_INTERFACE"
+          uppercase_message: "NETWORK_INTERFACE_DOES_NOT_EXIST"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_NETWORK_INTERFACE"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "get_limiters_for_guest_network_interface"
+      uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_NETWORK_INTERFACE"
+      path: "/network-interfaces/:iface_id/limiters"
+      HttpMethod: "Get"
+      httpmethod: "get"
+  /network-interfaces/{iface_id}/limiters/{limiter_id}:
+    put:
+      summary: "Applies limiter 'limiter_id' to network interface 'iface_id'"
+      operationId: "applyLimiterToNetworkInterface"
+      parameters:
+      - name: "iface_id"
+        in: "path"
+        description: "The id of the guest network interface to apply limiter 'limiter_id'\
+          \ to."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"iface_id_example\".to_string()"
+      - name: "limiter_id"
+        in: "path"
+        description: "The id of the limiter to be applied to network interface 'iface_id'."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"limiter_id_example\".to_string()"
+      responses:
+        200:
+          description: "Limiter applied."
+          uppercase_operation_id: "APPLY_LIMITER_TO_NETWORK_INTERFACE"
+          uppercase_message: "LIMITER_APPLIED"
+        400:
+          description: "Limiter cannot be applied due to bad input."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "APPLY_LIMITER_TO_NETWORK_INTERFACE"
+          uppercase_message: "LIMITER_CANNOT_BE_APPLIED_DUE_TO_BAD_INPUT"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "APPLY_LIMITER_TO_NETWORK_INTERFACE"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "apply_limiter_to_network_interface"
+      uppercase_operation_id: "APPLY_LIMITER_TO_NETWORK_INTERFACE"
+      path: "/network-interfaces/:iface_id/limiters/:limiter_id"
+      HttpMethod: "Put"
+      httpmethod: "put"
+  /vsocks:
+    get:
+      summary: "All guest vsocks"
+      description: "Returns list of guest storage vsocks."
+      operationId: "getGuestVsocks"
+      parameters: []
+      responses:
+        200:
+          description: "List of guest vsocks"
+          schema:
+            type: "array"
+            items:
+              $ref: "#/definitions/Vsock"
+          uppercase_operation_id: "GET_GUEST_VSOCKS"
+          uppercase_message: "LIST_OF_GUEST_VSOCKS"
+          uppercase_data_type: "VEC<VSOCK>"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_GUEST_VSOCKS"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "get_guest_vsocks"
+      uppercase_operation_id: "GET_GUEST_VSOCKS"
+      path: "/vsocks"
+      HttpMethod: "Get"
+      httpmethod: "get"
+  /vsocks/{vsock_id}:
+    get:
+      summary: "Get guest vsock by 'vsock_id' path parameter."
+      operationId: "getGuestVsockByID"
+      parameters:
+      - name: "vsock_id"
+        in: "path"
+        description: "The id of the guest vsock."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"vsock_id_example\".to_string()"
+      responses:
+        200:
+          description: "Specified vsock."
+          schema:
+            $ref: "#/definitions/Vsock"
+          uppercase_operation_id: "GET_GUEST_VSOCK_BY_ID"
+          uppercase_message: "SPECIFIED_VSOCK"
+          uppercase_data_type: "VSOCK"
+        404:
+          description: "Vsock does not exist."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_GUEST_VSOCK_BY_ID"
+          uppercase_message: "VSOCK_DOES_NOT_EXIST"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_GUEST_VSOCK_BY_ID"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "get_guest_vsock_by_id"
+      uppercase_operation_id: "GET_GUEST_VSOCK_BY_ID"
+      path: "/vsocks/:vsock_id"
+      HttpMethod: "Get"
+      httpmethod: "get"
+    put:
+      summary: "Creates new vsock with ID specified by 'vsock_id' path parameter.\
+        \ If vsock with specified ID already exists, updates its state based on new\
+        \ input. May fail if update is not possible."
+      operationId: "putGuestVsockByID"
+      parameters:
+      - name: "vsock_id"
+        in: "path"
+        description: "The id of the guest vsock."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"vsock_id_example\".to_string()"
+      - in: "body"
+        name: "body"
+        description: "Guest vsock properties"
+        required: true
+        schema:
+          $ref: "#/definitions/Vsock"
+        uppercase_data_type: "VSOCK"
+        refName: "Vsock"
+        formatString: "{:?}"
+        example: "???"
+        model_key: "Error"
+        uppercase_operation_id: "PUT_GUEST_VSOCK_BY_ID"
+      responses:
+        201:
+          description: "Vsock created."
+          uppercase_operation_id: "PUT_GUEST_VSOCK_BY_ID"
+          uppercase_message: "VSOCK_CREATED"
+        204:
+          description: "Vsock updated."
+          uppercase_operation_id: "PUT_GUEST_VSOCK_BY_ID"
+          uppercase_message: "VSOCK_UPDATED"
+        400:
+          description: "Vsock cannot be created due to bad input."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "PUT_GUEST_VSOCK_BY_ID"
+          uppercase_message: "VSOCK_CANNOT_BE_CREATED_DUE_TO_BAD_INPUT"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "PUT_GUEST_VSOCK_BY_ID"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "put_guest_vsock_by_id"
+      uppercase_operation_id: "PUT_GUEST_VSOCK_BY_ID"
+      path: "/vsocks/:vsock_id"
+      HttpMethod: "Put"
+      httpmethod: "put"
+      noClientExample: true
+    delete:
+      summary: "Deletes vsock with ID specified by 'vsock_id' path parameter. Will\
+        \ clean up any resources associated with this vsock."
+      operationId: "deleteGuestVsockByID"
+      parameters:
+      - name: "vsock_id"
+        in: "path"
+        description: "The id of guest vsock to delete."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"vsock_id_example\".to_string()"
+      responses:
+        202:
+          description: "Vsock deleted."
+          uppercase_operation_id: "DELETE_GUEST_VSOCK_BY_ID"
+          uppercase_message: "VSOCK_DELETED"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "DELETE_GUEST_VSOCK_BY_ID"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "delete_guest_vsock_by_id"
+      uppercase_operation_id: "DELETE_GUEST_VSOCK_BY_ID"
+      path: "/vsocks/:vsock_id"
+      HttpMethod: "Delete"
+      httpmethod: "delete"
+  /vsocks/{vsock_id}/limiters:
+    get:
+      summary: "Retrieves list of limiters IDs currently applied to the vsock with\
+        \ 'vsock_id'."
+      operationId: "getLimitersForGuestVsock"
+      parameters:
+      - name: "vsock_id"
+        in: "path"
+        description: "The id of the guest vsock to get limiters for."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"vsock_id_example\".to_string()"
+      responses:
+        200:
+          description: "List of limiters IDs currently applied to this vsock."
+          schema:
+            type: "array"
+            items:
+              type: "integer"
+              format: "int32"
+          uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_VSOCK"
+          uppercase_message: "LIST_OF_LIMITERS_I_DS_CURRENTLY_APPLIED_TO_THIS_VSOCK"
+          uppercase_data_type: "VEC<I32>"
+        404:
+          description: "Vsock does not exist."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_VSOCK"
+          uppercase_message: "VSOCK_DOES_NOT_EXIST"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_VSOCK"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "get_limiters_for_guest_vsock"
+      uppercase_operation_id: "GET_LIMITERS_FOR_GUEST_VSOCK"
+      path: "/vsocks/:vsock_id/limiters"
+      HttpMethod: "Get"
+      httpmethod: "get"
+  /vsocks/{vsock_id}/limiters/{limiter_id}:
+    put:
+      summary: "Applies limiter 'limiter_id' to vsock 'vsock_id'"
+      operationId: "applyLimiterToVsock"
+      parameters:
+      - name: "vsock_id"
+        in: "path"
+        description: "The id of the guest vsock to apply limiter 'limiter_id' to."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"vsock_id_example\".to_string()"
+      - name: "limiter_id"
+        in: "path"
+        description: "The id of the limiter to be applied to vsock 'vsock_id'."
+        required: true
+        type: "string"
+        formatString: "\\\"{}\\\""
+        example: "\"limiter_id_example\".to_string()"
+      responses:
+        200:
+          description: "Limiter applied."
+          uppercase_operation_id: "APPLY_LIMITER_TO_VSOCK"
+          uppercase_message: "LIMITER_APPLIED"
+        400:
+          description: "Limiter cannot be applied due to bad input."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "APPLY_LIMITER_TO_VSOCK"
+          uppercase_message: "LIMITER_CANNOT_BE_APPLIED_DUE_TO_BAD_INPUT"
+          uppercase_data_type: "ERROR"
+        default:
+          description: "Internal server error."
+          schema:
+            $ref: "#/definitions/Error"
+          uppercase_operation_id: "APPLY_LIMITER_TO_VSOCK"
+          uppercase_message: "INTERNAL_SERVER_ERROR"
+          uppercase_data_type: "ERROR"
+      operation_id: "apply_limiter_to_vsock"
+      uppercase_operation_id: "APPLY_LIMITER_TO_VSOCK"
+      path: "/vsocks/:vsock_id/limiters/:limiter_id"
+      HttpMethod: "Put"
+      httpmethod: "put"
+definitions:
+  NodeInfo:
+    properties:
+      nr_huge_pages:
+        type: "integer"
+        format: "int32"
+        description: "The number of 2MiB pages of memory in this instance."
+      cores:
+        type: "integer"
+        format: "int32"
+        description: "The number of CPU cores in this instance."
+      cpu_features:
+        type: "integer"
+        format: "int64"
+        description: "Bitmask for the active CPU features in this instance."
+    description: "Node information for this instance."
+    example:
+      cores: 6
+      cpu_features: 1
+      nr_huge_pages: 0
+    upperCaseName: "NODEINFO"
+  InstanceMetadata:
+    properties:
+      virt_id:
+        type: "integer"
+        format: "int64"
+        description: "The numeric instance-id."
+      account_id:
+        type: "string"
+        description: "The AWS account ID of the instance's owner"
+      instance_type:
+        type: "string"
+        description: "The instance type - e.g. 'm3.xlarge', etc."
+      image_id:
+        type: "integer"
+        format: "int64"
+        description: "The numeric image id (ami) of the instance."
+      detailed_monitoring:
+        type: "boolean"
+        description: "True for enabling detailed monitoring"
+    description: "Instance metadata or metainformation."
+    example:
+      account_id: "account_id"
+      detailed_monitoring: true
+      image_id: 6
+      virt_id: 0
+      instance_type: "instance_type"
+    upperCaseName: "INSTANCEMETADATA"
+  InstanceInfo:
+    properties:
+      instance_id:
+        type: "string"
+      state:
+        type: "string"
+        description: "The current detailed state of the Firecracker instance. This\
+          \ value is\nread-only by the control-plane.\n"
+        enum:
+        - "Initializing"
+        - "Initialized"
+        - "Starting"
+        - "Running"
+        - "Pausing"
+        - "Paused"
+        - "Unpausing"
+        - "Halting"
+        - "Halted"
+        - "Rebooting"
+        - "Resetting"
+        - "Reset"
+        - "Terminating"
+        - "Terminated"
+        - "Destroying"
+        - "Destroyed"
+      node_info:
+        $ref: "#/definitions/NodeInfo"
+    example:
+      instance_id: "instance_id"
+      node_info:
+        cores: 6
+        cpu_features: 1
+        nr_huge_pages: 0
+      state: "Initializing"
+    upperCaseName: "INSTANCEINFO"
+  BootSource:
+    type: "object"
+    properties:
+      boot_source_id:
+        type: "string"
+        description: "unique identifier for this boot source"
+      source_type:
+        type: "string"
+        description: "type of boot source"
+        enum:
+        - "LocalImage"
+        - "DriveBoot"
+        - "NetworkBoot"
+      local_image:
+        $ref: "#/definitions/LocalImage"
+      drive_boot:
+        $ref: "#/definitions/DriveBoot"
+      network_boot:
+        $ref: "#/definitions/NetworkBoot"
+      boot_args:
+        type: "string"
+        description: "kernel boot arguments"
+    description: "Boot source descriptor. 'source_type' will specify the boot source\
+      \ type and depending\non its value: one and only one of 'local_image', 'drive_boot'\
+      \ or 'network_boot' should\ndescribe the boot resource in detail.\n"
+    example:
+      boot_source_id: "boot_source_id"
+      drive_boot:
+        drive_id: "drive_id"
+      local_image:
+        kernel_image_path: "kernel_image_path"
+        initrd_path: "initrd_path"
+      boot_args: "boot_args"
+      source_type: "LocalImage"
+      network_boot:
+        iface_id: "iface_id"
+    upperCaseName: "BOOTSOURCE"
+  LocalImage:
+    type: "object"
+    properties:
+      kernel_image_path:
+        type: "string"
+        description: "host level path to the kernel image used to boot the guest"
+      initrd_path:
+        type: "string"
+        description: "host level path to initrd used to boot the guest"
+    description: "Locations for local kernel image and initrd files. Empty path(s)\
+      \ means not used.\n"
+    example:
+      kernel_image_path: "kernel_image_path"
+      initrd_path: "initrd_path"
+    upperCaseName: "LOCALIMAGE"
+  DriveBoot:
+    type: "object"
+    properties:
+      drive_id:
+        type: "string"
+        description: "unique identifier specifying which drive to boot from"
+    description: "Drive to use as boot source."
+    example:
+      drive_id: "drive_id"
+    upperCaseName: "DRIVEBOOT"
+  NetworkBoot:
+    type: "object"
+    properties:
+      iface_id:
+        type: "string"
+        description: "unique identifier specifying which network interface to boot\
+          \ from"
+    description: "Network to use as boot source."
+    example:
+      iface_id: "iface_id"
+    upperCaseName: "NETWORKBOOT"
+  InstanceStartAction:
+    type: "object"
+    properties:
+      timestamp:
+        type: "string"
+    upperCaseName: "INSTANCESTARTACTION"
+  InstanceActionInfo:
+    type: "object"
+    required:
+    - "action_id"
+    properties:
+      action_id:
+        type: "string"
+        minLength: 1
+        maxLength: 64
+      action_type:
+        type: "string"
+        description: "Enumeration indicating what type of action is contained in the\
+          \ payload."
+        enum:
+        - "InstanceStart"
+        - "InstanceReset"
+        - "InstanceHalt"
+        - "InstanceDeviceDetach"
+      instance_device_detach_action:
+        $ref: "#/definitions/InstanceDeviceDetachAction"
+      timestamp:
+        type: "string"
+    description: "Variant wrapper containing the real action.\nFor listInstanceActions,\
+      \ only action_id will be populated.\ninstance_device_detach_action will only\
+      \ be present if action_type is InstanceDeviceDetach.\n"
+    example:
+      instance_device_detach_action:
+        device_resource_id: "device_resource_id"
+        device_type: "drive"
+        force: true
+      action_id: "action_id"
+      action_type: "InstanceStart"
+      timestamp: "timestamp"
+    upperCaseName: "INSTANCEACTIONINFO"
+  InstanceDeviceDetachAction:
+    type: "object"
+    required:
+    - "device_resource_id"
+    - "device_type"
+    properties:
+      device_type:
+        type: "string"
+        enum:
+        - "drive"
+        - "network-iface"
+        - "vsock"
+      device_resource_id:
+        type: "string"
+        minLength: 1
+        maxLength: 64
+      force:
+        type: "boolean"
+    example:
+      device_resource_id: "device_resource_id"
+      device_type: "drive"
+      force: true
+    upperCaseName: "INSTANCEDEVICEDETACHACTION"
+  LimiterCounters:
+    type: "object"
+    properties:
+      packets:
+        type: "integer"
+        format: "int64"
+      bytes:
+        type: "integer"
+        format: "int64"
+      dropped_packets:
+        type: "integer"
+        format: "int64"
+      dropped_bytes:
+        type: "integer"
+        format: "int64"
+    example:
+      dropped_packets: 9
+      bytes: 7
+      dropped_bytes: 3
+      packets: 2
+    upperCaseName: "LIMITERCOUNTERS"
+  TokenBucket:
+    type: "object"
+    properties:
+      size:
+        type: "integer"
+        format: "int64"
+      cost:
+        type: "integer"
+        format: "int64"
+      initial_value:
+        type: "integer"
+        format: "int64"
+      refill_rate:
+        type: "integer"
+        format: "int64"
+    example:
+      initial_value: 1
+      cost: 6
+      size: 0
+      refill_rate: 5
+    upperCaseName: "TOKENBUCKET"
+  LimiterConfig:
+    type: "object"
+    properties:
+      bandwidth:
+        description: "In bits."
+        $ref: "#/definitions/TokenBucket"
+      pps:
+        description: "In packets or ops."
+        $ref: "#/definitions/TokenBucket"
+      max_queue_len:
+        type: "integer"
+        format: "int64"
+    example:
+      pps:
+        initial_value: 1
+        cost: 6
+        size: 0
+        refill_rate: 5
+      bandwidth:
+        initial_value: 1
+        cost: 6
+        size: 0
+        refill_rate: 5
+      max_queue_len: 5
+    upperCaseName: "LIMITERCONFIG"
+  Limiter:
+    type: "object"
+    properties:
+      limiter_id:
+        type: "string"
+        description: "Id of this limiter."
+      egress:
+        $ref: "#/definitions/LimiterConfig"
+      ingress:
+        $ref: "#/definitions/LimiterConfig"
+      egress_counters:
+        $ref: "#/definitions/LimiterCounters"
+      ingress_counters:
+        $ref: "#/definitions/LimiterCounters"
+    example:
+      limiter_id: "limiter_id"
+      ingress:
+        pps:
+          initial_value: 1
+          cost: 6
+          size: 0
+          refill_rate: 5
+        bandwidth:
+          initial_value: 1
+          cost: 6
+          size: 0
+          refill_rate: 5
+        max_queue_len: 5
+      ingress_counters:
+        dropped_packets: 9
+        bytes: 7
+        dropped_bytes: 3
+        packets: 2
+      egress:
+        pps:
+          initial_value: 1
+          cost: 6
+          size: 0
+          refill_rate: 5
+        bandwidth:
+          initial_value: 1
+          cost: 6
+          size: 0
+          refill_rate: 5
+        max_queue_len: 5
+      egress_counters:
+        dropped_packets: 9
+        bytes: 7
+        dropped_bytes: 3
+        packets: 2
+    upperCaseName: "LIMITER"
+  LimiterList:
+    type: "object"
+    properties:
+      next_token:
+        type: "string"
+        description: "Opaque token that specifies where to start the next list of\
+          \ limiters. If not present or\nNULL, there are no more limiters to list.\n"
+      limiters:
+        type: "array"
+        items:
+          $ref: "#/definitions/Limiter"
+    example:
+      limiters:
+      - limiter_id: "limiter_id"
+        ingress:
+          pps:
+            initial_value: 1
+            cost: 6
+            size: 0
+            refill_rate: 5
+          bandwidth:
+            initial_value: 1
+            cost: 6
+            size: 0
+            refill_rate: 5
+          max_queue_len: 5
+        ingress_counters:
+          dropped_packets: 9
+          bytes: 7
+          dropped_bytes: 3
+          packets: 2
+        egress:
+          pps:
+            initial_value: 1
+            cost: 6
+            size: 0
+            refill_rate: 5
+          bandwidth:
+            initial_value: 1
+            cost: 6
+            size: 0
+            refill_rate: 5
+          max_queue_len: 5
+        egress_counters:
+          dropped_packets: 9
+          bytes: 7
+          dropped_bytes: 3
+          packets: 2
+      - limiter_id: "limiter_id"
+        ingress:
+          pps:
+            initial_value: 1
+            cost: 6
+            size: 0
+            refill_rate: 5
+          bandwidth:
+            initial_value: 1
+            cost: 6
+            size: 0
+            refill_rate: 5
+          max_queue_len: 5
+        ingress_counters:
+          dropped_packets: 9
+          bytes: 7
+          dropped_bytes: 3
+          packets: 2
+        egress:
+          pps:
+            initial_value: 1
+            cost: 6
+            size: 0
+            refill_rate: 5
+          bandwidth:
+            initial_value: 1
+            cost: 6
+            size: 0
+            refill_rate: 5
+          max_queue_len: 5
+        egress_counters:
+          dropped_packets: 9
+          bytes: 7
+          dropped_bytes: 3
+          packets: 2
+      next_token: "next_token"
+    upperCaseName: "LIMITERLIST"
+  DeviceState:
+    type: "string"
+    enum:
+    - "attached"
+    - "detaching"
+    - "detached"
+    upperCaseName: "DEVICESTATE"
+  Drive:
+    type: "object"
+    required:
+    - "drive_id"
+    properties:
+      drive_id:
+        type: "string"
+      path_on_host:
+        type: "string"
+        description: "host level path for the guest drive"
+      state:
+        $ref: "#/definitions/DeviceState"
+    example:
+      drive_id: "drive_id"
+      path_on_host: "path_on_host"
+      state: {}
+    upperCaseName: "DRIVE"
+  NetworkInterface:
+    type: "object"
+    required:
+    - "iface_id"
+    properties:
+      iface_id:
+        type: "string"
+      mac:
+        type: "string"
+      path_on_host:
+        type: "string"
+        description: "host level path for the guest network interface"
+      state:
+        $ref: "#/definitions/DeviceState"
+    example:
+      path_on_host: "path_on_host"
+      iface_id: "iface_id"
+      state: {}
+      mac: "mac"
+    upperCaseName: "NETWORKINTERFACE"
+  Vsock:
+    type: "object"
+    required:
+    - "vsock_id"
+    properties:
+      vsock_id:
+        type: "string"
+      path_on_host:
+        type: "string"
+        description: "host level path for the guest vsock"
+      state:
+        $ref: "#/definitions/DeviceState"
+    example:
+      vsock_id: "vsock_id"
+      path_on_host: "path_on_host"
+      state: {}
+    upperCaseName: "VSOCK"
+  Error:
+    properties:
+      faultMessage:
+        type: "string"
+        description: "A description of the error condition."
+    upperCaseName: "ERROR"
