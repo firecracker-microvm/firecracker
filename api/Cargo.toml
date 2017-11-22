@@ -5,7 +5,7 @@ authors = ["acatan@amazon.com"]
 
 [features]
 default = ["client", "server"]
-client = ["serde_json", "serde_ignored", "hyper", "hyper-openssl", "uuid"]
+client = ["serde_json", "serde_ignored", "hyper", "uuid"]
 server = ["serde_json", "serde_ignored", "hyper", "iron", "router", "bodyparser", "urlencoded", "uuid"]
 
 [dependencies]
@@ -13,7 +13,6 @@ bodyparser = {version = "0.7", optional = true}
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.1"
 hyper = {version = "0.10", optional = true}
-hyper-openssl = {version = "0.2", optional = true }
 iron = {version = "0.5", optional = true}
 lazy_static = "0.2"
 log = "0.3.0"
