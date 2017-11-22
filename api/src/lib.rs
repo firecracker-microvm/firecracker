@@ -11,8 +11,8 @@ extern crate lazy_static;
 #[macro_use]
 extern crate log;
 
-// Logically this should be in the client and server modules, but rust doesn't allow `macro_use` from a module.
-#[cfg(any(feature = "client", feature = "server"))]
+// Logically this should be in the server modules, but rust doesn't allow `macro_use` from a module.
+#[cfg(feature = "server")]
 #[macro_use]
 extern crate hyper;
 
@@ -20,7 +20,7 @@ extern crate swagger;
 
 pub use futures::Future;
 
-#[cfg(any(feature = "client", feature = "server"))]
+#[cfg(feature = "server")]
 mod mimetypes;
 
 pub use swagger::{ApiError, Context, ContextWrapper};
@@ -567,13 +567,6 @@ impl<'a, T: Api> ApiNoContext for ContextWrapper<'a, T> {
     }
 
 }
-
-#[cfg(feature = "client")]
-pub mod client;
-
-// Re-export Client as a top-level name
-#[cfg(feature = "client")]
-pub use self::client::Client;
 
 #[cfg(feature = "server")]
 pub mod server;
