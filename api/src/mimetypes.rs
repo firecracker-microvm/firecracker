@@ -250,32 +250,3 @@ pub mod responses {
     }
 
 }
-
-pub mod requests {
-    use hyper::mime::*;
-   /// Create Mime objects for the request content types for CreateInstanceAction
-    lazy_static! {
-        pub static ref CREATE_INSTANCE_ACTION: Mime = mime!(Application/Json);
-    }
-   /// Create Mime objects for the request content types for PutGuestBootSource
-    lazy_static! {
-        pub static ref PUT_GUEST_BOOT_SOURCE: Mime = mime!(Application/Json);
-    }
-   /// Create Mime objects for the request content types for PutGuestDriveByID
-    lazy_static! {
-        pub static ref PUT_GUEST_DRIVE_BY_ID: Mime = mime!(Application/Json);
-    }
-   /// Create Mime objects for the request content types for PutGuestNetworkInterfaceByID
-    lazy_static! {
-        pub static ref PUT_GUEST_NETWORK_INTERFACE_BY_ID: Mime = mime!(Application/Json);
-    }
-   /// Create Mime objects for the request content types for PutGuestVsockByID
-    lazy_static! {
-        pub static ref PUT_GUEST_VSOCK_BY_ID: Mime = mime!(Application/Json);
-    }
-   /// Create Mime objects for the request content types for UpdateLimiter
-    lazy_static! {
-        pub static ref UPDATE_LIMITER: Mime = mime!(Application/Json);
-    }
-
-}
