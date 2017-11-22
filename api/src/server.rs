@@ -2362,13 +2362,3 @@ fn add_routes<T>(router: &mut Router, api: T) where T: Api + Send + Sync + Clone
         "UpdateLimiter");
 
 }
-
-/// Middleware to extract authentication data from request
-pub struct ExtractAuthData;
-
-impl BeforeMiddleware for ExtractAuthData {
-    fn before(&self, req: &mut Request) -> IronResult<()> {
-
-        Ok(())
-    }
-}

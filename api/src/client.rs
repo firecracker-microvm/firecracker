@@ -1,5 +1,4 @@
 #![allow(unused_extern_crates)]
-extern crate hyper_openssl;
 extern crate chrono;
 
 
@@ -10,7 +9,6 @@ use hyper::mime;
 use hyper::header::{Headers, ContentType};
 use hyper::mime::{Mime, TopLevel, SubLevel, Attr, Value};
 use hyper::Url;
-use self::hyper_openssl::openssl;
 use futures;
 use futures::{Future, Stream};
 use futures::{future, stream};
@@ -107,69 +105,6 @@ impl Client {
             base_path: into_base_path(base_path, Some("http"))?,
             hyper_client: Arc::new(hyper::client::Client::new),
         })
-    }
-
-    pub fn try_new_https<T, CA>(base_path: T,
-                                ca_certificate: CA)
-                            -> Result<Client, ClientInitError>
-        where T: IntoUrl,
-              CA: AsRef<Path>
-    {
-        let ca_certificate = ca_certificate.as_ref().to_owned();
-
-        let https_hyper_client = move || {
-            // SSL implementation
-            let mut ssl = openssl::ssl::SslConnectorBuilder::new(openssl::ssl::SslMethod::tls()).unwrap();
-
-            // Server authentication
-            ssl.builder_mut().set_ca_file(ca_certificate.clone()).unwrap();
-
-            let ssl = hyper_openssl::OpensslClient::from(ssl.build());
-            let connector = hyper::net::HttpsConnector::new(ssl);
-            hyper::client::Client::with_connector(connector)
-        };
-
-        Ok(Client {
-                base_path: into_base_path(base_path, Some("https"))?,
-                hyper_client: Arc::new(https_hyper_client),
-            })
-    }
-
-    pub fn try_new_https_mutual<T, CA, K, C>(base_path: T,
-                                             ca_certificate: CA,
-                                             client_key: K,
-                                             client_certificate: C)
-                                             -> Result<Client, ClientInitError>
-        where T: IntoUrl,
-              CA: AsRef<Path>,
-              K: AsRef<Path>,
-              C: AsRef<Path>
-    {
-        let ca_certificate = ca_certificate.as_ref().to_owned();
-        let client_key = client_key.as_ref().to_owned();
-        let client_certificate = client_certificate.as_ref().to_owned();
-
-        let https_mutual_hyper_client = move || {
-            // SSL implementation
-            let mut ssl = openssl::ssl::SslConnectorBuilder::new(openssl::ssl::SslMethod::tls()).unwrap();
-
-            // Server authentication
-            ssl.builder_mut().set_ca_file(ca_certificate.clone()).unwrap();
-
-            // Client authentication
-            ssl.builder_mut().set_private_key_file(client_key.clone(), openssl::x509::X509_FILETYPE_PEM).unwrap();
-            ssl.builder_mut().set_certificate_chain_file(client_certificate.clone()).unwrap();
-            ssl.builder_mut().check_private_key().unwrap();
-
-            let ssl = hyper_openssl::OpensslClient::from(ssl.build());
-            let connector = hyper::net::HttpsConnector::new(ssl);
-            hyper::client::Client::with_connector(connector)
-        };
-
-        Ok(Client {
-                base_path: into_base_path(base_path, Some("https"))?,
-                hyper_client: Arc::new(https_mutual_hyper_client)
-            })
     }
 
     /// Constructor for creating a `Client` by passing in a pre-made `hyper` client.
@@ -2009,19 +1944,12 @@ impl Api for Client {
 pub enum ClientInitError {
     InvalidScheme,
     InvalidUrl(hyper::error::ParseError),
-    MissingHost,
-    SslError(openssl::error::ErrorStack)
+    MissingHost
 }
 
 impl From<hyper::error::ParseError> for ClientInitError {
     fn from(err: hyper::error::ParseError) -> ClientInitError {
         ClientInitError::InvalidUrl(err)
-    }
-}
-
-impl From<openssl::error::ErrorStack> for ClientInitError {
-    fn from(err: openssl::error::ErrorStack) -> ClientInitError {
-        ClientInitError::SslError(err)
     }
 }
 
