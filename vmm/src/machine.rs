@@ -1,34 +1,27 @@
 /// Machine configuration specifics
 
-use std::io;
 use std::path::PathBuf;
-
-use clap::ArgMatches;
+use std::ffi::CString;
 
 pub struct MachineCfg {
-    pub kernel_path: Option<PathBuf>,
-    pub kernel_cmdline: Option<String>,
+    pub kernel_path: PathBuf,
+    pub kernel_cmdline: CString,
+    pub vcpu_count: u8,
+    pub mem_size: usize,
 }
 
 impl MachineCfg {
-    pub fn new() -> Self {
+    pub fn new(
+        kernel_path: PathBuf,
+        kernel_cmdline: CString,
+        vcpu_count: u8,
+        mem_size: usize,
+    ) -> Self {
         MachineCfg {
-            kernel_path: None,
-            kernel_cmdline: Some(String::from(
-                "console=ttyS0 noapic noacpi reboot=k panic=1 pci=off",
-            )),
+            kernel_path,
+            kernel_cmdline,
+            vcpu_count,
+            mem_size,
         }
-    }
-
-    pub fn populate(&mut self, matches: ArgMatches) -> io::Result<()> {
-        if let Some(value) = matches.value_of("kernel_path") {
-            self.kernel_path = Some(PathBuf::from(value));
-        }
-
-        if let Some(value) = matches.value_of("kernel_cmdline") {
-            self.kernel_cmdline = Some(String::from(value));
-        }
-
-        Ok(())
     }
 }
