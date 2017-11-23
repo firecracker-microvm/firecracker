@@ -10,7 +10,7 @@ extern crate devices;
 
 pub mod machine;
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::fs::File;
 use std::io::{self, stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -55,36 +55,13 @@ impl std::convert::From<x86_64::Error> for Error {
 type Result<T> = std::result::Result<T, Error>;
 
 pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
-    // FIXME branciog@ do not hardcode the vm mem size
-    // Hardcoding the vm memory size to 128MB
-    let mem_size = 128 << 20;
+    let mem_size = cfg.mem_size << 20;
     let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
 
-    let mut kernel_file;
-    match cfg.kernel_path {
-        Some(ref kernel_path) => {
-            kernel_file = File::open(kernel_path.as_path()).map_err(Error::Kernel)?
-        }
-        None => {
-            return Err(Error::Kernel(io::Error::new(
-                io::ErrorKind::NotFound,
-                "missing kernel path",
-            )))
-        }
-    }
+    let mut kernel_file = File::open(&cfg.kernel_path).map_err(Error::Kernel)?;
 
-    let cmdline: CString = match cfg.kernel_cmdline {
-        Some(ref v) => CString::new(v.as_bytes()).unwrap(),
-        _ => {
-            return Err(Error::Kernel(io::Error::new(
-                io::ErrorKind::NotFound,
-                "missing kernel cmdline",
-            )))
-        }
-    };
-    let cmdline: &CStr = &cmdline;
-    let vcpu_count = 1;
-
+    let cmdline: &CStr = &cfg.kernel_cmdline;
+    let vcpu_count = cfg.vcpu_count;
     let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
     let cmdline_addr = GuestAddress(CMDLINE_OFFSET);
 
@@ -108,7 +85,7 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
         kernel_start_addr,
         cmdline_addr,
         cmdline.to_bytes().len() + 1,
-        vcpu_count as u8,
+        vcpu_count,
     )?;
 
     let mut io_bus = devices::Bus::new();

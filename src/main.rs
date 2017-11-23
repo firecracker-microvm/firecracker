@@ -3,6 +3,8 @@ extern crate clap;
 extern crate sys_util;
 extern crate vmm;
 
+use std::path::PathBuf;
+use std::ffi::CString;
 use clap::{App, Arg};
 use sys_util::syslog;
 use vmm::boot_kernel;
@@ -15,7 +17,7 @@ fn main() {
         return;
     }
 
-    let matches = App::new("firecracker")
+    let cmd_arguments = App::new("firecracker")
         .version(crate_version!())
         .author(crate_authors!())
         .about("Launch a microvm.")
@@ -31,12 +33,54 @@ fn main() {
             Arg::with_name("kernel_cmdline")
                 .long("kernel-cmdline")
                 .help("The kernel's command line")
+                .default_value("console=ttyS0 noapic reboot=k panic=1 pci=off")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("mem_size")
+                .long("mem-size")
+                .default_value("128")
+                .help("Virtual Machine Memory Size in MB")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("vcpu_count")
+                .long("vcpu-count")
+                .default_value("1")
+                .help("Number of VCPUs")
                 .takes_value(true),
         )
         .get_matches();
 
-    let mut cfg = MachineCfg::new();
-    cfg.populate(matches).expect("parsing arguments failed");
+    let kernel_path = PathBuf::from(cmd_arguments.value_of("kernel_path").unwrap());
+    let kernel_cmdline = match CString::new(cmd_arguments.value_of("kernel_cmdline").unwrap()) {
+        Ok(value) => value,
+        Err(error) => {
+            panic!("Invalid kernel cmdline! {:?}", error);
+        }
+    };
+    let vcpu_count = match cmd_arguments
+        .value_of("vcpu_count")
+        .unwrap()
+        .to_string()
+        .parse::<u8>() {
+        Ok(value) => value,
+        Err(error) => {
+            panic!("Invalid value for vcpu_count! {:?}", error);
+        }
+    };
 
+    let mem_size = match cmd_arguments
+        .value_of("mem_size")
+        .unwrap()
+        .to_string()
+        .parse::<usize>() {
+        Ok(value) => value,
+        Err(error) => {
+            panic!("Invalid value for mem_size! {:?}", error);
+        }
+    };
+
+    let cfg = MachineCfg::new(kernel_path, kernel_cmdline, vcpu_count, mem_size);
     boot_kernel(&cfg).expect("cannot boot kernel");
 }
