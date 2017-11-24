@@ -34,7 +34,7 @@ pub use mmap::*;
 pub use shm::*;
 pub use eventfd::*;
 pub use errno::{Error, Result};
-use errno::errno_result;
+pub use errno::errno_result;
 pub use guest_address::*;
 pub use guest_memory::*;
 pub use poll::*;
