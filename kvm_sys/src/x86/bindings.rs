@@ -1381,6 +1381,13 @@ fn bindgen_test_layout_kvm_msr_entry() {
 impl Clone for kvm_msr_entry {
     fn clone(&self) -> Self { *self }
 }
+impl PartialEq for kvm_msr_entry {
+    fn eq(&self, other: &kvm_msr_entry) -> bool {
+        self.index == other.index &&
+            self.reserved == other.reserved &&
+            self.data == other.data
+    }
+}
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
 pub struct kvm_msrs {
