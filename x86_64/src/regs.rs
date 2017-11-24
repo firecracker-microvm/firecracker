@@ -99,7 +99,7 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the vcpu that holds the vcpu fd.
-pub fn setup_msrs(vcpu: &kvm::Vcpu) -> Result<()> {
+pub fn setup_msrs(vcpu: &kvm::VcpuFd) -> Result<()> {
     let entry_vec = create_msr_entries();
     let vec_size_bytes = mem::size_of::<kvm_msrs>() +
         (entry_vec.len() * mem::size_of::<kvm_msr_entry>());
@@ -128,7 +128,7 @@ pub fn setup_msrs(vcpu: &kvm::Vcpu) -> Result<()> {
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the vcpu that holds the vcpu fd.
-pub fn setup_fpu(vcpu: &kvm::Vcpu) -> Result<()> {
+pub fn setup_fpu(vcpu: &kvm::VcpuFd) -> Result<()> {
     let fpu: kvm_fpu = kvm_fpu {
         fcw: 0x37f,
         mxcsr: 0x1f80,
@@ -148,7 +148,7 @@ pub fn setup_fpu(vcpu: &kvm::Vcpu) -> Result<()> {
 /// * `boot_ip` - Starting instruction pointer.
 /// * `boot_sp` - Starting stack pointer.
 /// * `boot_si` - Must point to zero page address per Linux ABI.
-pub fn setup_regs(vcpu: &kvm::Vcpu, boot_ip: u64, boot_sp: u64, boot_si: u64) -> Result<()> {
+pub fn setup_regs(vcpu: &kvm::VcpuFd, boot_ip: u64, boot_sp: u64, boot_si: u64) -> Result<()> {
     let regs: kvm_regs = kvm_regs {
         rflags: 0x0000000000000002u64,
         rip: boot_ip,
@@ -256,7 +256,7 @@ fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
 ///
 /// * `mem` - The memory that will be passed to the guest.
 /// * `vcpu_fd` - The FD returned from the KVM_CREATE_VCPU ioctl.
-pub fn setup_sregs(mem: &GuestMemory, vcpu: &kvm::Vcpu) -> Result<()> {
+pub fn setup_sregs(mem: &GuestMemory, vcpu: &kvm::VcpuFd) -> Result<()> {
     let mut sregs: kvm_sregs = vcpu.get_sregs().map_err(Error::SRegsIoctlFailed)?;
 
     configure_segments_and_sregs(mem, &mut sregs)?;

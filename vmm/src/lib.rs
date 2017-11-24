@@ -12,16 +12,17 @@ extern crate epoll;
 extern crate scopeguard;
 
 pub mod machine;
+mod vstate;
 
 use std::ffi::CStr;
 use std::fs::File;
-use std::io::{self, stdout, Write};
 use std::os::unix::io::AsRawFd;
+use std::io::{self, stdout};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use kvm::*;
-use kvm_sys::kvm_regs;
+use vstate::{Vm, Vcpu};
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use machine::MachineCfg;
 use scopeguard::guard;
@@ -35,16 +36,18 @@ pub enum Error {
     EpollFd(std::io::Error),
     EventFd(sys_util::Error),
     GuestMemory(sys_util::GuestMemoryError),
-    Irq(sys_util::Error),
     Kernel(std::io::Error),
     KernelLoader(kernel_loader::Error),
     Kvm(sys_util::Error),
     Poll(std::io::Error),
     Serial(sys_util::Error),
     Terminal(sys_util::Error),
-    Vcpu(sys_util::Error),
+    Vcpu(vstate::Error),
+    VcpuConfigure(vstate::Error),
     VcpuSpawn(std::io::Error),
-    Vm(sys_util::Error),
+    Vm(vstate::Error),
+    VmSetup(vstate::Error),
+    VmIOBus(vstate::Error),
 }
 
 impl std::convert::From<kernel_loader::Error> for Error {
@@ -79,10 +82,7 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     let kvm = Kvm::new().map_err(Error::Kvm)?;
     let vm = Vm::new(&kvm, guest_mem).map_err(Error::Vm)?;
 
-    let tss_addr = GuestAddress(0xfffbd000);
-    vm.set_tss_addr(tss_addr).map_err(Error::Vm)?;
-    vm.create_pit().map_err(Error::Vm)?;
-    vm.create_irq_chip().map_err(Error::Vm)?;
+    vm.setup().map_err(Error::VmSetup)?;
 
     kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr, &mut kernel_file)?;
     kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, cmdline)?;
@@ -96,55 +96,21 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     )?;
 
     let mut io_bus = devices::Bus::new();
+    let exit_evt = EventFd::new().map_err(Error::EventFd)?;
     let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
     let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
     let stdio_serial = Arc::new(Mutex::new(devices::Serial::new_out(
         com_evt_1_3.try_clone().map_err(Error::EventFd)?,
         Box::new(stdout()),
     )));
-
-    io_bus.insert(stdio_serial.clone(), 0x3f8, 0x8).unwrap();
-    io_bus
-        .insert(
-            Arc::new(Mutex::new(devices::Serial::new_sink(
-                com_evt_2_4.try_clone().map_err(Error::EventFd)?,
-            ))),
-            0x2f8,
-            0x8,
-        )
-        .unwrap();
-    io_bus
-        .insert(
-            Arc::new(Mutex::new(devices::Serial::new_sink(
-                com_evt_1_3.try_clone().map_err(Error::EventFd)?,
-            ))),
-            0x3e8,
-            0x8,
-        )
-        .unwrap();
-    io_bus
-        .insert(
-            Arc::new(Mutex::new(devices::Serial::new_sink(
-                com_evt_2_4.try_clone().map_err(Error::EventFd)?,
-            ))),
-            0x2e8,
-            0x8,
-        )
-        .unwrap();
-
-    vm.register_irqfd(&com_evt_1_3, 4).map_err(Error::Irq)?;
-    vm.register_irqfd(&com_evt_2_4, 3).map_err(Error::Irq)?;
-
-    let exit_evt = EventFd::new().map_err(Error::EventFd)?;
-    io_bus
-        .insert(
-            Arc::new(Mutex::new(devices::I8042Device::new(
-                exit_evt.try_clone().map_err(Error::EventFd)?,
-            ))),
-            0x064,
-            0x1,
-        )
-        .unwrap();
+    //TODO: put all thse things related to setting up io bus in a struct or something
+    vm.set_io_bus(
+        &mut io_bus,
+        &stdio_serial,
+        &com_evt_1_3,
+        &com_evt_2_4,
+        &exit_evt,
+    ).map_err(Error::VmIOBus)?;
 
     let mut vcpu_handles = Vec::with_capacity(vcpu_count as usize);
     let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
@@ -156,16 +122,9 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
         let vcpu_thread_barrier = vcpu_thread_barrier.clone();
         let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
 
-        let vcpu = Vcpu::new(cpu_id as libc::c_ulong, &kvm, &vm).map_err(
-            Error::Vcpu,
-        )?;
-        x86_64::configure_vcpu(
-            vm.get_memory(),
-            kernel_start_addr,
-            &kvm,
-            &vcpu,
-            cpu_id as u64,
-            vcpu_count as u64,
+        let mut vcpu = Vcpu::new(cpu_id, &vm).map_err(Error::Vcpu)?;
+        vcpu.configure(vcpu_count, kernel_start_addr, &vm).map_err(
+            Error::VcpuConfigure,
         )?;
         vcpu_handles.push(thread::Builder::new()
             .name(format!("fc_vcpu{}", cpu_id))
@@ -207,10 +166,18 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
                             }
                         }
                         Err(e) => {
-                            match e.errno() {
-                                libc::EAGAIN | libc::EINTR => {}
+                            match e {
+                                vstate::Error::VcpuRun(ref v) => {
+                                    match v.errno() {
+                                        libc::EAGAIN | libc::EINTR => {}
+                                        _ => {
+                                            error!("vcpu hit unknown error: {:?}", e);
+                                            break;
+                                        }
+                                    }
+                                }
                                 _ => {
-                                    error!("vcpu hit unknown error: {:?}", e);
+                                    error!("unrecognized error type for vcpu run");
                                     break;
                                 }
                             }
@@ -336,81 +303,4 @@ fn run_control(stdio_serial: Arc<Mutex<devices::Serial>>, exit_evt: EventFd) -> 
     }
 
     Ok(())
-}
-
-
-
-pub fn run_x86_code() {
-    // This example based on https://lwn.net/Articles/658511/
-    let code = [
-        /* mov $0x3f8, %dx */
-        0xba,
-        0xf8,
-        0x03,
-        /* add %bl, %al */
-        0x00,
-        0xd8,
-        /* add $'0', %al */
-        0x04,
-        '0' as u8,
-        /* out %al, (%dx) */
-        0xee,
-        /* mov $'\n', %al */
-        0xb0,
-        '\n' as u8,
-        /* out %al, (%dx) */
-        0xee,
-        /* hlt */
-        0xf4,
-    ];
-
-    let mem_size = 0x1000;
-    let load_addr = GuestAddress(0x1000);
-    let mem = GuestMemory::new(&vec![(load_addr, mem_size)]).unwrap();
-
-    let kvm = Kvm::new().expect("new kvm failed");
-    let vm = Vm::new(&kvm, mem).expect("new vm failed");
-    let vcpu = Vcpu::new(0, &kvm, &vm).expect("new vcpu failed");
-
-    vm.get_memory()
-        .write_slice_at_addr(&code, load_addr)
-        .expect("Writing code to memory failed.");
-
-    let mut vcpu_sregs = vcpu.get_sregs().expect("get sregs failed");
-    assert_ne!(vcpu_sregs.cs.base, 0);
-    assert_ne!(vcpu_sregs.cs.selector, 0);
-    vcpu_sregs.cs.base = 0;
-    vcpu_sregs.cs.selector = 0;
-    vcpu.set_sregs(&vcpu_sregs).expect("set sregs failed");
-
-    let mut vcpu_regs: kvm_regs = unsafe { std::mem::zeroed() };
-    vcpu_regs.rip = 0x1000;
-    vcpu_regs.rax = 2;
-    vcpu_regs.rbx = 2;
-    vcpu_regs.rflags = 2;
-    vcpu.set_regs(&vcpu_regs).expect("set regs failed");
-
-    loop {
-        match vcpu.run().expect("run failed") {
-            VcpuExit::IoOut(0x3f8, data) => {
-                assert_eq!(data.len(), 1);
-                io::stdout().write(data).unwrap();
-            }
-            VcpuExit::Hlt => {
-                io::stdout().write(b"KVM_EXIT_HLT\n").unwrap();
-                break;
-            }
-            r => panic!("unexpected exit reason: {:?}", r),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn run_code() {
-        run_x86_code();
-    }
 }
