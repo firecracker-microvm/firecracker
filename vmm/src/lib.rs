@@ -7,21 +7,24 @@ extern crate kernel_loader;
 extern crate x86_64;
 extern crate clap;
 extern crate devices;
+extern crate epoll;
+#[macro_use(defer)]
+extern crate scopeguard;
 
 pub mod machine;
 
 use std::ffi::CStr;
 use std::fs::File;
 use std::io::{self, stdout, Write};
+use std::os::unix::io::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
-use std::thread::JoinHandle;
 use kvm::*;
 use kvm_sys::kvm_regs;
-use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Pollable,
-               Poller, Terminal};
+use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use machine::MachineCfg;
+use scopeguard::guard;
 
 const KERNEL_START_OFFSET: usize = 0x200000;
 const CMDLINE_OFFSET: usize = 0x20000;
@@ -29,12 +32,16 @@ const CMDLINE_OFFSET: usize = 0x20000;
 #[derive(Debug)]
 pub enum Error {
     ConfigureSystem(x86_64::Error),
+    EpollFd(std::io::Error),
     EventFd(sys_util::Error),
     GuestMemory(sys_util::GuestMemoryError),
     Irq(sys_util::Error),
     Kernel(std::io::Error),
     KernelLoader(kernel_loader::Error),
     Kvm(sys_util::Error),
+    Poll(std::io::Error),
+    Serial(sys_util::Error),
+    Terminal(sys_util::Error),
     Vcpu(sys_util::Error),
     VcpuSpawn(std::io::Error),
     Vm(sys_util::Error),
@@ -225,62 +232,101 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
 
     vcpu_thread_barrier.wait();
 
-    run_control(stdio_serial, exit_evt, kill_signaled, vcpu_handles)
+    let res = run_control(stdio_serial, exit_evt);
+
+    kill_signaled.store(true, Ordering::SeqCst);
+    for handle in vcpu_handles {
+        match handle.kill(0) {
+            Ok(_) => {
+                if let Err(e) = handle.join() {
+                    warn!("failed to join vcpu thread: {:?}", e);
+                }
+            }
+            Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
+        }
+    }
+
+    res
 }
 
-fn run_control(
-    stdio_serial: Arc<Mutex<devices::Serial>>,
-    exit_evt: EventFd,
-    kill_signaled: Arc<AtomicBool>,
-    vcpu_handles: Vec<JoinHandle<()>>,
-) -> Result<()> {
-    const EXIT: u32 = 0;
-    const STDIN: u32 = 1;
+fn run_control(stdio_serial: Arc<Mutex<devices::Serial>>, exit_evt: EventFd) -> Result<()> {
+    const EXIT_TOKEN: u64 = 0;
+    const STDIN_TOKEN: u64 = 1;
+    const EPOLL_EVENTS_LEN: usize = 100;
+
+    let epoll_raw_fd = epoll::create(true).map_err(Error::EpollFd)?;
+    let epoll_raw_fd = guard(epoll_raw_fd, |epoll_raw_fd| {
+        let rc = unsafe { libc::close(*epoll_raw_fd) };
+        if rc != 0 {
+            warn!("Cannot close epoll");
+        }
+    });
+
+    epoll::ctl(
+        *epoll_raw_fd,
+        epoll::EPOLL_CTL_ADD,
+        exit_evt.as_raw_fd(),
+        epoll::Event::new(epoll::EPOLLIN, EXIT_TOKEN),
+    ).map_err(Error::EpollFd)?;
 
     let stdin_handle = io::stdin();
     let stdin_lock = stdin_handle.lock();
-    stdin_lock.set_raw_mode().expect(
-        "failed to set terminal raw mode",
-    );
+    stdin_lock.set_raw_mode().map_err(Error::Terminal)?;
+    defer! {{
+        if let Err(e) = stdin_lock.set_canon_mode() {
+            warn!("cannot set canon mode for stdin: {:?}", e);
+        }
+    }};
 
-    let mut pollables = Vec::new();
-    pollables.push((EXIT, &exit_evt as &Pollable));
-    pollables.push((STDIN, &stdin_lock as &Pollable));
+    epoll::ctl(
+        *epoll_raw_fd,
+        epoll::EPOLL_CTL_ADD,
+        libc::STDIN_FILENO,
+        epoll::Event::new(epoll::EPOLLIN, STDIN_TOKEN),
+    ).map_err(Error::EpollFd)?;
 
-    let mut poller = Poller::new(pollables.len());
+    let mut events = Vec::<epoll::Event>::with_capacity(EPOLL_EVENTS_LEN);
+    // Safe as we pass to set_len the value passed to with_capacity.
+    unsafe { events.set_len(EPOLL_EVENTS_LEN) };
 
     'poll: loop {
-        let tokens = match poller.poll(&pollables[..]) {
-            Ok(v) => v,
-            Err(e) => {
-                error!("failed to poll: {:?}", e);
-                break;
-            }
-        };
+        let num_events = epoll::wait(*epoll_raw_fd, -1, &mut events[..]).map_err(
+            Error::Poll,
+        )?;
 
-        for &token in tokens {
-            match token {
-                EXIT => {
+        for i in 0..num_events {
+            match events[i].data() {
+                EXIT_TOKEN => {
                     info!("vcpu requested shutdown");
                     break 'poll;
                 }
-                STDIN => {
+                STDIN_TOKEN => {
                     let mut out = [0u8; 64];
                     match stdin_lock.read_raw(&mut out[..]) {
                         Ok(0) => {
                             // Zero-length read indicates EOF. Remove from pollables.
-                            pollables.retain(|&pollable| pollable.0 != STDIN);
+                            epoll::ctl(
+                                *epoll_raw_fd,
+                                epoll::EPOLL_CTL_DEL,
+                                libc::STDIN_FILENO,
+                                events[i],
+                            ).map_err(Error::EpollFd)?;
                         }
                         Err(e) => {
                             warn!("error while reading stdin: {:?}", e);
-                            pollables.retain(|&pollable| pollable.0 != STDIN);
+                            epoll::ctl(
+                                *epoll_raw_fd,
+                                epoll::EPOLL_CTL_DEL,
+                                libc::STDIN_FILENO,
+                                events[i],
+                            ).map_err(Error::EpollFd)?;
                         }
                         Ok(count) => {
                             stdio_serial
                                 .lock()
                                 .unwrap()
                                 .queue_input_bytes(&out[..count])
-                                .expect("failed to queue bytes into serial port");
+                                .map_err(Error::Serial)?;
                         }
                     }
                 }
@@ -288,22 +334,6 @@ fn run_control(
             }
         }
     }
-
-    kill_signaled.store(true, Ordering::SeqCst);
-    for handle in vcpu_handles {
-        match handle.kill(0) {
-            Ok(_) => {
-                if let Err(e) = handle.join() {
-                    error!("failed to join vcpu thread: {:?}", e);
-                }
-            }
-            Err(e) => error!("failed to kill vcpu thread: {:?}", e),
-        }
-    }
-
-    stdin_lock.set_canon_mode().expect(
-        "failed to restore canonical mode for terminal",
-    );
 
     Ok(())
 }
