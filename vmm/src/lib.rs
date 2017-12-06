@@ -1,34 +1,38 @@
-extern crate libc;
-#[macro_use]
-extern crate sys_util;
-extern crate kvm_sys;
-extern crate kvm;
-extern crate kernel_loader;
-extern crate x86_64;
 extern crate clap;
-extern crate devices;
 extern crate epoll;
+extern crate libc;
 #[macro_use(defer)]
 extern crate scopeguard;
 
-mod kernel_cmdline;
+extern crate devices;
+extern crate kernel_loader;
+extern crate kvm;
+extern crate kvm_sys;
+#[macro_use]
+extern crate sys_util;
+extern crate x86_64;
+
+pub mod device_manager;
+pub mod kernel_cmdline;
 pub mod machine;
 mod vm_control;
 mod vstate;
 
 use std::ffi::CString;
-use std::fs::File;
-use std::os::unix::io::AsRawFd;
+use std::fs::{File, OpenOptions};
 use std::io::{self, stdout};
+use std::os::unix::io::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 
 use scopeguard::guard;
 
+use device_manager::*;
 use kvm::*;
 use machine::MachineCfg;
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
+use vm_control::VmResponse;
 use vstate::{Vm, Vcpu};
 
 const KERNEL_START_OFFSET: usize = 0x200000;
@@ -53,6 +57,12 @@ pub enum Error {
     Vm(vstate::Error),
     VmSetup(vstate::Error),
     VmIOBus(vstate::Error),
+    RootDiskImage(std::io::Error),
+    RootBlockDeviceNew(sys_util::Error),
+    RegisterBlock(device_manager::Error),
+    NetDeviceNew(devices::virtio::NetError),
+    RegisterNet(device_manager::Error),
+    DeviceVmRequest(sys_util::Error)
 }
 
 impl std::convert::From<kernel_loader::Error> for Error {
@@ -77,20 +87,73 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     let mut kernel_file = File::open(cfg.kernel_path.as_ref().unwrap()).map_err(Error::Kernel)?;
 
     let mut cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
-    cmdline.insert_str(&cfg.kernel_cmdline).unwrap();
+    cmdline
+        .insert_str(&cfg.kernel_cmdline)
+        .expect("could not use the specified kernel cmdline");
 
     let vcpu_count = cfg.vcpu_count;
     let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
     let cmdline_addr = GuestAddress(CMDLINE_OFFSET);
 
-    let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(
-        Error::GuestMemory,
-    )?;
+    let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
+
+    //adding VIRTIO mmio devices
+
+    //todo why irq_base 5 and not some other value?
+    /*
+    as for the other parameters:
+    - mmio_len has to be larger than 0x100 (the offset where the configuration space starts from
+    the beginning of the memory mapped device registers) + the size of the configuration space.
+    I guess 0x1000 is a nice, round value. Also, crosvm literally supplies 4K as the first param
+    of the virtio_mmio.device kernel cmdline option, so this has to match.
+    - mmio_base, as far as I can tell, is just some address which is not seen as regular memory
+    by the kernel. In this case, it seems 0xd0000000 is right at the beginning of the memory gap
+    created by x86_64::arch_memory_regions(mem_size). With the virtio_mmio.device option,
+    the kernel is informed about the start of the mapping for each device.
+    */
+    let mut device_manager = DeviceManager::new(guest_mem.clone(), 0x1000, 0xd0000000, 5);
+
+    if let Some(root_blk_file) = cfg.root_blk_file.as_ref() {
+        //fixme this is a super simple solution; improve at some point
+        //the root option has some more parameters IIRC; are any of them needed/useful?
+        cmdline.insert_str(" root=/dev/vda").unwrap();
+
+        //adding root blk device from file (currently always opened as read + write)
+        let root_image = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(root_blk_file)
+            .map_err(Error::RootDiskImage)?;
+
+        let block_box = Box::new(devices::virtio::Block::new(root_image)
+            .map_err(Error::RootBlockDeviceNew)?);
+
+        device_manager
+            .register_mmio(block_box, &mut cmdline)
+            .map_err(Error::RegisterBlock)?;
+    }
+
+    if cfg.host_ip.is_some() {
+        let net_box = Box::new(
+            devices::virtio::Net::new(cfg.host_ip.unwrap(), cfg.subnet_mask)
+                .map_err(Error::NetDeviceNew)?,
+        );
+
+        device_manager
+            .register_mmio(net_box, &mut cmdline)
+            .map_err(Error::RegisterNet)?;
+    }
 
     let kvm = Kvm::new().map_err(Error::Kvm)?;
     let vm = Vm::new(&kvm, guest_mem).map_err(Error::Vm)?;
 
     vm.setup().map_err(Error::VmSetup)?;
+
+    for request in device_manager.vm_requests {
+        if let VmResponse::Err(e) = request.execute(vm.get_fd()) {
+            return Err(Error::DeviceVmRequest(e));
+        }
+    }
 
     let cmdline_cstr = CString::new(cmdline).unwrap();
 
@@ -128,6 +191,7 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
 
     for cpu_id in 0..vcpu_count {
         let io_bus = io_bus.clone();
+        let mmio_bus = device_manager.bus.clone();
         let kill_signaled = kill_signaled.clone();
         let vcpu_thread_barrier = vcpu_thread_barrier.clone();
         let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
@@ -142,37 +206,38 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
                 unsafe {
                     extern "C" fn handle_signal() {}
                     // Our signal handler does nothing and is trivially async signal safe.
-                    register_signal_handler(0, handle_signal).expect(
-                        "failed to register vcpu signal handler",
-                    );
+                    register_signal_handler(0, handle_signal)
+                        .expect("failed to register vcpu signal handler");
                 }
 
                 vcpu_thread_barrier.wait();
 
                 loop {
                     match vcpu.run() {
-                        Ok(run) => {
-                            match run {
-                                VcpuExit::IoIn(addr, data) => {
-                                    io_bus.read(addr as u64, data);
-                                }
-                                VcpuExit::IoOut(addr, data) => {
-                                    io_bus.write(addr as u64, data);
-                                }
-                                VcpuExit::MmioRead(_, _) => {}
-                                VcpuExit::MmioWrite(_, _) => {}
-                                VcpuExit::Hlt => {
-                                    info!("KVM_EXIT_HLT");
-                                    break;
-                                }
-                                VcpuExit::Shutdown => {
-                                    info!("KVM_EXIT_SHUTDOWN");
-                                    break;
-                                }
-                                r => {
-                                    error!("unexpected exit reason: {:?}", r);
-                                    break;
-                                }
+                        Ok(run) => match run {
+                            VcpuExit::IoIn(addr, data) => {
+                                io_bus.read(addr as u64, data);
+                            }
+                            VcpuExit::IoOut(addr, data) => {
+                                io_bus.write(addr as u64, data);
+                            }
+                            VcpuExit::MmioRead(addr, data) => {
+                                mmio_bus.read(addr, data);
+                            }
+                            VcpuExit::MmioWrite(addr, data) => {
+                                mmio_bus.write(addr, data);
+                            }
+                            VcpuExit::Hlt => {
+                                info!("KVM_EXIT_HLT");
+                                break;
+                            }
+                            VcpuExit::Shutdown => {
+                                info!("KVM_EXIT_SHUTDOWN");
+                                break;
+                            }
+                            r => {
+                                error!("unexpected exit reason: {:?}", r);
+                                break;
                             }
                         }
                         Err(e) => {
@@ -199,10 +264,9 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
                     }
                 }
 
-                vcpu_exit_evt.write(1).expect(
-                    "failed to signal vcpu exit eventfd",
-                );
-
+                vcpu_exit_evt
+                    .write(1)
+                    .expect("failed to signal vcpu exit eventfd");
             })
             .map_err(Error::VcpuSpawn)?);
     }
