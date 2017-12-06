@@ -11,25 +11,29 @@ extern crate epoll;
 #[macro_use(defer)]
 extern crate scopeguard;
 
+mod kernel_cmdline;
 pub mod machine;
 mod vm_control;
 mod vstate;
 
-use std::ffi::CStr;
+use std::ffi::CString;
 use std::fs::File;
 use std::os::unix::io::AsRawFd;
 use std::io::{self, stdout};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
-use kvm::*;
-use vstate::{Vm, Vcpu};
-use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
-use machine::MachineCfg;
+
 use scopeguard::guard;
+
+use kvm::*;
+use machine::MachineCfg;
+use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
+use vstate::{Vm, Vcpu};
 
 const KERNEL_START_OFFSET: usize = 0x200000;
 const CMDLINE_OFFSET: usize = 0x20000;
+const CMDLINE_MAX_SIZE: usize = KERNEL_START_OFFSET - CMDLINE_OFFSET;
 
 #[derive(Debug)]
 pub enum Error {
@@ -69,9 +73,12 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     let mem_size = cfg.mem_size << 20;
     let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
 
-    let mut kernel_file = File::open(&cfg.kernel_path).map_err(Error::Kernel)?;
+    //we're using unwrap here because the kernel_path is mandatory for now
+    let mut kernel_file = File::open(cfg.kernel_path.as_ref().unwrap()).map_err(Error::Kernel)?;
 
-    let cmdline: &CStr = &cfg.kernel_cmdline;
+    let mut cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
+    cmdline.insert_str(&cfg.kernel_cmdline).unwrap();
+
     let vcpu_count = cfg.vcpu_count;
     let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
     let cmdline_addr = GuestAddress(CMDLINE_OFFSET);
@@ -85,14 +92,16 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
 
     vm.setup().map_err(Error::VmSetup)?;
 
+    let cmdline_cstr = CString::new(cmdline).unwrap();
+
     kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr, &mut kernel_file)?;
-    kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, cmdline)?;
+    kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, &cmdline_cstr)?;
 
     x86_64::configure_system(
         vm.get_memory(),
         kernel_start_addr,
         cmdline_addr,
-        cmdline.to_bytes().len() + 1,
+        cmdline_cstr.to_bytes().len() + 1,
         vcpu_count,
     )?;
 
