@@ -1,11 +1,13 @@
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
+
 extern crate sys_util;
 extern crate vmm;
 
 use std::path::PathBuf;
-use std::ffi::CString;
+
 use clap::{App, Arg};
+
 use sys_util::syslog;
 use vmm::boot_kernel;
 use vmm::machine::MachineCfg;
@@ -52,13 +54,10 @@ fn main() {
         )
         .get_matches();
 
-    let kernel_path = PathBuf::from(cmd_arguments.value_of("kernel_path").unwrap());
-    let kernel_cmdline = match CString::new(cmd_arguments.value_of("kernel_cmdline").unwrap()) {
-        Ok(value) => value,
-        Err(error) => {
-            panic!("Invalid kernel cmdline! {:?}", error);
-        }
-    };
+    let kernel_path : Option<PathBuf> = cmd_arguments.value_of("kernel_path").map(|s| PathBuf::from(s));
+
+    let kernel_cmdline = String::from(cmd_arguments.value_of("kernel_cmdline").unwrap());
+
     let vcpu_count = match cmd_arguments
         .value_of("vcpu_count")
         .unwrap()
@@ -81,6 +80,8 @@ fn main() {
         }
     };
 
-    let cfg = MachineCfg::new(kernel_path, kernel_cmdline, vcpu_count, mem_size);
+    let cfg = MachineCfg::new(kernel_path, kernel_cmdline, vcpu_count, mem_size,
+                              None , None, "255.255.255.0".parse().unwrap());
+
     boot_kernel(&cfg).expect("cannot boot kernel");
 }
