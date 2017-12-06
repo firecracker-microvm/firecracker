@@ -14,7 +14,9 @@ pub struct I8042Device {
 impl I8042Device {
     /// Constructs a i8042 device that will signal the given event when the guest requests it.
     pub fn new(reset_evt: EventFd) -> I8042Device {
-        I8042Device { reset_evt: reset_evt }
+        I8042Device {
+            reset_evt: reset_evt,
+        }
     }
 }
 
