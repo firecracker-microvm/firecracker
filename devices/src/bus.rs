@@ -4,7 +4,7 @@
 
 //! Handles routing to devices in an address space.
 
-use std::cmp::{Ord, PartialOrd, PartialEq, Ordering};
+use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
 use std::result;
 use std::sync::{Arc, Mutex};
@@ -64,7 +64,9 @@ pub struct Bus {
 impl Bus {
     /// Constructs an a bus with an empty address space.
     pub fn new() -> Bus {
-        Bus { devices: BTreeMap::new() }
+        Bus {
+            devices: BTreeMap::new(),
+        }
     }
 
     fn first_before(&self, addr: u64) -> Option<(BusRange, &Mutex<BusDevice>)> {

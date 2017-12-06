@@ -239,7 +239,9 @@ mod tests {
 
     impl SharedBuffer {
         fn new() -> SharedBuffer {
-            SharedBuffer { buf: Arc::new(Mutex::new(Vec::new())) }
+            SharedBuffer {
+                buf: Arc::new(Mutex::new(Vec::new())),
+            }
         }
     }
 
