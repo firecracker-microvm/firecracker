@@ -12,6 +12,7 @@ extern crate epoll;
 extern crate scopeguard;
 
 pub mod machine;
+mod vm_control;
 mod vstate;
 
 use std::ffi::CStr;
