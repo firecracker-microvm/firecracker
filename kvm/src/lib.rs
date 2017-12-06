@@ -111,6 +111,12 @@ impl AsRawFd for Kvm {
     }
 }
 
+/// An address either in programmable I/O space or in memory mapped I/O space.
+#[derive(Copy, Clone)]
+pub enum IoeventAddress {
+    Pio(u64),
+    Mmio(u64),
+}
 
 /// A wrapper around creating and using a VM.
 pub struct VmFd {
@@ -205,6 +211,41 @@ impl VmFd {
         // correct amount of memory from our pointer, and we verify the return result.
         let ret = unsafe { ioctl_with_ref(self, KVM_CREATE_PIT2(), &pit_config) };
         if ret == 0 { Ok(()) } else { errno_result() }
+    }
+
+    /// Registers an event to be signalled whenever a certain address is written to.
+    ///
+    /// The `datamatch` parameter can be used to limit singalling `evt` to only the cases where the
+    /// value being written is equal to `datamatch`. Note that the size of `datamatch` is important
+    /// and must match the expected size of the guest's write.
+    ///
+    /// In all cases where `evt` is signalled, the ordinary vmexit to userspace that would be
+    /// triggered is prevented.
+    pub fn register_ioevent<T: Into<u64>>(&self, evt: &EventFd, addr: IoeventAddress, datamatch: T) -> Result<()> {
+        let mut flags = 0;
+        if std::mem::size_of::<T>() > 0 {
+            flags |= 1 << kvm_ioeventfd_flag_nr_datamatch
+        }
+        match addr {
+            IoeventAddress::Pio(_) => flags |= 1 << kvm_ioeventfd_flag_nr_pio,
+            _ => {}
+        };
+        let ioeventfd = kvm_ioeventfd {
+            datamatch: datamatch.into(),
+            len: std::mem::size_of::<T>() as u32,
+            addr: match addr { IoeventAddress::Pio(p) => p as u64, IoeventAddress::Mmio(m) => m },
+            fd: evt.as_raw_fd(),
+            flags: flags,
+            ..Default::default()
+        };
+        // Safe because we know that our file is a VM fd, we know the kernel will only read the
+        // correct amount of memory from our pointer, and we verify the return result.
+        let ret = unsafe { ioctl_with_ref(self, KVM_IOEVENTFD(), &ioeventfd) };
+        if ret == 0 {
+            Ok(())
+        } else {
+            errno_result()
+        }
     }
 
     /// Registers an event that will, when signalled, trigger the `gsi` irq.
