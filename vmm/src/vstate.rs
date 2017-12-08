@@ -91,8 +91,8 @@ impl Vm {
         self.fd.set_tss_address(tss_addr.offset()).map_err(
             Error::VmSetup,
         )?;
-        self.fd.create_pit2().map_err(Error::VmSetup)?;
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
+        self.fd.create_pit2().map_err(Error::VmSetup)?;
         Ok(())
     }
 
