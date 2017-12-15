@@ -4,6 +4,7 @@
 
 //! Emulates virtual and hardware devices.
 
+extern crate byteorder;
 
 #[macro_use]
 extern crate sys_util;
@@ -11,6 +12,8 @@ extern crate sys_util;
 mod bus;
 mod i8042;
 mod serial;
+
+pub mod virtio;
 
 pub use self::bus::{Bus, BusDevice};
 pub use self::i8042::I8042Device;
