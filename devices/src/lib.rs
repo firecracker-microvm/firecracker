@@ -5,9 +5,13 @@
 //! Emulates virtual and hardware devices.
 
 extern crate byteorder;
+extern crate libc;
 
+extern crate net_sys;
+extern crate net_util;
 #[macro_use]
 extern crate sys_util;
+extern crate virtio_sys;
 
 mod bus;
 mod i8042;
