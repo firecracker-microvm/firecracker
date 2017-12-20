@@ -129,10 +129,8 @@ pub fn configure_system(
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
     let end_32bit_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
 
-    // Note that this puts the mptable at 0x0 in guest physical memory.
-    mptable::setup_mptable(guest_mem, num_cpus).map_err(
-        Error::MpTableSetup,
-    )?;
+    // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
+    mptable::setup_mptable(guest_mem, num_cpus).map_err(Error::MpTableSetup)?;
 
     let mut params: boot_params = Default::default();
 
