@@ -1,0 +1,11 @@
+[package]
+name = "api_server"
+version = "0.1.0"
+authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+futures = "=0.1"
+iron = "=0.5"
+
+firecracker_api = { path = "../api" }
+vmm = { path = "../vmm" }

@@ -4,13 +4,13 @@ extern crate clap;
 extern crate devices;
 extern crate sys_util;
 extern crate vmm;
+extern crate api_server;
 
 use std::path::PathBuf;
 
 use clap::{App, Arg};
 
 use sys_util::syslog;
-use vmm::boot_kernel;
 use vmm::machine::MachineCfg;
 
 fn main() {
@@ -133,5 +133,5 @@ fn main() {
         subnet_mask,
     );
 
-    boot_kernel(&cfg).expect("cannot boot kernel");
+    api_server::start_api_server(&cfg).expect("cannot start server");
 }
