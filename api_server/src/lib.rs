@@ -1,3 +1,4 @@
+extern crate clap;
 extern crate firecracker_api;
 extern crate futures;
 extern crate iron;
@@ -472,16 +473,86 @@ type Result<T> = std::result::Result<T, Error>;
 use iron::{Chain, Iron};
 
 use std::thread;
+use std::path::PathBuf;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-pub fn start_api_server(cfg: &MachineCfg) -> Result<()> {
-    let handle = thread::spawn(|| {
+pub fn start_api_server(cmd_arguments: &clap::ArgMatches) -> Result<()> {
+    let api_port = match cmd_arguments
+        .value_of("api_port")
+        .unwrap()
+        .to_string()
+        .parse::<u16>()
+    {
+        Ok(value) => value,
+        Err(error) => {
+            panic!("Invalid value for api TCP listen port! {:?}", error);
+        }
+    };
+    let kernel_path: Option<PathBuf> = cmd_arguments
+        .value_of("kernel_path")
+        .map(|s| PathBuf::from(s));
+
+    //unwrap should not panic because kernel_cmdline has a default value
+    let kernel_cmdline = String::from(cmd_arguments.value_of("kernel_cmdline").unwrap());
+
+    let vcpu_count = match cmd_arguments
+        .value_of("vcpu_count")
+        .unwrap()
+        .to_string()
+        .parse::<u8>()
+    {
+        Ok(value) => value,
+        Err(error) => {
+            panic!("Invalid value for vcpu_count! {:?}", error);
+        }
+    };
+
+    let mem_size = match cmd_arguments
+        .value_of("mem_size")
+        .unwrap()
+        .to_string()
+        .parse::<usize>()
+    {
+        Ok(value) => value,
+        Err(error) => {
+            panic!("Invalid value for mem_size! {:?}", error);
+        }
+    };
+
+    let root_blk_file = cmd_arguments
+        .value_of("root_blk_file")
+        .map(|s| PathBuf::from(s));
+
+    //fixme print some message when the Ipv4Addrs cannot be parsed
+    let host_ip = cmd_arguments
+        .value_of("host_ip")
+        .map(|x| x.parse().unwrap());
+
+    let subnet_mask = cmd_arguments
+        .value_of("subnet_mask")
+        .unwrap()
+        .parse()
+        .unwrap();
+
+    let cfg = MachineCfg::new(
+        kernel_path,
+        kernel_cmdline,
+        vcpu_count,
+        mem_size,
+        root_blk_file,
+        host_ip,
+        subnet_mask,
+    );
+
+    let handle = thread::spawn(move || {
         let server = Server {};
         let router = firecracker_api::router(server);
 
         let chain = Chain::new(router);
+        let sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), api_port);
 
         Iron::new(chain)
-            .http("localhost:8080")
+            .http(sock_addr)
             .expect("Failed to start HTTP server");
     });
 
