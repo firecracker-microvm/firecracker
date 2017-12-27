@@ -1,17 +1,14 @@
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
 
+extern crate api_server;
 extern crate devices;
 extern crate sys_util;
 extern crate vmm;
-extern crate api_server;
-
-use std::path::PathBuf;
 
 use clap::{App, Arg};
 
 use sys_util::syslog;
-use vmm::machine::MachineCfg;
 
 fn main() {
     if let Err(e) = syslog::init() {
@@ -23,6 +20,14 @@ fn main() {
         .version(crate_version!())
         .author(crate_authors!())
         .about("Launch a microvm.")
+        .arg(
+            Arg::with_name("api_port")
+                .short("p")
+                .long("api-port")
+                .help("The TCP listen port for the REST API")
+                .required(true)
+                .takes_value(true),
+        )
         .arg(
             Arg::with_name("kernel_path")
                 .short("k")
@@ -83,55 +88,5 @@ fn main() {
         )*/
         .get_matches();
 
-    let kernel_path : Option<PathBuf> = cmd_arguments.value_of("kernel_path").map(|s| PathBuf::from(s));
-
-    //unwrap should not panic because kernel_cmdline has a default value
-    let kernel_cmdline = String::from(cmd_arguments.value_of("kernel_cmdline").unwrap());
-
-    let vcpu_count = match cmd_arguments
-        .value_of("vcpu_count")
-        .unwrap()
-        .to_string()
-        .parse::<u8>() {
-        Ok(value) => value,
-        Err(error) => {
-            panic!("Invalid value for vcpu_count! {:?}", error);
-        }
-    };
-
-    let mem_size = match cmd_arguments
-        .value_of("mem_size")
-        .unwrap()
-        .to_string()
-        .parse::<usize>() {
-        Ok(value) => value,
-        Err(error) => {
-            panic!("Invalid value for mem_size! {:?}", error);
-        }
-    };
-
-    let root_blk_file = cmd_arguments.value_of("root_blk_file").map(|s| PathBuf::from(s));
-
-    //fixme print some message when the Ipv4Addrs cannot be parsed
-    let host_ip = cmd_arguments
-        .value_of("host_ip")
-        .map(|x| x.parse().unwrap());
-
-    let subnet_mask = cmd_arguments
-        .value_of("subnet_mask")
-        .unwrap()
-        .parse()
-        .unwrap();
-
-    let cfg = MachineCfg::new(
-        kernel_path,
-        kernel_cmdline,
-        vcpu_count,
-        mem_size,
-        root_blk_file,
-        host_ip,
-        subnet_mask,
-    );
-
-    api_server::start_api_server(&cfg).expect("cannot start server");
+    api_server::start_api_server(&cmd_arguments).expect("cannot start api server");
 }

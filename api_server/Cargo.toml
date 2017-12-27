@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
+clap = "=2.27.1"
 futures = "=0.1"
 iron = "=0.5"
 
