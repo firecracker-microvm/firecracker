@@ -1,4 +1,3 @@
-extern crate clap;
 extern crate epoll;
 extern crate libc;
 #[macro_use(defer)]
