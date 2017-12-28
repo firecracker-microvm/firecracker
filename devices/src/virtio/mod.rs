@@ -4,9 +4,9 @@
 
 //! Implements virtio devices, queues, and transport mechanisms.
 
-mod block;
+pub mod block;
 mod mmio;
-mod net;
+pub mod net;
 mod queue;
 
 pub use self::block::*;
