@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-clap = "2.27.1"
+clap = "=2.27.1"
 
 devices = { path = "devices" }
 sys_util = { path = "sys_util" }

@@ -4,9 +4,8 @@ version = "0.1.0"
 authors = ["The Chromium OS Authors"]
 
 [dependencies]
-
-byteorder = "1.2.1"
-libc = "0.2.32"
+byteorder = "=1.2.1"
+libc = "=0.2.32"
 
 net_util = { path = "../net_util" }
 net_sys = { path = "../net_sys" }
