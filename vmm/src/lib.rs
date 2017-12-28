@@ -251,8 +251,10 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     }
 
     if cfg.host_ip.is_some() {
+        let epoll_config = epoll_context.allocate_virtio_net_tokens();
+
         let net_box = Box::new(
-            devices::virtio::Net::new(cfg.host_ip.unwrap(), cfg.subnet_mask)
+            devices::virtio::Net::new(cfg.host_ip.unwrap(), cfg.subnet_mask, epoll_config)
                 .map_err(Error::NetDeviceNew)?,
         );
 
