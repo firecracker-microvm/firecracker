@@ -2,10 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-use libc::EAGAIN;
-use net_util::{Error as TapError, Tap};
-use net_sys;
-use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_NET};
 use std::cmp;
 use std::io::{Read, Write};
 use std::mem;
@@ -13,6 +9,13 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
+
+use libc::EAGAIN;
+
+use ::virtio::mmio::{ActivateError, ActivateResult};
+use net_util::{Error as TapError, Tap};
+use net_sys;
+use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_NET};
 use sys_util::{Error as SysError, EventFd, GuestMemory, Pollable, Poller};
 use virtio_sys::virtio_net;
 
@@ -382,10 +385,10 @@ impl VirtioDevice for Net {
         status: Arc<AtomicUsize>,
         mut queues: Vec<Queue>,
         mut queue_evts: Vec<EventFd>,
-    ) {
+    ) -> ActivateResult {
         if queues.len() != 2 || queue_evts.len() != 2 {
             error!("net: expected 2 queues, got {}", queues.len());
-            return;
+            return Err(ActivateError::BadActivate)
         }
 
         if let Some(tap) = self.tap.take() {
@@ -419,9 +422,14 @@ impl VirtioDevice for Net {
 
                 if let Err(e) = worker_result {
                     error!("failed to spawn virtio_net worker: {}", e);
-                    return;
                 }
+                else {
+                    return Ok(())
+                }
+
             }
         }
+
+        Err(ActivateError::BadActivate)
     }
 }

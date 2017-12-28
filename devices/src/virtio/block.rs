@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
+use ::virtio::mmio::{ActivateError, ActivateResult};
 use super::{DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_BLOCK};
 use sys_util::Result as SysResult;
 use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError, Poller};
@@ -343,16 +344,16 @@ impl VirtioDevice for Block {
         status: Arc<AtomicUsize>,
         queues: Vec<Queue>,
         mut queue_evts: Vec<EventFd>,
-    ) {
+    )  -> ActivateResult {
         if queues.len() != 1 || queue_evts.len() != 1 {
-            return;
+            return Err(ActivateError::BadActivate)
         }
 
         let (self_kill_evt, kill_evt) = match EventFd::new().and_then(|e| Ok((e.try_clone()?, e))) {
             Ok(v) => v,
             Err(e) => {
                 error!("failed creating kill EventFd pair: {:?}", e);
-                return;
+                return Err(ActivateError::BadActivate)
             }
         };
         self.kill_evt = Some(self_kill_evt);
@@ -373,9 +374,13 @@ impl VirtioDevice for Block {
 
             if let Err(e) = worker_result {
                 error!("failed to spawn virtio_blk worker: {}", e);
-                return;
+            }
+            else {
+                return Ok(())
             }
         }
+
+        Err(ActivateError::BadActivate)
     }
 }
 
