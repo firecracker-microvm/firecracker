@@ -5,11 +5,14 @@
 use std::cmp;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::os::unix::io::RawFd;
 use std::result;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
 use std::thread;
 
+use ::{DeviceEventT, EpollHandler};
 use ::virtio::mmio::{ActivateError, ActivateResult};
 use super::{DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_BLOCK};
 use sys_util::Result as SysResult;
@@ -27,6 +30,9 @@ const VIRTIO_BLK_T_FLUSH: u32 = 4;
 const VIRTIO_BLK_S_OK: u8 = 0;
 const VIRTIO_BLK_S_IOERR: u8 = 1;
 const VIRTIO_BLK_S_UNSUPP: u8 = 2;
+
+pub const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
+pub const KILL_EVENT: DeviceEventT = 1;
 
 #[derive(PartialEq)]
 enum RequestType {
@@ -262,6 +268,106 @@ impl Worker {
             if needs_interrupt {
                 self.signal_used_queue();
             }
+        }
+    }
+}
+
+pub struct BlockEpollHandler {
+    queues: Vec<Queue>,
+    mem: GuestMemory,
+    disk_image: File,
+    interrupt_status: Arc<AtomicUsize>,
+    interrupt_evt: EventFd,
+    queue_evt: EventFd
+}
+
+impl BlockEpollHandler
+{
+    fn process_queue(&mut self, queue_index: usize) -> bool {
+        let queue = &mut self.queues[queue_index];
+
+        let mut used_desc_heads = [(0, 0); QUEUE_SIZE as usize];
+        let mut used_count = 0;
+        for avail_desc in queue.iter(&self.mem) {
+            let len;
+            match Request::parse(&avail_desc, &self.mem) {
+                Ok(request) => {
+                    let status = match request.execute(&mut self.disk_image, &self.mem) {
+                        Ok(l) => {
+                            len = l;
+                            VIRTIO_BLK_S_OK
+                        }
+                        Err(e) => {
+                            error!("failed executing disk request: {:?}", e);
+                            len = 1; // 1 byte for the status
+                            e.status()
+                        }
+                    };
+                    // We use unwrap because the request parsing process already checked that the
+                    // status_addr was valid.
+                    self.mem
+                        .write_obj_at_addr(status, request.status_addr)
+                        .unwrap();
+                }
+                Err(e) => {
+                    error!("failed processing available descriptor chain: {:?}", e);
+                    len = 0;
+                }
+            }
+            used_desc_heads[used_count] = (avail_desc.index, len);
+            used_count += 1;
+        }
+
+        for &(desc_index, len) in &used_desc_heads[..used_count] {
+            queue.add_used(&self.mem, desc_index, len);
+        }
+        used_count > 0
+    }
+
+    fn signal_used_queue(&self) {
+        self.interrupt_status
+            .fetch_or(INTERRUPT_STATUS_USED_RING as usize, Ordering::SeqCst);
+        self.interrupt_evt.write(1).unwrap();
+    }
+}
+
+impl EpollHandler for BlockEpollHandler {
+    fn handle_event(&mut self, device_event: DeviceEventT, _: u32)
+    {
+        match device_event {
+            QUEUE_AVAIL_EVENT => {
+                if let Err(e) = self.queue_evt.read() {
+                    error!("failed reading queue EventFd: {:?}", e);
+                    return;
+                }
+
+                if self.process_queue(0) {
+                    self.signal_used_queue();
+                }
+            }
+            KILL_EVENT => {
+                //TODO: change this when implementing device removal
+                info!("block device killed")
+            }
+            _ => panic!("unknown token for block device")
+        }
+    }
+}
+
+pub struct EpollConfig {
+    q_avail_token: u64,
+    kill_token: u64,
+    epoll_raw_fd: RawFd,
+    sender: mpsc::Sender<Box<EpollHandler>>
+}
+
+impl EpollConfig {
+    pub fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self {
+        EpollConfig {
+            q_avail_token:  first_token,
+            kill_token:     first_token + 1,
+            epoll_raw_fd,
+            sender
         }
     }
 }
