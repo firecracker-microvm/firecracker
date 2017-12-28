@@ -22,3 +22,9 @@ pub mod virtio;
 pub use self::bus::{Bus, BusDevice};
 pub use self::i8042::I8042Device;
 pub use self::serial::Serial;
+
+pub type DeviceEventT = u16;
+
+pub trait EpollHandler : Send {
+    fn handle_event(&mut self, device_event: DeviceEventT, event_flags: u32);
+}
