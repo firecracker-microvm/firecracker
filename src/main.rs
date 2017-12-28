@@ -42,7 +42,7 @@ fn main() {
             Arg::with_name("mem_size")
                 .long("mem-size")
                 .default_value("128")
-                .help("Virtual Machine Memory Size in MB")
+                .help("Virtual Machine Memory Size in MiB")
                 .takes_value(true),
         )
         .arg(
