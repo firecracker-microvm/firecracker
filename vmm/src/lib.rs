@@ -210,7 +210,7 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
 
     let exit_evt = EventFd::new().map_err(Error::EventFd)?;
 
-    let epoll_context = EpollContext::new(exit_evt.as_raw_fd())?;
+    let mut epoll_context = EpollContext::new(exit_evt.as_raw_fd())?;
 
     //adding VIRTIO mmio devices
 
@@ -240,7 +240,9 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
             .open(root_blk_file)
             .map_err(Error::RootDiskImage)?;
 
-        let block_box = Box::new(devices::virtio::Block::new(root_image)
+        let epoll_config = epoll_context.allocate_virtio_block_tokens();
+
+        let block_box = Box::new(devices::virtio::Block::new(root_image, epoll_config)
             .map_err(Error::RootBlockDeviceNew)?);
 
         device_manager
