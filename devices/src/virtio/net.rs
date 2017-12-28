@@ -6,20 +6,20 @@ use std::cmp;
 use std::io::{Read, Write};
 use std::mem;
 use std::net::Ipv4Addr;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::thread;
 
 use libc::EAGAIN;
 
 use ::{DeviceEventT, EpollHandler};
 use ::virtio::mmio::{ActivateError, ActivateResult};
+use epoll;
 use net_util::{Error as TapError, Tap};
 use net_sys;
 use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_NET};
-use sys_util::{Error as SysError, EventFd, GuestMemory, Pollable, Poller};
+use sys_util::{Error as SysError, EventFd, GuestMemory};
 use virtio_sys::virtio_net;
 
 /// The maximum buffer size when segmentation offload is enabled. This
@@ -58,235 +58,6 @@ pub enum NetError {
     TapEnable(TapError),
     /// Error while polling for events.
     PollError(SysError),
-}
-
-struct Worker {
-    mem: GuestMemory,
-    rx_queue: Queue,
-    tx_queue: Queue,
-    tap: Tap,
-    interrupt_status: Arc<AtomicUsize>,
-    interrupt_evt: EventFd,
-    rx_buf: [u8; MAX_BUFFER_SIZE],
-    rx_count: usize,
-    deferred_rx: bool,
-    // TODO(smbarber): http://crbug.com/753630
-    // Remove once MRG_RXBUF is supported and this variable is actually used.
-    #[allow(dead_code)] acked_features: u64,
-}
-
-impl Worker {
-    fn signal_used_queue(&self) {
-        self.interrupt_status
-            .fetch_or(INTERRUPT_STATUS_USED_RING as usize, Ordering::SeqCst);
-        self.interrupt_evt.write(1).unwrap();
-    }
-
-    // Copies a single frame from `self.rx_buf` into the guest. Returns true
-    // if a buffer was used, and false if the frame must be deferred until a buffer
-    // is made available by the driver.
-    fn rx_single_frame(&mut self) -> bool {
-        let mut next_desc = self.rx_queue.iter(&self.mem).next();
-
-        if next_desc.is_none() {
-            return false;
-        }
-
-        // We just checked that the head descriptor exists.
-        let head_index = next_desc.as_ref().unwrap().index;
-        let mut write_count = 0;
-
-        // Copy from frame into buffer, which may span multiple descriptors.
-        loop {
-            match next_desc {
-                Some(desc) => {
-                    if !desc.is_write_only() {
-                        break;
-                    }
-                    let limit = cmp::min(write_count + desc.len as usize, self.rx_count);
-                    let source_slice = &self.rx_buf[write_count..limit];
-                    let write_result = self.mem.write_slice_at_addr(source_slice, desc.addr);
-
-                    match write_result {
-                        Ok(sz) => {
-                            write_count += sz;
-                        }
-                        Err(e) => {
-                            warn!("net: rx: failed to write slice: {:?}", e);
-                            break;
-                        }
-                    };
-
-                    if write_count >= self.rx_count {
-                        break;
-                    }
-                    next_desc = desc.next_descriptor();
-                }
-                None => {
-                    warn!(
-                        "net: rx: buffer is too small to hold frame of size {}",
-                        self.rx_count
-                    );
-                    break;
-                }
-            }
-        }
-
-        self.rx_queue
-            .add_used(&self.mem, head_index, write_count as u32);
-
-        // Interrupt the guest immediately for received frames to
-        // reduce latency.
-        self.signal_used_queue();
-
-        true
-    }
-
-    fn process_rx(&mut self) {
-        // Read as many frames as possible.
-        loop {
-            let res = self.tap.read(&mut self.rx_buf);
-            match res {
-                Ok(count) => {
-                    self.rx_count = count;
-                    if !self.rx_single_frame() {
-                        self.deferred_rx = true;
-                        break;
-                    }
-                }
-                Err(e) => {
-                    // The tap device is nonblocking, so any error aside from EAGAIN is
-                    // unexpected.
-                    if e.raw_os_error().unwrap() != EAGAIN {
-                        warn!("net: rx: failed to read tap: {:?}", e);
-                    }
-                    break;
-                }
-            }
-        }
-    }
-
-    fn process_tx(&mut self) {
-        let mut frame = [0u8; MAX_BUFFER_SIZE];
-        let mut used_desc_heads = [0u16; QUEUE_SIZE as usize];
-        let mut used_count = 0;
-
-        for avail_desc in self.tx_queue.iter(&self.mem) {
-            let head_index = avail_desc.index;
-            let mut next_desc = Some(avail_desc);
-            let mut read_count = 0;
-
-            // Copy buffer from across multiple descriptors.
-            loop {
-                match next_desc {
-                    Some(desc) => {
-                        if desc.is_write_only() {
-                            break;
-                        }
-                        let limit = cmp::min(read_count + desc.len as usize, frame.len());
-                        let read_result = self.mem
-                            .read_slice_at_addr(&mut frame[read_count..limit as usize], desc.addr);
-                        match read_result {
-                            Ok(sz) => {
-                                read_count += sz;
-                            }
-                            Err(e) => {
-                                warn!("net: tx: failed to read slice: {:?}", e);
-                                break;
-                            }
-                        }
-                        next_desc = desc.next_descriptor();
-                    }
-                    None => {
-                        break;
-                    }
-                }
-            }
-
-            let write_result = self.tap.write(&frame[..read_count as usize]);
-            match write_result {
-                Ok(_) => {}
-                Err(e) => {
-                    warn!("net: tx: error failed to write to tap: {:?}", e);
-                }
-            };
-
-            used_desc_heads[used_count] = head_index;
-            used_count += 1;
-        }
-
-        for &desc_index in &used_desc_heads[..used_count] {
-            self.tx_queue.add_used(&self.mem, desc_index, 0);
-        }
-
-        self.signal_used_queue();
-    }
-
-    fn run(
-        &mut self,
-        rx_queue_evt: EventFd,
-        tx_queue_evt: EventFd,
-        kill_evt: EventFd,
-    ) -> Result<(), NetError> {
-        let mut poller = Poller::new(4);
-        // A frame is available for reading from the tap device to receive in the guest.
-        const RX_TAP: u32 = 1;
-        // The guest has made a buffer available to receive a frame into.
-        const RX_QUEUE: u32 = 2;
-        // The transmit queue has a frame that is ready to send from the guest.
-        const TX_QUEUE: u32 = 3;
-        // crosvm has requested the device to shut down.
-        const KILL: u32 = 4;
-
-        'poll: loop {
-            let tokens = match poller.poll(&[
-                (RX_TAP, &self.tap as &Pollable),
-                (RX_QUEUE, &rx_queue_evt as &Pollable),
-                (TX_QUEUE, &tx_queue_evt as &Pollable),
-                (KILL, &kill_evt as &Pollable),
-            ]) {
-                Ok(v) => v,
-                Err(e) => return Err(NetError::PollError(e)),
-            };
-
-            for &token in tokens {
-                match token {
-                    RX_TAP => {
-                        // Process a deferred frame first if available. Don't read from tap again
-                        // until we manage to receive this deferred frame.
-                        if self.deferred_rx {
-                            if self.rx_single_frame() {
-                                self.deferred_rx = false;
-                            } else {
-                                continue;
-                            }
-                        }
-                        self.process_rx();
-                    }
-                    RX_QUEUE => {
-                        if let Err(e) = rx_queue_evt.read() {
-                            error!("net: error reading rx queue EventFd: {:?}", e);
-                            break 'poll;
-                        }
-                        // There should be a buffer available now to receive the frame into.
-                        if self.deferred_rx && self.rx_single_frame() {
-                            self.deferred_rx = false;
-                        }
-                    }
-                    TX_QUEUE => {
-                        if let Err(e) = tx_queue_evt.read() {
-                            error!("net: error reading tx queue EventFd: {:?}", e);
-                            break 'poll;
-                        }
-                        self.process_tx();
-                    }
-                    KILL => break 'poll,
-                    _ => unreachable!(),
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
 struct NetEpollHandler {
@@ -524,12 +295,13 @@ pub struct Net {
     tap: Option<Tap>,
     avail_features: u64,
     acked_features: u64,
+    epoll_config: EpollConfig
 }
 
 impl Net {
     /// Create a new virtio network device with the given IP address and
     /// netmask.
-    pub fn new(ip_addr: Ipv4Addr, netmask: Ipv4Addr) -> Result<Net, NetError> {
+    pub fn new(ip_addr: Ipv4Addr, netmask: Ipv4Addr, epoll_config: EpollConfig) -> Result<Net, NetError> {
         let kill_evt = EventFd::new().map_err(NetError::CreateKillEventFd)?;
 
         let tap = Tap::new().map_err(NetError::TapOpen)?;
@@ -561,6 +333,7 @@ impl Net {
             tap: Some(tap),
             avail_features: avail_features,
             acked_features: 0u64,
+            epoll_config
         })
     }
 }
@@ -634,40 +407,61 @@ impl VirtioDevice for Net {
 
         if let Some(tap) = self.tap.take() {
             if let Some(kill_evt) = self.workers_kill_evt.take() {
-                let acked_features = self.acked_features;
-                let worker_result = thread::Builder::new().name("virtio_net".to_string()).spawn(
-                    move || {
-                        // First queue is rx, second is tx.
-                        let rx_queue = queues.remove(0);
-                        let tx_queue = queues.remove(0);
-                        let mut worker = Worker {
-                            mem: mem,
-                            rx_queue: rx_queue,
-                            tx_queue: tx_queue,
-                            tap: tap,
-                            interrupt_status: status,
-                            interrupt_evt: interrupt_evt,
-                            rx_buf: [0u8; MAX_BUFFER_SIZE],
-                            rx_count: 0,
-                            deferred_rx: false,
-                            acked_features: acked_features,
-                        };
-                        let rx_queue_evt = queue_evts.remove(0);
-                        let tx_queue_evt = queue_evts.remove(0);
-                        let result = worker.run(rx_queue_evt, tx_queue_evt, kill_evt);
-                        if let Err(e) = result {
-                            error!("net worker thread exited with error: {:?}", e);
-                        }
-                    },
-                );
+                let kill_raw_fd = kill_evt.as_raw_fd();
 
-                if let Err(e) = worker_result {
-                    error!("failed to spawn virtio_net worker: {}", e);
-                }
-                else {
-                    return Ok(())
-                }
+                let handler = NetEpollHandler {
+                    mem,
+                    rx_queue: queues.remove(0),
+                    tx_queue: queues.remove(0),
+                    tap,
+                    interrupt_status: status,
+                    interrupt_evt,
+                    rx_buf: [0u8; MAX_BUFFER_SIZE],
+                    rx_count: 0,
+                    deferred_rx: false,
+                    acked_features: self.acked_features,
+                    rx_queue_evt: queue_evts.remove(0),
+                    tx_queue_evt: queue_evts.remove(0)
+                };
 
+                let tap_raw_fd = handler.tap.as_raw_fd();
+                let rx_queue_raw_fd = handler.rx_queue_evt.as_raw_fd();
+                let tx_queue_raw_fd = handler.tx_queue_evt.as_raw_fd();
+
+                //channel should be open and working
+                self.epoll_config.sender.send(Box::new(handler)).unwrap();
+
+                //TODO: barrier needed here maybe?
+
+                epoll::ctl(
+                    self.epoll_config.epoll_raw_fd,
+                    epoll::EPOLL_CTL_ADD,
+                    tap_raw_fd,
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_tap_token)
+                ).map_err(ActivateError::EpollCtl)?;
+
+                epoll::ctl(
+                    self.epoll_config.epoll_raw_fd,
+                    epoll::EPOLL_CTL_ADD,
+                    rx_queue_raw_fd,
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_queue_token)
+                ).map_err(ActivateError::EpollCtl)?;
+
+                epoll::ctl(
+                    self.epoll_config.epoll_raw_fd,
+                    epoll::EPOLL_CTL_ADD,
+                    tx_queue_raw_fd,
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_queue_token)
+                ).map_err(ActivateError::EpollCtl)?;
+
+                epoll::ctl(
+                    self.epoll_config.epoll_raw_fd,
+                    epoll::EPOLL_CTL_ADD,
+                    kill_raw_fd,
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token)
+                ).map_err(ActivateError::EpollCtl)?;
+
+                return Ok(())
             }
         }
 
