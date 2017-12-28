@@ -5,18 +5,18 @@
 use std::cmp;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::result;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::thread;
 
 use ::{DeviceEventT, EpollHandler};
 use ::virtio::mmio::{ActivateError, ActivateResult};
+use epoll;
 use super::{DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_BLOCK};
 use sys_util::Result as SysResult;
-use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError, Poller};
+use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};
 
 const SECTOR_SHIFT: u8 = 9;
 const SECTOR_SIZE: u64 = 0x01 << SECTOR_SHIFT;
@@ -181,97 +181,6 @@ impl Request {
     }
 }
 
-struct Worker {
-    queues: Vec<Queue>,
-    mem: GuestMemory,
-    disk_image: File,
-    interrupt_status: Arc<AtomicUsize>,
-    interrupt_evt: EventFd,
-}
-
-impl Worker {
-    fn process_queue(&mut self, queue_index: usize) -> bool {
-        let queue = &mut self.queues[queue_index];
-
-        let mut used_desc_heads = [(0, 0); QUEUE_SIZE as usize];
-        let mut used_count = 0;
-        for avail_desc in queue.iter(&self.mem) {
-            let len;
-            match Request::parse(&avail_desc, &self.mem) {
-                Ok(request) => {
-                    let status = match request.execute(&mut self.disk_image, &self.mem) {
-                        Ok(l) => {
-                            len = l;
-                            VIRTIO_BLK_S_OK
-                        }
-                        Err(e) => {
-                            error!("failed executing disk request: {:?}", e);
-                            len = 1; // 1 byte for the status
-                            e.status()
-                        }
-                    };
-                    // We use unwrap because the request parsing process already checked that the
-                    // status_addr was valid.
-                    self.mem
-                        .write_obj_at_addr(status, request.status_addr)
-                        .unwrap();
-                }
-                Err(e) => {
-                    error!("failed processing available descriptor chain: {:?}", e);
-                    len = 0;
-                }
-            }
-            used_desc_heads[used_count] = (avail_desc.index, len);
-            used_count += 1;
-        }
-
-        for &(desc_index, len) in &used_desc_heads[..used_count] {
-            queue.add_used(&self.mem, desc_index, len);
-        }
-        used_count > 0
-    }
-
-    fn signal_used_queue(&self) {
-        self.interrupt_status
-            .fetch_or(INTERRUPT_STATUS_USED_RING as usize, Ordering::SeqCst);
-        self.interrupt_evt.write(1).unwrap();
-    }
-
-    fn run(&mut self, queue_evt: EventFd, kill_evt: EventFd) {
-        const Q_AVAIL: u32 = 0;
-        const KILL: u32 = 1;
-
-        let mut poller = Poller::new(2);
-        'poll: loop {
-            let tokens = match poller.poll(&[(Q_AVAIL, &queue_evt), (KILL, &kill_evt)]) {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("failed polling for events: {:?}", e);
-                    break;
-                }
-            };
-
-            let mut needs_interrupt = false;
-            for &token in tokens {
-                match token {
-                    Q_AVAIL => {
-                        if let Err(e) = queue_evt.read() {
-                            error!("failed reading queue EventFd: {:?}", e);
-                            break 'poll;
-                        }
-                        needs_interrupt |= self.process_queue(0);
-                    }
-                    KILL => break 'poll,
-                    _ => unreachable!(),
-                }
-            }
-            if needs_interrupt {
-                self.signal_used_queue();
-            }
-        }
-    }
-}
-
 pub struct BlockEpollHandler {
     queues: Vec<Queue>,
     mem: GuestMemory,
@@ -377,6 +286,7 @@ pub struct Block {
     kill_evt: Option<EventFd>,
     disk_image: Option<File>,
     config_space: Vec<u8>,
+    epoll_config: EpollConfig
 }
 
 fn build_config_space(disk_size: u64) -> Vec<u8> {
@@ -395,7 +305,7 @@ impl Block {
     /// Create a new virtio block device that operates on the given file.
     ///
     /// The given file must be seekable and sizable.
-    pub fn new(mut disk_image: File) -> SysResult<Block> {
+    pub fn new(mut disk_image: File, epoll_config: EpollConfig) -> SysResult<Block> {
         let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
         if disk_size % SECTOR_SIZE != 0 {
             warn!(
@@ -409,6 +319,7 @@ impl Block {
             kill_evt: None,
             disk_image: Some(disk_image),
             config_space: build_config_space(disk_size),
+            epoll_config
         })
     }
 }
@@ -465,25 +376,40 @@ impl VirtioDevice for Block {
         self.kill_evt = Some(self_kill_evt);
 
         if let Some(disk_image) = self.disk_image.take() {
-            let worker_result = thread::Builder::new().name("virtio_blk".to_string()).spawn(
-                move || {
-                    let mut worker = Worker {
-                        queues: queues,
-                        mem: mem,
-                        disk_image: disk_image,
-                        interrupt_status: status,
-                        interrupt_evt: interrupt_evt,
-                    };
-                    worker.run(queue_evts.remove(0), kill_evt);
-                },
-            );
+            let queue_evt = queue_evts.remove(0);
 
-            if let Err(e) = worker_result {
-                error!("failed to spawn virtio_blk worker: {}", e);
-            }
-            else {
-                return Ok(())
-            }
+            let queue_evt_raw_fd = queue_evt.as_raw_fd();
+            let kill_evt_raw_fd = kill_evt.as_raw_fd();
+
+            let handler = BlockEpollHandler {
+                queues,
+                mem,
+                disk_image,
+                interrupt_status: status,
+                interrupt_evt,
+                queue_evt
+            };
+
+            //the channel should be open at this point
+            self.epoll_config.sender.send(Box::new(handler)).unwrap();
+
+            //TODO: barrier needed here by any chance?
+
+            epoll::ctl(
+                self.epoll_config.epoll_raw_fd,
+                epoll::EPOLL_CTL_ADD,
+                queue_evt_raw_fd,
+                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.q_avail_token)
+            ).map_err(ActivateError::EpollCtl)?;
+
+            epoll::ctl(
+                self.epoll_config.epoll_raw_fd,
+                epoll::EPOLL_CTL_ADD,
+                kill_evt_raw_fd,
+                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token)
+            ).map_err(ActivateError::EpollCtl)?;
+
+            return Ok(())
         }
 
         Err(ActivateError::BadActivate)
@@ -505,7 +431,16 @@ mod tests {
         let f = File::create(&path).unwrap();
         f.set_len(0x1000).unwrap();
 
-        let b = Block::new(f).unwrap();
+        let (sender, _) = mpsc::channel();
+
+        let epoll_config = EpollConfig {
+            q_avail_token: 0,
+            kill_token: 0,
+            epoll_raw_fd: 0,
+            sender
+        };
+
+        let b = Block::new(f, epoll_config).unwrap();
         let mut num_sectors = [0u8; 4];
         b.read_config(0, &mut num_sectors);
         // size is 0x1000, so num_sectors is 8 (4096/512).
