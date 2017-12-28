@@ -3,5 +3,6 @@ name = "kernel_loader"
 version = "0.1.0"
 
 [dependencies]
-libc = "*"
+libc = "=0.2.32"
+
 sys_util = { path = "../sys_util" }

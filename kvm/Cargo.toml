@@ -4,7 +4,8 @@ version = "0.1.0"
 authors = ["The Chromium OS Authors"]
 
 [dependencies]
-libc = "*"
+byteorder = "=1.2.1"
+libc = "=0.2.32"
+
 kvm_sys = { path = "../kvm_sys" }
 sys_util = { path = "../sys_util" }
-byteorder = "*"

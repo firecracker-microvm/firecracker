@@ -5,9 +5,10 @@ authors = ["The Chromium OS Authors"]
 build = "build.rs"
 
 [dependencies]
-data_model = { path = "../data_model" }
-libc = "*"
+libc = "=0.2.32"
+
 syscall_defines = { path = "../syscall_defines" }
+data_model = { path = "../data_model" }
 
 [build-dependencies]
 gcc = "=0.3.54"
