@@ -1,5 +1,10 @@
 #![allow(unused_qualifications)]
 
+/// SWAGGER codegen auto generated file
+///
+/// Do NOT manually modify!
+///
+
 use models;
 
 /// Boot source descriptor. 'source_type' will specify the boot source type and depending on its value: one and only one of 'local_image', 'drive_boot' or 'network_boot' should describe the boot resource in detail. 

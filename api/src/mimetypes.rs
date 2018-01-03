@@ -1,3 +1,8 @@
+/// SWAGGER codegen auto generated file
+///
+/// Do NOT manually modify!
+///
+
 /// mime types for requests and responses
 
 pub mod responses {

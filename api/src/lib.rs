@@ -1,5 +1,10 @@
 #![allow(missing_docs, trivial_casts, non_camel_case_types)]
 
+/// SWAGGER codegen auto generated file
+///
+/// Do NOT manually modify!
+///
+
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
