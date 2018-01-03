@@ -1,3 +1,8 @@
+/// SWAGGER codegen auto generated file
+///
+/// Do NOT manually modify!
+///
+
 extern crate serde_ignored;
 extern crate iron;
 extern crate router;
