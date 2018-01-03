@@ -1,0 +1,37 @@
+#!/bin/bash
+
+if [ ! $# -eq 2 ]; then
+    >&2 echo "Usage: $0 <repo_path> <crate_relative_dir_path_to_root>"
+    exit 1
+fi
+
+REPO_PATH=$1
+CRATE_PATH="$1/$2"
+SAVED_PWD=`pwd`
+
+function error_exit {
+    echo "$1" >&2
+    cd ${SAVED_PWD}
+    exit "${2:-1}"
+}
+
+echo "Generating unit test coverage for ${CRATE_PATH}"
+SAVED_DEFAULT_TOOLCHAIN=`rustup toolchain list | grep '(default)' | awk '{print $1}'`
+rustup default nightly-2017-10-21 ||\
+    error_exit "cannot set the nightly-2017-10-21 rust toolchain as default"
+
+cd ${CRATE_PATH} || error_exit "Cannot change dir to ${CRATE_PATH}"
+rm -rf target
+cargo rustc -- --test -Zprofile -Zno-landing-pads -Ccodegen-units=1 -Clink-dead-code ||\
+    error_exit "cannot build unit tests"
+BINARY=`find target/debug/deps/ -maxdepth 1 -type f -executable -regextype sed -regex '.*-[0-9a-f]\{16\}'`
+if [ ! -z "$BINARY" ]; then
+    ./$BINARY || error_exit "Error executing binary"
+    ${REPO_PATH}/scripts/unit_test_coverage/llvm-gcov-gen-code-coverage ||\
+        error_exit "Error executing llvm-gcov-gen-code-coverage"
+else
+    error_exit "Cannot identify the binary that needs to be executed"
+fi
+
+rustup default ${SAVED_DEFAULT_TOOLCHAIN} ||\
+    exit_error "cannot set the saved default rust toolchain as default"
