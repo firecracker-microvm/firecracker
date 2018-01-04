@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ $# -lt 2 ]; then
-    >&2 echo "Usage: $0 <repo_path> <lcov|cargo-cov> [<crate_dir_rel_path>]"
+    >&2 echo "Usage: $0 <repo_path> <lcov|cargo-cov|kcov> [<crate_dir_rel_path>]"
     exit 1
 fi
 
@@ -10,17 +10,23 @@ COV_METHOD=$2
 CRATE_DIR_REL_PATH=$3
 SAVED_PWD=`pwd`
 SAVED_DEFAULT_TOOLCHAIN=`rustup toolchain list | grep '(default)' | awk '{print $1}'`
+declare -A COV_TOOLCHAINS=( ["kcov"]="1.22.1" ["lcov"]="nightly-2017-12-21" ["cargo-cov"]="nightly-2017-12-21")
+TOOLCHAIN=${COV_TOOLCHAINS[$COV_METHOD]}
 
 function error_exit {
     echo "$1" >&2
     cd ${SAVED_PWD}
     rustup default ${SAVED_DEFAULT_TOOLCHAIN} ||\
-        error_exit "cannot set the saved default rust toolchain as default"
+        error_exit "Cannot set the saved default rust toolchain as default"
     exit "${2:-1}"
 }
 
-rustup default nightly-2017-12-21 ||\
-    error_exit "cannot set the nightly-2017-12-21 rust toolchain as default"
+if [ -z ${TOOLCHAIN} ]; then
+    error_exit "Couldn't identify rust toolchain for ${COV_METHOD}"
+fi
+
+rustup default ${TOOLCHAIN} ||\
+    error_exit "Cannot set the ${TOOLCHAIN} rust toolchain as default"
 
 cd ${REPO_PATH} || error_exit "Cannot change dir to ${REPO_PATH}"
 rm -rf target
@@ -55,6 +61,14 @@ case ${COV_METHOD} in
     fi
 
     cargo cov report || error_exit "error: cargo cov report"
+    ;;
+"kcov")
+    if [ -z ${CRATE_DIR_REL_PATH} ]; then
+        cargo kcov --all -o ${REPO_PATH}/target/cov/report/ || error_exit "error: cargo kcov --all"
+    else
+        cd ${CRATE_DIR_REL_PATH} || error_exit "Cannot change dir to ${CRATE_DIR_REL_PATH}"
+        cargo kcov -o ${REPO_PATH}/target/cov/report/ || error_exit "error: cargo kcov"
+    fi
     ;;
 *)
     error_exit "Coverage method not supported"
