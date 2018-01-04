@@ -50,3 +50,20 @@ Generating unit test code coverage
 ## Generate unit test code coverage for all crates (Automatic)
 * Run <FIRECRACKER_REPO>/scripts/unit_test_coverage/gen-code-coverage <FIRECRACKER_REPO> cargo-cov
   * The html result will be available in <REPO_PATH>/target/cov/report/index.html.
+
+# cargo-kcov
+
+## Prerequisites
+* Install rustc 1.22.1
+  * rustup install 1.22.1
+* Install kcov-31 and set the PATH env variable to be able to find kcov
+* cargo install cargo-kcov
+
+## Generating unit test code coverage for a crate (Automatic)
+* Run <FIRECRACKER_REPO>/scripts/unit_test_coverage/gen-code-coverage <FIRECRACKER_REPO> kcov <CRATE_REL_DIR_PATH_TO_ROOT>
+  * <CRATE_REL_DIR_PATH_TO_ROOT> is the crate relative path to the repo directory
+  * The html result will be available in <FIRECRACKER_REPO>/target/cov/report/index.html.
+
+## Generate unit test code coverage for all crates (Automatic)
+* Run <FIRECRACKER_REPO>/scripts/unit_test_coverage/gen-code-coverage <FIRECRACKER_REPO> kcov
+  * The html result will be available in <REPO_PATH>/target/cov/report/index.html.
