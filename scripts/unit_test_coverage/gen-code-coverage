@@ -1,0 +1,67 @@
+#!/bin/bash
+
+if [ $# -lt 2 ]; then
+    >&2 echo "Usage: $0 <repo_path> <lcov|cargo-cov> [<crate_dir_rel_path>]"
+    exit 1
+fi
+
+REPO_PATH=$1
+COV_METHOD=$2
+CRATE_DIR_REL_PATH=$3
+SAVED_PWD=`pwd`
+SAVED_DEFAULT_TOOLCHAIN=`rustup toolchain list | grep '(default)' | awk '{print $1}'`
+
+function error_exit {
+    echo "$1" >&2
+    cd ${SAVED_PWD}
+    rustup default ${SAVED_DEFAULT_TOOLCHAIN} ||\
+        error_exit "cannot set the saved default rust toolchain as default"
+    exit "${2:-1}"
+}
+
+rustup default nightly-2017-12-21 ||\
+    error_exit "cannot set the nightly-2017-12-21 rust toolchain as default"
+
+cd ${REPO_PATH} || error_exit "Cannot change dir to ${REPO_PATH}"
+rm -rf target
+
+case ${COV_METHOD} in
+"lcov")
+    if [ -z ${CRATE_DIR_REL_PATH} ]; then
+        CRATE_DIR_REL_PATHS=`find . -type f -name '*Cargo.toml' | sed -r 's|/[^/]+$||'`
+    else
+        CRATE_DIR_REL_PATHS=${CRATE_DIR_REL_PATH}
+    fi
+
+    for crate_dir_rel_path in ${CRATE_DIR_REL_PATHS}; do
+        cd ${crate_dir_rel_path} || error_exit "Cannot change dir to ${crate_dir_rel_path}"
+        CRATE_NAME=`cargo config package.name | xargs`
+        cd ${REPO_PATH} || error_exit "Cannot change dir to ${REPO_PATH}"
+        cargo rustc -p ${CRATE_NAME} -- --test -Zprofile -Zno-landing-pads -Ccodegen-units=1 -Clink-dead-code ||\
+            error_exit "cannot build unit tests"
+    done
+
+    find target/debug/deps/ -maxdepth 1 -type f -executable -regextype \
+        sed -regex '.*-[0-9a-f]\{16\}' -exec {} \; || error_exit "Error executing binaries"
+    ${REPO_PATH}/scripts/unit_test_coverage/llvm-gcov-gen-code-coverage ||\
+        error_exit "Error executing llvm-gcov-gen-code-coverage"
+    ;;
+"cargo-cov")
+    if [ -z ${CRATE_DIR_REL_PATH} ]; then
+        cargo cov test --all || error_exit "error: cargo cov test --all"
+    else
+        cd ${CRATE_DIR_REL_PATH} || error_exit "Cannot change dir to ${CRATE_DIR_REL_PATH}"
+        cargo cov test || error_exit "error: cargo cov test"
+    fi
+
+    cargo cov report || error_exit "error: cargo cov report"
+    ;;
+*)
+    error_exit "Coverage method not supported"
+    ;;
+esac
+
+rustup default ${SAVED_DEFAULT_TOOLCHAIN} ||\
+    error_exit "cannot set the saved default rust toolchain as default"
+
+cd ${SAVED_PWD} || error_exit "Cannot change dir to ${SAVED_PWD}"
