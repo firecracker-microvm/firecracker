@@ -1,5 +1,5 @@
 [package]
-name = "firecracker_api"
+name = "api"
 version = "0.1.0"
 authors = ["acatan@amazon.com"]
 
