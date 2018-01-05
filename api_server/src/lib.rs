@@ -1,12 +1,12 @@
 extern crate clap;
-extern crate firecracker_api;
+extern crate api;
 extern crate futures;
 extern crate iron;
 extern crate vmm;
 
 use futures::Future;
 
-use firecracker_api::*;
+use api::*;
 
 #[derive(Copy, Clone)]
 pub struct Server;
@@ -546,7 +546,7 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) -> Result<()> {
 
     let handle = thread::spawn(move || {
         let server = Server {};
-        let router = firecracker_api::router(server);
+        let router = api::router(server);
 
         let chain = Chain::new(router);
         let sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), api_port);

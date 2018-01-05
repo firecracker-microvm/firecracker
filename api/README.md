@@ -1,4 +1,4 @@
-# Rust API for firecracker_api
+# Rust API for firecracker
 
 Firecraker MVP - RESTful public-facing API.  The API is accessible through HTTP calls on specific URLs carrying JSON modeled data. The transport medium is a Unix Domain Socket.
 
