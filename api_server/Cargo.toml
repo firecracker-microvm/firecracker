@@ -8,5 +8,5 @@ clap = "=2.27.1"
 futures = "=0.1"
 iron = "=0.5"
 
-firecracker_api = { path = "../api" }
+api = { path = "../api" }
 vmm = { path = "../vmm" }
