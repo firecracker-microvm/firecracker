@@ -12,10 +12,9 @@ use api::*;
 use std::sync::{Arc, Mutex};
 use std::collections::LinkedList;
 
-type ResponseResult<T> = std::result::Result<
-    Box<Future<Item = T, Error = ApiError> + Send>,
-    Box<Future<Item = T, Error = ApiError> + Send>,
->;
+type FutureResponse<T> = Box<Future<Item = T, Error = ApiError> + Send>;
+
+type ResponseResult<T> = std::result::Result<FutureResponse<T>, FutureResponse<T>>;
 
 macro_rules! ErrorResponseWithMessage {
     ($err:path, $msg:expr) => (Box::new(futures::future::ok($err(
@@ -88,7 +87,7 @@ impl Api for Server {
         drive_id: String,
         limiter_id: String,
         context: &Context,
-    ) -> Box<Future<Item = ApplyLimiterToDriveResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<ApplyLimiterToDriveResponse> {
         let context = context.clone();
         println!(
             "apply_limiter_to_drive(\"{}\", \"{}\") - X-Span-ID: {:?}",
@@ -105,7 +104,7 @@ impl Api for Server {
         iface_id: String,
         limiter_id: String,
         context: &Context,
-    ) -> Box<Future<Item = ApplyLimiterToNetworkInterfaceResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<ApplyLimiterToNetworkInterfaceResponse> {
         let context = context.clone();
         println!(
             "apply_limiter_to_network_interface(\"{}\", \"{}\") - X-Span-ID: {:?}",
@@ -122,7 +121,7 @@ impl Api for Server {
         vsock_id: String,
         limiter_id: String,
         context: &Context,
-    ) -> Box<Future<Item = ApplyLimiterToVsockResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<ApplyLimiterToVsockResponse> {
         let context = context.clone();
         println!(
             "apply_limiter_to_vsock(\"{}\", \"{}\") - X-Span-ID: {:?}",
@@ -139,7 +138,7 @@ impl Api for Server {
         action_id: String,
         info: models::InstanceActionInfo,
         _context: &Context,
-    ) -> Box<Future<Item = CreateInstanceActionResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<CreateInstanceActionResponse> {
         if info.timestamp.is_some() {
             return ErrorResponseWithMessage!(
                 CreateInstanceActionResponse::UnexpectedError,
@@ -182,7 +181,7 @@ impl Api for Server {
         &self,
         drive_id: String,
         context: &Context,
-    ) -> Box<Future<Item = DeleteGuestDriveByIDResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<DeleteGuestDriveByIDResponse> {
         let context = context.clone();
         println!(
             "delete_guest_drive_by_id(\"{}\") - X-Span-ID: {:?}",
@@ -198,7 +197,7 @@ impl Api for Server {
         &self,
         iface_id: String,
         context: &Context,
-    ) -> Box<Future<Item = DeleteGuestNetworkInterfaceByIDResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<DeleteGuestNetworkInterfaceByIDResponse> {
         let context = context.clone();
         println!(
             "delete_guest_network_interface_by_id(\"{}\") - X-Span-ID: {:?}",
@@ -214,7 +213,7 @@ impl Api for Server {
         &self,
         vsock_id: String,
         context: &Context,
-    ) -> Box<Future<Item = DeleteGuestVsockByIDResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<DeleteGuestVsockByIDResponse> {
         let context = context.clone();
         println!(
             "delete_guest_vsock_by_id(\"{}\") - X-Span-ID: {:?}",
@@ -230,7 +229,7 @@ impl Api for Server {
         &self,
         limiter_id: String,
         context: &Context,
-    ) -> Box<Future<Item = DeleteLimiterResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<DeleteLimiterResponse> {
         let context = context.clone();
         println!(
             "delete_limiter(\"{}\") - X-Span-ID: {:?}",
@@ -241,10 +240,7 @@ impl Api for Server {
     }
 
     /// Return general information about an instance.
-    fn describe_instance(
-        &self,
-        context: &Context,
-    ) -> Box<Future<Item = DescribeInstanceResponse, Error = ApiError> + Send> {
+    fn describe_instance(&self, context: &Context) -> FutureResponse<DescribeInstanceResponse> {
         let context = context.clone();
         println!(
             "describe_instance() - X-Span-ID: {:?}",
@@ -258,7 +254,7 @@ impl Api for Server {
         &self,
         action_id: String,
         context: &Context,
-    ) -> Box<Future<Item = DescribeInstanceActionResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<DescribeInstanceActionResponse> {
         let context = context.clone();
         println!(
             "describe_instance_action(\"{}\") - X-Span-ID: {:?}",
@@ -273,7 +269,7 @@ impl Api for Server {
         &self,
         limiter_id: String,
         context: &Context,
-    ) -> Box<Future<Item = DescribeLimiterResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<DescribeLimiterResponse> {
         let context = context.clone();
         println!(
             "describe_limiter(\"{}\") - X-Span-ID: {:?}",
@@ -287,7 +283,7 @@ impl Api for Server {
     fn get_guest_boot_source(
         &self,
         context: &Context,
-    ) -> Box<Future<Item = GetGuestBootSourceResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<GetGuestBootSourceResponse> {
         let context = context.clone();
         println!(
             "get_guest_boot_source() - X-Span-ID: {:?}",
@@ -301,7 +297,7 @@ impl Api for Server {
         &self,
         drive_id: String,
         context: &Context,
-    ) -> Box<Future<Item = GetGuestDriveByIDResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<GetGuestDriveByIDResponse> {
         let context = context.clone();
         println!(
             "get_guest_drive_by_id(\"{}\") - X-Span-ID: {:?}",
@@ -312,10 +308,7 @@ impl Api for Server {
     }
 
     /// All guest drives
-    fn get_guest_drives(
-        &self,
-        context: &Context,
-    ) -> Box<Future<Item = GetGuestDrivesResponse, Error = ApiError> + Send> {
+    fn get_guest_drives(&self, context: &Context) -> FutureResponse<GetGuestDrivesResponse> {
         let context = context.clone();
         println!(
             "get_guest_drives() - X-Span-ID: {:?}",
@@ -329,7 +322,7 @@ impl Api for Server {
         &self,
         iface_id: String,
         context: &Context,
-    ) -> Box<Future<Item = GetGuestNetworkInterfaceByIDResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<GetGuestNetworkInterfaceByIDResponse> {
         let context = context.clone();
         println!(
             "get_guest_network_interface_by_id(\"{}\") - X-Span-ID: {:?}",
@@ -343,7 +336,7 @@ impl Api for Server {
     fn get_guest_network_interfaces(
         &self,
         context: &Context,
-    ) -> Box<Future<Item = GetGuestNetworkInterfacesResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<GetGuestNetworkInterfacesResponse> {
         let context = context.clone();
         println!(
             "get_guest_network_interfaces() - X-Span-ID: {:?}",
@@ -357,7 +350,7 @@ impl Api for Server {
         &self,
         vsock_id: String,
         context: &Context,
-    ) -> Box<Future<Item = GetGuestVsockByIDResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<GetGuestVsockByIDResponse> {
         let context = context.clone();
         println!(
             "get_guest_vsock_by_id(\"{}\") - X-Span-ID: {:?}",
@@ -368,10 +361,7 @@ impl Api for Server {
     }
 
     /// All guest vsocks
-    fn get_guest_vsocks(
-        &self,
-        context: &Context,
-    ) -> Box<Future<Item = GetGuestVsocksResponse, Error = ApiError> + Send> {
+    fn get_guest_vsocks(&self, context: &Context) -> FutureResponse<GetGuestVsocksResponse> {
         let context = context.clone();
         println!(
             "get_guest_vsocks() - X-Span-ID: {:?}",
@@ -385,7 +375,7 @@ impl Api for Server {
         &self,
         drive_id: String,
         context: &Context,
-    ) -> Box<Future<Item = GetLimitersForGuestDriveResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<GetLimitersForGuestDriveResponse> {
         let context = context.clone();
         println!(
             "get_limiters_for_guest_drive(\"{}\") - X-Span-ID: {:?}",
@@ -401,8 +391,7 @@ impl Api for Server {
         &self,
         iface_id: String,
         context: &Context,
-    ) -> Box<Future<Item = GetLimitersForGuestNetworkInterfaceResponse, Error = ApiError> + Send>
-    {
+    ) -> FutureResponse<GetLimitersForGuestNetworkInterfaceResponse> {
         let context = context.clone();
         println!(
             "get_limiters_for_guest_network_interface(\"{}\") - X-Span-ID: {:?}",
@@ -417,7 +406,7 @@ impl Api for Server {
         &self,
         vsock_id: String,
         context: &Context,
-    ) -> Box<Future<Item = GetLimitersForGuestVsockResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<GetLimitersForGuestVsockResponse> {
         let context = context.clone();
         println!(
             "get_limiters_for_guest_vsock(\"{}\") - X-Span-ID: {:?}",
@@ -428,10 +417,7 @@ impl Api for Server {
     }
 
     /// Return metadata about an instance.
-    fn get_metadata(
-        &self,
-        context: &Context,
-    ) -> Box<Future<Item = GetMetadataResponse, Error = ApiError> + Send> {
+    fn get_metadata(&self, context: &Context) -> FutureResponse<GetMetadataResponse> {
         let context = context.clone();
         println!(
             "get_metadata() - X-Span-ID: {:?}",
@@ -444,7 +430,7 @@ impl Api for Server {
     fn list_instance_actions(
         &self,
         context: &Context,
-    ) -> Box<Future<Item = ListInstanceActionsResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<ListInstanceActionsResponse> {
         let context = context.clone();
         println!(
             "list_instance_actions() - X-Span-ID: {:?}",
@@ -458,7 +444,7 @@ impl Api for Server {
         &self,
         next_token: Option<String>,
         context: &Context,
-    ) -> Box<Future<Item = ListLimitersResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<ListLimitersResponse> {
         let context = context.clone();
         println!(
             "list_limiters({:?}) - X-Span-ID: {:?}",
@@ -474,7 +460,7 @@ impl Api for Server {
         &self,
         body: models::BootSource,
         context: &Context,
-    ) -> Box<Future<Item = PutGuestBootSourceResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<PutGuestBootSourceResponse> {
         let context = context.clone();
         println!(
             "put_guest_boot_source({:?}) - X-Span-ID: {:?}",
@@ -492,7 +478,7 @@ impl Api for Server {
         drive_id: String,
         body: models::Drive,
         context: &Context,
-    ) -> Box<Future<Item = PutGuestDriveByIDResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<PutGuestDriveByIDResponse> {
         let context = context.clone();
         println!(
             "put_guest_drive_by_id(\"{}\", {:?}) - X-Span-ID: {:?}",
@@ -511,7 +497,7 @@ impl Api for Server {
         iface_id: String,
         body: models::NetworkInterface,
         context: &Context,
-    ) -> Box<Future<Item = PutGuestNetworkInterfaceByIDResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<PutGuestNetworkInterfaceByIDResponse> {
         let context = context.clone();
         println!(
             "put_guest_network_interface_by_id(\"{}\", {:?}) - X-Span-ID: {:?}",
@@ -530,7 +516,7 @@ impl Api for Server {
         vsock_id: String,
         body: models::Vsock,
         context: &Context,
-    ) -> Box<Future<Item = PutGuestVsockByIDResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<PutGuestVsockByIDResponse> {
         let context = context.clone();
         println!(
             "put_guest_vsock_by_id(\"{}\", {:?}) - X-Span-ID: {:?}",
@@ -549,7 +535,7 @@ impl Api for Server {
         limiter_id: String,
         limiter: models::Limiter,
         context: &Context,
-    ) -> Box<Future<Item = UpdateLimiterResponse, Error = ApiError> + Send> {
+    ) -> FutureResponse<UpdateLimiterResponse> {
         let context = context.clone();
         println!(
             "update_limiter(\"{}\", {:?}) - X-Span-ID: {:?}",
