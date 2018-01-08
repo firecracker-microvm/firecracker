@@ -12,14 +12,28 @@ use api::*;
 use std::sync::{Arc, Mutex};
 use std::collections::LinkedList;
 
-#[derive(Clone)]
-pub struct Server {
-    actions: Arc<Mutex<LinkedList<models::InstanceActionInfo>>>,
-}
+type ResponseResult<T> = std::result::Result<
+    Box<Future<Item = T, Error = ApiError> + Send>,
+    Box<Future<Item = T, Error = ApiError> + Send>,
+>;
 
 macro_rules! ErrorResponseWithMessage {
     ($err:path, $msg:expr) => (Box::new(futures::future::ok($err(
                                models::Error {fault_message: Some($msg.to_string())}))));
+}
+
+macro_rules! ret_on_fail {
+    ($expr:expr) => (match $expr {
+        Ok(ret) => ret,
+        Err(ret) => {
+            return ret
+        }
+    })
+}
+
+#[derive(Clone)]
+pub struct Server {
+    actions: Arc<Mutex<LinkedList<models::InstanceActionInfo>>>,
 }
 
 impl Server {
@@ -33,19 +47,19 @@ impl Server {
         &self,
         action_id: String,
         info: models::InstanceActionInfo,
-    ) -> Box<Future<Item = CreateInstanceActionResponse, Error = ApiError> + Send> {
+    ) -> ResponseResult<CreateInstanceActionResponse> {
         let mut actions = self.actions.lock().unwrap();
 
         match actions.iter().position(|ref n| **n == info) {
             Some(pos) => {
                 if actions.iter().nth(pos).unwrap().timestamp.is_none() {
-                    return ErrorResponseWithMessage!(
+                    return Err(ErrorResponseWithMessage!(
                         CreateInstanceActionResponse::UnexpectedError,
                         format!(
                             "action_id '{}' is already used by a pending action.",
                             action_id
                         )
-                    );
+                    ));
                 }
 
                 let mut the_rest = actions.split_off(pos);
@@ -53,15 +67,15 @@ impl Server {
                 actions.push_front(the_one);
                 actions.append(&mut the_rest);
 
-                Box::new(futures::future::ok(
+                Ok(Box::new(futures::future::ok(
                     CreateInstanceActionResponse::ActionUpdated,
-                ))
+                )))
             }
             None => {
                 actions.push_back(info);
-                Box::new(futures::future::ok(
+                Ok(Box::new(futures::future::ok(
                     CreateInstanceActionResponse::NoPreviousActionExistedSoANewOneWasCreated,
-                ))
+                )))
             }
         }
     }
@@ -155,7 +169,7 @@ impl Api for Server {
             );
         }
 
-        let response = self.add_instance_action(action_id, info);
+        let response = ret_on_fail!(self.add_instance_action(action_id, info));
 
         /* TODO: initiate the actual action here in a separate (async req) thread. */
 
