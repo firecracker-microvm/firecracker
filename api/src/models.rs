@@ -152,7 +152,7 @@ impl Error {
 }
 
 /// Variant wrapper containing the real action. For listInstanceActions, only action_id will be populated. instance_device_detach_action will only be present if action_type is InstanceDeviceDetach. 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceActionInfo {
     #[serde(rename = "action_id")]
     pub action_id: String,
@@ -172,6 +172,13 @@ pub struct InstanceActionInfo {
     pub timestamp: Option<String>,
 
 }
+
+impl PartialEq for InstanceActionInfo {
+    fn eq(&self, other: &InstanceActionInfo) -> bool {
+        self.action_id == other.action_id
+    }
+}
+impl Eq for InstanceActionInfo {}
 
 impl InstanceActionInfo {
     pub fn new(action_id: String, ) -> InstanceActionInfo {
