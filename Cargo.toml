@@ -9,6 +9,5 @@ clap = "=2.27.1"
 api_server = { path = "api_server" }
 devices = { path = "devices" }
 sys_util = { path = "sys_util" }
-vmm = { path = "vmm" }
 
 [workspace]
