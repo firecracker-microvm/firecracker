@@ -9,8 +9,63 @@ use futures::Future;
 
 use api::*;
 
-#[derive(Copy, Clone)]
-pub struct Server;
+use std::sync::{Arc, Mutex};
+use std::collections::LinkedList;
+
+#[derive(Clone)]
+pub struct Server {
+    actions: Arc<Mutex<LinkedList<models::InstanceActionInfo>>>,
+}
+
+macro_rules! ErrorResponseWithMessage {
+    ($err:path, $msg:expr) => (Box::new(futures::future::ok($err(
+                               models::Error {fault_message: Some($msg.to_string())}))));
+}
+
+impl Server {
+    pub fn new() -> Server {
+        Server {
+            actions: Arc::new(Mutex::new(LinkedList::new())),
+        }
+    }
+
+    fn add_instance_action(
+        &self,
+        action_id: String,
+        info: models::InstanceActionInfo,
+    ) -> Box<Future<Item = CreateInstanceActionResponse, Error = ApiError> + Send> {
+        let mut actions = self.actions.lock().unwrap();
+
+        match actions.iter().position(|ref n| **n == info) {
+            Some(pos) => {
+                if actions.iter().nth(pos).unwrap().timestamp.is_none() {
+                    return ErrorResponseWithMessage!(
+                        CreateInstanceActionResponse::UnexpectedError,
+                        format!(
+                            "action_id '{}' is already used by a pending action.",
+                            action_id
+                        )
+                    );
+                }
+
+                let mut the_rest = actions.split_off(pos);
+                let the_one = the_rest.pop_front().unwrap();
+                actions.push_front(the_one);
+                actions.append(&mut the_rest);
+
+                Box::new(futures::future::ok(
+                    CreateInstanceActionResponse::ActionUpdated,
+                ))
+            }
+            None => {
+                actions.push_back(info);
+                Box::new(futures::future::ok(
+                    CreateInstanceActionResponse::NoPreviousActionExistedSoANewOneWasCreated,
+                ))
+            }
+        }
+    }
+}
 
 impl Api for Server {
     /// Applies limiter 'limiter_id' to drive 'drive_id'
@@ -69,16 +124,42 @@ impl Api for Server {
         &self,
         action_id: String,
         info: models::InstanceActionInfo,
-        context: &Context,
+        _context: &Context,
     ) -> Box<Future<Item = CreateInstanceActionResponse, Error = ApiError> + Send> {
-        let context = context.clone();
-        println!(
-            "create_instance_action(\"{}\", {:?}) - X-Span-ID: {:?}",
-            action_id,
-            info,
-            context.x_span_id.unwrap_or(String::from("<none>")).clone()
-        );
-        Box::new(futures::failed("Generic failure".into()))
+        if info.timestamp.is_some() {
+            return ErrorResponseWithMessage!(
+                CreateInstanceActionResponse::UnexpectedError,
+                "Timestamp field is read-only! Do not attempt to modify."
+            );
+        }
+        if info.action_id != action_id {
+            return ErrorResponseWithMessage!(
+                CreateInstanceActionResponse::UnexpectedError,
+                "'action_id' from url does not match the one in body."
+            );
+        }
+        if let Some(ref action_type) = info.action_type {
+            match &action_type[..] {
+                "InstanceStart" | "InstanceDeviceDetach" | "InstanceReset" | "InstanceHalt" => (),
+                _ => {
+                    return ErrorResponseWithMessage!(
+                        CreateInstanceActionResponse::UnexpectedError,
+                        "Invalid 'action_type'"
+                    )
+                }
+            }
+        } else {
+            return ErrorResponseWithMessage!(
+                CreateInstanceActionResponse::UnexpectedError,
+                "Invalid 'action_type'"
+            );
+        }
+
+        let response = self.add_instance_action(action_id, info);
+
+        /* TODO: initiate the actual action here in a separate (async req) thread. */
+
+        response
     }
 
     /// Deletes drive with ID specified by 'drive_id' path parameter.
@@ -547,7 +628,7 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) {
         vmm::boot_kernel(cfg, kill_on_vmm_exit).expect("cannot boot kernel");
     });
 
-    let server = Server {};
+    let server = Server::new();
     let router = api::router(server);
 
     let chain = Chain::new(router);
