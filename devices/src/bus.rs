@@ -172,7 +172,11 @@ mod tests {
         let dummy = Arc::new(Mutex::new(DummyDevice));
         assert!(bus.insert(dummy.clone(), 0x10, 0).is_err());
         assert!(bus.insert(dummy.clone(), 0x10, 0x10).is_ok());
-        assert!(bus.insert(dummy.clone(), 0x0f, 0x10).is_err());
+
+        let result = bus.insert(dummy.clone(), 0x0f, 0x10);
+        assert!(result.is_err());
+        assert_eq!(format!("{:?}", result), "Err(Overlap)");
+
         assert!(bus.insert(dummy.clone(), 0x10, 0x10).is_err());
         assert!(bus.insert(dummy.clone(), 0x10, 0x15).is_err());
         assert!(bus.insert(dummy.clone(), 0x12, 0x15).is_err());
@@ -213,5 +217,30 @@ mod tests {
         assert!(bus.read(0x15, &mut values));
         assert_eq!(values, [5, 6, 7, 8]);
         assert!(bus.write(0x15, &values));
+    }
+
+    #[test]
+    fn busrange_cmp_and_clone() {
+        assert_eq!(BusRange(0x10, 2), BusRange(0x10, 3));
+        assert_eq!(BusRange(0x10, 2), BusRange(0x10, 2));
+
+        assert!(BusRange(0x10, 2) < BusRange(0x12, 1));
+        assert!(BusRange(0x10, 2) < BusRange(0x12, 3));
+
+        let bus_range = BusRange(0x10, 2);
+        assert_eq!(bus_range, bus_range.clone());
+
+        let mut bus = Bus::new();
+        let mut data = [1, 2, 3, 4];
+        assert!(
+            bus.insert(Arc::new(Mutex::new(DummyDevice)), 0x10, 0x10)
+                .is_ok()
+        );
+        assert!(bus.write(0x10, &mut data));
+        let bus_clone = bus.clone();
+        assert!(bus.read(0x10, &mut data));
+        assert_eq!(data, [1, 2, 3, 4]);
+        assert!(bus_clone.read(0x10, &mut data));
+        assert_eq!(data, [1, 2, 3, 4]);
     }
 }
