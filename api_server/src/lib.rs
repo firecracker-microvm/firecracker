@@ -30,21 +30,20 @@ macro_rules! ret_on_fail {
     })
 }
 
-#[derive(Clone)]
-pub struct Server {
-    actions: Arc<Mutex<LinkedList<models::InstanceActionInfo>>>,
+struct ApiServer {
+    actions: Mutex<LinkedList<models::InstanceActionInfo>>,
 }
 
-impl Server {
-    pub fn new() -> Server {
-        Server {
-            actions: Arc::new(Mutex::new(LinkedList::new())),
+impl ApiServer {
+    pub fn new() -> ApiServer {
+        ApiServer {
+            actions: Mutex::new(LinkedList::new()),
         }
     }
 
-    fn add_instance_action(
+    pub fn add_instance_action(
         &self,
-        action_id: String,
+        action_id: &String,
         info: models::InstanceActionInfo,
     ) -> ResponseResult<CreateInstanceActionResponse> {
         let mut actions = self.actions.lock().unwrap();
@@ -76,6 +75,34 @@ impl Server {
                     CreateInstanceActionResponse::NoPreviousActionExistedSoANewOneWasCreated,
                 )))
             }
+        }
+    }
+
+    pub fn do_instance_start(
+        &self,
+        vmm: Arc<vmm::Vmm>,
+        action_id: String,
+        info: models::InstanceActionInfo,
+    ) {
+        thread::spawn(move || {
+            // TODO: verify vmm state and do start only if vmm is not already running
+            let r = vmm.start();
+            // TODO: verify r and update actions list
+        });
+    }
+}
+
+#[derive(Clone)]
+pub struct Server {
+    api_server: Arc<ApiServer>,
+    vmm: Arc<vmm::Vmm>,
+}
+
+impl Server {
+    pub fn new(vmm: vmm::Vmm) -> Server {
+        Server {
+            api_server: Arc::new(ApiServer::new()),
+            vmm: Arc::new(vmm),
         }
     }
 }
@@ -139,6 +166,8 @@ impl Api for Server {
         info: models::InstanceActionInfo,
         _context: &Context,
     ) -> FutureResponse<CreateInstanceActionResponse> {
+        println!("create_instance_action(\"{}\", {:?})", action_id, info);
+
         if info.timestamp.is_some() {
             return ErrorResponseWithMessage!(
                 CreateInstanceActionResponse::UnexpectedError,
@@ -168,9 +197,21 @@ impl Api for Server {
             );
         }
 
-        let response = ret_on_fail!(self.add_instance_action(action_id, info));
+        let response = ret_on_fail!(
+            self.api_server
+                .add_instance_action(&action_id, info.clone())
+        );
 
-        /* TODO: initiate the actual action here in a separate (async req) thread. */
+        let vmm = self.vmm.clone();
+        let api_server = self.api_server.clone();
+        thread::spawn(move || {
+            match &info.action_type.clone().unwrap()[..] {
+                "InstanceStart" => {
+                    api_server.do_instance_start(vmm, action_id, info);
+                }
+                _ => (),
+            };
+        });
 
         response
     }
@@ -242,6 +283,7 @@ impl Api for Server {
     /// Return general information about an instance.
     fn describe_instance(&self, context: &Context) -> FutureResponse<DescribeInstanceResponse> {
         let context = context.clone();
+
         println!(
             "describe_instance() - X-Span-ID: {:?}",
             context.x_span_id.unwrap_or(String::from("<none>")).clone()
@@ -624,11 +666,13 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) {
     );
     let kill_on_vmm_exit = cmd_arguments.is_present("kill_api");
 
-    thread::spawn(move || {
-        vmm::boot_kernel(cfg, kill_on_vmm_exit).expect("cannot boot kernel");
-    });
+    let vmm = vmm::Vmm::new(kill_on_vmm_exit, cfg);
 
-    let server = Server::new();
+    //thread::spawn(move || {
+    //    vmm::boot_kernel(cfg, kill_on_vmm_exit).expect("cannot boot kernel");
+    //});
+
+    let server = Server::new(vmm);
     let router = api::router(server);
 
     let chain = Chain::new(router);

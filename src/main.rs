@@ -4,7 +4,6 @@ extern crate clap;
 extern crate api_server;
 extern crate devices;
 extern crate sys_util;
-extern crate vmm;
 
 use clap::{App, Arg};
 
