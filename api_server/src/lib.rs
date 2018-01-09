@@ -1,7 +1,9 @@
 extern crate clap;
-extern crate api;
 extern crate futures;
 extern crate iron;
+extern crate libc;
+
+extern crate api;
 extern crate vmm;
 
 use futures::Future;
@@ -465,16 +467,17 @@ impl Api for Server {
     }
 }
 
-use vmm::machine::MachineCfg;
-use vmm::Error;
-
-type Result<T> = std::result::Result<T, Error>;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::os::unix::thread::JoinHandleExt;
+use std::path::PathBuf;
+use std::thread;
 
 use iron::{Chain, Iron};
 
-use std::thread;
-use std::path::PathBuf;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use vmm::Error;
+use vmm::machine::MachineCfg;
+
+type Result<T> = std::result::Result<T, Error>;
 
 pub fn start_api_server(cmd_arguments: &clap::ArgMatches) -> Result<()> {
     let api_port = match cmd_arguments
@@ -559,6 +562,10 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) -> Result<()> {
     println!("Booting kernel from api_server");
     vmm::boot_kernel(&cfg).expect("cannot boot kernel");
 
+    if cmd_arguments.is_present("kill_api") {
+        // safe because we own the handle for the thread that we kill
+        unsafe { libc::pthread_kill(handle.as_pthread_t(), libc::SIGINT); }
+    }
     handle.join().expect("cannot join api and vmm threads");
 
     Ok(())
