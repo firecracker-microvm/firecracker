@@ -94,5 +94,5 @@ fn main() {
         )*/
         .get_matches();
 
-    api_server::start_api_server(&cmd_arguments).expect("cannot start api server");
+    api_server::start_api_server(&cmd_arguments);
 }

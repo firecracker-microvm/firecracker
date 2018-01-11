@@ -193,7 +193,7 @@ impl Drop for EpollContext {
     }
 }
 
-pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
+pub fn boot_kernel(cfg: MachineCfg, kill_on_exit: bool) -> Result<()> {
     let mem_size = cfg.mem_size << 20;
     let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
 
@@ -402,6 +402,10 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
             }
             Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
         }
+    }
+
+    if kill_on_exit {
+        std::process::exit(0);
     }
 
     res
