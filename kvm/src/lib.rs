@@ -899,4 +899,81 @@ mod tests {
             assert_eq!(entry, &mut entry_vec[i]);
         }
     }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn run_code_test() {
+        use sys_util::{GuestAddress, GuestMemory};
+
+        // This example based on https://lwn.net/Articles/658511/
+        let code = [
+            0xba, 0xf8, 0x03 /* mov $0x3f8, %dx */, 0x00, 0xd8 /* add %bl, %al */, 0x04,
+            '0' as u8 /* add $'0', %al */, 0xee /* out %al, %dx */,
+            0xec /* in %dx, %al */, 0xc6, 0x06, 0x00, 0x20, 0x00 /* movl $0, (0x2000) */,
+            0x8a, 0x16, 0x00, 0x20 /* movl (0x2000), %dl */, 0xf4 /* hlt */,
+        ];
+
+        let mem_size = 0x1000;
+        let load_addr = GuestAddress(0x1000);
+        let mem = GuestMemory::new(&vec![(load_addr, mem_size)]).unwrap();
+
+        let kvm = Kvm::new().expect("new Kvm failed");
+
+        let vm_fd = VmFd::new(&kvm).expect("new VmFd failed");
+        mem.with_regions(|index, guest_addr, size, host_addr| {
+            // Safe because the guest regions are guaranteed not to overlap.
+            vm_fd.set_user_memory_region(
+                index as u32,
+                guest_addr.offset() as u64,
+                size as u64,
+                host_addr as u64,
+                0,
+            )
+        }).expect("Cannot configure guest memory");
+        mem.write_slice_at_addr(&code, load_addr)
+            .expect("Writing code to memory failed");
+
+        let vcpu_fd = VcpuFd::new(0, &vm_fd).expect("new VcpuFd failed");
+
+        let mut vcpu_sregs = vcpu_fd.get_sregs().expect("get sregs failed");
+        assert_ne!(vcpu_sregs.cs.base, 0);
+        assert_ne!(vcpu_sregs.cs.selector, 0);
+        vcpu_sregs.cs.base = 0;
+        vcpu_sregs.cs.selector = 0;
+        vcpu_fd.set_sregs(&vcpu_sregs).expect("set sregs failed");
+
+        let mut vcpu_regs = vcpu_fd.get_regs().expect("get regs failed");
+        vcpu_regs.rip = 0x1000;
+        vcpu_regs.rax = 2;
+        vcpu_regs.rbx = 3;
+        vcpu_regs.rflags = 2;
+        vcpu_fd.set_regs(&vcpu_regs).expect("set regs failed");
+
+        loop {
+            match vcpu_fd.run().expect("run failed") {
+                VcpuExit::IoIn(addr, data) => {
+                    assert_eq!(addr, 0x3f8);
+                    assert_eq!(data.len(), 1);
+                }
+                VcpuExit::IoOut(addr, data) => {
+                    assert_eq!(addr, 0x3f8);
+                    assert_eq!(data.len(), 1);
+                    assert_eq!(data[0], '5' as u8);
+                }
+                VcpuExit::MmioRead(addr, data) => {
+                    assert_eq!(addr, 0x2000);
+                    assert_eq!(data.len(), 1);
+                }
+                VcpuExit::MmioWrite(addr, data) => {
+                    assert_eq!(addr, 0x2000);
+                    assert_eq!(data.len(), 1);
+                    assert_eq!(data[0], 0);
+                }
+                VcpuExit::Hlt => {
+                    break;
+                }
+                r => panic!("unexpected exit reason: {:?}", r),
+            }
+        }
+    }
 }
