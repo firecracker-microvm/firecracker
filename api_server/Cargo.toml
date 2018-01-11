@@ -7,7 +7,6 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 clap = "=2.27.1"
 futures = "=0.1"
 iron = "=0.5"
-libc = "=0.2.32"
 
 api = { path = "../api" }
 vmm = { path = "../vmm" }

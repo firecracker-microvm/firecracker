@@ -1,7 +1,6 @@
 extern crate clap;
 extern crate futures;
 extern crate iron;
-extern crate libc;
 
 extern crate api;
 extern crate vmm;
@@ -468,18 +467,14 @@ impl Api for Server {
 }
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::os::unix::thread::JoinHandleExt;
 use std::path::PathBuf;
 use std::thread;
 
 use iron::{Chain, Iron};
 
-use vmm::Error;
 use vmm::machine::MachineCfg;
 
-type Result<T> = std::result::Result<T, Error>;
-
-pub fn start_api_server(cmd_arguments: &clap::ArgMatches) -> Result<()> {
+pub fn start_api_server(cmd_arguments: &clap::ArgMatches) {
     let api_port = match cmd_arguments
         .value_of("api_port")
         .unwrap()
@@ -546,30 +541,20 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) -> Result<()> {
         host_ip,
         subnet_mask,
     );
+    let kill_on_vmm_exit = cmd_arguments.is_present("kill_api");
 
-    let handle = thread::spawn(move || {
-        let server = Server {};
-        let router = api::router(server);
-
-        let chain = Chain::new(router);
-        let sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), api_port);
-
-        let mut iron = Iron::new(chain);
-        // By default Iron uses 8 * num_cpus threads.
-        iron.threads = 1;
-        iron.http(sock_addr).expect("Failed to start HTTP server");
+    thread::spawn(move || {
+        vmm::boot_kernel(cfg, kill_on_vmm_exit).expect("cannot boot kernel");
     });
 
-    println!("Booting kernel from api_server");
-    vmm::boot_kernel(&cfg).expect("cannot boot kernel");
+    let server = Server {};
+    let router = api::router(server);
 
-    if cmd_arguments.is_present("kill_api") {
-        // safe because we own the handle for the thread that we kill
-        unsafe {
-            libc::pthread_kill(handle.as_pthread_t(), libc::SIGINT);
-        }
-    }
-    handle.join().expect("cannot join api and vmm threads");
+    let chain = Chain::new(router);
+    let sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), api_port);
 
-    Ok(())
+    let mut iron = Iron::new(chain);
+    // By default Iron uses 8 * num_cpus threads.
+    iron.threads = 1;
+    iron.http(sock_addr).expect("Failed to start HTTP server");
 }
