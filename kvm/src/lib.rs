@@ -27,6 +27,9 @@ use sys_util::{ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, io
 
 pub use cap::*;
 
+/// Taken from Linux Kernel v4.14.13 (arch/x86/include/asm/kvm_host.h)
+const MAX_KVM_CPUID_ENTRIES: usize = 80;
+
 /// A wrapper around opening and using `/dev/kvm`.
 ///
 /// Useful for querying extensions and basic values from the KVM backend. A `Kvm` is required to
@@ -138,8 +141,7 @@ impl VmFd {
             // Safe because we verify the value of ret and we are the owners of the fd.
             let vm_file = unsafe { File::from_raw_fd(ret) };
             let run_mmap_size = kvm.get_vcpu_mmap_size()?;
-            let max_cpus = kvm.get_nr_vcpus();
-            let kvm_cpuid: CpuId = kvm.get_supported_cpuid(max_cpus)?;
+            let kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)?;
             Ok(VmFd {
                 vm: vm_file,
                 cpuid: kvm_cpuid,
@@ -717,10 +719,10 @@ mod tests {
     fn cpuid_test() {
         let kvm = Kvm::new().unwrap();
         if kvm.check_extension(Cap::ExtCpuid) {
-            //what s the maximum cpuid entries? hardcoded value as I see
-            let mut cpuid = kvm.get_supported_cpuid(100).unwrap();
-            let nr_vcpus = kvm.get_nr_vcpus();
             let mut vm = VmFd::new(&kvm).unwrap();
+            let mut cpuid = vm.get_cpuid();
+            assert!(cpuid.mut_entries_slice().len() <= MAX_KVM_CPUID_ENTRIES);
+            let nr_vcpus = kvm.get_nr_vcpus();
             for cpu_id in 0..nr_vcpus {
                 let vcpu = VcpuFd::new(cpu_id as u8, &mut vm).unwrap();
                 vcpu.set_cpuid2(&mut cpuid).unwrap();
