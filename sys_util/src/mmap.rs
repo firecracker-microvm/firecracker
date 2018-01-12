@@ -35,6 +35,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Wraps an anonymous shared memory mapping in the current process.
+#[derive(Debug)]
 pub struct MemoryMapping {
     addr: *mut u8,
     size: usize,
