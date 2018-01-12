@@ -196,13 +196,16 @@ impl Drop for EpollContext {
 }
 
 pub struct Vmm {
-    kill_on_exit: bool,
+    vmm_no_api: bool,
     cfg: MachineCfg,
 }
 
 impl Vmm {
     pub fn new(kill_on_exit: bool, cfg: MachineCfg) -> Vmm {
-        Vmm { kill_on_exit, cfg }
+        Vmm {
+            vmm_no_api: kill_on_exit,
+            cfg,
+        }
     }
 
     pub fn start(&self) -> Result<()> {
@@ -427,7 +430,7 @@ impl Vmm {
             }
         }
 
-        if self.kill_on_exit {
+        if self.vmm_no_api {
             std::process::exit(0);
         }
 
