@@ -125,6 +125,7 @@ pub enum IoeventAddress {
 }
 
 /// A wrapper around creating and using a VM.
+#[derive(Debug)]
 pub struct VmFd {
     vm: File,
     cpuid: CpuId,
@@ -343,6 +344,7 @@ pub enum VcpuExit<'a> {
 }
 
 /// A wrapper around creating and using a kvm related VCPU fd
+#[derive(Debug)]
 pub struct VcpuFd {
     vcpu: File,
     run_mmap: MemoryMapping,
@@ -627,7 +629,7 @@ impl AsRawFd for VcpuFd {
 /// Wrapper for kvm_cpuid2 which has a zero length array at the end.
 /// Hides the zero length array behind a bounds check.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CpuId {
     bytes: Vec<u8>,       // Actually accessed as a kvm_cpuid2 struct.
     allocated_len: usize, // Number of kvm_cpuid_entry2 structs at the end of kvm_cpuid2.
@@ -975,5 +977,96 @@ mod tests {
                 r => panic!("unexpected exit reason: {:?}", r),
             }
         }
+    }
+
+    #[test]
+    fn faulty_kvm_fds_test() {
+        let badf_error = Error::new(libc::EBADF);
+
+        let faulty_kvm = Kvm {
+            kvm: unsafe { File::from_raw_fd(-1) },
+        };
+        assert_eq!(faulty_kvm.get_vcpu_mmap_size().unwrap_err(), badf_error);
+        let max_cpus = faulty_kvm.get_nr_vcpus();
+        assert_eq!(max_cpus, 4);
+        assert_eq!(
+            faulty_kvm.get_supported_cpuid(max_cpus).unwrap_err(),
+            badf_error
+        );
+
+        assert_eq!(VmFd::new(&faulty_kvm).unwrap_err(), badf_error);
+        let mut faulty_vm_fd = VmFd {
+            vm: unsafe { File::from_raw_fd(-1) },
+            cpuid: CpuId::new(max_cpus),
+            run_size: 0,
+        };
+        assert_eq!(
+            faulty_vm_fd
+                .set_user_memory_region(0, 0, 0, 0, 0)
+                .unwrap_err(),
+            badf_error
+        );
+        assert_eq!(faulty_vm_fd.set_tss_address(0).unwrap_err(), badf_error);
+        assert_eq!(faulty_vm_fd.create_irq_chip().unwrap_err(), badf_error);
+        assert_eq!(faulty_vm_fd.create_pit2().unwrap_err(), badf_error);
+        let event_fd = EventFd::new().unwrap();
+        assert_eq!(
+            faulty_vm_fd
+                .register_ioevent(&event_fd, IoeventAddress::Pio(0), 0u64)
+                .unwrap_err(),
+            badf_error
+        );
+        assert_eq!(
+            faulty_vm_fd.register_irqfd(&event_fd, 0).unwrap_err(),
+            badf_error
+        );
+
+        assert_eq!(VcpuFd::new(0, &mut faulty_vm_fd).unwrap_err(), badf_error);
+        let faulty_vcpu_fd = VcpuFd {
+            vcpu: unsafe { File::from_raw_fd(-1) },
+            run_mmap: MemoryMapping::new(10).unwrap(),
+        };
+        assert_eq!(faulty_vcpu_fd.get_regs().unwrap_err(), badf_error);
+        assert_eq!(
+            faulty_vcpu_fd
+                .set_regs(&unsafe { std::mem::zeroed() })
+                .unwrap_err(),
+            badf_error
+        );
+        assert_eq!(faulty_vcpu_fd.get_sregs().unwrap_err(), badf_error);
+        assert_eq!(
+            faulty_vcpu_fd
+                .set_sregs(&unsafe { std::mem::zeroed() })
+                .unwrap_err(),
+            badf_error
+        );
+        assert_eq!(faulty_vcpu_fd.get_fpu().unwrap_err(), badf_error);
+        assert_eq!(
+            faulty_vcpu_fd
+                .set_fpu(&unsafe { std::mem::zeroed() })
+                .unwrap_err(),
+            badf_error
+        );
+        assert_eq!(
+            faulty_vcpu_fd
+                .set_cpuid2(&unsafe { std::mem::zeroed() })
+                .unwrap_err(),
+            badf_error
+        );
+        assert_eq!(faulty_vcpu_fd.get_lapic().unwrap_err(), badf_error);
+        assert_eq!(
+            faulty_vcpu_fd
+                .set_lapic(&unsafe { std::mem::zeroed() })
+                .unwrap_err(),
+            badf_error
+        );
+        assert_eq!(faulty_vcpu_fd.get_msrs().unwrap_err(), badf_error);
+        assert_eq!(
+            faulty_vcpu_fd
+                .set_msrs(&unsafe { std::mem::zeroed() })
+                .unwrap_err(),
+            badf_error
+        );
+        assert_eq!(faulty_vcpu_fd.run().unwrap_err(), badf_error);
     }
 }
