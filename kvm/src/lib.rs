@@ -124,6 +124,13 @@ pub enum IoeventAddress {
     Mmio(u64),
 }
 
+/// Used in `VmFd::register_ioevent` to indicate that no datamatch is requested.
+pub struct NoDatamatch;
+impl Into<u64> for NoDatamatch {
+    fn into(self) -> u64 {
+        0
+    }
+}
 /// A wrapper around creating and using a VM.
 #[derive(Debug)]
 pub struct VmFd {
@@ -772,6 +779,47 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = VmFd::new(&kvm).unwrap();
         assert!(vm.create_pit2().is_ok());
+    }
+
+    #[test]
+    fn register_ioevent() {
+        assert_eq!(std::mem::size_of::<NoDatamatch>(), 0);
+
+        let kvm = Kvm::new().unwrap();
+        let vm_fd = VmFd::new(&kvm).unwrap();
+        let evtfd = EventFd::new().unwrap();
+        vm_fd
+            .register_ioevent(&evtfd, IoeventAddress::Pio(0xf4), NoDatamatch)
+            .unwrap();
+        vm_fd
+            .register_ioevent(&evtfd, IoeventAddress::Mmio(0x1000), NoDatamatch)
+            .unwrap();
+        vm_fd
+            .register_ioevent(&evtfd, IoeventAddress::Pio(0xc1), 0x7fu8)
+            .unwrap();
+        vm_fd
+            .register_ioevent(&evtfd, IoeventAddress::Pio(0xc2), 0x1337u16)
+            .unwrap();
+        vm_fd
+            .register_ioevent(&evtfd, IoeventAddress::Pio(0xc4), 0xdeadbeefu32)
+            .unwrap();
+        vm_fd
+            .register_ioevent(&evtfd, IoeventAddress::Pio(0xc8), 0xdeadbeefdeadbeefu64)
+            .unwrap();
+    }
+
+    #[test]
+    fn register_irqfd() {
+        let kvm = Kvm::new().unwrap();
+        let vm_fd = VmFd::new(&kvm).unwrap();
+        let evtfd1 = EventFd::new().unwrap();
+        let evtfd2 = EventFd::new().unwrap();
+        let evtfd3 = EventFd::new().unwrap();
+        vm_fd.register_irqfd(&evtfd1, 4).unwrap();
+        vm_fd.register_irqfd(&evtfd2, 8).unwrap();
+        vm_fd.register_irqfd(&evtfd3, 4).unwrap();
+        vm_fd.register_irqfd(&evtfd3, 4).unwrap_err();
+        vm_fd.register_irqfd(&evtfd3, 5).unwrap_err();
     }
 
     #[test]
