@@ -5,7 +5,6 @@
 use kvm_sys::*;
 
 /// A capability the kernel's KVM interface can possibly expose.
-#[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(u32)]
 pub enum Cap {
     Irqchip = KVM_CAP_IRQCHIP,
