@@ -1328,6 +1328,13 @@ impl Clone for kvm_regs {
 pub struct kvm_lapic_state {
     pub regs: [::std::os::raw::c_char; 1024usize],
 }
+
+impl ::std::fmt::Debug for kvm_lapic_state {
+    fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        self.regs[..].fmt(fmt)
+    }
+}
+
 #[test]
 fn bindgen_test_layout_kvm_lapic_state() {
     assert_eq!(
