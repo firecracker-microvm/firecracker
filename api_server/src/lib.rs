@@ -664,22 +664,23 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) {
         host_ip,
         subnet_mask,
     );
-    let kill_on_vmm_exit = cmd_arguments.is_present("kill_api");
+    let vmm_no_api = cmd_arguments.is_present("vmm_no_api");
 
-    let vmm = vmm::Vmm::new(kill_on_vmm_exit, cfg);
+    let vmm = vmm::Vmm::new(vmm_no_api, cfg);
 
-    //thread::spawn(move || {
-    //    vmm::boot_kernel(cfg, kill_on_vmm_exit).expect("cannot boot kernel");
-    //});
+    // TODO: this is for integration testing, need to find a more pretty solution
+    if vmm_no_api {
+        vmm.start().expect("cannot boot kernel");
+    } else {
+        let server = Server::new(vmm);
+        let router = api::router(server);
 
-    let server = Server::new(vmm);
-    let router = api::router(server);
+        let chain = Chain::new(router);
+        let sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), api_port);
 
-    let chain = Chain::new(router);
-    let sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), api_port);
-
-    let mut iron = Iron::new(chain);
-    // By default Iron uses 8 * num_cpus threads.
-    iron.threads = 1;
-    iron.http(sock_addr).expect("Failed to start HTTP server");
+        let mut iron = Iron::new(chain);
+        // By default Iron uses 8 * num_cpus threads.
+        iron.threads = 1;
+        iron.http(sock_addr).expect("Failed to start HTTP server");
+    }
 }

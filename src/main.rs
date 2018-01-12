@@ -20,9 +20,9 @@ fn main() {
         .author(crate_authors!())
         .about("Launch a microvm.")
         .arg(
-            Arg::with_name("kill_api")
-                .long("kill-api")
-                .help("Kill the REST API server on vmm exit")
+            Arg::with_name("vmm_no_api")
+                .long("vmm-no-api")
+                .help("Start vmm by default, no API thread")
                 .takes_value(false),
         )
         .arg(
