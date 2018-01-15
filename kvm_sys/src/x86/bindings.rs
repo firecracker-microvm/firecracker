@@ -3,13 +3,15 @@
 #[repr(C)]
 #[derive(Default)]
 pub struct __IncompleteArrayField<T>(::std::marker::PhantomData<T>);
-impl <T> __IncompleteArrayField<T> {
+impl<T> __IncompleteArrayField<T> {
     #[inline]
     pub fn new() -> Self {
         __IncompleteArrayField(::std::marker::PhantomData)
     }
     #[inline]
-    pub unsafe fn as_ptr(&self) -> *const T { ::std::mem::transmute(self) }
+    pub unsafe fn as_ptr(&self) -> *const T {
+        ::std::mem::transmute(self)
+    }
     #[inline]
     pub unsafe fn as_mut_ptr(&mut self) -> *mut T {
         ::std::mem::transmute(self)
@@ -23,36 +25,48 @@ impl <T> __IncompleteArrayField<T> {
         ::std::slice::from_raw_parts_mut(self.as_mut_ptr(), len)
     }
 }
-impl <T> ::std::fmt::Debug for __IncompleteArrayField<T> {
+impl<T> ::std::fmt::Debug for __IncompleteArrayField<T> {
     fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         fmt.write_str("__IncompleteArrayField")
     }
 }
-impl <T> ::std::clone::Clone for __IncompleteArrayField<T> {
+impl<T> ::std::clone::Clone for __IncompleteArrayField<T> {
     #[inline]
-    fn clone(&self) -> Self { Self::new() }
+    fn clone(&self) -> Self {
+        Self::new()
+    }
 }
-impl <T> ::std::marker::Copy for __IncompleteArrayField<T> { }
+impl<T> ::std::marker::Copy for __IncompleteArrayField<T> {}
 #[repr(C)]
 pub struct __BindgenUnionField<T>(::std::marker::PhantomData<T>);
-impl <T> __BindgenUnionField<T> {
+impl<T> __BindgenUnionField<T> {
     #[inline]
-    pub fn new() -> Self { __BindgenUnionField(::std::marker::PhantomData) }
+    pub fn new() -> Self {
+        __BindgenUnionField(::std::marker::PhantomData)
+    }
     #[inline]
-    pub unsafe fn as_ref(&self) -> &T { ::std::mem::transmute(self) }
+    pub unsafe fn as_ref(&self) -> &T {
+        ::std::mem::transmute(self)
+    }
     #[inline]
-    pub unsafe fn as_mut(&mut self) -> &mut T { ::std::mem::transmute(self) }
+    pub unsafe fn as_mut(&mut self) -> &mut T {
+        ::std::mem::transmute(self)
+    }
 }
-impl <T> ::std::default::Default for __BindgenUnionField<T> {
+impl<T> ::std::default::Default for __BindgenUnionField<T> {
     #[inline]
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
-impl <T> ::std::clone::Clone for __BindgenUnionField<T> {
+impl<T> ::std::clone::Clone for __BindgenUnionField<T> {
     #[inline]
-    fn clone(&self) -> Self { Self::new() }
+    fn clone(&self) -> Self {
+        Self::new()
+    }
 }
-impl <T> ::std::marker::Copy for __BindgenUnionField<T> { }
-impl <T> ::std::fmt::Debug for __BindgenUnionField<T> {
+impl<T> ::std::marker::Copy for __BindgenUnionField<T> {}
+impl<T> ::std::fmt::Debug for __BindgenUnionField<T> {
     fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         fmt.write_str("__BindgenUnionField")
     }
@@ -382,18 +396,31 @@ pub struct __kernel_fd_set {
 }
 #[test]
 fn bindgen_test_layout___kernel_fd_set() {
-    assert_eq!(::std::mem::size_of::<__kernel_fd_set>() , 128usize , concat !
-               ( "Size of: " , stringify ! ( __kernel_fd_set ) ));
-    assert_eq! (::std::mem::align_of::<__kernel_fd_set>() , 8usize , concat !
-                ( "Alignment of " , stringify ! ( __kernel_fd_set ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const __kernel_fd_set ) ) . fds_bits as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( __kernel_fd_set ) ,
-                "::" , stringify ! ( fds_bits ) ));
+    assert_eq!(
+        ::std::mem::size_of::<__kernel_fd_set>(),
+        128usize,
+        concat!("Size of: ", stringify!(__kernel_fd_set))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<__kernel_fd_set>(),
+        8usize,
+        concat!("Alignment of ", stringify!(__kernel_fd_set))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const __kernel_fd_set)).fds_bits as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(__kernel_fd_set),
+            "::",
+            stringify!(fds_bits)
+        )
+    );
 }
 impl Clone for __kernel_fd_set {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 pub type __kernel_sighandler_t =
     ::std::option::Option<unsafe extern "C" fn(arg1: ::std::os::raw::c_int)>;
@@ -424,18 +451,31 @@ pub struct __kernel_fsid_t {
 }
 #[test]
 fn bindgen_test_layout___kernel_fsid_t() {
-    assert_eq!(::std::mem::size_of::<__kernel_fsid_t>() , 8usize , concat ! (
-               "Size of: " , stringify ! ( __kernel_fsid_t ) ));
-    assert_eq! (::std::mem::align_of::<__kernel_fsid_t>() , 4usize , concat !
-                ( "Alignment of " , stringify ! ( __kernel_fsid_t ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const __kernel_fsid_t ) ) . val as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( __kernel_fsid_t ) ,
-                "::" , stringify ! ( val ) ));
+    assert_eq!(
+        ::std::mem::size_of::<__kernel_fsid_t>(),
+        8usize,
+        concat!("Size of: ", stringify!(__kernel_fsid_t))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<__kernel_fsid_t>(),
+        4usize,
+        concat!("Alignment of ", stringify!(__kernel_fsid_t))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const __kernel_fsid_t)).val as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(__kernel_fsid_t),
+            "::",
+            stringify!(val)
+        )
+    );
 }
 impl Clone for __kernel_fsid_t {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 pub type __kernel_off_t = __kernel_long_t;
 pub type __kernel_loff_t = ::std::os::raw::c_longlong;
@@ -465,38 +505,71 @@ pub struct kvm_memory_alias {
 }
 #[test]
 fn bindgen_test_layout_kvm_memory_alias() {
-    assert_eq!(::std::mem::size_of::<kvm_memory_alias>() , 32usize , concat !
-               ( "Size of: " , stringify ! ( kvm_memory_alias ) ));
-    assert_eq! (::std::mem::align_of::<kvm_memory_alias>() , 8usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_memory_alias ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_memory_alias ) ) . slot as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_memory_alias ) ,
-                "::" , stringify ! ( slot ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_memory_alias ) ) . flags as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_memory_alias ) ,
-                "::" , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_memory_alias ) ) . guest_phys_addr as
-                * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_memory_alias ) ,
-                "::" , stringify ! ( guest_phys_addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_memory_alias ) ) . memory_size as *
-                const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_memory_alias ) ,
-                "::" , stringify ! ( memory_size ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_memory_alias ) ) . target_phys_addr
-                as * const _ as usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_memory_alias ) ,
-                "::" , stringify ! ( target_phys_addr ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_memory_alias>(),
+        32usize,
+        concat!("Size of: ", stringify!(kvm_memory_alias))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_memory_alias>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_memory_alias))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_memory_alias)).slot as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_memory_alias),
+            "::",
+            stringify!(slot)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_memory_alias)).flags as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_memory_alias),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_memory_alias)).guest_phys_addr as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_memory_alias),
+            "::",
+            stringify!(guest_phys_addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_memory_alias)).memory_size as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_memory_alias),
+            "::",
+            stringify!(memory_size)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_memory_alias)).target_phys_addr as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_memory_alias),
+            "::",
+            stringify!(target_phys_addr)
+        )
+    );
 }
 impl Clone for kvm_memory_alias {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -520,94 +593,181 @@ pub struct kvm_pic_state {
 }
 #[test]
 fn bindgen_test_layout_kvm_pic_state() {
-    assert_eq!(::std::mem::size_of::<kvm_pic_state>() , 16usize , concat ! (
-               "Size of: " , stringify ! ( kvm_pic_state ) ));
-    assert_eq! (::std::mem::align_of::<kvm_pic_state>() , 1usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_pic_state ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . last_irr as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( last_irr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . irr as * const _ as
-                usize } , 1usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( irr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . imr as * const _ as
-                usize } , 2usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( imr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . isr as * const _ as
-                usize } , 3usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( isr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . priority_add as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( priority_add ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . irq_base as * const _
-                as usize } , 5usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( irq_base ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . read_reg_select as *
-                const _ as usize } , 6usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( read_reg_select ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . poll as * const _ as
-                usize } , 7usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( poll ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . special_mask as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( special_mask ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . init_state as * const
-                _ as usize } , 9usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( init_state ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . auto_eoi as * const _
-                as usize } , 10usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( auto_eoi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . rotate_on_auto_eoi as
-                * const _ as usize } , 11usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( rotate_on_auto_eoi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) .
-                special_fully_nested_mode as * const _ as usize } , 12usize ,
-                concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( special_fully_nested_mode ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . init4 as * const _ as
-                usize } , 13usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( init4 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . elcr as * const _ as
-                usize } , 14usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( elcr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pic_state ) ) . elcr_mask as * const
-                _ as usize } , 15usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pic_state ) , "::"
-                , stringify ! ( elcr_mask ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_pic_state>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_pic_state))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_pic_state>(),
+        1usize,
+        concat!("Alignment of ", stringify!(kvm_pic_state))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).last_irr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(last_irr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).irr as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(irr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).imr as *const _ as usize },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(imr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).isr as *const _ as usize },
+        3usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(isr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).priority_add as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(priority_add)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).irq_base as *const _ as usize },
+        5usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(irq_base)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).read_reg_select as *const _ as usize },
+        6usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(read_reg_select)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).poll as *const _ as usize },
+        7usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(poll)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).special_mask as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(special_mask)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).init_state as *const _ as usize },
+        9usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(init_state)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).auto_eoi as *const _ as usize },
+        10usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(auto_eoi)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).rotate_on_auto_eoi as *const _ as usize },
+        11usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(rotate_on_auto_eoi)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).special_fully_nested_mode as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(special_fully_nested_mode)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).init4 as *const _ as usize },
+        13usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(init4)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).elcr as *const _ as usize },
+        14usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(elcr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pic_state)).elcr_mask as *const _ as usize },
+        15usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pic_state),
+            "::",
+            stringify!(elcr_mask)
+        )
+    );
 }
 impl Clone for kvm_pic_state {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -637,45 +797,72 @@ pub struct kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1>()
-               , 8usize , concat ! (
-               "Size of: " , stringify ! (
-               kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1>()
-                , 1usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 ) ));
-    assert_eq! (unsafe {
-                & (
-                * ( 0 as * const kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1
-                ) ) . vector as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 ) , "::" ,
-                stringify ! ( vector ) ));
-    assert_eq! (unsafe {
-                & (
-                * ( 0 as * const kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1
-                ) ) . reserved as * const _ as usize } , 3usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 ) , "::" ,
-                stringify ! ( reserved ) ));
-    assert_eq! (unsafe {
-                & (
-                * ( 0 as * const kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1
-                ) ) . dest_id as * const _ as usize } , 7usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 ) , "::" ,
-                stringify ! ( dest_id ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1>(),
+        8usize,
+        concat!(
+            "Size of: ",
+            stringify!(kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1)
+        )
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1>(),
+        1usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1)).vector as *const _
+                as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1),
+            "::",
+            stringify!(vector)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1)).reserved as *const _
+                as usize
+        },
+        3usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1),
+            "::",
+            stringify!(reserved)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1)).dest_id as *const _
+                as usize
+        },
+        7usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1),
+            "::",
+            stringify!(dest_id)
+        )
+    );
 }
 impl Clone for kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     #[inline]
     pub fn delivery_mode(&self) -> __u8 {
         let mask = 7usize as u8;
-        let field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         let val = (field_val & mask) >> 0usize;
         unsafe { ::std::mem::transmute(val as u8) }
     }
@@ -683,8 +870,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     pub fn set_delivery_mode(&mut self, val: __u8) {
         let mask = 7usize as u8;
         let val = val as u8 as u8;
-        let mut field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let mut field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         field_val &= !mask;
         field_val |= (val << 0usize) & mask;
         self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
@@ -692,8 +878,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     #[inline]
     pub fn dest_mode(&self) -> __u8 {
         let mask = 8usize as u8;
-        let field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         let val = (field_val & mask) >> 3usize;
         unsafe { ::std::mem::transmute(val as u8) }
     }
@@ -701,8 +886,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     pub fn set_dest_mode(&mut self, val: __u8) {
         let mask = 8usize as u8;
         let val = val as u8 as u8;
-        let mut field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let mut field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         field_val &= !mask;
         field_val |= (val << 3usize) & mask;
         self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
@@ -710,8 +894,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     #[inline]
     pub fn delivery_status(&self) -> __u8 {
         let mask = 16usize as u8;
-        let field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         let val = (field_val & mask) >> 4usize;
         unsafe { ::std::mem::transmute(val as u8) }
     }
@@ -719,8 +902,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     pub fn set_delivery_status(&mut self, val: __u8) {
         let mask = 16usize as u8;
         let val = val as u8 as u8;
-        let mut field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let mut field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         field_val &= !mask;
         field_val |= (val << 4usize) & mask;
         self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
@@ -728,8 +910,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     #[inline]
     pub fn polarity(&self) -> __u8 {
         let mask = 32usize as u8;
-        let field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         let val = (field_val & mask) >> 5usize;
         unsafe { ::std::mem::transmute(val as u8) }
     }
@@ -737,8 +918,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     pub fn set_polarity(&mut self, val: __u8) {
         let mask = 32usize as u8;
         let val = val as u8 as u8;
-        let mut field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let mut field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         field_val &= !mask;
         field_val |= (val << 5usize) & mask;
         self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
@@ -746,8 +926,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     #[inline]
     pub fn remote_irr(&self) -> __u8 {
         let mask = 64usize as u8;
-        let field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         let val = (field_val & mask) >> 6usize;
         unsafe { ::std::mem::transmute(val as u8) }
     }
@@ -755,8 +934,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     pub fn set_remote_irr(&mut self, val: __u8) {
         let mask = 64usize as u8;
         let val = val as u8 as u8;
-        let mut field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let mut field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         field_val &= !mask;
         field_val |= (val << 6usize) & mask;
         self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
@@ -764,8 +942,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     #[inline]
     pub fn trig_mode(&self) -> __u8 {
         let mask = 128usize as u8;
-        let field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         let val = (field_val & mask) >> 7usize;
         unsafe { ::std::mem::transmute(val as u8) }
     }
@@ -773,8 +950,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     pub fn set_trig_mode(&mut self, val: __u8) {
         let mask = 128usize as u8;
         let val = val as u8 as u8;
-        let mut field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_1) };
+        let mut field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_1) };
         field_val &= !mask;
         field_val |= (val << 7usize) & mask;
         self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
@@ -782,8 +958,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     #[inline]
     pub fn mask(&self) -> __u8 {
         let mask = 1usize as u8;
-        let field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_2) };
+        let field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_2) };
         let val = (field_val & mask) >> 0usize;
         unsafe { ::std::mem::transmute(val as u8) }
     }
@@ -791,8 +966,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     pub fn set_mask(&mut self, val: __u8) {
         let mask = 1usize as u8;
         let val = val as u8 as u8;
-        let mut field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_2) };
+        let mut field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_2) };
         field_val &= !mask;
         field_val |= (val << 0usize) & mask;
         self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
@@ -800,8 +974,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     #[inline]
     pub fn reserve(&self) -> __u8 {
         let mask = 127usize as u8;
-        let field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_2) };
+        let field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_2) };
         let val = (field_val & mask) >> 0usize;
         unsafe { ::std::mem::transmute(val as u8) }
     }
@@ -809,8 +982,7 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
     pub fn set_reserve(&mut self, val: __u8) {
         let mask = 127usize as u8;
         let val = val as u8 as u8;
-        let mut field_val: u8 =
-            unsafe { ::std::mem::transmute(self._bitfield_2) };
+        let mut field_val: u8 = unsafe { ::std::mem::transmute(self._bitfield_2) };
         field_val &= !mask;
         field_val |= (val << 0usize) & mask;
         self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
@@ -818,69 +990,119 @@ impl kvm_ioapic_state__bindgen_ty_1__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_kvm_ioapic_state__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_ioapic_state__bindgen_ty_1>() ,
-               8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_ioapic_state__bindgen_ty_1 )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_ioapic_state__bindgen_ty_1>() ,
-                8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_ioapic_state__bindgen_ty_1
-                ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioapic_state__bindgen_ty_1 ) ) . bits
-                as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_ioapic_state__bindgen_ty_1 ) , "::" , stringify ! ( bits )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioapic_state__bindgen_ty_1 ) ) .
-                fields as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_ioapic_state__bindgen_ty_1 ) , "::" , stringify ! ( fields
-                ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_ioapic_state__bindgen_ty_1>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_ioapic_state__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_ioapic_state__bindgen_ty_1>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_ioapic_state__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioapic_state__bindgen_ty_1)).bits as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioapic_state__bindgen_ty_1),
+            "::",
+            stringify!(bits)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioapic_state__bindgen_ty_1)).fields as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioapic_state__bindgen_ty_1),
+            "::",
+            stringify!(fields)
+        )
+    );
 }
 impl Clone for kvm_ioapic_state__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[test]
 fn bindgen_test_layout_kvm_ioapic_state() {
-    assert_eq!(::std::mem::size_of::<kvm_ioapic_state>() , 216usize , concat !
-               ( "Size of: " , stringify ! ( kvm_ioapic_state ) ));
-    assert_eq! (::std::mem::align_of::<kvm_ioapic_state>() , 8usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_ioapic_state ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioapic_state ) ) . base_address as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioapic_state ) ,
-                "::" , stringify ! ( base_address ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioapic_state ) ) . ioregsel as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioapic_state ) ,
-                "::" , stringify ! ( ioregsel ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioapic_state ) ) . id as * const _ as
-                usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioapic_state ) ,
-                "::" , stringify ! ( id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioapic_state ) ) . irr as * const _
-                as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioapic_state ) ,
-                "::" , stringify ! ( irr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioapic_state ) ) . pad as * const _
-                as usize } , 20usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioapic_state ) ,
-                "::" , stringify ! ( pad ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioapic_state ) ) . redirtbl as *
-                const _ as usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioapic_state ) ,
-                "::" , stringify ! ( redirtbl ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_ioapic_state>(),
+        216usize,
+        concat!("Size of: ", stringify!(kvm_ioapic_state))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_ioapic_state>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_ioapic_state))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioapic_state)).base_address as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioapic_state),
+            "::",
+            stringify!(base_address)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioapic_state)).ioregsel as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioapic_state),
+            "::",
+            stringify!(ioregsel)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioapic_state)).id as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioapic_state),
+            "::",
+            stringify!(id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioapic_state)).irr as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioapic_state),
+            "::",
+            stringify!(irr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioapic_state)).pad as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioapic_state),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioapic_state)).redirtbl as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioapic_state),
+            "::",
+            stringify!(redirtbl)
+        )
+    );
 }
 impl Clone for kvm_ioapic_state {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -906,103 +1128,201 @@ pub struct kvm_regs {
 }
 #[test]
 fn bindgen_test_layout_kvm_regs() {
-    assert_eq!(::std::mem::size_of::<kvm_regs>() , 144usize , concat ! (
-               "Size of: " , stringify ! ( kvm_regs ) ));
-    assert_eq! (::std::mem::align_of::<kvm_regs>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_regs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . rax as * const _ as usize
-                } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( rax ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . rbx as * const _ as usize
-                } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( rbx ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . rcx as * const _ as usize
-                } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( rcx ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . rdx as * const _ as usize
-                } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( rdx ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . rsi as * const _ as usize
-                } , 32usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( rsi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . rdi as * const _ as usize
-                } , 40usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( rdi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . rsp as * const _ as usize
-                } , 48usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( rsp ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . rbp as * const _ as usize
-                } , 56usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( rbp ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . r8 as * const _ as usize }
-                , 64usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( r8 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . r9 as * const _ as usize }
-                , 72usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( r9 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . r10 as * const _ as usize
-                } , 80usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( r10 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . r11 as * const _ as usize
-                } , 88usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( r11 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . r12 as * const _ as usize
-                } , 96usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( r12 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . r13 as * const _ as usize
-                } , 104usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( r13 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . r14 as * const _ as usize
-                } , 112usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( r14 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . r15 as * const _ as usize
-                } , 120usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( r15 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . rip as * const _ as usize
-                } , 128usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( rip ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_regs ) ) . rflags as * const _ as
-                usize } , 136usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_regs ) , "::" ,
-                stringify ! ( rflags ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_regs>(),
+        144usize,
+        concat!("Size of: ", stringify!(kvm_regs))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_regs>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_regs))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).rax as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(rax)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).rbx as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(rbx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).rcx as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(rcx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).rdx as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(rdx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).rsi as *const _ as usize },
+        32usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(rsi)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).rdi as *const _ as usize },
+        40usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(rdi)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).rsp as *const _ as usize },
+        48usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(rsp)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).rbp as *const _ as usize },
+        56usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(rbp)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).r8 as *const _ as usize },
+        64usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(r8)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).r9 as *const _ as usize },
+        72usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(r9)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).r10 as *const _ as usize },
+        80usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(r10)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).r11 as *const _ as usize },
+        88usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(r11)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).r12 as *const _ as usize },
+        96usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(r12)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).r13 as *const _ as usize },
+        104usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(r13)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).r14 as *const _ as usize },
+        112usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(r14)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).r15 as *const _ as usize },
+        120usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(r15)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).rip as *const _ as usize },
+        128usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(rip)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_regs)).rflags as *const _ as usize },
+        136usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_regs),
+            "::",
+            stringify!(rflags)
+        )
+    );
 }
 impl Clone for kvm_regs {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 pub struct kvm_lapic_state {
@@ -1010,18 +1330,31 @@ pub struct kvm_lapic_state {
 }
 #[test]
 fn bindgen_test_layout_kvm_lapic_state() {
-    assert_eq!(::std::mem::size_of::<kvm_lapic_state>() , 1024usize , concat !
-               ( "Size of: " , stringify ! ( kvm_lapic_state ) ));
-    assert_eq! (::std::mem::align_of::<kvm_lapic_state>() , 1usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_lapic_state ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_lapic_state ) ) . regs as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_lapic_state ) ,
-                "::" , stringify ! ( regs ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_lapic_state>(),
+        1024usize,
+        concat!("Size of: ", stringify!(kvm_lapic_state))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_lapic_state>(),
+        1usize,
+        concat!("Alignment of ", stringify!(kvm_lapic_state))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_lapic_state)).regs as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_lapic_state),
+            "::",
+            stringify!(regs)
+        )
+    );
 }
 impl Default for kvm_lapic_state {
-    fn default() -> Self { unsafe { ::std::mem::zeroed() } }
+    fn default() -> Self {
+        unsafe { ::std::mem::zeroed() }
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1042,78 +1375,151 @@ pub struct kvm_segment {
 }
 #[test]
 fn bindgen_test_layout_kvm_segment() {
-    assert_eq!(::std::mem::size_of::<kvm_segment>() , 24usize , concat ! (
-               "Size of: " , stringify ! ( kvm_segment ) ));
-    assert_eq! (::std::mem::align_of::<kvm_segment>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_segment ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . base as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( base ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . limit as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( limit ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . selector as * const _
-                as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( selector ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . type_ as * const _ as
-                usize } , 14usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( type_ ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . present as * const _ as
-                usize } , 15usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( present ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . dpl as * const _ as
-                usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( dpl ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . db as * const _ as
-                usize } , 17usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( db ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . s as * const _ as usize
-                } , 18usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( s ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . l as * const _ as usize
-                } , 19usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( l ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . g as * const _ as usize
-                } , 20usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( g ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . avl as * const _ as
-                usize } , 21usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( avl ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . unusable as * const _
-                as usize } , 22usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( unusable ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_segment ) ) . padding as * const _ as
-                usize } , 23usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_segment ) , "::" ,
-                stringify ! ( padding ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_segment>(),
+        24usize,
+        concat!("Size of: ", stringify!(kvm_segment))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_segment>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_segment))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).base as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(base)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).limit as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(limit)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).selector as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(selector)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).type_ as *const _ as usize },
+        14usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).present as *const _ as usize },
+        15usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(present)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).dpl as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(dpl)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).db as *const _ as usize },
+        17usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(db)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).s as *const _ as usize },
+        18usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(s)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).l as *const _ as usize },
+        19usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(l)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).g as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(g)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).avl as *const _ as usize },
+        21usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(avl)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).unusable as *const _ as usize },
+        22usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(unusable)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_segment)).padding as *const _ as usize },
+        23usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_segment),
+            "::",
+            stringify!(padding)
+        )
+    );
 }
 impl Clone for kvm_segment {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1124,28 +1530,51 @@ pub struct kvm_dtable {
 }
 #[test]
 fn bindgen_test_layout_kvm_dtable() {
-    assert_eq!(::std::mem::size_of::<kvm_dtable>() , 16usize , concat ! (
-               "Size of: " , stringify ! ( kvm_dtable ) ));
-    assert_eq! (::std::mem::align_of::<kvm_dtable>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_dtable ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_dtable ) ) . base as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_dtable ) , "::" ,
-                stringify ! ( base ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_dtable ) ) . limit as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_dtable ) , "::" ,
-                stringify ! ( limit ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_dtable ) ) . padding as * const _ as
-                usize } , 10usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_dtable ) , "::" ,
-                stringify ! ( padding ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_dtable>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_dtable))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_dtable>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_dtable))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_dtable)).base as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_dtable),
+            "::",
+            stringify!(base)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_dtable)).limit as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_dtable),
+            "::",
+            stringify!(limit)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_dtable)).padding as *const _ as usize },
+        10usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_dtable),
+            "::",
+            stringify!(padding)
+        )
+    );
 }
 impl Clone for kvm_dtable {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1171,103 +1600,201 @@ pub struct kvm_sregs {
 }
 #[test]
 fn bindgen_test_layout_kvm_sregs() {
-    assert_eq!(::std::mem::size_of::<kvm_sregs>() , 312usize , concat ! (
-               "Size of: " , stringify ! ( kvm_sregs ) ));
-    assert_eq! (::std::mem::align_of::<kvm_sregs>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_sregs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . cs as * const _ as usize
-                } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( cs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . ds as * const _ as usize
-                } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( ds ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . es as * const _ as usize
-                } , 48usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( es ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . fs as * const _ as usize
-                } , 72usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( fs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . gs as * const _ as usize
-                } , 96usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( gs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . ss as * const _ as usize
-                } , 120usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( ss ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . tr as * const _ as usize
-                } , 144usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( tr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . ldt as * const _ as usize
-                } , 168usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( ldt ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . gdt as * const _ as usize
-                } , 192usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( gdt ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . idt as * const _ as usize
-                } , 208usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( idt ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . cr0 as * const _ as usize
-                } , 224usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( cr0 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . cr2 as * const _ as usize
-                } , 232usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( cr2 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . cr3 as * const _ as usize
-                } , 240usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( cr3 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . cr4 as * const _ as usize
-                } , 248usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( cr4 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . cr8 as * const _ as usize
-                } , 256usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( cr8 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . efer as * const _ as
-                usize } , 264usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( efer ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . apic_base as * const _ as
-                usize } , 272usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( apic_base ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_sregs ) ) . interrupt_bitmap as *
-                const _ as usize } , 280usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_sregs ) , "::" ,
-                stringify ! ( interrupt_bitmap ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_sregs>(),
+        312usize,
+        concat!("Size of: ", stringify!(kvm_sregs))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_sregs>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_sregs))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).cs as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(cs)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).ds as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(ds)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).es as *const _ as usize },
+        48usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(es)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).fs as *const _ as usize },
+        72usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(fs)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).gs as *const _ as usize },
+        96usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(gs)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).ss as *const _ as usize },
+        120usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(ss)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).tr as *const _ as usize },
+        144usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(tr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).ldt as *const _ as usize },
+        168usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(ldt)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).gdt as *const _ as usize },
+        192usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(gdt)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).idt as *const _ as usize },
+        208usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(idt)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).cr0 as *const _ as usize },
+        224usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(cr0)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).cr2 as *const _ as usize },
+        232usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(cr2)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).cr3 as *const _ as usize },
+        240usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(cr3)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).cr4 as *const _ as usize },
+        248usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(cr4)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).cr8 as *const _ as usize },
+        256usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(cr8)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).efer as *const _ as usize },
+        264usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(efer)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).apic_base as *const _ as usize },
+        272usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(apic_base)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_sregs)).interrupt_bitmap as *const _ as usize },
+        280usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_sregs),
+            "::",
+            stringify!(interrupt_bitmap)
+        )
+    );
 }
 impl Clone for kvm_sregs {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1286,68 +1813,131 @@ pub struct kvm_fpu {
 }
 #[test]
 fn bindgen_test_layout_kvm_fpu() {
-    assert_eq!(::std::mem::size_of::<kvm_fpu>() , 416usize , concat ! (
-               "Size of: " , stringify ! ( kvm_fpu ) ));
-    assert_eq! (::std::mem::align_of::<kvm_fpu>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_fpu ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_fpu ) ) . fpr as * const _ as usize }
-                , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_fpu ) , "::" ,
-                stringify ! ( fpr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_fpu ) ) . fcw as * const _ as usize }
-                , 128usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_fpu ) , "::" ,
-                stringify ! ( fcw ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_fpu ) ) . fsw as * const _ as usize }
-                , 130usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_fpu ) , "::" ,
-                stringify ! ( fsw ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_fpu ) ) . ftwx as * const _ as usize
-                } , 132usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_fpu ) , "::" ,
-                stringify ! ( ftwx ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_fpu ) ) . pad1 as * const _ as usize
-                } , 133usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_fpu ) , "::" ,
-                stringify ! ( pad1 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_fpu ) ) . last_opcode as * const _ as
-                usize } , 134usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_fpu ) , "::" ,
-                stringify ! ( last_opcode ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_fpu ) ) . last_ip as * const _ as
-                usize } , 136usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_fpu ) , "::" ,
-                stringify ! ( last_ip ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_fpu ) ) . last_dp as * const _ as
-                usize } , 144usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_fpu ) , "::" ,
-                stringify ! ( last_dp ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_fpu ) ) . xmm as * const _ as usize }
-                , 152usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_fpu ) , "::" ,
-                stringify ! ( xmm ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_fpu ) ) . mxcsr as * const _ as usize
-                } , 408usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_fpu ) , "::" ,
-                stringify ! ( mxcsr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_fpu ) ) . pad2 as * const _ as usize
-                } , 412usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_fpu ) , "::" ,
-                stringify ! ( pad2 ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_fpu>(),
+        416usize,
+        concat!("Size of: ", stringify!(kvm_fpu))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_fpu>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_fpu))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_fpu)).fpr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_fpu),
+            "::",
+            stringify!(fpr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_fpu)).fcw as *const _ as usize },
+        128usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_fpu),
+            "::",
+            stringify!(fcw)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_fpu)).fsw as *const _ as usize },
+        130usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_fpu),
+            "::",
+            stringify!(fsw)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_fpu)).ftwx as *const _ as usize },
+        132usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_fpu),
+            "::",
+            stringify!(ftwx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_fpu)).pad1 as *const _ as usize },
+        133usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_fpu),
+            "::",
+            stringify!(pad1)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_fpu)).last_opcode as *const _ as usize },
+        134usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_fpu),
+            "::",
+            stringify!(last_opcode)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_fpu)).last_ip as *const _ as usize },
+        136usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_fpu),
+            "::",
+            stringify!(last_ip)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_fpu)).last_dp as *const _ as usize },
+        144usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_fpu),
+            "::",
+            stringify!(last_dp)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_fpu)).xmm as *const _ as usize },
+        152usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_fpu),
+            "::",
+            stringify!(xmm)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_fpu)).mxcsr as *const _ as usize },
+        408usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_fpu),
+            "::",
+            stringify!(mxcsr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_fpu)).pad2 as *const _ as usize },
+        412usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_fpu),
+            "::",
+            stringify!(pad2)
+        )
+    );
 }
 impl Clone for kvm_fpu {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1358,34 +1948,55 @@ pub struct kvm_msr_entry {
 }
 #[test]
 fn bindgen_test_layout_kvm_msr_entry() {
-    assert_eq!(::std::mem::size_of::<kvm_msr_entry>() , 16usize , concat ! (
-               "Size of: " , stringify ! ( kvm_msr_entry ) ));
-    assert_eq! (::std::mem::align_of::<kvm_msr_entry>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_msr_entry ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msr_entry ) ) . index as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msr_entry ) , "::"
-                , stringify ! ( index ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msr_entry ) ) . reserved as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msr_entry ) , "::"
-                , stringify ! ( reserved ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msr_entry ) ) . data as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msr_entry ) , "::"
-                , stringify ! ( data ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_msr_entry>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_msr_entry))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_msr_entry>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_msr_entry))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msr_entry)).index as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msr_entry),
+            "::",
+            stringify!(index)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msr_entry)).reserved as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msr_entry),
+            "::",
+            stringify!(reserved)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msr_entry)).data as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msr_entry),
+            "::",
+            stringify!(data)
+        )
+    );
 }
 impl Clone for kvm_msr_entry {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 impl PartialEq for kvm_msr_entry {
     fn eq(&self, other: &kvm_msr_entry) -> bool {
-        self.index == other.index &&
-            self.reserved == other.reserved &&
-            self.data == other.data
+        self.index == other.index && self.reserved == other.reserved && self.data == other.data
     }
 }
 #[repr(C)]
@@ -1398,28 +2009,51 @@ pub struct kvm_msrs {
 }
 #[test]
 fn bindgen_test_layout_kvm_msrs() {
-    assert_eq!(::std::mem::size_of::<kvm_msrs>() , 8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_msrs ) ));
-    assert_eq! (::std::mem::align_of::<kvm_msrs>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_msrs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msrs ) ) . nmsrs as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msrs ) , "::" ,
-                stringify ! ( nmsrs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msrs ) ) . pad as * const _ as usize
-                } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msrs ) , "::" ,
-                stringify ! ( pad ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msrs ) ) . entries as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msrs ) , "::" ,
-                stringify ! ( entries ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_msrs>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_msrs))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_msrs>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_msrs))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msrs)).nmsrs as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msrs),
+            "::",
+            stringify!(nmsrs)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msrs)).pad as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msrs),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msrs)).entries as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msrs),
+            "::",
+            stringify!(entries)
+        )
+    );
 }
 impl Clone for kvm_msrs {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1429,23 +2063,41 @@ pub struct kvm_msr_list {
 }
 #[test]
 fn bindgen_test_layout_kvm_msr_list() {
-    assert_eq!(::std::mem::size_of::<kvm_msr_list>() , 4usize , concat ! (
-               "Size of: " , stringify ! ( kvm_msr_list ) ));
-    assert_eq! (::std::mem::align_of::<kvm_msr_list>() , 4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_msr_list ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msr_list ) ) . nmsrs as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msr_list ) , "::" ,
-                stringify ! ( nmsrs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msr_list ) ) . indices as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msr_list ) , "::" ,
-                stringify ! ( indices ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_msr_list>(),
+        4usize,
+        concat!("Size of: ", stringify!(kvm_msr_list))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_msr_list>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_msr_list))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msr_list)).nmsrs as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msr_list),
+            "::",
+            stringify!(nmsrs)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msr_list)).indices as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msr_list),
+            "::",
+            stringify!(indices)
+        )
+    );
 }
 impl Clone for kvm_msr_list {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1459,43 +2111,81 @@ pub struct kvm_cpuid_entry {
 }
 #[test]
 fn bindgen_test_layout_kvm_cpuid_entry() {
-    assert_eq!(::std::mem::size_of::<kvm_cpuid_entry>() , 24usize , concat ! (
-               "Size of: " , stringify ! ( kvm_cpuid_entry ) ));
-    assert_eq! (::std::mem::align_of::<kvm_cpuid_entry>() , 4usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_cpuid_entry ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry ) ) . function as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry ) ,
-                "::" , stringify ! ( function ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry ) ) . eax as * const _ as
-                usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry ) ,
-                "::" , stringify ! ( eax ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry ) ) . ebx as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry ) ,
-                "::" , stringify ! ( ebx ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry ) ) . ecx as * const _ as
-                usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry ) ,
-                "::" , stringify ! ( ecx ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry ) ) . edx as * const _ as
-                usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry ) ,
-                "::" , stringify ! ( edx ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry ) ) . padding as * const
-                _ as usize } , 20usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry ) ,
-                "::" , stringify ! ( padding ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_cpuid_entry>(),
+        24usize,
+        concat!("Size of: ", stringify!(kvm_cpuid_entry))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_cpuid_entry>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_cpuid_entry))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry)).function as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry),
+            "::",
+            stringify!(function)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry)).eax as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry),
+            "::",
+            stringify!(eax)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry)).ebx as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry),
+            "::",
+            stringify!(ebx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry)).ecx as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry),
+            "::",
+            stringify!(ecx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry)).edx as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry),
+            "::",
+            stringify!(edx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry)).padding as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry),
+            "::",
+            stringify!(padding)
+        )
+    );
 }
 impl Clone for kvm_cpuid_entry {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1506,28 +2196,51 @@ pub struct kvm_cpuid {
 }
 #[test]
 fn bindgen_test_layout_kvm_cpuid() {
-    assert_eq!(::std::mem::size_of::<kvm_cpuid>() , 8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_cpuid ) ));
-    assert_eq! (::std::mem::align_of::<kvm_cpuid>() , 4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_cpuid ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid ) ) . nent as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid ) , "::" ,
-                stringify ! ( nent ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid ) ) . padding as * const _ as
-                usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid ) , "::" ,
-                stringify ! ( padding ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid ) ) . entries as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid ) , "::" ,
-                stringify ! ( entries ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_cpuid>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_cpuid))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_cpuid>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_cpuid))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid)).nent as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid),
+            "::",
+            stringify!(nent)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid)).padding as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid),
+            "::",
+            stringify!(padding)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid)).entries as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid),
+            "::",
+            stringify!(entries)
+        )
+    );
 }
 impl Clone for kvm_cpuid {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1543,53 +2256,101 @@ pub struct kvm_cpuid_entry2 {
 }
 #[test]
 fn bindgen_test_layout_kvm_cpuid_entry2() {
-    assert_eq!(::std::mem::size_of::<kvm_cpuid_entry2>() , 40usize , concat !
-               ( "Size of: " , stringify ! ( kvm_cpuid_entry2 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_cpuid_entry2>() , 4usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_cpuid_entry2 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry2 ) ) . function as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry2 ) ,
-                "::" , stringify ! ( function ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry2 ) ) . index as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry2 ) ,
-                "::" , stringify ! ( index ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry2 ) ) . flags as * const _
-                as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry2 ) ,
-                "::" , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry2 ) ) . eax as * const _
-                as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry2 ) ,
-                "::" , stringify ! ( eax ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry2 ) ) . ebx as * const _
-                as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry2 ) ,
-                "::" , stringify ! ( ebx ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry2 ) ) . ecx as * const _
-                as usize } , 20usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry2 ) ,
-                "::" , stringify ! ( ecx ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry2 ) ) . edx as * const _
-                as usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry2 ) ,
-                "::" , stringify ! ( edx ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid_entry2 ) ) . padding as * const
-                _ as usize } , 28usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid_entry2 ) ,
-                "::" , stringify ! ( padding ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_cpuid_entry2>(),
+        40usize,
+        concat!("Size of: ", stringify!(kvm_cpuid_entry2))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_cpuid_entry2>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_cpuid_entry2))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry2)).function as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry2),
+            "::",
+            stringify!(function)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry2)).index as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry2),
+            "::",
+            stringify!(index)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry2)).flags as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry2),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry2)).eax as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry2),
+            "::",
+            stringify!(eax)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry2)).ebx as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry2),
+            "::",
+            stringify!(ebx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry2)).ecx as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry2),
+            "::",
+            stringify!(ecx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry2)).edx as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry2),
+            "::",
+            stringify!(edx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid_entry2)).padding as *const _ as usize },
+        28usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid_entry2),
+            "::",
+            stringify!(padding)
+        )
+    );
 }
 impl Clone for kvm_cpuid_entry2 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1600,28 +2361,51 @@ pub struct kvm_cpuid2 {
 }
 #[test]
 fn bindgen_test_layout_kvm_cpuid2() {
-    assert_eq!(::std::mem::size_of::<kvm_cpuid2>() , 8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_cpuid2 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_cpuid2>() , 4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_cpuid2 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid2 ) ) . nent as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid2 ) , "::" ,
-                stringify ! ( nent ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid2 ) ) . padding as * const _ as
-                usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid2 ) , "::" ,
-                stringify ! ( padding ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_cpuid2 ) ) . entries as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_cpuid2 ) , "::" ,
-                stringify ! ( entries ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_cpuid2>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_cpuid2))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_cpuid2>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_cpuid2))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid2)).nent as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid2),
+            "::",
+            stringify!(nent)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid2)).padding as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid2),
+            "::",
+            stringify!(padding)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_cpuid2)).entries as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_cpuid2),
+            "::",
+            stringify!(entries)
+        )
+    );
 }
 impl Clone for kvm_cpuid2 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1642,80 +2426,151 @@ pub struct kvm_pit_channel_state {
 }
 #[test]
 fn bindgen_test_layout_kvm_pit_channel_state() {
-    assert_eq!(::std::mem::size_of::<kvm_pit_channel_state>() , 24usize ,
-               concat ! ( "Size of: " , stringify ! ( kvm_pit_channel_state )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_pit_channel_state>() , 8usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_pit_channel_state ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) . count as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( count ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) . latched_count
-                as * const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( latched_count ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) . count_latched
-                as * const _ as usize } , 6usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( count_latched ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) .
-                status_latched as * const _ as usize } , 7usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( status_latched ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) . status as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( status ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) . read_state as
-                * const _ as usize } , 9usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( read_state ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) . write_state
-                as * const _ as usize } , 10usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( write_state ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) . write_latch
-                as * const _ as usize } , 11usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( write_latch ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) . rw_mode as *
-                const _ as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( rw_mode ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) . mode as *
-                const _ as usize } , 13usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( mode ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) . bcd as *
-                const _ as usize } , 14usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( bcd ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) . gate as *
-                const _ as usize } , 15usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( gate ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_channel_state ) ) .
-                count_load_time as * const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_channel_state )
-                , "::" , stringify ! ( count_load_time ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_pit_channel_state>(),
+        24usize,
+        concat!("Size of: ", stringify!(kvm_pit_channel_state))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_pit_channel_state>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_pit_channel_state))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).count as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(count)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).latched_count as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(latched_count)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).count_latched as *const _ as usize },
+        6usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(count_latched)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).status_latched as *const _ as usize },
+        7usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(status_latched)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).status as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(status)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).read_state as *const _ as usize },
+        9usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(read_state)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).write_state as *const _ as usize },
+        10usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(write_state)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).write_latch as *const _ as usize },
+        11usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(write_latch)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).rw_mode as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(rw_mode)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).mode as *const _ as usize },
+        13usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(mode)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).bcd as *const _ as usize },
+        14usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(bcd)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).gate as *const _ as usize },
+        15usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(gate)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_channel_state)).count_load_time as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_channel_state),
+            "::",
+            stringify!(count_load_time)
+        )
+    );
 }
 impl Clone for kvm_pit_channel_state {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1728,39 +2583,71 @@ pub struct kvm_debug_exit_arch {
 }
 #[test]
 fn bindgen_test_layout_kvm_debug_exit_arch() {
-    assert_eq!(::std::mem::size_of::<kvm_debug_exit_arch>() , 32usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_debug_exit_arch ) ));
-    assert_eq! (::std::mem::align_of::<kvm_debug_exit_arch>() , 8usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_debug_exit_arch ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debug_exit_arch ) ) . exception as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debug_exit_arch ) ,
-                "::" , stringify ! ( exception ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debug_exit_arch ) ) . pad as * const
-                _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debug_exit_arch ) ,
-                "::" , stringify ! ( pad ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debug_exit_arch ) ) . pc as * const _
-                as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debug_exit_arch ) ,
-                "::" , stringify ! ( pc ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debug_exit_arch ) ) . dr6 as * const
-                _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debug_exit_arch ) ,
-                "::" , stringify ! ( dr6 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debug_exit_arch ) ) . dr7 as * const
-                _ as usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debug_exit_arch ) ,
-                "::" , stringify ! ( dr7 ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_debug_exit_arch>(),
+        32usize,
+        concat!("Size of: ", stringify!(kvm_debug_exit_arch))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_debug_exit_arch>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_debug_exit_arch))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debug_exit_arch)).exception as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debug_exit_arch),
+            "::",
+            stringify!(exception)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debug_exit_arch)).pad as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debug_exit_arch),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debug_exit_arch)).pc as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debug_exit_arch),
+            "::",
+            stringify!(pc)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debug_exit_arch)).dr6 as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debug_exit_arch),
+            "::",
+            stringify!(dr6)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debug_exit_arch)).dr7 as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debug_exit_arch),
+            "::",
+            stringify!(dr7)
+        )
+    );
 }
 impl Clone for kvm_debug_exit_arch {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1769,20 +2656,31 @@ pub struct kvm_guest_debug_arch {
 }
 #[test]
 fn bindgen_test_layout_kvm_guest_debug_arch() {
-    assert_eq!(::std::mem::size_of::<kvm_guest_debug_arch>() , 64usize ,
-               concat ! ( "Size of: " , stringify ! ( kvm_guest_debug_arch )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_guest_debug_arch>() , 8usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_guest_debug_arch ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_guest_debug_arch ) ) . debugreg as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_guest_debug_arch )
-                , "::" , stringify ! ( debugreg ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_guest_debug_arch>(),
+        64usize,
+        concat!("Size of: ", stringify!(kvm_guest_debug_arch))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_guest_debug_arch>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_guest_debug_arch))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_guest_debug_arch)).debugreg as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_guest_debug_arch),
+            "::",
+            stringify!(debugreg)
+        )
+    );
 }
 impl Clone for kvm_guest_debug_arch {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1791,18 +2689,31 @@ pub struct kvm_pit_state {
 }
 #[test]
 fn bindgen_test_layout_kvm_pit_state() {
-    assert_eq!(::std::mem::size_of::<kvm_pit_state>() , 72usize , concat ! (
-               "Size of: " , stringify ! ( kvm_pit_state ) ));
-    assert_eq! (::std::mem::align_of::<kvm_pit_state>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_pit_state ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_state ) ) . channels as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_state ) , "::"
-                , stringify ! ( channels ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_pit_state>(),
+        72usize,
+        concat!("Size of: ", stringify!(kvm_pit_state))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_pit_state>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_pit_state))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_state)).channels as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_state),
+            "::",
+            stringify!(channels)
+        )
+    );
 }
 impl Clone for kvm_pit_state {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1813,28 +2724,51 @@ pub struct kvm_pit_state2 {
 }
 #[test]
 fn bindgen_test_layout_kvm_pit_state2() {
-    assert_eq!(::std::mem::size_of::<kvm_pit_state2>() , 112usize , concat ! (
-               "Size of: " , stringify ! ( kvm_pit_state2 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_pit_state2>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_pit_state2 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_state2 ) ) . channels as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_state2 ) , "::"
-                , stringify ! ( channels ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_state2 ) ) . flags as * const _
-                as usize } , 72usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_state2 ) , "::"
-                , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_state2 ) ) . reserved as * const
-                _ as usize } , 76usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_state2 ) , "::"
-                , stringify ! ( reserved ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_pit_state2>(),
+        112usize,
+        concat!("Size of: ", stringify!(kvm_pit_state2))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_pit_state2>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_pit_state2))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_state2)).channels as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_state2),
+            "::",
+            stringify!(channels)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_state2)).flags as *const _ as usize },
+        72usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_state2),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_state2)).reserved as *const _ as usize },
+        76usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_state2),
+            "::",
+            stringify!(reserved)
+        )
+    );
 }
 impl Clone for kvm_pit_state2 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1844,25 +2778,41 @@ pub struct kvm_reinject_control {
 }
 #[test]
 fn bindgen_test_layout_kvm_reinject_control() {
-    assert_eq!(::std::mem::size_of::<kvm_reinject_control>() , 32usize ,
-               concat ! ( "Size of: " , stringify ! ( kvm_reinject_control )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_reinject_control>() , 1usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_reinject_control ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_reinject_control ) ) . pit_reinject
-                as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_reinject_control )
-                , "::" , stringify ! ( pit_reinject ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_reinject_control ) ) . reserved as *
-                const _ as usize } , 1usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_reinject_control )
-                , "::" , stringify ! ( reserved ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_reinject_control>(),
+        32usize,
+        concat!("Size of: ", stringify!(kvm_reinject_control))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_reinject_control>(),
+        1usize,
+        concat!("Alignment of ", stringify!(kvm_reinject_control))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_reinject_control)).pit_reinject as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_reinject_control),
+            "::",
+            stringify!(pit_reinject)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_reinject_control)).reserved as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_reinject_control),
+            "::",
+            stringify!(reserved)
+        )
+    );
 }
 impl Clone for kvm_reinject_control {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1885,46 +2835,73 @@ pub struct kvm_vcpu_events__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_kvm_vcpu_events__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_vcpu_events__bindgen_ty_1>() , 8usize
-               , concat ! (
-               "Size of: " , stringify ! ( kvm_vcpu_events__bindgen_ty_1 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_vcpu_events__bindgen_ty_1>() ,
-                4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_vcpu_events__bindgen_ty_1
-                ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_1 ) ) .
-                injected as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_1 ) , "::" , stringify ! (
-                injected ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_1 ) ) . nr as
-                * const _ as usize } , 1usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_1 ) , "::" , stringify ! ( nr )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_1 ) ) .
-                has_error_code as * const _ as usize } , 2usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_1 ) , "::" , stringify ! (
-                has_error_code ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_1 ) ) . pad
-                as * const _ as usize } , 3usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_1 ) , "::" , stringify ! ( pad )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_1 ) ) .
-                error_code as * const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_1 ) , "::" , stringify ! (
-                error_code ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_vcpu_events__bindgen_ty_1>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_vcpu_events__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_vcpu_events__bindgen_ty_1>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_vcpu_events__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_1)).injected as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_1),
+            "::",
+            stringify!(injected)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_1)).nr as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_1),
+            "::",
+            stringify!(nr)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_vcpu_events__bindgen_ty_1)).has_error_code as *const _ as usize
+        },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_1),
+            "::",
+            stringify!(has_error_code)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_1)).pad as *const _ as usize },
+        3usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_1),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_1)).error_code as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_1),
+            "::",
+            stringify!(error_code)
+        )
+    );
 }
 impl Clone for kvm_vcpu_events__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1936,40 +2913,61 @@ pub struct kvm_vcpu_events__bindgen_ty_2 {
 }
 #[test]
 fn bindgen_test_layout_kvm_vcpu_events__bindgen_ty_2() {
-    assert_eq!(::std::mem::size_of::<kvm_vcpu_events__bindgen_ty_2>() , 4usize
-               , concat ! (
-               "Size of: " , stringify ! ( kvm_vcpu_events__bindgen_ty_2 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_vcpu_events__bindgen_ty_2>() ,
-                1usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_vcpu_events__bindgen_ty_2
-                ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_2 ) ) .
-                injected as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_2 ) , "::" , stringify ! (
-                injected ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_2 ) ) . nr as
-                * const _ as usize } , 1usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_2 ) , "::" , stringify ! ( nr )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_2 ) ) . soft
-                as * const _ as usize } , 2usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_2 ) , "::" , stringify ! ( soft )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_2 ) ) .
-                shadow as * const _ as usize } , 3usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_2 ) , "::" , stringify ! ( shadow
-                ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_vcpu_events__bindgen_ty_2>(),
+        4usize,
+        concat!("Size of: ", stringify!(kvm_vcpu_events__bindgen_ty_2))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_vcpu_events__bindgen_ty_2>(),
+        1usize,
+        concat!("Alignment of ", stringify!(kvm_vcpu_events__bindgen_ty_2))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_2)).injected as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_2),
+            "::",
+            stringify!(injected)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_2)).nr as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_2),
+            "::",
+            stringify!(nr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_2)).soft as *const _ as usize },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_2),
+            "::",
+            stringify!(soft)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_2)).shadow as *const _ as usize },
+        3usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_2),
+            "::",
+            stringify!(shadow)
+        )
+    );
 }
 impl Clone for kvm_vcpu_events__bindgen_ty_2 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -1981,80 +2979,139 @@ pub struct kvm_vcpu_events__bindgen_ty_3 {
 }
 #[test]
 fn bindgen_test_layout_kvm_vcpu_events__bindgen_ty_3() {
-    assert_eq!(::std::mem::size_of::<kvm_vcpu_events__bindgen_ty_3>() , 4usize
-               , concat ! (
-               "Size of: " , stringify ! ( kvm_vcpu_events__bindgen_ty_3 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_vcpu_events__bindgen_ty_3>() ,
-                1usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_vcpu_events__bindgen_ty_3
-                ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_3 ) ) .
-                injected as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_3 ) , "::" , stringify ! (
-                injected ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_3 ) ) .
-                pending as * const _ as usize } , 1usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_3 ) , "::" , stringify ! ( pending
-                ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_3 ) ) .
-                masked as * const _ as usize } , 2usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_3 ) , "::" , stringify ! ( masked
-                ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events__bindgen_ty_3 ) ) . pad
-                as * const _ as usize } , 3usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_vcpu_events__bindgen_ty_3 ) , "::" , stringify ! ( pad )
-                ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_vcpu_events__bindgen_ty_3>(),
+        4usize,
+        concat!("Size of: ", stringify!(kvm_vcpu_events__bindgen_ty_3))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_vcpu_events__bindgen_ty_3>(),
+        1usize,
+        concat!("Alignment of ", stringify!(kvm_vcpu_events__bindgen_ty_3))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_3)).injected as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_3),
+            "::",
+            stringify!(injected)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_3)).pending as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_3),
+            "::",
+            stringify!(pending)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_3)).masked as *const _ as usize },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_3),
+            "::",
+            stringify!(masked)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events__bindgen_ty_3)).pad as *const _ as usize },
+        3usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events__bindgen_ty_3),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_vcpu_events__bindgen_ty_3 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[test]
 fn bindgen_test_layout_kvm_vcpu_events() {
-    assert_eq!(::std::mem::size_of::<kvm_vcpu_events>() , 64usize , concat ! (
-               "Size of: " , stringify ! ( kvm_vcpu_events ) ));
-    assert_eq! (::std::mem::align_of::<kvm_vcpu_events>() , 4usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_vcpu_events ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events ) ) . exception as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_vcpu_events ) ,
-                "::" , stringify ! ( exception ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events ) ) . interrupt as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_vcpu_events ) ,
-                "::" , stringify ! ( interrupt ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events ) ) . nmi as * const _ as
-                usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_vcpu_events ) ,
-                "::" , stringify ! ( nmi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events ) ) . sipi_vector as *
-                const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_vcpu_events ) ,
-                "::" , stringify ! ( sipi_vector ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events ) ) . flags as * const _
-                as usize } , 20usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_vcpu_events ) ,
-                "::" , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vcpu_events ) ) . reserved as * const
-                _ as usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_vcpu_events ) ,
-                "::" , stringify ! ( reserved ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_vcpu_events>(),
+        64usize,
+        concat!("Size of: ", stringify!(kvm_vcpu_events))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_vcpu_events>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_vcpu_events))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events)).exception as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events),
+            "::",
+            stringify!(exception)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events)).interrupt as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events),
+            "::",
+            stringify!(interrupt)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events)).nmi as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events),
+            "::",
+            stringify!(nmi)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events)).sipi_vector as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events),
+            "::",
+            stringify!(sipi_vector)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events)).flags as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vcpu_events)).reserved as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vcpu_events),
+            "::",
+            stringify!(reserved)
+        )
+    );
 }
 impl Clone for kvm_vcpu_events {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2067,38 +3124,71 @@ pub struct kvm_debugregs {
 }
 #[test]
 fn bindgen_test_layout_kvm_debugregs() {
-    assert_eq!(::std::mem::size_of::<kvm_debugregs>() , 128usize , concat ! (
-               "Size of: " , stringify ! ( kvm_debugregs ) ));
-    assert_eq! (::std::mem::align_of::<kvm_debugregs>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_debugregs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debugregs ) ) . db as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debugregs ) , "::"
-                , stringify ! ( db ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debugregs ) ) . dr6 as * const _ as
-                usize } , 32usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debugregs ) , "::"
-                , stringify ! ( dr6 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debugregs ) ) . dr7 as * const _ as
-                usize } , 40usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debugregs ) , "::"
-                , stringify ! ( dr7 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debugregs ) ) . flags as * const _ as
-                usize } , 48usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debugregs ) , "::"
-                , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debugregs ) ) . reserved as * const _
-                as usize } , 56usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debugregs ) , "::"
-                , stringify ! ( reserved ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_debugregs>(),
+        128usize,
+        concat!("Size of: ", stringify!(kvm_debugregs))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_debugregs>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_debugregs))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debugregs)).db as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debugregs),
+            "::",
+            stringify!(db)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debugregs)).dr6 as *const _ as usize },
+        32usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debugregs),
+            "::",
+            stringify!(dr6)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debugregs)).dr7 as *const _ as usize },
+        40usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debugregs),
+            "::",
+            stringify!(dr7)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debugregs)).flags as *const _ as usize },
+        48usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debugregs),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debugregs)).reserved as *const _ as usize },
+        56usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debugregs),
+            "::",
+            stringify!(reserved)
+        )
+    );
 }
 impl Clone for kvm_debugregs {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 pub struct kvm_xsave {
@@ -2106,18 +3196,31 @@ pub struct kvm_xsave {
 }
 #[test]
 fn bindgen_test_layout_kvm_xsave() {
-    assert_eq!(::std::mem::size_of::<kvm_xsave>() , 4096usize , concat ! (
-               "Size of: " , stringify ! ( kvm_xsave ) ));
-    assert_eq! (::std::mem::align_of::<kvm_xsave>() , 4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_xsave ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xsave ) ) . region as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xsave ) , "::" ,
-                stringify ! ( region ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_xsave>(),
+        4096usize,
+        concat!("Size of: ", stringify!(kvm_xsave))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_xsave>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_xsave))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xsave)).region as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xsave),
+            "::",
+            stringify!(region)
+        )
+    );
 }
 impl Default for kvm_xsave {
-    fn default() -> Self { unsafe { ::std::mem::zeroed() } }
+    fn default() -> Self {
+        unsafe { ::std::mem::zeroed() }
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2128,28 +3231,51 @@ pub struct kvm_xcr {
 }
 #[test]
 fn bindgen_test_layout_kvm_xcr() {
-    assert_eq!(::std::mem::size_of::<kvm_xcr>() , 16usize , concat ! (
-               "Size of: " , stringify ! ( kvm_xcr ) ));
-    assert_eq! (::std::mem::align_of::<kvm_xcr>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_xcr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xcr ) ) . xcr as * const _ as usize }
-                , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xcr ) , "::" ,
-                stringify ! ( xcr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xcr ) ) . reserved as * const _ as
-                usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xcr ) , "::" ,
-                stringify ! ( reserved ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xcr ) ) . value as * const _ as usize
-                } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xcr ) , "::" ,
-                stringify ! ( value ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_xcr>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_xcr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_xcr>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_xcr))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xcr)).xcr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xcr),
+            "::",
+            stringify!(xcr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xcr)).reserved as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xcr),
+            "::",
+            stringify!(reserved)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xcr)).value as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xcr),
+            "::",
+            stringify!(value)
+        )
+    );
 }
 impl Clone for kvm_xcr {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2161,47 +3287,82 @@ pub struct kvm_xcrs {
 }
 #[test]
 fn bindgen_test_layout_kvm_xcrs() {
-    assert_eq!(::std::mem::size_of::<kvm_xcrs>() , 392usize , concat ! (
-               "Size of: " , stringify ! ( kvm_xcrs ) ));
-    assert_eq! (::std::mem::align_of::<kvm_xcrs>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_xcrs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xcrs ) ) . nr_xcrs as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xcrs ) , "::" ,
-                stringify ! ( nr_xcrs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xcrs ) ) . flags as * const _ as
-                usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xcrs ) , "::" ,
-                stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xcrs ) ) . xcrs as * const _ as usize
-                } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xcrs ) , "::" ,
-                stringify ! ( xcrs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xcrs ) ) . padding as * const _ as
-                usize } , 264usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xcrs ) , "::" ,
-                stringify ! ( padding ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_xcrs>(),
+        392usize,
+        concat!("Size of: ", stringify!(kvm_xcrs))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_xcrs>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_xcrs))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xcrs)).nr_xcrs as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xcrs),
+            "::",
+            stringify!(nr_xcrs)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xcrs)).flags as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xcrs),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xcrs)).xcrs as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xcrs),
+            "::",
+            stringify!(xcrs)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xcrs)).padding as *const _ as usize },
+        264usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xcrs),
+            "::",
+            stringify!(padding)
+        )
+    );
 }
 impl Clone for kvm_xcrs {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
-pub struct kvm_sync_regs {
-}
+pub struct kvm_sync_regs {}
 #[test]
 fn bindgen_test_layout_kvm_sync_regs() {
-    assert_eq!(::std::mem::size_of::<kvm_sync_regs>() , 0usize , concat ! (
-               "Size of: " , stringify ! ( kvm_sync_regs ) ));
-    assert_eq! (::std::mem::align_of::<kvm_sync_regs>() , 1usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_sync_regs ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_sync_regs>(),
+        0usize,
+        concat!("Size of: ", stringify!(kvm_sync_regs))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_sync_regs>(),
+        1usize,
+        concat!("Alignment of ", stringify!(kvm_sync_regs))
+    );
 }
 impl Clone for kvm_sync_regs {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2211,24 +3372,41 @@ pub struct kvm_user_trace_setup {
 }
 #[test]
 fn bindgen_test_layout_kvm_user_trace_setup() {
-    assert_eq!(::std::mem::size_of::<kvm_user_trace_setup>() , 8usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_user_trace_setup ) ));
-    assert_eq! (::std::mem::align_of::<kvm_user_trace_setup>() , 4usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_user_trace_setup ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_user_trace_setup ) ) . buf_size as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_user_trace_setup )
-                , "::" , stringify ! ( buf_size ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_user_trace_setup ) ) . buf_nr as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_user_trace_setup )
-                , "::" , stringify ! ( buf_nr ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_user_trace_setup>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_user_trace_setup))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_user_trace_setup>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_user_trace_setup))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_user_trace_setup)).buf_size as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_user_trace_setup),
+            "::",
+            stringify!(buf_size)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_user_trace_setup)).buf_nr as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_user_trace_setup),
+            "::",
+            stringify!(buf_nr)
+        )
+    );
 }
 impl Clone for kvm_user_trace_setup {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2239,28 +3417,51 @@ pub struct kvm_breakpoint {
 }
 #[test]
 fn bindgen_test_layout_kvm_breakpoint() {
-    assert_eq!(::std::mem::size_of::<kvm_breakpoint>() , 16usize , concat ! (
-               "Size of: " , stringify ! ( kvm_breakpoint ) ));
-    assert_eq! (::std::mem::align_of::<kvm_breakpoint>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_breakpoint ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_breakpoint ) ) . enabled as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_breakpoint ) , "::"
-                , stringify ! ( enabled ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_breakpoint ) ) . padding as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_breakpoint ) , "::"
-                , stringify ! ( padding ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_breakpoint ) ) . address as * const _
-                as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_breakpoint ) , "::"
-                , stringify ! ( address ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_breakpoint>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_breakpoint))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_breakpoint>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_breakpoint))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_breakpoint)).enabled as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_breakpoint),
+            "::",
+            stringify!(enabled)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_breakpoint)).padding as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_breakpoint),
+            "::",
+            stringify!(padding)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_breakpoint)).address as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_breakpoint),
+            "::",
+            stringify!(address)
+        )
+    );
 }
 impl Clone for kvm_breakpoint {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2272,33 +3473,61 @@ pub struct kvm_debug_guest {
 }
 #[test]
 fn bindgen_test_layout_kvm_debug_guest() {
-    assert_eq!(::std::mem::size_of::<kvm_debug_guest>() , 80usize , concat ! (
-               "Size of: " , stringify ! ( kvm_debug_guest ) ));
-    assert_eq! (::std::mem::align_of::<kvm_debug_guest>() , 8usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_debug_guest ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debug_guest ) ) . enabled as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debug_guest ) ,
-                "::" , stringify ! ( enabled ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debug_guest ) ) . pad as * const _ as
-                usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debug_guest ) ,
-                "::" , stringify ! ( pad ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debug_guest ) ) . breakpoints as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debug_guest ) ,
-                "::" , stringify ! ( breakpoints ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_debug_guest ) ) . singlestep as *
-                const _ as usize } , 72usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_debug_guest ) ,
-                "::" , stringify ! ( singlestep ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_debug_guest>(),
+        80usize,
+        concat!("Size of: ", stringify!(kvm_debug_guest))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_debug_guest>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_debug_guest))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debug_guest)).enabled as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debug_guest),
+            "::",
+            stringify!(enabled)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debug_guest)).pad as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debug_guest),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debug_guest)).breakpoints as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debug_guest),
+            "::",
+            stringify!(breakpoints)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_debug_guest)).singlestep as *const _ as usize },
+        72usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_debug_guest),
+            "::",
+            stringify!(singlestep)
+        )
+    );
 }
 impl Clone for kvm_debug_guest {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2310,33 +3539,61 @@ pub struct kvm_memory_region {
 }
 #[test]
 fn bindgen_test_layout_kvm_memory_region() {
-    assert_eq!(::std::mem::size_of::<kvm_memory_region>() , 24usize , concat !
-               ( "Size of: " , stringify ! ( kvm_memory_region ) ));
-    assert_eq! (::std::mem::align_of::<kvm_memory_region>() , 8usize , concat
-                ! ( "Alignment of " , stringify ! ( kvm_memory_region ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_memory_region ) ) . slot as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_memory_region ) ,
-                "::" , stringify ! ( slot ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_memory_region ) ) . flags as * const
-                _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_memory_region ) ,
-                "::" , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_memory_region ) ) . guest_phys_addr
-                as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_memory_region ) ,
-                "::" , stringify ! ( guest_phys_addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_memory_region ) ) . memory_size as *
-                const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_memory_region ) ,
-                "::" , stringify ! ( memory_size ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_memory_region>(),
+        24usize,
+        concat!("Size of: ", stringify!(kvm_memory_region))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_memory_region>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_memory_region))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_memory_region)).slot as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_memory_region),
+            "::",
+            stringify!(slot)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_memory_region)).flags as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_memory_region),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_memory_region)).guest_phys_addr as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_memory_region),
+            "::",
+            stringify!(guest_phys_addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_memory_region)).memory_size as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_memory_region),
+            "::",
+            stringify!(memory_size)
+        )
+    );
 }
 impl Clone for kvm_memory_region {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2349,46 +3606,75 @@ pub struct kvm_userspace_memory_region {
 }
 #[test]
 fn bindgen_test_layout_kvm_userspace_memory_region() {
-    assert_eq!(::std::mem::size_of::<kvm_userspace_memory_region>() , 32usize
-               , concat ! (
-               "Size of: " , stringify ! ( kvm_userspace_memory_region ) ));
-    assert_eq! (::std::mem::align_of::<kvm_userspace_memory_region>() , 8usize
-                , concat ! (
-                "Alignment of " , stringify ! ( kvm_userspace_memory_region )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_userspace_memory_region ) ) . slot as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_userspace_memory_region ) , "::" , stringify ! ( slot )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_userspace_memory_region ) ) . flags
-                as * const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_userspace_memory_region ) , "::" , stringify ! ( flags )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_userspace_memory_region ) ) .
-                guest_phys_addr as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_userspace_memory_region ) , "::" , stringify ! (
-                guest_phys_addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_userspace_memory_region ) ) .
-                memory_size as * const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_userspace_memory_region ) , "::" , stringify ! (
-                memory_size ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_userspace_memory_region ) ) .
-                userspace_addr as * const _ as usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_userspace_memory_region ) , "::" , stringify ! (
-                userspace_addr ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_userspace_memory_region>(),
+        32usize,
+        concat!("Size of: ", stringify!(kvm_userspace_memory_region))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_userspace_memory_region>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_userspace_memory_region))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_userspace_memory_region)).slot as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_userspace_memory_region),
+            "::",
+            stringify!(slot)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_userspace_memory_region)).flags as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_userspace_memory_region),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_userspace_memory_region)).guest_phys_addr as *const _ as usize
+        },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_userspace_memory_region),
+            "::",
+            stringify!(guest_phys_addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_userspace_memory_region)).memory_size as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_userspace_memory_region),
+            "::",
+            stringify!(memory_size)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_userspace_memory_region)).userspace_addr as *const _ as usize
+        },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_userspace_memory_region),
+            "::",
+            stringify!(userspace_addr)
+        )
+    );
 }
 impl Clone for kvm_userspace_memory_region {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2405,42 +3691,69 @@ pub struct kvm_irq_level__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_kvm_irq_level__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_irq_level__bindgen_ty_1>() , 4usize ,
-               concat ! (
-               "Size of: " , stringify ! ( kvm_irq_level__bindgen_ty_1 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_irq_level__bindgen_ty_1>() , 4usize
-                , concat ! (
-                "Alignment of " , stringify ! ( kvm_irq_level__bindgen_ty_1 )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_level__bindgen_ty_1 ) ) . irq as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irq_level__bindgen_ty_1 ) , "::" , stringify ! ( irq ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_level__bindgen_ty_1 ) ) . status
-                as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irq_level__bindgen_ty_1 ) , "::" , stringify ! ( status )
-                ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_irq_level__bindgen_ty_1>(),
+        4usize,
+        concat!("Size of: ", stringify!(kvm_irq_level__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_irq_level__bindgen_ty_1>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_irq_level__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_level__bindgen_ty_1)).irq as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_level__bindgen_ty_1),
+            "::",
+            stringify!(irq)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_level__bindgen_ty_1)).status as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_level__bindgen_ty_1),
+            "::",
+            stringify!(status)
+        )
+    );
 }
 impl Clone for kvm_irq_level__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[test]
 fn bindgen_test_layout_kvm_irq_level() {
-    assert_eq!(::std::mem::size_of::<kvm_irq_level>() , 8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_irq_level ) ));
-    assert_eq! (::std::mem::align_of::<kvm_irq_level>() , 4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_irq_level ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_level ) ) . level as * const _ as
-                usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_level ) , "::"
-                , stringify ! ( level ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_irq_level>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_irq_level))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_irq_level>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_irq_level))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_level)).level as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_level),
+            "::",
+            stringify!(level)
+        )
+    );
 }
 impl Clone for kvm_irq_level {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Copy)]
@@ -2459,63 +3772,109 @@ pub struct kvm_irqchip__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_kvm_irqchip__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_irqchip__bindgen_ty_1>() , 512usize ,
-               concat ! (
-               "Size of: " , stringify ! ( kvm_irqchip__bindgen_ty_1 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_irqchip__bindgen_ty_1>() , 8usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_irqchip__bindgen_ty_1 )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irqchip__bindgen_ty_1 ) ) . dummy as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irqchip__bindgen_ty_1 ) , "::" , stringify ! ( dummy ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irqchip__bindgen_ty_1 ) ) . pic as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irqchip__bindgen_ty_1 ) , "::" , stringify ! ( pic ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irqchip__bindgen_ty_1 ) ) . ioapic as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irqchip__bindgen_ty_1 ) , "::" , stringify ! ( ioapic )
-                ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_irqchip__bindgen_ty_1>(),
+        512usize,
+        concat!("Size of: ", stringify!(kvm_irqchip__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_irqchip__bindgen_ty_1>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_irqchip__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irqchip__bindgen_ty_1)).dummy as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irqchip__bindgen_ty_1),
+            "::",
+            stringify!(dummy)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irqchip__bindgen_ty_1)).pic as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irqchip__bindgen_ty_1),
+            "::",
+            stringify!(pic)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irqchip__bindgen_ty_1)).ioapic as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irqchip__bindgen_ty_1),
+            "::",
+            stringify!(ioapic)
+        )
+    );
 }
 impl Clone for kvm_irqchip__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 impl Default for kvm_irqchip__bindgen_ty_1 {
-    fn default() -> Self { unsafe { ::std::mem::zeroed() } }
+    fn default() -> Self {
+        unsafe { ::std::mem::zeroed() }
+    }
 }
 #[test]
 fn bindgen_test_layout_kvm_irqchip() {
-    assert_eq!(::std::mem::size_of::<kvm_irqchip>() , 520usize , concat ! (
-               "Size of: " , stringify ! ( kvm_irqchip ) ));
-    assert_eq! (::std::mem::align_of::<kvm_irqchip>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_irqchip ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irqchip ) ) . chip_id as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irqchip ) , "::" ,
-                stringify ! ( chip_id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irqchip ) ) . pad as * const _ as
-                usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irqchip ) , "::" ,
-                stringify ! ( pad ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irqchip ) ) . chip as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irqchip ) , "::" ,
-                stringify ! ( chip ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_irqchip>(),
+        520usize,
+        concat!("Size of: ", stringify!(kvm_irqchip))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_irqchip>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_irqchip))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irqchip)).chip_id as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irqchip),
+            "::",
+            stringify!(chip_id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irqchip)).pad as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irqchip),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irqchip)).chip as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irqchip),
+            "::",
+            stringify!(chip)
+        )
+    );
 }
 impl Clone for kvm_irqchip {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 impl Default for kvm_irqchip {
-    fn default() -> Self { unsafe { ::std::mem::zeroed() } }
+    fn default() -> Self {
+        unsafe { ::std::mem::zeroed() }
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2525,23 +3884,41 @@ pub struct kvm_pit_config {
 }
 #[test]
 fn bindgen_test_layout_kvm_pit_config() {
-    assert_eq!(::std::mem::size_of::<kvm_pit_config>() , 64usize , concat ! (
-               "Size of: " , stringify ! ( kvm_pit_config ) ));
-    assert_eq! (::std::mem::align_of::<kvm_pit_config>() , 4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_pit_config ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_config ) ) . flags as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_config ) , "::"
-                , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_pit_config ) ) . pad as * const _ as
-                usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_pit_config ) , "::"
-                , stringify ! ( pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_pit_config>(),
+        64usize,
+        concat!("Size of: ", stringify!(kvm_pit_config))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_pit_config>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_pit_config))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_config)).flags as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_config),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_pit_config)).pad as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_pit_config),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_pit_config {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Copy)]
@@ -2590,24 +3967,37 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_1>() ,
-               8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_run__bindgen_ty_1__bindgen_ty_1
-               ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_1>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_1 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_1 ) ) .
-                hardware_exit_reason as * const _ as usize } , 0usize , concat
-                ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_1 ) , "::" , stringify ! (
-                hardware_exit_reason ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_1>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_run__bindgen_ty_1__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_1>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_1)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_1)).hardware_exit_reason as *const _
+                as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_1),
+            "::",
+            stringify!(hardware_exit_reason)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2616,24 +4006,37 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_2 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_2() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_2>() ,
-               8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_run__bindgen_ty_1__bindgen_ty_2
-               ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_2>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_2 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_2 ) ) .
-                hardware_entry_failure_reason as * const _ as usize } , 0usize
-                , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_2 ) , "::" , stringify ! (
-                hardware_entry_failure_reason ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_2>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_run__bindgen_ty_1__bindgen_ty_2))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_2>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_2)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_2)).hardware_entry_failure_reason
+                as *const _ as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_2),
+            "::",
+            stringify!(hardware_entry_failure_reason)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_2 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2643,29 +4046,48 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_3 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_3() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_3>() ,
-               8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_run__bindgen_ty_1__bindgen_ty_3
-               ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_3>()
-                , 4usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_3 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_3 ) ) .
-                exception as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_3 ) , "::" , stringify ! (
-                exception ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_3 ) ) .
-                error_code as * const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_3 ) , "::" , stringify ! (
-                error_code ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_3>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_run__bindgen_ty_1__bindgen_ty_3))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_3>(),
+        4usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_3)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_3)).exception as *const _ as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_3),
+            "::",
+            stringify!(exception)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_3)).error_code as *const _ as usize
+        },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_3),
+            "::",
+            stringify!(error_code)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_3 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2678,47 +4100,78 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_4 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_4() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_4>() ,
-               16usize , concat ! (
-               "Size of: " , stringify ! ( kvm_run__bindgen_ty_1__bindgen_ty_4
-               ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_4>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_4 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_4 ) ) .
-                direction as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_4 ) , "::" , stringify ! (
-                direction ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_4 ) ) .
-                size as * const _ as usize } , 1usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_4 ) , "::" , stringify ! (
-                size ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_4 ) ) .
-                port as * const _ as usize } , 2usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_4 ) , "::" , stringify ! (
-                port ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_4 ) ) .
-                count as * const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_4 ) , "::" , stringify ! (
-                count ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_4 ) ) .
-                data_offset as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_4 ) , "::" , stringify ! (
-                data_offset ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_4>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_run__bindgen_ty_1__bindgen_ty_4))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_4>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_4)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_4)).direction as *const _ as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_4),
+            "::",
+            stringify!(direction)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_4)).size as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_4),
+            "::",
+            stringify!(size)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_4)).port as *const _ as usize },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_4),
+            "::",
+            stringify!(port)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_4)).count as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_4),
+            "::",
+            stringify!(count)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_4)).data_offset as *const _ as usize
+        },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_4),
+            "::",
+            stringify!(data_offset)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_4 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2727,23 +4180,34 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_5 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_5() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_5>() ,
-               32usize , concat ! (
-               "Size of: " , stringify ! ( kvm_run__bindgen_ty_1__bindgen_ty_5
-               ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_5>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_5 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_5 ) ) .
-                arch as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_5 ) , "::" , stringify ! (
-                arch ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_5>(),
+        32usize,
+        concat!("Size of: ", stringify!(kvm_run__bindgen_ty_1__bindgen_ty_5))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_5>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_5)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_5)).arch as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_5),
+            "::",
+            stringify!(arch)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_5 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2755,41 +4219,68 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_6 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_6() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_6>() ,
-               24usize , concat ! (
-               "Size of: " , stringify ! ( kvm_run__bindgen_ty_1__bindgen_ty_6
-               ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_6>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_6 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_6 ) ) .
-                phys_addr as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_6 ) , "::" , stringify ! (
-                phys_addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_6 ) ) .
-                data as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_6 ) , "::" , stringify ! (
-                data ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_6 ) ) .
-                len as * const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_6 ) , "::" , stringify ! (
-                len ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_6 ) ) .
-                is_write as * const _ as usize } , 20usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_6 ) , "::" , stringify ! (
-                is_write ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_6>(),
+        24usize,
+        concat!("Size of: ", stringify!(kvm_run__bindgen_ty_1__bindgen_ty_6))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_6>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_6)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_6)).phys_addr as *const _ as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_6),
+            "::",
+            stringify!(phys_addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_6)).data as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_6),
+            "::",
+            stringify!(data)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_6)).len as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_6),
+            "::",
+            stringify!(len)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_6)).is_write as *const _ as usize
+        },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_6),
+            "::",
+            stringify!(is_write)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_6 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2802,47 +4293,76 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_7 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_7() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_7>() ,
-               72usize , concat ! (
-               "Size of: " , stringify ! ( kvm_run__bindgen_ty_1__bindgen_ty_7
-               ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_7>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_7 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_7 ) ) .
-                nr as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_7 ) , "::" , stringify ! (
-                nr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_7 ) ) .
-                args as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_7 ) , "::" , stringify ! (
-                args ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_7 ) ) .
-                ret as * const _ as usize } , 56usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_7 ) , "::" , stringify ! (
-                ret ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_7 ) ) .
-                longmode as * const _ as usize } , 64usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_7 ) , "::" , stringify ! (
-                longmode ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_7 ) ) .
-                pad as * const _ as usize } , 68usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_7 ) , "::" , stringify ! (
-                pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_7>(),
+        72usize,
+        concat!("Size of: ", stringify!(kvm_run__bindgen_ty_1__bindgen_ty_7))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_7>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_7)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_7)).nr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_7),
+            "::",
+            stringify!(nr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_7)).args as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_7),
+            "::",
+            stringify!(args)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_7)).ret as *const _ as usize },
+        56usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_7),
+            "::",
+            stringify!(ret)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_7)).longmode as *const _ as usize
+        },
+        64usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_7),
+            "::",
+            stringify!(longmode)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_7)).pad as *const _ as usize },
+        68usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_7),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_7 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2853,35 +4373,56 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_8 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_8() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_8>() ,
-               16usize , concat ! (
-               "Size of: " , stringify ! ( kvm_run__bindgen_ty_1__bindgen_ty_8
-               ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_8>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_8 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_8 ) ) .
-                rip as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_8 ) , "::" , stringify ! (
-                rip ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_8 ) ) .
-                is_write as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_8 ) , "::" , stringify ! (
-                is_write ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_8 ) ) .
-                pad as * const _ as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_8 ) , "::" , stringify ! (
-                pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_8>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_run__bindgen_ty_1__bindgen_ty_8))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_8>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_8)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_8)).rip as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_8),
+            "::",
+            stringify!(rip)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_8)).is_write as *const _ as usize
+        },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_8),
+            "::",
+            stringify!(is_write)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_8)).pad as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_8),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_8 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2892,35 +4433,56 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_9 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_9() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_9>() ,
-               8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_run__bindgen_ty_1__bindgen_ty_9
-               ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_9>()
-                , 4usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_9 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_9 ) ) .
-                icptcode as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_9 ) , "::" , stringify ! (
-                icptcode ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_9 ) ) .
-                ipa as * const _ as usize } , 2usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_9 ) , "::" , stringify ! (
-                ipa ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_9 ) ) .
-                ipb as * const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_9 ) , "::" , stringify ! (
-                ipb ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_9>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_run__bindgen_ty_1__bindgen_ty_9))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_9>(),
+        4usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_9)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_9)).icptcode as *const _ as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_9),
+            "::",
+            stringify!(icptcode)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_9)).ipa as *const _ as usize },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_9),
+            "::",
+            stringify!(ipa)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_9)).ipb as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_9),
+            "::",
+            stringify!(ipb)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_9 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2930,29 +4492,52 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_10 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_10() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_10>() ,
-               16usize , concat ! (
-               "Size of: " , stringify ! (
-               kvm_run__bindgen_ty_1__bindgen_ty_10 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_10>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_10 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_10 ) )
-                . trans_exc_code as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_10 ) , "::" , stringify ! (
-                trans_exc_code ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_10 ) )
-                . pgm_code as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_10 ) , "::" , stringify ! (
-                pgm_code ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_10>(),
+        16usize,
+        concat!(
+            "Size of: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_10)
+        )
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_10>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_10)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_10)).trans_exc_code as *const _
+                as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_10),
+            "::",
+            stringify!(trans_exc_code)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_10)).pgm_code as *const _ as usize
+        },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_10),
+            "::",
+            stringify!(pgm_code)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_10 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -2963,35 +4548,59 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_11 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_11() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_11>() ,
-               12usize , concat ! (
-               "Size of: " , stringify ! (
-               kvm_run__bindgen_ty_1__bindgen_ty_11 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_11>()
-                , 4usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_11 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_11 ) )
-                . dcrn as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_11 ) , "::" , stringify ! (
-                dcrn ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_11 ) )
-                . data as * const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_11 ) , "::" , stringify ! (
-                data ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_11 ) )
-                . is_write as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_11 ) , "::" , stringify ! (
-                is_write ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_11>(),
+        12usize,
+        concat!(
+            "Size of: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_11)
+        )
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_11>(),
+        4usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_11)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_11)).dcrn as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_11),
+            "::",
+            stringify!(dcrn)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_11)).data as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_11),
+            "::",
+            stringify!(data)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_11)).is_write as *const _ as usize
+        },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_11),
+            "::",
+            stringify!(is_write)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_11 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3002,35 +4611,61 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_12 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_12() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_12>() ,
-               136usize , concat ! (
-               "Size of: " , stringify ! (
-               kvm_run__bindgen_ty_1__bindgen_ty_12 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_12>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_12 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_12 ) )
-                . suberror as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_12 ) , "::" , stringify ! (
-                suberror ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_12 ) )
-                . ndata as * const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_12 ) , "::" , stringify ! (
-                ndata ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_12 ) )
-                . data as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_12 ) , "::" , stringify ! (
-                data ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_12>(),
+        136usize,
+        concat!(
+            "Size of: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_12)
+        )
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_12>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_12)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_12)).suberror as *const _ as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_12),
+            "::",
+            stringify!(suberror)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_12)).ndata as *const _ as usize
+        },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_12),
+            "::",
+            stringify!(ndata)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_12)).data as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_12),
+            "::",
+            stringify!(data)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_12 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3039,23 +4674,37 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_13 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_13() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_13>() ,
-               256usize , concat ! (
-               "Size of: " , stringify ! (
-               kvm_run__bindgen_ty_1__bindgen_ty_13 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_13>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_13 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_13 ) )
-                . gprs as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_13 ) , "::" , stringify ! (
-                gprs ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_13>(),
+        256usize,
+        concat!(
+            "Size of: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_13)
+        )
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_13>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_13)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_13)).gprs as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_13),
+            "::",
+            stringify!(gprs)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_13 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3066,35 +4715,57 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_14 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_14() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_14>() ,
-               88usize , concat ! (
-               "Size of: " , stringify ! (
-               kvm_run__bindgen_ty_1__bindgen_ty_14 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_14>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_14 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_14 ) )
-                . nr as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_14 ) , "::" , stringify ! (
-                nr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_14 ) )
-                . ret as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_14 ) , "::" , stringify ! (
-                ret ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_14 ) )
-                . args as * const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_14 ) , "::" , stringify ! (
-                args ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_14>(),
+        88usize,
+        concat!(
+            "Size of: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_14)
+        )
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_14>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_14)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_14)).nr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_14),
+            "::",
+            stringify!(nr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_14)).ret as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_14),
+            "::",
+            stringify!(ret)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_14)).args as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_14),
+            "::",
+            stringify!(args)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_14 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3108,53 +4779,99 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_15 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_15() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_15>() ,
-               20usize , concat ! (
-               "Size of: " , stringify ! (
-               kvm_run__bindgen_ty_1__bindgen_ty_15 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_15>()
-                , 4usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_15 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_15 ) )
-                . subchannel_id as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_15 ) , "::" , stringify ! (
-                subchannel_id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_15 ) )
-                . subchannel_nr as * const _ as usize } , 2usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_15 ) , "::" , stringify ! (
-                subchannel_nr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_15 ) )
-                . io_int_parm as * const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_15 ) , "::" , stringify ! (
-                io_int_parm ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_15 ) )
-                . io_int_word as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_15 ) , "::" , stringify ! (
-                io_int_word ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_15 ) )
-                . ipb as * const _ as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_15 ) , "::" , stringify ! (
-                ipb ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_15 ) )
-                . dequeued as * const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_15 ) , "::" , stringify ! (
-                dequeued ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_15>(),
+        20usize,
+        concat!(
+            "Size of: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_15)
+        )
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_15>(),
+        4usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_15)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_15)).subchannel_id as *const _
+                as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_15),
+            "::",
+            stringify!(subchannel_id)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_15)).subchannel_nr as *const _
+                as usize
+        },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_15),
+            "::",
+            stringify!(subchannel_nr)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_15)).io_int_parm as *const _ as usize
+        },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_15),
+            "::",
+            stringify!(io_int_parm)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_15)).io_int_word as *const _ as usize
+        },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_15),
+            "::",
+            stringify!(io_int_word)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_15)).ipb as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_15),
+            "::",
+            stringify!(ipb)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_15)).dequeued as *const _ as usize
+        },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_15),
+            "::",
+            stringify!(dequeued)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_15 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3163,23 +4880,37 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_16 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_16() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_16>() ,
-               4usize , concat ! (
-               "Size of: " , stringify ! (
-               kvm_run__bindgen_ty_1__bindgen_ty_16 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_16>()
-                , 4usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_16 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_16 ) )
-                . epr as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_16 ) , "::" , stringify ! (
-                epr ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_16>(),
+        4usize,
+        concat!(
+            "Size of: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_16)
+        )
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_16>(),
+        4usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_16)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_16)).epr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_16),
+            "::",
+            stringify!(epr)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_16 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3189,136 +4920,259 @@ pub struct kvm_run__bindgen_ty_1__bindgen_ty_17 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1__bindgen_ty_17() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_17>() ,
-               16usize , concat ! (
-               "Size of: " , stringify ! (
-               kvm_run__bindgen_ty_1__bindgen_ty_17 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_17>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_17 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_17 ) )
-                . type_ as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_17 ) , "::" , stringify ! (
-                type_ ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1__bindgen_ty_17 ) )
-                . flags as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_run__bindgen_ty_1__bindgen_ty_17 ) , "::" , stringify ! (
-                flags ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1__bindgen_ty_17>(),
+        16usize,
+        concat!(
+            "Size of: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_17)
+        )
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1__bindgen_ty_17>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_17)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_17)).type_ as *const _ as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_17),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_run__bindgen_ty_1__bindgen_ty_17)).flags as *const _ as usize
+        },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1__bindgen_ty_17),
+            "::",
+            stringify!(flags)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1__bindgen_ty_17 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_1>() , 256usize ,
-               concat ! ( "Size of: " , stringify ! ( kvm_run__bindgen_ty_1 )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_1>() , 8usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_run__bindgen_ty_1 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . hw as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( hw ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . fail_entry as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( fail_entry ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . ex as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( ex ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . io as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( io ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . debug as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( debug ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . mmio as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( mmio ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . hypercall as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( hypercall ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . tpr_access as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( tpr_access ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . s390_sieic as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( s390_sieic ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) .
-                s390_reset_flags as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( s390_reset_flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . s390_ucontrol
-                as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( s390_ucontrol ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . dcr as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( dcr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . internal as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( internal ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . osi as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( osi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . papr_hcall as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( papr_hcall ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . s390_tsch as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( s390_tsch ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . epr as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( epr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . system_event
-                as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( system_event ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_1 ) ) . padding as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_1 )
-                , "::" , stringify ! ( padding ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_1>(),
+        256usize,
+        concat!("Size of: ", stringify!(kvm_run__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_1>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_run__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).hw as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(hw)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).fail_entry as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(fail_entry)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).ex as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(ex)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).io as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(io)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).debug as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(debug)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).mmio as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(mmio)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).hypercall as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(hypercall)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).tpr_access as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(tpr_access)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).s390_sieic as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(s390_sieic)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).s390_reset_flags as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(s390_reset_flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).s390_ucontrol as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(s390_ucontrol)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).dcr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(dcr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).internal as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(internal)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).osi as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(osi)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).papr_hcall as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(papr_hcall)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).s390_tsch as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(s390_tsch)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).epr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(epr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).system_event as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(system_event)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_1)).padding as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_1),
+            "::",
+            stringify!(padding)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Copy)]
@@ -3329,97 +5183,179 @@ pub struct kvm_run__bindgen_ty_2 {
 }
 #[test]
 fn bindgen_test_layout_kvm_run__bindgen_ty_2() {
-    assert_eq!(::std::mem::size_of::<kvm_run__bindgen_ty_2>() , 1024usize ,
-               concat ! ( "Size of: " , stringify ! ( kvm_run__bindgen_ty_2 )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_run__bindgen_ty_2>() , 1usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_run__bindgen_ty_2 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_2 ) ) . regs as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_2 )
-                , "::" , stringify ! ( regs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run__bindgen_ty_2 ) ) . padding as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run__bindgen_ty_2 )
-                , "::" , stringify ! ( padding ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run__bindgen_ty_2>(),
+        1024usize,
+        concat!("Size of: ", stringify!(kvm_run__bindgen_ty_2))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run__bindgen_ty_2>(),
+        1usize,
+        concat!("Alignment of ", stringify!(kvm_run__bindgen_ty_2))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_2)).regs as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_2),
+            "::",
+            stringify!(regs)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run__bindgen_ty_2)).padding as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run__bindgen_ty_2),
+            "::",
+            stringify!(padding)
+        )
+    );
 }
 impl Clone for kvm_run__bindgen_ty_2 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 impl Default for kvm_run__bindgen_ty_2 {
-    fn default() -> Self { unsafe { ::std::mem::zeroed() } }
+    fn default() -> Self {
+        unsafe { ::std::mem::zeroed() }
+    }
 }
 #[test]
 fn bindgen_test_layout_kvm_run() {
-    assert_eq!(::std::mem::size_of::<kvm_run>() , 1328usize , concat ! (
-               "Size of: " , stringify ! ( kvm_run ) ));
-    assert_eq! (::std::mem::align_of::<kvm_run>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_run ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run ) ) . request_interrupt_window as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run ) , "::" ,
-                stringify ! ( request_interrupt_window ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run ) ) . padding1 as * const _ as
-                usize } , 1usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run ) , "::" ,
-                stringify ! ( padding1 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run ) ) . exit_reason as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run ) , "::" ,
-                stringify ! ( exit_reason ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run ) ) .
-                ready_for_interrupt_injection as * const _ as usize } ,
-                12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run ) , "::" ,
-                stringify ! ( ready_for_interrupt_injection ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run ) ) . if_flag as * const _ as
-                usize } , 13usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run ) , "::" ,
-                stringify ! ( if_flag ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run ) ) . padding2 as * const _ as
-                usize } , 14usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run ) , "::" ,
-                stringify ! ( padding2 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run ) ) . cr8 as * const _ as usize }
-                , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run ) , "::" ,
-                stringify ! ( cr8 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run ) ) . apic_base as * const _ as
-                usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run ) , "::" ,
-                stringify ! ( apic_base ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run ) ) . kvm_valid_regs as * const _
-                as usize } , 288usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run ) , "::" ,
-                stringify ! ( kvm_valid_regs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run ) ) . kvm_dirty_regs as * const _
-                as usize } , 296usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run ) , "::" ,
-                stringify ! ( kvm_dirty_regs ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_run ) ) . s as * const _ as usize } ,
-                304usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_run ) , "::" ,
-                stringify ! ( s ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_run>(),
+        1328usize,
+        concat!("Size of: ", stringify!(kvm_run))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_run>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_run))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run)).request_interrupt_window as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run),
+            "::",
+            stringify!(request_interrupt_window)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run)).padding1 as *const _ as usize },
+        1usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run),
+            "::",
+            stringify!(padding1)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run)).exit_reason as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run),
+            "::",
+            stringify!(exit_reason)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run)).ready_for_interrupt_injection as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run),
+            "::",
+            stringify!(ready_for_interrupt_injection)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run)).if_flag as *const _ as usize },
+        13usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run),
+            "::",
+            stringify!(if_flag)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run)).padding2 as *const _ as usize },
+        14usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run),
+            "::",
+            stringify!(padding2)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run)).cr8 as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run),
+            "::",
+            stringify!(cr8)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run)).apic_base as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run),
+            "::",
+            stringify!(apic_base)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run)).kvm_valid_regs as *const _ as usize },
+        288usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run),
+            "::",
+            stringify!(kvm_valid_regs)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run)).kvm_dirty_regs as *const _ as usize },
+        296usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run),
+            "::",
+            stringify!(kvm_dirty_regs)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_run)).s as *const _ as usize },
+        304usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_run),
+            "::",
+            stringify!(s)
+        )
+    );
 }
 impl Clone for kvm_run {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 impl Default for kvm_run {
-    fn default() -> Self { unsafe { ::std::mem::zeroed() } }
+    fn default() -> Self {
+        unsafe { ::std::mem::zeroed() }
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3430,30 +5366,51 @@ pub struct kvm_coalesced_mmio_zone {
 }
 #[test]
 fn bindgen_test_layout_kvm_coalesced_mmio_zone() {
-    assert_eq!(::std::mem::size_of::<kvm_coalesced_mmio_zone>() , 16usize ,
-               concat ! (
-               "Size of: " , stringify ! ( kvm_coalesced_mmio_zone ) ));
-    assert_eq! (::std::mem::align_of::<kvm_coalesced_mmio_zone>() , 8usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_coalesced_mmio_zone ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_coalesced_mmio_zone ) ) . addr as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_coalesced_mmio_zone
-                ) , "::" , stringify ! ( addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_coalesced_mmio_zone ) ) . size as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_coalesced_mmio_zone
-                ) , "::" , stringify ! ( size ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_coalesced_mmio_zone ) ) . pad as *
-                const _ as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_coalesced_mmio_zone
-                ) , "::" , stringify ! ( pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_coalesced_mmio_zone>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_coalesced_mmio_zone))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_coalesced_mmio_zone>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_coalesced_mmio_zone))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_coalesced_mmio_zone)).addr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_coalesced_mmio_zone),
+            "::",
+            stringify!(addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_coalesced_mmio_zone)).size as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_coalesced_mmio_zone),
+            "::",
+            stringify!(size)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_coalesced_mmio_zone)).pad as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_coalesced_mmio_zone),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_coalesced_mmio_zone {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3465,33 +5422,61 @@ pub struct kvm_coalesced_mmio {
 }
 #[test]
 fn bindgen_test_layout_kvm_coalesced_mmio() {
-    assert_eq!(::std::mem::size_of::<kvm_coalesced_mmio>() , 24usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_coalesced_mmio ) ));
-    assert_eq! (::std::mem::align_of::<kvm_coalesced_mmio>() , 8usize , concat
-                ! ( "Alignment of " , stringify ! ( kvm_coalesced_mmio ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_coalesced_mmio ) ) . phys_addr as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_coalesced_mmio ) ,
-                "::" , stringify ! ( phys_addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_coalesced_mmio ) ) . len as * const _
-                as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_coalesced_mmio ) ,
-                "::" , stringify ! ( len ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_coalesced_mmio ) ) . pad as * const _
-                as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_coalesced_mmio ) ,
-                "::" , stringify ! ( pad ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_coalesced_mmio ) ) . data as * const
-                _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_coalesced_mmio ) ,
-                "::" , stringify ! ( data ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_coalesced_mmio>(),
+        24usize,
+        concat!("Size of: ", stringify!(kvm_coalesced_mmio))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_coalesced_mmio>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_coalesced_mmio))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_coalesced_mmio)).phys_addr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_coalesced_mmio),
+            "::",
+            stringify!(phys_addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_coalesced_mmio)).len as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_coalesced_mmio),
+            "::",
+            stringify!(len)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_coalesced_mmio)).pad as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_coalesced_mmio),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_coalesced_mmio)).data as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_coalesced_mmio),
+            "::",
+            stringify!(data)
+        )
+    );
 }
 impl Clone for kvm_coalesced_mmio {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3503,30 +5488,51 @@ pub struct kvm_coalesced_mmio_ring {
 }
 #[test]
 fn bindgen_test_layout_kvm_coalesced_mmio_ring() {
-    assert_eq!(::std::mem::size_of::<kvm_coalesced_mmio_ring>() , 8usize ,
-               concat ! (
-               "Size of: " , stringify ! ( kvm_coalesced_mmio_ring ) ));
-    assert_eq! (::std::mem::align_of::<kvm_coalesced_mmio_ring>() , 8usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_coalesced_mmio_ring ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_coalesced_mmio_ring ) ) . first as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_coalesced_mmio_ring
-                ) , "::" , stringify ! ( first ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_coalesced_mmio_ring ) ) . last as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_coalesced_mmio_ring
-                ) , "::" , stringify ! ( last ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_coalesced_mmio_ring ) ) .
-                coalesced_mmio as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_coalesced_mmio_ring
-                ) , "::" , stringify ! ( coalesced_mmio ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_coalesced_mmio_ring>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_coalesced_mmio_ring))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_coalesced_mmio_ring>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_coalesced_mmio_ring))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_coalesced_mmio_ring)).first as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_coalesced_mmio_ring),
+            "::",
+            stringify!(first)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_coalesced_mmio_ring)).last as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_coalesced_mmio_ring),
+            "::",
+            stringify!(last)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_coalesced_mmio_ring)).coalesced_mmio as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_coalesced_mmio_ring),
+            "::",
+            stringify!(coalesced_mmio)
+        )
+    );
 }
 impl Clone for kvm_coalesced_mmio_ring {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3540,43 +5546,81 @@ pub struct kvm_translation {
 }
 #[test]
 fn bindgen_test_layout_kvm_translation() {
-    assert_eq!(::std::mem::size_of::<kvm_translation>() , 24usize , concat ! (
-               "Size of: " , stringify ! ( kvm_translation ) ));
-    assert_eq! (::std::mem::align_of::<kvm_translation>() , 8usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_translation ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_translation ) ) . linear_address as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_translation ) ,
-                "::" , stringify ! ( linear_address ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_translation ) ) . physical_address as
-                * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_translation ) ,
-                "::" , stringify ! ( physical_address ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_translation ) ) . valid as * const _
-                as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_translation ) ,
-                "::" , stringify ! ( valid ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_translation ) ) . writeable as *
-                const _ as usize } , 17usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_translation ) ,
-                "::" , stringify ! ( writeable ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_translation ) ) . usermode as * const
-                _ as usize } , 18usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_translation ) ,
-                "::" , stringify ! ( usermode ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_translation ) ) . pad as * const _ as
-                usize } , 19usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_translation ) ,
-                "::" , stringify ! ( pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_translation>(),
+        24usize,
+        concat!("Size of: ", stringify!(kvm_translation))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_translation>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_translation))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_translation)).linear_address as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_translation),
+            "::",
+            stringify!(linear_address)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_translation)).physical_address as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_translation),
+            "::",
+            stringify!(physical_address)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_translation)).valid as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_translation),
+            "::",
+            stringify!(valid)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_translation)).writeable as *const _ as usize },
+        17usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_translation),
+            "::",
+            stringify!(writeable)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_translation)).usermode as *const _ as usize },
+        18usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_translation),
+            "::",
+            stringify!(usermode)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_translation)).pad as *const _ as usize },
+        19usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_translation),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_translation {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3585,18 +5629,31 @@ pub struct kvm_interrupt {
 }
 #[test]
 fn bindgen_test_layout_kvm_interrupt() {
-    assert_eq!(::std::mem::size_of::<kvm_interrupt>() , 4usize , concat ! (
-               "Size of: " , stringify ! ( kvm_interrupt ) ));
-    assert_eq! (::std::mem::align_of::<kvm_interrupt>() , 4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_interrupt ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_interrupt ) ) . irq as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_interrupt ) , "::"
-                , stringify ! ( irq ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_interrupt>(),
+        4usize,
+        concat!("Size of: ", stringify!(kvm_interrupt))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_interrupt>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_interrupt))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_interrupt)).irq as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_interrupt),
+            "::",
+            stringify!(irq)
+        )
+    );
 }
 impl Clone for kvm_interrupt {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3614,48 +5671,79 @@ pub struct kvm_dirty_log__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_kvm_dirty_log__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_dirty_log__bindgen_ty_1>() , 8usize ,
-               concat ! (
-               "Size of: " , stringify ! ( kvm_dirty_log__bindgen_ty_1 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_dirty_log__bindgen_ty_1>() , 8usize
-                , concat ! (
-                "Alignment of " , stringify ! ( kvm_dirty_log__bindgen_ty_1 )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_dirty_log__bindgen_ty_1 ) ) .
-                dirty_bitmap as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_dirty_log__bindgen_ty_1 ) , "::" , stringify ! (
-                dirty_bitmap ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_dirty_log__bindgen_ty_1 ) ) .
-                padding2 as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_dirty_log__bindgen_ty_1 ) , "::" , stringify ! ( padding2
-                ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_dirty_log__bindgen_ty_1>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_dirty_log__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_dirty_log__bindgen_ty_1>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_dirty_log__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_dirty_log__bindgen_ty_1)).dirty_bitmap as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_dirty_log__bindgen_ty_1),
+            "::",
+            stringify!(dirty_bitmap)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_dirty_log__bindgen_ty_1)).padding2 as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_dirty_log__bindgen_ty_1),
+            "::",
+            stringify!(padding2)
+        )
+    );
 }
 impl Clone for kvm_dirty_log__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[test]
 fn bindgen_test_layout_kvm_dirty_log() {
-    assert_eq!(::std::mem::size_of::<kvm_dirty_log>() , 16usize , concat ! (
-               "Size of: " , stringify ! ( kvm_dirty_log ) ));
-    assert_eq! (::std::mem::align_of::<kvm_dirty_log>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_dirty_log ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_dirty_log ) ) . slot as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_dirty_log ) , "::"
-                , stringify ! ( slot ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_dirty_log ) ) . padding1 as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_dirty_log ) , "::"
-                , stringify ! ( padding1 ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_dirty_log>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_dirty_log))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_dirty_log>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_dirty_log))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_dirty_log)).slot as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_dirty_log),
+            "::",
+            stringify!(slot)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_dirty_log)).padding1 as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_dirty_log),
+            "::",
+            stringify!(padding1)
+        )
+    );
 }
 impl Clone for kvm_dirty_log {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3665,23 +5753,41 @@ pub struct kvm_signal_mask {
 }
 #[test]
 fn bindgen_test_layout_kvm_signal_mask() {
-    assert_eq!(::std::mem::size_of::<kvm_signal_mask>() , 4usize , concat ! (
-               "Size of: " , stringify ! ( kvm_signal_mask ) ));
-    assert_eq! (::std::mem::align_of::<kvm_signal_mask>() , 4usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_signal_mask ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_signal_mask ) ) . len as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_signal_mask ) ,
-                "::" , stringify ! ( len ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_signal_mask ) ) . sigset as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_signal_mask ) ,
-                "::" , stringify ! ( sigset ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_signal_mask>(),
+        4usize,
+        concat!("Size of: ", stringify!(kvm_signal_mask))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_signal_mask>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_signal_mask))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_signal_mask)).len as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_signal_mask),
+            "::",
+            stringify!(len)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_signal_mask)).sigset as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_signal_mask),
+            "::",
+            stringify!(sigset)
+        )
+    );
 }
 impl Clone for kvm_signal_mask {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3692,28 +5798,51 @@ pub struct kvm_tpr_access_ctl {
 }
 #[test]
 fn bindgen_test_layout_kvm_tpr_access_ctl() {
-    assert_eq!(::std::mem::size_of::<kvm_tpr_access_ctl>() , 40usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_tpr_access_ctl ) ));
-    assert_eq! (::std::mem::align_of::<kvm_tpr_access_ctl>() , 4usize , concat
-                ! ( "Alignment of " , stringify ! ( kvm_tpr_access_ctl ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_tpr_access_ctl ) ) . enabled as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_tpr_access_ctl ) ,
-                "::" , stringify ! ( enabled ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_tpr_access_ctl ) ) . flags as * const
-                _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_tpr_access_ctl ) ,
-                "::" , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_tpr_access_ctl ) ) . reserved as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_tpr_access_ctl ) ,
-                "::" , stringify ! ( reserved ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_tpr_access_ctl>(),
+        40usize,
+        concat!("Size of: ", stringify!(kvm_tpr_access_ctl))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_tpr_access_ctl>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_tpr_access_ctl))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_tpr_access_ctl)).enabled as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_tpr_access_ctl),
+            "::",
+            stringify!(enabled)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_tpr_access_ctl)).flags as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_tpr_access_ctl),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_tpr_access_ctl)).reserved as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_tpr_access_ctl),
+            "::",
+            stringify!(reserved)
+        )
+    );
 }
 impl Clone for kvm_tpr_access_ctl {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3722,18 +5851,31 @@ pub struct kvm_vapic_addr {
 }
 #[test]
 fn bindgen_test_layout_kvm_vapic_addr() {
-    assert_eq!(::std::mem::size_of::<kvm_vapic_addr>() , 8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_vapic_addr ) ));
-    assert_eq! (::std::mem::align_of::<kvm_vapic_addr>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_vapic_addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_vapic_addr ) ) . vapic_addr as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_vapic_addr ) , "::"
-                , stringify ! ( vapic_addr ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_vapic_addr>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_vapic_addr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_vapic_addr>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_vapic_addr))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_vapic_addr)).vapic_addr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_vapic_addr),
+            "::",
+            stringify!(vapic_addr)
+        )
+    );
 }
 impl Clone for kvm_vapic_addr {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3742,18 +5884,31 @@ pub struct kvm_mp_state {
 }
 #[test]
 fn bindgen_test_layout_kvm_mp_state() {
-    assert_eq!(::std::mem::size_of::<kvm_mp_state>() , 4usize , concat ! (
-               "Size of: " , stringify ! ( kvm_mp_state ) ));
-    assert_eq! (::std::mem::align_of::<kvm_mp_state>() , 4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_mp_state ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_mp_state ) ) . mp_state as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_mp_state ) , "::" ,
-                stringify ! ( mp_state ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_mp_state>(),
+        4usize,
+        concat!("Size of: ", stringify!(kvm_mp_state))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_mp_state>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_mp_state))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_mp_state)).mp_state as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_mp_state),
+            "::",
+            stringify!(mp_state)
+        )
+    );
 }
 impl Clone for kvm_mp_state {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3763,23 +5918,41 @@ pub struct kvm_s390_psw {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_psw() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_psw>() , 16usize , concat ! (
-               "Size of: " , stringify ! ( kvm_s390_psw ) ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_psw>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_s390_psw ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_psw ) ) . mask as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_psw ) , "::" ,
-                stringify ! ( mask ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_psw ) ) . addr as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_psw ) , "::" ,
-                stringify ! ( addr ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_psw>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_s390_psw))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_psw>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_s390_psw))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_psw)).mask as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_psw),
+            "::",
+            stringify!(mask)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_psw)).addr as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_psw),
+            "::",
+            stringify!(addr)
+        )
+    );
 }
 impl Clone for kvm_s390_psw {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3790,28 +5963,51 @@ pub struct kvm_s390_interrupt {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_interrupt() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_interrupt>() , 16usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_s390_interrupt ) ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_interrupt>() , 8usize , concat
-                ! ( "Alignment of " , stringify ! ( kvm_s390_interrupt ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_interrupt ) ) . type_ as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_interrupt ) ,
-                "::" , stringify ! ( type_ ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_interrupt ) ) . parm as * const
-                _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_interrupt ) ,
-                "::" , stringify ! ( parm ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_interrupt ) ) . parm64 as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_interrupt ) ,
-                "::" , stringify ! ( parm64 ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_interrupt>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_s390_interrupt))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_interrupt>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_s390_interrupt))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_interrupt)).type_ as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_interrupt),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_interrupt)).parm as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_interrupt),
+            "::",
+            stringify!(parm)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_interrupt)).parm64 as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_interrupt),
+            "::",
+            stringify!(parm64)
+        )
+    );
 }
 impl Clone for kvm_s390_interrupt {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3823,33 +6019,61 @@ pub struct kvm_s390_io_info {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_io_info() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_io_info>() , 12usize , concat !
-               ( "Size of: " , stringify ! ( kvm_s390_io_info ) ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_io_info>() , 4usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_s390_io_info ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_io_info ) ) . subchannel_id as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_io_info ) ,
-                "::" , stringify ! ( subchannel_id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_io_info ) ) . subchannel_nr as *
-                const _ as usize } , 2usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_io_info ) ,
-                "::" , stringify ! ( subchannel_nr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_io_info ) ) . io_int_parm as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_io_info ) ,
-                "::" , stringify ! ( io_int_parm ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_io_info ) ) . io_int_word as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_io_info ) ,
-                "::" , stringify ! ( io_int_word ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_io_info>(),
+        12usize,
+        concat!("Size of: ", stringify!(kvm_s390_io_info))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_io_info>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_s390_io_info))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_io_info)).subchannel_id as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_io_info),
+            "::",
+            stringify!(subchannel_id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_io_info)).subchannel_nr as *const _ as usize },
+        2usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_io_info),
+            "::",
+            stringify!(subchannel_nr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_io_info)).io_int_parm as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_io_info),
+            "::",
+            stringify!(io_int_parm)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_io_info)).io_int_word as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_io_info),
+            "::",
+            stringify!(io_int_word)
+        )
+    );
 }
 impl Clone for kvm_s390_io_info {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3860,28 +6084,51 @@ pub struct kvm_s390_ext_info {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_ext_info() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_ext_info>() , 16usize , concat !
-               ( "Size of: " , stringify ! ( kvm_s390_ext_info ) ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_ext_info>() , 8usize , concat
-                ! ( "Alignment of " , stringify ! ( kvm_s390_ext_info ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_ext_info ) ) . ext_params as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_ext_info ) ,
-                "::" , stringify ! ( ext_params ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_ext_info ) ) . pad as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_ext_info ) ,
-                "::" , stringify ! ( pad ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_ext_info ) ) . ext_params2 as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_ext_info ) ,
-                "::" , stringify ! ( ext_params2 ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_ext_info>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_s390_ext_info))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_ext_info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_s390_ext_info))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_ext_info)).ext_params as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_ext_info),
+            "::",
+            stringify!(ext_params)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_ext_info)).pad as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_ext_info),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_ext_info)).ext_params2 as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_ext_info),
+            "::",
+            stringify!(ext_params2)
+        )
+    );
 }
 impl Clone for kvm_s390_ext_info {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3901,73 +6148,141 @@ pub struct kvm_s390_pgm_info {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_pgm_info() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_pgm_info>() , 40usize , concat !
-               ( "Size of: " , stringify ! ( kvm_s390_pgm_info ) ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_pgm_info>() , 8usize , concat
-                ! ( "Alignment of " , stringify ! ( kvm_s390_pgm_info ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . trans_exc_code as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( trans_exc_code ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . mon_code as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( mon_code ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . per_address as *
-                const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( per_address ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . data_exc_code as
-                * const _ as usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( data_exc_code ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . code as * const _
-                as usize } , 28usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( code ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . mon_class_nr as *
-                const _ as usize } , 30usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( mon_class_nr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . per_code as *
-                const _ as usize } , 32usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( per_code ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . per_atmid as *
-                const _ as usize } , 33usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( per_atmid ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . exc_access_id as
-                * const _ as usize } , 34usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( exc_access_id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . per_access_id as
-                * const _ as usize } , 35usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( per_access_id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . op_access_id as *
-                const _ as usize } , 36usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( op_access_id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_pgm_info ) ) . pad as * const _
-                as usize } , 37usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_pgm_info ) ,
-                "::" , stringify ! ( pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_pgm_info>(),
+        40usize,
+        concat!("Size of: ", stringify!(kvm_s390_pgm_info))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_pgm_info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_s390_pgm_info))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).trans_exc_code as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(trans_exc_code)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).mon_code as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(mon_code)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).per_address as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(per_address)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).data_exc_code as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(data_exc_code)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).code as *const _ as usize },
+        28usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(code)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).mon_class_nr as *const _ as usize },
+        30usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(mon_class_nr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).per_code as *const _ as usize },
+        32usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(per_code)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).per_atmid as *const _ as usize },
+        33usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(per_atmid)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).exc_access_id as *const _ as usize },
+        34usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(exc_access_id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).per_access_id as *const _ as usize },
+        35usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(per_access_id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).op_access_id as *const _ as usize },
+        36usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(op_access_id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_pgm_info)).pad as *const _ as usize },
+        37usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_pgm_info),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_s390_pgm_info {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3976,19 +6291,31 @@ pub struct kvm_s390_prefix_info {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_prefix_info() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_prefix_info>() , 4usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_s390_prefix_info ) ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_prefix_info>() , 4usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_s390_prefix_info ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_prefix_info ) ) . address as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_prefix_info )
-                , "::" , stringify ! ( address ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_prefix_info>(),
+        4usize,
+        concat!("Size of: ", stringify!(kvm_s390_prefix_info))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_prefix_info>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_s390_prefix_info))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_prefix_info)).address as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_prefix_info),
+            "::",
+            stringify!(address)
+        )
+    );
 }
 impl Clone for kvm_s390_prefix_info {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -3997,20 +6324,31 @@ pub struct kvm_s390_extcall_info {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_extcall_info() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_extcall_info>() , 2usize ,
-               concat ! ( "Size of: " , stringify ! ( kvm_s390_extcall_info )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_extcall_info>() , 2usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_s390_extcall_info ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_extcall_info ) ) . code as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_extcall_info )
-                , "::" , stringify ! ( code ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_extcall_info>(),
+        2usize,
+        concat!("Size of: ", stringify!(kvm_s390_extcall_info))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_extcall_info>(),
+        2usize,
+        concat!("Alignment of ", stringify!(kvm_s390_extcall_info))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_extcall_info)).code as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_extcall_info),
+            "::",
+            stringify!(code)
+        )
+    );
 }
 impl Clone for kvm_s390_extcall_info {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4019,19 +6357,31 @@ pub struct kvm_s390_emerg_info {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_emerg_info() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_emerg_info>() , 2usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_s390_emerg_info ) ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_emerg_info>() , 2usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_s390_emerg_info ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_emerg_info ) ) . code as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_emerg_info ) ,
-                "::" , stringify ! ( code ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_emerg_info>(),
+        2usize,
+        concat!("Size of: ", stringify!(kvm_s390_emerg_info))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_emerg_info>(),
+        2usize,
+        concat!("Alignment of ", stringify!(kvm_s390_emerg_info))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_emerg_info)).code as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_emerg_info),
+            "::",
+            stringify!(code)
+        )
+    );
 }
 impl Clone for kvm_s390_emerg_info {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4040,18 +6390,31 @@ pub struct kvm_s390_stop_info {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_stop_info() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_stop_info>() , 4usize , concat !
-               ( "Size of: " , stringify ! ( kvm_s390_stop_info ) ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_stop_info>() , 4usize , concat
-                ! ( "Alignment of " , stringify ! ( kvm_s390_stop_info ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_stop_info ) ) . flags as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_stop_info ) ,
-                "::" , stringify ! ( flags ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_stop_info>(),
+        4usize,
+        concat!("Size of: ", stringify!(kvm_s390_stop_info))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_stop_info>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_s390_stop_info))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_stop_info)).flags as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_stop_info),
+            "::",
+            stringify!(flags)
+        )
+    );
 }
 impl Clone for kvm_s390_stop_info {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4065,44 +6428,83 @@ pub struct kvm_s390_mchk_info {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_mchk_info() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_mchk_info>() , 48usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_s390_mchk_info ) ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_mchk_info>() , 8usize , concat
-                ! ( "Alignment of " , stringify ! ( kvm_s390_mchk_info ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_mchk_info ) ) . cr14 as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_mchk_info ) ,
-                "::" , stringify ! ( cr14 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_mchk_info ) ) . mcic as * const
-                _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_mchk_info ) ,
-                "::" , stringify ! ( mcic ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_mchk_info ) ) .
-                failing_storage_address as * const _ as usize } , 16usize ,
-                concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_mchk_info ) ,
-                "::" , stringify ! ( failing_storage_address ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_mchk_info ) ) . ext_damage_code
-                as * const _ as usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_mchk_info ) ,
-                "::" , stringify ! ( ext_damage_code ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_mchk_info ) ) . pad as * const _
-                as usize } , 28usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_mchk_info ) ,
-                "::" , stringify ! ( pad ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_mchk_info ) ) . fixed_logout as
-                * const _ as usize } , 32usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_mchk_info ) ,
-                "::" , stringify ! ( fixed_logout ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_mchk_info>(),
+        48usize,
+        concat!("Size of: ", stringify!(kvm_s390_mchk_info))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_mchk_info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_s390_mchk_info))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_mchk_info)).cr14 as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_mchk_info),
+            "::",
+            stringify!(cr14)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_mchk_info)).mcic as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_mchk_info),
+            "::",
+            stringify!(mcic)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_s390_mchk_info)).failing_storage_address as *const _ as usize
+        },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_mchk_info),
+            "::",
+            stringify!(failing_storage_address)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_mchk_info)).ext_damage_code as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_mchk_info),
+            "::",
+            stringify!(ext_damage_code)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_mchk_info)).pad as *const _ as usize },
+        28usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_mchk_info),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_mchk_info)).fixed_logout as *const _ as usize },
+        32usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_mchk_info),
+            "::",
+            stringify!(fixed_logout)
+        )
+    );
 }
 impl Clone for kvm_s390_mchk_info {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4126,85 +6528,149 @@ pub struct kvm_s390_irq__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_irq__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_irq__bindgen_ty_1>() , 64usize ,
-               concat ! (
-               "Size of: " , stringify ! ( kvm_s390_irq__bindgen_ty_1 ) ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_irq__bindgen_ty_1>() , 8usize
-                , concat ! (
-                "Alignment of " , stringify ! ( kvm_s390_irq__bindgen_ty_1 )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_irq__bindgen_ty_1 ) ) . io as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_s390_irq__bindgen_ty_1 ) , "::" , stringify ! ( io ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_irq__bindgen_ty_1 ) ) . ext as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_s390_irq__bindgen_ty_1 ) , "::" , stringify ! ( ext ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_irq__bindgen_ty_1 ) ) . pgm as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_s390_irq__bindgen_ty_1 ) , "::" , stringify ! ( pgm ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_irq__bindgen_ty_1 ) ) . emerg as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_s390_irq__bindgen_ty_1 ) , "::" , stringify ! ( emerg )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_irq__bindgen_ty_1 ) ) . extcall
-                as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_s390_irq__bindgen_ty_1 ) , "::" , stringify ! ( extcall )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_irq__bindgen_ty_1 ) ) . prefix
-                as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_s390_irq__bindgen_ty_1 ) , "::" , stringify ! ( prefix )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_irq__bindgen_ty_1 ) ) . stop as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_s390_irq__bindgen_ty_1 ) , "::" , stringify ! ( stop ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_irq__bindgen_ty_1 ) ) . mchk as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_s390_irq__bindgen_ty_1 ) , "::" , stringify ! ( mchk ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_irq__bindgen_ty_1 ) ) . reserved
-                as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_s390_irq__bindgen_ty_1 ) , "::" , stringify ! ( reserved )
-                ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_irq__bindgen_ty_1>(),
+        64usize,
+        concat!("Size of: ", stringify!(kvm_s390_irq__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_irq__bindgen_ty_1>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_s390_irq__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_irq__bindgen_ty_1)).io as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_irq__bindgen_ty_1),
+            "::",
+            stringify!(io)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_irq__bindgen_ty_1)).ext as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_irq__bindgen_ty_1),
+            "::",
+            stringify!(ext)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_irq__bindgen_ty_1)).pgm as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_irq__bindgen_ty_1),
+            "::",
+            stringify!(pgm)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_irq__bindgen_ty_1)).emerg as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_irq__bindgen_ty_1),
+            "::",
+            stringify!(emerg)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_irq__bindgen_ty_1)).extcall as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_irq__bindgen_ty_1),
+            "::",
+            stringify!(extcall)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_irq__bindgen_ty_1)).prefix as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_irq__bindgen_ty_1),
+            "::",
+            stringify!(prefix)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_irq__bindgen_ty_1)).stop as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_irq__bindgen_ty_1),
+            "::",
+            stringify!(stop)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_irq__bindgen_ty_1)).mchk as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_irq__bindgen_ty_1),
+            "::",
+            stringify!(mchk)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_irq__bindgen_ty_1)).reserved as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_irq__bindgen_ty_1),
+            "::",
+            stringify!(reserved)
+        )
+    );
 }
 impl Clone for kvm_s390_irq__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_irq() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_irq>() , 72usize , concat ! (
-               "Size of: " , stringify ! ( kvm_s390_irq ) ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_irq>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_s390_irq ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_irq ) ) . type_ as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_irq ) , "::" ,
-                stringify ! ( type_ ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_irq ) ) . u as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_irq ) , "::" ,
-                stringify ! ( u ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_irq>(),
+        72usize,
+        concat!("Size of: ", stringify!(kvm_s390_irq))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_irq>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_s390_irq))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_irq)).type_ as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_irq),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_irq)).u as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_irq),
+            "::",
+            stringify!(u)
+        )
+    );
 }
 impl Clone for kvm_s390_irq {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4215,28 +6681,51 @@ pub struct kvm_guest_debug {
 }
 #[test]
 fn bindgen_test_layout_kvm_guest_debug() {
-    assert_eq!(::std::mem::size_of::<kvm_guest_debug>() , 72usize , concat ! (
-               "Size of: " , stringify ! ( kvm_guest_debug ) ));
-    assert_eq! (::std::mem::align_of::<kvm_guest_debug>() , 8usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_guest_debug ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_guest_debug ) ) . control as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_guest_debug ) ,
-                "::" , stringify ! ( control ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_guest_debug ) ) . pad as * const _ as
-                usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_guest_debug ) ,
-                "::" , stringify ! ( pad ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_guest_debug ) ) . arch as * const _
-                as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_guest_debug ) ,
-                "::" , stringify ! ( arch ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_guest_debug>(),
+        72usize,
+        concat!("Size of: ", stringify!(kvm_guest_debug))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_guest_debug>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_guest_debug))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_guest_debug)).control as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_guest_debug),
+            "::",
+            stringify!(control)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_guest_debug)).pad as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_guest_debug),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_guest_debug)).arch as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_guest_debug),
+            "::",
+            stringify!(arch)
+        )
+    );
 }
 impl Clone for kvm_guest_debug {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 pub const kvm_ioeventfd_flag_nr_datamatch: _bindgen_ty_1 = 0;
 pub const kvm_ioeventfd_flag_nr_pio: _bindgen_ty_1 = 1;
@@ -4256,43 +6745,81 @@ pub struct kvm_ioeventfd {
 }
 #[test]
 fn bindgen_test_layout_kvm_ioeventfd() {
-    assert_eq!(::std::mem::size_of::<kvm_ioeventfd>() , 64usize , concat ! (
-               "Size of: " , stringify ! ( kvm_ioeventfd ) ));
-    assert_eq! (::std::mem::align_of::<kvm_ioeventfd>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_ioeventfd ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioeventfd ) ) . datamatch as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioeventfd ) , "::"
-                , stringify ! ( datamatch ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioeventfd ) ) . addr as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioeventfd ) , "::"
-                , stringify ! ( addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioeventfd ) ) . len as * const _ as
-                usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioeventfd ) , "::"
-                , stringify ! ( len ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioeventfd ) ) . fd as * const _ as
-                usize } , 20usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioeventfd ) , "::"
-                , stringify ! ( fd ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioeventfd ) ) . flags as * const _ as
-                usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioeventfd ) , "::"
-                , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ioeventfd ) ) . pad as * const _ as
-                usize } , 28usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ioeventfd ) , "::"
-                , stringify ! ( pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_ioeventfd>(),
+        64usize,
+        concat!("Size of: ", stringify!(kvm_ioeventfd))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_ioeventfd>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_ioeventfd))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioeventfd)).datamatch as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioeventfd),
+            "::",
+            stringify!(datamatch)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioeventfd)).addr as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioeventfd),
+            "::",
+            stringify!(addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioeventfd)).len as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioeventfd),
+            "::",
+            stringify!(len)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioeventfd)).fd as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioeventfd),
+            "::",
+            stringify!(fd)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioeventfd)).flags as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioeventfd),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ioeventfd)).pad as *const _ as usize },
+        28usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ioeventfd),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Default for kvm_ioeventfd {
-    fn default() -> Self { unsafe { ::std::mem::zeroed() } }
+    fn default() -> Self {
+        unsafe { ::std::mem::zeroed() }
+    }
 }
 #[repr(C)]
 pub struct kvm_enable_cap {
@@ -4303,33 +6830,61 @@ pub struct kvm_enable_cap {
 }
 #[test]
 fn bindgen_test_layout_kvm_enable_cap() {
-    assert_eq!(::std::mem::size_of::<kvm_enable_cap>() , 104usize , concat ! (
-               "Size of: " , stringify ! ( kvm_enable_cap ) ));
-    assert_eq! (::std::mem::align_of::<kvm_enable_cap>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_enable_cap ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_enable_cap ) ) . cap as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_enable_cap ) , "::"
-                , stringify ! ( cap ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_enable_cap ) ) . flags as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_enable_cap ) , "::"
-                , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_enable_cap ) ) . args as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_enable_cap ) , "::"
-                , stringify ! ( args ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_enable_cap ) ) . pad as * const _ as
-                usize } , 40usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_enable_cap ) , "::"
-                , stringify ! ( pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_enable_cap>(),
+        104usize,
+        concat!("Size of: ", stringify!(kvm_enable_cap))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_enable_cap>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_enable_cap))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_enable_cap)).cap as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_enable_cap),
+            "::",
+            stringify!(cap)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_enable_cap)).flags as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_enable_cap),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_enable_cap)).args as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_enable_cap),
+            "::",
+            stringify!(args)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_enable_cap)).pad as *const _ as usize },
+        40usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_enable_cap),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Default for kvm_enable_cap {
-    fn default() -> Self { unsafe { ::std::mem::zeroed() } }
+    fn default() -> Self {
+        unsafe { ::std::mem::zeroed() }
+    }
 }
 #[repr(C)]
 pub struct kvm_ppc_pvinfo {
@@ -4339,28 +6894,51 @@ pub struct kvm_ppc_pvinfo {
 }
 #[test]
 fn bindgen_test_layout_kvm_ppc_pvinfo() {
-    assert_eq!(::std::mem::size_of::<kvm_ppc_pvinfo>() , 128usize , concat ! (
-               "Size of: " , stringify ! ( kvm_ppc_pvinfo ) ));
-    assert_eq! (::std::mem::align_of::<kvm_ppc_pvinfo>() , 4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_ppc_pvinfo ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_pvinfo ) ) . flags as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ppc_pvinfo ) , "::"
-                , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_pvinfo ) ) . hcall as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ppc_pvinfo ) , "::"
-                , stringify ! ( hcall ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_pvinfo ) ) . pad as * const _ as
-                usize } , 20usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ppc_pvinfo ) , "::"
-                , stringify ! ( pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_ppc_pvinfo>(),
+        128usize,
+        concat!("Size of: ", stringify!(kvm_ppc_pvinfo))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_ppc_pvinfo>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_ppc_pvinfo))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_pvinfo)).flags as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_pvinfo),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_pvinfo)).hcall as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_pvinfo),
+            "::",
+            stringify!(hcall)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_pvinfo)).pad as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_pvinfo),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Default for kvm_ppc_pvinfo {
-    fn default() -> Self { unsafe { ::std::mem::zeroed() } }
+    fn default() -> Self {
+        unsafe { ::std::mem::zeroed() }
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4370,25 +6948,41 @@ pub struct kvm_ppc_one_page_size {
 }
 #[test]
 fn bindgen_test_layout_kvm_ppc_one_page_size() {
-    assert_eq!(::std::mem::size_of::<kvm_ppc_one_page_size>() , 8usize ,
-               concat ! ( "Size of: " , stringify ! ( kvm_ppc_one_page_size )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_ppc_one_page_size>() , 4usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_ppc_one_page_size ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_one_page_size ) ) . page_shift as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ppc_one_page_size )
-                , "::" , stringify ! ( page_shift ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_one_page_size ) ) . pte_enc as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ppc_one_page_size )
-                , "::" , stringify ! ( pte_enc ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_ppc_one_page_size>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_ppc_one_page_size))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_ppc_one_page_size>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_ppc_one_page_size))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_one_page_size)).page_shift as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_one_page_size),
+            "::",
+            stringify!(page_shift)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_one_page_size)).pte_enc as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_one_page_size),
+            "::",
+            stringify!(pte_enc)
+        )
+    );
 }
 impl Clone for kvm_ppc_one_page_size {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4399,33 +6993,51 @@ pub struct kvm_ppc_one_seg_page_size {
 }
 #[test]
 fn bindgen_test_layout_kvm_ppc_one_seg_page_size() {
-    assert_eq!(::std::mem::size_of::<kvm_ppc_one_seg_page_size>() , 72usize ,
-               concat ! (
-               "Size of: " , stringify ! ( kvm_ppc_one_seg_page_size ) ));
-    assert_eq! (::std::mem::align_of::<kvm_ppc_one_seg_page_size>() , 4usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_ppc_one_seg_page_size )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_one_seg_page_size ) ) .
-                page_shift as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_ppc_one_seg_page_size ) , "::" , stringify ! ( page_shift
-                ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_one_seg_page_size ) ) . slb_enc
-                as * const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_ppc_one_seg_page_size ) , "::" , stringify ! ( slb_enc )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_one_seg_page_size ) ) . enc as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_ppc_one_seg_page_size ) , "::" , stringify ! ( enc ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_ppc_one_seg_page_size>(),
+        72usize,
+        concat!("Size of: ", stringify!(kvm_ppc_one_seg_page_size))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_ppc_one_seg_page_size>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_ppc_one_seg_page_size))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_one_seg_page_size)).page_shift as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_one_seg_page_size),
+            "::",
+            stringify!(page_shift)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_one_seg_page_size)).slb_enc as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_one_seg_page_size),
+            "::",
+            stringify!(slb_enc)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_one_seg_page_size)).enc as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_one_seg_page_size),
+            "::",
+            stringify!(enc)
+        )
+    );
 }
 impl Clone for kvm_ppc_one_seg_page_size {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4437,33 +7049,61 @@ pub struct kvm_ppc_smmu_info {
 }
 #[test]
 fn bindgen_test_layout_kvm_ppc_smmu_info() {
-    assert_eq!(::std::mem::size_of::<kvm_ppc_smmu_info>() , 592usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_ppc_smmu_info ) ));
-    assert_eq! (::std::mem::align_of::<kvm_ppc_smmu_info>() , 8usize , concat
-                ! ( "Alignment of " , stringify ! ( kvm_ppc_smmu_info ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_smmu_info ) ) . flags as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ppc_smmu_info ) ,
-                "::" , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_smmu_info ) ) . slb_size as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ppc_smmu_info ) ,
-                "::" , stringify ! ( slb_size ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_smmu_info ) ) . pad as * const _
-                as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ppc_smmu_info ) ,
-                "::" , stringify ! ( pad ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_ppc_smmu_info ) ) . sps as * const _
-                as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_ppc_smmu_info ) ,
-                "::" , stringify ! ( sps ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_ppc_smmu_info>(),
+        592usize,
+        concat!("Size of: ", stringify!(kvm_ppc_smmu_info))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_ppc_smmu_info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_ppc_smmu_info))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_smmu_info)).flags as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_smmu_info),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_smmu_info)).slb_size as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_smmu_info),
+            "::",
+            stringify!(slb_size)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_smmu_info)).pad as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_smmu_info),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_ppc_smmu_info)).sps as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_ppc_smmu_info),
+            "::",
+            stringify!(sps)
+        )
+    );
 }
 impl Clone for kvm_ppc_smmu_info {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4473,25 +7113,41 @@ pub struct kvm_irq_routing_irqchip {
 }
 #[test]
 fn bindgen_test_layout_kvm_irq_routing_irqchip() {
-    assert_eq!(::std::mem::size_of::<kvm_irq_routing_irqchip>() , 8usize ,
-               concat ! (
-               "Size of: " , stringify ! ( kvm_irq_routing_irqchip ) ));
-    assert_eq! (::std::mem::align_of::<kvm_irq_routing_irqchip>() , 4usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_irq_routing_irqchip ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_irqchip ) ) . irqchip as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing_irqchip
-                ) , "::" , stringify ! ( irqchip ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_irqchip ) ) . pin as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing_irqchip
-                ) , "::" , stringify ! ( pin ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_irq_routing_irqchip>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_irq_routing_irqchip))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_irq_routing_irqchip>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_irq_routing_irqchip))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_irqchip)).irqchip as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_irqchip),
+            "::",
+            stringify!(irqchip)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_irqchip)).pin as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_irqchip),
+            "::",
+            stringify!(pin)
+        )
+    );
 }
 impl Clone for kvm_irq_routing_irqchip {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4503,34 +7159,61 @@ pub struct kvm_irq_routing_msi {
 }
 #[test]
 fn bindgen_test_layout_kvm_irq_routing_msi() {
-    assert_eq!(::std::mem::size_of::<kvm_irq_routing_msi>() , 16usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_irq_routing_msi ) ));
-    assert_eq! (::std::mem::align_of::<kvm_irq_routing_msi>() , 4usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_irq_routing_msi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_msi ) ) . address_lo as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing_msi ) ,
-                "::" , stringify ! ( address_lo ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_msi ) ) . address_hi as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing_msi ) ,
-                "::" , stringify ! ( address_hi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_msi ) ) . data as * const
-                _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing_msi ) ,
-                "::" , stringify ! ( data ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_msi ) ) . pad as * const
-                _ as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing_msi ) ,
-                "::" , stringify ! ( pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_irq_routing_msi>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_irq_routing_msi))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_irq_routing_msi>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_irq_routing_msi))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_msi)).address_lo as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_msi),
+            "::",
+            stringify!(address_lo)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_msi)).address_hi as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_msi),
+            "::",
+            stringify!(address_hi)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_msi)).data as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_msi),
+            "::",
+            stringify!(data)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_msi)).pad as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_msi),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_irq_routing_msi {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4543,46 +7226,73 @@ pub struct kvm_irq_routing_s390_adapter {
 }
 #[test]
 fn bindgen_test_layout_kvm_irq_routing_s390_adapter() {
-    assert_eq!(::std::mem::size_of::<kvm_irq_routing_s390_adapter>() , 32usize
-               , concat ! (
-               "Size of: " , stringify ! ( kvm_irq_routing_s390_adapter ) ));
-    assert_eq! (::std::mem::align_of::<kvm_irq_routing_s390_adapter>() ,
-                8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_irq_routing_s390_adapter )
-                ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_s390_adapter ) ) .
-                ind_addr as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irq_routing_s390_adapter ) , "::" , stringify ! ( ind_addr
-                ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_s390_adapter ) ) .
-                summary_addr as * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irq_routing_s390_adapter ) , "::" , stringify ! (
-                summary_addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_s390_adapter ) ) .
-                ind_offset as * const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irq_routing_s390_adapter ) , "::" , stringify ! (
-                ind_offset ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_s390_adapter ) ) .
-                summary_offset as * const _ as usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irq_routing_s390_adapter ) , "::" , stringify ! (
-                summary_offset ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_s390_adapter ) ) .
-                adapter_id as * const _ as usize } , 28usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irq_routing_s390_adapter ) , "::" , stringify ! (
-                adapter_id ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_irq_routing_s390_adapter>(),
+        32usize,
+        concat!("Size of: ", stringify!(kvm_irq_routing_s390_adapter))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_irq_routing_s390_adapter>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_irq_routing_s390_adapter))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_s390_adapter)).ind_addr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_s390_adapter),
+            "::",
+            stringify!(ind_addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_s390_adapter)).summary_addr as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_s390_adapter),
+            "::",
+            stringify!(summary_addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_s390_adapter)).ind_offset as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_s390_adapter),
+            "::",
+            stringify!(ind_offset)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_irq_routing_s390_adapter)).summary_offset as *const _ as usize
+        },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_s390_adapter),
+            "::",
+            stringify!(summary_offset)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_s390_adapter)).adapter_id as *const _ as usize },
+        28usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_s390_adapter),
+            "::",
+            stringify!(adapter_id)
+        )
+    );
 }
 impl Clone for kvm_irq_routing_s390_adapter {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4604,78 +7314,136 @@ pub struct kvm_irq_routing_entry__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_kvm_irq_routing_entry__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_irq_routing_entry__bindgen_ty_1>() ,
-               32usize , concat ! (
-               "Size of: " , stringify ! ( kvm_irq_routing_entry__bindgen_ty_1
-               ) ));
-    assert_eq! (::std::mem::align_of::<kvm_irq_routing_entry__bindgen_ty_1>()
-                , 8usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_irq_routing_entry__bindgen_ty_1 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_entry__bindgen_ty_1 ) ) .
-                irqchip as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irq_routing_entry__bindgen_ty_1 ) , "::" , stringify ! (
-                irqchip ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_entry__bindgen_ty_1 ) ) .
-                msi as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irq_routing_entry__bindgen_ty_1 ) , "::" , stringify ! (
-                msi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_entry__bindgen_ty_1 ) ) .
-                adapter as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irq_routing_entry__bindgen_ty_1 ) , "::" , stringify ! (
-                adapter ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_entry__bindgen_ty_1 ) ) .
-                pad as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_irq_routing_entry__bindgen_ty_1 ) , "::" , stringify ! (
-                pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_irq_routing_entry__bindgen_ty_1>(),
+        32usize,
+        concat!("Size of: ", stringify!(kvm_irq_routing_entry__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_irq_routing_entry__bindgen_ty_1>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_irq_routing_entry__bindgen_ty_1)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_irq_routing_entry__bindgen_ty_1)).irqchip as *const _ as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_entry__bindgen_ty_1),
+            "::",
+            stringify!(irqchip)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_entry__bindgen_ty_1)).msi as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_entry__bindgen_ty_1),
+            "::",
+            stringify!(msi)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_irq_routing_entry__bindgen_ty_1)).adapter as *const _ as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_entry__bindgen_ty_1),
+            "::",
+            stringify!(adapter)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_entry__bindgen_ty_1)).pad as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_entry__bindgen_ty_1),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_irq_routing_entry__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[test]
 fn bindgen_test_layout_kvm_irq_routing_entry() {
-    assert_eq!(::std::mem::size_of::<kvm_irq_routing_entry>() , 48usize ,
-               concat ! ( "Size of: " , stringify ! ( kvm_irq_routing_entry )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_irq_routing_entry>() , 8usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_irq_routing_entry ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_entry ) ) . gsi as *
-                const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing_entry )
-                , "::" , stringify ! ( gsi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_entry ) ) . type_ as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing_entry )
-                , "::" , stringify ! ( type_ ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_entry ) ) . flags as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing_entry )
-                , "::" , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_entry ) ) . pad as *
-                const _ as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing_entry )
-                , "::" , stringify ! ( pad ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing_entry ) ) . u as * const
-                _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing_entry )
-                , "::" , stringify ! ( u ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_irq_routing_entry>(),
+        48usize,
+        concat!("Size of: ", stringify!(kvm_irq_routing_entry))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_irq_routing_entry>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_irq_routing_entry))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_entry)).gsi as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_entry),
+            "::",
+            stringify!(gsi)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_entry)).type_ as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_entry),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_entry)).flags as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_entry),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_entry)).pad as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_entry),
+            "::",
+            stringify!(pad)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing_entry)).u as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing_entry),
+            "::",
+            stringify!(u)
+        )
+    );
 }
 impl Clone for kvm_irq_routing_entry {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4687,28 +7455,51 @@ pub struct kvm_irq_routing {
 }
 #[test]
 fn bindgen_test_layout_kvm_irq_routing() {
-    assert_eq!(::std::mem::size_of::<kvm_irq_routing>() , 8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_irq_routing ) ));
-    assert_eq! (::std::mem::align_of::<kvm_irq_routing>() , 8usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_irq_routing ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing ) ) . nr as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing ) ,
-                "::" , stringify ! ( nr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing ) ) . flags as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing ) ,
-                "::" , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irq_routing ) ) . entries as * const
-                _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irq_routing ) ,
-                "::" , stringify ! ( entries ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_irq_routing>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_irq_routing))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_irq_routing>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_irq_routing))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing)).nr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing),
+            "::",
+            stringify!(nr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing)).flags as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irq_routing)).entries as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irq_routing),
+            "::",
+            stringify!(entries)
+        )
+    );
 }
 impl Clone for kvm_irq_routing {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4723,48 +7514,91 @@ pub struct kvm_x86_mce {
 }
 #[test]
 fn bindgen_test_layout_kvm_x86_mce() {
-    assert_eq!(::std::mem::size_of::<kvm_x86_mce>() , 64usize , concat ! (
-               "Size of: " , stringify ! ( kvm_x86_mce ) ));
-    assert_eq! (::std::mem::align_of::<kvm_x86_mce>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_x86_mce ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_x86_mce ) ) . status as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_x86_mce ) , "::" ,
-                stringify ! ( status ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_x86_mce ) ) . addr as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_x86_mce ) , "::" ,
-                stringify ! ( addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_x86_mce ) ) . misc as * const _ as
-                usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_x86_mce ) , "::" ,
-                stringify ! ( misc ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_x86_mce ) ) . mcg_status as * const _
-                as usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_x86_mce ) , "::" ,
-                stringify ! ( mcg_status ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_x86_mce ) ) . bank as * const _ as
-                usize } , 32usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_x86_mce ) , "::" ,
-                stringify ! ( bank ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_x86_mce ) ) . pad1 as * const _ as
-                usize } , 33usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_x86_mce ) , "::" ,
-                stringify ! ( pad1 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_x86_mce ) ) . pad2 as * const _ as
-                usize } , 40usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_x86_mce ) , "::" ,
-                stringify ! ( pad2 ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_x86_mce>(),
+        64usize,
+        concat!("Size of: ", stringify!(kvm_x86_mce))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_x86_mce>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_x86_mce))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_x86_mce)).status as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_x86_mce),
+            "::",
+            stringify!(status)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_x86_mce)).addr as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_x86_mce),
+            "::",
+            stringify!(addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_x86_mce)).misc as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_x86_mce),
+            "::",
+            stringify!(misc)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_x86_mce)).mcg_status as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_x86_mce),
+            "::",
+            stringify!(mcg_status)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_x86_mce)).bank as *const _ as usize },
+        32usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_x86_mce),
+            "::",
+            stringify!(bank)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_x86_mce)).pad1 as *const _ as usize },
+        33usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_x86_mce),
+            "::",
+            stringify!(pad1)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_x86_mce)).pad2 as *const _ as usize },
+        40usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_x86_mce),
+            "::",
+            stringify!(pad2)
+        )
+    );
 }
 impl Clone for kvm_x86_mce {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4779,48 +7613,91 @@ pub struct kvm_xen_hvm_config {
 }
 #[test]
 fn bindgen_test_layout_kvm_xen_hvm_config() {
-    assert_eq!(::std::mem::size_of::<kvm_xen_hvm_config>() , 56usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_xen_hvm_config ) ));
-    assert_eq! (::std::mem::align_of::<kvm_xen_hvm_config>() , 8usize , concat
-                ! ( "Alignment of " , stringify ! ( kvm_xen_hvm_config ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xen_hvm_config ) ) . flags as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xen_hvm_config ) ,
-                "::" , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xen_hvm_config ) ) . msr as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xen_hvm_config ) ,
-                "::" , stringify ! ( msr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xen_hvm_config ) ) . blob_addr_32 as
-                * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xen_hvm_config ) ,
-                "::" , stringify ! ( blob_addr_32 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xen_hvm_config ) ) . blob_addr_64 as
-                * const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xen_hvm_config ) ,
-                "::" , stringify ! ( blob_addr_64 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xen_hvm_config ) ) . blob_size_32 as
-                * const _ as usize } , 24usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xen_hvm_config ) ,
-                "::" , stringify ! ( blob_size_32 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xen_hvm_config ) ) . blob_size_64 as
-                * const _ as usize } , 25usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xen_hvm_config ) ,
-                "::" , stringify ! ( blob_size_64 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_xen_hvm_config ) ) . pad2 as * const
-                _ as usize } , 26usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_xen_hvm_config ) ,
-                "::" , stringify ! ( pad2 ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_xen_hvm_config>(),
+        56usize,
+        concat!("Size of: ", stringify!(kvm_xen_hvm_config))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_xen_hvm_config>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_xen_hvm_config))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xen_hvm_config)).flags as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xen_hvm_config),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xen_hvm_config)).msr as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xen_hvm_config),
+            "::",
+            stringify!(msr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xen_hvm_config)).blob_addr_32 as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xen_hvm_config),
+            "::",
+            stringify!(blob_addr_32)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xen_hvm_config)).blob_addr_64 as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xen_hvm_config),
+            "::",
+            stringify!(blob_addr_64)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xen_hvm_config)).blob_size_32 as *const _ as usize },
+        24usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xen_hvm_config),
+            "::",
+            stringify!(blob_size_32)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xen_hvm_config)).blob_size_64 as *const _ as usize },
+        25usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xen_hvm_config),
+            "::",
+            stringify!(blob_size_64)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_xen_hvm_config)).pad2 as *const _ as usize },
+        26usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_xen_hvm_config),
+            "::",
+            stringify!(pad2)
+        )
+    );
 }
 impl Clone for kvm_xen_hvm_config {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4833,38 +7710,71 @@ pub struct kvm_irqfd {
 }
 #[test]
 fn bindgen_test_layout_kvm_irqfd() {
-    assert_eq!(::std::mem::size_of::<kvm_irqfd>() , 32usize , concat ! (
-               "Size of: " , stringify ! ( kvm_irqfd ) ));
-    assert_eq! (::std::mem::align_of::<kvm_irqfd>() , 4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_irqfd ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irqfd ) ) . fd as * const _ as usize
-                } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irqfd ) , "::" ,
-                stringify ! ( fd ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irqfd ) ) . gsi as * const _ as usize
-                } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irqfd ) , "::" ,
-                stringify ! ( gsi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irqfd ) ) . flags as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irqfd ) , "::" ,
-                stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irqfd ) ) . resamplefd as * const _
-                as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irqfd ) , "::" ,
-                stringify ! ( resamplefd ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_irqfd ) ) . pad as * const _ as usize
-                } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_irqfd ) , "::" ,
-                stringify ! ( pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_irqfd>(),
+        32usize,
+        concat!("Size of: ", stringify!(kvm_irqfd))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_irqfd>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_irqfd))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irqfd)).fd as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irqfd),
+            "::",
+            stringify!(fd)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irqfd)).gsi as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irqfd),
+            "::",
+            stringify!(gsi)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irqfd)).flags as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irqfd),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irqfd)).resamplefd as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irqfd),
+            "::",
+            stringify!(resamplefd)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_irqfd)).pad as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_irqfd),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_irqfd {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4875,28 +7785,51 @@ pub struct kvm_clock_data {
 }
 #[test]
 fn bindgen_test_layout_kvm_clock_data() {
-    assert_eq!(::std::mem::size_of::<kvm_clock_data>() , 48usize , concat ! (
-               "Size of: " , stringify ! ( kvm_clock_data ) ));
-    assert_eq! (::std::mem::align_of::<kvm_clock_data>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_clock_data ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_clock_data ) ) . clock as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_clock_data ) , "::"
-                , stringify ! ( clock ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_clock_data ) ) . flags as * const _
-                as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_clock_data ) , "::"
-                , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_clock_data ) ) . pad as * const _ as
-                usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_clock_data ) , "::"
-                , stringify ! ( pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_clock_data>(),
+        48usize,
+        concat!("Size of: ", stringify!(kvm_clock_data))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_clock_data>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_clock_data))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_clock_data)).clock as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_clock_data),
+            "::",
+            stringify!(clock)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_clock_data)).flags as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_clock_data),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_clock_data)).pad as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_clock_data),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_clock_data {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4908,33 +7841,61 @@ pub struct kvm_config_tlb {
 }
 #[test]
 fn bindgen_test_layout_kvm_config_tlb() {
-    assert_eq!(::std::mem::size_of::<kvm_config_tlb>() , 24usize , concat ! (
-               "Size of: " , stringify ! ( kvm_config_tlb ) ));
-    assert_eq! (::std::mem::align_of::<kvm_config_tlb>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_config_tlb ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_config_tlb ) ) . params as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_config_tlb ) , "::"
-                , stringify ! ( params ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_config_tlb ) ) . array as * const _
-                as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_config_tlb ) , "::"
-                , stringify ! ( array ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_config_tlb ) ) . mmu_type as * const
-                _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_config_tlb ) , "::"
-                , stringify ! ( mmu_type ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_config_tlb ) ) . array_len as * const
-                _ as usize } , 20usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_config_tlb ) , "::"
-                , stringify ! ( array_len ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_config_tlb>(),
+        24usize,
+        concat!("Size of: ", stringify!(kvm_config_tlb))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_config_tlb>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_config_tlb))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_config_tlb)).params as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_config_tlb),
+            "::",
+            stringify!(params)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_config_tlb)).array as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_config_tlb),
+            "::",
+            stringify!(array)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_config_tlb)).mmu_type as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_config_tlb),
+            "::",
+            stringify!(mmu_type)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_config_tlb)).array_len as *const _ as usize },
+        20usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_config_tlb),
+            "::",
+            stringify!(array_len)
+        )
+    );
 }
 impl Clone for kvm_config_tlb {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4944,23 +7905,41 @@ pub struct kvm_dirty_tlb {
 }
 #[test]
 fn bindgen_test_layout_kvm_dirty_tlb() {
-    assert_eq!(::std::mem::size_of::<kvm_dirty_tlb>() , 16usize , concat ! (
-               "Size of: " , stringify ! ( kvm_dirty_tlb ) ));
-    assert_eq! (::std::mem::align_of::<kvm_dirty_tlb>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_dirty_tlb ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_dirty_tlb ) ) . bitmap as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_dirty_tlb ) , "::"
-                , stringify ! ( bitmap ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_dirty_tlb ) ) . num_dirty as * const
-                _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_dirty_tlb ) , "::"
-                , stringify ! ( num_dirty ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_dirty_tlb>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_dirty_tlb))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_dirty_tlb>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_dirty_tlb))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_dirty_tlb)).bitmap as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_dirty_tlb),
+            "::",
+            stringify!(bitmap)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_dirty_tlb)).num_dirty as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_dirty_tlb),
+            "::",
+            stringify!(num_dirty)
+        )
+    );
 }
 impl Clone for kvm_dirty_tlb {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4970,23 +7949,41 @@ pub struct kvm_reg_list {
 }
 #[test]
 fn bindgen_test_layout_kvm_reg_list() {
-    assert_eq!(::std::mem::size_of::<kvm_reg_list>() , 8usize , concat ! (
-               "Size of: " , stringify ! ( kvm_reg_list ) ));
-    assert_eq! (::std::mem::align_of::<kvm_reg_list>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_reg_list ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_reg_list ) ) . n as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_reg_list ) , "::" ,
-                stringify ! ( n ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_reg_list ) ) . reg as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_reg_list ) , "::" ,
-                stringify ! ( reg ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_reg_list>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_reg_list))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_reg_list>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_reg_list))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_reg_list)).n as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_reg_list),
+            "::",
+            stringify!(n)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_reg_list)).reg as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_reg_list),
+            "::",
+            stringify!(reg)
+        )
+    );
 }
 impl Clone for kvm_reg_list {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -4996,23 +7993,41 @@ pub struct kvm_one_reg {
 }
 #[test]
 fn bindgen_test_layout_kvm_one_reg() {
-    assert_eq!(::std::mem::size_of::<kvm_one_reg>() , 16usize , concat ! (
-               "Size of: " , stringify ! ( kvm_one_reg ) ));
-    assert_eq! (::std::mem::align_of::<kvm_one_reg>() , 8usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_one_reg ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_one_reg ) ) . id as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_one_reg ) , "::" ,
-                stringify ! ( id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_one_reg ) ) . addr as * const _ as
-                usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_one_reg ) , "::" ,
-                stringify ! ( addr ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_one_reg>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_one_reg))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_one_reg>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_one_reg))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_one_reg)).id as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_one_reg),
+            "::",
+            stringify!(id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_one_reg)).addr as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_one_reg),
+            "::",
+            stringify!(addr)
+        )
+    );
 }
 impl Clone for kvm_one_reg {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -5025,38 +8040,71 @@ pub struct kvm_msi {
 }
 #[test]
 fn bindgen_test_layout_kvm_msi() {
-    assert_eq!(::std::mem::size_of::<kvm_msi>() , 32usize , concat ! (
-               "Size of: " , stringify ! ( kvm_msi ) ));
-    assert_eq! (::std::mem::align_of::<kvm_msi>() , 4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_msi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msi ) ) . address_lo as * const _ as
-                usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msi ) , "::" ,
-                stringify ! ( address_lo ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msi ) ) . address_hi as * const _ as
-                usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msi ) , "::" ,
-                stringify ! ( address_hi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msi ) ) . data as * const _ as usize
-                } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msi ) , "::" ,
-                stringify ! ( data ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msi ) ) . flags as * const _ as usize
-                } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msi ) , "::" ,
-                stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_msi ) ) . pad as * const _ as usize }
-                , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_msi ) , "::" ,
-                stringify ! ( pad ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_msi>(),
+        32usize,
+        concat!("Size of: ", stringify!(kvm_msi))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_msi>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_msi))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msi)).address_lo as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msi),
+            "::",
+            stringify!(address_lo)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msi)).address_hi as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msi),
+            "::",
+            stringify!(address_hi)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msi)).data as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msi),
+            "::",
+            stringify!(data)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msi)).flags as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msi),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_msi)).pad as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_msi),
+            "::",
+            stringify!(pad)
+        )
+    );
 }
 impl Clone for kvm_msi {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -5066,24 +8114,41 @@ pub struct kvm_arm_device_addr {
 }
 #[test]
 fn bindgen_test_layout_kvm_arm_device_addr() {
-    assert_eq!(::std::mem::size_of::<kvm_arm_device_addr>() , 16usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_arm_device_addr ) ));
-    assert_eq! (::std::mem::align_of::<kvm_arm_device_addr>() , 8usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_arm_device_addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_arm_device_addr ) ) . id as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_arm_device_addr ) ,
-                "::" , stringify ! ( id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_arm_device_addr ) ) . addr as * const
-                _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_arm_device_addr ) ,
-                "::" , stringify ! ( addr ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_arm_device_addr>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_arm_device_addr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_arm_device_addr>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_arm_device_addr))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_arm_device_addr)).id as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_arm_device_addr),
+            "::",
+            stringify!(id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_arm_device_addr)).addr as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_arm_device_addr),
+            "::",
+            stringify!(addr)
+        )
+    );
 }
 impl Clone for kvm_arm_device_addr {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -5094,28 +8159,51 @@ pub struct kvm_create_device {
 }
 #[test]
 fn bindgen_test_layout_kvm_create_device() {
-    assert_eq!(::std::mem::size_of::<kvm_create_device>() , 12usize , concat !
-               ( "Size of: " , stringify ! ( kvm_create_device ) ));
-    assert_eq! (::std::mem::align_of::<kvm_create_device>() , 4usize , concat
-                ! ( "Alignment of " , stringify ! ( kvm_create_device ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_create_device ) ) . type_ as * const
-                _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_create_device ) ,
-                "::" , stringify ! ( type_ ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_create_device ) ) . fd as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_create_device ) ,
-                "::" , stringify ! ( fd ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_create_device ) ) . flags as * const
-                _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_create_device ) ,
-                "::" , stringify ! ( flags ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_create_device>(),
+        12usize,
+        concat!("Size of: ", stringify!(kvm_create_device))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_create_device>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_create_device))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_create_device)).type_ as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_create_device),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_create_device)).fd as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_create_device),
+            "::",
+            stringify!(fd)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_create_device)).flags as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_create_device),
+            "::",
+            stringify!(flags)
+        )
+    );
 }
 impl Clone for kvm_create_device {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -5127,33 +8215,61 @@ pub struct kvm_device_attr {
 }
 #[test]
 fn bindgen_test_layout_kvm_device_attr() {
-    assert_eq!(::std::mem::size_of::<kvm_device_attr>() , 24usize , concat ! (
-               "Size of: " , stringify ! ( kvm_device_attr ) ));
-    assert_eq! (::std::mem::align_of::<kvm_device_attr>() , 8usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_device_attr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_device_attr ) ) . flags as * const _
-                as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_device_attr ) ,
-                "::" , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_device_attr ) ) . group as * const _
-                as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_device_attr ) ,
-                "::" , stringify ! ( group ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_device_attr ) ) . attr as * const _
-                as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_device_attr ) ,
-                "::" , stringify ! ( attr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_device_attr ) ) . addr as * const _
-                as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_device_attr ) ,
-                "::" , stringify ! ( addr ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_device_attr>(),
+        24usize,
+        concat!("Size of: ", stringify!(kvm_device_attr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_device_attr>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_device_attr))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_device_attr)).flags as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_device_attr),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_device_attr)).group as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_device_attr),
+            "::",
+            stringify!(group)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_device_attr)).attr as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_device_attr),
+            "::",
+            stringify!(attr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_device_attr)).addr as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_device_attr),
+            "::",
+            stringify!(addr)
+        )
+    );
 }
 impl Clone for kvm_device_attr {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 pub const kvm_device_type_KVM_DEV_TYPE_FSL_MPIC_20: kvm_device_type = 1;
 pub const kvm_device_type_KVM_DEV_TYPE_FSL_MPIC_42: kvm_device_type = 2;
@@ -5173,30 +8289,51 @@ pub struct kvm_s390_ucas_mapping {
 }
 #[test]
 fn bindgen_test_layout_kvm_s390_ucas_mapping() {
-    assert_eq!(::std::mem::size_of::<kvm_s390_ucas_mapping>() , 24usize ,
-               concat ! ( "Size of: " , stringify ! ( kvm_s390_ucas_mapping )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_s390_ucas_mapping>() , 8usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_s390_ucas_mapping ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_ucas_mapping ) ) . user_addr as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_ucas_mapping )
-                , "::" , stringify ! ( user_addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_ucas_mapping ) ) . vcpu_addr as
-                * const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_ucas_mapping )
-                , "::" , stringify ! ( vcpu_addr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_s390_ucas_mapping ) ) . length as *
-                const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_s390_ucas_mapping )
-                , "::" , stringify ! ( length ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_s390_ucas_mapping>(),
+        24usize,
+        concat!("Size of: ", stringify!(kvm_s390_ucas_mapping))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_s390_ucas_mapping>(),
+        8usize,
+        concat!("Alignment of ", stringify!(kvm_s390_ucas_mapping))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_ucas_mapping)).user_addr as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_ucas_mapping),
+            "::",
+            stringify!(user_addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_ucas_mapping)).vcpu_addr as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_ucas_mapping),
+            "::",
+            stringify!(vcpu_addr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_s390_ucas_mapping)).length as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_s390_ucas_mapping),
+            "::",
+            stringify!(length)
+        )
+    );
 }
 impl Clone for kvm_s390_ucas_mapping {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -5216,60 +8353,104 @@ pub struct kvm_assigned_pci_dev__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_kvm_assigned_pci_dev__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_assigned_pci_dev__bindgen_ty_1>() ,
-               44usize , concat ! (
-               "Size of: " , stringify ! ( kvm_assigned_pci_dev__bindgen_ty_1
-               ) ));
-    assert_eq! (::std::mem::align_of::<kvm_assigned_pci_dev__bindgen_ty_1>() ,
-                4usize , concat ! (
-                "Alignment of " , stringify ! (
-                kvm_assigned_pci_dev__bindgen_ty_1 ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_pci_dev__bindgen_ty_1 ) ) .
-                reserved as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_assigned_pci_dev__bindgen_ty_1 ) , "::" , stringify ! (
-                reserved ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_assigned_pci_dev__bindgen_ty_1>(),
+        44usize,
+        concat!("Size of: ", stringify!(kvm_assigned_pci_dev__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_assigned_pci_dev__bindgen_ty_1>(),
+        4usize,
+        concat!(
+            "Alignment of ",
+            stringify!(kvm_assigned_pci_dev__bindgen_ty_1)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(0 as *const kvm_assigned_pci_dev__bindgen_ty_1)).reserved as *const _ as usize
+        },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_pci_dev__bindgen_ty_1),
+            "::",
+            stringify!(reserved)
+        )
+    );
 }
 impl Clone for kvm_assigned_pci_dev__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[test]
 fn bindgen_test_layout_kvm_assigned_pci_dev() {
-    assert_eq!(::std::mem::size_of::<kvm_assigned_pci_dev>() , 64usize ,
-               concat ! ( "Size of: " , stringify ! ( kvm_assigned_pci_dev )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_assigned_pci_dev>() , 4usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_assigned_pci_dev ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_pci_dev ) ) .
-                assigned_dev_id as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_pci_dev )
-                , "::" , stringify ! ( assigned_dev_id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_pci_dev ) ) . busnr as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_pci_dev )
-                , "::" , stringify ! ( busnr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_pci_dev ) ) . devfn as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_pci_dev )
-                , "::" , stringify ! ( devfn ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_pci_dev ) ) . flags as *
-                const _ as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_pci_dev )
-                , "::" , stringify ! ( flags ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_pci_dev ) ) . segnr as *
-                const _ as usize } , 16usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_pci_dev )
-                , "::" , stringify ! ( segnr ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_assigned_pci_dev>(),
+        64usize,
+        concat!("Size of: ", stringify!(kvm_assigned_pci_dev))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_assigned_pci_dev>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_assigned_pci_dev))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_pci_dev)).assigned_dev_id as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_pci_dev),
+            "::",
+            stringify!(assigned_dev_id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_pci_dev)).busnr as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_pci_dev),
+            "::",
+            stringify!(busnr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_pci_dev)).devfn as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_pci_dev),
+            "::",
+            stringify!(devfn)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_pci_dev)).flags as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_pci_dev),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_pci_dev)).segnr as *const _ as usize },
+        16usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_pci_dev),
+            "::",
+            stringify!(segnr)
+        )
+    );
 }
 impl Clone for kvm_assigned_pci_dev {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -5288,53 +8469,89 @@ pub struct kvm_assigned_irq__bindgen_ty_1 {
 }
 #[test]
 fn bindgen_test_layout_kvm_assigned_irq__bindgen_ty_1() {
-    assert_eq!(::std::mem::size_of::<kvm_assigned_irq__bindgen_ty_1>() ,
-               48usize , concat ! (
-               "Size of: " , stringify ! ( kvm_assigned_irq__bindgen_ty_1 )
-               ));
-    assert_eq! (::std::mem::align_of::<kvm_assigned_irq__bindgen_ty_1>() ,
-                4usize , concat ! (
-                "Alignment of " , stringify ! ( kvm_assigned_irq__bindgen_ty_1
-                ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_irq__bindgen_ty_1 ) ) .
-                reserved as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! (
-                kvm_assigned_irq__bindgen_ty_1 ) , "::" , stringify ! (
-                reserved ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_assigned_irq__bindgen_ty_1>(),
+        48usize,
+        concat!("Size of: ", stringify!(kvm_assigned_irq__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_assigned_irq__bindgen_ty_1>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_assigned_irq__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_irq__bindgen_ty_1)).reserved as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_irq__bindgen_ty_1),
+            "::",
+            stringify!(reserved)
+        )
+    );
 }
 impl Clone for kvm_assigned_irq__bindgen_ty_1 {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[test]
 fn bindgen_test_layout_kvm_assigned_irq() {
-    assert_eq!(::std::mem::size_of::<kvm_assigned_irq>() , 64usize , concat !
-               ( "Size of: " , stringify ! ( kvm_assigned_irq ) ));
-    assert_eq! (::std::mem::align_of::<kvm_assigned_irq>() , 4usize , concat !
-                ( "Alignment of " , stringify ! ( kvm_assigned_irq ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_irq ) ) . assigned_dev_id as
-                * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_irq ) ,
-                "::" , stringify ! ( assigned_dev_id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_irq ) ) . host_irq as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_irq ) ,
-                "::" , stringify ! ( host_irq ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_irq ) ) . guest_irq as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_irq ) ,
-                "::" , stringify ! ( guest_irq ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_irq ) ) . flags as * const _
-                as usize } , 12usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_irq ) ,
-                "::" , stringify ! ( flags ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_assigned_irq>(),
+        64usize,
+        concat!("Size of: ", stringify!(kvm_assigned_irq))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_assigned_irq>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_assigned_irq))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_irq)).assigned_dev_id as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_irq),
+            "::",
+            stringify!(assigned_dev_id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_irq)).host_irq as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_irq),
+            "::",
+            stringify!(host_irq)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_irq)).guest_irq as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_irq),
+            "::",
+            stringify!(guest_irq)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_irq)).flags as *const _ as usize },
+        12usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_irq),
+            "::",
+            stringify!(flags)
+        )
+    );
 }
 impl Clone for kvm_assigned_irq {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -5345,29 +8562,51 @@ pub struct kvm_assigned_msix_nr {
 }
 #[test]
 fn bindgen_test_layout_kvm_assigned_msix_nr() {
-    assert_eq!(::std::mem::size_of::<kvm_assigned_msix_nr>() , 8usize , concat
-               ! ( "Size of: " , stringify ! ( kvm_assigned_msix_nr ) ));
-    assert_eq! (::std::mem::align_of::<kvm_assigned_msix_nr>() , 4usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_assigned_msix_nr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_msix_nr ) ) .
-                assigned_dev_id as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_msix_nr )
-                , "::" , stringify ! ( assigned_dev_id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_msix_nr ) ) . entry_nr as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_msix_nr )
-                , "::" , stringify ! ( entry_nr ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_msix_nr ) ) . padding as *
-                const _ as usize } , 6usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_msix_nr )
-                , "::" , stringify ! ( padding ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_assigned_msix_nr>(),
+        8usize,
+        concat!("Size of: ", stringify!(kvm_assigned_msix_nr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_assigned_msix_nr>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_assigned_msix_nr))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_msix_nr)).assigned_dev_id as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_msix_nr),
+            "::",
+            stringify!(assigned_dev_id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_msix_nr)).entry_nr as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_msix_nr),
+            "::",
+            stringify!(entry_nr)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_msix_nr)).padding as *const _ as usize },
+        6usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_msix_nr),
+            "::",
+            stringify!(padding)
+        )
+    );
 }
 impl Clone for kvm_assigned_msix_nr {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
@@ -5379,33 +8618,59 @@ pub struct kvm_assigned_msix_entry {
 }
 #[test]
 fn bindgen_test_layout_kvm_assigned_msix_entry() {
-    assert_eq!(::std::mem::size_of::<kvm_assigned_msix_entry>() , 16usize ,
-               concat ! (
-               "Size of: " , stringify ! ( kvm_assigned_msix_entry ) ));
-    assert_eq! (::std::mem::align_of::<kvm_assigned_msix_entry>() , 4usize ,
-                concat ! (
-                "Alignment of " , stringify ! ( kvm_assigned_msix_entry ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_msix_entry ) ) .
-                assigned_dev_id as * const _ as usize } , 0usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_msix_entry
-                ) , "::" , stringify ! ( assigned_dev_id ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_msix_entry ) ) . gsi as *
-                const _ as usize } , 4usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_msix_entry
-                ) , "::" , stringify ! ( gsi ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_msix_entry ) ) . entry as *
-                const _ as usize } , 8usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_msix_entry
-                ) , "::" , stringify ! ( entry ) ));
-    assert_eq! (unsafe {
-                & ( * ( 0 as * const kvm_assigned_msix_entry ) ) . padding as
-                * const _ as usize } , 10usize , concat ! (
-                "Alignment of field: " , stringify ! ( kvm_assigned_msix_entry
-                ) , "::" , stringify ! ( padding ) ));
+    assert_eq!(
+        ::std::mem::size_of::<kvm_assigned_msix_entry>(),
+        16usize,
+        concat!("Size of: ", stringify!(kvm_assigned_msix_entry))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<kvm_assigned_msix_entry>(),
+        4usize,
+        concat!("Alignment of ", stringify!(kvm_assigned_msix_entry))
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_msix_entry)).assigned_dev_id as *const _ as usize },
+        0usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_msix_entry),
+            "::",
+            stringify!(assigned_dev_id)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_msix_entry)).gsi as *const _ as usize },
+        4usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_msix_entry),
+            "::",
+            stringify!(gsi)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_msix_entry)).entry as *const _ as usize },
+        8usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_msix_entry),
+            "::",
+            stringify!(entry)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(0 as *const kvm_assigned_msix_entry)).padding as *const _ as usize },
+        10usize,
+        concat!(
+            "Alignment of field: ",
+            stringify!(kvm_assigned_msix_entry),
+            "::",
+            stringify!(padding)
+        )
+    );
 }
 impl Clone for kvm_assigned_msix_entry {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
