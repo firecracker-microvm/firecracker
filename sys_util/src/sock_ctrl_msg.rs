@@ -3,14 +3,14 @@
 // found in the LICENSE file.
 
 use std::fs::File;
-use std::os::unix::io::{AsRawFd, RawFd, FromRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::{UnixDatagram, UnixStream};
 
 use libc::{c_void, iovec};
 
 use data_model::VolatileSlice;
 
-use {Result, Error};
+use {Error, Result};
 
 // These functions are implemented in C because each of them requires complicated setup with CMSG
 // macros. These macros are part of the system headers and are required to be used for portability
@@ -285,9 +285,8 @@ mod tests {
         let mut buf2 = [0; 3];
         let mut bufs = [buf1.as_mut(), buf2.as_mut()];
         let mut files = Vec::new();
-        let read_count = scm.recv(&s2, &mut bufs[..], &mut files).expect(
-            "failed to recv data",
-        );
+        let read_count = scm.recv(&s2, &mut bufs[..], &mut files)
+            .expect("failed to recv data");
 
         assert_eq!(read_count, 6);
         assert!(files.is_empty());
@@ -301,16 +300,14 @@ mod tests {
 
         let mut scm = Scm::new(1);
         let evt = EventFd::new().expect("failed to create eventfd");
-        let write_count = scm.send(&s1, &[[].as_ref()], &[evt.as_raw_fd()]).expect(
-            "failed to send fd",
-        );
+        let write_count = scm.send(&s1, &[[].as_ref()], &[evt.as_raw_fd()])
+            .expect("failed to send fd");
 
         assert_eq!(write_count, 0);
 
         let mut files = Vec::new();
-        let read_count = scm.recv(&s2, &mut [&mut []], &mut files).expect(
-            "failed to recv fd",
-        );
+        let read_count = scm.recv(&s2, &mut [&mut []], &mut files)
+            .expect("failed to recv fd");
 
         assert_eq!(read_count, 0);
         assert_eq!(files.len(), 1);
@@ -320,9 +317,7 @@ mod tests {
         assert_ne!(files[0].as_raw_fd(), evt.as_raw_fd());
 
         files[0]
-            .write(unsafe {
-                from_raw_parts(&1203u64 as *const u64 as *const u8, 8)
-            })
+            .write(unsafe { from_raw_parts(&1203u64 as *const u64 as *const u8, 8) })
             .expect("failed to write to sent fd");
 
         assert_eq!(evt.read().expect("failed to read from eventfd"), 1203);
@@ -341,9 +336,8 @@ mod tests {
 
         let mut files = Vec::new();
         let mut buf = [0u8];
-        let read_count = scm.recv(&s2, &mut [&mut buf], &mut files).expect(
-            "failed to recv fd",
-        );
+        let read_count = scm.recv(&s2, &mut [&mut buf], &mut files)
+            .expect("failed to recv fd");
 
         assert_eq!(read_count, 1);
         assert_eq!(buf[0], 237);
@@ -354,9 +348,7 @@ mod tests {
         assert_ne!(files[0].as_raw_fd(), evt.as_raw_fd());
 
         files[0]
-            .write(unsafe {
-                from_raw_parts(&1203u64 as *const u64 as *const u8, 8)
-            })
+            .write(unsafe { from_raw_parts(&1203u64 as *const u64 as *const u8, 8) })
             .expect("failed to write to sent fd");
 
         assert_eq!(evt.read().expect("failed to read from eventfd"), 1203);

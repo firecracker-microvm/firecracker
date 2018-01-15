@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-use libc::{c_int, pthread_t, signal, pthread_kill, SIG_ERR, EINVAL};
+use libc::{c_int, pthread_kill, pthread_t, signal, EINVAL, SIG_ERR};
 
 use std::thread::JoinHandle;
 use std::os::unix::thread::JoinHandleExt;
 
-use {Error, Result, errno_result};
+use {errno_result, Error, Result};
 
 #[link(name = "c")]
 extern "C" {

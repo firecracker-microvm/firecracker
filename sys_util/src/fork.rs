@@ -10,7 +10,7 @@ use std::result;
 
 use errno_result;
 
-use libc::{syscall, SIGCHLD, CLONE_NEWUSER, CLONE_NEWPID, c_long, pid_t};
+use libc::{c_long, pid_t, syscall, CLONE_NEWPID, CLONE_NEWUSER, SIGCHLD};
 
 use syscall_defines::linux::LinuxSyscall::SYS_clone;
 
@@ -67,7 +67,8 @@ where
             // Test cfg gets a free pass on this because tests generally have multiple independent
             // test threads going.
             let _ = thread_count;
-            #[cfg(not(test))] return Err(CloneError::Multithreaded(thread_count));
+            #[cfg(not(test))]
+            return Err(CloneError::Multithreaded(thread_count));
         }
         Err(e) => return Err(CloneError::IterateTasks(e)),
     }

@@ -329,9 +329,7 @@ impl VolatileMemory for MemoryMapping {
 
         // Safe because we checked that offset + count was within our range and we only ever hand
         // out volatile accessors.
-        Ok(unsafe {
-            VolatileSlice::new((self.addr as usize + offset) as *mut _, count)
-        })
+        Ok(unsafe { VolatileSlice::new((self.addr as usize + offset) as *mut _, count) })
     }
 }
 
@@ -398,7 +396,6 @@ mod tests {
                 offset: 3,
             }
         );
-
     }
     #[test]
     fn slice_oob_error() {

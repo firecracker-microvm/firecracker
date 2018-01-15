@@ -5,9 +5,9 @@
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixDatagram, UnixStream};
 
-use libc::{nfds_t, pollfd, poll, POLLIN};
+use libc::{nfds_t, poll, pollfd, POLLIN};
 
-use {Result, errno_result};
+use {errno_result, Result};
 
 /// Trait for file descriptors that can be polled for input.
 ///

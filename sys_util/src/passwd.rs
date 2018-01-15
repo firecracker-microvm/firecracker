@@ -9,9 +9,9 @@ use std::mem;
 use std::ptr;
 
 use libc;
-use libc::{c_char, gid_t, uid_t, getgrnam_r, getpwnam_r};
+use libc::{c_char, getgrnam_r, getpwnam_r, gid_t, uid_t};
 
-use {Result, errno_result};
+use {errno_result, Result};
 
 /// Safe wrapper for getting a uid from a user name with `getpwnam_r(3)`.
 #[inline(always)]

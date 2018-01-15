@@ -55,7 +55,7 @@ pub use signalfd::Error as SignalFdError;
 use std::ffi::CStr;
 use std::ptr;
 
-use libc::{kill, syscall, waitpid, c_long, pid_t, uid_t, gid_t, SIGKILL, WNOHANG};
+use libc::{c_long, gid_t, kill, pid_t, syscall, uid_t, waitpid, SIGKILL, WNOHANG};
 
 use syscall_defines::linux::LinuxSyscall::SYS_getpid;
 
@@ -87,7 +87,11 @@ pub fn chown(path: &CStr, uid: uid_t, gid: gid_t) -> Result<()> {
     // Safe since we pass in a valid string pointer and check the return value.
     let ret = unsafe { libc::chown(path.as_ptr(), uid, gid) };
 
-    if ret < 0 { errno_result() } else { Ok(()) }
+    if ret < 0 {
+        errno_result()
+    } else {
+        Ok(())
+    }
 }
 
 /// Reaps a child process that has terminated.
@@ -120,7 +124,11 @@ pub fn chown(path: &CStr, uid: uid_t, gid: gid_t) -> Result<()> {
 pub fn reap_child() -> Result<pid_t> {
     // Safe because we pass in no memory, prevent blocking with WNOHANG, and check for error.
     let ret = unsafe { waitpid(-1, ptr::null_mut(), WNOHANG) };
-    if ret == -1 { errno_result() } else { Ok(ret) }
+    if ret == -1 {
+        errno_result()
+    } else {
+        Ok(ret)
+    }
 }
 
 /// Kill all processes in the current process group.
