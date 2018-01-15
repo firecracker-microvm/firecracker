@@ -5,6 +5,7 @@
 //! A safe wrapper around the kernel's KVM interface.
 
 extern crate libc;
+
 extern crate byteorder;
 extern crate kvm_sys;
 #[macro_use]
@@ -16,13 +17,13 @@ use std::fs::File;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
-use libc::{open, O_RDWR, EINVAL, ENOSPC};
+use libc::{open, EINVAL, ENOSPC, O_RDWR};
 
 use kvm_sys::*;
 
-use sys_util::{MemoryMapping, EventFd, Result, Error, errno_result};
-use sys_util::{ioctl, ioctl_with_val, ioctl_with_ref, ioctl_with_mut_ref, ioctl_with_ptr,
-               ioctl_with_mut_ptr};
+use sys_util::{errno_result, Error, EventFd, MemoryMapping, Result};
+use sys_util::{ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref,
+               ioctl_with_val};
 
 pub use cap::*;
 
@@ -44,7 +45,9 @@ impl Kvm {
             return errno_result();
         }
         // Safe because we verify that ret is valid and we own the fd.
-        Ok(Kvm { kvm: unsafe { File::from_raw_fd(ret) } })
+        Ok(Kvm {
+            kvm: unsafe { File::from_raw_fd(ret) },
+        })
     }
 
     /// Query the availability of a particular kvm capability
@@ -175,7 +178,11 @@ impl VmFd {
         };
 
         let ret = unsafe { ioctl_with_ref(self, KVM_SET_USER_MEMORY_REGION(), &region) };
-        if ret == 0 { Ok(()) } else { errno_result() }
+        if ret == 0 {
+            Ok(())
+        } else {
+            errno_result()
+        }
     }
 
     /// Sets the address of the three-page region in the VM's address space.
@@ -185,20 +192,27 @@ impl VmFd {
     pub fn set_tss_address(&self, offset: usize) -> Result<()> {
         // Safe because we know that our file is a VM fd and we verify the return result.
         let ret = unsafe { ioctl_with_val(self, KVM_SET_TSS_ADDR(), offset as c_ulong) };
-        if ret == 0 { Ok(()) } else { errno_result() }
+        if ret == 0 {
+            Ok(())
+        } else {
+            errno_result()
+        }
     }
 
     /// Crates an in kernel interrupt controller.
     ///
     /// See the documentation on the KVM_CREATE_IRQCHIP ioctl.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "arm",
-                target_arch = "aarch64"))]
+              target_arch = "aarch64"))]
     pub fn create_irq_chip(&self) -> Result<()> {
         // Safe because we know that our file is a VM fd and we verify the return result.
         let ret = unsafe { ioctl(self, KVM_CREATE_IRQCHIP()) };
-        if ret == 0 { Ok(()) } else { errno_result() }
+        if ret == 0 {
+            Ok(())
+        } else {
+            errno_result()
+        }
     }
-
 
     /// Creates a PIT as per the KVM_CREATE_PIT2 ioctl.
     ///
@@ -210,7 +224,11 @@ impl VmFd {
         // Safe because we know that our file is a VM fd, we know the kernel will only read the
         // correct amount of memory from our pointer, and we verify the return result.
         let ret = unsafe { ioctl_with_ref(self, KVM_CREATE_PIT2(), &pit_config) };
-        if ret == 0 { Ok(()) } else { errno_result() }
+        if ret == 0 {
+            Ok(())
+        } else {
+            errno_result()
+        }
     }
 
     /// Registers an event to be signalled whenever a certain address is written to.
@@ -221,7 +239,12 @@ impl VmFd {
     ///
     /// In all cases where `evt` is signalled, the ordinary vmexit to userspace that would be
     /// triggered is prevented.
-    pub fn register_ioevent<T: Into<u64>>(&self, evt: &EventFd, addr: IoeventAddress, datamatch: T) -> Result<()> {
+    pub fn register_ioevent<T: Into<u64>>(
+        &self,
+        evt: &EventFd,
+        addr: IoeventAddress,
+        datamatch: T,
+    ) -> Result<()> {
         let mut flags = 0;
         if std::mem::size_of::<T>() > 0 {
             flags |= 1 << kvm_ioeventfd_flag_nr_datamatch
@@ -233,7 +256,10 @@ impl VmFd {
         let ioeventfd = kvm_ioeventfd {
             datamatch: datamatch.into(),
             len: std::mem::size_of::<T>() as u32,
-            addr: match addr { IoeventAddress::Pio(p) => p as u64, IoeventAddress::Mmio(m) => m },
+            addr: match addr {
+                IoeventAddress::Pio(p) => p as u64,
+                IoeventAddress::Mmio(m) => m,
+            },
             fd: evt.as_raw_fd(),
             flags: flags,
             ..Default::default()
@@ -250,7 +276,7 @@ impl VmFd {
 
     /// Registers an event that will, when signalled, trigger the `gsi` irq.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "arm",
-                target_arch = "aarch64"))]
+              target_arch = "aarch64"))]
     pub fn register_irqfd(&self, evt: &EventFd, gsi: u32) -> Result<()> {
         let irqfd = kvm_irqfd {
             fd: evt.as_raw_fd() as u32,
@@ -260,7 +286,11 @@ impl VmFd {
         // Safe because we know that our file is a VM fd, we know the kernel will only read the
         // correct amount of memory from our pointer, and we verify the return result.
         let ret = unsafe { ioctl_with_ref(self, KVM_IRQFD(), &irqfd) };
-        if ret == 0 { Ok(()) } else { errno_result() }
+        if ret == 0 {
+            Ok(())
+        } else {
+            errno_result()
+        }
     }
 }
 
@@ -333,9 +363,8 @@ impl VcpuFd {
         // the value of the fd and we own the fd.
         let vcpu = unsafe { File::from_raw_fd(vcpu_fd) };
 
-        let run_mmap = MemoryMapping::from_fd(&vcpu, run_mmap_size).map_err(|_| {
-            Error::new(ENOSPC)
-        })?;
+        let run_mmap =
+            MemoryMapping::from_fd(&vcpu, run_mmap_size).map_err(|_| Error::new(ENOSPC))?;
 
         Ok(VcpuFd {
             vcpu: vcpu,
@@ -598,7 +627,7 @@ impl AsRawFd for VcpuFd {
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[derive(Clone)]
 pub struct CpuId {
-    bytes: Vec<u8>, // Actually accessed as a kvm_cpuid2 struct.
+    bytes: Vec<u8>,       // Actually accessed as a kvm_cpuid2 struct.
     allocated_len: usize, // Number of kvm_cpuid_entry2 structs at the end of kvm_cpuid2.
 }
 
@@ -658,7 +687,6 @@ mod tests {
     fn new() {
         Kvm::new().unwrap();
     }
-
 
     #[test]
     fn check_extension() {
@@ -726,7 +754,6 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = VmFd::new(&kvm).unwrap();
         assert!(vm.set_tss_address(0xfffbd000).is_ok());
-
     }
 
     #[test]
@@ -850,8 +877,8 @@ mod tests {
             ..Default::default()
         });
 
-        let vec_size_bytes = mem::size_of::<kvm_msrs>() +
-            (entry_vec.len() * mem::size_of::<kvm_msr_entry>());
+        let vec_size_bytes =
+            mem::size_of::<kvm_msrs>() + (entry_vec.len() * mem::size_of::<kvm_msr_entry>());
         let vec: Vec<u8> = Vec::with_capacity(vec_size_bytes);
         let msrs: &mut kvm_msrs = unsafe { &mut *(vec.as_ptr() as *mut kvm_msrs) };
         unsafe {
