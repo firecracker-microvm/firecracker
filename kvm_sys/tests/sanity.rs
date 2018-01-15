@@ -5,7 +5,7 @@
 extern crate kvm_sys;
 extern crate libc;
 
-use libc::{ioctl, open, c_char, O_RDWR};
+use libc::{c_char, ioctl, open, O_RDWR};
 
 use kvm_sys::*;
 
