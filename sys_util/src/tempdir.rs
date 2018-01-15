@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use libc;
 
-use {Result, errno_result};
+use {errno_result, Result};
 
 /// Create and remove a temporary directory.  The directory will be maintained for the lifetime of
 /// the `TempDir` object.

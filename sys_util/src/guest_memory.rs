@@ -51,27 +51,24 @@ impl GuestMemory {
         let mut regions = Vec::<MemoryRegion>::new();
         for range in ranges.iter() {
             if let Some(last) = regions.last() {
-                if last.guest_base.checked_add(last.mapping.size()).map_or(
-                    true,
-                    |a| {
-                        a > range.0
-                    },
-                )
+                if last.guest_base
+                    .checked_add(last.mapping.size())
+                    .map_or(true, |a| a > range.0)
                 {
                     return Err(Error::MemoryRegionOverlap);
                 }
             }
 
-            let mapping = MemoryMapping::new(range.1).map_err(
-                Error::MemoryMappingFailed,
-            )?;
+            let mapping = MemoryMapping::new(range.1).map_err(Error::MemoryMappingFailed)?;
             regions.push(MemoryRegion {
                 mapping: mapping,
                 guest_base: range.0,
             });
         }
 
-        Ok(GuestMemory { regions: Arc::new(regions) })
+        Ok(GuestMemory {
+            regions: Arc::new(regions),
+        })
     }
 
     /// Returns the end address of memory.
@@ -101,13 +98,8 @@ impl GuestMemory {
 
     /// Returns the address plus the offset if it is in range.
     pub fn checked_offset(&self, addr: GuestAddress, offset: usize) -> Option<GuestAddress> {
-        addr.checked_add(offset).and_then(
-            |a| if a < self.end_addr() {
-                Some(a)
-            } else {
-                None
-            },
-        )
+        addr.checked_add(offset)
+            .and_then(|a| if a < self.end_addr() { Some(a) } else { None })
     }
 
     /// Returns the size of the memory region in bytes.
@@ -166,9 +158,9 @@ impl GuestMemory {
     /// ```
     pub fn write_slice_at_addr(&self, buf: &[u8], guest_addr: GuestAddress) -> Result<usize> {
         self.do_in_region(guest_addr, move |mapping, offset| {
-            mapping.write_slice(buf, offset).map_err(|e| {
-                Error::MemoryAccess(guest_addr, e)
-            })
+            mapping
+                .write_slice(buf, offset)
+                .map_err(|e| Error::MemoryAccess(guest_addr, e))
         })
     }
 
@@ -197,9 +189,9 @@ impl GuestMemory {
         guest_addr: GuestAddress,
     ) -> Result<usize> {
         self.do_in_region(guest_addr, move |mapping, offset| {
-            mapping.read_slice(buf, offset).map_err(|e| {
-                Error::MemoryAccess(guest_addr, e)
-            })
+            mapping
+                .read_slice(buf, offset)
+                .map_err(|e| Error::MemoryAccess(guest_addr, e))
         })
     }
 
@@ -225,9 +217,9 @@ impl GuestMemory {
     /// ```
     pub fn read_obj_from_addr<T: DataInit>(&self, guest_addr: GuestAddress) -> Result<T> {
         self.do_in_region(guest_addr, |mapping, offset| {
-            mapping.read_obj(offset).map_err(|e| {
-                Error::MemoryAccess(guest_addr, e)
-            })
+            mapping
+                .read_obj(offset)
+                .map_err(|e| Error::MemoryAccess(guest_addr, e))
         })
     }
 
@@ -248,9 +240,9 @@ impl GuestMemory {
     /// ```
     pub fn write_obj_at_addr<T: DataInit>(&self, val: T, guest_addr: GuestAddress) -> Result<()> {
         self.do_in_region(guest_addr, move |mapping, offset| {
-            mapping.write_obj(val, offset).map_err(|e| {
-                Error::MemoryAccess(guest_addr, e)
-            })
+            mapping
+                .write_obj(val, offset)
+                .map_err(|e| Error::MemoryAccess(guest_addr, e))
         })
     }
 
@@ -290,9 +282,9 @@ impl GuestMemory {
         F: Read,
     {
         self.do_in_region(guest_addr, move |mapping, offset| {
-            mapping.read_to_memory(offset, src, count).map_err(|e| {
-                Error::MemoryAccess(guest_addr, e)
-            })
+            mapping
+                .read_to_memory(offset, src, count)
+                .map_err(|e| Error::MemoryAccess(guest_addr, e))
         })
     }
 
@@ -330,9 +322,9 @@ impl GuestMemory {
         F: Write,
     {
         self.do_in_region(guest_addr, move |mapping, offset| {
-            mapping.write_from_memory(offset, dst, count).map_err(|e| {
-                Error::MemoryAccess(guest_addr, e)
-            })
+            mapping
+                .write_from_memory(offset, dst, count)
+                .map_err(|e| Error::MemoryAccess(guest_addr, e))
         })
     }
 
@@ -360,8 +352,7 @@ impl GuestMemory {
         self.do_in_region(guest_addr, |mapping, offset| {
             // This is safe; `do_in_region` already checks that offset is in
             // bounds.
-            Ok(unsafe { mapping.as_ptr().offset(offset as isize) } as
-                *const u8)
+            Ok(unsafe { mapping.as_ptr().offset(offset as isize) } as *const u8)
         })
     }
 
@@ -382,10 +373,9 @@ impl VolatileMemory for GuestMemory {
     fn get_slice(&self, offset: usize, count: usize) -> VolatileMemoryResult<VolatileSlice> {
         for region in self.regions.iter() {
             if offset >= region.guest_base.0 && offset < region_end(region).0 {
-                return region.mapping.get_slice(
-                    offset - region.guest_base.0,
-                    count,
-                );
+                return region
+                    .mapping
+                    .get_slice(offset - region.guest_base.0, count);
             }
         }
         Err(VolatileMemoryError::OutOfBounds { addr: offset })
