@@ -28,7 +28,7 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs::File;
-use std::io::{Write, Cursor, ErrorKind, stderr};
+use std::io::{stderr, Cursor, ErrorKind, Write};
 use std::io;
 use std::mem;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
@@ -38,8 +38,8 @@ use std::ptr::null;
 use std::str::from_utf8;
 use std::sync::{Mutex, MutexGuard, Once, ONCE_INIT};
 
-use libc::{tm, time, time_t, localtime_r, gethostname, openlog, fcntl, c_char, LOG_NDELAY,
-           LOG_PERROR, LOG_PID, LOG_USER, F_GETFD};
+use libc::{c_char, fcntl, gethostname, localtime_r, openlog, time, time_t, tm, F_GETFD,
+           LOG_NDELAY, LOG_PERROR, LOG_PID, LOG_USER};
 
 use getpid;
 
@@ -351,20 +351,18 @@ fn send_buf(socket: &UnixDatagram, buf: &[u8]) {
     for _ in 0..SEND_RETRY {
         match socket.send(&buf[..]) {
             Ok(_) => break,
-            Err(e) => {
-                match e.kind() {
-                    ErrorKind::ConnectionRefused |
-                    ErrorKind::ConnectionReset |
-                    ErrorKind::ConnectionAborted |
-                    ErrorKind::NotConnected => {
-                        let res = socket.connect(SYSLOG_PATH);
-                        if res.is_err() {
-                            break;
-                        }
+            Err(e) => match e.kind() {
+                ErrorKind::ConnectionRefused
+                | ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionAborted
+                | ErrorKind::NotConnected => {
+                    let res = socket.connect(SYSLOG_PATH);
+                    if res.is_err() {
+                        break;
                     }
-                    _ => {}
                 }
-            }
+                _ => {}
+            },
         }
     }
 }
@@ -412,18 +410,7 @@ fn get_localtime() -> tm {
 /// ```
 pub fn log(pri: Priority, fac: Facility, file_name: &str, line: u32, args: fmt::Arguments) {
     const MONTHS: [&'static str; 12] = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
     ];
 
     let mut state = lock!();
@@ -465,10 +452,7 @@ pub fn log(pri: Priority, fac: Facility, file_name: &str, line: u32, args: fmt::
             write!(
                 &mut buf_cursor,
                 "[{}:{}:{}] {}\n",
-                pri,
-                file_name,
-                line,
-                args
+                pri, file_name, line, args
             ),
             buf_cursor.position() as usize,
         )
@@ -530,7 +514,7 @@ macro_rules! debug {
 mod tests {
     use super::*;
 
-    use libc::{shm_unlink, shm_open, O_RDWR, O_CREAT, O_EXCL};
+    use libc::{shm_open, shm_unlink, O_CREAT, O_EXCL, O_RDWR};
 
     use std::os::unix::io::FromRawFd;
     use std::ffi::CStr;
@@ -549,7 +533,6 @@ mod tests {
         assert!(fds.len() >= 1);
         for fd in fds {
             assert!(fd >= 0);
-
         }
     }
 
@@ -608,13 +591,11 @@ mod tests {
             format_args!("{}", TEST_STR),
         );
 
-        file.seek(SeekFrom::Start(0)).expect(
-            "error seeking shared memory file",
-        );
+        file.seek(SeekFrom::Start(0))
+            .expect("error seeking shared memory file");
         let mut buf = String::new();
-        file.read_to_string(&mut buf).expect(
-            "error reading shared memory file",
-        );
+        file.read_to_string(&mut buf)
+            .expect("error reading shared memory file");
         assert!(buf.contains(TEST_STR));
     }
 

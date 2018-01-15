@@ -144,7 +144,6 @@ macro_rules! handle_eintr {
     )
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,7 +156,11 @@ mod tests {
         {
             let mut dummy = || {
                 count -= 1;
-                if count > 0 { -EINTR } else { 56 }
+                if count > 0 {
+                    -EINTR
+                } else {
+                    56
+                }
             };
             let res = handle_eintr!(dummy());
             assert_eq!(res, 56);

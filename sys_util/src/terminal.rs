@@ -6,10 +6,10 @@ use std::mem::zeroed;
 use std::io::StdinLock;
 use std::os::unix::io::RawFd;
 
-use libc::{fcntl, tcgetattr, tcsetattr, isatty, read, c_int, termios, STDIN_FILENO, TCSANOW,
-           ICANON, ECHO, ISIG, O_NONBLOCK, F_GETFL, F_SETFL};
+use libc::{c_int, fcntl, isatty, read, tcgetattr, tcsetattr, termios, ECHO, F_GETFL, F_SETFL,
+           ICANON, ISIG, O_NONBLOCK, STDIN_FILENO, TCSANOW};
 
-use {Result, errno_result};
+use {errno_result, Result};
 
 fn modify_mode<F: FnOnce(&mut termios)>(fd: RawFd, f: F) -> Result<()> {
     // Safe because we check the return value of isatty.
@@ -43,7 +43,6 @@ fn get_flags(fd: RawFd) -> Result<c_int> {
     }
     Ok(ret)
 }
-
 
 fn set_flags(fd: RawFd, flags: c_int) -> Result<()> {
     // Safe because we supply the third parameter and we check the return result.

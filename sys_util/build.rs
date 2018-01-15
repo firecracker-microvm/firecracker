@@ -5,7 +5,7 @@
 extern crate gcc;
 
 fn main() {
-    gcc::Build::new().file("sock_ctrl_msg.c").compile(
-        "sock_ctrl_msg",
-    );
+    gcc::Build::new()
+        .file("sock_ctrl_msg.c")
+        .compile("sock_ctrl_msg");
 }

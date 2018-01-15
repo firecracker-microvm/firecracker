@@ -9,9 +9,9 @@ use std::os::raw::c_int;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::ptr::null_mut;
 
-use libc::{read, sigaddset, sigemptyset, sigismember, sigset_t, c_void, signalfd,
-           signalfd_siginfo, pthread_sigmask};
-use libc::{EAGAIN, SIG_BLOCK, SIG_UNBLOCK, SFD_NONBLOCK, SFD_CLOEXEC};
+use libc::{c_void, pthread_sigmask, read, sigaddset, sigemptyset, sigismember, signalfd,
+           signalfd_siginfo, sigset_t};
+use libc::{EAGAIN, SFD_CLOEXEC, SFD_NONBLOCK, SIG_BLOCK, SIG_UNBLOCK};
 
 use errno;
 use errno::errno_result;

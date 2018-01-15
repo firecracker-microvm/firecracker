@@ -5,13 +5,13 @@
 use std::ffi::CStr;
 use std::fs::File;
 use std::io::{Seek, SeekFrom};
-use std::os::unix::io::{AsRawFd, IntoRawFd, FromRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 
-use libc::{off64_t, c_long, c_int, c_uint, c_char, syscall, ftruncate64};
+use libc::{c_char, c_int, c_long, c_uint, syscall, ftruncate64, off64_t};
 
 use syscall_defines::linux::LinuxSyscall::SYS_memfd_create;
 
-use {Result, errno_result};
+use {errno_result, Result};
 
 /// A shared memory file descriptor and its size.
 pub struct SharedMemory {
@@ -34,10 +34,8 @@ impl SharedMemory {
     ///
     /// The file descriptor is opened with the close on exec flag.
     pub fn new(name: Option<&CStr>) -> Result<SharedMemory> {
-        let shm_name = name.map(|n| n.as_ptr()).unwrap_or(
-            b"/crosvm_shm\0".as_ptr() as
-                *const c_char,
-        );
+        let shm_name = name.map(|n| n.as_ptr())
+            .unwrap_or(b"/crosvm_shm\0".as_ptr() as *const c_char);
         // The following are safe because we give a valid C string and check the
         // results of the memfd_create call.
         let fd = unsafe { memfd_create(shm_name, MFD_CLOEXEC) };
@@ -113,18 +111,16 @@ mod tests {
     #[test]
     fn new_sized() {
         let mut shm = SharedMemory::new(None).expect("failed to create shared memory");
-        shm.set_size(1024).expect(
-            "failed to set shared memory size",
-        );
+        shm.set_size(1024)
+            .expect("failed to set shared memory size");
         assert_eq!(shm.size(), 1024);
     }
 
     #[test]
     fn new_huge() {
         let mut shm = SharedMemory::new(None).expect("failed to create shared memory");
-        shm.set_size(0x7fff_ffff_ffff_ffff).expect(
-            "failed to set shared memory size",
-        );
+        shm.set_size(0x7fff_ffff_ffff_ffff)
+            .expect("failed to set shared memory size");
         assert_eq!(shm.size(), 0x7fff_ffff_ffff_ffff);
     }
 
@@ -149,9 +145,8 @@ mod tests {
     #[test]
     fn mmap_page() {
         let mut shm = SharedMemory::new(None).expect("failed to create shared memory");
-        shm.set_size(4096).expect(
-            "failed to set shared memory size",
-        );
+        shm.set_size(4096)
+            .expect("failed to set shared memory size");
 
         let mmap1 =
             MemoryMapping::from_fd(&shm, shm.size() as usize).expect("failed to map shared memory");

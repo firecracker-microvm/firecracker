@@ -6,9 +6,9 @@ use std::mem;
 use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
-use libc::{read, write, eventfd, dup, c_void};
+use libc::{c_void, dup, eventfd, read, write};
 
-use {Result, errno_result};
+use {errno_result, Result};
 
 /// A safe wrapper around a Linux eventfd (man 2 eventfd).
 ///
@@ -29,7 +29,9 @@ impl EventFd {
         }
         // This is safe because we checked ret for success and know the kernel gave us an fd that we
         // own.
-        Ok(EventFd { eventfd: unsafe { File::from_raw_fd(ret) } })
+        Ok(EventFd {
+            eventfd: unsafe { File::from_raw_fd(ret) },
+        })
     }
 
     /// Adds `v` to the eventfd's count, blocking until this won't overflow the count.
@@ -77,7 +79,9 @@ impl EventFd {
         }
         // This is safe because we checked ret for success and know the kernel gave us an fd that we
         // own.
-        Ok(EventFd { eventfd: unsafe { File::from_raw_fd(ret) } })
+        Ok(EventFd {
+            eventfd: unsafe { File::from_raw_fd(ret) },
+        })
     }
 }
 
