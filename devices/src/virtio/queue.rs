@@ -556,4 +556,172 @@ pub(crate) mod tests {
             self.used.end()
         }
     }
+
+    #[test]
+    fn test_checked_new_descriptor_chain() {
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+        assert!(vq.end().0 < 0x1000);
+
+        // index >= queue_size
+        assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 16).is_none());
+
+        // desc_table address is way off
+        assert!(DescriptorChain::checked_new(m, GuestAddress(0xffffffffff), 16, 0).is_none());
+
+        // the addr field of the descriptor is way off
+        vq.dtable[0].addr.set(0xfffffffffff);
+        assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
+
+        // let's create some invalid chains
+
+        {
+            // the addr field of the desc is ok now
+            vq.dtable[0].addr.set(0x1000);
+            // ...but the length is too large
+            vq.dtable[0].len.set(0xffffffff);
+            assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
+        }
+
+        {
+            // the first desc has a normal len now, and the next_descriptor flag is set
+            vq.dtable[0].len.set(0x1000);
+            vq.dtable[0].flags.set(VIRTQ_DESC_F_NEXT);
+            //..but the the index of the next descriptor is too large
+            vq.dtable[0].next.set(16);
+
+            assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
+        }
+
+        // finally, let's test an ok chain
+
+        {
+            vq.dtable[0].next.set(1);
+            vq.dtable[1].set(0x2000, 0x1000, 0, 0);
+
+            let c = DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).unwrap();
+
+            assert_eq!(c.mem as *const GuestMemory, m as *const GuestMemory);
+            assert_eq!(c.desc_table, vq.dtable_start());
+            assert_eq!(c.queue_size, 16);
+            assert_eq!(c.ttl, c.queue_size);
+            assert_eq!(c.index, 0);
+            assert_eq!(c.addr, GuestAddress(0x1000));
+            assert_eq!(c.len, 0x1000);
+            assert_eq!(c.flags, VIRTQ_DESC_F_NEXT);
+            assert_eq!(c.next, 1);
+
+            assert!(c.next_descriptor().unwrap().next_descriptor().is_none());
+        }
+    }
+
+    #[test]
+    fn test_queue_and_iterator() {
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+        let mut q = vq.create_queue();
+
+        // q is currently valid
+        assert!(q.is_valid(m));
+
+        // shouldn't be valid when not marked as ready
+        q.ready = false;
+        assert!(!q.is_valid(m));
+        q.ready = true;
+
+        // or when size > max_size
+        q.size = q.max_size << 1;
+        assert!(!q.is_valid(m));
+        q.size = q.max_size;
+
+        // or when size is 0
+        q.size = 0;
+        assert!(!q.is_valid(m));
+        q.size = q.max_size;
+
+        // or when size is not a power of 2
+        q.size = 11;
+        assert!(!q.is_valid(m));
+        q.size = q.max_size;
+
+        // or if the various addresses are off
+
+        q.desc_table = GuestAddress(0xffffffff);
+        assert!(!q.is_valid(m));
+        q.desc_table = vq.dtable_start();
+
+        q.avail_ring = GuestAddress(0xffffffff);
+        assert!(!q.is_valid(m));
+        q.avail_ring = vq.avail_start();
+
+        q.used_ring = GuestAddress(0xffffffff);
+        assert!(!q.is_valid(m));
+        q.used_ring = vq.used_start();
+
+        {
+            // an invalid queue should return an iterator with no next
+            q.ready = false;
+            let mut i = q.iter(m);
+            assert!(i.next().is_none());
+        }
+
+        q.ready = true;
+
+        // now let's create two simple descriptor chains
+
+        {
+            for j in 0..5 {
+                vq.dtable[j].set(
+                    0x1000 * (j + 1) as u64,
+                    0x1000,
+                    VIRTQ_DESC_F_NEXT,
+                    (j + 1) as u16,
+                );
+            }
+
+            // the chains are (0, 1) and (2, 3, 4)
+            vq.dtable[1].flags.set(0);
+            vq.dtable[4].flags.set(0);
+            vq.avail.ring[0].set(0);
+            vq.avail.ring[1].set(2);
+            vq.avail.idx.set(2);
+
+            let mut i = q.iter(m);
+
+            {
+                let mut c = i.next().unwrap();
+                c = c.next_descriptor().unwrap();
+                assert!(!c.has_next());
+            }
+
+            {
+                let mut c = i.next().unwrap();
+                c = c.next_descriptor().unwrap();
+                c = c.next_descriptor().unwrap();
+                assert!(!c.has_next());
+            }
+        }
+    }
+
+    #[test]
+    fn test_add_used() {
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+        let mut q = vq.create_queue();
+        assert_eq!(vq.used.idx.get(), 0);
+
+        //index too large
+        q.add_used(m, 16, 0x1000);
+        assert_eq!(vq.used.idx.get(), 0);
+
+        //should be ok
+        q.add_used(m, 1, 0x1000);
+        assert_eq!(vq.used.idx.get(), 1);
+        let x = vq.used.ring[0].get();
+        assert_eq!(x.id, 1);
+        assert_eq!(x.len, 0x1000);
+    }
 }
