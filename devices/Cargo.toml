@@ -12,3 +12,6 @@ net_util = { path = "../net_util" }
 net_sys = { path = "../net_sys" }
 sys_util = { path = "../sys_util" }
 virtio_sys = { path = "../virtio_sys" }
+
+[dev-dependencies]
+data_model = { path = "../data_model"}
