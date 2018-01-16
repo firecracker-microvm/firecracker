@@ -35,9 +35,6 @@ pub struct DescriptorChain<'a> {
     pub next: u16,
 }
 
-/*hmm, why return option and no result here? for example, when index >= queue_size, shouldn't
-it be an error, rather than returning None ?! Maybe it makes sense sometimes to have a 0
-length queue? strange ... */
 impl<'a> DescriptorChain<'a> {
     fn checked_new(
         mem: &GuestMemory,
@@ -318,5 +315,245 @@ impl Queue {
 
         mem.write_obj_at_addr(self.next_used.0 as u16, used_ring.unchecked_add(2))
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    extern crate data_model;
+
+    use std::marker::PhantomData;
+    use std::mem;
+
+    pub use super::*;
+    use sys_util::{GuestAddress, GuestMemory};
+
+    // Represents a location in GuestMemory which holds a given type.
+    pub struct SomeplaceInMemory<'a, T> {
+        pub location: GuestAddress,
+        mem: &'a GuestMemory,
+        phantom: PhantomData<*const T>,
+    }
+
+    // The DataInit trait is required to use mem.read_obj_from_addr and write_obj_at_addr.
+    impl<'a, T> SomeplaceInMemory<'a, T>
+    where
+        T: data_model::DataInit,
+    {
+        fn new(location: GuestAddress, mem: &'a GuestMemory) -> Self {
+            SomeplaceInMemory {
+                location,
+                mem,
+                phantom: PhantomData,
+            }
+        }
+
+        // Reads from the actual memory location.
+        pub fn get(&self) -> T {
+            self.mem.read_obj_from_addr(self.location).unwrap()
+        }
+
+        // Writes to the actual memory location.
+        pub fn set(&self, val: T) {
+            self.mem.write_obj_at_addr(val, self.location).unwrap()
+        }
+
+        // This function returns a place in memory which holds a value of type U, and starts
+        // offset bytes after the current location.
+        fn map_offset<U>(&self, offset: usize) -> SomeplaceInMemory<'a, U> {
+            SomeplaceInMemory {
+                location: self.location.checked_add(offset).unwrap(),
+                mem: self.mem,
+                phantom: PhantomData,
+            }
+        }
+
+        // This function returns a place in memory which holds a value of type U, and starts
+        // immediately after the end of self (which is location + sizeof(T)).
+        fn next_place<U>(&self) -> SomeplaceInMemory<'a, U> {
+            self.map_offset::<U>(mem::size_of::<T>())
+        }
+
+        fn end(&self) -> GuestAddress {
+            self.location.checked_add(mem::size_of::<T>()).unwrap()
+        }
+    }
+
+    // Represents a virtio descriptor in guest memory.
+    pub struct VirtqDesc<'a> {
+        pub addr: SomeplaceInMemory<'a, u64>,
+        pub len: SomeplaceInMemory<'a, u32>,
+        pub flags: SomeplaceInMemory<'a, u16>,
+        pub next: SomeplaceInMemory<'a, u16>,
+    }
+
+    impl<'a> VirtqDesc<'a> {
+        fn new(start: GuestAddress, mem: &'a GuestMemory) -> Self {
+            assert_eq!(start.0 & 0xf, 0);
+
+            let addr = SomeplaceInMemory::new(start, mem);
+            let len = addr.next_place();
+            let flags = len.next_place();
+            let next = flags.next_place();
+
+            VirtqDesc {
+                addr,
+                len,
+                flags,
+                next,
+            }
+        }
+
+        fn start(&self) -> GuestAddress {
+            self.addr.location
+        }
+
+        fn end(&self) -> GuestAddress {
+            self.next.end()
+        }
+
+        pub fn set(&self, addr: u64, len: u32, flags: u16, next: u16) {
+            self.addr.set(addr);
+            self.len.set(len);
+            self.flags.set(flags);
+            self.next.set(next);
+        }
+    }
+
+    // Represents a virtio queue ring. The only difference between the used and available rings,
+    // is the ring element type.
+    pub struct VirtqRing<'a, T> {
+        pub flags: SomeplaceInMemory<'a, u16>,
+        pub idx: SomeplaceInMemory<'a, u16>,
+        pub ring: Vec<SomeplaceInMemory<'a, T>>,
+        pub event: SomeplaceInMemory<'a, u16>,
+    }
+
+    impl<'a, T> VirtqRing<'a, T>
+    where
+        T: data_model::DataInit,
+    {
+        fn new(start: GuestAddress, mem: &'a GuestMemory, qsize: u16, alignment: usize) -> Self {
+            assert_eq!(start.0 & (alignment - 1), 0);
+
+            let flags = SomeplaceInMemory::new(start, mem);
+            let idx = flags.next_place();
+
+            let mut ring = Vec::with_capacity(qsize as usize);
+
+            ring.push(idx.next_place());
+
+            for _ in 1..qsize as usize {
+                let x = ring.last().unwrap().next_place();
+                ring.push(x)
+            }
+
+            let event = ring.last().unwrap().next_place();
+
+            flags.set(0);
+            idx.set(0);
+            event.set(0);
+
+            VirtqRing {
+                flags,
+                idx,
+                ring,
+                event,
+            }
+        }
+
+        pub fn end(&self) -> GuestAddress {
+            self.event.end()
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct VirtqUsedElem {
+        pub id: u32,
+        pub len: u32,
+    }
+
+    unsafe impl data_model::DataInit for VirtqUsedElem {}
+
+    pub type VirtqAvail<'a> = VirtqRing<'a, u16>;
+    pub type VirtqUsed<'a> = VirtqRing<'a, VirtqUsedElem>;
+
+    pub struct VirtQueue<'a> {
+        pub dtable: Vec<VirtqDesc<'a>>,
+        pub avail: VirtqAvail<'a>,
+        pub used: VirtqUsed<'a>,
+    }
+
+    impl<'a> VirtQueue<'a> {
+        // We try to make sure things are aligned properly :-s
+        pub fn new(start: GuestAddress, mem: &'a GuestMemory, qsize: u16) -> Self {
+            // power of 2?
+            assert!(qsize > 0 && qsize & qsize - 1 == 0);
+
+            let mut dtable = Vec::with_capacity(qsize as usize);
+
+            let mut end = start;
+
+            for _ in 0..qsize {
+                let d = VirtqDesc::new(end, mem);
+                end = d.end();
+                dtable.push(d);
+            }
+
+            const AVAIL_ALIGN: usize = 2;
+
+            let avail = VirtqAvail::new(end, mem, qsize, AVAIL_ALIGN);
+
+            const USED_ALIGN: usize = 4;
+
+            let mut x = avail.end().0;
+            x = (x + USED_ALIGN - 1) & !(USED_ALIGN - 1);
+
+            let used = VirtqUsed::new(GuestAddress(x), mem, qsize, USED_ALIGN);
+
+            VirtQueue {
+                dtable,
+                avail,
+                used,
+            }
+        }
+
+        fn size(&self) -> u16 {
+            self.dtable.len() as u16
+        }
+
+        fn dtable_start(&self) -> GuestAddress {
+            self.dtable.first().unwrap().start()
+        }
+
+        fn avail_start(&self) -> GuestAddress {
+            self.avail.flags.location
+        }
+
+        fn used_start(&self) -> GuestAddress {
+            self.used.flags.location
+        }
+
+        // Creates a new Queue, using the underlying memory regions represented by the VirtQueue.
+        pub fn create_queue(&self) -> Queue {
+            let mut q = Queue::new(self.size());
+
+            q.size = self.size();
+            q.ready = true;
+            q.desc_table = self.dtable_start();
+            q.avail_ring = self.avail_start();
+            q.used_ring = self.used_start();
+
+            q
+        }
+
+        pub fn start(&self) -> GuestAddress {
+            self.dtable_start()
+        }
+
+        pub fn end(&self) -> GuestAddress {
+            self.used.end()
+        }
     }
 }
