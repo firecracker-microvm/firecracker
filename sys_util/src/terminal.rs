@@ -110,10 +110,3 @@ unsafe impl<'a> Terminal for StdinLock<'a> {
         STDIN_FILENO
     }
 }
-
-// Safe because we return a genuine pollable fd that never changes and shares our lifetime.
-unsafe impl<T: Terminal> ::Pollable for T {
-    fn pollable_fd(&self) -> RawFd {
-        self.tty_fd()
-    }
-}
