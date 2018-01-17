@@ -11,7 +11,6 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use libc;
 use net_sys;
 use super::{create_sockaddr, create_socket, Error, Result};
-use sys_util::Pollable;
 use sys_util::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 
 /// Handle for a network tap interface.
@@ -208,14 +207,6 @@ impl Write for Tap {
 
 impl AsRawFd for Tap {
     fn as_raw_fd(&self) -> RawFd {
-        self.tap_file.as_raw_fd()
-    }
-}
-
-// Safe since the tap fd's lifetime lasts as long as this trait object, and the
-// tap fd is pollable.
-unsafe impl Pollable for Tap {
-    fn pollable_fd(&self) -> RawFd {
         self.tap_file.as_raw_fd()
     }
 }
