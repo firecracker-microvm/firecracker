@@ -9,8 +9,6 @@ extern crate libc;
 extern crate syscall_defines;
 
 #[macro_use]
-pub mod handle_eintr;
-#[macro_use]
 pub mod ioctl;
 #[macro_use]
 pub mod syslog;
