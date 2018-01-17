@@ -2,7 +2,6 @@
 name = "sys_util"
 version = "0.1.0"
 authors = ["The Chromium OS Authors"]
-build = "build.rs"
 
 [dependencies]
 libc = "=0.2.32"
