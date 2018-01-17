@@ -26,7 +26,6 @@ mod tempdir;
 mod terminal;
 mod signal;
 mod sock_ctrl_msg;
-mod passwd;
 
 pub use mmap::*;
 pub use shm::*;
@@ -42,7 +41,6 @@ pub use terminal::*;
 pub use signal::*;
 pub use ioctl::*;
 pub use sock_ctrl_msg::*;
-pub use passwd::*;
 
 pub use mmap::Error as MmapError;
 pub use guest_memory::Error as GuestMemoryError;
