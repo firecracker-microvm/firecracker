@@ -24,7 +24,6 @@ mod struct_util;
 mod tempdir;
 mod terminal;
 mod signal;
-mod sock_ctrl_msg;
 
 pub use mmap::*;
 pub use eventfd::*;
@@ -38,7 +37,6 @@ pub use tempdir::*;
 pub use terminal::*;
 pub use signal::*;
 pub use ioctl::*;
-pub use sock_ctrl_msg::*;
 
 pub use mmap::Error as MmapError;
 pub use guest_memory::Error as GuestMemoryError;
