@@ -201,7 +201,9 @@ impl Queue {
         }
     }
 
-    pub fn get_max_size(&self) -> u16 { self.max_size }
+    pub fn get_max_size(&self) -> u16 {
+        self.max_size
+    }
 
     /// Return the actual size of the queue, as the driver may not set up a
     /// queue as big as the device allows.
