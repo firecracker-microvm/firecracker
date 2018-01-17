@@ -25,7 +25,6 @@ mod struct_util;
 mod tempdir;
 mod terminal;
 mod signal;
-mod fork;
 mod sock_ctrl_msg;
 mod passwd;
 
@@ -41,7 +40,6 @@ pub use struct_util::*;
 pub use tempdir::*;
 pub use terminal::*;
 pub use signal::*;
-pub use fork::*;
 pub use ioctl::*;
 pub use sock_ctrl_msg::*;
 pub use passwd::*;
