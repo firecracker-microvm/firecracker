@@ -15,7 +15,6 @@ pub mod ioctl;
 #[macro_use]
 pub mod syslog;
 mod mmap;
-mod shm;
 mod eventfd;
 mod errno;
 mod guest_address;
@@ -28,7 +27,6 @@ mod signal;
 mod sock_ctrl_msg;
 
 pub use mmap::*;
-pub use shm::*;
 pub use eventfd::*;
 pub use errno::{Error, Result};
 pub use errno::errno_result;
