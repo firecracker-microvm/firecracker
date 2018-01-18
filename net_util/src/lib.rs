@@ -13,18 +13,12 @@ use std::mem;
 use std::net;
 use std::os::unix::io::FromRawFd;
 
-pub use tap::Tap;
+pub use tap::{Error as TapError, Tap};
 
 #[derive(Debug)]
 pub enum Error {
     /// Failed to create a socket.
     CreateSocket(IoError),
-    /// Couldn't open /dev/net/tun.
-    OpenTun(IoError),
-    /// Unable to create tap interface.
-    CreateTap(IoError),
-    /// ioctl failed.
-    IoctlError(IoError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
