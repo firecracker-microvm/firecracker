@@ -98,6 +98,7 @@ mod tests {
         let a = GuestAddress(0x300);
         let b = GuestAddress(0x300);
         let c = GuestAddress(0x301);
+        assert_eq!(a, GuestAddress(a.offset()));
         assert_eq!(a, b);
         assert_eq!(b, a);
         assert_ne!(a, c);
@@ -117,6 +118,7 @@ mod tests {
     fn mask() {
         let a = GuestAddress(0x5050);
         assert_eq!(GuestAddress(0x5000), a & 0xff00u64);
+        assert_eq!(GuestAddress(0x5000), a.mask(0xff00u64));
         assert_eq!(GuestAddress(0x5055), a | 0x0005u64);
     }
 
@@ -133,5 +135,12 @@ mod tests {
         let a = GuestAddress(0xffffffffffffff55);
         assert_eq!(Some(GuestAddress(0xffffffffffffff57)), a.checked_add(2));
         assert!(a.checked_add(0xf0).is_none());
+    }
+
+    #[test]
+    fn checked_sub_underflow() {
+        let a = GuestAddress(0xff);
+        assert_eq!(Some(GuestAddress(0x0f)), a.checked_sub(0xf0));
+        assert!(a.checked_sub(0xffff).is_none());
     }
 }
