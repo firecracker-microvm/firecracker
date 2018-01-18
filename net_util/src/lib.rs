@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// This is only used by the tests module from tap.rs, but we cannot use #[macro_use] unless the
+// reference to lazy_static is declared at the root level of the importing crate.
+#[cfg(test)]
+#[macro_use]
+extern crate lazy_static;
 extern crate libc;
 extern crate net_sys;
 extern crate sys_util;
@@ -47,4 +52,29 @@ fn create_socket() -> Result<net::UdpSocket> {
 
     // This is safe; nothing else will use or hold onto the raw sock fd.
     Ok(unsafe { net::UdpSocket::from_raw_fd(sock) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_sockaddr() {
+        let addr: net::Ipv4Addr = "10.0.0.1".parse().unwrap();
+        let sockaddr = create_sockaddr(addr);
+
+        assert_eq!(sockaddr.sa_family, net_sys::AF_INET as u16);
+
+        let data = &sockaddr.sa_data[..];
+
+        // The first two bytes should represent the port, which is 0.
+        assert_eq!(data[0], 0);
+        assert_eq!(data[1], 0);
+
+        // The next four bytes should represent the actual IPv4 address, in network order.
+        assert_eq!(data[2], 10);
+        assert_eq!(data[3], 0);
+        assert_eq!(data[4], 0);
+        assert_eq!(data[5], 1);
+    }
 }
