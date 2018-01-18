@@ -10,8 +10,22 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use libc;
 use net_sys;
-use super::{create_sockaddr, create_socket, Error, Result};
+use super::{create_sockaddr, create_socket, Error as NetUtilError};
 use sys_util::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
+
+#[derive(Debug)]
+pub enum Error {
+    /// Couldn't open /dev/net/tun.
+    OpenTun(IoError),
+    /// Unable to create tap interface.
+    CreateTap(IoError),
+    /// ioctl failed.
+    IoctlError(IoError),
+    /// Failed to create a socket.
+    NetUtil(NetUtilError),
+}
+
+pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// Handle for a network tap interface.
 ///
@@ -80,7 +94,7 @@ impl Tap {
 
     /// Set the host-side IP address for the tap interface.
     pub fn set_ip_addr(&self, ip_addr: net::Ipv4Addr) -> Result<()> {
-        let sock = create_socket()?;
+        let sock = create_socket().map_err(Error::NetUtil)?;
         let addr = create_sockaddr(ip_addr);
 
         let mut ifreq = self.get_ifreq();
@@ -103,7 +117,7 @@ impl Tap {
 
     /// Set the netmask for the subnet that the tap interface will exist on.
     pub fn set_netmask(&self, netmask: net::Ipv4Addr) -> Result<()> {
-        let sock = create_socket()?;
+        let sock = create_socket().map_err(Error::NetUtil)?;
         let addr = create_sockaddr(netmask);
 
         let mut ifreq = self.get_ifreq();
@@ -138,7 +152,7 @@ impl Tap {
 
     /// Enable the tap interface.
     pub fn enable(&self) -> Result<()> {
-        let sock = create_socket()?;
+        let sock = create_socket().map_err(Error::NetUtil)?;
 
         let mut ifreq = self.get_ifreq();
 
