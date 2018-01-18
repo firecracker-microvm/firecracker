@@ -92,9 +92,8 @@ impl Tap {
         }
 
         // ioctl is safe. Called with a valid sock fd, and we check the return.
-        let ret = unsafe {
-            ioctl_with_ref(&sock, net_sys::sockios::SIOCSIFADDR as c_ulong, &ifreq)
-        };
+        let ret =
+            unsafe { ioctl_with_ref(&sock, net_sys::sockios::SIOCSIFADDR as c_ulong, &ifreq) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -116,9 +115,8 @@ impl Tap {
         }
 
         // ioctl is safe. Called with a valid sock fd, and we check the return.
-        let ret = unsafe {
-            ioctl_with_ref(&sock, net_sys::sockios::SIOCSIFNETMASK as c_ulong, &ifreq)
-        };
+        let ret =
+            unsafe { ioctl_with_ref(&sock, net_sys::sockios::SIOCSIFNETMASK as c_ulong, &ifreq) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -129,9 +127,8 @@ impl Tap {
     /// Set the offload flags for the tap interface.
     pub fn set_offload(&self, flags: c_uint) -> Result<()> {
         // ioctl is safe. Called with a valid tap fd, and we check the return.
-        let ret = unsafe {
-            ioctl_with_val(&self.tap_file, net_sys::TUNSETOFFLOAD(), flags as c_ulong)
-        };
+        let ret =
+            unsafe { ioctl_with_val(&self.tap_file, net_sys::TUNSETOFFLOAD(), flags as c_ulong) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -153,9 +150,8 @@ impl Tap {
         }
 
         // ioctl is safe. Called with a valid sock fd, and we check the return.
-        let ret = unsafe {
-            ioctl_with_ref(&sock, net_sys::sockios::SIOCSIFFLAGS as c_ulong, &ifreq)
-        };
+        let ret =
+            unsafe { ioctl_with_ref(&sock, net_sys::sockios::SIOCSIFFLAGS as c_ulong, &ifreq) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -166,8 +162,7 @@ impl Tap {
     /// Set the size of the vnet hdr.
     pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<()> {
         // ioctl is safe. Called with a valid tap fd, and we check the return.
-        let ret =
-            unsafe { ioctl_with_ref(&self.tap_file, net_sys::TUNSETVNETHDRSZ(), &size) };
+        let ret = unsafe { ioctl_with_ref(&self.tap_file, net_sys::TUNSETVNETHDRSZ(), &size) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -256,14 +251,17 @@ mod tests {
     fn tap_get_ifreq() {
         let tap = Tap::new().unwrap();
         let ret = tap.get_ifreq();
-        assert_eq!("__BindgenUnionField", format!("{:?}", ret.ifr_ifrn.ifrn_name));
+        assert_eq!(
+            "__BindgenUnionField",
+            format!("{:?}", ret.ifr_ifrn.ifrn_name)
+        );
     }
 
     fn assert_ok_or_perm_denied<T>(res: Result<T>) {
         match res {
             // We won't have permission in test environments; allow that
-            Ok(_t) => {},
-            Err(Error::IoctlError(ref ioe)) if ioe.kind() == ErrorKind::PermissionDenied => {},
+            Ok(_t) => {}
+            Err(Error::IoctlError(ref ioe)) if ioe.kind() == ErrorKind::PermissionDenied => {}
             Err(e) => panic!("Unexpected Error:\n{:?}", e),
         }
     }

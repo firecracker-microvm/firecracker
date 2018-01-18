@@ -8,7 +8,7 @@ extern crate sys_util;
 
 mod tap;
 
-use std::io::{Error as IoError};
+use std::io::Error as IoError;
 use std::mem;
 use std::net;
 use std::os::unix::io::FromRawFd;
@@ -54,7 +54,3 @@ fn create_socket() -> Result<net::UdpSocket> {
     // This is safe; nothing else will use or hold onto the raw sock fd.
     Ok(unsafe { net::UdpSocket::from_raw_fd(sock) })
 }
-
-
-
-
