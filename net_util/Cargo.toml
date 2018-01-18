@@ -8,3 +8,7 @@ libc = "=0.2.32"
 
 net_sys = { path = "../net_sys" }
 sys_util = { path = "../sys_util" }
+
+[dev-dependencies]
+lazy_static = "=1.0.0"
+pnet = "=0.20.0"
