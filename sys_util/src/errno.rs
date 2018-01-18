@@ -43,3 +43,22 @@ impl From<io::Error> for Error {
 pub fn errno_result<T>() -> Result<T> {
     Err(Error::last())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libc;
+    use std::fs::File;
+    use std::io::{self, Write};
+    use std::os::unix::io::FromRawFd;
+
+    #[test]
+    fn invalid_fd() {
+        let mut file = unsafe { File::from_raw_fd(-1) };
+        assert!(file.write(b"test").is_err());
+        let last_err = errno_result::<i32>().unwrap_err();
+        assert_eq!(last_err, Error::new(libc::EBADF));
+        assert_eq!(last_err.errno(), libc::EBADF);
+        assert_eq!(last_err, Error::from(io::Error::last_os_error()));
+    }
+}
