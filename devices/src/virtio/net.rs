@@ -18,7 +18,7 @@ use libc::EAGAIN;
 use {DeviceEventT, EpollHandler};
 use virtio::mmio::{ActivateError, ActivateResult};
 use epoll;
-use net_util::{Error as TapError, Tap};
+use net_util::{TapError, Tap};
 use net_sys;
 use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_NET};
 use sys_util::{Error as SysError, EventFd, GuestMemory};
