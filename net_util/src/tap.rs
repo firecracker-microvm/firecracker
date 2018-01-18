@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 use std::fs::File;
-use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
+use std::io::{Error as IoError, Read, Result as IoResult, Write};
 use std::net;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
@@ -77,12 +77,7 @@ impl Tap {
         let ret = unsafe { ioctl_with_mut_ref(&tuntap, net_sys::TUNSETIFF(), &mut ifreq) };
 
         if ret < 0 {
-            let error = IoError::last_os_error();
-
-            // In a non-root, test environment, we won't have permission to call this; allow
-            if !(cfg!(test) && error.kind() == ErrorKind::PermissionDenied) {
-                return Err(Error::CreateTap(error));
-            }
+            return Err(Error::CreateTap(IoError::last_os_error()));
         }
 
         // Safe since only the name is accessed, and it's cloned out.
@@ -222,31 +217,190 @@ impl AsRawFd for Tap {
 
 #[cfg(test)]
 mod tests {
+    extern crate pnet;
+
+    use std::net::Ipv4Addr;
+    use std::str;
+    use std::sync::{mpsc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+
+    use self::pnet::datalink::{self, DataLinkReceiver, DataLinkSender, NetworkInterface};
+    use self::pnet::datalink::Channel::Ethernet;
+    use self::pnet::packet::{MutablePacket, Packet};
+    use self::pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
+    use self::pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
+    use self::pnet::packet::ip::IpNextHeaderProtocols;
+    use self::pnet::packet::udp::{MutableUdpPacket, UdpPacket};
+    use self::pnet::util::MacAddr;
+
     use super::*;
 
-    #[test]
-    fn tap_create() {
-        Tap::new().unwrap();
+    static DATA_STRING: &str = "test for tap";
+    static SUBNET_MASK: &str = "255.255.255.0";
+
+    // We needed to have a mutex as a global variable, so we used the crate that provides the
+    // lazy_static! macro for testing. The main potential problem, caused by tests being run in
+    // parallel by cargo, is creating different TAPs and trying to associate the same address,
+    // so we hide the IP address &str behind this mutex, more as a convention to remember to lock
+    // it at the very beginning of each function susceptible to this issue. Another variant is
+    // to use a different IP address per function, but we must remember to pick an unique one
+    // each time.
+    lazy_static! {
+        static ref TAP_IP_LOCK: Mutex<&'static str> = Mutex::new("192.168.241.1");
+    }
+
+    // Describes the outcomes we are currently interested in when parsing a packet (we use
+    // an UDP packet for testing).
+    struct ParsedPkt<'a> {
+        eth: EthernetPacket<'a>,
+        ipv4: Option<Ipv4Packet<'a>>,
+        udp: Option<UdpPacket<'a>>,
+    }
+
+    impl<'a> ParsedPkt<'a> {
+        fn new(buf: &'a [u8]) -> Self {
+            let eth = EthernetPacket::new(buf).unwrap();
+            let mut ipv4 = None;
+            let mut udp = None;
+
+            if eth.get_ethertype() == EtherTypes::Ipv4 {
+                let ipv4_start = 14;
+                ipv4 = Some(Ipv4Packet::new(&buf[ipv4_start..]).unwrap());
+
+                // Hiding the old ipv4 variable for the rest of this block.
+                let ipv4 = Ipv4Packet::new(eth.payload()).unwrap();
+
+                if ipv4.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
+                    // The value in header_length indicates the number of 32 bit words
+                    // that make up the header, not the actual length in bytes.
+                    let udp_start = ipv4_start + ipv4.get_header_length() as usize * 4;
+                    udp = Some(UdpPacket::new(&buf[udp_start..]).unwrap());
+                }
+            }
+
+            ParsedPkt { eth, ipv4, udp }
+        }
+
+        fn print(&self) {
+            print!(
+                "{} {} {} ",
+                self.eth.get_source(),
+                self.eth.get_destination(),
+                self.eth.get_ethertype()
+            );
+            if let Some(ref ipv4) = self.ipv4 {
+                print!(
+                    "{} {} {} ",
+                    ipv4.get_source(),
+                    ipv4.get_destination(),
+                    ipv4.get_next_level_protocol()
+                );
+            }
+            if let Some(ref udp) = self.udp {
+                print!(
+                    "{} {} {}",
+                    udp.get_source(),
+                    udp.get_destination(),
+                    str::from_utf8(udp.payload()).unwrap()
+                );
+            }
+            println!("");
+        }
+    }
+
+    fn tap_name_to_string(tap: &Tap) -> String {
+        let null_pos = tap.if_name.iter().position(|x| *x == 0).unwrap();
+        str::from_utf8(&tap.if_name[..null_pos])
+            .unwrap()
+            .to_string()
+    }
+
+    // Given a buffer of appropriate size, this fills in the relevant fields based on the
+    // provided information. Payload refers to the UDP payload.
+    fn pnet_build_packet(buf: &mut [u8], dst_mac: MacAddr, payload: &[u8]) {
+        let mut eth = MutableEthernetPacket::new(buf).unwrap();
+        eth.set_source(MacAddr::new(0x06, 0, 0, 0, 0, 0));
+        eth.set_destination(dst_mac);
+        eth.set_ethertype(EtherTypes::Ipv4);
+
+        let mut ipv4 = MutableIpv4Packet::new(eth.payload_mut()).unwrap();
+        ipv4.set_version(4);
+        ipv4.set_header_length(5);
+        ipv4.set_total_length(20 + 8 + payload.len() as u16);
+        ipv4.set_ttl(200);
+        ipv4.set_next_level_protocol(IpNextHeaderProtocols::Udp);
+        ipv4.set_source(Ipv4Addr::new(192, 168, 241, 1));
+        ipv4.set_destination(Ipv4Addr::new(192, 168, 241, 2));
+
+        let mut udp = MutableUdpPacket::new(ipv4.payload_mut()).unwrap();
+        udp.set_source(1000);
+        udp.set_destination(1001);
+        udp.set_length(8 + payload.len() as u16);
+        udp.set_payload(payload);
+    }
+
+    // Sends a test packet on the interface named "ifname".
+    fn pnet_send_packet(ifname: String) {
+        let payload = DATA_STRING.as_bytes();
+
+        // eth hdr + ip hdr + udp hdr + payload len
+        let buf_size = 14 + 20 + 8 + payload.len();
+
+        let (mac, mut tx, _) = pnet_get_mac_tx_rx(ifname);
+
+        tx.build_and_send(1, buf_size, &mut |buf| {
+            pnet_build_packet(buf, mac, payload);
+        });
+    }
+
+    // For a given interface name, this returns a tuple that contains the MAC address of the
+    // interface, an object that can be used to send Ethernet frames, and a receiver of
+    // Ethernet frames arriving at the specified interface.
+    fn pnet_get_mac_tx_rx(ifname: String) -> (MacAddr, Box<DataLinkSender>, Box<DataLinkReceiver>) {
+        let interface_name_matches = |iface: &NetworkInterface| iface.name == ifname;
+
+        // Find the network interface with the provided name.
+        let interfaces = datalink::interfaces();
+        let interface = interfaces
+            .into_iter()
+            .filter(interface_name_matches)
+            .next()
+            .unwrap();
+
+        if let Ok(Ethernet(tx, rx)) = datalink::channel(&interface, Default::default()) {
+            (interface.mac_address(), tx, rx)
+        } else {
+            panic!("datalink channel error or unhandled channel type");
+        }
     }
 
     #[test]
-    fn tap_configure() {
+    fn test_tap_create() {
+        let t = Tap::new().unwrap();
+        println!("created tap: {:?}", t);
+    }
+
+    #[test]
+    fn test_tap_configure() {
+        // This should be the first thing to be called inside the function, so everything else
+        // is torn down by the time the mutex is automatically released. Also, we should
+        // explicitly bind the MutexGuard to a variable via let, the make sure it lives until
+        // the end of the function.
+        let tap_ip_guard = TAP_IP_LOCK.lock().unwrap();
+
         let tap = Tap::new().unwrap();
-        let ip_addr: net::Ipv4Addr = "100.115.92.5".parse().unwrap();
-        let netmask: net::Ipv4Addr = "255.255.255.252".parse().unwrap();
+        let ip_addr: net::Ipv4Addr = (*tap_ip_guard).parse().unwrap();
+        let netmask: net::Ipv4Addr = SUBNET_MASK.parse().unwrap();
 
         let ret = tap.set_ip_addr(ip_addr);
-        assert_ok_or_perm_denied(ret);
+        assert!(ret.is_ok());
         let ret = tap.set_netmask(netmask);
-        assert_ok_or_perm_denied(ret);
+        assert!(ret.is_ok());
     }
 
-    /// This test will only work if the test is run with root permissions and, unlike other tests
-    /// in this file, do not return PermissionDenied. They fail because the TAP FD is not
-    /// initialized (as opposed to permission denial). Run this with "cargo test -- --ignored".
     #[test]
-    #[ignore]
-    fn root_only_tests() {
+    fn test_set_options() {
         // This line will fail to provide an initialized FD if the test is not run as root.
         let tap = Tap::new().unwrap();
         tap.set_vnet_hdr_size(16).unwrap();
@@ -254,15 +408,14 @@ mod tests {
     }
 
     #[test]
-    fn tap_enable() {
+    fn test_tap_enable() {
         let tap = Tap::new().unwrap();
-
         let ret = tap.enable();
-        assert_ok_or_perm_denied(ret);
+        assert!(ret.is_ok());
     }
 
     #[test]
-    fn tap_get_ifreq() {
+    fn test_tap_get_ifreq() {
         let tap = Tap::new().unwrap();
         let ret = tap.get_ifreq();
         assert_eq!(
@@ -271,12 +424,125 @@ mod tests {
         );
     }
 
-    fn assert_ok_or_perm_denied<T>(res: Result<T>) {
-        match res {
-            // We won't have permission in test environments; allow that
-            Ok(_t) => {}
-            Err(Error::IoctlError(ref ioe)) if ioe.kind() == ErrorKind::PermissionDenied => {}
-            Err(e) => panic!("Unexpected Error:\n{:?}", e),
+    #[test]
+    fn test_raw_fd() {
+        let tap = Tap::new().unwrap();
+        assert_eq!(tap.as_raw_fd(), tap.tap_file.as_raw_fd());
+    }
+
+    #[test]
+    fn test_read() {
+        let tap_ip_guard = TAP_IP_LOCK.lock().unwrap();
+
+        let mut tap = Tap::new().unwrap();
+        tap.set_ip_addr((*tap_ip_guard).parse().unwrap()).unwrap();
+        tap.set_netmask(SUBNET_MASK.parse().unwrap()).unwrap();
+        tap.enable().unwrap();
+
+        // Send a packet to the interface. We expect to be able to receive it on the associated fd.
+        pnet_send_packet(tap_name_to_string(&tap));
+
+        let mut buf = [0u8; 4096];
+
+        let mut found_packet_sz = None;
+
+        // In theory, this could actually loop forever if something keeps sending data through the
+        // tap interface, but it's highly unlikely.
+        while found_packet_sz.is_none() {
+            let result = tap.read(&mut buf);
+            assert!(result.is_ok());
+
+            let size = result.unwrap();
+
+            // We skip the first 10 bytes because the IFF_VNET_HDR flag is set when the interface
+            // is created, and the legacy header is 10 bytes long without a certain flag which
+            // is not set in Tap::new().
+            let eth_bytes = &buf[10..size];
+
+            let packet = EthernetPacket::new(eth_bytes).unwrap();
+            if packet.get_ethertype() != EtherTypes::Ipv4 {
+                // not an IPv4 packet
+                continue;
+            }
+
+            let ipv4_bytes = &eth_bytes[14..];
+            let packet = Ipv4Packet::new(ipv4_bytes).unwrap();
+
+            // Our packet should carry an UDP payload, and not contain IP options.
+            if packet.get_next_level_protocol() != IpNextHeaderProtocols::Udp
+                && packet.get_header_length() != 5
+            {
+                continue;
+            }
+
+            let udp_bytes = &ipv4_bytes[20..];
+            // Skip the header bytes.
+            let inner_string = str::from_utf8(&udp_bytes[8..]).unwrap();
+
+            if inner_string.eq(DATA_STRING) {
+                found_packet_sz = Some(size);
+                break;
+            }
         }
+
+        assert!(found_packet_sz.is_some());
+    }
+
+    #[test]
+    fn test_write() {
+        let tap_ip_guard = TAP_IP_LOCK.lock().unwrap();
+
+        let mut tap = Tap::new().unwrap();
+        tap.set_ip_addr((*tap_ip_guard).parse().unwrap()).unwrap();
+        tap.set_netmask(SUBNET_MASK.parse().unwrap()).unwrap();
+        tap.enable().unwrap();
+
+        let (mac, _, mut rx) = pnet_get_mac_tx_rx(tap_name_to_string(&tap));
+
+        let payload = DATA_STRING.as_bytes();
+
+        // vnet hdr + eth hdr + ip hdr + udp hdr + payload len
+        let buf_size = 10 + 14 + 20 + 8 + payload.len();
+
+        let mut buf = vec![0u8; buf_size];
+        // leave the vnet hdr as is
+        pnet_build_packet(&mut buf[10..], mac, payload);
+
+        assert!(tap.write(&buf[..]).is_ok());
+        assert!(tap.flush().is_ok());
+
+        let (channel_tx, channel_rx) = mpsc::channel();
+
+        // We use a separate thread to wait for the test packet because the API exposed by pnet is
+        // blocking. This thread will be killed when the main thread exits.
+        let _handle = thread::spawn(move || loop {
+            let buf = rx.next().unwrap();
+            let p = ParsedPkt::new(buf);
+            p.print();
+
+            if let Some(ref udp) = p.udp {
+                if payload == udp.payload() {
+                    channel_tx.send(true).unwrap();
+                    break;
+                }
+            }
+        });
+
+        // We wait for at most SLEEP_MILLIS * SLEEP_ITERS milliseconds for the reception of the
+        // test packet to be detected.
+        static SLEEP_MILLIS: u64 = 500;
+        static SLEEP_ITERS: u32 = 6;
+
+        let mut found_test_packet = false;
+
+        for _ in 0..SLEEP_ITERS {
+            thread::sleep(Duration::from_millis(SLEEP_MILLIS));
+            if let Ok(true) = channel_rx.try_recv() {
+                found_test_packet = true;
+                break;
+            }
+        }
+
+        assert!(found_test_packet);
     }
 }
