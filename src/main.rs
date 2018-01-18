@@ -46,7 +46,7 @@ fn main() {
             Arg::with_name("kernel_cmdline")
                 .long("kernel-cmdline")
                 .help("The kernel's command line")
-                .default_value("console=ttyS0 noapic reboot=k panic=1 pci=off")
+                .default_value("console=ttyS0 noapic reboot=k panic=1 pci=off nomodules")
                 .takes_value(true),
         )
         .arg(
