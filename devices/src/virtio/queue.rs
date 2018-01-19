@@ -8,8 +8,8 @@ use std::sync::atomic::{fence, Ordering};
 
 use sys_util::{GuestAddress, GuestMemory};
 
-const VIRTQ_DESC_F_NEXT: u16 = 0x1;
-const VIRTQ_DESC_F_WRITE: u16 = 0x2;
+pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
+pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
 
 /// A virtio descriptor chain.
 pub struct DescriptorChain<'a> {

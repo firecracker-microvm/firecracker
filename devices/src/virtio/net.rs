@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 use std::cmp;
-use std::io::{Read, Write};
+use std::io::{self, Write};
+#[cfg(not(test))]
+use std::io::Read;
 use std::mem;
 use std::net::Ipv4Addr;
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -144,10 +146,28 @@ impl NetEpollHandler {
         write_count >= self.rx_count
     }
 
+    #[cfg(not(test))]
+    fn read_tap(&mut self) -> io::Result<usize> {
+        self.tap.read(&mut self.rx_buf)
+    }
+
+    #[cfg(test)]
+    fn read_tap(&mut self) -> io::Result<usize> {
+        use std::cmp::min;
+
+        let count = min(1234, self.rx_buf.len());
+
+        for i in 0..count {
+            self.rx_buf[i] = 5;
+        }
+
+        Ok(count)
+    }
+
     fn process_rx(&mut self) {
         // Read as many frames as possible.
         loop {
-            let res = self.tap.read(&mut self.rx_buf);
+            let res = self.read_tap();
             match res {
                 Ok(count) => {
                     self.rx_count = count;
@@ -473,5 +493,276 @@ impl VirtioDevice for Net {
         }
 
         Err(ActivateError::BadActivate)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::Receiver;
+    use std::u32;
+
+    use libc;
+
+    use virtio::queue::tests::*;
+    use super::*;
+    use sys_util::GuestAddress;
+
+    struct DummyNet {
+        net: Net,
+        epoll_raw_fd: i32,
+        _receiver: Receiver<Box<EpollHandler>>,
+    }
+
+    impl DummyNet {
+        fn new() -> Self {
+            let epoll_raw_fd = epoll::create(true).unwrap();
+            let (sender, _receiver) = mpsc::channel();
+            let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
+
+            DummyNet {
+                net: Net::new(
+                    "192.168.249.1".parse().unwrap(),
+                    "255.255.255.0".parse().unwrap(),
+                    epoll_config,
+                ).unwrap(),
+                epoll_raw_fd,
+                _receiver,
+            }
+        }
+
+        fn net(&mut self) -> &mut Net {
+            &mut self.net
+        }
+    }
+
+    impl Drop for DummyNet {
+        fn drop(&mut self) {
+            unsafe { libc::close(self.epoll_raw_fd) };
+        }
+    }
+
+    fn activate_some_net(n: &mut Net, bad_qlen: bool, bad_evtlen: bool) -> ActivateResult {
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let interrupt_evt = EventFd::new().unwrap();
+        let status = Arc::new(AtomicUsize::new(0));
+
+        let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let txq = VirtQueue::new(GuestAddress(0x1000), &mem, 16);
+
+        assert!(rxq.end().0 < txq.start().0);
+
+        let mut queues = vec![rxq.create_queue(), txq.create_queue()];
+        let mut queue_evts = vec![EventFd::new().unwrap(), EventFd::new().unwrap()];
+
+        if bad_qlen {
+            queues.pop();
+        }
+
+        if bad_evtlen {
+            queue_evts.pop();
+        }
+
+        n.activate(mem.clone(), interrupt_evt, status, queues, queue_evts)
+    }
+
+    #[test]
+    fn test_virtio_device() {
+        let mut dummy = DummyNet::new();
+        let n = dummy.net();
+
+        assert_eq!(n.device_type(), TYPE_NET);
+        assert_eq!(n.queue_max_sizes(), QUEUE_SIZES);
+
+        let features = 1 << virtio_net::VIRTIO_NET_F_GUEST_CSUM | 1 << virtio_net::VIRTIO_NET_F_CSUM
+            | 1 << virtio_net::VIRTIO_NET_F_GUEST_TSO4
+            | 1 << virtio_net::VIRTIO_NET_F_GUEST_UFO
+            | 1 << virtio_net::VIRTIO_NET_F_HOST_TSO4
+            | 1 << virtio_net::VIRTIO_NET_F_HOST_UFO
+            | 1 << virtio_net::VIRTIO_F_VERSION_1;
+
+        assert_eq!(n.features(0), features as u32);
+        assert_eq!(n.features(1), (features >> 32) as u32);
+        for i in 2..10 {
+            assert_eq!(n.features(i), 0u32);
+        }
+
+        for i in 0..10 {
+            n.ack_features(i, u32::MAX);
+        }
+
+        assert_eq!(n.acked_features, features);
+
+        // Let's test the activate function.
+
+        // It should fail when not enough queues and/or evts are provided.
+        assert!(activate_some_net(n, true, false).is_err());
+        assert!(activate_some_net(n, false, true).is_err());
+        assert!(activate_some_net(n, true, true).is_err());
+
+        // Otherwise, it should be ok.
+        assert!(activate_some_net(n, false, false).is_ok());
+
+        // Second activate shouldn't be ok anymore.
+        assert!(activate_some_net(n, false, false).is_err());
+    }
+
+    #[test]
+    fn test_handler() {
+        let mut dummy = DummyNet::new();
+        let n = dummy.net();
+
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+
+        let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let txq = VirtQueue::new(GuestAddress(0x1000), &mem, 16);
+
+        assert!(rxq.end().0 < txq.start().0);
+
+        let rx_queue = rxq.create_queue();
+        let tx_queue = txq.create_queue();
+        let interrupt_status = Arc::new(AtomicUsize::new(0));
+        let interrupt_evt = EventFd::new().unwrap();
+        let rx_queue_evt = EventFd::new().unwrap();
+        let tx_queue_evt = EventFd::new().unwrap();
+
+        let mut h = NetEpollHandler {
+            mem: mem.clone(),
+            rx_queue,
+            tx_queue,
+            tap: n.tap.take().unwrap(),
+            interrupt_status,
+            interrupt_evt,
+            rx_buf: [0u8; MAX_BUFFER_SIZE],
+            rx_count: 0,
+            deferred_rx: false,
+            acked_features: n.acked_features,
+            rx_queue_evt,
+            tx_queue_evt,
+        };
+
+        let daddr = 0x2000;
+        assert!(daddr as usize > txq.end().0);
+
+        // Some corner cases for rx_single_frame().
+        {
+            assert_eq!(h.rx_count, 0);
+
+            // Let's imagine we received some data.
+            h.rx_count = MAX_BUFFER_SIZE;
+
+            {
+                // a read only descriptor
+                rxq.avail.ring[0].set(0);
+                rxq.avail.idx.set(1);
+                rxq.dtable[0].set(daddr, 0x1000, 0, 0);
+                assert!(!h.rx_single_frame());
+                assert_eq!(rxq.used.idx.get(), 1);
+
+                // resetting values
+                rxq.used.idx.set(0);
+                h.rx_queue = rxq.create_queue();
+                h.interrupt_evt.write(1).unwrap();
+                // The prev rx_single_frame() call should have written one more.
+                assert_eq!(h.interrupt_evt.read(), Ok(2));
+            }
+
+            {
+                // We make the prev desc write_only (with no other flag) to get a chain which is
+                // writable, but too short.
+                rxq.dtable[0].flags.set(VIRTQ_DESC_F_WRITE);
+                assert!(!h.rx_single_frame());
+                assert_eq!(rxq.used.idx.get(), 1);
+
+                rxq.used.idx.set(0);
+                h.rx_queue = rxq.create_queue();
+                h.interrupt_evt.write(1).unwrap();
+                assert_eq!(h.interrupt_evt.read(), Ok(2));
+            }
+
+            // set rx_count back to 0
+            h.rx_count = 0;
+        }
+
+        // Now let's move on to the actual device events.
+
+        {
+            // testing TX_QUEUE_EVENT
+            txq.avail.idx.set(1);
+            txq.avail.ring[0].set(0);
+            txq.dtable[0].set(daddr, 0x1000, 0, 0);
+
+            h.tx_queue_evt.write(1).unwrap();
+            h.interrupt_evt.write(1).unwrap();
+            h.handle_event(TX_QUEUE_EVENT, 0);
+            assert_eq!(h.interrupt_evt.read(), Ok(2));
+        }
+
+        {
+            // testing RX_TAP_EVENT
+
+            assert!(!h.deferred_rx);
+
+            // this should work just fine
+            rxq.avail.idx.set(1);
+            rxq.avail.ring[0].set(0);
+            rxq.dtable[0].set(daddr, 0x1000, VIRTQ_DESC_F_WRITE, 0);
+
+            h.interrupt_evt.write(1).unwrap();
+            h.handle_event(RX_TAP_EVENT, 0);
+            assert!(h.deferred_rx);
+            assert_eq!(h.interrupt_evt.read(), Ok(2));
+            // The #cfg(test) enabled version of read_tap always returns 1234 bytes (or the len of
+            // the buffer, whichever is smaller).
+            assert_eq!(rxq.used.ring[0].get().len, 1234);
+
+            // Since deferred_rx is now true, activating the same event again will trigger
+            // a different execution path.
+
+            // reset some parts of the queue first
+            h.rx_queue = rxq.create_queue();
+            rxq.used.idx.set(0);
+
+            // this should also be successful
+            h.interrupt_evt.write(1).unwrap();
+            h.handle_event(RX_TAP_EVENT, 0);
+            assert!(h.deferred_rx);
+            assert_eq!(h.interrupt_evt.read(), Ok(2));
+
+            // ... but the following shouldn't, because we emulate receiving much more data than
+            // we can fit inside a single descriptor
+
+            h.rx_count = MAX_BUFFER_SIZE;
+            h.rx_queue = rxq.create_queue();
+            rxq.used.idx.set(0);
+
+            h.interrupt_evt.write(1).unwrap();
+            h.handle_event(RX_TAP_EVENT, 0);
+            assert!(h.deferred_rx);
+            assert_eq!(h.interrupt_evt.read(), Ok(2));
+
+            // A mismatch shows the reception was unsuccessful.
+            assert_ne!(rxq.used.ring[0].get().len as usize, h.rx_count);
+
+            // We set this back to a manageable size, for the following test.
+            h.rx_count = 1234;
+        }
+
+        {
+            // now also try an RX_QUEUE_EVENT
+            rxq.avail.idx.set(2);
+            rxq.avail.ring[1].set(1);
+            rxq.dtable[1].set(daddr + 0x1000, 0x1000, VIRTQ_DESC_F_WRITE, 0);
+
+            h.rx_queue_evt.write(1).unwrap();
+            h.interrupt_evt.write(1).unwrap();
+            h.handle_event(RX_QUEUE_EVENT, 0);
+            assert!(!h.deferred_rx);
+            assert_eq!(h.interrupt_evt.read(), Ok(2));
+        }
+
+        {
+            // does nothing currently
+            h.handle_event(KILL_EVENT, 0);
+        }
     }
 }
