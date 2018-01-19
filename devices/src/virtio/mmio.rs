@@ -297,3 +297,302 @@ impl BusDevice for MmioDevice {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use byteorder::{ByteOrder, LittleEndian};
+
+    use super::*;
+
+    struct DummyDevice {
+        acked_features: u32,
+        config_bytes: [u8; 0xeff],
+    }
+
+    impl DummyDevice {
+        fn new() -> Self {
+            DummyDevice {
+                acked_features: 0,
+                config_bytes: [0; 0xeff],
+            }
+        }
+    }
+
+    impl VirtioDevice for DummyDevice {
+        fn device_type(&self) -> u32 {
+            return 123;
+        }
+
+        fn queue_max_sizes(&self) -> &[u16] {
+            &[16, 32]
+        }
+
+        fn read_config(&self, offset: u64, data: &mut [u8]) {
+            for i in 0..data.len() {
+                data[i] = self.config_bytes[offset as usize + i];
+            }
+        }
+
+        fn write_config(&mut self, offset: u64, data: &[u8]) {
+            for i in 0..data.len() {
+                self.config_bytes[offset as usize + i] = data[i];
+            }
+        }
+
+        fn ack_features(&mut self, page: u32, value: u32) {
+            self.acked_features = page + value;
+        }
+
+        fn activate(
+            &mut self,
+            _mem: GuestMemory,
+            _interrupt_evt: EventFd,
+            _status: Arc<AtomicUsize>,
+            _queues: Vec<Queue>,
+            _queue_evts: Vec<EventFd>,
+        ) -> ActivateResult {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_new() {
+        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
+
+        // We just make sure here that the implementation of a mmio device behaves as we expect,
+        // given a known virtio device implementation (the dummy device).
+
+        assert_eq!(d.queue_evts().len(), 2);
+
+        assert!(d.interrupt_evt().is_some());
+
+        assert!(!d.is_driver_ready());
+
+        assert!(!d.are_queues_valid());
+
+        d.queue_select = 0;
+        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 16);
+        assert!(d.with_queue_mut(|q| q.size = 16));
+        assert_eq!(d.queues[d.queue_select as usize].size, 16);
+
+        d.queue_select = 1;
+        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 32);
+        assert!(d.with_queue_mut(|q| q.size = 16));
+        assert_eq!(d.queues[d.queue_select as usize].size, 16);
+
+        d.queue_select = 2;
+        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 0);
+        assert!(!d.with_queue_mut(|q| q.size = 16));
+
+        d.mem.take().unwrap();
+        assert!(!d.are_queues_valid());
+    }
+
+    #[test]
+    fn test_bus_device_read() {
+        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
+
+        let mut buf = vec![0xff, 0, 0xfe, 0];
+        let buf_copy = buf.to_vec();
+
+        // The following read shouldn't be valid, because the length of the buf is not 4.
+        buf.push(0);
+        d.read(0, &mut buf[..]);
+        assert_eq!(buf[..4], buf_copy[..]);
+
+        // the length is ok again
+        buf.pop();
+
+        // Now we test that reading at various predefined offsets works as intended.
+
+        d.read(0, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), MMIO_MAGIC_VALUE);
+
+        d.read(0x04, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), MMIO_VERSION);
+
+        d.read(0x08, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), d.device.device_type());
+
+        d.read(0x0c, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), VENDOR_ID);
+
+        d.features_select = 0;
+        d.read(0x10, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), d.device.features(0));
+
+        d.features_select = 1;
+        d.read(0x10, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), d.device.features(0) | 0x1);
+
+        d.read(0x34, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), 16);
+
+        d.read(0x44, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), false as u32);
+
+        d.interrupt_status.store(111, Ordering::SeqCst);
+        d.read(0x60, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), 111);
+
+        d.read(0x70, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), 0);
+
+        d.config_generation = 5;
+        d.read(0xfc, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), 5);
+
+
+        // This read shouldn't do anything, as it's past the readable generic registers, and
+        // before the device specific configuration space. Btw, reads from the device specific
+        // conf space are going to be tested a bit later, alongside writes.
+        buf = buf_copy.to_vec();
+        d.read(0xfd, &mut buf[..]);
+        assert_eq!(buf[..], buf_copy[..]);
+    }
+
+    #[test]
+    fn test_bus_device_write() {
+        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+
+        let dummy_box = Box::new(DummyDevice::new());
+        let p = &dummy_box.acked_features as *const u32;
+
+        let mut d = MmioDevice::new(m, dummy_box).unwrap();
+
+        let mut buf = vec![0; 5];
+        LittleEndian::write_u32(&mut buf[..4], 1);
+
+        // Nothing should happen, because the slice len > 4.
+        d.features_select = 0;
+        d.write(0x14, &buf[..]);
+        assert_eq!(d.features_select, 0);
+
+        buf.pop();
+
+        // now writes should work
+        d.features_select = 0;
+        LittleEndian::write_u32(&mut buf[..], 1);
+        d.write(0x14, &buf[..]);
+        assert_eq!(d.features_select, 1);
+
+        d.acked_features_select = 0x123;
+        LittleEndian::write_u32(&mut buf[..], 1);
+        d.write(0x20, &buf[..]);
+        assert_eq!(unsafe { *p }, 0x124);
+
+        d.acked_features_select = 0;
+        LittleEndian::write_u32(&mut buf[..], 2);
+        d.write(0x24, &buf[..]);
+        assert_eq!(d.acked_features_select, 2);
+
+        d.queue_select = 0;
+        LittleEndian::write_u32(&mut buf[..], 3);
+        d.write(0x30, &buf[..]);
+        assert_eq!(d.queue_select, 3);
+
+        d.queue_select = 0;
+        assert_eq!(d.queues[0].size, 0);
+        LittleEndian::write_u32(&mut buf[..], 16);
+        d.write(0x38, &buf[..]);
+        assert_eq!(d.queues[0].size, 16);
+
+        assert!(!d.queues[0].ready);
+        LittleEndian::write_u32(&mut buf[..], 1);
+        d.write(0x44, &buf[..]);
+        assert!(d.queues[0].ready);
+
+        d.interrupt_status.store(0b101010, Ordering::Relaxed);
+        LittleEndian::write_u32(&mut buf[..], 0b111);
+        d.write(0x64, &buf[..]);
+        assert_eq!(d.interrupt_status.load(Ordering::Relaxed), 0b101000);
+
+        assert_eq!(d.driver_status, 0);
+        LittleEndian::write_u32(&mut buf[..], 1);
+        d.write(0x70, &buf[..]);
+        assert_eq!(d.driver_status, 1);
+
+        assert_eq!(d.queues[0].desc_table.0, 0);
+        LittleEndian::write_u32(&mut buf[..], 123);
+        d.write(0x80, &buf[..]);
+        assert_eq!(d.queues[0].desc_table.0, 123);
+        d.write(0x84, &buf[..]);
+        assert_eq!(d.queues[0].desc_table.0, 123 + (123 << 32));
+
+        assert_eq!(d.queues[0].avail_ring.0, 0);
+        LittleEndian::write_u32(&mut buf[..], 124);
+        d.write(0x90, &buf[..]);
+        assert_eq!(d.queues[0].avail_ring.0, 124);
+        d.write(0x94, &buf[..]);
+        assert_eq!(d.queues[0].avail_ring.0, 124 + (124 << 32));
+
+        assert_eq!(d.queues[0].used_ring.0, 0);
+        LittleEndian::write_u32(&mut buf[..], 125);
+        d.write(0xa0, &buf[..]);
+        assert_eq!(d.queues[0].used_ring.0, 125);
+        d.write(0xa4, &buf[..]);
+        assert_eq!(d.queues[0].used_ring.0, 125 + (125 << 32));
+
+        // Here we test writes/read into/from the device specific configuration space.
+
+        let buf1 = vec![1; 0xeff];
+        for i in (0..0xeff).rev() {
+            let mut buf2 = vec![0; 0xeff];
+
+            d.write(0x100 + i as u64, &buf1[i..]);
+            d.read(0x100, &mut buf2[..]);
+
+            for j in 0..i {
+                assert_eq!(buf2[j], 0);
+            }
+
+            assert_eq!(buf1[i..], buf2[i..]);
+        }
+    }
+
+    #[test]
+    fn test_bus_device_activate() {
+        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
+
+        d.driver_status =
+            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_DRIVER_OK | DEVICE_FEATURES_OK;
+        assert!(d.is_driver_ready());
+
+        for q in d.queues.iter_mut() {
+            q.size = 16;
+            q.ready = true;
+        }
+        assert!(d.are_queues_valid());
+        assert!(!d.device_activated);
+
+        // Device should be ready for activation now.
+
+        let buf = vec![0; 4];
+
+        // A couple of invalid writes; will trigger warnings; shouldn't activate the device.
+        d.write(0xa8, &buf[..]);
+        d.write(0x1000, &buf[..]);
+        assert!(!d.device_activated);
+
+        // We pretend the device is already activated; activation related logic shouldn't be called
+        // in this situation, even for a valid write.
+        d.device_activated = true;
+        d.write(0x30, &buf[..]);
+        assert!(d.mem.is_some());
+        assert!(d.interrupt_evt.is_some());
+
+        // Ok, we stop pretending the device is activated.
+        d.device_activated = false;
+
+        // We issue this write again to actually activate the device.
+        d.write(0x30, &buf[..]);
+        assert!(d.device_activated);
+
+        // A write which changes the size of a queue after activation; currently only triggers
+        // a warning path.
+        d.write(0x44, &buf[..]);
+    }
+}
