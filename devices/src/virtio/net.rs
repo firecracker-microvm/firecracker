@@ -141,7 +141,7 @@ impl NetEpollHandler {
         // reduce latency.
         self.signal_used_queue();
 
-        true
+        write_count >= self.rx_count
     }
 
     fn process_rx(&mut self) {
