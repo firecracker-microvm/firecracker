@@ -1,14 +1,14 @@
+extern crate devices;
 extern crate sys_util;
 extern crate x86_64;
-extern crate devices;
 
 use std::result;
 use std::collections::{BinaryHeap, HashMap};
 use std::collections::hash_map::Entry;
-use sys_util::{GuestAddress, GuestMemory, MemoryMapping, EventFd};
+use sys_util::{EventFd, GuestAddress, GuestMemory, MemoryMapping};
 use std::sync::{Arc, Mutex};
 use kvm::*;
-use x86_64::{regs, interrupts};
+use x86_64::{interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
 //x86_64 specific values
@@ -63,18 +63,16 @@ impl Vm {
     pub fn new(kvm: &Kvm, guest_mem: GuestMemory) -> Result<Self> {
         //create fd for interacting with kvm-vm specific functions
         let vm_fd = VmFd::new(&kvm).map_err(Error::VmFd)?;
-        guest_mem.with_regions(
-            |index, guest_addr, size, host_addr| {
-                // Safe because the guest regions are guaranteed not to overlap.
-                vm_fd.set_user_memory_region(
-                    index as u32,
-                    guest_addr.offset() as u64,
-                    size as u64,
-                    host_addr as u64,
-                    0,
-                )
-            },
-        )?;
+        guest_mem.with_regions(|index, guest_addr, size, host_addr| {
+            // Safe because the guest regions are guaranteed not to overlap.
+            vm_fd.set_user_memory_region(
+                index as u32,
+                guest_addr.offset() as u64,
+                size as u64,
+                host_addr as u64,
+                0,
+            )
+        })?;
 
         Ok(Vm {
             fd: vm_fd,
@@ -88,9 +86,9 @@ impl Vm {
     /// Currently this is x86 specific
     pub fn setup(&self) -> Result<()> {
         let tss_addr = GuestAddress(KVM_TSS_ADDRESS);
-        self.fd.set_tss_address(tss_addr.offset()).map_err(
-            Error::VmSetup,
-        )?;
+        self.fd
+            .set_tss_address(tss_addr.offset())
+            .map_err(Error::VmSetup)?;
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
         self.fd.create_pit2().map_err(Error::VmSetup)?;
         Ok(())
@@ -108,27 +106,27 @@ impl Vm {
         io_bus.insert(stdio_serial.clone(), 0x3f8, 0x8).unwrap();
         io_bus
             .insert(
-                Arc::new(Mutex::new(devices::Serial::new_sink(
-                    com_evt_2_4.try_clone().map_err(Error::EventFd)?,
-                ))),
+                Arc::new(Mutex::new(devices::Serial::new_sink(com_evt_2_4
+                    .try_clone()
+                    .map_err(Error::EventFd)?))),
                 0x2f8,
                 0x8,
             )
             .unwrap();
         io_bus
             .insert(
-                Arc::new(Mutex::new(devices::Serial::new_sink(
-                    com_evt_1_3.try_clone().map_err(Error::EventFd)?,
-                ))),
+                Arc::new(Mutex::new(devices::Serial::new_sink(com_evt_1_3
+                    .try_clone()
+                    .map_err(Error::EventFd)?))),
                 0x3e8,
                 0x8,
             )
             .unwrap();
         io_bus
             .insert(
-                Arc::new(Mutex::new(devices::Serial::new_sink(
-                    com_evt_2_4.try_clone().map_err(Error::EventFd)?,
-                ))),
+                Arc::new(Mutex::new(devices::Serial::new_sink(com_evt_2_4
+                    .try_clone()
+                    .map_err(Error::EventFd)?))),
                 0x2e8,
                 0x8,
             )
@@ -139,9 +137,9 @@ impl Vm {
 
         io_bus
             .insert(
-                Arc::new(Mutex::new(devices::I8042Device::new(
-                    exit_evt.try_clone().map_err(Error::EventFd)?,
-                ))),
+                Arc::new(Mutex::new(devices::I8042Device::new(exit_evt
+                    .try_clone()
+                    .map_err(Error::EventFd)?))),
                 0x064,
                 0x1,
             )
@@ -264,8 +262,8 @@ impl Vcpu {
                     if entry.index == 0 {
                         entry.ecx |= 1 << ECX_HYPERVISOR_SHIFT;
                     }
-                    entry.ebx = ((self.id as u32) << EBX_CPUID_SHIFT) as u32 |
-                        (EBX_CLFLUSH_CACHELINE << EBX_CLFLUSH_SIZE_SHIFT);
+                    entry.ebx = ((self.id as u32) << EBX_CPUID_SHIFT) as u32
+                        | (EBX_CLFLUSH_CACHELINE << EBX_CLFLUSH_SIZE_SHIFT);
                     if cpu_count > 1 {
                         entry.ebx |= (cpu_count as u32) << EBX_CPU_COUNT_SHIFT;
                         entry.edx |= 1 << EDX_HTT_SHIFT;
@@ -294,13 +292,12 @@ impl Vcpu {
         kernel_start_addr: GuestAddress,
         vm: &Vm,
     ) -> Result<()> {
-
         let mut kvm_cpuid = vm.get_fd().get_cpuid();
         self.filter_cpuid(nrcpus, &mut kvm_cpuid)?;
 
-        self.fd.set_cpuid2(&kvm_cpuid).map_err(
-            Error::SetSupportedCpusFailed,
-        )?;
+        self.fd
+            .set_cpuid2(&kvm_cpuid)
+            .map_err(Error::SetSupportedCpusFailed)?;
 
         regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
         let kernel_end = vm.get_memory()
@@ -313,12 +310,8 @@ impl Vcpu {
             x86_64::ZERO_PAGE_OFFSET as u64,
         ).map_err(Error::REGSConfiguration)?;
         regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
-        regs::setup_sregs(vm.get_memory(), &self.fd).map_err(
-            Error::SREGSConfiguration,
-        )?;
-        interrupts::set_lint(&self.fd).map_err(
-            Error::LocalIntConfiguration,
-        )?;
+        regs::setup_sregs(vm.get_memory(), &self.fd).map_err(Error::SREGSConfiguration)?;
+        interrupts::set_lint(&self.fd).map_err(Error::LocalIntConfiguration)?;
         Ok(())
     }
 
@@ -411,17 +404,9 @@ mod tests {
         use std::io::{self, Write};
         // This example based on https://lwn.net/Articles/658511/
         let code = [
-            0xba,
-            0xf8,
-            0x03, /* mov $0x3f8, %dx */
-            0x00,
-            0xd8, /* add %bl, %al */
-            0x04,
-            '0' as u8, /* add $'0', %al */
-            0xee, /* out %al, (%dx) */
-            0xb0,
-            '\n' as u8, /* mov $'\n', %al */
-            0xee, /* out %al, (%dx) */
+            0xba, 0xf8, 0x03 /* mov $0x3f8, %dx */, 0x00, 0xd8 /* add %bl, %al */, 0x04,
+            '0' as u8 /* add $'0', %al */, 0xee /* out %al, (%dx) */, 0xb0,
+            '\n' as u8 /* mov $'\n', %al */, 0xee /* out %al, (%dx) */,
             0xf4 /* hlt */,
         ];
 
