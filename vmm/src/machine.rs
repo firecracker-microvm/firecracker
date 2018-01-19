@@ -5,12 +5,12 @@ use std::path::PathBuf;
 
 pub struct MachineCfg {
     pub kernel_path: Option<PathBuf>,
-    pub kernel_cmdline: String,  //has default value
-    pub vcpu_count: u8,  //has default value
-    pub mem_size: usize,  //has default value
+    pub kernel_cmdline: String, //has default value
+    pub vcpu_count: u8,         //has default value
+    pub mem_size: usize,        //has default value
     pub root_blk_file: Option<PathBuf>,
     pub host_ip: Option<Ipv4Addr>,
-    pub subnet_mask: Ipv4Addr,  //has default value
+    pub subnet_mask: Ipv4Addr, //has default value
 }
 
 impl MachineCfg {
