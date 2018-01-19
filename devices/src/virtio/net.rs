@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use libc::EAGAIN;
 
-use ::{DeviceEventT, EpollHandler};
-use ::virtio::mmio::{ActivateError, ActivateResult};
+use {DeviceEventT, EpollHandler};
+use virtio::mmio::{ActivateError, ActivateResult};
 use epoll;
 use net_util::{Error as TapError, Tap};
 use net_sys;
@@ -74,7 +74,7 @@ struct NetEpollHandler {
     // Remove once MRG_RXBUF is supported and this variable is actually used.
     #[allow(dead_code)] acked_features: u64,
     rx_queue_evt: EventFd,
-    tx_queue_evt: EventFd
+    tx_queue_evt: EventFd,
 }
 
 impl NetEpollHandler {
@@ -226,8 +226,7 @@ impl NetEpollHandler {
 }
 
 impl EpollHandler for NetEpollHandler {
-    fn handle_event(&mut self, device_event: DeviceEventT, _: u32)
-    {
+    fn handle_event(&mut self, device_event: DeviceEventT, _: u32) {
         match device_event {
             RX_TAP_EVENT => {
                 // Process a deferred frame first if available. Don't read from tap again
@@ -262,7 +261,7 @@ impl EpollHandler for NetEpollHandler {
                 info!("virtio net device killed")
                 //TODO: device should be removed from epoll
             }
-            _ => panic!("unknown token for virtio net device")
+            _ => panic!("unknown token for virtio net device"),
         }
     }
 }
@@ -273,18 +272,22 @@ pub struct EpollConfig {
     tx_queue_token: u64,
     kill_token: u64,
     epoll_raw_fd: RawFd,
-    sender: mpsc::Sender<Box<EpollHandler>>
+    sender: mpsc::Sender<Box<EpollHandler>>,
 }
 
 impl EpollConfig {
-    pub fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self {
+    pub fn new(
+        first_token: u64,
+        epoll_raw_fd: RawFd,
+        sender: mpsc::Sender<Box<EpollHandler>>,
+    ) -> Self {
         EpollConfig {
-            rx_tap_token:       first_token,
-            rx_queue_token:     first_token + 1,
-            tx_queue_token:     first_token + 2,
-            kill_token:         first_token + 3,
+            rx_tap_token: first_token,
+            rx_queue_token: first_token + 1,
+            tx_queue_token: first_token + 2,
+            kill_token: first_token + 3,
             epoll_raw_fd,
-            sender
+            sender,
         }
     }
 }
@@ -295,13 +298,17 @@ pub struct Net {
     tap: Option<Tap>,
     avail_features: u64,
     acked_features: u64,
-    epoll_config: EpollConfig
+    epoll_config: EpollConfig,
 }
 
 impl Net {
     /// Create a new virtio network device with the given IP address and
     /// netmask.
-    pub fn new(ip_addr: Ipv4Addr, netmask: Ipv4Addr, epoll_config: EpollConfig) -> Result<Net, NetError> {
+    pub fn new(
+        ip_addr: Ipv4Addr,
+        netmask: Ipv4Addr,
+        epoll_config: EpollConfig,
+    ) -> Result<Net, NetError> {
         let kill_evt = EventFd::new().map_err(NetError::CreateKillEventFd)?;
 
         let tap = Tap::new().map_err(NetError::TapOpen)?;
@@ -333,7 +340,7 @@ impl Net {
             tap: Some(tap),
             avail_features: avail_features,
             acked_features: 0u64,
-            epoll_config
+            epoll_config,
         })
     }
 }
@@ -402,7 +409,7 @@ impl VirtioDevice for Net {
     ) -> ActivateResult {
         if queues.len() != 2 || queue_evts.len() != 2 {
             error!("net: expected 2 queues, got {}", queues.len());
-            return Err(ActivateError::BadActivate)
+            return Err(ActivateError::BadActivate);
         }
 
         if let Some(tap) = self.tap.take() {
@@ -421,7 +428,7 @@ impl VirtioDevice for Net {
                     deferred_rx: false,
                     acked_features: self.acked_features,
                     rx_queue_evt: queue_evts.remove(0),
-                    tx_queue_evt: queue_evts.remove(0)
+                    tx_queue_evt: queue_evts.remove(0),
                 };
 
                 let tap_raw_fd = handler.tap.as_raw_fd();
@@ -437,31 +444,31 @@ impl VirtioDevice for Net {
                     self.epoll_config.epoll_raw_fd,
                     epoll::EPOLL_CTL_ADD,
                     tap_raw_fd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_tap_token)
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_tap_token),
                 ).map_err(ActivateError::EpollCtl)?;
 
                 epoll::ctl(
                     self.epoll_config.epoll_raw_fd,
                     epoll::EPOLL_CTL_ADD,
                     rx_queue_raw_fd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_queue_token)
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_queue_token),
                 ).map_err(ActivateError::EpollCtl)?;
 
                 epoll::ctl(
                     self.epoll_config.epoll_raw_fd,
                     epoll::EPOLL_CTL_ADD,
                     tx_queue_raw_fd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_queue_token)
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_queue_token),
                 ).map_err(ActivateError::EpollCtl)?;
 
                 epoll::ctl(
                     self.epoll_config.epoll_raw_fd,
                     epoll::EPOLL_CTL_ADD,
                     kill_raw_fd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token)
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token),
                 ).map_err(ActivateError::EpollCtl)?;
 
-                return Ok(())
+                return Ok(());
             }
         }
 
