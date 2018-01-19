@@ -557,8 +557,7 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) -> Result<()> {
         let mut iron = Iron::new(chain);
         // By default Iron uses 8 * num_cpus threads.
         iron.threads = 1;
-        iron.http(sock_addr)
-            .expect("Failed to start HTTP server");
+        iron.http(sock_addr).expect("Failed to start HTTP server");
     });
 
     println!("Booting kernel from api_server");
@@ -566,7 +565,9 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) -> Result<()> {
 
     if cmd_arguments.is_present("kill_api") {
         // safe because we own the handle for the thread that we kill
-        unsafe { libc::pthread_kill(handle.as_pthread_t(), libc::SIGINT); }
+        unsafe {
+            libc::pthread_kill(handle.as_pthread_t(), libc::SIGINT);
+        }
     }
     handle.join().expect("cannot join api and vmm threads");
 

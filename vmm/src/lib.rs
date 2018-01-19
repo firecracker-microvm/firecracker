@@ -28,12 +28,12 @@ use std::thread;
 
 use device_manager::*;
 use devices::virtio;
-use devices::{EpollHandler, DeviceEventT};
+use devices::{DeviceEventT, EpollHandler};
 use kvm::*;
 use machine::MachineCfg;
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use vm_control::VmResponse;
-use vstate::{Vm, Vcpu};
+use vstate::{Vcpu, Vm};
 
 const KERNEL_START_OFFSET: usize = 0x200000;
 const CMDLINE_OFFSET: usize = 0x20000;
@@ -62,7 +62,7 @@ pub enum Error {
     RegisterBlock(device_manager::Error),
     NetDeviceNew(devices::virtio::NetError),
     RegisterNet(device_manager::Error),
-    DeviceVmRequest(sys_util::Error)
+    DeviceVmRequest(sys_util::Error),
 }
 
 impl std::convert::From<kernel_loader::Error> for Error {
@@ -83,19 +83,19 @@ type Result<T> = std::result::Result<T, Error>;
 enum EpollDispatch {
     Exit,
     Stdin,
-    DeviceHandler(usize, DeviceEventT)
+    DeviceHandler(usize, DeviceEventT),
 }
 
 struct MaybeHandler {
     handler: Option<Box<EpollHandler>>,
-    receiver: Receiver<Box<EpollHandler>>
+    receiver: Receiver<Box<EpollHandler>>,
 }
 
 impl MaybeHandler {
     fn new(receiver: Receiver<Box<EpollHandler>>) -> Self {
         MaybeHandler {
             handler: None,
-            receiver
+            receiver,
         }
     }
 }
@@ -103,11 +103,10 @@ impl MaybeHandler {
 //This should handle epoll related business from now on. A glaring shortcoming of the current
 //design is the liberal passing around of raw_fds, and duping of file descriptors. This issue
 //will be solved when we also implement device removal.
-struct EpollContext
-{
+struct EpollContext {
     epoll_raw_fd: RawFd,
     dispatch_table: Vec<EpollDispatch>,
-    device_handlers: Vec<MaybeHandler>
+    device_handlers: Vec<MaybeHandler>,
 }
 
 impl EpollContext {
@@ -122,7 +121,7 @@ impl EpollContext {
             epoll_raw_fd,
             epoll::EPOLL_CTL_ADD,
             exit_evt_raw_fd,
-            epoll::Event::new(epoll::EPOLLIN, dispatch_table.len() as u64)
+            epoll::Event::new(epoll::EPOLLIN, dispatch_table.len() as u64),
         ).map_err(Error::EpollFd)?;
 
         dispatch_table.push(EpollDispatch::Exit);
@@ -131,7 +130,7 @@ impl EpollContext {
             epoll_raw_fd,
             epoll::EPOLL_CTL_ADD,
             libc::STDIN_FILENO,
-            epoll::Event::new(epoll::EPOLLIN, dispatch_table.len() as u64)
+            epoll::Event::new(epoll::EPOLLIN, dispatch_table.len() as u64),
         ).map_err(Error::EpollFd)?;
 
         dispatch_table.push(EpollDispatch::Stdin);
@@ -139,7 +138,7 @@ impl EpollContext {
         Ok(EpollContext {
             epoll_raw_fd,
             dispatch_table,
-            device_handlers
+            device_handlers,
         })
     }
 
@@ -148,8 +147,9 @@ impl EpollContext {
         let device_idx = self.device_handlers.len();
         let (sender, receiver) = channel();
 
-        for x in 0..count-1 {
-            self.dispatch_table.push(EpollDispatch::DeviceHandler(device_idx, x as DeviceEventT));
+        for x in 0..count - 1 {
+            self.dispatch_table
+                .push(EpollDispatch::DeviceHandler(device_idx, x as DeviceEventT));
         }
 
         self.device_handlers.push(MaybeHandler::new(receiver));
@@ -175,7 +175,10 @@ impl EpollContext {
                 //this should only be called in response to an epoll trigger, and the channel
                 //should always contain a message after the events were added to epoll
                 //by the activate() call
-                maybe.handler.get_or_insert(maybe.receiver.try_recv().unwrap()).as_mut()
+                maybe
+                    .handler
+                    .get_or_insert(maybe.receiver.try_recv().unwrap())
+                    .as_mut()
             }
         }
     }
@@ -253,10 +256,11 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     if cfg.host_ip.is_some() {
         let epoll_config = epoll_context.allocate_virtio_net_tokens();
 
-        let net_box = Box::new(
-            devices::virtio::Net::new(cfg.host_ip.unwrap(), cfg.subnet_mask, epoll_config)
-                .map_err(Error::NetDeviceNew)?,
-        );
+        let net_box = Box::new(devices::virtio::Net::new(
+            cfg.host_ip.unwrap(),
+            cfg.subnet_mask,
+            epoll_config,
+        ).map_err(Error::NetDeviceNew)?);
 
         device_manager
             .register_mmio(net_box, &mut cmdline)
@@ -315,9 +319,8 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
         let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
 
         let mut vcpu = Vcpu::new(cpu_id, &vm).map_err(Error::Vcpu)?;
-        vcpu.configure(vcpu_count, kernel_start_addr, &vm).map_err(
-            Error::VcpuConfigure,
-        )?;
+        vcpu.configure(vcpu_count, kernel_start_addr, &vm)
+            .map_err(Error::VcpuConfigure)?;
         vcpu_handles.push(thread::Builder::new()
             .name(format!("fc_vcpu{}", cpu_id))
             .spawn(move || {
@@ -357,24 +360,20 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
                                 error!("unexpected exit reason: {:?}", r);
                                 break;
                             }
-                        }
-                        Err(e) => {
-                            match e {
-                                vstate::Error::VcpuRun(ref v) => {
-                                    match v.errno() {
-                                        libc::EAGAIN | libc::EINTR => {}
-                                        _ => {
-                                            error!("vcpu hit unknown error: {:?}", e);
-                                            break;
-                                        }
-                                    }
-                                }
+                        },
+                        Err(e) => match e {
+                            vstate::Error::VcpuRun(ref v) => match v.errno() {
+                                libc::EAGAIN | libc::EINTR => {}
                                 _ => {
-                                    error!("unrecognized error type for vcpu run");
+                                    error!("vcpu hit unknown error: {:?}", e);
                                     break;
                                 }
+                            },
+                            _ => {
+                                error!("unrecognized error type for vcpu run");
+                                break;
                             }
-                        }
+                        },
                     }
 
                     if kill_signaled.load(Ordering::SeqCst) {
@@ -408,7 +407,10 @@ pub fn boot_kernel(cfg: &MachineCfg) -> Result<()> {
     res
 }
 
-fn run_control(stdio_serial: Arc<Mutex<devices::Serial>>, mut epoll_context: EpollContext) -> Result<()> {
+fn run_control(
+    stdio_serial: Arc<Mutex<devices::Serial>>,
+    mut epoll_context: EpollContext,
+) -> Result<()> {
     let stdin_handle = io::stdin();
     let stdin_lock = stdin_handle.lock();
     stdin_lock.set_raw_mode().map_err(Error::Terminal)?;
@@ -427,9 +429,7 @@ fn run_control(stdio_serial: Arc<Mutex<devices::Serial>>, mut epoll_context: Epo
     let epoll_raw_fd = epoll_context.epoll_raw_fd;
 
     'poll: loop {
-        let num_events = epoll::wait(epoll_raw_fd, -1, &mut events[..]).map_err(
-            Error::Poll,
-        )?;
+        let num_events = epoll::wait(epoll_raw_fd, -1, &mut events[..]).map_err(Error::Poll)?;
 
         for i in 0..num_events {
             let dispatch_idx = events[i].data() as usize;
