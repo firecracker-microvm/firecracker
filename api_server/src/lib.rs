@@ -554,8 +554,10 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) -> Result<()> {
         let chain = Chain::new(router);
         let sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), api_port);
 
-        Iron::new(chain)
-            .http(sock_addr)
+        let mut iron = Iron::new(chain);
+        // By default Iron uses 8 * num_cpus threads.
+        iron.threads = 1;
+        iron.http(sock_addr)
             .expect("Failed to start HTTP server");
     });
 
