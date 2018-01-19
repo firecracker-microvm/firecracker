@@ -23,12 +23,11 @@ const MMIO_MAGIC_VALUE: u32 = 0x74726976;
 const MMIO_VERSION: u32 = 2;
 
 #[derive(Debug)]
-pub enum ActivateError
-{
+pub enum ActivateError {
     EventFd(sys_util::Error),
     TryClone(sys_util::Error),
     EpollCtl(io::Error),
-    BadActivate
+    BadActivate,
 }
 
 pub type ActivateResult = result::Result<(), ActivateError>;
@@ -283,13 +282,15 @@ impl BusDevice for MmioDevice {
         if !self.device_activated && self.is_driver_ready() && self.are_queues_valid() {
             if let Some(interrupt_evt) = self.interrupt_evt.take() {
                 if let Some(mem) = self.mem.take() {
-                    self.device.activate(
-                        mem,
-                        interrupt_evt,
-                        self.interrupt_status.clone(),
-                        self.queues.clone(),
-                        self.queue_evts.split_off(0),
-                    ).unwrap();
+                    self.device
+                        .activate(
+                            mem,
+                            interrupt_evt,
+                            self.interrupt_status.clone(),
+                            self.queues.clone(),
+                            self.queue_evts.split_off(0),
+                        )
+                        .unwrap();
                     self.device_activated = true;
                 }
             }
