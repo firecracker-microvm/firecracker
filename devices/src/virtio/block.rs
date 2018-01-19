@@ -34,7 +34,7 @@ const VIRTIO_BLK_S_UNSUPP: u8 = 2;
 pub const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
 pub const KILL_EVENT: DeviceEventT = 1;
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum RequestType {
     In,
     Out,
@@ -237,6 +237,11 @@ impl BlockEpollHandler {
             .fetch_or(INTERRUPT_STATUS_USED_RING as usize, Ordering::SeqCst);
         self.interrupt_evt.write(1).unwrap();
     }
+
+    #[cfg(test)]
+    fn set_queue(&mut self, idx: usize, q: Queue) {
+        self.queues[idx] = q;
+    }
 }
 
 impl EpollHandler for BlockEpollHandler {
@@ -419,29 +424,231 @@ impl VirtioDevice for Block {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::OpenOptions;
     use std::path::PathBuf;
+    use std::sync::mpsc::Receiver;
+
+    use libc;
     use sys_util::TempDir;
 
+    use virtio::queue::tests::*;
     use super::*;
 
+    struct DummyBlock {
+        block: Block,
+        epoll_raw_fd: i32,
+        _receiver: Receiver<Box<EpollHandler>>,
+    }
+
+    impl DummyBlock {
+        fn new() -> Self {
+            let epoll_raw_fd = epoll::create(true).unwrap();
+            let (sender, _receiver) = mpsc::channel();
+
+            let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
+
+            let tempdir = TempDir::new("/tmp/block_test").unwrap();
+            let mut path = PathBuf::from(tempdir.as_path().unwrap());
+            path.push("disk_image");
+            let f = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(&path)
+                .unwrap();
+            f.set_len(0x1000).unwrap();
+
+            DummyBlock {
+                block: Block::new(f, epoll_config).unwrap(),
+                epoll_raw_fd,
+                _receiver,
+            }
+        }
+
+        fn block(&mut self) -> &mut Block {
+            &mut self.block
+        }
+    }
+
+    impl Drop for DummyBlock {
+        fn drop(&mut self) {
+            unsafe { libc::close(self.epoll_raw_fd) };
+        }
+    }
+
     #[test]
-    fn read_size() {
-        let tempdir = TempDir::new("/tmp/block_read_test").unwrap();
-        let mut path = PathBuf::from(tempdir.as_path().unwrap());
-        path.push("disk_image");
-        let f = File::create(&path).unwrap();
-        f.set_len(0x1000).unwrap();
+    fn test_request_type() {
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let a = GuestAddress(0);
 
-        let (sender, _) = mpsc::channel();
+        // We write values associated with different request type at an address in memory,
+        // and verify the request type is parsed correctly.
 
-        let epoll_config = EpollConfig {
-            q_avail_token: 0,
-            kill_token: 0,
-            epoll_raw_fd: 0,
-            sender,
-        };
+        m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, a).unwrap();
+        assert_eq!(request_type(m, a).unwrap(), RequestType::In);
 
-        let b = Block::new(f, epoll_config).unwrap();
+        m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, a).unwrap();
+        assert_eq!(request_type(m, a).unwrap(), RequestType::Out);
+
+        m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH, a).unwrap();
+        assert_eq!(request_type(m, a).unwrap(), RequestType::Flush);
+
+        // The value written here should be invalid.
+        m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH + 10, a)
+            .unwrap();
+        assert_eq!(
+            request_type(m, a).unwrap(),
+            RequestType::Unsupported(VIRTIO_BLK_T_FLUSH + 10)
+        );
+
+        // The provided address cannot be read, as it's outside the memory space.
+        let a = GuestAddress(0x1000);
+        assert!(request_type(m, a).is_err())
+    }
+
+    #[test]
+    fn test_sector() {
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let a = GuestAddress(0);
+
+        // Here we test that a sector number is parsed correctly from memory. The actual sector
+        // number is expected to be found 8 bytes after the address provided as parameter to the
+        // sector() function.
+
+        m.write_obj_at_addr::<u64>(123454321, a.checked_add(8).unwrap())
+            .unwrap();
+        assert_eq!(sector(m, a).unwrap(), 123454321);
+
+        // Reading from a slightly different address should not lead a correct result in this case.
+        assert_ne!(sector(m, a.checked_add(1).unwrap()).unwrap(), 123454321);
+
+        // The provided address is outside the valid memory range.
+        assert!(sector(m, a.checked_add(0x1000).unwrap()).is_err());
+    }
+
+    #[test]
+    fn test_parse() {
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), &m, 16);
+
+        assert!(vq.end().0 < 0x1000);
+
+        vq.avail.ring[0].set(0);
+        vq.avail.idx.set(1);
+
+        {
+            let mut q = vq.create_queue();
+            // write only request type descriptor
+            vq.dtable[0].set(0x1000, 0x1000, VIRTQ_DESC_F_WRITE, 1);
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
+                .unwrap();
+            m.write_obj_at_addr::<u64>(114, GuestAddress(0x1000 + 8))
+                .unwrap();
+            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+                Err(ParseError::UnexpectedWriteOnlyDescriptor) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // chain too short; no data_desc
+            vq.dtable[0].flags.set(0);
+            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+                Err(ParseError::DescriptorChainTooShort) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // chain too short; no status desc
+            vq.dtable[0].flags.set(VIRTQ_DESC_F_NEXT);
+            vq.dtable[1].set(0x2000, 0x1000, 0, 2);
+            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+                Err(ParseError::DescriptorChainTooShort) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // write only data for OUT
+            vq.dtable[1]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+            vq.dtable[2].set(0x3000, 0, 0, 0);
+            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+                Err(ParseError::UnexpectedWriteOnlyDescriptor) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // read only data for IN
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
+                .unwrap();
+            vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
+            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+                Err(ParseError::UnexpectedReadOnlyDescriptor) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // status desc not writable
+            vq.dtable[1]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+                Err(ParseError::UnexpectedReadOnlyDescriptor) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // status desc too small
+            vq.dtable[2].flags.set(VIRTQ_DESC_F_WRITE);
+            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+                Err(ParseError::DescriptorLengthTooSmall) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // should be OK now
+            vq.dtable[2].len.set(0x1000);
+            let r = Request::parse(&q.iter(m).next().unwrap(), m).unwrap();
+
+            assert_eq!(r.request_type, RequestType::In);
+            assert_eq!(r.sector, 114);
+            assert_eq!(r.data_addr, GuestAddress(0x2000));
+            assert_eq!(r.data_len, 0x1000);
+            assert_eq!(r.status_addr, GuestAddress(0x3000));
+        }
+    }
+
+    #[test]
+    fn test_virtio_device() {
+        let mut dummy = DummyBlock::new();
+        let b = dummy.block();
+
+        assert_eq!(b.device_type(), TYPE_BLOCK);
+
+        {
+            let x = b.queue_max_sizes();
+            assert_eq!(x, QUEUE_SIZES);
+
+            // power of 2?
+            for &y in x {
+                assert!(y > 0 && y & (y - 1) == 0);
+            }
+        }
+
         let mut num_sectors = [0u8; 4];
         b.read_config(0, &mut num_sectors);
         // size is 0x1000, so num_sectors is 8 (4096/512).
@@ -450,5 +657,223 @@ mod tests {
         b.read_config(4, &mut msw_sectors);
         // size is 0x1000, so msw_sectors is 0.
         assert_eq!([0x00, 0x00, 0x00, 0x00], msw_sectors);
+
+        // test activate
+        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let ievt = EventFd::new().unwrap();
+        let stat = Arc::new(AtomicUsize::new(0));
+
+        let vq = VirtQueue::new(GuestAddress(0), &m, 16);
+        let queues = vec![vq.create_queue()];
+        let queue_evts = vec![EventFd::new().unwrap()];
+
+        let result = b.activate(m.clone(), ievt, stat, queues, queue_evts);
+
+        assert!(result.is_ok());
+    }
+
+    fn invoke_handler(h: &mut BlockEpollHandler, e: DeviceEventT) {
+        h.interrupt_evt.write(1).unwrap();
+        h.queue_evt.write(1).unwrap();
+        h.handle_event(e, 0);
+        assert_eq!(h.interrupt_evt.read(), Ok(2));
+    }
+
+    #[test]
+    fn test_handler() {
+        let mut dummy = DummyBlock::new();
+        let b = dummy.block();
+        let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), &m, 16);
+
+        assert!(vq.end().0 < 0x1000);
+
+        let queues = vec![vq.create_queue()];
+        let mem = m.clone();
+        let disk_image = b.disk_image.take().unwrap();
+        let status = Arc::new(AtomicUsize::new(0));
+        let interrupt_evt = EventFd::new().unwrap();
+        let queue_evt = EventFd::new().unwrap();
+
+        let mut h = BlockEpollHandler {
+            queues,
+            mem,
+            disk_image,
+            interrupt_status: status,
+            interrupt_evt,
+            queue_evt,
+        };
+
+        for i in 0..3 {
+            vq.avail.ring[i].set(i as u16);
+            vq.dtable[i].set(
+                (0x1000 * (i + 1)) as u64,
+                0x1000,
+                VIRTQ_DESC_F_NEXT,
+                (i + 1) as u16,
+            );
+        }
+
+        vq.dtable[1]
+            .flags
+            .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+        vq.dtable[2].flags.set(VIRTQ_DESC_F_WRITE);
+        vq.avail.idx.set(1);
+
+        // dtable[1] is the data descriptor
+        let data_addr = GuestAddress(vq.dtable[1].addr.get() as usize);
+        // dtable[2] is the status descriptor
+        let status_addr = GuestAddress(vq.dtable[2].addr.get() as usize);
+
+        {
+            // let's start with a request that does not parse
+            // request won't be valid bc the first desc is write-only
+            vq.dtable[0]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
+                .unwrap();
+
+            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 0);
+        }
+
+        // now we generate some request execute failures
+
+        {
+            // reset the queue to reuse descriptors & memory
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+
+            // first desc no longer writable
+            vq.dtable[0].flags.set(VIRTQ_DESC_F_NEXT);
+            // let's generate a seek execute error caused by a very large sector number
+            m.write_obj_at_addr::<u64>(0xfffffffff, GuestAddress(0x1000 + 8))
+                .unwrap();
+
+            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(
+                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR
+            );
+        }
+
+        {
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+
+            // set sector to a valid number but large enough that the full 0x1000 read will fail
+            m.write_obj_at_addr::<u64>(10, GuestAddress(0x1000 + 8))
+                .unwrap();
+
+            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(
+                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR
+            );
+        }
+
+        {
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+
+            // set sector to 0
+            m.write_obj_at_addr::<u64>(0, GuestAddress(0x1000 + 8))
+                .unwrap();
+            // ... but generate an unsupported request
+            m.write_obj_at_addr::<u32>(8, GuestAddress(0x1000)).unwrap();
+
+            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(
+                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                VIRTIO_BLK_S_UNSUPP
+            );
+        }
+
+        // now let's write something and read it back
+
+        {
+            // write
+
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
+                .unwrap();
+            // make data read only, 8 bytes in len, and set the actual value to be written
+            vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
+            vq.dtable[1].len.set(8);
+            m.write_obj_at_addr::<u64>(123456789, data_addr).unwrap();
+
+            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(
+                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                VIRTIO_BLK_S_OK
+            );
+        }
+
+        {
+            // read
+
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
+                .unwrap();
+            vq.dtable[1]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+
+            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, vq.dtable[1].len.get());
+            assert_eq!(
+                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                VIRTIO_BLK_S_OK
+            );
+            assert_eq!(m.read_obj_from_addr::<u64>(data_addr).unwrap(), 123456789);
+        }
+
+        {
+            // finally, let's also do a flush request
+
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH, GuestAddress(0x1000))
+                .unwrap();
+
+            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(
+                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                VIRTIO_BLK_S_OK
+            );
+        }
+
+        // can be called like this for now, because it currently doesn't really do anything
+        // besides outputting some message
+        h.handle_event(KILL_EVENT, 0);
     }
 }
