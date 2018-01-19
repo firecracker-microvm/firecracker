@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 
-use ::{DeviceEventT, EpollHandler};
-use ::virtio::mmio::{ActivateError, ActivateResult};
+use {DeviceEventT, EpollHandler};
+use virtio::mmio::{ActivateError, ActivateResult};
 use epoll;
 use super::{DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_BLOCK};
 use sys_util::Result as SysResult;
@@ -187,11 +187,10 @@ pub struct BlockEpollHandler {
     disk_image: File,
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
-    queue_evt: EventFd
+    queue_evt: EventFd,
 }
 
-impl BlockEpollHandler
-{
+impl BlockEpollHandler {
     fn process_queue(&mut self, queue_index: usize) -> bool {
         let queue = &mut self.queues[queue_index];
 
@@ -241,8 +240,7 @@ impl BlockEpollHandler
 }
 
 impl EpollHandler for BlockEpollHandler {
-    fn handle_event(&mut self, device_event: DeviceEventT, _: u32)
-    {
+    fn handle_event(&mut self, device_event: DeviceEventT, _: u32) {
         match device_event {
             QUEUE_AVAIL_EVENT => {
                 if let Err(e) = self.queue_evt.read() {
@@ -258,7 +256,7 @@ impl EpollHandler for BlockEpollHandler {
                 //TODO: change this when implementing device removal
                 info!("block device killed")
             }
-            _ => panic!("unknown token for block device")
+            _ => panic!("unknown token for block device"),
         }
     }
 }
@@ -267,16 +265,20 @@ pub struct EpollConfig {
     q_avail_token: u64,
     kill_token: u64,
     epoll_raw_fd: RawFd,
-    sender: mpsc::Sender<Box<EpollHandler>>
+    sender: mpsc::Sender<Box<EpollHandler>>,
 }
 
 impl EpollConfig {
-    pub fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self {
+    pub fn new(
+        first_token: u64,
+        epoll_raw_fd: RawFd,
+        sender: mpsc::Sender<Box<EpollHandler>>,
+    ) -> Self {
         EpollConfig {
-            q_avail_token:  first_token,
-            kill_token:     first_token + 1,
+            q_avail_token: first_token,
+            kill_token: first_token + 1,
             epoll_raw_fd,
-            sender
+            sender,
         }
     }
 }
@@ -286,7 +288,7 @@ pub struct Block {
     kill_evt: Option<EventFd>,
     disk_image: Option<File>,
     config_space: Vec<u8>,
-    epoll_config: EpollConfig
+    epoll_config: EpollConfig,
 }
 
 fn build_config_space(disk_size: u64) -> Vec<u8> {
@@ -311,15 +313,14 @@ impl Block {
             warn!(
                 "Disk size {} is not a multiple of sector size {}; \
                  the remainder will not be visible to the guest.",
-                disk_size,
-                SECTOR_SIZE
+                disk_size, SECTOR_SIZE
             );
         }
         Ok(Block {
             kill_evt: None,
             disk_image: Some(disk_image),
             config_space: build_config_space(disk_size),
-            epoll_config
+            epoll_config,
         })
     }
 }
@@ -361,16 +362,16 @@ impl VirtioDevice for Block {
         status: Arc<AtomicUsize>,
         queues: Vec<Queue>,
         mut queue_evts: Vec<EventFd>,
-    )  -> ActivateResult {
+    ) -> ActivateResult {
         if queues.len() != 1 || queue_evts.len() != 1 {
-            return Err(ActivateError::BadActivate)
+            return Err(ActivateError::BadActivate);
         }
 
         let (self_kill_evt, kill_evt) = match EventFd::new().and_then(|e| Ok((e.try_clone()?, e))) {
             Ok(v) => v,
             Err(e) => {
                 error!("failed creating kill EventFd pair: {:?}", e);
-                return Err(ActivateError::BadActivate)
+                return Err(ActivateError::BadActivate);
             }
         };
         self.kill_evt = Some(self_kill_evt);
@@ -387,7 +388,7 @@ impl VirtioDevice for Block {
                 disk_image,
                 interrupt_status: status,
                 interrupt_evt,
-                queue_evt
+                queue_evt,
             };
 
             //the channel should be open at this point
@@ -399,17 +400,17 @@ impl VirtioDevice for Block {
                 self.epoll_config.epoll_raw_fd,
                 epoll::EPOLL_CTL_ADD,
                 queue_evt_raw_fd,
-                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.q_avail_token)
+                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.q_avail_token),
             ).map_err(ActivateError::EpollCtl)?;
 
             epoll::ctl(
                 self.epoll_config.epoll_raw_fd,
                 epoll::EPOLL_CTL_ADD,
                 kill_evt_raw_fd,
-                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token)
+                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token),
             ).map_err(ActivateError::EpollCtl)?;
 
-            return Ok(())
+            return Ok(());
         }
 
         Err(ActivateError::BadActivate)
@@ -437,7 +438,7 @@ mod tests {
             q_avail_token: 0,
             kill_token: 0,
             epoll_raw_fd: 0,
-            sender
+            sender,
         };
 
         let b = Block::new(f, epoll_config).unwrap();
