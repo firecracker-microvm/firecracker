@@ -105,7 +105,7 @@ impl MaybeHandler {
 //This should handle epoll related business from now on. A glaring shortcoming of the current
 //design is the liberal passing around of raw_fds, and duping of file descriptors. This issue
 //will be solved when we also implement device removal.
-struct EpollContext {
+pub struct EpollContext {
     epoll_raw_fd: RawFd,
     dispatch_table: Vec<EpollDispatch>,
     device_handlers: Vec<MaybeHandler>,
@@ -195,9 +195,19 @@ impl Drop for EpollContext {
     }
 }
 
+pub struct VmmCore {
+    pub exit_evt: EventFd,
+    pub kill_signaled: Arc<AtomicBool>,
+    pub epoll_context: EpollContext,
+    pub stdio_serial: Arc<Mutex<devices::Serial>>,
+    pub vcpu_handles: Vec<thread::JoinHandle<()>>,
+    vm: Vm,
+}
+
 pub struct Vmm {
     vmm_no_api: bool,
     cfg: MachineCfg,
+    core: Mutex<Option<VmmCore>>,
 }
 
 impl Vmm {
@@ -205,13 +215,27 @@ impl Vmm {
         Vmm {
             vmm_no_api: kill_on_exit,
             cfg,
+            core: Mutex::new(None),
         }
     }
 
-    pub fn start(&self) -> Result<()> {
-        println!("vmm start()");
-        // TODO: add guard to disable multiple start()s
-        self.boot_kernel()
+    pub fn run_vmm(&self) -> Result<()> {
+        {
+            let core = self.core.lock().unwrap();
+            if core.is_some() {
+                warn!("Cannot start VMM since it's already running.");
+                return Err(Error::Vm(vstate::Error::AlreadyRunning));
+            }
+        }
+
+        let boot_res = self.boot_kernel();
+        // TODO: report boot_res to api_server
+
+        let res = self.run_control();
+
+        self.stop();
+
+        res
     }
 
     fn boot_kernel(&self) -> Result<()> {
@@ -320,6 +344,7 @@ impl Vmm {
             com_evt_1_3.try_clone().map_err(Error::EventFd)?,
             Box::new(stdout()),
         )));
+
         //TODO: put all thse things related to setting up io bus in a struct or something
         vm.set_io_bus(
             &mut io_bus,
@@ -416,32 +441,57 @@ impl Vmm {
 
         vcpu_thread_barrier.wait();
 
-        let res = self.run_control(stdio_serial, epoll_context);
+        let mut core = self.core.lock().unwrap();
+        *core = Some(VmmCore {
+            vcpu_handles,
+            epoll_context,
+            exit_evt,
+            kill_signaled,
+            stdio_serial,
+            vm,
+        });
 
-        kill_signaled.store(true, Ordering::SeqCst);
-        for handle in vcpu_handles {
-            match handle.kill(0) {
-                Ok(_) => {
-                    if let Err(e) = handle.join() {
-                        warn!("failed to join vcpu thread: {:?}", e);
-                    }
+        Ok(())
+    }
+
+    fn stop(&self) {
+        let mut core_opt = self.core.lock().unwrap();
+        {
+            let core = match core_opt.as_mut() {
+                Some(v) => v,
+                None => {
+                    warn!("Cannot stop VMM since it's not running.");
+                    return ();
                 }
-                Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
+            };
+            let kill_signaled = &core.kill_signaled;
+            let vcpu_handles = &mut core.vcpu_handles;
+            let extracted_vcpu_handles = std::mem::replace(vcpu_handles, Vec::new());
+
+            kill_signaled.store(true, Ordering::SeqCst);
+            for handle in extracted_vcpu_handles {
+                match handle.kill(0) {
+                    Ok(_) => {
+                        if let Err(e) = handle.join() {
+                            warn!("failed to join vcpu thread: {:?}", e);
+                        }
+                    }
+                    Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
+                }
             }
         }
+        *core_opt = None;
 
         if self.vmm_no_api {
             std::process::exit(0);
         }
-
-        res
     }
 
-    fn run_control(
-        &self,
-        stdio_serial: Arc<Mutex<devices::Serial>>,
-        mut epoll_context: EpollContext,
-    ) -> Result<()> {
+    fn run_control(&self) -> Result<()> {
+        let mut core = self.core.lock().unwrap();
+        let core = core.as_mut().unwrap();
+        let stdio_serial = &core.stdio_serial;
+        let epoll_context = &mut core.epoll_context;
         let stdin_handle = io::stdin();
         let stdin_lock = stdin_handle.lock();
         stdin_lock.set_raw_mode().map_err(Error::Terminal)?;

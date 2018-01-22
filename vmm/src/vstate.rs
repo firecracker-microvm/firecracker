@@ -17,6 +17,7 @@ const BOOT_STACK_POINTER: usize = 0x8000;
 
 #[derive(Debug)]
 pub enum Error {
+    AlreadyRunning,
     GuestMemory(sys_util::GuestMemoryError),
     Kvm(sys_util::Error),
     VmFd(sys_util::Error),
