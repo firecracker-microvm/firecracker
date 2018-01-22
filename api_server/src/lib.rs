@@ -85,10 +85,9 @@ impl ApiServer {
         info: models::InstanceActionInfo,
     ) {
         thread::spawn(move || {
-            // TODO: verify vmm state and do start only if vmm is not already running
-            let r = vmm.start();
-            // TODO: verify r and update actions list
+            let r = vmm.run_vmm();
         });
+        // TODO: verify r and update actions list
     }
 }
 
@@ -670,7 +669,7 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) {
 
     // TODO: this is for integration testing, need to find a more pretty solution
     if vmm_no_api {
-        vmm.start().expect("cannot boot kernel");
+        vmm.run_vmm().expect("cannot boot kernel");
     } else {
         let server = Server::new(vmm);
         let router = api::router(server);
