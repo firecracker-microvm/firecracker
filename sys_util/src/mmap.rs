@@ -347,6 +347,10 @@ impl Drop for MemoryMapping {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::TempDir;
+    use std::path::{Path, PathBuf};
+    use std::fs::{File, OpenOptions};
+    use std::mem;
     use data_model::{VolatileMemory, VolatileMemoryError};
 
     #[test]
@@ -403,5 +407,77 @@ mod tests {
         let m = MemoryMapping::new(5).unwrap();
         let res = m.get_slice(3, 3).unwrap_err();
         assert_eq!(res, VolatileMemoryError::OutOfBounds { addr: 6 });
+    }
+
+    #[test]
+    fn slice_read_and_write() {
+        let mem_map = MemoryMapping::new(5).unwrap();
+        let sample_buf = [1, 2, 3];
+        assert!(mem_map.write_slice(&sample_buf, 5).is_err());
+        assert!(mem_map.write_slice(&sample_buf, 2).is_ok());
+        let mut buf = [0u8; 3];
+        assert!(mem_map.read_slice(&mut buf, 5).is_err());
+        assert!(mem_map.read_slice(&mut buf, 2).is_ok());
+        assert_eq!(buf, sample_buf);
+    }
+
+    #[test]
+    fn obj_read_and_write() {
+        let mem_map = MemoryMapping::new(5).unwrap();
+        assert!(mem_map.write_obj(55u16, 4).is_err());
+        assert!(mem_map.write_obj(55u16, 2).is_ok());
+        assert_eq!(mem_map.read_obj::<u16>(2).unwrap(), 55u16);
+        assert!(mem_map.read_obj::<u16>(4).is_err());
+    }
+
+    #[test]
+    fn mem_read_and_write() {
+        let mem_map = MemoryMapping::new(5).unwrap();
+        assert!(mem_map.write_obj(!0u32, 1).is_ok());
+        let mut file = File::open(Path::new("/dev/zero")).unwrap();
+        assert!(
+            mem_map
+                .read_to_memory(2, &mut file, mem::size_of::<u32>())
+                .is_err()
+        );
+        assert!(
+            mem_map
+                .read_to_memory(1, &mut file, mem::size_of::<u32>())
+                .is_ok()
+        );
+        assert_eq!(mem_map.read_obj::<u32>(1).unwrap(), 0);
+
+        let mut sink = Vec::new();
+        assert!(
+            mem_map
+                .write_from_memory(2, &mut sink, mem::size_of::<u32>())
+                .is_err()
+        );
+        assert!(
+            mem_map
+                .write_from_memory(1, &mut sink, mem::size_of::<u32>())
+                .is_ok()
+        );
+        assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
+    }
+
+    #[test]
+    fn mapped_file_read() {
+        let tempdir = TempDir::new("/tmp/mmap_test").unwrap();
+        let mut path = PathBuf::from(tempdir.as_path().unwrap());
+        path.push("from_fd");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(path)
+            .unwrap();
+        let sample_buf = &[1, 2, 3, 4, 5];
+        assert!(file.write_all(sample_buf).is_ok());
+
+        let mem_map = MemoryMapping::from_fd(&file, sample_buf.len()).unwrap();
+        let buf = &mut [0u8; 16];
+        assert_eq!(mem_map.read_slice(buf, 0).unwrap(), sample_buf.len());
+        assert_eq!(buf[0..sample_buf.len()], sample_buf[..]);
     }
 }
