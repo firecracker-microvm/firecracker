@@ -3,7 +3,6 @@ extern crate libc;
 #[macro_use(defer)]
 extern crate scopeguard;
 
-extern crate api;
 extern crate devices;
 extern crate kernel_loader;
 extern crate kvm;
@@ -27,7 +26,6 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 
-use api::*;
 use device_manager::*;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
@@ -440,10 +438,6 @@ impl Vmm {
                                     break;
                                 }
                             },
-                            _ => {
-                                error!("unrecognized error type for vcpu run");
-                                break;
-                            }
                         }
 
                         if kill_signaled.load(Ordering::SeqCst) {
