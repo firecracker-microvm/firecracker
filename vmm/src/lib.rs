@@ -65,6 +65,7 @@ pub enum Error {
     NetDeviceNew(devices::virtio::NetError),
     RegisterNet(device_manager::Error),
     DeviceVmRequest(sys_util::Error),
+    DummyErr,
 }
 
 impl std::convert::From<kernel_loader::Error> for Error {
@@ -208,6 +209,7 @@ pub struct Vmm {
     vmm_no_api: bool,
     cfg: MachineCfg,
     core: Mutex<Option<VmmCore>>,
+    running: AtomicBool,
 }
 
 impl Vmm {
@@ -216,20 +218,35 @@ impl Vmm {
             vmm_no_api: kill_on_exit,
             cfg,
             core: Mutex::new(None),
+            running: AtomicBool::new(false),
         }
     }
 
-    pub fn run_vmm(&self) -> Result<()> {
-        {
-            let core = self.core.lock().unwrap();
-            if core.is_some() {
-                warn!("Cannot start VMM since it's already running.");
-                return Err(Error::Vm(vstate::Error::AlreadyRunning));
-            }
+    /// This is the entry point for the VMM thread
+    /// it will report to the api_server thread whether vmm has started
+    /// through the 'tx' Sender parameter.
+    /// Return value of this function is currently unused.
+    pub fn run_vmm(&self, tx: Sender<Result<()>>) -> Result<()> {
+        // single entry enforcement
+        if self.running.compare_and_swap(false, true, Ordering::SeqCst) {
+            warn!("Cannot start VMM since it's already running.");
+            tx.send(Err(Error::Vm(vstate::Error::AlreadyRunning)))
+                .unwrap();
+            return Err(Error::Vm(vstate::Error::AlreadyRunning));
         }
 
         let boot_res = self.boot_kernel();
-        // TODO: report boot_res to api_server
+
+        // report boot status to initiating thread
+        if boot_res.is_ok() {
+            tx.send(boot_res).unwrap(); // NOTE: rx will close after receiving this msg
+        } else {
+            tx.send(boot_res).unwrap();
+            self.running.store(false, Ordering::Release);
+            // if boot failed, don't go forward, actual error is reported through
+            // the channel above, this return value doesn't matter.
+            return Err(Error::DummyErr);
+        }
 
         let res = self.run_control();
 
@@ -238,6 +255,8 @@ impl Vmm {
         res
     }
 
+    /// only call this from run_vmm() or other functions
+    /// that can guarantee single instances
     fn boot_kernel(&self) -> Result<()> {
         let mem_size = self.cfg.mem_size << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
@@ -481,6 +500,7 @@ impl Vmm {
             }
         }
         *core_opt = None;
+        self.running.store(false, Ordering::Release);
 
         if self.vmm_no_api {
             std::process::exit(0);

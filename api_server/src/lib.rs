@@ -11,10 +11,14 @@ use api::*;
 
 use std::sync::{Arc, Mutex};
 use std::collections::LinkedList;
+use std::sync::mpsc::channel;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 type FutureResponse<T> = Box<Future<Item = T, Error = ApiError> + Send>;
 
 type ResponseResult<T> = std::result::Result<FutureResponse<T>, FutureResponse<T>>;
+
+type Result<T> = std::result::Result<T, vmm::Error>;
 
 macro_rules! ErrorResponseWithMessage {
     ($err:path, $msg:expr) => (Box::new(futures::future::ok($err(
@@ -78,16 +82,37 @@ impl ApiServer {
         }
     }
 
-    pub fn do_instance_start(
-        &self,
-        vmm: Arc<vmm::Vmm>,
-        action_id: String,
-        info: models::InstanceActionInfo,
-    ) {
+    fn update_action_result(&self, action_id: &String, result: Result<()>) {
+        let mut actions = self.actions.lock().unwrap();
+
+        let action = actions
+            .iter_mut()
+            .find(|ref n| *n.action_id == *action_id)
+            .unwrap();
+        match result {
+            Ok(_v) => {
+                let since_the_epoch = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Time went backwards");
+                let in_ms = since_the_epoch.as_secs() * 1000
+                    + since_the_epoch.subsec_nanos() as u64 / 1_000_000;
+                action.timestamp = Some(in_ms.to_string());
+            }
+            Err(_e) => {
+                action.timestamp = Some("0".to_string());
+                // TODO: maybe add field to action to report possible failure error
+            }
+        }
+    }
+
+    pub fn do_instance_start(&self, vmm: Arc<vmm::Vmm>, action_id: String) {
+        let (tx, rx) = channel();
         thread::spawn(move || {
-            let r = vmm.run_vmm();
+            let _r = vmm.run_vmm(tx);
+            // TODO: maybe offer through API: an instance status reporting error messages (r)
         });
-        // TODO: verify r and update actions list
+
+        self.update_action_result(&action_id, rx.recv().unwrap());
     }
 }
 
@@ -203,10 +228,11 @@ impl Api for Server {
 
         let vmm = self.vmm.clone();
         let api_server = self.api_server.clone();
+        /* TODO: instead of spawing thread for async req, add this req to an async queue */
         thread::spawn(move || {
-            match &info.action_type.clone().unwrap()[..] {
+            match &info.action_type.unwrap()[..] {
                 "InstanceStart" => {
-                    api_server.do_instance_start(vmm, action_id, info);
+                    api_server.do_instance_start(vmm, action_id);
                 }
                 _ => (),
             };
@@ -669,7 +695,9 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) {
 
     // TODO: this is for integration testing, need to find a more pretty solution
     if vmm_no_api {
-        vmm.run_vmm().expect("cannot boot kernel");
+        let (tx, rx) = channel();
+        vmm.run_vmm(tx).expect("cannot boot kernel");
+        let _r = rx.recv().unwrap();
     } else {
         let server = Server::new(vmm);
         let router = api::router(server);
