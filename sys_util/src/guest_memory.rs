@@ -385,12 +385,24 @@ impl VolatileMemory for GuestMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::mem;
+    use std::path::Path;
+    use std::fs::File;
 
     #[test]
     fn two_regions() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x400);
-        assert!(GuestMemory::new(&vec![(start_addr1, 0x400), (start_addr2, 0x400)]).is_ok());
+        let guest_mem =
+            GuestMemory::new(&vec![(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
+        assert_eq!(guest_mem.num_regions(), 2);
+        assert!(guest_mem.address_in_range(GuestAddress(0x200)));
+        assert!(guest_mem.address_in_range(GuestAddress(0x600)));
+        let end_addr = GuestAddress(0x800);
+        assert!(!guest_mem.address_in_range(end_addr));
+        assert_eq!(guest_mem.end_addr(), end_addr);
+        assert!(guest_mem.checked_offset(start_addr1, 0x700).is_some());
+        assert!(guest_mem.checked_offset(start_addr2, 0x800).is_none());
     }
 
     #[test]
@@ -472,5 +484,61 @@ mod tests {
         // Check that a bad address returns an error.
         let bad_addr = GuestAddress(0x123456);
         assert!(mem.get_host_address(bad_addr).is_err());
+    }
+
+    #[test]
+    fn write_and_read_slice() {
+        let start_addr = GuestAddress(0x1000);
+        let gm = GuestMemory::new(&vec![(start_addr, 0x400)]).unwrap();
+        let sample_buf = &[1, 2, 3, 4, 5];
+
+        assert_eq!(gm.write_slice_at_addr(sample_buf, start_addr).unwrap(), 5);
+
+        let buf = &mut [0u8; 5];
+        assert_eq!(gm.read_slice_at_addr(buf, start_addr).unwrap(), 5);
+        assert_eq!(buf, sample_buf);
+    }
+
+    #[test]
+    fn read_to_and_write_from_mem() {
+        let gm = GuestMemory::new(&vec![(GuestAddress(0x1000), 0x400)]).unwrap();
+        let addr = GuestAddress(0x1010);
+        gm.write_obj_at_addr(!0u32, addr).unwrap();
+        gm.read_to_memory(
+            addr,
+            &mut File::open(Path::new("/dev/zero")).unwrap(),
+            mem::size_of::<u32>(),
+        ).unwrap();
+        let value: u32 = gm.read_obj_from_addr(addr).unwrap();
+        assert_eq!(value, 0);
+
+        let mut sink = Vec::new();
+        gm.write_from_memory(addr, &mut sink, mem::size_of::<u32>())
+            .unwrap();
+        assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
+    }
+
+    #[test]
+    fn create_vec_with_regions() {
+        let region_size = 0x400;
+        let regions = vec![
+            (GuestAddress(0x0), region_size),
+            (GuestAddress(0x1000), region_size),
+        ];
+        let mut iterated_regions = Vec::new();
+        let gm = GuestMemory::new(&regions).unwrap();
+
+        let res: Result<()> = gm.with_regions(|_, _, size, _| {
+            assert_eq!(size, region_size);
+            Ok(())
+        });
+        assert!(res.is_ok());
+
+        let res: Result<()> = gm.with_regions_mut(|_, guest_addr, size, _| {
+            iterated_regions.push((guest_addr, size));
+            Ok(())
+        });
+        assert!(res.is_ok());
+        assert_eq!(regions, iterated_regions);
     }
 }
