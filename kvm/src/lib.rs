@@ -357,6 +357,18 @@ pub struct VcpuFd {
     run_mmap: MemoryMapping,
 }
 
+// This structure is a wrapper over the kvm_signal_mask (see in kvm_sys/src/x86_64/bindings.rs)
+// The kvm_signal_mask struct has two fields:
+// * len (__u32)
+// * sigset - a zero sized array  that is represented in rust as __IncompleteArrayField<u8>
+// The sigset field from KVMSignalMask makes it possible to set the signal mask before calling the
+// KVM_SET_SIGNAL_MASK ioctl.
+#[repr(C)]
+struct KvmSignalMask {
+    kvm_signal_mask: kvm_signal_mask,
+    sigset: libc::sigset_t,
+}
+
 impl VcpuFd {
     /// Constructs a new kvm VCPU fd
     ///
@@ -377,10 +389,41 @@ impl VcpuFd {
         let run_mmap =
             MemoryMapping::from_fd(&vcpu, run_mmap_size).map_err(|_| Error::new(ENOSPC))?;
 
-        Ok(VcpuFd {
-            vcpu: vcpu,
-            run_mmap: run_mmap,
-        })
+        Ok(VcpuFd { vcpu, run_mmap })
+    }
+
+    /// Sets the vCPU signal mask to allow the signal SIGUSR1. This feature is needed for live update.
+    pub fn set_signal_mask(&self) -> Result<()> {
+        let mut sigset: libc::sigset_t = unsafe { std::mem::zeroed() };
+        // Block all signals except SIGUSR1
+        let rc = unsafe { libc::sigfillset(&mut sigset) };
+        if rc != 0 {
+            return errno_result();
+        }
+
+        let rc = unsafe { libc::sigdelset(&mut sigset, libc::SIGUSR1) };
+        if rc != 0 {
+            return errno_result();
+        }
+
+        let mut kvm_signal_mask: kvm_signal_mask = Default::default();
+        // KVM_SET_SIGNAL_MASK ioctl checks whether the kvm_signal_mask.len is equal to the size of
+        // sigset_t, where sigset_t is defined as an unsigned long.
+        // KVM Reference: sigset_t definition (arch/x86/include/uapi/asm/signal.h) and kvm_vcpu_ioctl
+        // definition (virt/kvm/kvm_main.c)
+        kvm_signal_mask.len = std::mem::size_of::<libc::c_long>() as u32;
+
+        let kvm_signal_mask: KvmSignalMask = KvmSignalMask {
+            kvm_signal_mask,
+            sigset,
+        };
+
+        let rc = unsafe { ioctl_with_ref(self, KVM_SET_SIGNAL_MASK(), &kvm_signal_mask) };
+        if rc != 0 {
+            return errno_result();
+        }
+
+        Ok(())
     }
 
     /// Gets the VCPU registers.
@@ -827,6 +870,14 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = VmFd::new(&kvm).unwrap();
         VcpuFd::new(0, &vm).unwrap();
+    }
+
+    #[test]
+    fn set_signal_mask() {
+        let kvm = Kvm::new().unwrap();
+        let vm = VmFd::new(&kvm).unwrap();
+        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        assert!(vcpu.set_signal_mask().is_ok());
     }
 
     #[cfg(target_arch = "x86_64")]
