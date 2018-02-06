@@ -362,7 +362,7 @@ impl Vmm {
             Box::new(stdout()),
         )));
 
-        //TODO: put all these things related to setting up io bus in a struct or something
+        //TODO: put all thse things related to setting up io bus in a struct or something
         vm.set_io_bus(
             &mut io_bus,
             &stdio_serial,
