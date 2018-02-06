@@ -43,15 +43,22 @@ impl fmt::Display for Error {
 
 type Result<T> = ::std::result::Result<T, Error>;
 
-//todo: why should 15 be the MAX_IRQ?
+/// Typically, on x86 systems 16 IRQs are used (0-15)
+/// Our device manager uses the IRQs from 5 to 16
 const MAX_IRQ: u32 = 15;
+const IRQ_BASE: u32 = 5;
+
+/// This represents the size of the mmio device specified to the kernel as a cmdline option
+/// It has to be larger than 0x100 (the offset where the configuration space starts from
+/// the beginning of the memory mapped device registers) + the size of the configuration space
+/// Currently hardcoded to 4K
+const MMIO_LEN: u64 = 0x1000;
 
 /// Manages the complexities of adding a device.
 pub struct DeviceManager {
     pub bus: devices::Bus,
     pub vm_requests: Vec<VmRequest>,
     guest_mem: GuestMemory,
-    mmio_len: u64,
     mmio_base: u64,
     irq: u32,
 }
@@ -60,22 +67,17 @@ impl DeviceManager {
     /// Create a new DeviceManager.
     pub fn new(
         guest_mem: GuestMemory,
-        mmio_len: u64,
         mmio_base: u64,
-        irq_base: u32,
     ) -> DeviceManager {
         DeviceManager {
             guest_mem: guest_mem,
             vm_requests: Vec::new(),
-            mmio_len: mmio_len,
             mmio_base: mmio_base,
-            irq: irq_base,
+            irq: IRQ_BASE,
             bus: devices::Bus::new(),
         }
     }
 
-    //the crosvm implementation also had a minijail parameter; it was removed, togeter with
-    //al the related code
     /// Register a device to be used via MMIO transport.
     pub fn register_mmio(
         &mut self,
@@ -106,22 +108,23 @@ impl DeviceManager {
         }
 
         self.bus
-            .insert(
-                Arc::new(Mutex::new(mmio_device)),
-                self.mmio_base,
-                self.mmio_len,
-            )
+            .insert(Arc::new(Mutex::new(mmio_device)), self.mmio_base, MMIO_LEN)
             .unwrap();
 
+        // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
+        // to kernel commandline for virtio mmio devices to get recognized
+        // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
+        // bytes to 1024; further, the '{}' formatting rust construct will automatically transform it to decimal
         cmdline
             .insert(
                 "virtio_mmio.device",
-                &format!("4K@0x{:08x}:{}", self.mmio_base, self.irq),
+                &format!("{}K@0x{:08x}:{}", MMIO_LEN/1024, self.mmio_base, self.irq),
             )
             .map_err(Error::Cmdline)?;
-        self.mmio_base += self.mmio_len;
+        self.mmio_base += MMIO_LEN;
         self.irq += 1;
 
         Ok(())
     }
 }
+
