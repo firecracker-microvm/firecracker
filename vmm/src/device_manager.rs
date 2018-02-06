@@ -96,15 +96,13 @@ impl DeviceManager {
             self.vm_requests.push(VmRequest::RegisterIoevent(
                 queue_evt.try_clone().map_err(Error::CloneIoeventFd)?,
                 io_addr,
-                i as u32,
-            ));
+                i as u32));
         }
 
         if let Some(interrupt_evt) = mmio_device.interrupt_evt() {
             self.vm_requests.push(VmRequest::RegisterIrqfd(
                 interrupt_evt.try_clone().map_err(Error::CloneIrqFd)?,
-                self.irq,
-            ));
+                self.irq));
         }
 
         self.bus
@@ -128,3 +126,111 @@ impl DeviceManager {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use sys_util::{EventFd, GuestAddress, GuestMemory};
+    use kernel_cmdline;
+    use devices::virtio::{ActivateResult, VirtioDevice};
+    const QUEUE_SIZES: &'static [u16] = &[64];
+
+    #[allow(dead_code)]
+    #[derive(Clone)]
+    struct DummyDevice {
+        dummy: u32,
+    }
+
+    impl devices::virtio::VirtioDevice for DummyDevice {
+        fn device_type(&self) -> u32 {
+            0
+        }
+
+        fn queue_max_sizes(&self) -> &[u16] {
+            QUEUE_SIZES
+        }
+
+        #[allow(unused_variables)]
+        #[allow(unused_mut)]
+        fn activate(&mut self,
+                    mem: GuestMemory,
+                    interrupt_evt: EventFd,
+                    status: Arc<AtomicUsize>,
+                    queues: Vec<devices::virtio::Queue>,
+                    mut queue_evts: Vec<EventFd>,
+        ) -> ActivateResult  {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn register_device() {
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x1000);
+        let guest_mem = GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)])
+            .unwrap();
+        let mut device_manager = DeviceManager::new(guest_mem, 0xd0000000);
+
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let dummy_box = Box::new(DummyDevice { dummy: 0 });
+
+        assert!(device_manager
+            .register_mmio(dummy_box, &mut cmdline)
+            .is_ok());
+    }
+
+    #[test]
+    fn register_too_many_devices() {
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x1000);
+        let guest_mem = GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)])
+            .unwrap();
+        let mut device_manager = DeviceManager::new(guest_mem, 0xd0000000);
+
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let dummy_box = Box::new(DummyDevice { dummy: 0 });
+        for _i in IRQ_BASE..(MAX_IRQ+1) {
+            device_manager
+                .register_mmio(dummy_box.clone(), &mut cmdline)
+                .unwrap();
+        }
+        assert_eq!(format!("{}", device_manager.register_mmio(dummy_box.clone(), &mut cmdline).unwrap_err()), "no more IRQs are available".to_string());
+    }
+
+    #[test]
+    fn test_dummy_device() {
+        let mut dummy = DummyDevice { dummy: 0 };
+        assert_eq!(dummy.device_type(), 0);
+        assert_eq!(dummy.queue_max_sizes(), QUEUE_SIZES);
+
+        // test activate
+        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let ievt = EventFd::new().unwrap();
+        let stat = Arc::new(AtomicUsize::new(0));
+        let queue_evts = vec![EventFd::new().unwrap()];
+        let result = dummy.activate(m.clone(), ievt, stat,  Vec::with_capacity(1), queue_evts);
+        assert!(result.is_ok());
+
+    }
+
+    #[test]
+    fn test_error_messages() {
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x1000);
+        let guest_mem =
+            GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let device_manager = DeviceManager::new(guest_mem, 0xd0000000);
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let e = Error::Cmdline(cmdline
+            .insert(
+                "virtio_mmio=device",
+                &format!("{}K@0x{:08x}:{}", MMIO_LEN / 1024, device_manager.mmio_base, device_manager.irq),
+            ).unwrap_err());
+        assert_eq!(format!("{}", e), "unable to add device to kernel command line: string contains an equals sign");
+        let e = Error::CloneIoeventFd(sys_util::Error::new(0));
+        assert_eq!(format!("{}", e), "failed to clone ioeventfd: Error(0)");
+        let e = Error::CloneIrqFd(sys_util::Error::new(0));
+        assert_eq!(format!("{}", e), "failed to clone irqfd: Error(0)");
+    }
+}
