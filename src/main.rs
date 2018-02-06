@@ -116,7 +116,7 @@ fn main() {
     // TODO: this is for integration testing, need to find a more pretty solution
     if vmm_no_api {
         let (tx, rx) = channel();
-        let vmm = vmm::Vmm::new(cfg);
+        let mut vmm = vmm::Vmm::new(cfg);
         let loop_result = vmm.run_vmm(tx);
         rx.recv().unwrap().expect("cannot boot kernel");
         loop_result.expect("VMM loop error!");
