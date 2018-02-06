@@ -205,7 +205,7 @@ pub struct VmmCore {
 
 pub struct Vmm {
     cfg: MachineCfg,
-    core: Mutex<Option<VmmCore>>,
+    core: Option<VmmCore>,
     running: AtomicBool,
 }
 
@@ -213,7 +213,7 @@ impl Vmm {
     pub fn new(cfg: MachineCfg) -> Vmm {
         Vmm {
             cfg,
-            core: Mutex::new(None),
+            core: None,
             running: AtomicBool::new(false),
         }
     }
@@ -222,7 +222,7 @@ impl Vmm {
     /// it will report to the api_server thread whether vmm has started
     /// through the 'tx' Sender parameter.
     /// Return value of this function is currently unused.
-    pub fn run_vmm(&self, tx: Sender<Result<()>>) -> Result<()> {
+    pub fn run_vmm(&mut self, tx: Sender<Result<()>>) -> Result<()> {
         // single entry enforcement
         if self.running.compare_and_swap(false, true, Ordering::SeqCst) {
             warn!("Cannot start VMM since it's already running.");
@@ -253,7 +253,7 @@ impl Vmm {
 
     /// only call this from run_vmm() or other functions
     /// that can guarantee single instances
-    fn boot_kernel(&self) -> Result<()> {
+    fn boot_kernel(&mut self) -> Result<()> {
         let mem_size = self.cfg.mem_size << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
 
@@ -443,8 +443,7 @@ impl Vmm {
 
         vcpu_thread_barrier.wait();
 
-        let mut core = self.core.lock().unwrap();
-        *core = Some(VmmCore {
+        self.core = Some(VmmCore {
             vcpu_handles,
             epoll_context,
             exit_evt,
@@ -456,39 +455,35 @@ impl Vmm {
         Ok(())
     }
 
-    fn stop(&self) {
-        let mut core_opt = self.core.lock().unwrap();
-        {
-            let core = match core_opt.as_mut() {
-                Some(v) => v,
-                None => {
-                    warn!("Cannot stop VMM since it's not running.");
-                    return ();
-                }
-            };
-            let kill_signaled = &core.kill_signaled;
-            let vcpu_handles = &mut core.vcpu_handles;
-            let extracted_vcpu_handles = std::mem::replace(vcpu_handles, Vec::new());
+    fn stop(&mut self) {
+        let mut core = match self.core.take() {
+            Some(v) => v,
+            None => {
+                warn!("Cannot stop VMM since it's not running.");
+                return ();
+            }
+        };
+        let kill_signaled = &core.kill_signaled;
+        let vcpu_handles = &mut core.vcpu_handles;
+        let extracted_vcpu_handles = std::mem::replace(vcpu_handles, Vec::new());
 
-            kill_signaled.store(true, Ordering::SeqCst);
-            for handle in extracted_vcpu_handles {
-                match handle.kill(0) {
-                    Ok(_) => {
-                        if let Err(e) = handle.join() {
-                            warn!("failed to join vcpu thread: {:?}", e);
-                        }
+        kill_signaled.store(true, Ordering::SeqCst);
+        for handle in extracted_vcpu_handles {
+            match handle.kill(0) {
+                Ok(_) => {
+                    if let Err(e) = handle.join() {
+                        warn!("failed to join vcpu thread: {:?}", e);
                     }
-                    Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
                 }
+                Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
             }
         }
-        *core_opt = None;
+
         self.running.store(false, Ordering::Release);
     }
 
-    fn run_control(&self) -> Result<()> {
-        let mut core = self.core.lock().unwrap();
-        let core = core.as_mut().unwrap();
+    fn run_control(&mut self) -> Result<()> {
+        let mut core = self.core.as_mut().unwrap();
         let stdio_serial = &core.stdio_serial;
         let epoll_context = &mut core.epoll_context;
         let stdin_handle = io::stdin();
