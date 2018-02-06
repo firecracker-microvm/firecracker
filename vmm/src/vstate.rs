@@ -3,9 +3,7 @@ extern crate sys_util;
 extern crate x86_64;
 
 use std::result;
-use std::collections::{BinaryHeap, HashMap};
-use std::collections::hash_map::Entry;
-use sys_util::{EventFd, GuestAddress, GuestMemory, MemoryMapping};
+use sys_util::{EventFd, GuestAddress, GuestMemory};
 use std::sync::{Arc, Mutex};
 use kvm::*;
 use x86_64::{interrupts, regs};
@@ -55,8 +53,6 @@ impl ::std::convert::From<sys_util::Error> for Error {
 pub struct Vm {
     fd: VmFd,
     guest_mem: GuestMemory,
-    device_memory: HashMap<u32, MemoryMapping>,
-    mem_slot_gaps: BinaryHeap<i32>,
 }
 
 impl Vm {
@@ -78,8 +74,6 @@ impl Vm {
         Ok(Vm {
             fd: vm_fd,
             guest_mem,
-            device_memory: HashMap::new(),
-            mem_slot_gaps: BinaryHeap::new(),
         })
     }
 
@@ -146,69 +140,6 @@ impl Vm {
             )
             .unwrap();
         Ok(())
-    }
-
-    /// Inserts the given `MemoryMapping` into the VM's address space at `guest_addr`.
-    ///
-    /// The slot that was assigned the device memory mapping is returned on success. The slot can be
-    /// given to `Vm::remove_device_memory` to remove the memory from the VM's address space and
-    /// take back ownership of `mem`.
-    ///
-    /// Note that memory inserted into the VM's address space must not overlap with any other memory
-    /// slot's region.
-    pub fn add_device_memory(
-        &mut self,
-        guest_addr: GuestAddress,
-        mem: MemoryMapping,
-    ) -> Result<u32> {
-        if guest_addr < self.guest_mem.end_addr() {
-            return Err(Error::NotEnoughMemory);
-        }
-
-        // The slot gaps are stored negated because `mem_slot_gaps` is a max-heap, so we negate the
-        // popped value from the heap to get the lowest slot. If there are no gaps, the lowest slot
-        // number is equal to the number of slots we are currently using between guest memory and
-        // device memory. For example, if 2 slots are used by guest memory, 3 slots are used for
-        // device memory, and there are no gaps, it follows that the lowest unused slot is 2+3=5.
-        let slot = match self.mem_slot_gaps.pop() {
-            Some(gap) => (-gap) as u32,
-            None => (self.device_memory.len() + self.guest_mem.num_regions()) as u32,
-        };
-
-        // TODO we also need to check that the number of slots does not
-        // exceed the maximum allowed slots
-
-        // Safe because we check that the given guest address is valid and has no overlaps. We also
-        // know that the pointer and size are correct because the MemoryMapping interface ensures
-        // this. We take ownership of the memory mapping so that it won't be unmapped until the slot
-        // is removed.
-        self.fd.set_user_memory_region(
-            slot,
-            guest_addr.offset() as u64,
-            mem.size() as u64,
-            mem.as_ptr() as u64,
-            0,
-        )?;
-        self.device_memory.insert(slot, mem);
-
-        Ok(slot)
-    }
-
-    /// Removes device memory that was previously added at the given slot.
-    ///
-    /// Ownership of the host memory mapping associated with the given slot is returned on success.
-    pub fn remove_device_memory(&mut self, slot: u32) -> Result<MemoryMapping> {
-        match self.device_memory.entry(slot) {
-            Entry::Occupied(entry) => {
-                // Safe because the slot is checked against the list of device memory slots.
-                self.fd.set_user_memory_region(slot, 0, 0, 0, 0)?;
-                // Because `mem_slot_gaps` is a max-heap, but we want to pop the min slots, we
-                // negate the slot value before insertion.
-                self.mem_slot_gaps.push(-(slot as i32));
-                Ok(entry.remove())
-            }
-            _ => Err(Error::NoMemoryEntry),
-        }
     }
 
     /// Gets a reference to the guest memory owned by this VM.
@@ -336,48 +267,6 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         Vm::new(&kvm, gm).unwrap();
-    }
-
-    #[test]
-    fn add_memory() {
-        let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
-        let mut vm = Vm::new(&kvm, gm).unwrap();
-        let mem_size = 0x1000;
-        let mem = MemoryMapping::new(mem_size).unwrap();
-        vm.add_device_memory(GuestAddress(0x2000), mem).unwrap();
-    }
-
-    #[test]
-    fn remove_memory() {
-        let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
-        let mut vm = Vm::new(&kvm, gm).unwrap();
-        let mem_size = 0x1000;
-        let mem = MemoryMapping::new(mem_size).unwrap();
-        let mem_ptr = mem.as_ptr();
-        let slot = vm.add_device_memory(GuestAddress(0x1000), mem).unwrap();
-        let mem = vm.remove_device_memory(slot).unwrap();
-        assert_eq!(mem.size(), mem_size);
-        assert_eq!(mem.as_ptr(), mem_ptr);
-    }
-
-    #[test]
-    fn remove_invalid_memory() {
-        let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
-        let mut vm = Vm::new(&kvm, gm).unwrap();
-        assert!(vm.remove_device_memory(0).is_err());
-    }
-
-    #[test]
-    fn overlap_memory() {
-        let kvm = Kvm::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
-        let mut vm = Vm::new(&kvm, gm).unwrap();
-        let mem_size = 0x2000;
-        let mem = MemoryMapping::new(mem_size).unwrap();
-        assert!(vm.add_device_memory(GuestAddress(0x2000), mem).is_err());
     }
 
     #[test]
