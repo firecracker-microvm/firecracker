@@ -1273,6 +1273,7 @@ pub struct kvm_msrs {
     pub nmsrs: __u32,
     pub pad: __u32,
     pub entries: __IncompleteArrayField<kvm_msr_entry>,
+    __force_alignment: [u64; 0],
 }
 #[test]
 fn bindgen_test_layout_kvm_msrs() {
@@ -2759,6 +2760,7 @@ pub struct kvm_coalesced_mmio_ring {
     pub first: __u32,
     pub last: __u32,
     pub coalesced_mmio: __IncompleteArrayField<kvm_coalesced_mmio>,
+    __force_alignment: [u64; 0],
 }
 #[test]
 fn bindgen_test_layout_kvm_coalesced_mmio_ring() {
@@ -3608,6 +3610,7 @@ pub struct kvm_irq_routing {
     pub nr: __u32,
     pub flags: __u32,
     pub entries: __IncompleteArrayField<kvm_irq_routing_entry>,
+    __force_alignment: [u64; 0],
 }
 #[test]
 fn bindgen_test_layout_kvm_irq_routing() {
