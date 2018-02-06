@@ -204,16 +204,14 @@ pub struct VmmCore {
 }
 
 pub struct Vmm {
-    vmm_no_api: bool,
     cfg: MachineCfg,
     core: Mutex<Option<VmmCore>>,
     running: AtomicBool,
 }
 
 impl Vmm {
-    pub fn new(kill_on_exit: bool, cfg: MachineCfg) -> Vmm {
+    pub fn new(cfg: MachineCfg) -> Vmm {
         Vmm {
-            vmm_no_api: kill_on_exit,
             cfg,
             core: Mutex::new(None),
             running: AtomicBool::new(false),
@@ -282,7 +280,8 @@ impl Vmm {
         'mmio_base' address has to be an address which is protected by the kernel, in this case
         the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
         */
-        let mut device_manager = DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+        let mut device_manager =
+            DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
         if let Some(root_blk_file) = self.cfg.root_blk_file.as_ref() {
             //fixme this is a super simple solution; improve at some point
@@ -485,10 +484,6 @@ impl Vmm {
         }
         *core_opt = None;
         self.running.store(false, Ordering::Release);
-
-        if self.vmm_no_api {
-            std::process::exit(0);
-        }
     }
 
     fn run_control(&self) -> Result<()> {
