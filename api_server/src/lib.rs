@@ -696,8 +696,8 @@ pub fn start_api_server(cmd_arguments: &clap::ArgMatches) {
     // TODO: this is for integration testing, need to find a more pretty solution
     if vmm_no_api {
         let (tx, rx) = channel();
-        vmm.run_vmm(tx).expect("cannot boot kernel");
-        let _r = rx.recv().unwrap();
+        let _r = vmm.run_vmm(tx);
+        let _r = rx.recv().unwrap().expect("cannot boot kernel");
     } else {
         let server = Server::new(vmm);
         let router = api::router(server);
