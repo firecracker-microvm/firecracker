@@ -248,8 +248,6 @@ impl Vcpu {
     /// The `id` argument is the CPU number between [0, max vcpus).
     pub fn new(id: u8, vm: &Vm) -> Result<Self> {
         let kvm_vcpu = VcpuFd::new(id, &vm.fd).map_err(Error::VcpuFd)?;
-        kvm_vcpu.set_signal_mask()?;
-
         Ok(Vcpu { fd: kvm_vcpu, id })
     }
 
