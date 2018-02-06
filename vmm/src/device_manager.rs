@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 use std::fmt;
-use std::io;
 use std::sync::{Arc, Mutex};
 
 use devices;
@@ -22,12 +21,6 @@ pub enum Error {
     CloneIoeventFd(sys_util::Error),
     /// Failed to clone the mmio irqfd.
     CloneIrqFd(sys_util::Error),
-    /// There was an error creating a sync EventFd.
-    CreateSync(sys_util::Error),
-    /// There was an error writing the uid_map.
-    WriteUidMap(io::Error),
-    /// There was an error writing the gid_map.
-    WriteGidMap(io::Error),
     /// Appending to kernel command line failed.
     Cmdline(kernel_cmdline::Error),
     /// No more IRQs are available.
@@ -40,9 +33,6 @@ impl fmt::Display for Error {
             &Error::CreateMmioDevice(ref e) => write!(f, "failed to create mmio device: {:?}", e),
             &Error::CloneIoeventFd(ref e) => write!(f, "failed to clone ioeventfd: {:?}", e),
             &Error::CloneIrqFd(ref e) => write!(f, "failed to clone irqfd: {:?}", e),
-            &Error::CreateSync(ref e) => write!(f, "failed to create sync eventfd: {:?}", e),
-            &Error::WriteUidMap(ref e) => write!(f, "failed to write uid map: {}", e),
-            &Error::WriteGidMap(ref e) => write!(f, "failed to write gid map: {}", e),
             &Error::Cmdline(ref e) => {
                 write!(f, "unable to add device to kernel command line: {}", e)
             }
