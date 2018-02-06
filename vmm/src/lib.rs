@@ -278,21 +278,11 @@ impl Vmm {
 
         let mut epoll_context = EpollContext::new(exit_evt.as_raw_fd())?;
 
-        //adding VIRTIO mmio devices
-
-        //todo why irq_base 5 and not some other value?
-        /*
-        as for the other parameters:
-        - mmio_len has to be larger than 0x100 (the offset where the configuration space starts from
-        the beginning of the memory mapped device registers) + the size of the configuration space.
-        I guess 0x1000 is a nice, round value. Also, crosvm literally supplies 4K as the first param
-        of the virtio_mmio.device kernel cmdline option, so this has to match.
-        - mmio_base, as far as I can tell, is just some address which is not seen as regular memory
-        by the kernel. In this case, it seems 0xd0000000 is right at the beginning of the memory gap
-        created by x86_64::arch_memory_regions(mem_size). With the virtio_mmio.device option,
-        the kernel is informed about the start of the mapping for each device.
+        /* Instantiating MMIO device manager
+        'mmio_base' address has to be an address which is protected by the kernel, in this case
+        the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
         */
-        let mut device_manager = DeviceManager::new(guest_mem.clone(), 0x1000, 0xd0000000, 5);
+        let mut device_manager = DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
         if let Some(root_blk_file) = self.cfg.root_blk_file.as_ref() {
             //fixme this is a super simple solution; improve at some point

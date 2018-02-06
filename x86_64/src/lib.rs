@@ -105,6 +105,10 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     regions
 }
 
+pub fn get_32bit_gap_start() -> usize {
+    FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE
+}
+
 /// Configures the system and should be called once per vm before starting vcpu threads.
 ///
 /// # Arguments
