@@ -104,29 +104,17 @@ impl ApiServer {
             }
         }
     }
-
-    pub fn do_instance_start(&self, vmm: Arc<vmm::Vmm>, action_id: String) {
-        let (tx, rx) = channel();
-        thread::spawn(move || {
-            let _r = vmm.run_vmm(tx);
-            // TODO: maybe offer through API: an instance status reporting error messages (r)
-        });
-
-        self.update_action_result(&action_id, rx.recv().unwrap());
-    }
 }
 
 #[derive(Clone)]
 pub struct Server {
     api_server: Arc<ApiServer>,
-    vmm: Arc<vmm::Vmm>,
 }
 
 impl Server {
-    pub fn new(vmm: vmm::Vmm) -> Server {
+    pub fn new() -> Server {
         Server {
             api_server: Arc::new(ApiServer::new()),
-            vmm: Arc::new(vmm),
         }
     }
 }
@@ -225,18 +213,6 @@ impl Api for Server {
             self.api_server
                 .add_instance_action(&action_id, info.clone())
         );
-
-        let vmm = self.vmm.clone();
-        let api_server = self.api_server.clone();
-        /* TODO: instead of spawing thread for async req, add this req to an async queue */
-        thread::spawn(move || {
-            match &info.action_type.unwrap()[..] {
-                "InstanceStart" => {
-                    api_server.do_instance_start(vmm, action_id);
-                }
-                _ => (),
-            };
-        });
 
         response
     }
@@ -615,99 +591,19 @@ impl Api for Server {
 }
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
 use std::thread;
 
 use iron::{Chain, Iron};
 
-use vmm::machine::MachineCfg;
+pub fn start_api_server(api_port: u16) {
+    let server = Server::new();
+    let router = api::router(server);
 
-pub fn start_api_server(cmd_arguments: &clap::ArgMatches) {
-    let api_port = match cmd_arguments
-        .value_of("api_port")
-        .unwrap()
-        .to_string()
-        .parse::<u16>()
-    {
-        Ok(value) => value,
-        Err(error) => {
-            panic!("Invalid value for api TCP listen port! {:?}", error);
-        }
-    };
-    let kernel_path: Option<PathBuf> = cmd_arguments
-        .value_of("kernel_path")
-        .map(|s| PathBuf::from(s));
+    let chain = Chain::new(router);
+    let sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), api_port);
 
-    //unwrap should not panic because kernel_cmdline has a default value
-    let kernel_cmdline = String::from(cmd_arguments.value_of("kernel_cmdline").unwrap());
-
-    let vcpu_count = match cmd_arguments
-        .value_of("vcpu_count")
-        .unwrap()
-        .to_string()
-        .parse::<u8>()
-    {
-        Ok(value) => value,
-        Err(error) => {
-            panic!("Invalid value for vcpu_count! {:?}", error);
-        }
-    };
-
-    let mem_size = match cmd_arguments
-        .value_of("mem_size")
-        .unwrap()
-        .to_string()
-        .parse::<usize>()
-    {
-        Ok(value) => value,
-        Err(error) => {
-            panic!("Invalid value for mem_size! {:?}", error);
-        }
-    };
-
-    let root_blk_file = cmd_arguments
-        .value_of("root_blk_file")
-        .map(|s| PathBuf::from(s));
-
-    //fixme print some message when the Ipv4Addrs cannot be parsed
-    let host_ip = cmd_arguments
-        .value_of("host_ip")
-        .map(|x| x.parse().unwrap());
-
-    let subnet_mask = cmd_arguments
-        .value_of("subnet_mask")
-        .unwrap()
-        .parse()
-        .unwrap();
-
-    let cfg = MachineCfg::new(
-        kernel_path,
-        kernel_cmdline,
-        vcpu_count,
-        mem_size,
-        root_blk_file,
-        host_ip,
-        subnet_mask,
-    );
-    let vmm_no_api = cmd_arguments.is_present("vmm_no_api");
-
-    let vmm = vmm::Vmm::new(vmm_no_api, cfg);
-
-    // TODO: this is for integration testing, need to find a more pretty solution
-    if vmm_no_api {
-        let (tx, rx) = channel();
-        let _r = vmm.run_vmm(tx);
-        let _r = rx.recv().unwrap().expect("cannot boot kernel");
-    } else {
-        let server = Server::new(vmm);
-        let router = api::router(server);
-
-        let chain = Chain::new(router);
-        let sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), api_port);
-
-        let mut iron = Iron::new(chain);
-        // By default Iron uses 8 * num_cpus threads.
-        iron.threads = 1;
-        iron.http(sock_addr).expect("Failed to start HTTP server");
-    }
+    let mut iron = Iron::new(chain);
+    // By default Iron uses 8 * num_cpus threads.
+    iron.threads = 1;
+    iron.http(sock_addr).expect("Failed to start HTTP server");
 }
