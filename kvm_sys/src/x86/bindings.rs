@@ -1255,7 +1255,7 @@ fn bindgen_test_layout_kvm_fpu() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct kvm_msr_entry {
     pub index: __u32,
     pub reserved: __u32,
