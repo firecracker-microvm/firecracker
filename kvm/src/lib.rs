@@ -609,7 +609,7 @@ impl VcpuFd {
                     let run_start = run as *mut kvm_run as *mut u8;
                     // Safe because the exit_reason (which comes from the kernel) told us which
                     // union field to use.
-                    let io = unsafe { run.__bindgen_anon_1.io.as_ref() };
+                    let io = unsafe { run.__bindgen_anon_1.io };
                     let port = io.port;
                     let data_size = io.count as usize * io.size as usize;
                     // The data_offset is defined by the kernel to be some number of bytes into the
@@ -629,7 +629,7 @@ impl VcpuFd {
                 KVM_EXIT_MMIO => {
                     // Safe because the exit_reason (which comes from the kernel) told us which
                     // union field to use.
-                    let mmio = unsafe { run.__bindgen_anon_1.mmio.as_mut() };
+                    let mmio = unsafe { &mut run.__bindgen_anon_1.mmio };
                     let addr = mmio.phys_addr;
                     let len = mmio.len as usize;
                     let data_slice = &mut mmio.data[..len];
