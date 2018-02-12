@@ -3,7 +3,7 @@ extern crate libc;
 #[macro_use(defer)]
 extern crate scopeguard;
 
-extern crate api;
+extern crate api_server_v2;
 extern crate devices;
 extern crate kernel_loader;
 extern crate kvm;
@@ -27,7 +27,9 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 
-use api::*;
+use api_server_v2::ApiRequest;
+use api_server_v2::request::async::{AsyncOutcome, AsyncRequest};
+use api_server_v2::request::sync::SyncRequest;
 use device_manager::*;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
@@ -206,14 +208,14 @@ pub struct Vmm {
     epoll_context: EpollContext,
     running: AtomicBool,
 
-    from_api: Receiver<Box<ApiRequest>>,
+    from_api: Receiver<Box<api_server_v2::ApiRequest>>,
 }
 
 impl Vmm {
     pub fn new(
         cfg: MachineCfg,
         api_event_fd: EventFd,
-        from_api: Receiver<Box<ApiRequest>>,
+        from_api: Receiver<Box<api_server_v2::ApiRequest>>,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         epoll_context.add_event(&api_event_fd, EpollDispatch::ApiRequest)
@@ -554,24 +556,33 @@ impl Vmm {
                 panic!();
             }
         };
-        let response: Box<ApiResponse> = Box::new(match request.command {
-            ApiCommand::DescribeInstance => {
-                let err = models::Error {
-                    fault_message: Some("Not implemented".to_string()),
+        match *request {
+            ApiRequest::Async(req) => {
+                match req {
+                    AsyncRequest::StartInstance(sender) => {
+                        let result = match self.boot_kernel() {
+                            Ok(_) => AsyncOutcome::Ok(0),
+                            Err(e) => AsyncOutcome::Error(format!("cannot boot kernel: {:?}", e)),
+                        };
+                        sender.send(result).expect("one-shot channel closed");
+                    }
+                    AsyncRequest::StopInstance(sender) => {
+                        sender
+                            .send(AsyncOutcome::Error(
+                                "StopInstance not implemented".to_string(),
+                            ))
+                            .expect("one-shot channel closed");
+                    }
                 };
-                ApiResponse::DescribeInstanceResp(DescribeInstanceResponse::UnexpectedError(err))
             }
-            ApiCommand::StartInstance => {
-                let result = self.boot_kernel().map_err(|_| models::Error {
-                    fault_message: Some("Guest kernel failed to boot.".to_string()),
-                });
-                ApiResponse::StartInstanceResp(result)
+            ApiRequest::Sync(req) => {
+                match req {
+                    SyncRequest::PutDrive(_drive_description, _sender) => {
+                        println!("SyncRequest::PutDrive not implemented");
+                    }
+                };
             }
-            ApiCommand::AddDrive(ref _info) => ApiResponse::GenericError(models::Error {
-                fault_message: Some("Not implemented".to_string()),
-            }),
-        });
-        request.response_sender.send(response).unwrap();
+        };
 
         Ok(())
     }
@@ -580,7 +591,7 @@ impl Vmm {
 pub fn start_vmm_thread(
     cfg: MachineCfg,
     api_event_fd: EventFd,
-    from_api: Receiver<Box<ApiRequest>>,
+    from_api: Receiver<Box<api_server_v2::ApiRequest>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut vmm = Vmm::new(cfg, api_event_fd, from_api).expect("cannot create VMM");
