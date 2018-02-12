@@ -206,7 +206,6 @@ pub struct Vmm {
     core: Option<VmmCore>,
     api_event_fd: EventFd,
     epoll_context: EpollContext,
-    running: AtomicBool,
 
     from_api: Receiver<Box<api_server_v2::ApiRequest>>,
 }
@@ -225,7 +224,6 @@ impl Vmm {
             core: None,
             api_event_fd,
             epoll_context,
-            running: AtomicBool::new(false),
             from_api,
         })
     }
@@ -456,8 +454,6 @@ impl Vmm {
                 Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
             }
         }
-
-        self.running.store(false, Ordering::Release);
     }
 
     pub fn run_control(&mut self) -> Result<()> {
