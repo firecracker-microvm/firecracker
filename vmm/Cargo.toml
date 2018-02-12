@@ -8,7 +8,7 @@ libc = "=0.2.32"
 epoll = "=2.1.0"
 scopeguard = "=0.3.3"
 
-api = { path = "../api" }
+api_server_v2 = { path = "../api_server_v2" }
 kvm = { path = "../kvm" }
 kvm_sys = { path = "../kvm_sys" }
 sys_util = { path = "../sys_util" }

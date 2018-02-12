@@ -1,7 +1,7 @@
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
 
-extern crate api_server;
+extern crate api_server_v2;
 extern crate devices;
 extern crate sys_util;
 extern crate vmm;
@@ -10,8 +10,8 @@ use clap::{App, Arg};
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 
+use api_server_v2::ApiServer;
 use sys_util::{syslog, EventFd};
-
 use vmm::machine::MachineCfg;
 
 fn main() {
@@ -31,11 +31,10 @@ fn main() {
                 .takes_value(false),
         )
         .arg(
-            Arg::with_name("api_port")
-                .short("p")
-                .long("api-port")
-                .help("The TCP listen port for the REST API")
-                .required(true)
+            Arg::with_name("api_sock")
+                .long("api-sock")
+                .help("Path to unix domain socket used by the API")
+                .default_value("/tmp/firecracker.socket")
                 .takes_value(true),
         )
         .arg(
@@ -99,31 +98,31 @@ fn main() {
         .get_matches();
 
     let vmm_no_api = cmd_arguments.is_present("vmm_no_api");
-    let api_port = match cmd_arguments
-        .value_of("api_port")
-        .unwrap()
-        .to_string()
-        .parse::<u16>()
-    {
-        Ok(value) => value,
-        Err(error) => {
-            panic!("Invalid value for api TCP listen port! {:?}", error);
-        }
-    };
 
     let cfg = parse_args(&cmd_arguments);
     let (to_vmm, from_api) = channel();
-    let api_event_fd = EventFd::new().expect("cannot create API eventFD");
 
     // TODO: vmm_no_api is for integration testing, need to find a more pretty solution
     if vmm_no_api {
-        let mut vmm = vmm::Vmm::new(cfg, api_event_fd, from_api).expect("cannot create VMM");
+        let mut vmm = vmm::Vmm::new(
+            cfg,
+            EventFd::new().expect("cannot create eventFD"),
+            from_api,
+        ).expect("cannot create VMM");
         vmm.boot_kernel().expect("cannot boot kernel");
         vmm.run_control().expect("VMM loop error!");
     } else {
-        let server_api_event = api_event_fd.try_clone().expect("cannot clone API eventFD");
+        // safe to unwrap since api_sock has a default value
+        let bind_path = cmd_arguments
+            .value_of("api_sock")
+            .map(|s| PathBuf::from(s)).unwrap();
+
+        let server = ApiServer::new(to_vmm, 100).unwrap();
+        let api_event_fd = server
+            .get_event_fd_clone()
+            .expect("cannot clone API eventFD");
         let _vmm_thread_handle = vmm::start_vmm_thread(cfg, api_event_fd, from_api);
-        api_server::start_api_server(api_port, server_api_event, to_vmm);
+        server.bind_and_run(bind_path).unwrap();
     }
 }
 
