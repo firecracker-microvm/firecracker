@@ -67,6 +67,7 @@ fn valid_element(s: &str) -> Result<()> {
 
 /// A builder for a kernel command line string that validates the string as its being built. A
 /// `CString` can be constructed from this directly using `CString::new`.
+#[derive(Clone)]
 pub struct Cmdline {
     line: String,
     capacity: usize,

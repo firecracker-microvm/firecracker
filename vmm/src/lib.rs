@@ -201,9 +201,15 @@ pub struct VmmCore {
     _vm: Vm,
 }
 
+pub struct KernelConfig {
+    cmdline: kernel_cmdline::Cmdline,
+    // TODO: this structure should also contain the kernel_path, kernel_start addr and others
+}
+
 pub struct Vmm {
     cfg: MachineCfg,
     core: Option<VmmCore>,
+    kernel_config: KernelConfig,
     api_event_fd: EventFd,
     epoll_context: EpollContext,
 
@@ -219,9 +225,12 @@ impl Vmm {
         let mut epoll_context = EpollContext::new()?;
         epoll_context.add_event(&api_event_fd, EpollDispatch::ApiRequest)
             .expect("cannot add API eventfd to epoll");
+        let cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
+        let kernel_config = KernelConfig { cmdline };
         Ok(Vmm {
             cfg,
             core: None,
+            kernel_config,
             api_event_fd,
             epoll_context,
             from_api,
@@ -238,8 +247,8 @@ impl Vmm {
         let mut kernel_file =
             File::open(self.cfg.kernel_path.as_ref().unwrap()).map_err(Error::Kernel)?;
 
-        let mut cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
-        cmdline
+        self.kernel_config
+            .cmdline
             .insert_str(&self.cfg.kernel_cmdline)
             .expect("could not use the specified kernel cmdline");
 
@@ -265,7 +274,10 @@ impl Vmm {
         if let Some(root_blk_file) = self.cfg.root_blk_file.as_ref() {
             //fixme this is a super simple solution; improve at some point
             //the root option has some more parameters IIRC; are any of them needed/useful?
-            cmdline.insert_str(" root=/dev/vda").unwrap();
+            self.kernel_config
+                .cmdline
+                .insert_str(" root=/dev/vda")
+                .unwrap();
 
             //adding root blk device from file (currently always opened as read + write)
             let root_image = OpenOptions::new()
@@ -280,7 +292,7 @@ impl Vmm {
                 .map_err(Error::RootBlockDeviceNew)?);
 
             device_manager
-                .register_mmio(block_box, &mut cmdline)
+                .register_mmio(block_box, &mut self.kernel_config.cmdline)
                 .map_err(Error::RegisterBlock)?;
         }
 
@@ -294,7 +306,7 @@ impl Vmm {
             ).map_err(Error::NetDeviceNew)?);
 
             device_manager
-                .register_mmio(net_box, &mut cmdline)
+                .register_mmio(net_box, &mut self.kernel_config.cmdline)
                 .map_err(Error::RegisterNet)?;
         }
 
@@ -309,16 +321,18 @@ impl Vmm {
             }
         }
 
-        let cmdline_cstr = CString::new(cmdline).unwrap();
+        // This is the easy way out of consuming the value of the kernel_cmdline.
+        // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
+        let cmdline_cstring = CString::new(self.kernel_config.cmdline.clone()).unwrap();
 
         kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr, &mut kernel_file)?;
-        kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, &cmdline_cstr)?;
+        kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, &cmdline_cstring)?;
 
         x86_64::configure_system(
             vm.get_memory(),
             kernel_start_addr,
             cmdline_addr,
-            cmdline_cstr.to_bytes().len() + 1,
+            cmdline_cstring.to_bytes().len() + 1,
             vcpu_count,
         )?;
 
