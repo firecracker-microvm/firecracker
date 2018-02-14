@@ -88,7 +88,7 @@ impl std::convert::From<x86_64::Error> for Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum EpollDispatch {
     Exit,
     Stdin,
@@ -115,7 +115,8 @@ impl MaybeHandler {
 //will be solved when we also implement device removal.
 pub struct EpollContext {
     epoll_raw_fd: RawFd,
-    dispatch_table: Vec<EpollDispatch>,
+    // FIXME: find a different design as this does not scale. This Vec can only grow.
+    dispatch_table: Vec<Option<EpollDispatch>>,
     device_handlers: Vec<MaybeHandler>,
 }
 
@@ -130,20 +131,37 @@ impl EpollContext {
         })
     }
 
-    pub fn add_event_from_rawfd(&mut self, raw_fd: RawFd, token: EpollDispatch) -> Result<()> {
+    pub fn add_event_from_rawfd(&mut self, raw_fd: RawFd, token: EpollDispatch) -> Result<u64> {
+        let index = self.dispatch_table.len() as u64;
         epoll::ctl(
             self.epoll_raw_fd,
             epoll::EPOLL_CTL_ADD,
             raw_fd,
-            epoll::Event::new(epoll::EPOLLIN, self.dispatch_table.len() as u64),
+            epoll::Event::new(epoll::EPOLLIN, index),
         ).map_err(Error::EpollFd)?;
-        self.dispatch_table.push(token);
+        self.dispatch_table.push(Some(token));
+
+        Ok(index)
+    }
+
+    pub fn remove_event_from_rawfd(&mut self, raw_fd: RawFd, index: u64) -> Result<()> {
+        epoll::ctl(
+            self.epoll_raw_fd,
+            epoll::EPOLL_CTL_DEL,
+            raw_fd,
+            epoll::Event::new(epoll::EPOLLIN, index),
+        ).map_err(Error::EpollFd)?;
+        self.dispatch_table[index as usize] = None;
 
         Ok(())
     }
 
-    pub fn add_event(&mut self, evfd: &EventFd, token: EpollDispatch) -> Result<()> {
+    pub fn add_event(&mut self, evfd: &EventFd, token: EpollDispatch) -> Result<u64> {
         self.add_event_from_rawfd(evfd.as_raw_fd(), token)
+    }
+
+    pub fn remove_event(&mut self, evfd: &EventFd, index: u64) -> Result<()> {
+        self.remove_event_from_rawfd(evfd.as_raw_fd(), index)
     }
 
     fn allocate_tokens(&mut self, count: usize) -> (u64, Sender<Box<EpollHandler>>) {
@@ -152,8 +170,10 @@ impl EpollContext {
         let (sender, receiver) = channel();
 
         for x in 0..count - 1 {
-            self.dispatch_table
-                .push(EpollDispatch::DeviceHandler(device_idx, x as DeviceEventT));
+            self.dispatch_table.push(Some(EpollDispatch::DeviceHandler(
+                device_idx,
+                x as DeviceEventT,
+            )));
         }
 
         self.device_handlers.push(MaybeHandler::new(receiver));
@@ -202,6 +222,16 @@ pub struct KernelConfig {
     // TODO: this structure should also contain the kernel_path, kernel_start addr and others
 }
 
+pub struct EpollEventFd {
+    dispatch_index: u64,
+    event_fd: EventFd,
+}
+
+pub struct EpollRawEventFd {
+    dispatch_index: u64,
+    raw_event_fd: RawFd,
+}
+
 pub struct Vmm {
     cfg: MachineCfg,
 
@@ -209,7 +239,8 @@ pub struct Vmm {
     kernel_config: KernelConfig,
     kill_signaled: Option<Arc<AtomicBool>>,
     vcpu_handles: Option<Vec<thread::JoinHandle<()>>>,
-    exit_evt: Option<EventFd>,
+    exit_evt: Option<EpollEventFd>,
+    stdin_evt: Option<EpollRawEventFd>,
     stdio_serial: Option<Arc<Mutex<devices::Serial>>>,
     vm: Option<Vm>,
 
@@ -244,6 +275,7 @@ impl Vmm {
             kill_signaled: None,
             vcpu_handles: None,
             exit_evt: None,
+            stdin_evt: None,
             stdio_serial: None,
             vm: None,
             block_device_configs,
@@ -369,10 +401,14 @@ impl Vmm {
                     vcpu_count,
                 )?;
 
-                //TODO: make RAII
-                self.exit_evt = Some(EventFd::new().map_err(Error::EventFd)?);
-                let exit_evt = self.exit_evt.as_mut().unwrap();
-                self.epoll_context.add_event(exit_evt, EpollDispatch::Exit)?;
+                let event_fd = EventFd::new().map_err(Error::EventFd)?;
+                let dispatch_index = self.epoll_context
+                    .add_event(&event_fd, EpollDispatch::Exit)?;
+                self.exit_evt = Some(EpollEventFd {
+                    dispatch_index,
+                    event_fd,
+                });
+                let exit_evt = &self.exit_evt.as_mut().unwrap().event_fd;
 
                 let mut io_bus = devices::Bus::new();
                 let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
@@ -382,8 +418,14 @@ impl Vmm {
                     Box::new(stdout()),
                 ))));
                 let stdio_serial = self.stdio_serial.as_mut().unwrap();
-                self.epoll_context
-                    .add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
+
+                let raw_event_fd = libc::STDIN_FILENO;
+                let dispatch_index = self.epoll_context
+                    .add_event_from_rawfd(raw_event_fd, EpollDispatch::Stdin)?;
+                self.stdin_evt = Some(EpollRawEventFd {
+                    dispatch_index,
+                    raw_event_fd,
+                });
 
                 //TODO: put all thse things related to setting up io bus in a struct or something
                 vm.set_io_bus(
@@ -487,6 +529,7 @@ impl Vmm {
         };
 
         if boot_result.is_err() {
+            error!("boot failed: {:?}", boot_result);
             self.stop();
         }
         boot_result
@@ -512,13 +555,27 @@ impl Vmm {
             None => (),
         };
 
-        self.exit_evt.take();
+        match self.exit_evt.take() {
+            Some(evt) => {
+                let _ = self.epoll_context
+                    .remove_event(&evt.event_fd, evt.dispatch_index);
+            }
+            None => (),
+        };
+        match self.stdin_evt.take() {
+            Some(evt) => {
+                let _ = self.epoll_context
+                    .remove_event_from_rawfd(evt.raw_event_fd, evt.dispatch_index);
+            }
+            None => (),
+        };
+
         self.stdio_serial.take();
         self.vm.take();
 
         //TODO:
         // - clean epoll_context:
-        //   - remove exitev, stdin, block, net
+        //   - remove block, net
     }
 
     pub fn run_control(&mut self) -> Result<()> {
@@ -544,66 +601,68 @@ impl Vmm {
 
             for i in 0..num_events {
                 let dispatch_idx = events[i].data() as usize;
-                let dispatch_type = self.epoll_context.dispatch_table[dispatch_idx];
 
-                match dispatch_type {
-                    EpollDispatch::Exit => {
-                        info!("vcpu requested shutdown");
-                        match self.exit_evt {
-                            Some(ref ev) => {
-                                ev.read().expect("cannot read exit_event");
-                            }
-                            None => warn!("leftover exit-evt in epollcontext!"),
-                        }
-                        self.stop();
-                        break 'poll;
-                    }
-                    EpollDispatch::Stdin => {
-                        let mut out = [0u8; 64];
-                        match stdin_lock.read_raw(&mut out[..]) {
-                            Ok(0) => {
-                                // Zero-length read indicates EOF. Remove from pollables.
-                                // TODO: remove from epoll-context altogether
-                                epoll::ctl(
-                                    epoll_raw_fd,
-                                    epoll::EPOLL_CTL_DEL,
-                                    libc::STDIN_FILENO,
-                                    events[i],
-                                ).map_err(Error::EpollFd)?;
-                            }
-                            Err(e) => {
-                                warn!("error while reading stdin: {:?}", e);
-                                // TODO: remove from epoll-context altogether
-                                epoll::ctl(
-                                    epoll_raw_fd,
-                                    epoll::EPOLL_CTL_DEL,
-                                    libc::STDIN_FILENO,
-                                    events[i],
-                                ).map_err(Error::EpollFd)?;
-                            }
-                            Ok(count) => match self.stdio_serial {
-                                Some(ref mut serial) => {
-                                    serial
-                                        .lock()
-                                        .unwrap()
-                                        .queue_input_bytes(&out[..count])
-                                        .map_err(Error::Serial)?;
+                match self.epoll_context.dispatch_table[dispatch_idx] {
+                    Some(dispatch_type) => match dispatch_type {
+                        EpollDispatch::Exit => {
+                            info!("vcpu requested shutdown");
+                            match self.exit_evt {
+                                Some(ref ev) => {
+                                    ev.event_fd.read().expect("cannot read exit_event");
                                 }
-                                None => warn!("leftover stdin event in epollcontext!"),
-                            },
+                                None => warn!("leftover exit-evt in epollcontext!"),
+                            }
+                            self.stop();
+                            break 'poll;
                         }
-                    }
-                    EpollDispatch::DeviceHandler(device_idx, device_token) => {
-                        let handler = self.epoll_context.get_device_handler(device_idx);
-                        handler.handle_event(device_token, events[i].events().bits());
-                    }
-                    EpollDispatch::ApiRequest => {
-                        self.api_event_fd.read().expect("cannot read ");
-                        self.run_api_cmd().unwrap_or_else(|_| {
-                            warn!("got spurious notification from api thread");
-                            ()
-                        });
-                    }
+                        EpollDispatch::Stdin => {
+                            let mut out = [0u8; 64];
+                            match stdin_lock.read_raw(&mut out[..]) {
+                                Ok(0) => {
+                                    // Zero-length read indicates EOF. Remove from pollables.
+                                    // TODO: remove from epoll-context altogether
+                                    epoll::ctl(
+                                        epoll_raw_fd,
+                                        epoll::EPOLL_CTL_DEL,
+                                        libc::STDIN_FILENO,
+                                        events[i],
+                                    ).map_err(Error::EpollFd)?;
+                                }
+                                Err(e) => {
+                                    warn!("error while reading stdin: {:?}", e);
+                                    // TODO: remove from epoll-context altogether
+                                    epoll::ctl(
+                                        epoll_raw_fd,
+                                        epoll::EPOLL_CTL_DEL,
+                                        libc::STDIN_FILENO,
+                                        events[i],
+                                    ).map_err(Error::EpollFd)?;
+                                }
+                                Ok(count) => match self.stdio_serial {
+                                    Some(ref mut serial) => {
+                                        serial
+                                            .lock()
+                                            .unwrap()
+                                            .queue_input_bytes(&out[..count])
+                                            .map_err(Error::Serial)?;
+                                    }
+                                    None => warn!("leftover stdin event in epollcontext!"),
+                                },
+                            }
+                        }
+                        EpollDispatch::DeviceHandler(device_idx, device_token) => {
+                            let handler = self.epoll_context.get_device_handler(device_idx);
+                            handler.handle_event(device_token, events[i].events().bits());
+                        }
+                        EpollDispatch::ApiRequest => {
+                            self.api_event_fd.read().expect("cannot read ");
+                            self.run_api_cmd().unwrap_or_else(|_| {
+                                warn!("got spurious notification from api thread");
+                                ()
+                            });
+                        }
+                    },
+                    None => (),
                 }
             }
         }
