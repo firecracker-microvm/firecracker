@@ -12,6 +12,7 @@ extern crate kvm_sys;
 extern crate sys_util;
 extern crate x86_64;
 
+pub mod device_config;
 pub mod device_manager;
 pub mod kernel_cmdline;
 pub mod machine;
@@ -30,6 +31,7 @@ use std::thread;
 use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
 use api_server::request::sync::SyncRequest;
+use device_config::*;
 use device_manager::*;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
@@ -67,6 +69,7 @@ pub enum Error {
     NetDeviceNew(devices::virtio::NetError),
     RegisterNet(device_manager::Error),
     DeviceVmRequest(sys_util::Error),
+    DeviceConfigError(device_config::Error),
     ApiChannel,
 }
 
@@ -79,6 +82,12 @@ impl std::convert::From<kernel_loader::Error> for Error {
 impl std::convert::From<x86_64::Error> for Error {
     fn from(e: x86_64::Error) -> Error {
         Error::ConfigureSystem(e)
+    }
+}
+
+impl std::convert::From<device_config::Error> for Error {
+    fn from(e: device_config::Error) -> Error {
+        Error::DeviceConfigError(e)
     }
 }
 
@@ -210,6 +219,11 @@ pub struct Vmm {
     cfg: MachineCfg,
     core: Option<VmmCore>,
     kernel_config: KernelConfig,
+    // If there is a Root Block Device, this should be added as the first element of the list
+    // This is necessary because we want the root to always be mounted on /dev/vda
+    block_device_configs: BlockDeviceConfigs,
+
+    /// api resources
     api_event_fd: EventFd,
     epoll_context: EpollContext,
 
@@ -227,14 +241,58 @@ impl Vmm {
             .expect("cannot add API eventfd to epoll");
         let cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
         let kernel_config = KernelConfig { cmdline };
+        let block_device_configs = BlockDeviceConfigs::new();
         Ok(Vmm {
             cfg,
             core: None,
             kernel_config,
+            block_device_configs: block_device_configs,
             api_event_fd,
             epoll_context,
             from_api,
         })
+    }
+
+    pub fn add_block_device(&mut self, block_device_config:BlockDeviceConfig) -> Result<()> {
+        self.block_device_configs.add(block_device_config)?;
+        Ok(())
+    }
+
+    /// Attach all block devices from the BlockDevicesConfig
+    /// If there is no root block device, no other devices are attached.The root device should be
+    /// the first to be attached as a way to make sure it ends up on /dev/vda
+    /// This function is to be called only from boot_source
+    fn attach_block_devices(&mut self, device_manager: &mut DeviceManager) -> Result<()> {
+        // If there's no root device, do not attach any other devices
+        let block_dev = &self.block_device_configs;
+        if block_dev.has_root_block_device() {
+            // this is a simple solution to add a block as a root device; should be improved
+            self.kernel_config
+                .cmdline
+                .insert_str(" root=/dev/vda")
+                .unwrap();
+
+            let epoll_context = &mut self.epoll_context;
+            let kernel_cmdline = &mut self.kernel_config.cmdline;
+            for drive_config in self.block_device_configs.config_list.iter() {
+                // adding root blk device from file (currently always opened as read + write)
+                let root_image = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&drive_config.path_on_host)
+                    .map_err(Error::RootDiskImage)?;
+                let epoll_config = epoll_context.allocate_virtio_block_tokens();
+
+                let block_box = Box::new(devices::virtio::Block::new(root_image, epoll_config)
+                    .map_err(Error::RootBlockDeviceNew)?);
+
+                device_manager
+                    .register_mmio(block_box, kernel_cmdline)
+                    .map_err(Error::RegisterBlock)?;
+            }
+        }
+
+        Ok(())
     }
 
     /// only call this from run_vmm() or other functions
@@ -258,12 +316,6 @@ impl Vmm {
 
         let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
 
-        let epoll_context = &mut self.epoll_context;
-
-        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
-        epoll_context.add_event(&exit_evt, EpollDispatch::Exit)?;
-        epoll_context.add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
-
         /* Instantiating MMIO device manager
         'mmio_base' address has to be an address which is protected by the kernel, in this case
         the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
@@ -271,30 +323,13 @@ impl Vmm {
         let mut device_manager =
             DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
-        if let Some(root_blk_file) = self.cfg.root_blk_file.as_ref() {
-            //fixme this is a super simple solution; improve at some point
-            //the root option has some more parameters IIRC; are any of them needed/useful?
-            self.kernel_config
-                .cmdline
-                .insert_str(" root=/dev/vda")
-                .unwrap();
+        self.attach_block_devices(&mut device_manager)?;
 
-            //adding root blk device from file (currently always opened as read + write)
-            let root_image = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(root_blk_file)
-                .map_err(Error::RootDiskImage)?;
+        let epoll_context = &mut self.epoll_context;
 
-            let epoll_config = epoll_context.allocate_virtio_block_tokens();
-
-            let block_box = Box::new(devices::virtio::Block::new(root_image, epoll_config)
-                .map_err(Error::RootBlockDeviceNew)?);
-
-            device_manager
-                .register_mmio(block_box, &mut self.kernel_config.cmdline)
-                .map_err(Error::RegisterBlock)?;
-        }
+        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
+        epoll_context.add_event(&exit_evt, EpollDispatch::Exit)?;
+        epoll_context.add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
 
         if self.cfg.host_ip.is_some() {
             let epoll_config = epoll_context.allocate_virtio_net_tokens();
