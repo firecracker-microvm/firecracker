@@ -13,6 +13,7 @@ use std::sync::mpsc::channel;
 use api_server::ApiServer;
 use sys_util::{syslog, EventFd};
 use vmm::machine::MachineCfg;
+use vmm::device_config::BlockDeviceConfig;
 
 fn main() {
     if let Err(e) = syslog::init() {
@@ -109,6 +110,16 @@ fn main() {
             EventFd::new().expect("cannot create eventFD"),
             from_api,
         ).expect("cannot create VMM");
+        // This is a temporary fix. Block devices should be added via http requests.
+        // With the command line, we can only add one device, with default to root block device.
+        if cmd_arguments.is_present("root_blk_file") {
+            let root_block_device = BlockDeviceConfig {
+                path_on_host: PathBuf::from(cmd_arguments.value_of("root_blk_file").unwrap()),
+                is_root_device: true,
+                drive_id: String::from("1"),
+            };
+            vmm.add_block_device(root_block_device).expect("cannot add root block device.");
+        }
         vmm.boot_kernel().expect("cannot boot kernel");
         vmm.run_control().expect("VMM loop error!");
     } else {
