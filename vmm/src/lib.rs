@@ -3,6 +3,7 @@ extern crate libc;
 #[macro_use(defer)]
 extern crate scopeguard;
 
+extern crate api;
 extern crate devices;
 extern crate kernel_loader;
 extern crate kvm;
@@ -22,10 +23,11 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, stdout};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 
+use api::*;
 use device_manager::*;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
@@ -63,7 +65,7 @@ pub enum Error {
     NetDeviceNew(devices::virtio::NetError),
     RegisterNet(device_manager::Error),
     DeviceVmRequest(sys_util::Error),
-    DummyErr,
+    ApiChannel,
 }
 
 impl std::convert::From<kernel_loader::Error> for Error {
@@ -81,10 +83,11 @@ impl std::convert::From<x86_64::Error> for Error {
 type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone, Copy)]
-enum EpollDispatch {
+pub enum EpollDispatch {
     Exit,
     Stdin,
     DeviceHandler(usize, DeviceEventT),
+    ApiRequest,
 }
 
 struct MaybeHandler {
@@ -111,36 +114,30 @@ pub struct EpollContext {
 }
 
 impl EpollContext {
-    pub fn new(exit_evt_raw_fd: RawFd) -> Result<Self> {
+    pub fn new() -> Result<Self> {
         let epoll_raw_fd = epoll::create(true).map_err(Error::EpollFd)?;
-
-        //some reasonable initial capacity values
-        let mut dispatch_table = Vec::with_capacity(20);
-        let device_handlers = Vec::with_capacity(6);
-
-        epoll::ctl(
-            epoll_raw_fd,
-            epoll::EPOLL_CTL_ADD,
-            exit_evt_raw_fd,
-            epoll::Event::new(epoll::EPOLLIN, dispatch_table.len() as u64),
-        ).map_err(Error::EpollFd)?;
-
-        dispatch_table.push(EpollDispatch::Exit);
-
-        epoll::ctl(
-            epoll_raw_fd,
-            epoll::EPOLL_CTL_ADD,
-            libc::STDIN_FILENO,
-            epoll::Event::new(epoll::EPOLLIN, dispatch_table.len() as u64),
-        ).map_err(Error::EpollFd)?;
-
-        dispatch_table.push(EpollDispatch::Stdin);
 
         Ok(EpollContext {
             epoll_raw_fd,
-            dispatch_table,
-            device_handlers,
+            dispatch_table: Vec::with_capacity(20),
+            device_handlers: Vec::with_capacity(6),
         })
+    }
+
+    pub fn add_event_from_rawfd(&mut self, raw_fd: RawFd, token: EpollDispatch) -> Result<()> {
+        epoll::ctl(
+            self.epoll_raw_fd,
+            epoll::EPOLL_CTL_ADD,
+            raw_fd,
+            epoll::Event::new(epoll::EPOLLIN, self.dispatch_table.len() as u64),
+        ).map_err(Error::EpollFd)?;
+        self.dispatch_table.push(token);
+
+        Ok(())
+    }
+
+    pub fn add_event(&mut self, evfd: &EventFd, token: EpollDispatch) -> Result<()> {
+        self.add_event_from_rawfd(evfd.as_raw_fd(), token)
     }
 
     fn allocate_tokens(&mut self, count: usize) -> (u64, Sender<Box<EpollHandler>>) {
@@ -195,65 +192,45 @@ impl Drop for EpollContext {
 }
 
 pub struct VmmCore {
-    pub exit_evt: EventFd,
     pub kill_signaled: Arc<AtomicBool>,
-    pub epoll_context: EpollContext,
     pub stdio_serial: Arc<Mutex<devices::Serial>>,
     pub vcpu_handles: Vec<thread::JoinHandle<()>>,
-    vm: Vm,
+    pub exit_evt: EventFd,
+    _vm: Vm,
 }
 
 pub struct Vmm {
     cfg: MachineCfg,
     core: Option<VmmCore>,
+    api_event_fd: EventFd,
+    epoll_context: EpollContext,
     running: AtomicBool,
+
+    from_api: Receiver<Box<ApiRequest>>,
 }
 
 impl Vmm {
-    pub fn new(cfg: MachineCfg) -> Vmm {
-        Vmm {
+    pub fn new(
+        cfg: MachineCfg,
+        api_event_fd: EventFd,
+        from_api: Receiver<Box<ApiRequest>>,
+    ) -> Result<Self> {
+        let mut epoll_context = EpollContext::new()?;
+        epoll_context.add_event(&api_event_fd, EpollDispatch::ApiRequest)
+            .expect("cannot add API eventfd to epoll");
+        Ok(Vmm {
             cfg,
             core: None,
+            api_event_fd,
+            epoll_context,
             running: AtomicBool::new(false),
-        }
-    }
-
-    /// This is the entry point for the VMM thread
-    /// it will report to the api_server thread whether vmm has started
-    /// through the 'tx' Sender parameter.
-    /// Return value of this function is currently unused.
-    pub fn run_vmm(&mut self, tx: Sender<Result<()>>) -> Result<()> {
-        // single entry enforcement
-        if self.running.compare_and_swap(false, true, Ordering::SeqCst) {
-            warn!("Cannot start VMM since it's already running.");
-            tx.send(Err(Error::Vm(vstate::Error::AlreadyRunning)))
-                .unwrap();
-            return Err(Error::Vm(vstate::Error::AlreadyRunning));
-        }
-
-        let boot_res = self.boot_kernel();
-
-        // report boot status to initiating thread
-        if boot_res.is_ok() {
-            tx.send(boot_res).unwrap(); // NOTE: rx will close after receiving this msg
-        } else {
-            tx.send(boot_res).unwrap();
-            self.running.store(false, Ordering::Release);
-            // if boot failed, don't go forward, actual error is reported through
-            // the channel above, this return value doesn't matter.
-            return Err(Error::DummyErr);
-        }
-
-        let res = self.run_control();
-
-        self.stop();
-
-        res
+            from_api,
+        })
     }
 
     /// only call this from run_vmm() or other functions
     /// that can guarantee single instances
-    fn boot_kernel(&mut self) -> Result<()> {
+    pub fn boot_kernel(&mut self) -> Result<()> {
         let mem_size = self.cfg.mem_size << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
 
@@ -272,9 +249,11 @@ impl Vmm {
 
         let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
 
-        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
+        let epoll_context = &mut self.epoll_context;
 
-        let mut epoll_context = EpollContext::new(exit_evt.as_raw_fd())?;
+        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
+        epoll_context.add_event(&exit_evt, EpollDispatch::Exit)?;
+        epoll_context.add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
 
         /* Instantiating MMIO device manager
         'mmio_base' address has to be an address which is protected by the kernel, in this case
@@ -445,11 +424,10 @@ impl Vmm {
 
         self.core = Some(VmmCore {
             vcpu_handles,
-            epoll_context,
-            exit_evt,
             kill_signaled,
             stdio_serial,
-            vm,
+            exit_evt,
+            _vm: vm,
         });
 
         Ok(())
@@ -458,11 +436,9 @@ impl Vmm {
     fn stop(&mut self) {
         let mut core = match self.core.take() {
             Some(v) => v,
-            None => {
-                warn!("Cannot stop VMM since it's not running.");
-                return ();
-            }
+            None => return (),
         };
+
         let kill_signaled = &core.kill_signaled;
         let vcpu_handles = &mut core.vcpu_handles;
         let extracted_vcpu_handles = std::mem::replace(vcpu_handles, Vec::new());
@@ -482,10 +458,7 @@ impl Vmm {
         self.running.store(false, Ordering::Release);
     }
 
-    fn run_control(&mut self) -> Result<()> {
-        let mut core = self.core.as_mut().unwrap();
-        let stdio_serial = &core.stdio_serial;
-        let epoll_context = &mut core.epoll_context;
+    pub fn run_control(&mut self) -> Result<()> {
         let stdin_handle = io::stdin();
         let stdin_lock = stdin_handle.lock();
         stdin_lock.set_raw_mode().map_err(Error::Terminal)?;
@@ -501,18 +474,25 @@ impl Vmm {
         // Safe as we pass to set_len the value passed to with_capacity.
         unsafe { events.set_len(EPOLL_EVENTS_LEN) };
 
-        let epoll_raw_fd = epoll_context.epoll_raw_fd;
+        let epoll_raw_fd = self.epoll_context.epoll_raw_fd;
 
         'poll: loop {
             let num_events = epoll::wait(epoll_raw_fd, -1, &mut events[..]).map_err(Error::Poll)?;
 
             for i in 0..num_events {
                 let dispatch_idx = events[i].data() as usize;
-                let dispatch_type = epoll_context.dispatch_table[dispatch_idx];
+                let dispatch_type = self.epoll_context.dispatch_table[dispatch_idx];
 
                 match dispatch_type {
                     EpollDispatch::Exit => {
                         info!("vcpu requested shutdown");
+                        self.core
+                            .as_mut()
+                            .unwrap()
+                            .exit_evt
+                            .read()
+                            .expect("cannot read exitevent");
+                        self.stop();
                         break 'poll;
                     }
                     EpollDispatch::Stdin => {
@@ -537,7 +517,8 @@ impl Vmm {
                                 ).map_err(Error::EpollFd)?;
                             }
                             Ok(count) => {
-                                stdio_serial
+                                let core = self.core.as_mut().unwrap();
+                                core.stdio_serial
                                     .lock()
                                     .unwrap()
                                     .queue_input_bytes(&out[..count])
@@ -546,8 +527,15 @@ impl Vmm {
                         }
                     }
                     EpollDispatch::DeviceHandler(device_idx, device_token) => {
-                        let handler = epoll_context.get_device_handler(device_idx);
+                        let handler = self.epoll_context.get_device_handler(device_idx);
                         handler.handle_event(device_token, events[i].events().bits());
+                    }
+                    EpollDispatch::ApiRequest => {
+                        self.api_event_fd.read().expect("cannot read ");
+                        self.run_api_cmd().unwrap_or_else(|_| {
+                            warn!("got spurious notification from api thread");
+                            ()
+                        });
                     }
                 }
             }
@@ -555,4 +543,48 @@ impl Vmm {
 
         Ok(())
     }
+
+    fn run_api_cmd(&mut self) -> Result<()> {
+        let request = match self.from_api.try_recv() {
+            Ok(t) => t,
+            Err(TryRecvError::Empty) => {
+                return Err(Error::ApiChannel);
+            }
+            Err(TryRecvError::Disconnected) => {
+                panic!();
+            }
+        };
+        let response: Box<ApiResponse> = Box::new(match request.command {
+            ApiCommand::DescribeInstance => {
+                let err = models::Error {
+                    fault_message: Some("Not implemented".to_string()),
+                };
+                ApiResponse::DescribeInstanceResp(DescribeInstanceResponse::UnexpectedError(err))
+            }
+            ApiCommand::StartInstance => {
+                let result = self.boot_kernel().map_err(|_| models::Error {
+                    fault_message: Some("Guest kernel failed to boot.".to_string()),
+                });
+                ApiResponse::StartInstanceResp(result)
+            }
+            ApiCommand::AddDrive(ref _info) => ApiResponse::GenericError(models::Error {
+                fault_message: Some("Not implemented".to_string()),
+            }),
+        });
+        request.response_sender.send(response).unwrap();
+
+        Ok(())
+    }
+}
+
+pub fn start_vmm_thread(
+    cfg: MachineCfg,
+    api_event_fd: EventFd,
+    from_api: Receiver<Box<ApiRequest>>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        let mut vmm = Vmm::new(cfg, api_event_fd, from_api).expect("cannot create VMM");
+        vmm.run_control().expect("VMM thread fail");
+        // TODO: maybe offer through API: an instance status reporting error messages (r)
+    })
 }
