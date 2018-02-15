@@ -9,4 +9,5 @@ futures = "=0.1"
 iron = "=0.5"
 
 api = { path = "../api" }
+sys_util = { path = "../sys_util" }
 vmm = { path = "../vmm" }
