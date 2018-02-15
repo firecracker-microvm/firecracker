@@ -34,23 +34,23 @@ macro_rules! ret_on_fail {
     })
 }
 
-struct ApiServer {
-    actions: Mutex<LinkedList<models::InstanceActionInfo>>,
+struct ApiActions {
+    action_list: Mutex<LinkedList<models::InstanceActionInfo>>,
 }
 
-impl ApiServer {
-    pub fn new() -> ApiServer {
-        ApiServer {
-            actions: Mutex::new(LinkedList::new()),
+impl ApiActions {
+    pub fn new() -> ApiActions {
+        ApiActions {
+            action_list: Mutex::new(LinkedList::new()),
         }
     }
 
-    pub fn add_instance_action(
+    pub fn add_new(
         &self,
         action_id: &String,
         info: models::InstanceActionInfo,
     ) -> ResponseResult<CreateInstanceActionResponse> {
-        let mut actions = self.actions.lock().unwrap();
+        let mut actions = self.action_list.lock().unwrap();
 
         match actions.iter().position(|ref n| **n == info) {
             Some(pos) => {
@@ -82,8 +82,8 @@ impl ApiServer {
         }
     }
 
-    fn update_action_result(&self, action_id: &String, result: Result<()>) {
-        let mut actions = self.actions.lock().unwrap();
+    fn update_result(&self, action_id: &String, result: Result<()>) {
+        let mut actions = self.action_list.lock().unwrap();
 
         let action = actions
             .iter_mut()
@@ -107,19 +107,19 @@ impl ApiServer {
 }
 
 #[derive(Clone)]
-pub struct Server {
-    api_server: Arc<ApiServer>,
+pub struct ApiServer {
+    actions: Arc<ApiActions>,
 }
 
-impl Server {
-    pub fn new() -> Server {
-        Server {
-            api_server: Arc::new(ApiServer::new()),
+impl ApiServer {
+    pub fn new() -> ApiServer {
+        ApiServer {
+            actions: Arc::new(ApiActions::new()),
         }
     }
 }
 
-impl Api for Server {
+impl Api for ApiServer {
     /// Applies limiter 'limiter_id' to drive 'drive_id'
     fn apply_limiter_to_drive(
         &self,
@@ -209,10 +209,7 @@ impl Api for Server {
             );
         }
 
-        let response = ret_on_fail!(
-            self.api_server
-                .add_instance_action(&action_id, info.clone())
-        );
+        let response = ret_on_fail!(self.actions.add_new(&action_id, info.clone()));
 
         response
     }
@@ -596,7 +593,7 @@ use std::thread;
 use iron::{Chain, Iron};
 
 pub fn start_api_server(api_port: u16) {
-    let server = Server::new();
+    let server = ApiServer::new();
     let router = api::router(server);
 
     let chain = Chain::new(router);
