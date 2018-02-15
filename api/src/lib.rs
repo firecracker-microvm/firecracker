@@ -24,12 +24,32 @@ extern crate hyper;
 extern crate swagger;
 
 pub use futures::Future;
+use std::sync::mpsc::Sender;
 
 #[cfg(feature = "server")]
 mod mimetypes;
 
 pub use swagger::{ApiError, Context, ContextWrapper};
 
+type SimpleResponse = std::result::Result<(), models::Error>;
+
+pub struct ApiRequest {
+    pub command: ApiCommand,
+    pub response_sender: Sender<Box<ApiResponse>>,
+}
+
+pub enum ApiCommand {
+    DescribeInstance,
+    StartInstance,
+    AddDrive(models::Drive),
+}
+
+pub enum ApiResponse {
+    DescribeInstanceResp(DescribeInstanceResponse),
+    StartInstanceResp(SimpleResponse),
+    AddDriveResp(PutGuestDriveByIDResponse),
+    GenericError(models::Error),
+}
 
 #[derive(Debug, PartialEq)]
 pub enum ApplyLimiterToDriveResponse {
