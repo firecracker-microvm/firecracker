@@ -3,22 +3,22 @@ extern crate futures;
 extern crate iron;
 
 extern crate api;
+extern crate sys_util;
 extern crate vmm;
 
 use futures::Future;
 
 use api::*;
+use sys_util::EventFd;
 
 use std::sync::{Arc, Mutex};
 use std::collections::LinkedList;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, Sender};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 type FutureResponse<T> = Box<Future<Item = T, Error = ApiError> + Send>;
 
 type ResponseResult<T> = std::result::Result<FutureResponse<T>, FutureResponse<T>>;
-
-type Result<T> = std::result::Result<T, vmm::Error>;
 
 macro_rules! ErrorResponseWithMessage {
     ($err:path, $msg:expr) => (Box::new(futures::future::ok($err(
@@ -82,7 +82,7 @@ impl ApiActions {
         }
     }
 
-    fn update_result(&self, action_id: &String, result: Result<()>) {
+    fn update_result(&self, action_id: &String, result: Result<(), models::Error>) {
         let mut actions = self.action_list.lock().unwrap();
 
         let action = actions
@@ -90,7 +90,7 @@ impl ApiActions {
             .find(|ref n| *n.action_id == *action_id)
             .unwrap();
         match result {
-            Ok(_v) => {
+            Ok(_) => {
                 let since_the_epoch = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("Time went backwards");
@@ -98,7 +98,7 @@ impl ApiActions {
                     + since_the_epoch.subsec_nanos() as u64 / 1_000_000;
                 action.timestamp = Some(in_ms.to_string());
             }
-            Err(_e) => {
+            Err(_) => {
                 action.timestamp = Some("0".to_string());
                 // TODO: maybe add field to action to report possible failure error
             }
@@ -109,13 +109,41 @@ impl ApiActions {
 #[derive(Clone)]
 pub struct ApiServer {
     actions: Arc<ApiActions>,
+    api_event: Arc<EventFd>,
+    to_vmm: Sender<Box<ApiRequest>>,
 }
 
+unsafe impl Sync for ApiServer {}
+
 impl ApiServer {
-    pub fn new() -> ApiServer {
+    pub fn new(api_event: EventFd, to_vmm: Sender<Box<ApiRequest>>) -> ApiServer {
         ApiServer {
             actions: Arc::new(ApiActions::new()),
+            api_event: Arc::new(api_event),
+            to_vmm,
         }
+    }
+
+    fn do_start_instance(&self, action_id: String) {
+        let (tx, rx) = channel();
+        let msg = Box::new(ApiRequest {
+            command: ApiCommand::StartInstance,
+            response_sender: tx,
+        });
+        self.to_vmm.send(msg).expect("could not send");
+        self.api_event.write(1)
+            .expect("failed to signal vcpu exit eventfd");
+        let res = rx.recv().unwrap();
+
+        match *res {
+            ApiResponse::StartInstanceResp(resp) => {
+                println!("API: reply is '{:?}'", resp);
+                self.actions.update_result(&action_id, resp);
+            }
+            _ => {
+                println!("API: Warning! received wrong response type from VMM");
+            }
+        };
     }
 }
 
@@ -209,7 +237,19 @@ impl Api for ApiServer {
             );
         }
 
-        let response = ret_on_fail!(self.actions.add_new(&action_id, info.clone()));
+        let action_type = info.action_type.clone().unwrap();
+        let response = ret_on_fail!(self.actions.add_new(&action_id, info));
+
+        let self_clone = self.clone();
+        thread::spawn(move || {
+            match &action_type[..] {
+                "InstanceStart" => self_clone.do_start_instance(action_id),
+                "InstanceDeviceDetach" | "InstanceReset" | "InstanceHalt" => {
+                    println!("Action type '{}' no yet implemented.", action_type);
+                }
+                _ => (),
+            };
+        });
 
         response
     }
@@ -592,8 +632,8 @@ use std::thread;
 
 use iron::{Chain, Iron};
 
-pub fn start_api_server(api_port: u16) {
-    let server = ApiServer::new();
+pub fn start_api_server(api_port: u16, api_event: EventFd, to_vmm: Sender<Box<ApiRequest>>) {
+    let server = ApiServer::new(api_event, to_vmm);
     let router = api::router(server);
 
     let chain = Chain::new(router);
