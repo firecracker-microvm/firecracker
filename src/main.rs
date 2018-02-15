@@ -10,7 +10,7 @@ use clap::{App, Arg};
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 
-use sys_util::syslog;
+use sys_util::{syslog, EventFd};
 
 use vmm::machine::MachineCfg;
 
@@ -112,17 +112,18 @@ fn main() {
     };
 
     let cfg = parse_args(&cmd_arguments);
+    let (to_vmm, from_api) = channel();
+    let api_event_fd = EventFd::new().expect("cannot create API eventFD");
 
-    // TODO: this is for integration testing, need to find a more pretty solution
+    // TODO: vmm_no_api is for integration testing, need to find a more pretty solution
     if vmm_no_api {
-        let (tx, rx) = channel();
-        let mut vmm = vmm::Vmm::new(cfg);
-        let loop_result = vmm.run_vmm(tx);
-        rx.recv().unwrap().expect("cannot boot kernel");
-        loop_result.expect("VMM loop error!");
+        let mut vmm = vmm::Vmm::new(cfg, api_event_fd, from_api).expect("cannot create VMM");
+        vmm.boot_kernel().expect("cannot boot kernel");
+        vmm.run_control().expect("VMM loop error!");
     } else {
-        println!("API Thread unsupported yet. Please run with '--vmm-no-api'.");
-        //api_server::start_api_server(api_port);
+        let server_api_event = api_event_fd.try_clone().expect("cannot clone API eventFD");
+        let _vmm_thread_handle = vmm::start_vmm_thread(cfg, api_event_fd, from_api);
+        api_server::start_api_server(api_port, server_api_event, to_vmm);
     }
 }
 
