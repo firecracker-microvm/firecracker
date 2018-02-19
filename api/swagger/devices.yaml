@@ -452,6 +452,8 @@ definitions:
       path_on_host:
         type: string
         description: "host level path for the guest drive"
+      is_root_device:
+        type: bool
       state:
         $ref: '#/definitions/DeviceState'
   NetworkInterface:
