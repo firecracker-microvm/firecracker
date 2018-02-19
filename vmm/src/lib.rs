@@ -166,12 +166,15 @@ impl EpollContext {
     }
 
     pub fn disable_stdin_event(&mut self) -> Result<()> {
-        epoll::ctl(
+        // ignore failure to remove from epoll, only reason for failure is
+        // that stdin has closed or changed - in which case we won't get
+        // any more events on the original event_fd anyway.
+        let _ = epoll::ctl(
             self.epoll_raw_fd,
             epoll::EPOLL_CTL_DEL,
             libc::STDIN_FILENO,
             epoll::Event::new(epoll::EPOLLIN, self.stdin_index),
-        ).map_err(Error::EpollFd)?;
+        ).map_err(Error::EpollFd);
         self.dispatch_table[self.stdin_index as usize] = None;
 
         Ok(())
@@ -660,7 +663,7 @@ impl Vmm {
         Ok(())
     }
 
-    fn stop(&mut self) {
+    fn stop(&mut self) -> Result<()> {
         if let Some(v) = self.kill_signaled.take() {
             v.store(true, Ordering::SeqCst);
         };
@@ -679,9 +682,9 @@ impl Vmm {
         };
 
         if let Some(evt) = self.exit_evt.take() {
-            let _ = self.epoll_context.remove_event(evt);
+            self.epoll_context.remove_event(evt)?;
         }
-        let _ = self.epoll_context.disable_stdin_event();
+        self.epoll_context.disable_stdin_event()?;
 
         self.stdio_serial.take();
         self.vm.take();
@@ -689,9 +692,10 @@ impl Vmm {
         //TODO:
         // - clean epoll_context:
         //   - remove block, net
+        Ok(())
     }
 
-    pub fn run_control(&mut self) -> Result<()> {
+    pub fn run_control(&mut self, api_enabled: bool) -> Result<()> {
         let stdin_handle = io::stdin();
         let stdin_lock = stdin_handle.lock();
         stdin_lock.set_raw_mode().map_err(Error::Terminal)?;
@@ -709,6 +713,7 @@ impl Vmm {
 
         let epoll_raw_fd = self.epoll_context.epoll_raw_fd;
 
+        // TODO: try handling of errors/failures without breaking this main loop.
         'poll: loop {
             let num_events = epoll::wait(epoll_raw_fd, -1, &mut events[..]).map_err(Error::Poll)?;
 
@@ -725,8 +730,10 @@ impl Vmm {
                                 }
                                 None => warn!("leftover exit-evt in epollcontext!"),
                             }
-                            self.stop();
-                            break 'poll;
+                            self.stop()?;
+                            if !api_enabled {
+                                break 'poll;
+                            }
                         }
                         EpollDispatch::Stdin => {
                             let mut out = [0u8; 64];
@@ -787,18 +794,21 @@ impl Vmm {
                         let result = match self.boot_kernel() {
                             Ok(_) => AsyncOutcome::Ok(0),
                             Err(e) => {
-                                self.stop();
+                                let _ = self.stop();
                                 AsyncOutcome::Error(format!("cannot boot kernel: {:?}", e))
                             }
                         };
                         sender.send(result).expect("one-shot channel closed");
                     }
                     AsyncRequest::StopInstance(sender) => {
-                        sender
-                            .send(AsyncOutcome::Error(
-                                "StopInstance not implemented".to_string(),
-                            ))
-                            .expect("one-shot channel closed");
+                        let result = match self.stop() {
+                            Ok(_) => AsyncOutcome::Ok(0),
+                            Err(e) => AsyncOutcome::Error(format!(
+                                "Errors detected during instance stop()! err: {:?}",
+                                e
+                            )),
+                        };
+                        sender.send(result).expect("one-shot channel closed");
                     }
                 };
             }
@@ -897,7 +907,7 @@ pub fn start_vmm_thread(
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut vmm = Vmm::new(api_event_fd, from_api).expect("cannot create VMM");
-        vmm.run_control().expect("VMM thread fail");
+        vmm.run_control(true).expect("VMM thread fail");
         // TODO: maybe offer through API: an instance status reporting error messages (r)
     })
 }
