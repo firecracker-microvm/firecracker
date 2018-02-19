@@ -1,5 +1,5 @@
 [package]
-name = "api_server_v2"
+name = "api_server"
 version = "0.1.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
