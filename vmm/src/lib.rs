@@ -329,6 +329,14 @@ impl Vmm {
         Ok(())
     }
 
+    fn reset_stdin_evt(&mut self) -> Result<()> {
+        match self.stdin_evt.take() {
+            Some(evt) => self.epoll_context
+                .remove_event_from_rawfd(evt.raw_event_fd, evt.dispatch_index),
+            None => Ok(()),
+        }
+    }
+
     /// only call this from run_vmm() or other functions
     /// that can guarantee single instances
     pub fn boot_kernel(&mut self) -> Result<()> {
@@ -559,16 +567,10 @@ impl Vmm {
             Some(evt) => {
                 let _ = self.epoll_context
                     .remove_event(&evt.event_fd, evt.dispatch_index);
-            }
+            },
             None => (),
         };
-        match self.stdin_evt.take() {
-            Some(evt) => {
-                let _ = self.epoll_context
-                    .remove_event_from_rawfd(evt.raw_event_fd, evt.dispatch_index);
-            }
-            None => (),
-        };
+        let _ = self.reset_stdin_evt();
 
         self.stdio_serial.take();
         self.vm.take();
@@ -620,23 +622,11 @@ impl Vmm {
                             match stdin_lock.read_raw(&mut out[..]) {
                                 Ok(0) => {
                                     // Zero-length read indicates EOF. Remove from pollables.
-                                    // TODO: remove from epoll-context altogether
-                                    epoll::ctl(
-                                        epoll_raw_fd,
-                                        epoll::EPOLL_CTL_DEL,
-                                        libc::STDIN_FILENO,
-                                        events[i],
-                                    ).map_err(Error::EpollFd)?;
+                                    self.reset_stdin_evt()?;
                                 }
                                 Err(e) => {
                                     warn!("error while reading stdin: {:?}", e);
-                                    // TODO: remove from epoll-context altogether
-                                    epoll::ctl(
-                                        epoll_raw_fd,
-                                        epoll::EPOLL_CTL_DEL,
-                                        libc::STDIN_FILENO,
-                                        events[i],
-                                    ).map_err(Error::EpollFd)?;
+                                    self.reset_stdin_evt()?;
                                 }
                                 Ok(count) => match self.stdio_serial {
                                     Some(ref mut serial) => {
