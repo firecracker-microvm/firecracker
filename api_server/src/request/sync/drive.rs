@@ -9,9 +9,10 @@ use super::{DeviceState, SyncRequest};
 // related requests.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DriveDescription {
-    drive_id: String,
-    path_on_host: String,
-    state: DeviceState,
+    pub drive_id: String,
+    pub path_on_host: String,
+    pub state: DeviceState,
+    pub is_root_device: bool,
 }
 
 impl DriveDescription {
