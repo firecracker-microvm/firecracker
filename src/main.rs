@@ -237,5 +237,5 @@ fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<A
     };
     vmm.configure_kernel(kernel_config);
     vmm.boot_kernel().expect("cannot boot kernel");
-    vmm.run_control().expect("VMM loop error!");
+    vmm.run_control(false).expect("VMM loop error!");
 }
