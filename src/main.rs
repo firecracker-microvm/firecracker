@@ -1,7 +1,7 @@
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
 
-extern crate api_server_v2;
+extern crate api_server;
 extern crate devices;
 extern crate sys_util;
 extern crate vmm;
@@ -10,7 +10,7 @@ use clap::{App, Arg};
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 
-use api_server_v2::ApiServer;
+use api_server::ApiServer;
 use sys_util::{syslog, EventFd};
 use vmm::machine::MachineCfg;
 
