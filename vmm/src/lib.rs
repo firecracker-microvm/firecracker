@@ -3,7 +3,7 @@ extern crate libc;
 #[macro_use(defer)]
 extern crate scopeguard;
 
-extern crate api_server_v2;
+extern crate api_server;
 extern crate devices;
 extern crate kernel_loader;
 extern crate kvm;
@@ -27,9 +27,9 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 
-use api_server_v2::ApiRequest;
-use api_server_v2::request::async::{AsyncOutcome, AsyncRequest};
-use api_server_v2::request::sync::SyncRequest;
+use api_server::ApiRequest;
+use api_server::request::async::{AsyncOutcome, AsyncRequest};
+use api_server::request::sync::SyncRequest;
 use device_manager::*;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
@@ -207,14 +207,14 @@ pub struct Vmm {
     api_event_fd: EventFd,
     epoll_context: EpollContext,
 
-    from_api: Receiver<Box<api_server_v2::ApiRequest>>,
+    from_api: Receiver<Box<ApiRequest>>,
 }
 
 impl Vmm {
     pub fn new(
         cfg: MachineCfg,
         api_event_fd: EventFd,
-        from_api: Receiver<Box<api_server_v2::ApiRequest>>,
+        from_api: Receiver<Box<ApiRequest>>,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         epoll_context.add_event(&api_event_fd, EpollDispatch::ApiRequest)
@@ -587,7 +587,7 @@ impl Vmm {
 pub fn start_vmm_thread(
     cfg: MachineCfg,
     api_event_fd: EventFd,
-    from_api: Receiver<Box<api_server_v2::ApiRequest>>,
+    from_api: Receiver<Box<ApiRequest>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut vmm = Vmm::new(cfg, api_event_fd, from_api).expect("cannot create VMM");
