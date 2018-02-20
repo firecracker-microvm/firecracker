@@ -5,7 +5,7 @@ mod drive;
 
 use std::fmt;
 
-pub use self::drive::DriveDescription;
+pub use self::drive::{DriveDescription, DriveError, PutDriveOutcome};
 
 // Unlike async requests, sync request have outcomes which implement this trait. The idea is for
 // each outcome to be a struct which is cheaply and quickly instantiated by the VMM thread, then
