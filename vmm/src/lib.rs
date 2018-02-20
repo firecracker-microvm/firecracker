@@ -69,6 +69,8 @@ pub enum Error {
     RegisterBlock(device_manager::Error),
     NetDeviceNew(devices::virtio::NetError),
     RegisterNet(device_manager::Error),
+    CreateVirtioVsock(devices::virtio::vhost::Error),
+    RegisterMMIOVsockDevice(device_manager::Error),
     DeviceVmRequest(sys_util::Error),
     DriveError(DriveError),
     ApiChannel,
@@ -169,6 +171,11 @@ impl EpollContext {
     pub fn allocate_virtio_net_tokens(&mut self) -> virtio::net::EpollConfig {
         let (dispatch_base, sender) = self.allocate_tokens(4);
         virtio::net::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
+    }
+
+    pub fn allocate_virtio_vsock_tokens(&mut self) -> virtio::vhost::handle::VhostEpollConfig {
+        let (dispatch_base, sender) = self.allocate_tokens(2);
+        virtio::vhost::handle::VhostEpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
     fn get_device_handler(&mut self, device_idx: usize) -> &mut EpollHandler {
