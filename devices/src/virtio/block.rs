@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 
 use {DeviceEventT, EpollHandler};
-use virtio::mmio::{ActivateError, ActivateResult};
+use super::{ActivateError, ActivateResult};
 use epoll;
 use super::{DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_BLOCK};
 use sys_util::Result as SysResult;
@@ -369,6 +369,7 @@ impl VirtioDevice for Block {
         mut queue_evts: Vec<EventFd>,
     ) -> ActivateResult {
         if queues.len() != 1 || queue_evts.len() != 1 {
+            error!("virtio-block: expected 1 queue, got {}", queues.len());
             return Err(ActivateError::BadActivate);
         }
 
