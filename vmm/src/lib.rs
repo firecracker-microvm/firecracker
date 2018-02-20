@@ -264,7 +264,9 @@ impl Vmm {
         block_device_config: BlockDeviceConfig,
     ) -> result::Result<(), DriveError> {
         // if the id of the drive already exists in the list, the operation is update
-        if self.block_device_configs.contains_drive_id(block_device_config.drive_id.clone()) {
+        if self.block_device_configs
+            .contains_drive_id(block_device_config.drive_id.clone())
+        {
             return Err(DriveError::NotImplemented);
         } else {
             self.block_device_configs.add(block_device_config)
@@ -356,6 +358,16 @@ impl Vmm {
             device_manager
                 .register_mmio(net_box, &mut self.kernel_config.cmdline)
                 .map_err(Error::RegisterNet)?;
+        }
+
+        if let Some(cid) = self.cfg.vsock_guest_cid {
+            let epoll_config = epoll_context.allocate_virtio_vsock_tokens();
+
+            let vsock_box = Box::new(devices::virtio::Vsock::new(cid, &guest_mem, epoll_config)
+                .map_err(Error::CreateVirtioVsock)?);
+            device_manager
+                .register_mmio(vsock_box, &mut self.kernel_config.cmdline)
+                .map_err(Error::RegisterMMIOVsockDevice)?;
         }
 
         let kvm = Kvm::new().map_err(Error::Kvm)?;
