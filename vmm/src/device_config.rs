@@ -1,15 +1,13 @@
+extern crate api_server;
 /// Use this structure to set up the Block Device before booting the kernel
 extern crate std;
+
+use api_server::request::sync::{DriveDescription, DriveError};
 
 use std::collections::LinkedList;
 use std::path::PathBuf;
 
-#[derive(Debug)]
-pub enum Error {
-    RootBlockDeviceAlreadyAdded,
-    InvalidBlockDevicePath,
-}
-type Result<T> = std::result::Result<T, Error>;
+type Result<T> = std::result::Result<T, DriveError>;
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct BlockDeviceConfig {
@@ -22,6 +20,16 @@ pub struct BlockDeviceConfig {
 pub struct BlockDeviceConfigs {
     pub config_list: LinkedList<BlockDeviceConfig>,
     has_root_block: bool,
+}
+
+impl From<DriveDescription> for BlockDeviceConfig {
+    fn from(item: DriveDescription) -> Self {
+        BlockDeviceConfig {
+            drive_id: item.drive_id,
+            path_on_host: PathBuf::from(item.path_on_host),
+            is_root_device: item.is_root_device,
+        }
+    }
 }
 
 impl BlockDeviceConfigs {
@@ -42,13 +50,13 @@ impl BlockDeviceConfigs {
     pub fn add(&mut self, block_device_config: BlockDeviceConfig) -> Result<()> {
         // check if the path exists
         if !block_device_config.path_on_host.exists() {
-            return Err(Error::InvalidBlockDevicePath);
+            return Err(DriveError::InvalidBlockDevicePath);
         }
         // check whether the Device Config belongs to a root device
         // we need to satify the condition by which a VMM can only have on root device
         if block_device_config.is_root_device {
             if self.has_root_block {
-                return Err(Error::RootBlockDeviceAlreadyAdded);
+                return Err(DriveError::RootBlockDeviceAlreadyAdded);
             } else {
                 // Root Device should be the first in the list
                 self.config_list.push_front(block_device_config);
@@ -158,7 +166,7 @@ mod tests {
             "{:?}",
             block_devices_configs.add(root_block_device_2).unwrap_err()
         );
-        let expected_error = format!("{:?}", Error::RootBlockDeviceAlreadyAdded);
+        let expected_error = format!("{:?}", DriveError::RootBlockDeviceAlreadyAdded);
         assert_eq!(expected_error, actual_error);
 
         delete_dummy_path(dummy_filename);
