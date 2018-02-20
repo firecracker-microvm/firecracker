@@ -1,0 +1,9 @@
+[package]
+name = "vhost_sys"
+version = "0.1.0"
+authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+libc = "=0.2.32"
+
+sys_util = { path = "../sys_util" }
