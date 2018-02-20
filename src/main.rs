@@ -87,6 +87,12 @@ fn main() {
                 .help("Subnet mask for the IP address of host interface")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("vsock_guest_cid")
+                .long("vsock-guest-cid")
+                .help("The guest CID for the virtio-vhost-vsock device")
+                .takes_value(true)
+        )
         /*
         The mac address option is not currently implemented; the L2 addresses for both the
         host interface and the guest interface take some implicit (possibly random) values
@@ -126,7 +132,8 @@ fn main() {
         // safe to unwrap since api_sock has a default value
         let bind_path = cmd_arguments
             .value_of("api_sock")
-            .map(|s| PathBuf::from(s)).unwrap();
+            .map(|s| PathBuf::from(s))
+            .unwrap();
 
         let server = ApiServer::new(to_vmm, 100).unwrap();
         let api_event_fd = server
@@ -184,6 +191,19 @@ fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
         .parse()
         .unwrap();
 
+    let vsock_guest_cid = match cmd_arguments.value_of("vsock_guest_cid") {
+        Some(cid) => match cid.parse::<u64>() {
+            Ok(value) => Some(value),
+            Err(error) => {
+                panic!(
+                    "Invalid parameter value for the vsock's guest CID! {:?}",
+                    error
+                );
+            }
+        },
+        None => None,
+    };
+
     MachineCfg::new(
         kernel_path,
         kernel_cmdline,
@@ -192,5 +212,6 @@ fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
         root_blk_file,
         host_ip,
         subnet_mask,
+        vsock_guest_cid,
     )
 }
