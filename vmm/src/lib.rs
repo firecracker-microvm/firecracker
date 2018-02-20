@@ -23,6 +23,7 @@ use std::ffi::CString;
 use std::fs::{File, OpenOptions};
 use std::io::{self, stdout};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, Mutex};
@@ -30,7 +31,7 @@ use std::thread;
 
 use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
-use api_server::request::sync::SyncRequest;
+use api_server::request::sync::{DriveError, PutDriveOutcome, SyncRequest};
 use device_config::*;
 use device_manager::*;
 use devices::virtio;
@@ -69,7 +70,7 @@ pub enum Error {
     NetDeviceNew(devices::virtio::NetError),
     RegisterNet(device_manager::Error),
     DeviceVmRequest(sys_util::Error),
-    DeviceConfigError(device_config::Error),
+    DriveError(DriveError),
     ApiChannel,
 }
 
@@ -82,12 +83,6 @@ impl std::convert::From<kernel_loader::Error> for Error {
 impl std::convert::From<x86_64::Error> for Error {
     fn from(e: x86_64::Error) -> Error {
         Error::ConfigureSystem(e)
-    }
-}
-
-impl std::convert::From<device_config::Error> for Error {
-    fn from(e: device_config::Error) -> Error {
-        Error::DeviceConfigError(e)
     }
 }
 
@@ -237,7 +232,8 @@ impl Vmm {
         from_api: Receiver<Box<ApiRequest>>,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
-        epoll_context.add_event(&api_event_fd, EpollDispatch::ApiRequest)
+        epoll_context
+            .add_event(&api_event_fd, EpollDispatch::ApiRequest)
             .expect("cannot add API eventfd to epoll");
         let cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
         let kernel_config = KernelConfig { cmdline };
@@ -253,9 +249,11 @@ impl Vmm {
         })
     }
 
-    pub fn add_block_device(&mut self, block_device_config:BlockDeviceConfig) -> Result<()> {
-        self.block_device_configs.add(block_device_config)?;
-        Ok(())
+    pub fn add_block_device(
+        &mut self,
+        block_device_config: BlockDeviceConfig,
+    ) -> result::Result<(), DriveError> {
+        self.block_device_configs.add(block_device_config)
     }
 
     /// Attach all block devices from the BlockDevicesConfig
@@ -622,8 +620,17 @@ impl Vmm {
             }
             ApiRequest::Sync(req) => {
                 match req {
-                    SyncRequest::PutDrive(_drive_description, _sender) => {
-                        println!("SyncRequest::PutDrive not implemented");
+                    SyncRequest::PutDrive(drive_description, sender) => {
+                        match self.add_block_device(BlockDeviceConfig::from(drive_description)) {
+                            Ok(_) => sender
+                                .send(Box::new(PutDriveOutcome::Created))
+                                .map_err(|_| ())
+                                .expect("one-shot channel closed"),
+                            Err(e) => sender
+                                .send(Box::new(e))
+                                .map_err(|_| ())
+                                .expect("one-shot channel closed"),
+                        }
                     }
                 };
             }
