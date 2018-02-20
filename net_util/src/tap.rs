@@ -23,6 +23,7 @@ pub enum Error {
     IoctlError(IoError),
     /// Failed to create a socket.
     NetUtil(NetUtilError),
+    InvalidIfname,
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
@@ -40,8 +41,20 @@ pub struct Tap {
 }
 
 impl Tap {
-    /// Create a new tap interface.
-    pub fn new() -> Result<Tap> {
+    pub fn create_named(if_name: &str) -> Result<Tap> {
+        // Convert the string slice to bytes, and shadow the variable,
+        // since we no longer need the &str version.
+        let if_name = if_name.as_bytes();
+
+        // TODO: the 16usize limit of the if_name member from struct Tap is pretty arbitrary.
+        // We leave it as is for now, but this should be refactored at some point.
+        if if_name.len() > 15 {
+            return Err(Error::InvalidIfname);
+        }
+
+        let mut terminated_if_name = vec![b'\0'; if_name.len() + 1];
+        terminated_if_name[..if_name.len()].copy_from_slice(if_name);
+
         // Open calls are safe because we give a constant nul-terminated
         // string and verify the result.
         let fd = unsafe {
@@ -57,8 +70,6 @@ impl Tap {
         // We just checked that the fd is valid.
         let tuntap = unsafe { File::from_raw_fd(fd) };
 
-        const TUNTAP_DEV_FORMAT: &'static [u8; 8usize] = b"vmtap%d\0";
-
         // This is pretty messy because of the unions used by ifreq. Since we
         // don't call as_mut on the same union field more than once, this block
         // is safe.
@@ -66,8 +77,8 @@ impl Tap {
         unsafe {
             let ifrn_name = ifreq.ifr_ifrn.ifrn_name.as_mut();
             let ifru_flags = ifreq.ifr_ifru.ifru_flags.as_mut();
-            let name_slice = &mut ifrn_name[..TUNTAP_DEV_FORMAT.len()];
-            name_slice.copy_from_slice(TUNTAP_DEV_FORMAT);
+            let name_slice = &mut ifrn_name[..terminated_if_name.len()];
+            name_slice.copy_from_slice(terminated_if_name.as_slice());
             *ifru_flags =
                 (net_sys::IFF_TAP | net_sys::IFF_NO_PI | net_sys::IFF_VNET_HDR) as c_short;
         }
@@ -85,6 +96,11 @@ impl Tap {
             tap_file: tuntap,
             if_name: unsafe { ifreq.ifr_ifrn.ifrn_name.as_ref().clone() },
         })
+    }
+
+    /// Create a new tap interface.
+    pub fn new() -> Result<Tap> {
+        Self::create_named("vmtap%d")
     }
 
     /// Set the host-side IP address for the tap interface.
@@ -246,6 +262,13 @@ mod tests {
     // it at the very beginning of each function susceptible to this issue. Another variant is
     // to use a different IP address per function, but we must remember to pick an unique one
     // each time.
+
+    // TODO: there are still going to be problems if multiple cargo test instances are run
+    // on the same machines, because we can no longer make sure (as things are right now) that
+    // we won't have multiple interfaces with the same IP address & other similar things. If this
+    // can happen, maybe we should rely on some sort of outer isolation mechanism, like run each
+    // cargo test inside a different namespace/container.
+
     lazy_static! {
         static ref TAP_IP_LOCK: Mutex<&'static str> = Mutex::new("192.168.241.1");
     }
@@ -544,5 +567,20 @@ mod tests {
         }
 
         assert!(found_test_packet);
+    }
+
+    #[test]
+    fn test_create_named() {
+        // Hopefully, no interface already uses this name.
+        let tap1 = Tap::create_named("bestiface").unwrap();
+        assert_eq!(tap_name_to_string(&tap1), "bestiface");
+
+        // We should get an error here, because we attempt to create another TAP
+        // with the same if_name.
+        let tap2 = Tap::create_named("bestiface");
+        assert!(tap2.is_err());
+
+        let tap3 = Tap::create_named("bestiface3").unwrap();
+        assert_eq!(tap_name_to_string(&tap3), "bestiface3");
     }
 }
