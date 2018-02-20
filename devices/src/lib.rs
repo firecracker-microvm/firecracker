@@ -12,6 +12,8 @@ extern crate net_sys;
 extern crate net_util;
 #[macro_use]
 extern crate sys_util;
+extern crate vhost_backend;
+extern crate vhost_sys;
 extern crate virtio_sys;
 
 mod bus;
@@ -26,6 +28,6 @@ pub use self::serial::Serial;
 
 pub type DeviceEventT = u16;
 
-pub trait EpollHandler : Send {
+pub trait EpollHandler: Send {
     fn handle_event(&mut self, device_event: DeviceEventT, event_flags: u32);
 }
