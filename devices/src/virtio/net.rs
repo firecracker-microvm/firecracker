@@ -16,7 +16,7 @@ use std::sync::Arc;
 use libc::EAGAIN;
 
 use {DeviceEventT, EpollHandler};
-use virtio::mmio::{ActivateError, ActivateResult};
+use super::{ActivateError, ActivateResult};
 use epoll;
 use net_util::{TapError, Tap};
 use net_sys;
@@ -428,7 +428,7 @@ impl VirtioDevice for Net {
         mut queue_evts: Vec<EventFd>,
     ) -> ActivateResult {
         if queues.len() != 2 || queue_evts.len() != 2 {
-            error!("net: expected 2 queues, got {}", queues.len());
+            error!("virtio-net: expected 2 queues, got {}", queues.len());
             return Err(ActivateError::BadActivate);
         }
 

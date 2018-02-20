@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-use std::io;
-use std::result;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -11,7 +9,7 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use BusDevice;
 use super::*;
-use sys_util::{self, EventFd, GuestAddress, GuestMemory, Result};
+use sys_util::{EventFd, GuestAddress, GuestMemory, Result};
 
 //TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
 const VENDOR_ID: u32 = 0;
@@ -21,16 +19,6 @@ const MMIO_MAGIC_VALUE: u32 = 0x74726976;
 
 //current version specified by the mmio standard (legacy devices used 1 here)
 const MMIO_VERSION: u32 = 2;
-
-#[derive(Debug)]
-pub enum ActivateError {
-    EventFd(sys_util::Error),
-    TryClone(sys_util::Error),
-    EpollCtl(io::Error),
-    BadActivate,
-}
-
-pub type ActivateResult = result::Result<(), ActivateError>;
 
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
@@ -443,7 +431,6 @@ mod tests {
         d.config_generation = 5;
         d.read(0xfc, &mut buf[..]);
         assert_eq!(LittleEndian::read_u32(&buf[..]), 5);
-
 
         // This read shouldn't do anything, as it's past the readable generic registers, and
         // before the device specific configuration space. Btw, reads from the device specific
