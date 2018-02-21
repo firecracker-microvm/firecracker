@@ -8,6 +8,7 @@ extern crate devices;
 extern crate kernel_loader;
 extern crate kvm;
 extern crate kvm_sys;
+extern crate net_util;
 #[macro_use]
 extern crate sys_util;
 extern crate x86_64;
@@ -225,6 +226,7 @@ pub struct Vmm {
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
 
+
     /// api resources
     api_event_fd: EventFd,
     epoll_context: EpollContext,
@@ -249,7 +251,7 @@ impl Vmm {
             cfg,
             core: None,
             kernel_config,
-            block_device_configs: block_device_configs,
+            block_device_configs,
             api_event_fd,
             epoll_context,
             from_api,
