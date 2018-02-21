@@ -659,6 +659,8 @@ impl Vmm {
                                 .expect("one-shot channel closed"),
                         }
                     }
+                    // TODO: Remove this catch-all once all actions are implemented.
+                    _ => panic!("unsupported sync request")
                 };
             }
         };
