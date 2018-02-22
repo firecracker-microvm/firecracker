@@ -68,8 +68,11 @@ impl GenerateResponse for PutDriveOutcome {
 }
 
 impl DriveDescription {
-    pub fn into_parsed_request(self, _id_from_path: &str) -> result::Result<ParsedRequest, String> {
-        // todo: any validation?
+    pub fn into_parsed_request(self, id_from_path: &str) -> result::Result<ParsedRequest, String> {
+        if id_from_path != self.drive_id {
+            return Err(String::from("The id from the path does not match the id from the path!"));
+        }
+
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
             SyncRequest::PutDrive(self, sender),
