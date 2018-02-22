@@ -298,21 +298,16 @@ impl Vmm {
     pub fn boot_kernel(&mut self) -> Result<()> {
         let mem_size = self.cfg.mem_size << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
+        let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
 
-        //we're using unwrap here because the kernel_path is mandatory for now
-        let mut kernel_file =
-            File::open(self.cfg.kernel_path.as_ref().unwrap()).map_err(Error::Kernel)?;
+        let vcpu_count = self.cfg.vcpu_count;
 
+        let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
+        let cmdline_addr = GuestAddress(CMDLINE_OFFSET);
         self.kernel_config
             .cmdline
             .insert_str(&self.cfg.kernel_cmdline)
             .expect("could not use the specified kernel cmdline");
-
-        let vcpu_count = self.cfg.vcpu_count;
-        let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
-        let cmdline_addr = GuestAddress(CMDLINE_OFFSET);
-
-        let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
 
         /* Instantiating MMIO device manager
         'mmio_base' address has to be an address which is protected by the kernel, in this case
@@ -323,14 +318,8 @@ impl Vmm {
 
         self.attach_block_devices(&mut device_manager)?;
 
-        let epoll_context = &mut self.epoll_context;
-
-        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
-        epoll_context.add_event(&exit_evt, EpollDispatch::Exit)?;
-        epoll_context.add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
-
         if self.cfg.host_ip.is_some() {
-            let epoll_config = epoll_context.allocate_virtio_net_tokens();
+            let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
 
             let net_box = Box::new(devices::virtio::Net::new(
                 self.cfg.host_ip.unwrap(),
@@ -358,6 +347,9 @@ impl Vmm {
         // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
         let cmdline_cstring = CString::new(self.kernel_config.cmdline.clone()).unwrap();
 
+        //we're using unwrap here because the kernel_path is mandatory for now
+        let mut kernel_file =
+            File::open(self.cfg.kernel_path.as_ref().unwrap()).map_err(Error::Kernel)?;
         kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr, &mut kernel_file)?;
         kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, &cmdline_cstring)?;
 
@@ -369,6 +361,10 @@ impl Vmm {
             vcpu_count,
         )?;
 
+        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
+        self.epoll_context
+            .add_event(&exit_evt, EpollDispatch::Exit)?;
+
         let mut io_bus = devices::Bus::new();
         let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
         let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
@@ -376,6 +372,8 @@ impl Vmm {
             com_evt_1_3.try_clone().map_err(Error::EventFd)?,
             Box::new(stdout()),
         )));
+        self.epoll_context
+            .add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
 
         //TODO: put all thse things related to setting up io bus in a struct or something
         vm.set_io_bus(
@@ -387,8 +385,9 @@ impl Vmm {
         ).map_err(Error::VmIOBus)?;
 
         let mut vcpu_handles = Vec::with_capacity(vcpu_count as usize);
-        let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
         let kill_signaled = Arc::new(AtomicBool::new(false));
+
+        let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
 
         for cpu_id in 0..vcpu_count {
             let io_bus = io_bus.clone();
