@@ -44,14 +44,36 @@ impl BlockDeviceConfigs {
         return self.has_root_block;
     }
 
-    /// only call this function as part of the API
-    /// This function adds a new Block Device Config to the list. If the Block Device is the root,
-    /// the Block Device will be added to the begining of the list
+    pub fn contains_drive_path(&self, drive_path: PathBuf) -> bool {
+        for drive_config in self.config_list.iter() {
+            if drive_config.path_on_host == drive_path {
+                return true
+            }
+        }
+        return false
+    }
+
+    pub fn contains_drive_id(&self, drive_id: String) -> bool {
+        for drive_config in self.config_list.iter() {
+            if drive_config.drive_id == drive_id {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// This function adds a Block Device Config to the list. The root block device is always
+    /// added to the beginning of the list. Only one root block device can be added.
     pub fn add(&mut self, block_device_config: BlockDeviceConfig) -> Result<()> {
         // check if the path exists
         if !block_device_config.path_on_host.exists() {
             return Err(DriveError::InvalidBlockDevicePath);
         }
+
+        if self.contains_drive_path(block_device_config.path_on_host.clone()) {
+            return Err(DriveError::BlockDevicePathAlreadyExists);
+        }
+
         // check whether the Device Config belongs to a root device
         // we need to satify the condition by which a VMM can only have on root device
         if block_device_config.is_root_device {
@@ -84,7 +106,7 @@ mod tests {
 
     // Helper function for deleting a dummy file
     fn delete_dummy_path(filename: String) {
-        std::fs::remove_file(filename);
+        let _rs = std::fs::remove_file(filename);
     }
 
     #[test]
@@ -145,17 +167,18 @@ mod tests {
 
     #[test]
     fn test_add_two_root_block_devices_configs() {
-        let dummy_filename = String::from("two_root_block_devices_configs");
-        let dummy_path = create_dummy_path(dummy_filename.clone());
-
+        let dummy_filename_1 = String::from("two_root_block_devices_configs_1");
+        let dummy_path_1 = create_dummy_path(dummy_filename_1.clone());
         let root_block_device_1 = BlockDeviceConfig {
-            path_on_host: dummy_path.clone(),
+            path_on_host: dummy_path_1.clone(),
             is_root_device: true,
             drive_id: String::from("1"),
         };
 
+        let dummy_filename_2 = String::from("two_root_block_devices_configs_2");
+        let dummy_path_2 = create_dummy_path(dummy_filename_2.clone());
         let root_block_device_2 = BlockDeviceConfig {
-            path_on_host: dummy_path.clone(),
+            path_on_host: dummy_path_2.clone(),
             is_root_device: true,
             drive_id: String::from("2"),
         };
@@ -169,29 +192,33 @@ mod tests {
         let expected_error = format!("{:?}", DriveError::RootBlockDeviceAlreadyAdded);
         assert_eq!(expected_error, actual_error);
 
-        delete_dummy_path(dummy_filename);
+        delete_dummy_path(dummy_filename_1);
+        delete_dummy_path(dummy_filename_2);
     }
 
     #[test]
     /// Test BlockDevicesConfigs::add when you first add the root device and then the other devices
     fn test_add_root_block_device_first() {
-        let dummy_filename = String::from("root_block_device_first");
-        let dummy_path = create_dummy_path(dummy_filename.clone());
-
+        let dummy_filename_1 = String::from("root_block_device_first_1");
+        let dummy_path_1 = create_dummy_path(dummy_filename_1.clone());
         let root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path.clone(),
+            path_on_host: dummy_path_1.clone(),
             is_root_device: true,
             drive_id: String::from("1"),
         };
 
-        let dummy_block_device_1 = BlockDeviceConfig {
-            path_on_host: dummy_path.clone(),
+        let dummy_filename_2 = String::from("root_block_device_first_2");
+        let dummy_path_2 = create_dummy_path(dummy_filename_2.clone());
+        let dummy_block_device_2 = BlockDeviceConfig {
+            path_on_host: dummy_path_2.clone(),
             is_root_device: false,
             drive_id: String::from("2"),
         };
 
-        let dummy_block_device_2 = BlockDeviceConfig {
-            path_on_host: dummy_path.clone(),
+        let dummy_filename_3 = String::from("root_block_device_first_3");
+        let dummy_path_3 = create_dummy_path(dummy_filename_3.clone());
+        let dummy_block_device_3 = BlockDeviceConfig {
+            path_on_host: dummy_path_3.clone(),
             is_root_device: false,
             drive_id: String::from("3"),
         };
@@ -200,12 +227,12 @@ mod tests {
         assert!(block_devices_configs.add(root_block_device.clone()).is_ok());
         assert!(
             block_devices_configs
-                .add(dummy_block_device_1.clone())
+                .add(dummy_block_device_2.clone())
                 .is_ok()
         );
         assert!(
             block_devices_configs
-                .add(dummy_block_device_2.clone())
+                .add(dummy_block_device_3.clone())
                 .is_ok()
         );
 
@@ -214,32 +241,37 @@ mod tests {
 
         let mut block_dev_iter = block_devices_configs.config_list.iter();
         assert_eq!(block_dev_iter.next().unwrap(), &root_block_device);
-        assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_1);
         assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_2);
+        assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_3);
 
-        delete_dummy_path(dummy_filename);
+        delete_dummy_path(dummy_filename_1);
+        delete_dummy_path(dummy_filename_2);
+        delete_dummy_path(dummy_filename_3);
     }
 
     #[test]
     /// Test BlockDevicesConfigs::add when you add other devices first and then the root device
     fn test_root_block_device_add_last() {
-        let dummy_filename = String::from("root_block_device_add_last");
-        let dummy_path = create_dummy_path(dummy_filename.clone());
-
+        let dummy_filename_1 = String::from("root_block_device_first_1");
+        let dummy_path_1 = create_dummy_path(dummy_filename_1.clone());
         let root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path.clone(),
+            path_on_host: dummy_path_1.clone(),
             is_root_device: true,
             drive_id: String::from("1"),
         };
 
-        let dummy_block_device_1 = BlockDeviceConfig {
-            path_on_host: dummy_path.clone(),
+        let dummy_filename_2 = String::from("root_block_device_first_2");
+        let dummy_path_2 = create_dummy_path(dummy_filename_2.clone());
+        let dummy_block_device_2 = BlockDeviceConfig {
+            path_on_host: dummy_path_2.clone(),
             is_root_device: false,
             drive_id: String::from("2"),
         };
 
-        let dummy_block_device_2 = BlockDeviceConfig {
-            path_on_host: dummy_path.clone(),
+        let dummy_filename_3 = String::from("root_block_device_first_3");
+        let dummy_path_3 = create_dummy_path(dummy_filename_3.clone());
+        let dummy_block_device_3 = BlockDeviceConfig {
+            path_on_host: dummy_path_3.clone(),
             is_root_device: false,
             drive_id: String::from("3"),
         };
@@ -247,12 +279,12 @@ mod tests {
         let mut block_devices_configs = BlockDeviceConfigs::new();
         assert!(
             block_devices_configs
-                .add(dummy_block_device_1.clone())
+                .add(dummy_block_device_2.clone())
                 .is_ok()
         );
         assert!(
             block_devices_configs
-                .add(dummy_block_device_2.clone())
+                .add(dummy_block_device_3.clone())
                 .is_ok()
         );
         assert!(block_devices_configs.add(root_block_device.clone()).is_ok());
@@ -263,9 +295,11 @@ mod tests {
         let mut block_dev_iter = block_devices_configs.config_list.iter();
         // The root device should be first in the list no matter of the order in which the devices were added
         assert_eq!(block_dev_iter.next().unwrap(), &root_block_device);
-        assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_1);
         assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_2);
+        assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_3);
 
-        delete_dummy_path(dummy_filename);
+        delete_dummy_path(dummy_filename_1);
+        delete_dummy_path(dummy_filename_2);
+        delete_dummy_path(dummy_filename_3);
     }
 }

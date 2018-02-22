@@ -21,6 +21,8 @@ pub struct DriveDescription {
 pub enum DriveError {
     RootBlockDeviceAlreadyAdded,
     InvalidBlockDevicePath,
+    BlockDevicePathAlreadyExists,
+    NotImplemented,
 }
 
 impl GenerateResponse for DriveError {
@@ -34,6 +36,14 @@ impl GenerateResponse for DriveError {
             InvalidBlockDevicePath => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("Invalid block device path!"),
+            ),
+            BlockDevicePathAlreadyExists => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("The block device path was already added to a different drive!")
+            ),
+            NotImplemented => json_response(
+                StatusCode::InternalServerError,
+                json_fault_message("The update operation is not implemented!")
             ),
         }
     }
