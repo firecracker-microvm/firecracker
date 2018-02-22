@@ -249,11 +249,19 @@ impl Vmm {
         })
     }
 
-    pub fn add_block_device(
+    /// only call this function as part of the API
+    /// If the drive_id does not exit, a new Block Device Config is added to the list.
+    /// Else, the drive will be updated
+    pub fn put_block_device(
         &mut self,
         block_device_config: BlockDeviceConfig,
     ) -> result::Result<(), DriveError> {
-        self.block_device_configs.add(block_device_config)
+        // if the id of the drive already exists in the list, the operation is update
+        if self.block_device_configs.contains_drive_id(block_device_config.drive_id.clone()) {
+            return Err(DriveError::NotImplemented);
+        } else {
+            self.block_device_configs.add(block_device_config)
+        }
     }
 
     /// Attach all block devices from the BlockDevicesConfig
@@ -621,7 +629,7 @@ impl Vmm {
             ApiRequest::Sync(req) => {
                 match req {
                     SyncRequest::PutDrive(drive_description, sender) => {
-                        match self.add_block_device(BlockDeviceConfig::from(drive_description)) {
+                        match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
                             Ok(_) => sender
                                 .send(Box::new(PutDriveOutcome::Created))
                                 .map_err(|_| ())
