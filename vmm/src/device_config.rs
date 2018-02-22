@@ -1,9 +1,12 @@
 use std::collections::LinkedList;
+use std::mem;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::result;
 
-use api_server::request::sync::{DriveDescription, DriveError, NetworkInterfaceBody};
+use api_server::request::sync::{DriveDescription, DriveError, NetworkInterfaceBody,
+                                NetworkInterfaceError};
+use devices::virtio::net::create_virtionet_tap;
 use net_util::Tap;
 
 // TODO: I think this module should be broken up into multiple files, one for each of drives,
@@ -97,11 +100,11 @@ impl BlockDeviceConfigs {
 
 struct NetworkInterfaceConfig {
     // The request body received from the API side.
-    body: NetworkInterfaceBody,
+    _body: NetworkInterfaceBody,
     // We extract the id from the body and hold it as a reference counted String. This should
     // come in handy later on, when we'll need the id to appear in a number of data structures
     // to implement efficient lookup, update, deletion, etc.
-    id: Rc<String>,
+    _id: Rc<String>,
     // We create the tap that will be associated with the virtual device as soon as the PUT request
     // arrives from the API. There is a twofold motivation for doing this: first, we want to see
     // if there are any errors associated with the creation of a device based on the specified
@@ -113,9 +116,45 @@ struct NetworkInterfaceConfig {
     pub tap: Option<Tap>
 }
 
-struct NetworkInterfaceConfigs {
+impl NetworkInterfaceConfig {
+    fn try_from_body(
+        mut body: NetworkInterfaceBody,
+    ) -> result::Result<Self, NetworkInterfaceError> {
+        let id = Rc::new(mem::replace(&mut body.iface_id, String::new()));
+
+        // TODO: rework net_util stuff such that references would suffice here, instead
+        // of having to move things around.
+        let tap = create_virtionet_tap(
+            body.host_ipv4_address.clone(),
+            body.host_netmask.clone(),
+            Some(&body.host_dev_name),
+        ).map_err(|_| NetworkInterfaceError::TapError)?;
+
+        Ok(NetworkInterfaceConfig {
+            _body: body,
+            _id: id,
+            tap: Some(tap),
+        })
+    }
+}
+
+pub struct NetworkInterfaceConfigs {
     // We use just a list for now, since we only add interfaces as this point.
     if_list: LinkedList<NetworkInterfaceConfig>,
+}
+
+impl NetworkInterfaceConfigs {
+    pub fn new() -> Self {
+        NetworkInterfaceConfigs {
+            if_list: LinkedList::new(),
+        }
+    }
+
+    pub fn add(&mut self, body: NetworkInterfaceBody) -> result::Result<(), NetworkInterfaceError> {
+        let cfg = NetworkInterfaceConfig::try_from_body(body)?;
+        self.if_list.push_back(cfg);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

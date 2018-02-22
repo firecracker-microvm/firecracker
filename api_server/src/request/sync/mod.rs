@@ -7,7 +7,7 @@ mod net;
 use std::fmt;
 
 pub use self::drive::{DriveDescription, DriveError, PutDriveOutcome};
-pub use self::net::NetworkInterfaceBody;
+pub use self::net::{NetworkInterfaceBody, NetworkInterfaceError, PutIfaceOutcome};
 
 // Unlike async requests, sync request have outcomes which implement this trait. The idea is for
 // each outcome to be a struct which is cheaply and quickly instantiated by the VMM thread, then

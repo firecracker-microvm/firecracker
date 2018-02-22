@@ -32,7 +32,8 @@ use std::thread;
 
 use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
-use api_server::request::sync::{DriveError, PutDriveOutcome, SyncRequest};
+use api_server::request::sync::{DriveError, GenerateResponse, PutDriveOutcome, PutIfaceOutcome,
+                                SyncRequest};
 use device_config::*;
 use device_manager::*;
 use devices::virtio;
@@ -225,7 +226,7 @@ pub struct Vmm {
     // If there is a Root Block Device, this should be added as the first element of the list
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
-
+    netif_configs: NetworkInterfaceConfigs,
 
     /// api resources
     api_event_fd: EventFd,
@@ -252,6 +253,7 @@ impl Vmm {
             core: None,
             kernel_config,
             block_device_configs,
+            netif_configs: NetworkInterfaceConfigs::new(),
             api_event_fd,
             epoll_context,
             from_api,
@@ -661,8 +663,18 @@ impl Vmm {
                                 .expect("one-shot channel closed"),
                         }
                     }
-                    // TODO: Remove this catch-all once all actions are implemented.
-                    _ => panic!("unsupported sync request")
+                    SyncRequest::PutNetworkInterface(body, outcome_sender) => {
+                        let outcome_box: Box<GenerateResponse + Send> =
+                            match self.netif_configs.add(body) {
+                                Ok(()) => Box::new(PutIfaceOutcome::Created),
+                                Err(error) => Box::new(error),
+                            };
+                        outcome_sender
+                            .send(outcome_box)
+                            .map_err(|_| ())
+                            .expect("one-shot channel closed")
+                    } // TODO: Remove this catch-all once all actions are implemented.
+                      // _ => panic!("unsupported sync request")
                 };
             }
         };

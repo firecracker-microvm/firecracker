@@ -2,9 +2,11 @@ use std::net::Ipv4Addr;
 use std::result;
 
 use futures::sync::oneshot;
+use hyper::{self, StatusCode};
 
 use request::ParsedRequest;
-use super::{DeviceState, SyncRequest};
+use http_service::{empty_response, json_fault_message, json_response};
+use super::{DeviceState, GenerateResponse, SyncRequest};
 
 fn default_host_netmask() -> Ipv4Addr {
     // this is as valid as they come
@@ -32,5 +34,38 @@ impl NetworkInterfaceBody {
             SyncRequest::PutNetworkInterface(self, sender),
             receiver,
         ))
+    }
+}
+
+// This enum contains errors that can occur when the VMM processes a network interface
+// related sync request.
+pub enum NetworkInterfaceError {
+    TapError,
+}
+
+impl GenerateResponse for NetworkInterfaceError {
+    fn generate_response(&self) -> hyper::Response {
+        use self::NetworkInterfaceError::*;
+        match *self {
+            TapError => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("Could not create TAP device."),
+            ),
+        }
+    }
+}
+
+pub enum PutIfaceOutcome {
+    Created,
+    Error(NetworkInterfaceError),
+}
+
+impl GenerateResponse for PutIfaceOutcome {
+    fn generate_response(&self) -> hyper::Response {
+        use self::PutIfaceOutcome::*;
+        match *self {
+            Created => empty_response(StatusCode::Created),
+            Error(ref error) => error.generate_response(),
+        }
     }
 }
