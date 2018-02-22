@@ -88,7 +88,7 @@ impl std::convert::From<x86_64::Error> for Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum EpollDispatch {
     Exit,
     Stdin,
@@ -115,7 +115,8 @@ impl MaybeHandler {
 //will be solved when we also implement device removal.
 pub struct EpollContext {
     epoll_raw_fd: RawFd,
-    dispatch_table: Vec<EpollDispatch>,
+    // FIXME: find a different design as this does not scale. This Vec can only grow.
+    dispatch_table: Vec<Option<EpollDispatch>>,
     device_handlers: Vec<MaybeHandler>,
 }
 
@@ -130,20 +131,37 @@ impl EpollContext {
         })
     }
 
-    pub fn add_event_from_rawfd(&mut self, raw_fd: RawFd, token: EpollDispatch) -> Result<()> {
+    pub fn add_event_from_rawfd(&mut self, raw_fd: RawFd, token: EpollDispatch) -> Result<u64> {
+        let index = self.dispatch_table.len() as u64;
         epoll::ctl(
             self.epoll_raw_fd,
             epoll::EPOLL_CTL_ADD,
             raw_fd,
-            epoll::Event::new(epoll::EPOLLIN, self.dispatch_table.len() as u64),
+            epoll::Event::new(epoll::EPOLLIN, index),
         ).map_err(Error::EpollFd)?;
-        self.dispatch_table.push(token);
+        self.dispatch_table.push(Some(token));
+
+        Ok(index)
+    }
+
+    pub fn remove_event_from_rawfd(&mut self, raw_fd: RawFd, index: u64) -> Result<()> {
+        epoll::ctl(
+            self.epoll_raw_fd,
+            epoll::EPOLL_CTL_DEL,
+            raw_fd,
+            epoll::Event::new(epoll::EPOLLIN, index),
+        ).map_err(Error::EpollFd)?;
+        self.dispatch_table[index as usize] = None;
 
         Ok(())
     }
 
-    pub fn add_event(&mut self, evfd: &EventFd, token: EpollDispatch) -> Result<()> {
+    pub fn add_event(&mut self, evfd: &EventFd, token: EpollDispatch) -> Result<u64> {
         self.add_event_from_rawfd(evfd.as_raw_fd(), token)
+    }
+
+    pub fn remove_event(&mut self, evfd: &EventFd, index: u64) -> Result<()> {
+        self.remove_event_from_rawfd(evfd.as_raw_fd(), index)
     }
 
     fn allocate_tokens(&mut self, count: usize) -> (u64, Sender<Box<EpollHandler>>) {
@@ -152,8 +170,10 @@ impl EpollContext {
         let (sender, receiver) = channel();
 
         for x in 0..count - 1 {
-            self.dispatch_table
-                .push(EpollDispatch::DeviceHandler(device_idx, x as DeviceEventT));
+            self.dispatch_table.push(Some(EpollDispatch::DeviceHandler(
+                device_idx,
+                x as DeviceEventT,
+            )));
         }
 
         self.device_handlers.push(MaybeHandler::new(receiver));
@@ -197,31 +217,42 @@ impl Drop for EpollContext {
     }
 }
 
-pub struct VmmCore {
-    pub kill_signaled: Arc<AtomicBool>,
-    pub stdio_serial: Arc<Mutex<devices::Serial>>,
-    pub vcpu_handles: Vec<thread::JoinHandle<()>>,
-    pub exit_evt: EventFd,
-    _vm: Vm,
-}
-
 pub struct KernelConfig {
     cmdline: kernel_cmdline::Cmdline,
     // TODO: this structure should also contain the kernel_path, kernel_start addr and others
 }
 
+pub struct EpollEventFd {
+    dispatch_index: u64,
+    event_fd: EventFd,
+}
+
+pub struct EpollRawEventFd {
+    dispatch_index: u64,
+    raw_event_fd: RawFd,
+}
+
 pub struct Vmm {
     cfg: MachineCfg,
-    core: Option<VmmCore>,
+
+    /// guest VM core resources
     kernel_config: KernelConfig,
+    kill_signaled: Option<Arc<AtomicBool>>,
+    vcpu_handles: Option<Vec<thread::JoinHandle<()>>>,
+    exit_evt: Option<EpollEventFd>,
+    stdin_evt: Option<EpollRawEventFd>,
+    stdio_serial: Option<Arc<Mutex<devices::Serial>>>,
+    vm: Option<Vm>,
+
+    /// guest VM devices
     // If there is a Root Block Device, this should be added as the first element of the list
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
 
-    /// api resources
-    api_event_fd: EventFd,
     epoll_context: EpollContext,
 
+    /// api resources
+    api_event_fd: EventFd,
     from_api: Receiver<Box<ApiRequest>>,
 }
 
@@ -240,11 +271,16 @@ impl Vmm {
         let block_device_configs = BlockDeviceConfigs::new();
         Ok(Vmm {
             cfg,
-            core: None,
             kernel_config,
-            block_device_configs: block_device_configs,
-            api_event_fd,
+            kill_signaled: None,
+            vcpu_handles: None,
+            exit_evt: None,
+            stdin_evt: None,
+            stdio_serial: None,
+            vm: None,
+            block_device_configs,
             epoll_context,
+            api_event_fd,
             from_api,
         })
     }
@@ -293,214 +329,254 @@ impl Vmm {
         Ok(())
     }
 
+    fn reset_stdin_evt(&mut self) -> Result<()> {
+        match self.stdin_evt.take() {
+            Some(evt) => self.epoll_context
+                .remove_event_from_rawfd(evt.raw_event_fd, evt.dispatch_index),
+            None => Ok(()),
+        }
+    }
+
     /// only call this from run_vmm() or other functions
     /// that can guarantee single instances
     pub fn boot_kernel(&mut self) -> Result<()> {
-        let mem_size = self.cfg.mem_size << 20;
-        let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
+        let boot_result = {
+            let mut try_boot = || -> Result<()> {
+                let mem_size = self.cfg.mem_size << 20;
+                let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
+                let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
 
-        //we're using unwrap here because the kernel_path is mandatory for now
-        let mut kernel_file =
-            File::open(self.cfg.kernel_path.as_ref().unwrap()).map_err(Error::Kernel)?;
+                let vcpu_count = self.cfg.vcpu_count;
 
-        self.kernel_config
-            .cmdline
-            .insert_str(&self.cfg.kernel_cmdline)
-            .expect("could not use the specified kernel cmdline");
+                let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
+                let cmdline_addr = GuestAddress(CMDLINE_OFFSET);
+                self.kernel_config
+                    .cmdline
+                    .insert_str(&self.cfg.kernel_cmdline)
+                    .expect("could not use the specified kernel cmdline");
 
-        let vcpu_count = self.cfg.vcpu_count;
-        let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
-        let cmdline_addr = GuestAddress(CMDLINE_OFFSET);
+                /* Instantiating MMIO device manager
+                'mmio_base' address has to be an address which is protected by the kernel, in this case
+                the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
+                */
+                let mut device_manager =
+                    DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
-        let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
+                self.attach_block_devices(&mut device_manager)?;
 
-        /* Instantiating MMIO device manager
-        'mmio_base' address has to be an address which is protected by the kernel, in this case
-        the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
-        */
-        let mut device_manager =
-            DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+                // network device
+                if self.cfg.host_ip.is_some() {
+                    let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
 
-        self.attach_block_devices(&mut device_manager)?;
+                    let net_box = Box::new(devices::virtio::Net::new(
+                        self.cfg.host_ip.unwrap(),
+                        self.cfg.subnet_mask,
+                        epoll_config,
+                    ).map_err(Error::NetDeviceNew)?);
 
-        let epoll_context = &mut self.epoll_context;
+                    device_manager
+                        .register_mmio(net_box, &mut self.kernel_config.cmdline)
+                        .map_err(Error::RegisterNet)?;
+                }
 
-        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
-        epoll_context.add_event(&exit_evt, EpollDispatch::Exit)?;
-        epoll_context.add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
+                let kvm = Kvm::new().map_err(Error::Kvm)?;
+                self.vm = Some(Vm::new(&kvm, guest_mem).map_err(Error::Vm)?);
+                let vm = self.vm.as_mut().unwrap();
 
-        if self.cfg.host_ip.is_some() {
-            let epoll_config = epoll_context.allocate_virtio_net_tokens();
+                vm.setup().map_err(Error::VmSetup)?;
 
-            let net_box = Box::new(devices::virtio::Net::new(
-                self.cfg.host_ip.unwrap(),
-                self.cfg.subnet_mask,
-                epoll_config,
-            ).map_err(Error::NetDeviceNew)?);
-
-            device_manager
-                .register_mmio(net_box, &mut self.kernel_config.cmdline)
-                .map_err(Error::RegisterNet)?;
-        }
-
-        let kvm = Kvm::new().map_err(Error::Kvm)?;
-        let vm = Vm::new(&kvm, guest_mem).map_err(Error::Vm)?;
-
-        vm.setup().map_err(Error::VmSetup)?;
-
-        for request in device_manager.vm_requests {
-            if let VmResponse::Err(e) = request.execute(vm.get_fd()) {
-                return Err(Error::DeviceVmRequest(e));
-            }
-        }
-
-        // This is the easy way out of consuming the value of the kernel_cmdline.
-        // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
-        let cmdline_cstring = CString::new(self.kernel_config.cmdline.clone()).unwrap();
-
-        kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr, &mut kernel_file)?;
-        kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, &cmdline_cstring)?;
-
-        x86_64::configure_system(
-            vm.get_memory(),
-            kernel_start_addr,
-            cmdline_addr,
-            cmdline_cstring.to_bytes().len() + 1,
-            vcpu_count,
-        )?;
-
-        let mut io_bus = devices::Bus::new();
-        let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
-        let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
-        let stdio_serial = Arc::new(Mutex::new(devices::Serial::new_out(
-            com_evt_1_3.try_clone().map_err(Error::EventFd)?,
-            Box::new(stdout()),
-        )));
-
-        //TODO: put all thse things related to setting up io bus in a struct or something
-        vm.set_io_bus(
-            &mut io_bus,
-            &stdio_serial,
-            &com_evt_1_3,
-            &com_evt_2_4,
-            &exit_evt,
-        ).map_err(Error::VmIOBus)?;
-
-        let mut vcpu_handles = Vec::with_capacity(vcpu_count as usize);
-        let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
-        let kill_signaled = Arc::new(AtomicBool::new(false));
-
-        for cpu_id in 0..vcpu_count {
-            let io_bus = io_bus.clone();
-            let mmio_bus = device_manager.bus.clone();
-            let kill_signaled = kill_signaled.clone();
-            let vcpu_thread_barrier = vcpu_thread_barrier.clone();
-            let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
-
-            let mut vcpu = Vcpu::new(cpu_id, &vm).map_err(Error::Vcpu)?;
-            vcpu.configure(vcpu_count, kernel_start_addr, &vm)
-                .map_err(Error::VcpuConfigure)?;
-            vcpu_handles.push(thread::Builder::new()
-                .name(format!("fc_vcpu{}", cpu_id))
-                .spawn(move || {
-                    unsafe {
-                        extern "C" fn handle_signal() {}
-                        // Our signal handler does nothing and is trivially async signal safe.
-                        register_signal_handler(0, handle_signal)
-                            .expect("failed to register vcpu signal handler");
-                    }
-
-                    vcpu_thread_barrier.wait();
-
-                    loop {
-                        match vcpu.run() {
-                            Ok(run) => match run {
-                                VcpuExit::IoIn(addr, data) => {
-                                    io_bus.read(addr as u64, data);
-                                }
-                                VcpuExit::IoOut(addr, data) => {
-                                    io_bus.write(addr as u64, data);
-                                }
-                                VcpuExit::MmioRead(addr, data) => {
-                                    mmio_bus.read(addr, data);
-                                }
-                                VcpuExit::MmioWrite(addr, data) => {
-                                    mmio_bus.write(addr, data);
-                                }
-                                VcpuExit::Hlt => {
-                                    info!("KVM_EXIT_HLT");
-                                    break;
-                                }
-                                VcpuExit::Shutdown => {
-                                    info!("KVM_EXIT_SHUTDOWN");
-                                    break;
-                                }
-                                r => {
-                                    error!("unexpected exit reason: {:?}", r);
-                                    break;
-                                }
-                            },
-                            Err(e) => match e {
-                                vstate::Error::VcpuRun(ref v) => match v.errno() {
-                                    libc::EAGAIN | libc::EINTR => {}
-                                    _ => {
-                                        error!("vcpu hit unknown error: {:?}", e);
-                                        break;
-                                    }
-                                },
-                                _ => {
-                                    error!("unrecognized error type for vcpu run");
-                                    break;
-                                }
-                            },
-                        }
-
-                        if kill_signaled.load(Ordering::SeqCst) {
-                            break;
-                        }
-                    }
-
-                    vcpu_exit_evt
-                        .write(1)
-                        .expect("failed to signal vcpu exit eventfd");
-                })
-                .map_err(Error::VcpuSpawn)?);
-        }
-
-        vcpu_thread_barrier.wait();
-
-        self.core = Some(VmmCore {
-            vcpu_handles,
-            kill_signaled,
-            stdio_serial,
-            exit_evt,
-            _vm: vm,
-        });
-
-        Ok(())
-    }
-
-    fn stop(&mut self) {
-        let mut core = match self.core.take() {
-            Some(v) => v,
-            None => return (),
-        };
-
-        let kill_signaled = &core.kill_signaled;
-        let vcpu_handles = &mut core.vcpu_handles;
-        let extracted_vcpu_handles = std::mem::replace(vcpu_handles, Vec::new());
-
-        kill_signaled.store(true, Ordering::SeqCst);
-        for handle in extracted_vcpu_handles {
-            match handle.kill(0) {
-                Ok(_) => {
-                    if let Err(e) = handle.join() {
-                        warn!("failed to join vcpu thread: {:?}", e);
+                for request in device_manager.vm_requests {
+                    if let VmResponse::Err(e) = request.execute(vm.get_fd()) {
+                        return Err(Error::DeviceVmRequest(e));
                     }
                 }
-                Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
-            }
+
+                // This is the easy way out of consuming the value of the kernel_cmdline.
+                // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
+                let cmdline_cstring = CString::new(self.kernel_config.cmdline.clone()).unwrap();
+
+                //we're using unwrap here because the kernel_path is mandatory for now
+                let mut kernel_file =
+                    File::open(self.cfg.kernel_path.as_ref().unwrap()).map_err(Error::Kernel)?;
+                kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr, &mut kernel_file)?;
+                kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, &cmdline_cstring)?;
+
+                x86_64::configure_system(
+                    vm.get_memory(),
+                    kernel_start_addr,
+                    cmdline_addr,
+                    cmdline_cstring.to_bytes().len() + 1,
+                    vcpu_count,
+                )?;
+
+                let event_fd = EventFd::new().map_err(Error::EventFd)?;
+                let dispatch_index = self.epoll_context
+                    .add_event(&event_fd, EpollDispatch::Exit)?;
+                self.exit_evt = Some(EpollEventFd {
+                    dispatch_index,
+                    event_fd,
+                });
+                let exit_evt = &self.exit_evt.as_mut().unwrap().event_fd;
+
+                let mut io_bus = devices::Bus::new();
+                let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
+                let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
+                self.stdio_serial = Some(Arc::new(Mutex::new(devices::Serial::new_out(
+                    com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+                    Box::new(stdout()),
+                ))));
+                let stdio_serial = self.stdio_serial.as_mut().unwrap();
+
+                let raw_event_fd = libc::STDIN_FILENO;
+                let dispatch_index = self.epoll_context
+                    .add_event_from_rawfd(raw_event_fd, EpollDispatch::Stdin)?;
+                self.stdin_evt = Some(EpollRawEventFd {
+                    dispatch_index,
+                    raw_event_fd,
+                });
+
+                //TODO: put all thse things related to setting up io bus in a struct or something
+                vm.set_io_bus(
+                    &mut io_bus,
+                    stdio_serial,
+                    &com_evt_1_3,
+                    &com_evt_2_4,
+                    exit_evt,
+                ).map_err(Error::VmIOBus)?;
+
+                self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
+                let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
+                self.kill_signaled = Some(Arc::new(AtomicBool::new(false)));
+                let kill_signaled = self.kill_signaled.as_mut().unwrap();
+
+                let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
+
+                for cpu_id in 0..vcpu_count {
+                    let io_bus = io_bus.clone();
+                    let mmio_bus = device_manager.bus.clone();
+                    let kill_signaled = kill_signaled.clone();
+                    let vcpu_thread_barrier = vcpu_thread_barrier.clone();
+                    let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
+
+                    let mut vcpu = Vcpu::new(cpu_id, &vm).map_err(Error::Vcpu)?;
+                    vcpu.configure(vcpu_count, kernel_start_addr, &vm)
+                        .map_err(Error::VcpuConfigure)?;
+                    vcpu_handles.push(thread::Builder::new()
+                        .name(format!("fc_vcpu{}", cpu_id))
+                        .spawn(move || {
+                            unsafe {
+                                extern "C" fn handle_signal() {}
+                                // Our signal handler does nothing and is trivially async signal safe.
+                                register_signal_handler(0, handle_signal)
+                                    .expect("failed to register vcpu signal handler");
+                            }
+
+                            vcpu_thread_barrier.wait();
+
+                            loop {
+                                match vcpu.run() {
+                                    Ok(run) => match run {
+                                        VcpuExit::IoIn(addr, data) => {
+                                            io_bus.read(addr as u64, data);
+                                        }
+                                        VcpuExit::IoOut(addr, data) => {
+                                            io_bus.write(addr as u64, data);
+                                        }
+                                        VcpuExit::MmioRead(addr, data) => {
+                                            mmio_bus.read(addr, data);
+                                        }
+                                        VcpuExit::MmioWrite(addr, data) => {
+                                            mmio_bus.write(addr, data);
+                                        }
+                                        VcpuExit::Hlt => {
+                                            info!("KVM_EXIT_HLT");
+                                            break;
+                                        }
+                                        VcpuExit::Shutdown => {
+                                            info!("KVM_EXIT_SHUTDOWN");
+                                            break;
+                                        }
+                                        r => {
+                                            error!("unexpected exit reason: {:?}", r);
+                                            break;
+                                        }
+                                    },
+                                    Err(e) => match e {
+                                        vstate::Error::VcpuRun(ref v) => match v.errno() {
+                                            libc::EAGAIN | libc::EINTR => {}
+                                            _ => {
+                                                error!("vcpu hit unknown error: {:?}", e);
+                                                break;
+                                            }
+                                        },
+                                        _ => {
+                                            error!("unrecognized error type for vcpu run");
+                                            break;
+                                        }
+                                    },
+                                }
+
+                                if kill_signaled.load(Ordering::SeqCst) {
+                                    break;
+                                }
+                            }
+
+                            vcpu_exit_evt
+                                .write(1)
+                                .expect("failed to signal vcpu exit eventfd");
+                        })
+                        .map_err(Error::VcpuSpawn)?);
+                }
+
+                vcpu_thread_barrier.wait();
+
+                Ok(())
+            };
+
+            try_boot()
+        };
+
+        if boot_result.is_err() {
+            error!("boot failed: {:?}", boot_result);
+            let _ = self.stop();
         }
+        boot_result
+    }
+
+    fn stop(&mut self) -> Result<()> {
+        match self.kill_signaled.take() {
+            Some(v) => v.store(true, Ordering::SeqCst),
+            None => (),
+        };
+
+        match self.vcpu_handles.take() {
+            Some(handles) => for handle in handles {
+                match handle.kill(0) {
+                    Ok(_) => {
+                        if let Err(e) = handle.join() {
+                            warn!("failed to join vcpu thread: {:?}", e);
+                        }
+                    }
+                    Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
+                }
+            },
+            None => (),
+        };
+
+        match self.exit_evt.take() {
+            Some(evt) => self.epoll_context
+                .remove_event(&evt.event_fd, evt.dispatch_index)?,
+            None => (),
+        };
+        self.reset_stdin_evt()?;
+
+        self.stdio_serial.take();
+        self.vm.take();
+
+        //TODO:
+        // - clean epoll_context:
+        //   - remove block, net
+        Ok(())
     }
 
     pub fn run_control(&mut self) -> Result<()> {
@@ -526,62 +602,56 @@ impl Vmm {
 
             for i in 0..num_events {
                 let dispatch_idx = events[i].data() as usize;
-                let dispatch_type = self.epoll_context.dispatch_table[dispatch_idx];
 
-                match dispatch_type {
-                    EpollDispatch::Exit => {
-                        info!("vcpu requested shutdown");
-                        self.core
-                            .as_mut()
-                            .unwrap()
-                            .exit_evt
-                            .read()
-                            .expect("cannot read exitevent");
-                        self.stop();
-                        break 'poll;
-                    }
-                    EpollDispatch::Stdin => {
-                        let mut out = [0u8; 64];
-                        match stdin_lock.read_raw(&mut out[..]) {
-                            Ok(0) => {
-                                // Zero-length read indicates EOF. Remove from pollables.
-                                epoll::ctl(
-                                    epoll_raw_fd,
-                                    epoll::EPOLL_CTL_DEL,
-                                    libc::STDIN_FILENO,
-                                    events[i],
-                                ).map_err(Error::EpollFd)?;
+                match self.epoll_context.dispatch_table[dispatch_idx] {
+                    Some(dispatch_type) => match dispatch_type {
+                        EpollDispatch::Exit => {
+                            info!("vcpu requested shutdown");
+                            match self.exit_evt {
+                                Some(ref ev) => {
+                                    ev.event_fd.read().expect("cannot read exit_event");
+                                }
+                                None => warn!("leftover exit-evt in epollcontext!"),
                             }
-                            Err(e) => {
-                                warn!("error while reading stdin: {:?}", e);
-                                epoll::ctl(
-                                    epoll_raw_fd,
-                                    epoll::EPOLL_CTL_DEL,
-                                    libc::STDIN_FILENO,
-                                    events[i],
-                                ).map_err(Error::EpollFd)?;
-                            }
-                            Ok(count) => {
-                                let core = self.core.as_mut().unwrap();
-                                core.stdio_serial
-                                    .lock()
-                                    .unwrap()
-                                    .queue_input_bytes(&out[..count])
-                                    .map_err(Error::Serial)?;
+                            let _ = self.stop();
+                            break 'poll;
+                        }
+                        EpollDispatch::Stdin => {
+                            let mut out = [0u8; 64];
+                            match stdin_lock.read_raw(&mut out[..]) {
+                                Ok(0) => {
+                                    // Zero-length read indicates EOF. Remove from pollables.
+                                    self.reset_stdin_evt()?;
+                                }
+                                Err(e) => {
+                                    warn!("error while reading stdin: {:?}", e);
+                                    self.reset_stdin_evt()?;
+                                }
+                                Ok(count) => match self.stdio_serial {
+                                    Some(ref mut serial) => {
+                                        serial
+                                            .lock()
+                                            .unwrap()
+                                            .queue_input_bytes(&out[..count])
+                                            .map_err(Error::Serial)?;
+                                    }
+                                    None => warn!("leftover stdin event in epollcontext!"),
+                                },
                             }
                         }
-                    }
-                    EpollDispatch::DeviceHandler(device_idx, device_token) => {
-                        let handler = self.epoll_context.get_device_handler(device_idx);
-                        handler.handle_event(device_token, events[i].events().bits());
-                    }
-                    EpollDispatch::ApiRequest => {
-                        self.api_event_fd.read().expect("cannot read ");
-                        self.run_api_cmd().unwrap_or_else(|_| {
-                            warn!("got spurious notification from api thread");
-                            ()
-                        });
-                    }
+                        EpollDispatch::DeviceHandler(device_idx, device_token) => {
+                            let handler = self.epoll_context.get_device_handler(device_idx);
+                            handler.handle_event(device_token, events[i].events().bits());
+                        }
+                        EpollDispatch::ApiRequest => {
+                            self.api_event_fd.read().expect("cannot read ");
+                            self.run_api_cmd().unwrap_or_else(|_| {
+                                warn!("got spurious notification from api thread");
+                                ()
+                            });
+                        }
+                    },
+                    None => (),
                 }
             }
         }
@@ -610,11 +680,14 @@ impl Vmm {
                         sender.send(result).expect("one-shot channel closed");
                     }
                     AsyncRequest::StopInstance(sender) => {
-                        sender
-                            .send(AsyncOutcome::Error(
-                                "StopInstance not implemented".to_string(),
-                            ))
-                            .expect("one-shot channel closed");
+                        let result = match self.stop() {
+                            Ok(_) => AsyncOutcome::Ok(0),
+                            Err(e) => AsyncOutcome::Error(format!(
+                                "failed to stop instance! err: {:?}",
+                                e
+                            )),
+                        };
+                        sender.send(result).expect("one-shot channel closed");
                     }
                 };
             }
