@@ -126,6 +126,39 @@ fn main() {
             };
             vmm.put_block_device(root_block_device).expect("cannot add root block device.");
         }
+
+        if cmd_arguments.is_present("host_ip") {
+            let host_ipv4_address = cmd_arguments
+                .value_of("host_ip")
+                .unwrap()
+                .parse()
+                .expect("bad host ip");
+
+            let host_netmask = cmd_arguments
+                .value_of("subnet_mask")
+                .unwrap()
+                .parse()
+                .expect("bad subnet mask");
+
+            use api_server::request::sync::DeviceState;
+            use api_server::request::sync::NetworkInterfaceBody;
+
+            let body = NetworkInterfaceBody {
+                iface_id: String::from("0"),
+                state: DeviceState::Attached,
+                host_dev_name: String::from("vmtap%d"),
+                host_ipv4_address,
+                host_netmask,
+                guest_mac: None,
+            };
+
+            use vmm::device_config::NetworkInterfaceConfig;
+
+            let cfg =
+                NetworkInterfaceConfig::try_from_body(body).expect("bad interface body definition");
+            vmm.add_net_device(cfg);
+        }
+
         vmm.boot_kernel().expect("cannot boot kernel");
         vmm.run_control().expect("VMM loop error!");
     } else {

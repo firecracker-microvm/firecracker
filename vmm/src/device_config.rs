@@ -117,7 +117,7 @@ pub struct NetworkInterfaceConfig {
 }
 
 impl NetworkInterfaceConfig {
-    fn try_from_body(
+    pub fn try_from_body(
         mut body: NetworkInterfaceBody,
     ) -> result::Result<Self, NetworkInterfaceError> {
         let id = Rc::new(mem::replace(&mut body.iface_id, String::new()));
@@ -150,9 +150,13 @@ impl NetworkInterfaceConfigs {
         }
     }
 
+    pub fn add_config(&mut self, cfg: NetworkInterfaceConfig) {
+        self.if_list.push_back(cfg);
+    }
+
     pub fn add(&mut self, body: NetworkInterfaceBody) -> result::Result<(), NetworkInterfaceError> {
         let cfg = NetworkInterfaceConfig::try_from_body(body)?;
-        self.if_list.push_back(cfg);
+        self.add_config(cfg);
         Ok(())
     }
 }

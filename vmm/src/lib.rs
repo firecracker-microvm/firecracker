@@ -277,6 +277,10 @@ impl Vmm {
         }
     }
 
+    pub fn add_net_device(&mut self, cfg: NetworkInterfaceConfig) {
+        self.netif_configs.add_config(cfg);
+    }
+
     /// Attach all block devices from the BlockDevicesConfig
     /// If there is no root block device, no other devices are attached.The root device should be
     /// the first to be attached as a way to make sure it ends up on /dev/vda

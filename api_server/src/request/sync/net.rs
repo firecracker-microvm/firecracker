@@ -39,6 +39,7 @@ impl NetworkInterfaceBody {
 
 // This enum contains errors that can occur when the VMM processes a network interface
 // related sync request.
+#[derive(Debug)]
 pub enum NetworkInterfaceError {
     TapError,
 }
