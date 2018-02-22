@@ -71,7 +71,7 @@ fn main() {
             Arg::with_name("root_blk_file")
                 .short("r")
                 .long("root-blk")
-                .help("File to serve as root block device")
+                .help("File to serve as root block device [enabled only with --vmm-no-api]")
                 .takes_value(true)
         )
         .arg(
