@@ -118,7 +118,7 @@ fn main() {
                 is_root_device: true,
                 drive_id: String::from("1"),
             };
-            vmm.add_block_device(root_block_device).expect("cannot add root block device.");
+            vmm.put_block_device(root_block_device).expect("cannot add root block device.");
         }
         vmm.boot_kernel().expect("cannot boot kernel");
         vmm.run_control().expect("VMM loop error!");
