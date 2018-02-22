@@ -98,7 +98,7 @@ impl BlockDeviceConfigs {
     }
 }
 
-struct NetworkInterfaceConfig {
+pub struct NetworkInterfaceConfig {
     // The request body received from the API side.
     _body: NetworkInterfaceBody,
     // We extract the id from the body and hold it as a reference counted String. This should
@@ -113,7 +113,7 @@ struct NetworkInterfaceConfig {
     // of us having to create one), so this makes it easier to reuse as much pre-existing
     // functionality as possible when we get there. Also, this is an option, because the inner
     // value will be moved to the actual virtio net device before boot.
-    pub tap: Option<Tap>
+    pub tap: Option<Tap>,
 }
 
 impl NetworkInterfaceConfig {
@@ -139,8 +139,8 @@ impl NetworkInterfaceConfig {
 }
 
 pub struct NetworkInterfaceConfigs {
-    // We use just a list for now, since we only add interfaces as this point.
-    if_list: LinkedList<NetworkInterfaceConfig>,
+    // We use just a pub list for now, since we only add interfaces as this point.
+    pub if_list: LinkedList<NetworkInterfaceConfig>,
 }
 
 impl NetworkInterfaceConfigs {

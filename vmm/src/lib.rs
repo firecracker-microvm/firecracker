@@ -314,6 +314,23 @@ impl Vmm {
         Ok(())
     }
 
+    fn attach_net_devices(&mut self, device_manager: &mut DeviceManager) -> Result<()> {
+        for cfg in self.netif_configs.if_list.iter_mut() {
+            let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
+
+            let net_box = Box::new(devices::virtio::Net::new_with_tap(
+                cfg.tap.take().unwrap(),
+                epoll_config,
+            ).map_err(Error::NetDeviceNew)?);
+
+            device_manager
+                .register_mmio(net_box, &mut self.kernel_config.cmdline)
+                .map_err(Error::RegisterNet)?;
+        }
+
+        Ok(())
+    }
+
     /// only call this from run_vmm() or other functions
     /// that can guarantee single instances
     pub fn boot_kernel(&mut self) -> Result<()> {
@@ -343,26 +360,13 @@ impl Vmm {
             DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
         self.attach_block_devices(&mut device_manager)?;
+        self.attach_net_devices(&mut device_manager)?;
 
         let epoll_context = &mut self.epoll_context;
 
         let exit_evt = EventFd::new().map_err(Error::EventFd)?;
         epoll_context.add_event(&exit_evt, EpollDispatch::Exit)?;
         epoll_context.add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
-
-        if self.cfg.host_ip.is_some() {
-            let epoll_config = epoll_context.allocate_virtio_net_tokens();
-
-            let net_box = Box::new(devices::virtio::Net::new(
-                self.cfg.host_ip.unwrap(),
-                self.cfg.subnet_mask,
-                epoll_config,
-            ).map_err(Error::NetDeviceNew)?);
-
-            device_manager
-                .register_mmio(net_box, &mut self.kernel_config.cmdline)
-                .map_err(Error::RegisterNet)?;
-        }
 
         if let Some(cid) = self.cfg.vsock_guest_cid {
             let epoll_config = epoll_context.allocate_virtio_vsock_tokens();
