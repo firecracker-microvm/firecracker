@@ -403,9 +403,13 @@ impl Vmm {
     pub fn boot_kernel(&mut self) -> Result<()> {
         let mem_size = self.vm_config.mem_size_mib << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
+        let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
 
         let vcpu_count = self.vm_config.vcpu_count;
-        let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
+
+        if self.kernel_config.is_none() {
+            return Err(Error::MissingKernelConfig);
+        }
 
         /* Instantiating MMIO device manager
         'mmio_base' address has to be an address which is protected by the kernel, in this case
@@ -417,19 +421,11 @@ impl Vmm {
         self.attach_block_devices(&mut device_manager)?;
         self.attach_net_devices(&mut device_manager)?;
 
-        let epoll_context = &mut self.epoll_context;
-
-        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
-        epoll_context.add_event(&exit_evt, EpollDispatch::Exit)?;
-        epoll_context.add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
-
-        let kernel_config = match self.kernel_config.as_mut() {
-            Some(x) => x,
-            None => return Err(Error::MissingKernelConfig),
-        };
+        // safe to unwrap since we've already validated it's Some()
+        let kernel_config = self.kernel_config.as_mut().unwrap();
 
         if let Some(cid) = self.cfg.vsock_guest_cid {
-            let epoll_config = epoll_context.allocate_virtio_vsock_tokens();
+            let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
 
             let vsock_box = Box::new(devices::virtio::Vsock::new(cid, &guest_mem, epoll_config)
                 .map_err(Error::CreateVirtioVsock)?);
@@ -472,6 +468,10 @@ impl Vmm {
             vcpu_count,
         )?;
 
+        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
+        self.epoll_context
+            .add_event(&exit_evt, EpollDispatch::Exit)?;
+
         let mut io_bus = devices::Bus::new();
         let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
         let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
@@ -479,6 +479,8 @@ impl Vmm {
             com_evt_1_3.try_clone().map_err(Error::EventFd)?,
             Box::new(stdout()),
         )));
+        self.epoll_context
+            .add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
 
         //TODO: put all thse things related to setting up io bus in a struct or something
         vm.set_io_bus(
@@ -490,8 +492,9 @@ impl Vmm {
         ).map_err(Error::VmIOBus)?;
 
         let mut vcpu_handles = Vec::with_capacity(vcpu_count as usize);
-        let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
         let kill_signaled = Arc::new(AtomicBool::new(false));
+
+        let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
 
         for cpu_id in 0..vcpu_count {
             let io_bus = io_bus.clone();
