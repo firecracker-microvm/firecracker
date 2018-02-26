@@ -42,9 +42,9 @@ use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Kill
 use vm_control::VmResponse;
 use vstate::{Vcpu, Vm};
 
-const KERNEL_START_OFFSET: usize = 0x200000;
-const CMDLINE_OFFSET: usize = 0x20000;
-const CMDLINE_MAX_SIZE: usize = KERNEL_START_OFFSET - CMDLINE_OFFSET;
+pub const KERNEL_START_OFFSET: usize = 0x200000;
+pub const CMDLINE_OFFSET: usize = 0x20000;
+pub const CMDLINE_MAX_SIZE: usize = KERNEL_START_OFFSET - CMDLINE_OFFSET;
 
 #[derive(Debug)]
 pub enum Error {
@@ -54,6 +54,7 @@ pub enum Error {
     GuestMemory(sys_util::GuestMemoryError),
     Kernel(std::io::Error),
     KernelLoader(kernel_loader::Error),
+    MissingKernelConfig,
     Kvm(sys_util::Error),
     Poll(std::io::Error),
     Serial(sys_util::Error),
@@ -213,14 +214,16 @@ pub struct VmmCore {
 }
 
 pub struct KernelConfig {
-    cmdline: kernel_cmdline::Cmdline,
-    // TODO: this structure should also contain the kernel_path, kernel_start addr and others
+    pub cmdline: kernel_cmdline::Cmdline,
+    pub kernel_file: File,
+    pub kernel_start_addr: GuestAddress,
+    pub cmdline_addr: GuestAddress,
 }
 
 pub struct Vmm {
     cfg: MachineCfg,
     core: Option<VmmCore>,
-    kernel_config: KernelConfig,
+    kernel_config: Option<KernelConfig>,
     // If there is a Root Block Device, this should be added as the first element of the list
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
@@ -242,14 +245,12 @@ impl Vmm {
         epoll_context
             .add_event(&api_event_fd, EpollDispatch::ApiRequest)
             .expect("cannot add API eventfd to epoll");
-        let cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
-        let kernel_config = KernelConfig { cmdline };
         let block_device_configs = BlockDeviceConfigs::new();
         Ok(Vmm {
             cfg,
             core: None,
-            kernel_config,
-            block_device_configs: block_device_configs,
+            kernel_config: None,
+            block_device_configs,
             api_event_fd,
             epoll_context,
             from_api,
@@ -280,15 +281,16 @@ impl Vmm {
     fn attach_block_devices(&mut self, device_manager: &mut DeviceManager) -> Result<()> {
         // If there's no root device, do not attach any other devices
         let block_dev = &self.block_device_configs;
+        let kernel_config = match self.kernel_config.as_mut() {
+            Some(x) => x,
+            None => return Err(Error::MissingKernelConfig),
+        };
+
         if block_dev.has_root_block_device() {
             // this is a simple solution to add a block as a root device; should be improved
-            self.kernel_config
-                .cmdline
-                .insert_str(" root=/dev/vda")
-                .unwrap();
+            kernel_config.cmdline.insert_str(" root=/dev/vda").unwrap();
 
             let epoll_context = &mut self.epoll_context;
-            let kernel_cmdline = &mut self.kernel_config.cmdline;
             for drive_config in self.block_device_configs.config_list.iter() {
                 // adding root blk device from file (currently always opened as read + write)
                 let root_image = OpenOptions::new()
@@ -300,14 +302,17 @@ impl Vmm {
 
                 let block_box = Box::new(devices::virtio::Block::new(root_image, epoll_config)
                     .map_err(Error::RootBlockDeviceNew)?);
-
                 device_manager
-                    .register_mmio(block_box, kernel_cmdline)
+                    .register_mmio(block_box, &mut kernel_config.cmdline)
                     .map_err(Error::RegisterBlock)?;
             }
         }
 
         Ok(())
+    }
+
+    pub fn configure_kernel(&mut self, kernel_config: KernelConfig) {
+        self.kernel_config = Some(kernel_config);
     }
 
     /// only call this from run_vmm() or other functions
@@ -316,19 +321,7 @@ impl Vmm {
         let mem_size = self.cfg.mem_size << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
 
-        //we're using unwrap here because the kernel_path is mandatory for now
-        let mut kernel_file =
-            File::open(self.cfg.kernel_path.as_ref().unwrap()).map_err(Error::Kernel)?;
-
-        self.kernel_config
-            .cmdline
-            .insert_str(&self.cfg.kernel_cmdline)
-            .expect("could not use the specified kernel cmdline");
-
         let vcpu_count = self.cfg.vcpu_count;
-        let kernel_start_addr = GuestAddress(KERNEL_START_OFFSET);
-        let cmdline_addr = GuestAddress(CMDLINE_OFFSET);
-
         let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
 
         /* Instantiating MMIO device manager
@@ -346,6 +339,11 @@ impl Vmm {
         epoll_context.add_event(&exit_evt, EpollDispatch::Exit)?;
         epoll_context.add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
 
+        let kernel_config = match self.kernel_config.as_mut() {
+            Some(x) => x,
+            None => return Err(Error::MissingKernelConfig),
+        };
+
         if self.cfg.host_ip.is_some() {
             let epoll_config = epoll_context.allocate_virtio_net_tokens();
 
@@ -356,7 +354,7 @@ impl Vmm {
             ).map_err(Error::NetDeviceNew)?);
 
             device_manager
-                .register_mmio(net_box, &mut self.kernel_config.cmdline)
+                .register_mmio(net_box, &mut kernel_config.cmdline)
                 .map_err(Error::RegisterNet)?;
         }
 
@@ -366,7 +364,7 @@ impl Vmm {
             let vsock_box = Box::new(devices::virtio::Vsock::new(cid, &guest_mem, epoll_config)
                 .map_err(Error::CreateVirtioVsock)?);
             device_manager
-                .register_mmio(vsock_box, &mut self.kernel_config.cmdline)
+                .register_mmio(vsock_box, &mut kernel_config.cmdline)
                 .map_err(Error::RegisterMMIOVsockDevice)?;
         }
 
@@ -383,15 +381,23 @@ impl Vmm {
 
         // This is the easy way out of consuming the value of the kernel_cmdline.
         // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
-        let cmdline_cstring = CString::new(self.kernel_config.cmdline.clone()).unwrap();
+        let cmdline_cstring = CString::new(kernel_config.cmdline.clone()).unwrap();
 
-        kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr, &mut kernel_file)?;
-        kernel_loader::load_cmdline(vm.get_memory(), cmdline_addr, &cmdline_cstring)?;
+        kernel_loader::load_kernel(
+            vm.get_memory(),
+            kernel_config.kernel_start_addr,
+            &mut kernel_config.kernel_file,
+        )?;
+        kernel_loader::load_cmdline(
+            vm.get_memory(),
+            kernel_config.cmdline_addr,
+            &cmdline_cstring,
+        )?;
 
         x86_64::configure_system(
             vm.get_memory(),
-            kernel_start_addr,
-            cmdline_addr,
+            kernel_config.kernel_start_addr,
+            kernel_config.cmdline_addr,
             cmdline_cstring.to_bytes().len() + 1,
             vcpu_count,
         )?;
@@ -425,7 +431,7 @@ impl Vmm {
             let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
 
             let mut vcpu = Vcpu::new(cpu_id, &vm).map_err(Error::Vcpu)?;
-            vcpu.configure(vcpu_count, kernel_start_addr, &vm)
+            vcpu.configure(vcpu_count, kernel_config.kernel_start_addr, &vm)
                 .map_err(Error::VcpuConfigure)?;
             vcpu_handles.push(thread::Builder::new()
                 .name(format!("fc_vcpu{}", cpu_id))
