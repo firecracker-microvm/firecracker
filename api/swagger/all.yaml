@@ -913,7 +913,7 @@ definitions:
         type: string
         description: "host level path for the guest drive"
       is_root_device:
-        type: bool
+        type: boolean
       state:
         $ref: '#/definitions/DeviceState'
   NetworkInterface:
