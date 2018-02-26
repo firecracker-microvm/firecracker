@@ -58,7 +58,6 @@ pub enum PutDriveOutcome {
 impl GenerateResponse for PutDriveOutcome {
     fn generate_response(&self) -> Response {
         use self::PutDriveOutcome::*;
-        use self::DriveError::*;
         match *self {
             Created => empty_response(StatusCode::Created),
             Updated => empty_response(StatusCode::NoContent),

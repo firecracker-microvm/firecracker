@@ -18,7 +18,7 @@ use libc::EAGAIN;
 use {DeviceEventT, EpollHandler};
 use super::{ActivateError, ActivateResult};
 use epoll;
-use net_util::{TapError, Tap};
+use net_util::{Tap, TapError};
 use net_sys;
 use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_NET};
 use sys_util::{Error as SysError, EventFd, GuestMemory};
@@ -321,30 +321,42 @@ pub struct Net {
     epoll_config: EpollConfig,
 }
 
+// This function sets up and enables a TAP that can be then used together with
+// our Virtio net implementation. When no if_name is provided, one is chosen based
+// on the default naming scheme defined by the Tap implementation.
+pub fn create_virtionet_tap<T>(
+    ip_addr: Ipv4Addr,
+    netmask: Ipv4Addr,
+    if_name: Option<T>,
+) -> Result<Tap, NetError>
+where
+    T: AsRef<str>,
+{
+    let tap = match if_name {
+        Some(name) => Tap::create_named(name.as_ref()),
+        None => Tap::new()
+    }.map_err(NetError::TapOpen)?;
+
+    tap.set_ip_addr(ip_addr).map_err(NetError::TapSetIp)?;
+    tap.set_netmask(netmask).map_err(NetError::TapSetNetmask)?;
+
+    // Set offload flags to match the virtio features from Net::new_with_tap below.
+    tap.set_offload(
+        net_sys::TUN_F_CSUM | net_sys::TUN_F_UFO | net_sys::TUN_F_TSO4 | net_sys::TUN_F_TSO6,
+    ).map_err(NetError::TapSetOffload)?;
+
+    let vnet_hdr_size = mem::size_of::<virtio_net::virtio_net_hdr_v1>() as i32;
+    tap.set_vnet_hdr_size(vnet_hdr_size)
+        .map_err(NetError::TapSetVnetHdrSize)?;
+
+    tap.enable().map_err(NetError::TapEnable)?;
+
+    Ok(tap)
+}
+
 impl Net {
-    /// Create a new virtio network device with the given IP address and
-    /// netmask.
-    pub fn new(
-        ip_addr: Ipv4Addr,
-        netmask: Ipv4Addr,
-        epoll_config: EpollConfig,
-    ) -> Result<Net, NetError> {
+    pub fn new_with_tap(tap: Tap, epoll_config: EpollConfig) -> Result<Net, NetError> {
         let kill_evt = EventFd::new().map_err(NetError::CreateKillEventFd)?;
-
-        let tap = Tap::new().map_err(NetError::TapOpen)?;
-        tap.set_ip_addr(ip_addr).map_err(NetError::TapSetIp)?;
-        tap.set_netmask(netmask).map_err(NetError::TapSetNetmask)?;
-
-        // Set offload flags to match the virtio features below.
-        tap.set_offload(
-            net_sys::TUN_F_CSUM | net_sys::TUN_F_UFO | net_sys::TUN_F_TSO4 | net_sys::TUN_F_TSO6,
-        ).map_err(NetError::TapSetOffload)?;
-
-        let vnet_hdr_size = mem::size_of::<virtio_net::virtio_net_hdr_v1>() as i32;
-        tap.set_vnet_hdr_size(vnet_hdr_size)
-            .map_err(NetError::TapSetVnetHdrSize)?;
-
-        tap.enable().map_err(NetError::TapEnable)?;
 
         let avail_features = 1 << virtio_net::VIRTIO_NET_F_GUEST_CSUM
             | 1 << virtio_net::VIRTIO_NET_F_CSUM
@@ -362,6 +374,21 @@ impl Net {
             acked_features: 0u64,
             epoll_config,
         })
+    }
+
+    /// Create a new virtio network device with the given IP address and
+    /// netmask.
+    pub fn new(
+        ip_addr: Ipv4Addr,
+        netmask: Ipv4Addr,
+        epoll_config: EpollConfig,
+    ) -> Result<Net, NetError> {
+        // We have to specify the type parameter for this function, because it cannot be
+        // inferred from the value of if_name. We chose String, because that's what if_names
+        // are specified as via API requests, so we won't have too much monomorphization
+        // going on (did I just write that to feel better about myself? :-s)
+        let tap = create_virtionet_tap::<String>(ip_addr, netmask, None)?;
+        Self::new_with_tap(tap, epoll_config)
     }
 }
 

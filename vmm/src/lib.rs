@@ -8,6 +8,7 @@ extern crate devices;
 extern crate kernel_loader;
 extern crate kvm;
 extern crate kvm_sys;
+extern crate net_util;
 #[macro_use]
 extern crate sys_util;
 extern crate x86_64;
@@ -31,7 +32,8 @@ use std::thread;
 
 use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
-use api_server::request::sync::{DriveError, PutDriveOutcome, SyncRequest};
+use api_server::request::sync::{DriveError, GenerateResponse, PutDriveOutcome, PutIfaceOutcome,
+                                SyncRequest};
 use device_config::*;
 use device_manager::*;
 use devices::virtio;
@@ -224,6 +226,7 @@ pub struct Vmm {
     // If there is a Root Block Device, this should be added as the first element of the list
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
+    netif_configs: NetworkInterfaceConfigs,
 
     /// api resources
     api_event_fd: EventFd,
@@ -249,7 +252,8 @@ impl Vmm {
             cfg,
             core: None,
             kernel_config,
-            block_device_configs: block_device_configs,
+            block_device_configs,
+            netif_configs: NetworkInterfaceConfigs::new(),
             api_event_fd,
             epoll_context,
             from_api,
@@ -271,6 +275,10 @@ impl Vmm {
         } else {
             self.block_device_configs.add(block_device_config)
         }
+    }
+
+    pub fn add_net_device(&mut self, cfg: NetworkInterfaceConfig) {
+        self.netif_configs.add_config(cfg);
     }
 
     /// Attach all block devices from the BlockDevicesConfig
@@ -310,6 +318,23 @@ impl Vmm {
         Ok(())
     }
 
+    fn attach_net_devices(&mut self, device_manager: &mut DeviceManager) -> Result<()> {
+        for cfg in self.netif_configs.if_list.iter_mut() {
+            let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
+
+            let net_box = Box::new(devices::virtio::Net::new_with_tap(
+                cfg.tap.take().unwrap(),
+                epoll_config,
+            ).map_err(Error::NetDeviceNew)?);
+
+            device_manager
+                .register_mmio(net_box, &mut self.kernel_config.cmdline)
+                .map_err(Error::RegisterNet)?;
+        }
+
+        Ok(())
+    }
+
     /// only call this from run_vmm() or other functions
     /// that can guarantee single instances
     pub fn boot_kernel(&mut self) -> Result<()> {
@@ -339,26 +364,13 @@ impl Vmm {
             DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
         self.attach_block_devices(&mut device_manager)?;
+        self.attach_net_devices(&mut device_manager)?;
 
         let epoll_context = &mut self.epoll_context;
 
         let exit_evt = EventFd::new().map_err(Error::EventFd)?;
         epoll_context.add_event(&exit_evt, EpollDispatch::Exit)?;
         epoll_context.add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
-
-        if self.cfg.host_ip.is_some() {
-            let epoll_config = epoll_context.allocate_virtio_net_tokens();
-
-            let net_box = Box::new(devices::virtio::Net::new(
-                self.cfg.host_ip.unwrap(),
-                self.cfg.subnet_mask,
-                epoll_config,
-            ).map_err(Error::NetDeviceNew)?);
-
-            device_manager
-                .register_mmio(net_box, &mut self.kernel_config.cmdline)
-                .map_err(Error::RegisterNet)?;
-        }
 
         if let Some(cid) = self.cfg.vsock_guest_cid {
             let epoll_config = epoll_context.allocate_virtio_vsock_tokens();
@@ -659,6 +671,18 @@ impl Vmm {
                                 .expect("one-shot channel closed"),
                         }
                     }
+                    SyncRequest::PutNetworkInterface(body, outcome_sender) => {
+                        let outcome_box: Box<GenerateResponse + Send> =
+                            match self.netif_configs.add(body) {
+                                Ok(()) => Box::new(PutIfaceOutcome::Created),
+                                Err(error) => Box::new(error),
+                            };
+                        outcome_sender
+                            .send(outcome_box)
+                            .map_err(|_| ())
+                            .expect("one-shot channel closed")
+                    } // TODO: Remove this catch-all once all actions are implemented.
+                      // _ => panic!("unsupported sync request")
                 };
             }
         };

@@ -2,10 +2,12 @@ use futures::sync::oneshot;
 use hyper;
 
 mod drive;
+mod net;
 
 use std::fmt;
 
 pub use self::drive::{DriveDescription, DriveError, PutDriveOutcome};
+pub use self::net::{NetworkInterfaceBody, NetworkInterfaceError, PutIfaceOutcome};
 
 // Unlike async requests, sync request have outcomes which implement this trait. The idea is for
 // each outcome to be a struct which is cheaply and quickly instantiated by the VMM thread, then
@@ -27,6 +29,7 @@ pub enum DeviceState {
 // bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
 pub enum SyncRequest {
     PutDrive(DriveDescription, SyncOutcomeSender),
+    PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
 }
 
 impl fmt::Debug for SyncRequest {

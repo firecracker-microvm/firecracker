@@ -1,14 +1,20 @@
-extern crate api_server;
-/// Use this structure to set up the Block Device before booting the kernel
-extern crate std;
-
-use api_server::request::sync::{DriveDescription, DriveError};
-
 use std::collections::LinkedList;
+use std::mem;
 use std::path::PathBuf;
+use std::rc::Rc;
+use std::result;
 
-type Result<T> = std::result::Result<T, DriveError>;
+use api_server::request::sync::{DriveDescription, DriveError, NetworkInterfaceBody,
+                                NetworkInterfaceError};
+use devices::virtio::net::create_virtionet_tap;
+use net_util::Tap;
 
+// TODO: I think this module should be broken up into multiple files, one for each of drives,
+// network interfaces, and vsocks (and limiters maybe at some point).
+
+type Result<T> = result::Result<T, DriveError>;
+
+/// Use this structure to set up the Block Device before booting the kernel
 #[derive(PartialEq, Debug, Clone)]
 pub struct BlockDeviceConfig {
     pub drive_id: String,
@@ -88,6 +94,69 @@ impl BlockDeviceConfigs {
             self.config_list.push_back(block_device_config);
         }
 
+        Ok(())
+    }
+}
+
+pub struct NetworkInterfaceConfig {
+    // The request body received from the API side.
+    _body: NetworkInterfaceBody,
+    // We extract the id from the body and hold it as a reference counted String. This should
+    // come in handy later on, when we'll need the id to appear in a number of data structures
+    // to implement efficient lookup, update, deletion, etc.
+    _id: Rc<String>,
+    // We create the tap that will be associated with the virtual device as soon as the PUT request
+    // arrives from the API. There is a twofold motivation for doing this: first, we want to see
+    // if there are any errors associated with the creation of a device based on the specified
+    // parameters; if so, we want to report the failure back to the API caller immediately.
+    // Secondly, at some point we'll want to receive a preconfigured TUN/TAP device anyway (instead
+    // of us having to create one), so this makes it easier to reuse as much pre-existing
+    // functionality as possible when we get there. Also, this is an option, because the inner
+    // value will be moved to the actual virtio net device before boot.
+    pub tap: Option<Tap>,
+}
+
+impl NetworkInterfaceConfig {
+    pub fn try_from_body(
+        mut body: NetworkInterfaceBody,
+    ) -> result::Result<Self, NetworkInterfaceError> {
+        let id = Rc::new(mem::replace(&mut body.iface_id, String::new()));
+
+        // TODO: rework net_util stuff such that references would suffice here, instead
+        // of having to move things around.
+        let tap = create_virtionet_tap(
+            body.host_ipv4_address.clone(),
+            body.host_netmask.clone(),
+            Some(&body.host_dev_name),
+        ).map_err(|_| NetworkInterfaceError::TapError)?;
+
+        Ok(NetworkInterfaceConfig {
+            _body: body,
+            _id: id,
+            tap: Some(tap),
+        })
+    }
+}
+
+pub struct NetworkInterfaceConfigs {
+    // We use just a pub list for now, since we only add interfaces as this point.
+    pub if_list: LinkedList<NetworkInterfaceConfig>,
+}
+
+impl NetworkInterfaceConfigs {
+    pub fn new() -> Self {
+        NetworkInterfaceConfigs {
+            if_list: LinkedList::new(),
+        }
+    }
+
+    pub fn add_config(&mut self, cfg: NetworkInterfaceConfig) {
+        self.if_list.push_back(cfg);
+    }
+
+    pub fn add(&mut self, body: NetworkInterfaceBody) -> result::Result<(), NetworkInterfaceError> {
+        let cfg = NetworkInterfaceConfig::try_from_body(body)?;
+        self.add_config(cfg);
         Ok(())
     }
 }
