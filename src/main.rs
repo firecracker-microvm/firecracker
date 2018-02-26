@@ -7,11 +7,14 @@ extern crate sys_util;
 extern crate vmm;
 
 use clap::{App, Arg};
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 
 use api_server::ApiServer;
-use sys_util::{syslog, EventFd};
+use sys_util::{syslog, EventFd, GuestAddress};
+use vmm::{CMDLINE_MAX_SIZE, CMDLINE_OFFSET, KERNEL_START_OFFSET};
+use vmm::{KernelConfig, kernel_cmdline};
 use vmm::machine::MachineCfg;
 use vmm::device_config::BlockDeviceConfig;
 
@@ -126,6 +129,23 @@ fn main() {
             };
             vmm.put_block_device(root_block_device).expect("cannot add root block device.");
         }
+        // configure kernel from command line
+        //we're using unwrap here because the kernel_path is mandatory for now
+        let kernel_file = File::open(cmd_arguments.value_of("kernel_path")
+            .unwrap_or_default())
+            .expect("Cannot open kernel file");
+
+        let mut cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
+        cmdline
+            .insert_str(cmd_arguments.value_of("kernel_cmdline").unwrap())
+            .expect("could not use the specified kernel cmdline");
+        let kernel_config = KernelConfig {
+            cmdline,
+            kernel_file,
+            kernel_start_addr: GuestAddress(KERNEL_START_OFFSET),
+            cmdline_addr: GuestAddress(CMDLINE_OFFSET)
+        };
+        vmm.configure_kernel(kernel_config);
         vmm.boot_kernel().expect("cannot boot kernel");
         vmm.run_control().expect("VMM loop error!");
     } else {
@@ -145,12 +165,6 @@ fn main() {
 }
 
 fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
-    let kernel_path: Option<PathBuf> = cmd_arguments
-        .value_of("kernel_path")
-        .map(|s| PathBuf::from(s));
-
-    //unwrap should not panic because kernel_cmdline has a default value
-    let kernel_cmdline = String::from(cmd_arguments.value_of("kernel_cmdline").unwrap());
 
     let vcpu_count = match cmd_arguments
         .value_of("vcpu_count")
@@ -205,8 +219,6 @@ fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
     };
 
     MachineCfg::new(
-        kernel_path,
-        kernel_cmdline,
         vcpu_count,
         mem_size,
         root_blk_file,
