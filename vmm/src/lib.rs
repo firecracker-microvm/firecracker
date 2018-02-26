@@ -53,6 +53,7 @@ pub enum Error {
     EventFd(sys_util::Error),
     GuestMemory(sys_util::GuestMemoryError),
     Kernel(std::io::Error),
+    KernelCmdLine(kernel_cmdline::Error),
     KernelLoader(kernel_loader::Error),
     Kvm(sys_util::Error),
     Poll(std::io::Error),
@@ -288,6 +289,7 @@ impl Vmm {
         from_api: Receiver<Box<ApiRequest>>,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
+        // if this fails, it's fatal, .expect() it
         let api_event = epoll_context
             .add_event(api_event_fd, EpollDispatch::ApiRequest)
             .expect("cannot add API eventfd to epoll");
@@ -338,7 +340,7 @@ impl Vmm {
             self.kernel_config
                 .cmdline
                 .insert_str(" root=/dev/vda")
-                .unwrap();
+                .map_err(|e| Error::RegisterBlock(device_manager::Error::Cmdline(e)))?;
 
             let epoll_context = &mut self.epoll_context;
             let kernel_cmdline = &mut self.kernel_config.cmdline;
@@ -379,7 +381,7 @@ impl Vmm {
                 self.kernel_config
                     .cmdline
                     .insert_str(&self.cfg.kernel_cmdline)
-                    .expect("could not use the specified kernel cmdline");
+                    .map_err(Error::KernelCmdLine)?;
 
                 /* Instantiating MMIO device manager
                 'mmio_base' address has to be an address which is protected by the kernel, in this case
@@ -395,6 +397,7 @@ impl Vmm {
                     let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
 
                     let net_box = Box::new(devices::virtio::Net::new(
+                        // safe to unwrap since it's checked above
                         self.cfg.host_ip.unwrap(),
                         self.cfg.subnet_mask,
                         epoll_config,
@@ -417,6 +420,7 @@ impl Vmm {
 
                 let kvm = Kvm::new().map_err(Error::Kvm)?;
                 self.vm = Some(Vm::new(&kvm, guest_mem).map_err(Error::Vm)?);
+                // safe to unwrap since it's set just above
                 let vm = self.vm.as_mut().unwrap();
 
                 vm.setup().map_err(Error::VmSetup)?;
@@ -429,9 +433,10 @@ impl Vmm {
 
                 // This is the easy way out of consuming the value of the kernel_cmdline.
                 // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
-                let cmdline_cstring = CString::new(self.kernel_config.cmdline.clone()).unwrap();
+                let cmdline_cstring = CString::new(self.kernel_config.cmdline.clone())
+                    .map_err(|_| Error::KernelCmdLine(kernel_cmdline::Error::InvalidAscii))?;
 
-                //we're using unwrap here because the kernel_path is mandatory for now
+                // we're using unwrap here because the kernel_path is mandatory for now
                 let mut kernel_file =
                     File::open(self.cfg.kernel_path.as_ref().unwrap()).map_err(Error::Kernel)?;
                 kernel_loader::load_kernel(vm.get_memory(), kernel_start_addr, &mut kernel_file)?;
@@ -448,6 +453,7 @@ impl Vmm {
                 let event_fd = EventFd::new().map_err(Error::EventFd)?;
                 let exit_epoll_evt = self.epoll_context.add_event(event_fd, EpollDispatch::Exit)?;
                 self.exit_evt = Some(exit_epoll_evt);
+                // safe to unwrap since it's set just above
                 let exit_evt = &self.exit_evt.as_mut().unwrap().event_fd;
 
                 let mut io_bus = devices::Bus::new();
@@ -457,6 +463,7 @@ impl Vmm {
                     com_evt_1_3.try_clone().map_err(Error::EventFd)?,
                     Box::new(stdout()),
                 ))));
+                // safe to unwrap since it's set just above
                 let stdio_serial = self.stdio_serial.as_mut().unwrap();
 
                 self.epoll_context.enable_stdin_event()?;
@@ -471,8 +478,10 @@ impl Vmm {
                 ).map_err(Error::VmIOBus)?;
 
                 self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
+                // safe to unwrap since it's set just above
                 let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
                 self.kill_signaled = Some(Arc::new(AtomicBool::new(false)));
+                // safe to unwrap since it's set just above
                 let kill_signaled = self.kill_signaled.as_mut().unwrap();
 
                 let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
@@ -547,9 +556,10 @@ impl Vmm {
                                 }
                             }
 
-                            vcpu_exit_evt
-                                .write(1)
-                                .expect("failed to signal vcpu exit eventfd");
+                            // TODO: find a way to report vCPU errors to the user,
+                            // for now ignoring this result as there's nothing we can do
+                            // for the failure case.
+                            let _ = vcpu_exit_evt.write(1);
                         })
                         .map_err(Error::VcpuSpawn)?);
                 }
@@ -651,6 +661,8 @@ impl Vmm {
                                 }
                                 Ok(count) => match self.stdio_serial {
                                     Some(ref mut serial) => {
+                                        // unwrap() to panic if another thread panicked
+                                        // while holding the lock
                                         serial
                                             .lock()
                                             .unwrap()
@@ -698,6 +710,7 @@ impl Vmm {
                             Ok(_) => AsyncOutcome::Ok(0),
                             Err(e) => AsyncOutcome::Error(format!("cannot boot kernel: {:?}", e)),
                         };
+                        // doing expect() to crash this thread as well if the other thread crashed
                         sender.send(result).expect("one-shot channel closed");
                     }
                     AsyncRequest::StopInstance(sender) => {
@@ -708,6 +721,7 @@ impl Vmm {
                                 e
                             )),
                         };
+                        // doing expect() to crash this thread as well if the other thread crashed
                         sender.send(result).expect("one-shot channel closed");
                     }
                 };
@@ -716,12 +730,14 @@ impl Vmm {
                 match req {
                     SyncRequest::PutDrive(drive_description, sender) => {
                         match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
-                            Ok(_) => sender
-                                .send(Box::new(PutDriveOutcome::Created))
+                            Ok(_) =>
+                                // doing expect() to crash this thread if the other thread crashed
+                                sender.send(Box::new(PutDriveOutcome::Created))
                                 .map_err(|_| ())
                                 .expect("one-shot channel closed"),
-                            Err(e) => sender
-                                .send(Box::new(e))
+                            Err(e) =>
+                                // doing expect() to crash this thread if the other thread crashed
+                                sender.send(Box::new(e))
                                 .map_err(|_| ())
                                 .expect("one-shot channel closed"),
                         }
@@ -740,7 +756,9 @@ pub fn start_vmm_thread(
     from_api: Receiver<Box<ApiRequest>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
+        // if this fails, consider it fatal: .expect()
         let mut vmm = Vmm::new(cfg, api_event_fd, from_api).expect("cannot create VMM");
+        // vmm thread errors are irrecoverable for now: .expect()
         vmm.run_control().expect("VMM thread fail");
         // TODO: maybe offer through API: an instance status reporting error messages (r)
     })
