@@ -33,6 +33,7 @@ use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
 use api_server::request::sync::{DriveError, GenerateResponse, PutDriveOutcome, SyncRequest};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
+use api_server::request::sync::machine_configuration::PutMachineConfigurationOutcome;
 use device_config::*;
 use device_manager::*;
 use devices::virtio;
@@ -740,6 +741,10 @@ impl Vmm {
                             .send(box_response)
                             .map_err(|_| ())
                             .expect("one-shot channel closed");
+                    }
+                    SyncRequest::PutMachineConfiguration(machine_config_body, sender) => {
+                        self.put_virtual_machine_configuration(machine_config_body.vcpu_count, machine_config_body.mem_size_mib);
+                        sender.send(Box::new(PutMachineConfigurationOutcome::Updated)).map_err(|_| ()).expect("one-shot channel closed");;
                     }
                 };
             }
