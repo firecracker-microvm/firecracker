@@ -23,6 +23,7 @@ pub enum Error {
     IoctlError(IoError),
     /// Failed to create a socket.
     NetUtil(NetUtilError),
+    InvalidIfname,
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
@@ -39,9 +40,29 @@ pub struct Tap {
     if_name: [u8; 16usize],
 }
 
+// Returns a byte vector representing the contents of a null terminated C string which
+// contains if_name.
+fn build_terminated_if_name(if_name: &str) -> Result<Vec<u8>> {
+    // Convert the string slice to bytes, and shadow the variable,
+    // since we no longer need the &str version.
+    let if_name = if_name.as_bytes();
+
+    // TODO: the 16usize limit of the if_name member from struct Tap is pretty arbitrary.
+    // We leave it as is for now, but this should be refactored at some point.
+    if if_name.len() > 15 {
+        return Err(Error::InvalidIfname);
+    }
+
+    let mut terminated_if_name = vec![b'\0'; if_name.len() + 1];
+    terminated_if_name[..if_name.len()].copy_from_slice(if_name);
+
+    Ok(terminated_if_name)
+}
+
 impl Tap {
-    /// Create a new tap interface.
-    pub fn new() -> Result<Tap> {
+    pub fn open_named(if_name: &str) -> Result<Tap> {
+        let terminated_if_name = build_terminated_if_name(if_name)?;
+
         // Open calls are safe because we give a constant nul-terminated
         // string and verify the result.
         let fd = unsafe {
@@ -57,8 +78,6 @@ impl Tap {
         // We just checked that the fd is valid.
         let tuntap = unsafe { File::from_raw_fd(fd) };
 
-        const TUNTAP_DEV_FORMAT: &'static [u8; 8usize] = b"vmtap%d\0";
-
         // This is pretty messy because of the unions used by ifreq. Since we
         // don't call as_mut on the same union field more than once, this block
         // is safe.
@@ -66,8 +85,8 @@ impl Tap {
         unsafe {
             let ifrn_name = ifreq.ifr_ifrn.ifrn_name.as_mut();
             let ifru_flags = ifreq.ifr_ifru.ifru_flags.as_mut();
-            let name_slice = &mut ifrn_name[..TUNTAP_DEV_FORMAT.len()];
-            name_slice.copy_from_slice(TUNTAP_DEV_FORMAT);
+            let name_slice = &mut ifrn_name[..terminated_if_name.len()];
+            name_slice.copy_from_slice(terminated_if_name.as_slice());
             *ifru_flags =
                 (net_sys::IFF_TAP | net_sys::IFF_NO_PI | net_sys::IFF_VNET_HDR) as c_short;
         }
@@ -85,6 +104,11 @@ impl Tap {
             tap_file: tuntap,
             if_name: unsafe { ifreq.ifr_ifrn.ifrn_name.as_ref().clone() },
         })
+    }
+
+    /// Create a new tap interface.
+    pub fn new() -> Result<Tap> {
+        Self::open_named("vmtap%d")
     }
 
     /// Set the host-side IP address for the tap interface.
