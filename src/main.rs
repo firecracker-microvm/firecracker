@@ -61,14 +61,14 @@ fn main() {
             Arg::with_name("mem_size")
                 .long("mem-size")
                 .default_value("128")
-                .help("Virtual Machine Memory Size in MiB")
+                .help("Virtual Machine Memory Size in MiB  [enabled only with --vmm-no-api]")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("vcpu_count")
                 .long("vcpu-count")
                 .default_value("1")
-                .help("Number of VCPUs")
+                .help("Number of VCPUs  [enabled only with --vmm-no-api]")
                 .takes_value(true),
         )
         .arg(
@@ -142,6 +142,39 @@ fn vmm_no_api_handler(
         EventFd::new().expect("cannot create eventFD"),
         from_api,
     ).expect("cannot create VMM");
+
+    // configure virtual machine from command line
+    if cmd_arguments.is_present("vcpu_count") {
+        match cmd_arguments
+            .value_of("vcpu_count")
+            .unwrap()
+            .to_string()
+            .parse::<u8>()
+        {
+            Ok(vcpu_count) => {
+                vmm.put_virtual_machine_configuration(Some(vcpu_count), None);
+            }
+            Err(error) => {
+                panic!("Invalid value for vcpu_count! {:?}", error);
+            }
+        };
+    }
+    if cmd_arguments.is_present("mem_size") {
+        match cmd_arguments
+            .value_of("mem_size")
+            .unwrap()
+            .to_string()
+            .parse::<usize>()
+        {
+            Ok(mem_size_mib) => {
+                vmm.put_virtual_machine_configuration(None, Some(mem_size_mib));
+            }
+            Err(error) => {
+                panic!("Invalid value for mem_size! {:?}", error);
+            }
+        }
+    }
+
     // This is a temporary fix. Block devices should be added via http requests.
     // With the command line, we can only add one device, with default to root block device.
     if cmd_arguments.is_present("root_blk_file") {
@@ -174,30 +207,6 @@ fn vmm_no_api_handler(
 }
 
 fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
-    let vcpu_count = match cmd_arguments
-        .value_of("vcpu_count")
-        .unwrap()
-        .to_string()
-        .parse::<u8>()
-    {
-        Ok(value) => value,
-        Err(error) => {
-            panic!("Invalid value for vcpu_count! {:?}", error);
-        }
-    };
-
-    let mem_size = match cmd_arguments
-        .value_of("mem_size")
-        .unwrap()
-        .to_string()
-        .parse::<usize>()
-    {
-        Ok(value) => value,
-        Err(error) => {
-            panic!("Invalid value for mem_size! {:?}", error);
-        }
-    };
-
     let root_blk_file = cmd_arguments
         .value_of("root_blk_file")
         .map(|s| PathBuf::from(s));
@@ -226,12 +235,5 @@ fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
         None => None,
     };
 
-    MachineCfg::new(
-        vcpu_count,
-        mem_size,
-        root_blk_file,
-        host_ip,
-        subnet_mask,
-        vsock_guest_cid,
-    )
+    MachineCfg::new(root_blk_file, host_ip, subnet_mask, vsock_guest_cid)
 }

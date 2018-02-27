@@ -223,8 +223,25 @@ pub struct KernelConfig {
     pub cmdline_addr: GuestAddress,
 }
 
+// This structure should replace MachineCfg; For now it is safer to duplicate the work as the
+// net support is not fuully integrated.
+pub struct VirtualMachineConfig {
+    vcpu_count: u8,
+    mem_size_mib: usize,
+}
+
+impl Default for VirtualMachineConfig {
+    fn default() -> Self {
+        VirtualMachineConfig {
+            vcpu_count: 1,
+            mem_size_mib: 128,
+        }
+    }
+}
+
 pub struct Vmm {
     cfg: MachineCfg,
+    vm_config: VirtualMachineConfig,
     core: Option<VmmCore>,
     kernel_config: Option<KernelConfig>,
     // If there is a Root Block Device, this should be added as the first element of the list
@@ -251,6 +268,7 @@ impl Vmm {
         let block_device_configs = BlockDeviceConfigs::new();
         Ok(Vmm {
             cfg,
+            vm_config: VirtualMachineConfig::default(),
             core: None,
             kernel_config: None,
             block_device_configs,
@@ -274,6 +292,20 @@ impl Vmm {
             return Err(DriveError::NotImplemented);
         } else {
             self.block_device_configs.add(block_device_config)
+        }
+    }
+
+    pub fn put_virtual_machine_configuration(
+        &mut self,
+        vcpu_count: Option<u8>,
+        mem_size_mib: Option<usize>,
+    ) {
+        if vcpu_count.is_some() {
+            self.vm_config.vcpu_count = vcpu_count.unwrap();
+        }
+
+        if mem_size_mib.is_some() {
+            self.vm_config.mem_size_mib = mem_size_mib.unwrap();
         }
     }
 
@@ -321,10 +353,10 @@ impl Vmm {
     /// only call this from run_vmm() or other functions
     /// that can guarantee single instances
     pub fn boot_kernel(&mut self) -> Result<()> {
-        let mem_size = self.cfg.mem_size << 20;
+        let mem_size = self.vm_config.mem_size_mib << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
 
-        let vcpu_count = self.cfg.vcpu_count;
+        let vcpu_count = self.vm_config.vcpu_count;
         let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
 
         /* Instantiating MMIO device manager
