@@ -3,11 +3,13 @@ use hyper;
 
 pub mod boot_source;
 mod drive;
+pub mod machine_configuration;
 
 use std::fmt;
 
 pub use self::drive::{DriveDescription, DriveError, PutDriveOutcome};
 pub use self::boot_source::BootSourceBody;
+pub use self::machine_configuration::MachineConfigurationBody;
 
 // Unlike async requests, sync request have outcomes which implement this trait. The idea is for
 // each outcome to be a struct which is cheaply and quickly instantiated by the VMM thread, then
@@ -30,6 +32,7 @@ pub enum DeviceState {
 pub enum SyncRequest {
     PutDrive(DriveDescription, SyncOutcomeSender),
     PutBootSource(BootSourceBody, SyncOutcomeSender),
+    PutMachineConfiguration(MachineConfigurationBody, SyncOutcomeSender),
 }
 
 impl fmt::Debug for SyncRequest {
