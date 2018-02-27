@@ -39,11 +39,11 @@ impl GenerateResponse for DriveError {
             ),
             BlockDevicePathAlreadyExists => json_response(
                 StatusCode::BadRequest,
-                json_fault_message("The block device path was already added to a different drive!")
+                json_fault_message("The block device path was already added to a different drive!"),
             ),
             NotImplemented => json_response(
                 StatusCode::InternalServerError,
-                json_fault_message("The update operation is not implemented!")
+                json_fault_message("The update operation is not implemented!"),
             ),
         }
     }
@@ -70,7 +70,9 @@ impl GenerateResponse for PutDriveOutcome {
 impl DriveDescription {
     pub fn into_parsed_request(self, id_from_path: &str) -> result::Result<ParsedRequest, String> {
         if id_from_path != self.drive_id {
-            return Err(String::from("The id from the path does not match the id from the path!"));
+            return Err(String::from(
+                "The id from the path does not match the id from the path!",
+            ));
         }
 
         let (sender, receiver) = oneshot::channel();

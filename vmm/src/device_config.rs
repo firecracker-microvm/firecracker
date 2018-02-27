@@ -47,19 +47,19 @@ impl BlockDeviceConfigs {
     pub fn contains_drive_path(&self, drive_path: PathBuf) -> bool {
         for drive_config in self.config_list.iter() {
             if drive_config.path_on_host == drive_path {
-                return true
+                return true;
             }
         }
-        return false
+        return false;
     }
 
     pub fn contains_drive_id(&self, drive_id: String) -> bool {
         for drive_config in self.config_list.iter() {
             if drive_config.drive_id == drive_id {
-                return true
+                return true;
             }
         }
-        return false
+        return false;
     }
 
     /// This function adds a Block Device Config to the list. The root block device is always
