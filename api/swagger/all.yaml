@@ -9,7 +9,7 @@ info:
   version: 0.1.0
   termsOfService: ""
   contact:
-    email: "acatan@amazon.com"
+    email: "compute-capsule@amazon.com"
   license:
     name: "Apache 2.0"
     url: "http://www.apache.org/licenses/LICENSE-2.0.html"
@@ -73,6 +73,46 @@ paths:
           description: Boot source updated.
         400:
           description: Boot source cannot be created due to bad input.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+  /machine-config:
+    get:
+      summary: "Get Virtual Machine configuration."
+      operationId: "getMachineConfiguration"
+      responses:
+        200:
+          description: Get the machine configuration.
+          schema:
+            $ref: "#/definitions/MachineConfiguration"
+        404:
+          description: Machine Configuration does not exist.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+    put:
+      summary: "Updates the Virtual Machine Configuration with the specified input. The Machine Configuration has default values
+                for the vCPU count (=1) and the memory size (=256 MiB). May fail if update is not possible."
+      operationId: "putMachineConfiguration"
+      parameters:
+      - name: "body"
+        in: body
+        description: "Machine Configuration"
+        schema:
+          $ref: "#/definitions/MachineConfiguration"
+      responses:
+        201:
+          description: Machine Configuration created.
+        204:
+          description: Machine Configuration updated.
+        400:
+          description: Machine Configuration cannot be updated due to bad input.
           schema:
             $ref: '#/definitions/Error'
         default:
@@ -746,6 +786,18 @@ definitions:
       boot_args:
         type: string
         description: "kernel boot arguments"
+  MachineConfiguration:
+    type: object
+    description: |
+      Machine Configuration descriptor by which you can specify the number of vCPU of one machine with 'vcpu_count'
+      and the memory size in MiB with 'mem_size_mib'.
+    properties:
+      vcpu_count:
+        type: integer
+        description: "Number of vCPUs"
+      mem_size_mib:
+        type: integer
+        description: "Memory size of VM"
   LocalImage:
     type: object
     description: |
