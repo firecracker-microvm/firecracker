@@ -33,7 +33,8 @@ use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
 use api_server::request::sync::{DriveError, GenerateResponse, PutDriveOutcome, SyncRequest};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
-use api_server::request::sync::machine_configuration::PutMachineConfigurationOutcome;
+use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
+                                                       PutMachineConfigurationOutcome};
 use device_config::*;
 use device_manager::*;
 use devices::virtio;
@@ -300,14 +301,26 @@ impl Vmm {
         &mut self,
         vcpu_count: Option<u8>,
         mem_size_mib: Option<usize>,
-    ) {
+    ) -> std::result::Result<(), PutMachineConfigurationError> {
         if vcpu_count.is_some() {
-            self.vm_config.vcpu_count = vcpu_count.unwrap();
+            let vcpu_count_value = vcpu_count.unwrap();
+            // TODO: also enforce an upper limit
+            if vcpu_count_value == 0 {
+                return Err(PutMachineConfigurationError::InvalidVcpuCount);
+            }
+            self.vm_config.vcpu_count = vcpu_count_value;
         }
 
         if mem_size_mib.is_some() {
+            // TODO: add other memory checks
+            let mem_size_mib_value = mem_size_mib.unwrap();
+            if mem_size_mib_value == 0 {
+                return Err(PutMachineConfigurationError::InvalidMemorySize);
+            }
             self.vm_config.mem_size_mib = mem_size_mib.unwrap();
         }
+
+        Ok(())
     }
 
     /// Attach all block devices from the BlockDevicesConfig
@@ -743,8 +756,18 @@ impl Vmm {
                             .expect("one-shot channel closed");
                     }
                     SyncRequest::PutMachineConfiguration(machine_config_body, sender) => {
-                        self.put_virtual_machine_configuration(machine_config_body.vcpu_count, machine_config_body.mem_size_mib);
-                        sender.send(Box::new(PutMachineConfigurationOutcome::Updated)).map_err(|_| ()).expect("one-shot channel closed");;
+                        let boxed_response = match self.put_virtual_machine_configuration(
+                            machine_config_body.vcpu_count,
+                            machine_config_body.mem_size_mib,
+                        ) {
+                            Ok(_) => Box::new(PutMachineConfigurationOutcome::Updated),
+                            Err(e) => Box::new(PutMachineConfigurationOutcome::Error(e)),
+                        };
+
+                        sender
+                            .send(boxed_response)
+                            .map_err(|_| ())
+                            .expect("one-shot channel closed");;
                     }
                 };
             }
