@@ -38,7 +38,7 @@ paths:
           description: Unexpected error.
           schema:
             $ref: '#/definitions/Error'
-  /boot/source:
+  /boot-source:
     get:
       summary: "Get configured boot source."
       operationId: "getGuestBootSource"
