@@ -665,6 +665,9 @@ impl Vmm {
                                 .expect("one-shot channel closed"),
                         }
                     }
+                    SyncRequest::PutBootSource(_boot_source_body, _sender) => {
+                        println!("Not implemented");
+                    }
                 };
             }
         };
