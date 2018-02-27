@@ -10,11 +10,12 @@ use clap::{App, Arg};
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
+use std::sync::mpsc::Receiver;
 
-use api_server::ApiServer;
+use api_server::{ApiRequest, ApiServer};
 use sys_util::{syslog, EventFd, GuestAddress};
 use vmm::{CMDLINE_MAX_SIZE, CMDLINE_OFFSET, KERNEL_START_OFFSET};
-use vmm::{KernelConfig, kernel_cmdline};
+use vmm::{kernel_cmdline, KernelConfig};
 use vmm::machine::MachineCfg;
 use vmm::device_config::BlockDeviceConfig;
 
@@ -114,40 +115,7 @@ fn main() {
 
     // TODO: vmm_no_api is for integration testing, need to find a more pretty solution
     if vmm_no_api {
-        let mut vmm = vmm::Vmm::new(
-            cfg,
-            EventFd::new().expect("cannot create eventFD"),
-            from_api,
-        ).expect("cannot create VMM");
-        // This is a temporary fix. Block devices should be added via http requests.
-        // With the command line, we can only add one device, with default to root block device.
-        if cmd_arguments.is_present("root_blk_file") {
-            let root_block_device = BlockDeviceConfig {
-                path_on_host: PathBuf::from(cmd_arguments.value_of("root_blk_file").unwrap()),
-                is_root_device: true,
-                drive_id: String::from("1"),
-            };
-            vmm.put_block_device(root_block_device).expect("cannot add root block device.");
-        }
-        // configure kernel from command line
-        //we're using unwrap here because the kernel_path is mandatory for now
-        let kernel_file = File::open(cmd_arguments.value_of("kernel_path")
-            .unwrap_or_default())
-            .expect("Cannot open kernel file");
-
-        let mut cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
-        cmdline
-            .insert_str(cmd_arguments.value_of("kernel_cmdline").unwrap())
-            .expect("could not use the specified kernel cmdline");
-        let kernel_config = KernelConfig {
-            cmdline,
-            kernel_file,
-            kernel_start_addr: GuestAddress(KERNEL_START_OFFSET),
-            cmdline_addr: GuestAddress(CMDLINE_OFFSET)
-        };
-        vmm.configure_kernel(kernel_config);
-        vmm.boot_kernel().expect("cannot boot kernel");
-        vmm.run_control().expect("VMM loop error!");
+        vmm_no_api_handler(cmd_arguments, cfg, from_api);
     } else {
         // safe to unwrap since api_sock has a default value
         let bind_path = cmd_arguments
@@ -164,8 +132,48 @@ fn main() {
     }
 }
 
-fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
+fn vmm_no_api_handler(
+    cmd_arguments: clap::ArgMatches,
+    cfg: MachineCfg,
+    from_api: Receiver<Box<ApiRequest>>,
+) {
+    let mut vmm = vmm::Vmm::new(
+        cfg,
+        EventFd::new().expect("cannot create eventFD"),
+        from_api,
+    ).expect("cannot create VMM");
+    // This is a temporary fix. Block devices should be added via http requests.
+    // With the command line, we can only add one device, with default to root block device.
+    if cmd_arguments.is_present("root_blk_file") {
+        let root_block_device = BlockDeviceConfig {
+            path_on_host: PathBuf::from(cmd_arguments.value_of("root_blk_file").unwrap()),
+            is_root_device: true,
+            drive_id: String::from("1"),
+        };
+        vmm.put_block_device(root_block_device)
+            .expect("cannot add root block device.");
+    }
+    // configure kernel from command line
+    //we're using unwrap here because the kernel_path is mandatory for now
+    let kernel_file = File::open(cmd_arguments.value_of("kernel_path").unwrap_or_default())
+        .expect("Cannot open kernel file");
 
+    let mut cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
+    cmdline
+        .insert_str(cmd_arguments.value_of("kernel_cmdline").unwrap())
+        .expect("could not use the specified kernel cmdline");
+    let kernel_config = KernelConfig {
+        cmdline,
+        kernel_file,
+        kernel_start_addr: GuestAddress(KERNEL_START_OFFSET),
+        cmdline_addr: GuestAddress(CMDLINE_OFFSET),
+    };
+    vmm.configure_kernel(kernel_config);
+    vmm.boot_kernel().expect("cannot boot kernel");
+    vmm.run_control().expect("VMM loop error!");
+}
+
+fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
     let vcpu_count = match cmd_arguments
         .value_of("vcpu_count")
         .unwrap()
