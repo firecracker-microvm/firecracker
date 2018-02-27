@@ -150,14 +150,15 @@ fn vmm_no_api_handler(
             .unwrap()
             .to_string()
             .parse::<u8>()
-        {
-            Ok(vcpu_count) => {
-                vmm.put_virtual_machine_configuration(Some(vcpu_count), None);
-            }
-            Err(error) => {
-                panic!("Invalid value for vcpu_count! {:?}", error);
-            }
-        };
+            {
+                Ok(vcpu_count) => {
+                    vmm.put_virtual_machine_configuration(Some(vcpu_count), None)
+                        .expect("Invalid value for vcpu_count");
+                }
+                Err(error) => {
+                    panic!("Invalid value for vcpu_count! {:?}", error);
+                }
+            };
     }
     if cmd_arguments.is_present("mem_size") {
         match cmd_arguments
@@ -165,14 +166,15 @@ fn vmm_no_api_handler(
             .unwrap()
             .to_string()
             .parse::<usize>()
-        {
-            Ok(mem_size_mib) => {
-                vmm.put_virtual_machine_configuration(None, Some(mem_size_mib));
+            {
+                Ok(mem_size_mib) => {
+                    vmm.put_virtual_machine_configuration(None, Some(mem_size_mib))
+                        .expect("Invalid value for mem_size!");
+                }
+                Err(error) => {
+                    panic!("Invalid value for mem_size! {:?}", error);
+                }
             }
-            Err(error) => {
-                panic!("Invalid value for mem_size! {:?}", error);
-            }
-        }
     }
 
     // This is a temporary fix. Block devices should be added via http requests.
