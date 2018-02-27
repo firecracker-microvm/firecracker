@@ -46,14 +46,14 @@ fn main() {
             Arg::with_name("kernel_path")
                 .short("k")
                 .long("kernel-path")
-                .help("The kernel's file path (vmlinux.bin)")
+                .help("The kernel's file path (vmlinux.bin)  [enabled only with --vmm-no-api]")
                 .required(true)
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("kernel_cmdline")
                 .long("kernel-cmdline")
-                .help("The kernel's command line")
+                .help("The kernel's command line  [enabled only with --vmm-no-api]")
                 .default_value("console=ttyS0 noapic reboot=k panic=1 pci=off nomodules")
                 .takes_value(true),
         )
