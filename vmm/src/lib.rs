@@ -98,7 +98,7 @@ impl std::convert::From<x86_64::Error> for Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EpollDispatch {
     Exit,
     Stdin,
@@ -933,4 +933,138 @@ pub fn start_vmm_thread(
         vmm.run_control(true).expect("VMM thread fail");
         // TODO: maybe offer through API: an instance status reporting error messages (r)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_epoll_context_test() {
+        assert!(EpollContext::new().is_ok());
+    }
+
+    #[test]
+    fn enable_disable_stdin_test() {
+        let mut ep = EpollContext::new().unwrap();
+        // enabling stdin should work
+        assert!(ep.enable_stdin_event().is_ok());
+        // doing it again should fail
+        assert!(ep.enable_stdin_event().is_err());
+
+        // disabling stdin should work
+        assert!(ep.disable_stdin_event().is_ok());
+
+        // enabling stdin should work now
+        assert!(ep.enable_stdin_event().is_ok());
+        // disabling it again should work
+        assert!(ep.disable_stdin_event().is_ok());
+    }
+
+    #[test]
+    fn add_remove_event_test() {
+        let mut ep = EpollContext::new().unwrap();
+        let evfd = EventFd::new().unwrap();
+
+        // adding new event should work
+        let epev = ep.add_event(evfd, EpollDispatch::Exit);
+        assert!(epev.is_ok());
+
+        // removing event should work
+        assert!(ep.remove_event(epev.unwrap()).is_ok());
+    }
+
+    #[test]
+    fn epoll_event_test() {
+        let mut ep = EpollContext::new().unwrap();
+        let evfd = EventFd::new().unwrap();
+
+        // adding new event should work
+        let epev = ep.add_event(evfd, EpollDispatch::Exit);
+        assert!(epev.is_ok());
+        let epev = epev.unwrap();
+
+        let evpoll_events_len = 10;
+        let mut events = Vec::<epoll::Event>::with_capacity(evpoll_events_len);
+        // Safe as we pass to set_len the value passed to with_capacity.
+        unsafe { events.set_len(evpoll_events_len) };
+
+        // epoll should have no pending events
+        let epollret = epoll::wait(ep.epoll_raw_fd, 0, &mut events[..]);
+        let num_events = epollret.unwrap();
+        assert_eq!(num_events, 0);
+
+        // raise the event
+        assert!(epev.event_fd.write(1).is_ok());
+
+        // epoll should report one event
+        let epollret = epoll::wait(ep.epoll_raw_fd, 0, &mut events[..]);
+        let num_events = epollret.unwrap();
+        assert_eq!(num_events, 1);
+
+        // reported event should be the one we raised
+        let idx = events[0].data() as usize;
+        assert!(ep.dispatch_table[idx].is_some());
+        assert_eq!(
+            *ep.dispatch_table[idx].as_ref().unwrap(),
+            EpollDispatch::Exit
+        );
+
+        // removing event should work
+        assert!(ep.remove_event(epev).is_ok());
+    }
+
+    #[test]
+    fn epoll_event_try_get_after_remove_test() {
+        let mut ep = EpollContext::new().unwrap();
+        let evfd = EventFd::new().unwrap();
+
+        // adding new event should work
+        let epev = ep.add_event(evfd, EpollDispatch::Exit).unwrap();
+
+        let evpoll_events_len = 10;
+        let mut events = Vec::<epoll::Event>::with_capacity(evpoll_events_len);
+        // Safe as we pass to set_len the value passed to with_capacity.
+        unsafe { events.set_len(evpoll_events_len) };
+
+        // raise the event
+        assert!(epev.event_fd.write(1).is_ok());
+
+        // removing event should work
+        assert!(ep.remove_event(epev).is_ok());
+
+        // epoll should have no pending events
+        let epollret = epoll::wait(ep.epoll_raw_fd, 0, &mut events[..]);
+        let num_events = epollret.unwrap();
+        assert_eq!(num_events, 0);
+    }
+
+    #[test]
+    fn epoll_event_try_use_after_remove_test() {
+        let mut ep = EpollContext::new().unwrap();
+        let evfd = EventFd::new().unwrap();
+
+        // adding new event should work
+        let epev = ep.add_event(evfd, EpollDispatch::Exit).unwrap();
+
+        let evpoll_events_len = 10;
+        let mut events = Vec::<epoll::Event>::with_capacity(evpoll_events_len);
+        // Safe as we pass to set_len the value passed to with_capacity.
+        unsafe { events.set_len(evpoll_events_len) };
+
+        // raise the event
+        assert!(epev.event_fd.write(1).is_ok());
+
+        // epoll should report one event
+        let epollret = epoll::wait(ep.epoll_raw_fd, 0, &mut events[..]);
+        let num_events = epollret.unwrap();
+        assert_eq!(num_events, 1);
+
+        // removing event should work
+        assert!(ep.remove_event(epev).is_ok());
+
+        // reported event should no longer be available
+        let idx = events[0].data() as usize;
+        assert!(ep.dispatch_table[idx].is_none());
+    }
 }
