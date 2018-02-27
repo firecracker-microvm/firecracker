@@ -31,7 +31,8 @@ use std::thread;
 
 use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
-use api_server::request::sync::{DriveError, PutDriveOutcome, SyncRequest};
+use api_server::request::sync::{DriveError, GenerateResponse, PutDriveOutcome, SyncRequest};
+use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
 use device_config::*;
 use device_manager::*;
 use devices::virtio;
@@ -45,6 +46,7 @@ use vstate::{Vcpu, Vm};
 pub const KERNEL_START_OFFSET: usize = 0x200000;
 pub const CMDLINE_OFFSET: usize = 0x20000;
 pub const CMDLINE_MAX_SIZE: usize = KERNEL_START_OFFSET - CMDLINE_OFFSET;
+pub const DEFAULT_KERNEL_CMDLINE:&str = "console=ttyS0 noapic reboot=k panic=1 pci=off nomodules";
 
 #[derive(Debug)]
 pub enum Error {
@@ -54,6 +56,7 @@ pub enum Error {
     GuestMemory(sys_util::GuestMemoryError),
     Kernel(std::io::Error),
     KernelLoader(kernel_loader::Error),
+    InvalidKernelPath,
     MissingKernelConfig,
     Kvm(sys_util::Error),
     Poll(std::io::Error),
@@ -665,8 +668,46 @@ impl Vmm {
                                 .expect("one-shot channel closed"),
                         }
                     }
-                    SyncRequest::PutBootSource(_boot_source_body, _sender) => {
-                        println!("Not implemented");
+                    SyncRequest::PutBootSource(boot_source_body, sender) => {
+                        // check that the kernel path exists and it is valid
+                        let box_response: Box<GenerateResponse + Send> = match boot_source_body
+                            .local_image
+                        {
+                            Some(image) => match File::open(image.kernel_image_path) {
+                                Ok(kernel_file) => {
+                                    let mut cmdline =
+                                        kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
+                                    match cmdline.insert_str(
+                                            boot_source_body
+                                                .boot_args
+                                                .unwrap_or(String::from(DEFAULT_KERNEL_CMDLINE))
+                                                ) {
+                                            Ok(_) => {
+                                                let kernel_config = KernelConfig {
+                                                    kernel_file,
+                                                    cmdline,
+                                                    kernel_start_addr: GuestAddress(KERNEL_START_OFFSET),
+                                                    cmdline_addr: GuestAddress(CMDLINE_OFFSET)
+                                                };
+                                                // if the kernel was already configure, we have an update operation
+                                                let outcome = match self.kernel_config {
+                                                    Some(_) => PutBootSourceOutcome::Updated,
+                                                    None => PutBootSourceOutcome::Created,
+                                                };
+                                                self.configure_kernel(kernel_config);
+                                                Box::new(outcome)
+                                            }
+                                            Err(_) => Box::new(PutBootSourceConfigError::InvalidKernelCommandLine)
+                                        }
+                                }
+                                Err(_e) => Box::new(PutBootSourceConfigError::InvalidKernelPath),
+                            },
+                            None => Box::new(PutBootSourceConfigError::InvalidKernelPath),
+                        };
+                        sender
+                            .send(box_response)
+                            .map_err(|_| ())
+                            .expect("one-shot channel closed");
                     }
                 };
             }
