@@ -4,7 +4,7 @@ pub mod sync;
 pub use self::async::{AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest,
                       AsyncRequestBody};
 pub use self::sync::{BootSourceBody, DriveDescription, MachineConfigurationBody,
-                     SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest};
+                     NetworkInterfaceBody, SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest};
 
 pub enum ParsedRequest {
     Dummy,

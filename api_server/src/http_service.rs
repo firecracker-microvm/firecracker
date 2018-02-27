@@ -171,6 +171,15 @@ fn parse_request<'a>(
             }
             _ => Err(Error::InvalidPathMethod(path, method)),
         },
+        "boot-source" => match v[1..].len() {
+            0 if is_get => Ok(ParsedRequest::Dummy),
+
+            0 if is_put => Ok(serde_json::from_slice::<request::BootSourceBody>(body)
+                .map_err(Error::SerdeJson)?
+                .into_parsed_request()
+                .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
+            _ => Err(Error::InvalidPathMethod(path, method)),
+        },
         "drives" => match v[1..].len() {
             0 if is_get => Ok(ParsedRequest::Dummy),
 
@@ -182,15 +191,6 @@ fn parse_request<'a>(
                 .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
             _ => Err(Error::InvalidPathMethod(path, method)),
         },
-        "boot-source" => match v[1..].len() {
-            0 if is_get => Ok(ParsedRequest::Dummy),
-
-            0 if is_put => Ok(serde_json::from_slice::<request::BootSourceBody>(body)
-                .map_err(Error::SerdeJson)?
-                .into_parsed_request()
-                .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
-            _ => Err(Error::InvalidPathMethod(path, method)),
-        },
         "machine-config" => match v[1..].len() {
             0 if is_get => Ok(ParsedRequest::Dummy),
 
@@ -198,6 +198,19 @@ fn parse_request<'a>(
                 serde_json::from_slice::<request::MachineConfigurationBody>(body)
                     .map_err(Error::SerdeJson)?
                     .into_parsed_request()
+                    .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?,
+            ),
+            _ => Err(Error::InvalidPathMethod(path, method)),
+        },
+        "network-interfaces" => match v[1..].len() {
+            0 if is_get => Ok(ParsedRequest::Dummy),
+
+            1 if is_get => Ok(ParsedRequest::Dummy),
+
+            1 if is_put => Ok(
+                serde_json::from_slice::<request::NetworkInterfaceBody>(body)
+                    .map_err(Error::SerdeJson)?
+                    .into_parsed_request(id_from_path.unwrap())
                     .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?,
             ),
             _ => Err(Error::InvalidPathMethod(path, method)),
