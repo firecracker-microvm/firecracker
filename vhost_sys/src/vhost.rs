@@ -500,6 +500,7 @@ pub struct vhost_memory {
     pub nregions: __u32,
     pub padding: __u32,
     pub regions: __IncompleteArrayField<vhost_memory_region>,
+    __force_alignment: [u64; 0],
 }
 #[test]
 fn bindgen_test_layout_vhost_memory() {
