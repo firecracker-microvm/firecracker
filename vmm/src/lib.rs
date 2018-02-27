@@ -48,7 +48,7 @@ use vstate::{Vcpu, Vm};
 pub const KERNEL_START_OFFSET: usize = 0x200000;
 pub const CMDLINE_OFFSET: usize = 0x20000;
 pub const CMDLINE_MAX_SIZE: usize = KERNEL_START_OFFSET - CMDLINE_OFFSET;
-pub const DEFAULT_KERNEL_CMDLINE:&str = "console=ttyS0 noapic reboot=k panic=1 pci=off nomodules";
+pub const DEFAULT_KERNEL_CMDLINE: &str = "console=ttyS0 noapic reboot=k panic=1 pci=off nomodules";
 
 #[derive(Debug)]
 pub enum Error {
@@ -724,27 +724,31 @@ impl Vmm {
                                     let mut cmdline =
                                         kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
                                     match cmdline.insert_str(
-                                            boot_source_body
-                                                .boot_args
-                                                .unwrap_or(String::from(DEFAULT_KERNEL_CMDLINE))
-                                                ) {
-                                            Ok(_) => {
-                                                let kernel_config = KernelConfig {
-                                                    kernel_file,
-                                                    cmdline,
-                                                    kernel_start_addr: GuestAddress(KERNEL_START_OFFSET),
-                                                    cmdline_addr: GuestAddress(CMDLINE_OFFSET)
-                                                };
-                                                // if the kernel was already configure, we have an update operation
-                                                let outcome = match self.kernel_config {
-                                                    Some(_) => PutBootSourceOutcome::Updated,
-                                                    None => PutBootSourceOutcome::Created,
-                                                };
-                                                self.configure_kernel(kernel_config);
-                                                Box::new(outcome)
-                                            }
-                                            Err(_) => Box::new(PutBootSourceConfigError::InvalidKernelCommandLine)
+                                        boot_source_body
+                                            .boot_args
+                                            .unwrap_or(String::from(DEFAULT_KERNEL_CMDLINE)),
+                                    ) {
+                                        Ok(_) => {
+                                            let kernel_config = KernelConfig {
+                                                kernel_file,
+                                                cmdline,
+                                                kernel_start_addr: GuestAddress(
+                                                    KERNEL_START_OFFSET,
+                                                ),
+                                                cmdline_addr: GuestAddress(CMDLINE_OFFSET),
+                                            };
+                                            // if the kernel was already configure, we have an update operation
+                                            let outcome = match self.kernel_config {
+                                                Some(_) => PutBootSourceOutcome::Updated,
+                                                None => PutBootSourceOutcome::Created,
+                                            };
+                                            self.configure_kernel(kernel_config);
+                                            Box::new(outcome)
                                         }
+                                        Err(_) => Box::new(
+                                            PutBootSourceConfigError::InvalidKernelCommandLine,
+                                        ),
+                                    }
                                 }
                                 Err(_e) => Box::new(PutBootSourceConfigError::InvalidKernelPath),
                             },
@@ -769,6 +773,7 @@ impl Vmm {
                             .map_err(|_| ())
                             .expect("one-shot channel closed");;
                     }
+                    _ => unreachable!(),
                 };
             }
         };
