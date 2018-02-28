@@ -1,11 +1,13 @@
 use std::collections::LinkedList;
+use std::mem;
 use std::path::PathBuf;
 
 use std::rc::Rc;
 use std::result;
 
-use api_server::request::sync::{DriveDescription, DriveError, NetworkInterfaceBody};
-use net_util::Tap;
+use api_server::request::sync::{DriveDescription, DriveError, Error as SyncError,
+                                NetworkInterfaceBody, OkStatus as SyncOkStatus};
+use net_util::{Tap, TapError};
 
 // TODO: I think this module should be broken up into multiple files, one for each of drives,
 // network interfaces, and vsocks (and limiters maybe at some point).
@@ -96,9 +98,9 @@ impl BlockDeviceConfigs {
     }
 }
 
-struct NetworkInterfaceConfig {
+pub struct NetworkInterfaceConfig {
     // The request body received from the API side.
-    body: NetworkInterfaceBody,
+    _body: NetworkInterfaceBody,
     // We extract the id from the body and hold it as a reference counted String. This should
     // come in handy later on, when we'll need the id to appear in a number of data structures
     // to implement efficient lookup, update, deletion, etc.
@@ -110,9 +112,49 @@ struct NetworkInterfaceConfig {
     pub tap: Option<Tap>,
 }
 
-struct NetworkInterfaceConfigs {
+impl NetworkInterfaceConfig {
+    pub fn try_from_body(mut body: NetworkInterfaceBody) -> result::Result<Self, TapError> {
+        let id = Rc::new(mem::replace(&mut body.iface_id, String::new()));
+
+        // TODO: rework net_util stuff such that references would suffice here, instead
+        // of having to move things around.
+        let tap = Tap::open_named(body.host_dev_name.as_str())?;
+
+        Ok(NetworkInterfaceConfig {
+            _body: body,
+            id,
+            tap: Some(tap),
+        })
+    }
+
+    pub fn id_as_str(&self) -> &str {
+        self.id.as_str()
+    }
+}
+
+pub struct NetworkInterfaceConfigs {
     // We use just a list for now, since we only add interfaces as this point.
     if_list: LinkedList<NetworkInterfaceConfig>,
+}
+
+impl NetworkInterfaceConfigs {
+    pub fn new() -> Self {
+        NetworkInterfaceConfigs {
+            if_list: LinkedList::new(),
+        }
+    }
+
+    pub fn put(&mut self, body: NetworkInterfaceBody) -> result::Result<SyncOkStatus, SyncError> {
+        let cfg = NetworkInterfaceConfig::try_from_body(body).map_err(SyncError::OpenTap)?;
+
+        for x in self.if_list.iter() {
+            if x.id_as_str() == cfg.id_as_str() {
+                return Err(SyncError::UpdateNotImplemented);
+            }
+        }
+        self.if_list.push_back(cfg);
+        Ok(SyncOkStatus::Created)
+    }
 }
 
 #[cfg(test)]
