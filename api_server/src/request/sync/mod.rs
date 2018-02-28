@@ -81,6 +81,7 @@ impl GenerateResponse for OkStatus {
 }
 
 // Potential errors associated with sync requests.
+#[derive(Debug)]
 pub enum Error {
     OpenTap(TapError),
     UpdateNotImplemented,
