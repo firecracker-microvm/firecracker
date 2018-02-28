@@ -8,6 +8,7 @@ extern crate vmm;
 
 use clap::{App, Arg, SubCommand};
 use std::fs::File;
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Receiver;
@@ -76,9 +77,9 @@ fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::with_name("host_ip")
-                        .long("host-ip")
-                        .help("IPv4 address of the host interface")
+                    Arg::with_name("tap_dev_name")
+                        .long("tap-dev-name")
+                        .help("Name of existing TAP interface to use for guest Virtio net device")
                         .takes_value(true),
                 )
                 .arg(
@@ -181,6 +182,23 @@ fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<A
         vmm.put_block_device(root_block_device)
             .expect("cannot add root block device.");
     }
+
+    if let Some(value) = cmd_arguments.value_of("tap_dev_name") {
+        let host_dev_name = String::from(value);
+
+        use api_server::request::sync::DeviceState;
+        use api_server::request::sync::NetworkInterfaceBody;
+
+        let body = NetworkInterfaceBody {
+            iface_id: String::from("0"),
+            state: DeviceState::Attached,
+            host_dev_name,
+            guest_mac: None,
+        };
+
+        vmm.put_net_device(body).expect("failed adding net device.");
+    }
+
     // configure kernel from command line
     //we're using unwrap here because the kernel_path is mandatory for now
     let kernel_file = File::open(cmd_arguments.value_of("kernel_path").unwrap_or_default())
@@ -206,17 +224,6 @@ fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
         .value_of("root_blk_file")
         .map(|s| PathBuf::from(s));
 
-    //fixme print some message when the Ipv4Addrs cannot be parsed
-    let host_ip = cmd_arguments
-        .value_of("host_ip")
-        .map(|x| x.parse().unwrap());
-
-    let subnet_mask = cmd_arguments
-        .value_of("subnet_mask")
-        .unwrap()
-        .parse()
-        .unwrap();
-
     let vsock_guest_cid = match cmd_arguments.value_of("vsock_guest_cid") {
         Some(cid) => match cid.parse::<u64>() {
             Ok(value) => Some(value),
@@ -229,6 +236,11 @@ fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
         },
         None => None,
     };
+
+    // host_ip; no longer used; remove when refactoring MachineCfg
+    let host_ip: Option<Ipv4Addr> = Some("1.2.3.4".parse().unwrap());
+    // subnet_mask; no longer used; remove when refactoring MachineCfg
+    let subnet_mask: Ipv4Addr = "255.255.255.0".parse().unwrap();
 
     MachineCfg::new(root_blk_file, host_ip, subnet_mask, vsock_guest_cid)
 }
