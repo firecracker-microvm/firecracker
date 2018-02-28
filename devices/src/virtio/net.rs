@@ -18,7 +18,7 @@ use libc::EAGAIN;
 use {DeviceEventT, EpollHandler};
 use super::{ActivateError, ActivateResult};
 use epoll;
-use net_util::{TapError, Tap};
+use net_util::{Tap, TapError};
 use net_sys;
 use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_NET};
 use sys_util::{Error as SysError, EventFd, GuestMemory};
@@ -322,18 +322,8 @@ pub struct Net {
 }
 
 impl Net {
-    /// Create a new virtio network device with the given IP address and
-    /// netmask.
-    pub fn new(
-        ip_addr: Ipv4Addr,
-        netmask: Ipv4Addr,
-        epoll_config: EpollConfig,
-    ) -> Result<Net, NetError> {
+    pub fn new_with_tap(tap: Tap, epoll_config: EpollConfig) -> Result<Self, NetError> {
         let kill_evt = EventFd::new().map_err(NetError::CreateKillEventFd)?;
-
-        let tap = Tap::new().map_err(NetError::TapOpen)?;
-        tap.set_ip_addr(ip_addr).map_err(NetError::TapSetIp)?;
-        tap.set_netmask(netmask).map_err(NetError::TapSetNetmask)?;
 
         // Set offload flags to match the virtio features below.
         tap.set_offload(
@@ -343,8 +333,6 @@ impl Net {
         let vnet_hdr_size = mem::size_of::<virtio_net::virtio_net_hdr_v1>() as i32;
         tap.set_vnet_hdr_size(vnet_hdr_size)
             .map_err(NetError::TapSetVnetHdrSize)?;
-
-        tap.enable().map_err(NetError::TapEnable)?;
 
         let avail_features = 1 << virtio_net::VIRTIO_NET_F_GUEST_CSUM
             | 1 << virtio_net::VIRTIO_NET_F_CSUM
@@ -362,6 +350,21 @@ impl Net {
             acked_features: 0u64,
             epoll_config,
         })
+    }
+
+    /// Create a new virtio network device with the given IP address and
+    /// netmask.
+    pub fn new(
+        ip_addr: Ipv4Addr,
+        netmask: Ipv4Addr,
+        epoll_config: EpollConfig,
+    ) -> Result<Self, NetError> {
+        let tap = Tap::new().map_err(NetError::TapOpen)?;
+        tap.set_ip_addr(ip_addr).map_err(NetError::TapSetIp)?;
+        tap.set_netmask(netmask).map_err(NetError::TapSetNetmask)?;
+        tap.enable().map_err(NetError::TapEnable)?;
+
+        Self::new_with_tap(tap, epoll_config)
     }
 }
 
