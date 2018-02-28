@@ -1,4 +1,4 @@
-use std::collections::LinkedList;
+use std::collections::linked_list::{self, LinkedList};
 use std::mem;
 use std::path::PathBuf;
 
@@ -130,6 +130,10 @@ impl NetworkInterfaceConfig {
     pub fn id_as_str(&self) -> &str {
         self.id.as_str()
     }
+
+    pub fn take_tap(&mut self) -> Option<Tap> {
+        self.tap.take()
+    }
 }
 
 pub struct NetworkInterfaceConfigs {
@@ -154,6 +158,10 @@ impl NetworkInterfaceConfigs {
         }
         self.if_list.push_back(cfg);
         Ok(SyncOkStatus::Created)
+    }
+
+    pub fn iter_mut(&mut self) -> linked_list::IterMut<NetworkInterfaceConfig> {
+        self.if_list.iter_mut()
     }
 }
 

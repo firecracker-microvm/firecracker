@@ -372,6 +372,28 @@ impl Vmm {
         self.network_interface_configs.put(body)
     }
 
+    fn attach_net_devices(&mut self, device_manager: &mut DeviceManager) -> Result<()> {
+        let kernel_config = match self.kernel_config.as_mut() {
+            Some(x) => x,
+            None => return Err(Error::MissingKernelConfig),
+        };
+
+        for cfg in self.network_interface_configs.iter_mut() {
+            let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
+            // The following take_tap() should only be called once, on valid NetworkInterfaceConfig
+            // objects, so the unwrap() shouldn't panic.
+            let net_box = Box::new(devices::virtio::Net::new_with_tap(
+                cfg.take_tap().unwrap(),
+                epoll_config,
+            ).map_err(Error::NetDeviceNew)?);
+
+            device_manager
+                .register_mmio(net_box, &mut kernel_config.cmdline)
+                .map_err(Error::RegisterNet)?;
+        }
+        Ok(())
+    }
+
     pub fn configure_kernel(&mut self, kernel_config: KernelConfig) {
         self.kernel_config = Some(kernel_config);
     }
@@ -393,6 +415,7 @@ impl Vmm {
             DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
         self.attach_block_devices(&mut device_manager)?;
+        self.attach_net_devices(&mut device_manager)?;
 
         let epoll_context = &mut self.epoll_context;
 
@@ -404,20 +427,6 @@ impl Vmm {
             Some(x) => x,
             None => return Err(Error::MissingKernelConfig),
         };
-
-        if self.cfg.host_ip.is_some() {
-            let epoll_config = epoll_context.allocate_virtio_net_tokens();
-
-            let net_box = Box::new(devices::virtio::Net::new(
-                self.cfg.host_ip.unwrap(),
-                self.cfg.subnet_mask,
-                epoll_config,
-            ).map_err(Error::NetDeviceNew)?);
-
-            device_manager
-                .register_mmio(net_box, &mut kernel_config.cmdline)
-                .map_err(Error::RegisterNet)?;
-        }
 
         if let Some(cid) = self.cfg.vsock_guest_cid {
             let epoll_config = epoll_context.allocate_virtio_vsock_tokens();
