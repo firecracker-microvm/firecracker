@@ -9,9 +9,11 @@ epoll = "=2.1.0"
 scopeguard = "=0.3.3"
 
 api_server = { path = "../api_server" }
+devices = { path = "../devices" }
+kernel_loader = { path = "../kernel_loader" }
 kvm = { path = "../kvm" }
 kvm_sys = { path = "../kvm_sys" }
+net_util = { path = "../net_util"}
 sys_util = { path = "../sys_util" }
-kernel_loader = { path = "../kernel_loader" }
 x86_64 = { path = "../x86_64" }
-devices = { path = "../devices" }
+
