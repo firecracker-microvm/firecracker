@@ -5,6 +5,7 @@ use futures::sync::oneshot;
 use hyper::{self, StatusCode};
 
 use http_service::{empty_response, json_fault_message, json_response};
+use net_util::TapError;
 
 pub mod boot_source;
 mod drive;
@@ -22,6 +23,21 @@ pub use self::net::NetworkInterfaceBody;
 // of the generate_response() method.
 pub trait GenerateResponse {
     fn generate_response(&self) -> hyper::Response;
+}
+
+// This allows us to return a boxed Result directly as a SyncOutcome, if both the ok and the error
+// types implement the GenerateResponse trait.
+impl<T, U> GenerateResponse for result::Result<T, U>
+where
+    T: GenerateResponse,
+    U: GenerateResponse,
+{
+    fn generate_response(&self) -> hyper::Response {
+        match *self {
+            Ok(ref v) => v.generate_response(),
+            Err(ref e) => e.generate_response(),
+        }
+    }
 }
 
 pub type SyncOutcomeSender = oneshot::Sender<Box<GenerateResponse + Send>>;
@@ -66,16 +82,21 @@ impl GenerateResponse for OkStatus {
 
 // Potential errors associated with sync requests.
 pub enum Error {
-    OpenTap,
+    OpenTap(TapError),
+    UpdateNotImplemented,
 }
 
 impl GenerateResponse for Error {
     fn generate_response(&self) -> hyper::Response {
         use self::Error::*;
         match *self {
-            OpenTap => json_response(
+            OpenTap(_) => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("Could not open TAP device."),
+            ),
+            UpdateNotImplemented => json_response(
+                StatusCode::InternalServerError,
+                json_fault_message("Update operation is not implemented yet."),
             ),
         }
     }

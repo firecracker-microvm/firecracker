@@ -13,4 +13,5 @@ tokio-core = "=0.1.12"
 tokio-uds = "=0.1.7"
 
 fc_util = { path = "../fc_util" }
+net_util = { path = "../net_util" }
 sys_util = { path = "../sys_util" }

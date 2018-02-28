@@ -32,7 +32,9 @@ use std::thread;
 
 use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
-use api_server::request::sync::{DriveError, GenerateResponse, PutDriveOutcome, SyncRequest};
+use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse,
+                                NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
+                                SyncRequest};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
                                                        PutMachineConfigurationOutcome};
@@ -250,6 +252,7 @@ pub struct Vmm {
     // If there is a Root Block Device, this should be added as the first element of the list
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
+    network_interface_configs: NetworkInterfaceConfigs,
 
     /// api resources
     api_event_fd: EventFd,
@@ -275,6 +278,7 @@ impl Vmm {
             core: None,
             kernel_config: None,
             block_device_configs,
+            network_interface_configs: NetworkInterfaceConfigs::new(),
             api_event_fd,
             epoll_context,
             from_api,
@@ -359,6 +363,13 @@ impl Vmm {
         }
 
         Ok(())
+    }
+
+    pub fn put_net_device(
+        &mut self,
+        body: NetworkInterfaceBody,
+    ) -> result::Result<SyncOkStatus, SyncError> {
+        self.network_interface_configs.put(body)
     }
 
     pub fn configure_kernel(&mut self, kernel_config: KernelConfig) {
@@ -774,7 +785,10 @@ impl Vmm {
                             .map_err(|_| ())
                             .expect("one-shot channel closed");;
                     }
-                    _ => unreachable!(),
+                    SyncRequest::PutNetworkInterface(body, outcome_sender) => outcome_sender
+                        .send(Box::new(self.put_net_device(body)))
+                        .map_err(|_| ())
+                        .expect("one-shot channel closed"),
                 };
             }
         };
