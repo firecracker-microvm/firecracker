@@ -1,12 +1,15 @@
+use std::fmt;
+use std::result;
+
 use futures::sync::oneshot;
-use hyper;
+use hyper::{self, StatusCode};
+
+use http_service::{empty_response, json_fault_message, json_response};
 
 pub mod boot_source;
 mod drive;
 pub mod machine_configuration;
 mod net;
-
-use std::fmt;
 
 pub use self::drive::{DriveDescription, DriveError, PutDriveOutcome};
 pub use self::boot_source::BootSourceBody;
@@ -38,8 +41,44 @@ pub enum SyncRequest {
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
 }
 
+// TODO: do we still need this?
 impl fmt::Debug for SyncRequest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "SyncRequest")
     }
 }
+
+// TODO: we should move toward having both the ok status and various possible sync request errors
+// in this file, because there are many common sync outcomes.
+
+pub enum OkStatus {
+    Created,
+}
+
+impl GenerateResponse for OkStatus {
+    fn generate_response(&self) -> hyper::Response {
+        use self::OkStatus::*;
+        match *self {
+            Created => empty_response(StatusCode::Created),
+        }
+    }
+}
+
+// Potential errors associated with sync requests.
+pub enum Error {
+    OpenTap,
+}
+
+impl GenerateResponse for Error {
+    fn generate_response(&self) -> hyper::Response {
+        use self::Error::*;
+        match *self {
+            OpenTap => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("Could not open TAP device."),
+            ),
+        }
+    }
+}
+
+pub type Result<T> = result::Result<T, Error>;

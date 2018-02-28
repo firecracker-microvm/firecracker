@@ -1,14 +1,18 @@
-extern crate api_server;
-/// Use this structure to set up the Block Device before booting the kernel
-extern crate std;
-
-use api_server::request::sync::{DriveDescription, DriveError};
-
 use std::collections::LinkedList;
 use std::path::PathBuf;
 
-type Result<T> = std::result::Result<T, DriveError>;
+use std::rc::Rc;
+use std::result;
 
+use api_server::request::sync::{DriveDescription, DriveError, NetworkInterfaceBody};
+use net_util::Tap;
+
+// TODO: I think this module should be broken up into multiple files, one for each of drives,
+// network interfaces, and vsocks (and limiters maybe at some point).
+
+type Result<T> = result::Result<T, DriveError>;
+
+/// Use this structure to set up the Block Device before booting the kernel
 #[derive(PartialEq, Debug, Clone)]
 pub struct BlockDeviceConfig {
     pub drive_id: String,
@@ -90,6 +94,25 @@ impl BlockDeviceConfigs {
 
         Ok(())
     }
+}
+
+struct NetworkInterfaceConfig {
+    // The request body received from the API side.
+    body: NetworkInterfaceBody,
+    // We extract the id from the body and hold it as a reference counted String. This should
+    // come in handy later on, when we'll need the id to appear in a number of data structures
+    // to implement efficient lookup, update, deletion, etc.
+    id: Rc<String>,
+    // We open the tap that will be associated with the virtual device as soon as the PUT request
+    // arrives from the API. We want to see if there are any errors associated with the operation,
+    // and if so, we want to report the failure back to the API caller immediately. This is an
+    // option, because the inner value will be moved to the actual virtio net device before boot.
+    pub tap: Option<Tap>,
+}
+
+struct NetworkInterfaceConfigs {
+    // We use just a list for now, since we only add interfaces as this point.
+    if_list: LinkedList<NetworkInterfaceConfig>,
 }
 
 #[cfg(test)]
