@@ -1,3 +1,5 @@
+extern crate std;
+
 use std::collections::linked_list::{self, LinkedList};
 use std::mem;
 use std::path::PathBuf;
