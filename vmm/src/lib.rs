@@ -433,8 +433,7 @@ impl Vmm {
         self.kernel_config = Some(kernel_config);
     }
 
-    /// only call this from run_vmm() or other functions
-    /// that can guarantee single instances
+    /// make sure to check Result of this function and call self.stop() in case of Err
     pub fn boot_kernel(&mut self) -> Result<()> {
         if self.kernel_config.is_none() {
             return Err(Error::MissingKernelConfig);
@@ -503,8 +502,8 @@ impl Vmm {
         let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
         let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
         self.stdio_serial = Some(Arc::new(Mutex::new(devices::Serial::new_out(
-        com_evt_1_3.try_clone().map_err(Error::EventFd)?,
-        Box::new(stdout()),
+            com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+            Box::new(stdout()),
         ))));
         let stdio_serial = self.stdio_serial.as_mut().unwrap();
         self.epoll_context
@@ -743,7 +742,10 @@ impl Vmm {
                     AsyncRequest::StartInstance(sender) => {
                         let result = match self.boot_kernel() {
                             Ok(_) => AsyncOutcome::Ok(0),
-                            Err(e) => AsyncOutcome::Error(format!("cannot boot kernel: {:?}", e)),
+                            Err(e) => {
+                                self.stop();
+                                AsyncOutcome::Error(format!("cannot boot kernel: {:?}", e))
+                            }
                         };
                         sender.send(result).expect("one-shot channel closed");
                     }
