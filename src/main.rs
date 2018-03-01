@@ -14,6 +14,7 @@ use std::sync::mpsc::channel;
 use std::sync::mpsc::Receiver;
 
 use api_server::{ApiRequest, ApiServer};
+use api_server::request::sync::{DeviceState, NetworkInterfaceBody, VsockJsonBody};
 use sys_util::{syslog, EventFd, GuestAddress};
 use vmm::{CMDLINE_MAX_SIZE, CMDLINE_OFFSET, KERNEL_START_OFFSET};
 use vmm::{kernel_cmdline, KernelConfig};
@@ -186,9 +187,6 @@ fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<A
     if let Some(value) = cmd_arguments.value_of("tap_dev_name") {
         let host_dev_name = String::from(value);
 
-        use api_server::request::sync::DeviceState;
-        use api_server::request::sync::NetworkInterfaceBody;
-
         let body = NetworkInterfaceBody {
             iface_id: String::from("0"),
             state: DeviceState::Attached,
@@ -197,6 +195,18 @@ fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<A
         };
 
         vmm.put_net_device(body).expect("failed adding net device.");
+    }
+
+    if let Some(cid) = cmd_arguments.value_of("vsock_guest_cid") {
+        let cid = cid.parse::<u32>().expect("unable to parse cid value.");
+        let body = VsockJsonBody {
+            vsock_id: String::from("1"),
+            guest_cid: cid,
+            state: DeviceState::Attached,
+        };
+
+        vmm.put_vsock_device(body)
+            .expect("cannot add vsock device.");
     }
 
     // configure kernel from command line
@@ -220,27 +230,17 @@ fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<A
 }
 
 fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
+    // TODO: this is also no longer necesssary, right?
     let root_blk_file = cmd_arguments
         .value_of("root_blk_file")
         .map(|s| PathBuf::from(s));
 
-    let vsock_guest_cid = match cmd_arguments.value_of("vsock_guest_cid") {
-        Some(cid) => match cid.parse::<u64>() {
-            Ok(value) => Some(value),
-            Err(error) => {
-                panic!(
-                    "Invalid parameter value for the vsock's guest CID! {:?}",
-                    error
-                );
-            }
-        },
-        None => None,
-    };
-
-    // host_ip; no longer used; remove when refactoring MachineCfg
+    // no longer used; remove when refactoring MachineCfg
     let host_ip: Option<Ipv4Addr> = Some("1.2.3.4".parse().unwrap());
-    // subnet_mask; no longer used; remove when refactoring MachineCfg
+    // no longer used; remove when refactoring MachineCfg
     let subnet_mask: Ipv4Addr = "255.255.255.0".parse().unwrap();
+    // no longer used; remove when refactoring MachineCfg
+    let vsock_guest_cid = None;
 
     MachineCfg::new(root_blk_file, host_ip, subnet_mask, vsock_guest_cid)
 }
