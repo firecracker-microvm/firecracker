@@ -1,0 +1,322 @@
+swagger: "2.0"
+info:
+  title: Firecracker v0.1 API
+  description: "Firecraker v0.1 - RESTful public-facing API.
+
+
+  The API is accessible through HTTP calls on specific URLs carrying JSON modeled data. The transport medium is a Unix Domain Socket."
+
+  version: 0.1.0
+  termsOfService: ""
+  contact:
+    email: "compute-capsule@amazon.com"
+  license:
+    name: "Apache 2.0"
+    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
+
+host: "localhost"
+basePath: "/"
+
+schemes:
+  - http
+consumes:
+  - application/json
+produces:
+  - application/json
+
+paths:
+  /boot-source:
+    put:
+      summary: "Creates new boot source. If boot source already exists,
+                updates its state based on new input. May fail if update is not possible.
+                The only supported boot source is LocalImage."
+      operationId: "putGuestBootSource"
+      parameters:
+      - name: "body"
+        in: body
+        description: "Guest boot source properties"
+        required: true
+        schema:
+          $ref: "#/definitions/BootSource"
+      responses:
+        201:
+          description: Boot source created.
+        204:
+          description: Boot source updated.
+        400:
+          description: Boot source cannot be created due to bad input.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+
+  /machine-config:
+    put:
+      summary: "Updates the Virtual Machine Configuration with the specified input. The Machine Configuration has default values
+                for the vCPU count (=1) and the memory size (=256 MiB). May fail if update is not possible."
+      operationId: "putMachineConfiguration"
+      parameters:
+      - name: "body"
+        in: body
+        description: "Machine Configuration"
+        schema:
+          $ref: "#/definitions/MachineConfiguration"
+      responses:
+        201:
+          description: Machine Configuration created.
+        204:
+          description: Machine Configuration updated.
+        400:
+          description: Machine Configuration cannot be updated due to bad input.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+
+  /actions/{action_id}:
+    put:
+      summary: Create an instance action.
+      operationId: createInstanceAction
+      parameters:
+      - name: action_id
+        in: path
+        description: The action identifier.
+        required: true
+        type: string
+      - name: info
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/InstanceActionInfo'
+      responses:
+        201:
+          description: No previous action existed so a new one was created.
+        default:
+          description: Unexpected error.
+          schema:
+            $ref: '#/definitions/Error'
+
+  /drives/{drive_id}:
+    put:
+      summary: "Creates new drive with ID specified by 'drive_id' path parameter. If drive with specified ID
+                already exists, updates its state based on new input. May fail if update is not possible."
+      operationId: "putGuestDriveByID"
+      parameters:
+      - name: "drive_id"
+        in: path
+        description: "The id of the guest drive."
+        required: true
+        type: string
+      - name: "body"
+        in: body
+        description: "Guest drive properties"
+        required: true
+        schema:
+          $ref: "#/definitions/Drive"
+      responses:
+        201:
+          description: Drive created.
+        204:
+          description: Drive updated.
+        400:
+          description: Drive cannot be created due to bad input.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+
+  /network-interfaces/{iface_id}:
+    put:
+      summary: "Creates new network interface with ID specified by 'iface_id' path parameter.
+                If network interface with specified ID already exists,
+                updates its state based on new input. May fail if update is not possible."
+      operationId: "putGuestNetworkInterfaceByID"
+      parameters:
+      - name: "iface_id"
+        in: path
+        description: "The id of the guest network interface."
+        required: true
+        type: string
+      - name: "body"
+        in: body
+        description: "Guest network interface properties"
+        required: true
+        schema:
+          $ref: "#/definitions/NetworkInterface"
+      responses:
+        201:
+          description: Network interface created.
+        204:
+          description: Network interface updated.
+        400:
+          description: Network interface cannot be created due to bad input.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+
+  /vsocks/{vsock_id}:
+    put:
+      summary: "Creates new vsock with ID specified by 'vsock_id' path parameter. If vsock with specified ID
+                already exists, updates its state based on new input. May fail if update is not possible."
+      operationId: "putGuestVsockByID"
+      parameters:
+      - name: "vsock_id"
+        in: path
+        description: "The id of the guest vsock."
+        required: true
+        type: string
+      - name: "body"
+        in: body
+        description: "Guest vsock properties"
+        required: true
+        schema:
+          $ref: "#/definitions/Vsock"
+      responses:
+        201:
+          description: Vsock created.
+        204:
+          description: Vsock updated.
+        400:
+          description: Vsock cannot be created due to bad input.
+          schema:
+            $ref: '#/definitions/Error'
+        default:
+          description: Internal server error.
+          schema:
+            $ref: '#/definitions/Error'
+
+
+definitions:
+  BootSource:
+    type: object
+    description: |
+      Boot source descriptor. The only supported boot source type is the Local Image. Network Boot and Drive Boot will
+      be added in future releases.
+    properties:
+      boot_source_id:
+        type: string
+        description: "unique identifier for this boot source"
+      source_type:
+        type: string
+        description: "type of boot source"
+        enum:
+        - "LocalImage"
+      local_image:
+        $ref: '#/definitions/LocalImage'
+      boot_args:
+        type: string
+        description: "kernel boot arguments"
+
+  MachineConfiguration:
+    type: object
+    description: |
+      Machine Configuration descriptor by which you can specify the number of vCPU of one machine with 'vcpu_count'
+      and the memory size in MiB with 'mem_size_mib'.
+    properties:
+      vcpu_count:
+        type: integer
+        description: "Number of vCPUs"
+      mem_size_mib:
+        type: integer
+        description: "Memory size of VM"
+
+  LocalImage:
+    type: object
+    description: |
+      Locations for local kernel image and initrd files. Empty path(s) means not used.
+    properties:
+      kernel_image_path:
+        type: string
+        description: "host level path to the kernel image used to boot the guest"
+      initrd_path:
+        type: string
+        description: "host level path to initrd used to boot the guest"
+
+  InstanceActionInfo:
+    type: object
+    description: |
+      Variant wrapper containing the real action.
+      For listInstanceActions, only action_id will be populated.
+      instance_device_detach_action will only be present if action_type is InstanceDeviceDetach.
+    required:
+      - action_id
+    properties:
+      action_id:
+        type: string
+        minLength: 1
+        maxLength: 64
+      action_type:
+        description: Enumeration indicating what type of action is contained in the payload.
+        type: string
+        enum:
+          - InstanceStart
+          - InstanceReset
+          - InstanceHalt
+          - InstanceDeviceDetach
+      # Timestamp generated by FC - output only
+      timestamp:
+        type: string
+
+  DeviceState:
+    type: string
+    enum:
+      - "attached"
+      - "detaching"
+      - "detached"
+  Drive:
+    type: object
+    required:
+      - drive_id
+    properties:
+      drive_id:
+        type: string
+      path_on_host:
+        type: string
+        description: "host level path for the guest drive"
+      is_root_device:
+        type: boolean
+      state:
+        $ref: '#/definitions/DeviceState'
+
+  NetworkInterface:
+    type: object
+    required:
+      - iface_id
+    properties:
+      iface_id:
+        type: string
+      guest_mac:
+        type: string
+      host_dev_name:
+        type: string
+        description: "host level path for the guest network interface"
+      state:
+        $ref: '#/definitions/DeviceState'
+
+  Vsock:
+    type: object
+    required:
+      - vsock_id
+    properties:
+      vsock_id:
+        type: string
+      guest_cid:
+        type: string
+        description: "Guest Vsock CID"
+      state:
+        $ref: '#/definitions/DeviceState'
+
+  Error:
+    properties:
+      faultMessage:
+        type: string
+        description: A description of the error condition.
