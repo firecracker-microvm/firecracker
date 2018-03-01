@@ -215,6 +215,18 @@ fn parse_request<'a>(
             ),
             _ => Err(Error::InvalidPathMethod(path, method)),
         },
+        "vsocks" => match v[1..].len() {
+            0 if is_get => Ok(ParsedRequest::Dummy),
+
+            1 if is_get => Ok(ParsedRequest::Dummy),
+
+            1 if is_put => Ok(serde_json::from_slice::<request::VsockJsonBody>(body)
+                .map_err(Error::SerdeJson)?
+                .into_parsed_request(id_from_path.unwrap())
+                .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
+
+            _ => Err(Error::InvalidPathMethod(path, method)),
+        },
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
