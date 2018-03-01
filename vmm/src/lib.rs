@@ -268,6 +268,7 @@ impl Vmm {
             .add_event(&api_event_fd, EpollDispatch::ApiRequest)
             .expect("cannot add API eventfd to epoll");
         let block_device_configs = BlockDeviceConfigs::new();
+        println!("new VMM! ignore me, im just testing the tests");
         Ok(Vmm {
             cfg,
             vm_config: VirtualMachineConfig::default(),
