@@ -34,7 +34,7 @@ use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
 use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse,
                                 NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
-                                SyncRequest};
+                                SyncRequest, VsockJsonBody};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
                                                        PutMachineConfigurationOutcome};
@@ -245,7 +245,8 @@ impl Default for VirtualMachineConfig {
 }
 
 pub struct Vmm {
-    cfg: MachineCfg,
+    // TODO: no longer used apparently; refactor&remove
+    _cfg: MachineCfg,
     vm_config: VirtualMachineConfig,
     core: Option<VmmCore>,
     kernel_config: Option<KernelConfig>,
@@ -253,6 +254,7 @@ pub struct Vmm {
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
     network_interface_configs: NetworkInterfaceConfigs,
+    vsock_device_configs: VsockDeviceConfigs,
 
     /// api resources
     api_event_fd: EventFd,
@@ -273,12 +275,13 @@ impl Vmm {
             .expect("cannot add API eventfd to epoll");
         let block_device_configs = BlockDeviceConfigs::new();
         Ok(Vmm {
-            cfg,
+            _cfg: cfg,
             vm_config: VirtualMachineConfig::default(),
             core: None,
             kernel_config: None,
             block_device_configs,
             network_interface_configs: NetworkInterfaceConfigs::new(),
+            vsock_device_configs: VsockDeviceConfigs::new(),
             api_event_fd,
             epoll_context,
             from_api,
@@ -394,6 +397,39 @@ impl Vmm {
         Ok(())
     }
 
+    pub fn put_vsock_device(
+        &mut self,
+        body: VsockJsonBody,
+    ) -> result::Result<SyncOkStatus, SyncError> {
+        self.vsock_device_configs.put(body)
+    }
+
+    fn attach_vsock_devices(
+        &mut self,
+        guest_mem: &GuestMemory,
+        device_manager: &mut DeviceManager,
+    ) -> Result<()> {
+        let kernel_config = match self.kernel_config.as_mut() {
+            Some(x) => x,
+            None => return Err(Error::MissingKernelConfig),
+        };
+
+        for cfg in self.vsock_device_configs.iter() {
+            let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
+
+            let vsock_box = Box::new(devices::virtio::Vsock::new(
+                cfg.get_guest_cid() as u64,
+                guest_mem,
+                epoll_config,
+            ).map_err(Error::CreateVirtioVsock)?);
+            device_manager
+                .register_mmio(vsock_box, &mut kernel_config.cmdline)
+                .map_err(Error::RegisterMMIOVsockDevice)?;
+        }
+
+        Ok(())
+    }
+
     pub fn configure_kernel(&mut self, kernel_config: KernelConfig) {
         self.kernel_config = Some(kernel_config);
     }
@@ -416,6 +452,7 @@ impl Vmm {
 
         self.attach_block_devices(&mut device_manager)?;
         self.attach_net_devices(&mut device_manager)?;
+        self.attach_vsock_devices(&guest_mem, &mut device_manager)?;
 
         let epoll_context = &mut self.epoll_context;
 
@@ -427,16 +464,6 @@ impl Vmm {
             Some(x) => x,
             None => return Err(Error::MissingKernelConfig),
         };
-
-        if let Some(cid) = self.cfg.vsock_guest_cid {
-            let epoll_config = epoll_context.allocate_virtio_vsock_tokens();
-
-            let vsock_box = Box::new(devices::virtio::Vsock::new(cid, &guest_mem, epoll_config)
-                .map_err(Error::CreateVirtioVsock)?);
-            device_manager
-                .register_mmio(vsock_box, &mut kernel_config.cmdline)
-                .map_err(Error::RegisterMMIOVsockDevice)?;
-        }
 
         let kvm = Kvm::new().map_err(Error::Kvm)?;
         let vm = Vm::new(&kvm, guest_mem).map_err(Error::Vm)?;
@@ -798,10 +825,13 @@ impl Vmm {
                         .send(Box::new(self.put_net_device(body)))
                         .map_err(|_| ())
                         .expect("one-shot channel closed"),
-                    _ => unreachable!(),
-                };
+                    SyncRequest::PutVsock(body, outcome_sender) => outcome_sender
+                        .send(Box::new(self.put_vsock_device(body)))
+                        .map_err(|_| ())
+                        .expect("one-shot channel closed"),
+                }
             }
-        };
+        }
 
         Ok(())
     }
