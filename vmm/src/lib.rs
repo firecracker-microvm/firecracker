@@ -211,14 +211,6 @@ impl Drop for EpollContext {
     }
 }
 
-pub struct VmmCore {
-    pub kill_signaled: Arc<AtomicBool>,
-    pub stdio_serial: Arc<Mutex<devices::Serial>>,
-    pub vcpu_handles: Vec<thread::JoinHandle<()>>,
-    pub exit_evt: EventFd,
-    _vm: Vm,
-}
-
 pub struct KernelConfig {
     pub cmdline: kernel_cmdline::Cmdline,
     pub kernel_file: File,
@@ -244,18 +236,26 @@ impl Default for VirtualMachineConfig {
 
 pub struct Vmm {
     vm_config: VirtualMachineConfig,
-    core: Option<VmmCore>,
+
+    /// guest VM core resources
     kernel_config: Option<KernelConfig>,
+    kill_signaled: Option<Arc<AtomicBool>>,
+    vcpu_handles: Option<Vec<thread::JoinHandle<()>>>,
+    exit_evt: Option<EventFd>,
+    stdio_serial: Option<Arc<Mutex<devices::Serial>>>,
+    vm: Option<Vm>,
+
+    /// guest VM devices
     // If there is a Root Block Device, this should be added as the first element of the list
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
     network_interface_configs: NetworkInterfaceConfigs,
     vsock_device_configs: VsockDeviceConfigs,
 
-    /// api resources
-    api_event_fd: EventFd,
     epoll_context: EpollContext,
 
+    /// api resources
+    api_event_fd: EventFd,
     from_api: Receiver<Box<ApiRequest>>,
 }
 
@@ -268,13 +268,17 @@ impl Vmm {
         let block_device_configs = BlockDeviceConfigs::new();
         Ok(Vmm {
             vm_config: VirtualMachineConfig::default(),
-            core: None,
             kernel_config: None,
+            kill_signaled: None,
+            vcpu_handles: None,
+            exit_evt: None,
+            stdio_serial: None,
+            vm: None,
             block_device_configs,
             network_interface_configs: NetworkInterfaceConfigs::new(),
             vsock_device_configs: VsockDeviceConfigs::new(),
-            api_event_fd,
             epoll_context,
+            api_event_fd,
             from_api,
         })
     }
@@ -457,7 +461,8 @@ impl Vmm {
         let kernel_config = self.kernel_config.as_mut().unwrap();
 
         let kvm = Kvm::new().map_err(Error::Kvm)?;
-        let vm = Vm::new(&kvm, guest_mem).map_err(Error::Vm)?;
+        self.vm = Some(Vm::new(&kvm, guest_mem).map_err(Error::Vm)?);
+        let vm = self.vm.as_mut().unwrap();
 
         vm.setup().map_err(Error::VmSetup)?;
 
@@ -490,17 +495,18 @@ impl Vmm {
             vcpu_count,
         )?;
 
-        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
-        self.epoll_context
-            .add_event(&exit_evt, EpollDispatch::Exit)?;
+        self.exit_evt = Some(EventFd::new().map_err(Error::EventFd)?);
+        let exit_evt = self.exit_evt.as_mut().unwrap();
+        self.epoll_context.add_event(exit_evt, EpollDispatch::Exit)?;
 
         let mut io_bus = devices::Bus::new();
         let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
         let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
-        let stdio_serial = Arc::new(Mutex::new(devices::Serial::new_out(
-            com_evt_1_3.try_clone().map_err(Error::EventFd)?,
-            Box::new(stdout()),
-        )));
+        self.stdio_serial = Some(Arc::new(Mutex::new(devices::Serial::new_out(
+        com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+        Box::new(stdout()),
+        ))));
+        let stdio_serial = self.stdio_serial.as_mut().unwrap();
         self.epoll_context
             .add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
 
@@ -510,11 +516,13 @@ impl Vmm {
             &stdio_serial,
             &com_evt_1_3,
             &com_evt_2_4,
-            &exit_evt,
+            exit_evt,
         ).map_err(Error::VmIOBus)?;
 
-        let mut vcpu_handles = Vec::with_capacity(vcpu_count as usize);
-        let kill_signaled = Arc::new(AtomicBool::new(false));
+        self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
+        let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
+        self.kill_signaled = Some(Arc::new(AtomicBool::new(false)));
+        let kill_signaled = self.kill_signaled.as_mut().unwrap();
 
         let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
 
@@ -597,38 +605,36 @@ impl Vmm {
 
         vcpu_thread_barrier.wait();
 
-        self.core = Some(VmmCore {
-            vcpu_handles,
-            kill_signaled,
-            stdio_serial,
-            exit_evt,
-            _vm: vm,
-        });
-
         Ok(())
     }
 
     fn stop(&mut self) {
-        let mut core = match self.core.take() {
-            Some(v) => v,
-            None => return (),
+        match self.kill_signaled.take() {
+            Some(v) => v.store(true, Ordering::SeqCst),
+            None => (),
         };
 
-        let kill_signaled = &core.kill_signaled;
-        let vcpu_handles = &mut core.vcpu_handles;
-        let extracted_vcpu_handles = std::mem::replace(vcpu_handles, Vec::new());
-
-        kill_signaled.store(true, Ordering::SeqCst);
-        for handle in extracted_vcpu_handles {
-            match handle.kill(0) {
-                Ok(_) => {
-                    if let Err(e) = handle.join() {
-                        warn!("failed to join vcpu thread: {:?}", e);
+        match self.vcpu_handles.take() {
+            Some(handles) => for handle in handles {
+                match handle.kill(0) {
+                    Ok(_) => {
+                        if let Err(e) = handle.join() {
+                            warn!("failed to join vcpu thread: {:?}", e);
+                        }
                     }
-                }
-                Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
-            }
-        }
+                    Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
+                };
+            },
+            None => (),
+        };
+
+        self.exit_evt.take();
+        self.stdio_serial.take();
+        self.vm.take();
+
+        //TODO:
+        // - clean epoll_context:
+        //   - remove exitev, stdin, block, net
     }
 
     pub fn run_control(&mut self) -> Result<()> {
@@ -659,12 +665,12 @@ impl Vmm {
                 match dispatch_type {
                     EpollDispatch::Exit => {
                         info!("vcpu requested shutdown");
-                        self.core
-                            .as_mut()
-                            .unwrap()
-                            .exit_evt
-                            .read()
-                            .expect("cannot read exitevent");
+                        match self.exit_evt {
+                            Some(ref ev) => {
+                                ev.read().expect("cannot read exit_event");
+                            }
+                            None => warn!("leftover exit-evt in epollcontext!"),
+                        }
                         self.stop();
                         break 'poll;
                     }
@@ -673,6 +679,7 @@ impl Vmm {
                         match stdin_lock.read_raw(&mut out[..]) {
                             Ok(0) => {
                                 // Zero-length read indicates EOF. Remove from pollables.
+                                // TODO: remove from epoll-context altogether
                                 epoll::ctl(
                                     epoll_raw_fd,
                                     epoll::EPOLL_CTL_DEL,
@@ -682,6 +689,7 @@ impl Vmm {
                             }
                             Err(e) => {
                                 warn!("error while reading stdin: {:?}", e);
+                                // TODO: remove from epoll-context altogether
                                 epoll::ctl(
                                     epoll_raw_fd,
                                     epoll::EPOLL_CTL_DEL,
@@ -689,14 +697,16 @@ impl Vmm {
                                     events[i],
                                 ).map_err(Error::EpollFd)?;
                             }
-                            Ok(count) => {
-                                let core = self.core.as_mut().unwrap();
-                                core.stdio_serial
-                                    .lock()
-                                    .unwrap()
-                                    .queue_input_bytes(&out[..count])
-                                    .map_err(Error::Serial)?;
-                            }
+                            Ok(count) => match self.stdio_serial {
+                                Some(ref mut serial) => {
+                                    serial
+                                        .lock()
+                                        .unwrap()
+                                        .queue_input_bytes(&out[..count])
+                                        .map_err(Error::Serial)?;
+                                }
+                                None => warn!("leftover stdin event in epollcontext!"),
+                            },
                         }
                     }
                     EpollDispatch::DeviceHandler(device_idx, device_token) => {
