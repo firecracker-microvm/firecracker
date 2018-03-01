@@ -11,11 +11,13 @@ pub mod boot_source;
 mod drive;
 pub mod machine_configuration;
 mod net;
+mod vsock;
 
 pub use self::drive::{DriveDescription, DriveError, PutDriveOutcome};
 pub use self::boot_source::BootSourceBody;
 pub use self::machine_configuration::MachineConfigurationBody;
 pub use self::net::NetworkInterfaceBody;
+pub use self::vsock::VsockJsonBody;
 
 // Unlike async requests, sync request have outcomes which implement this trait. The idea is for
 // each outcome to be a struct which is cheaply and quickly instantiated by the VMM thread, then
@@ -55,6 +57,7 @@ pub enum SyncRequest {
     PutDrive(DriveDescription, SyncOutcomeSender),
     PutMachineConfiguration(MachineConfigurationBody, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
+    PutVsock(VsockJsonBody, SyncOutcomeSender),
 }
 
 // TODO: do we still need this?
@@ -83,6 +86,7 @@ impl GenerateResponse for OkStatus {
 // Potential errors associated with sync requests.
 #[derive(Debug)]
 pub enum Error {
+    GuestCIDAlreadyInUse,
     OpenTap(TapError),
     UpdateNotImplemented,
 }
@@ -91,6 +95,10 @@ impl GenerateResponse for Error {
     fn generate_response(&self) -> hyper::Response {
         use self::Error::*;
         match *self {
+            GuestCIDAlreadyInUse => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("The specified guest CID is already in use."),
+            ),
             OpenTap(_) => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("Could not open TAP device."),

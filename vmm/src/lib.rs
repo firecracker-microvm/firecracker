@@ -798,6 +798,7 @@ impl Vmm {
                         .send(Box::new(self.put_net_device(body)))
                         .map_err(|_| ())
                         .expect("one-shot channel closed"),
+                    _ => unreachable!(),
                 };
             }
         };
