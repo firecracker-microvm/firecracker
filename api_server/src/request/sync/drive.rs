@@ -70,7 +70,7 @@ impl DriveDescription {
     pub fn into_parsed_request(self, id_from_path: &str) -> result::Result<ParsedRequest, String> {
         if id_from_path != self.drive_id {
             return Err(String::from(
-                "The id from the path does not match the id from the path!",
+                "The id from the path does not match the id from the body!",
             ));
         }
 
