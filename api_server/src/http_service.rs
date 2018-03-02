@@ -108,6 +108,8 @@ fn parse_request<'a>(
     path: &'a str,
     body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
+    // Commenting this out for now.
+    /*
     if cfg!(debug_assertions) {
         println!(
             "{}",
@@ -119,6 +121,7 @@ fn parse_request<'a>(
             )
         );
     }
+    */
 
     if !path.starts_with('/') {
         return Err(Error::InvalidPathMethod(path, method));
@@ -308,11 +311,21 @@ impl hyper::server::Service for ApiServerHttpService {
                         // are in a similar condition right now.
                         Either::A(future::ok(empty_response(StatusCode::Ok)))
                     }
-                    GetAction(_id) => {
-                        // todo: what should we do when an action id is not found vs. not processed
-                        // by the vmm yet?
-                        Either::A(future::ok(empty_response(StatusCode::Ok)))
-                    }
+                    GetAction(id) => match action_map.borrow().get(&id) {
+                        Some(value) => match *value {
+                            ActionMapValue::Pending(_) => Either::A(future::ok(json_response(
+                                StatusCode::Conflict,
+                                json_fault_message("Action is still pending."),
+                            ))),
+                            ActionMapValue::JsonResponse(ref status, ref body) => {
+                                Either::A(future::ok(json_response(status.clone(), body.clone())))
+                            }
+                        },
+                        None => Either::A(future::ok(json_response(
+                            StatusCode::NotFound,
+                            json_fault_message("Action not found."),
+                        ))),
+                    },
                     Async(id, async_req, outcome_receiver) => {
                         if send_to_vmm(
                             ApiRequest::Async(async_req),
@@ -333,7 +346,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                     // Let's see if the action is still in the map (it might have
                                     // been evicted by newer actions, although that's extremely
                                     // unlikely under in normal circumstances).
-                                    let hyper_response = match action_map
+                                    let (response_status, json_body) = match action_map
                                         .borrow_mut()
                                         .get_mut(id.as_str())
                                     {
@@ -345,12 +358,12 @@ impl hyper::server::Service for ApiServerHttpService {
                                                     async_body.set_timestamp(timestamp);
                                                     // We use unwrap because the serialize operation
                                                     // should not fail in this case.
-                                                    json_response(
+                                                    (
                                                         StatusCode::Ok,
                                                         serde_json::to_string(&async_body).unwrap(),
                                                     )
                                                 }
-                                                AsyncOutcome::Error(msg) => json_response(
+                                                AsyncOutcome::Error(msg) => (
                                                     StatusCode::BadRequest,
                                                     json_fault_message(msg),
                                                 ),
@@ -359,9 +372,10 @@ impl hyper::server::Service for ApiServerHttpService {
                                         _ => return,
                                     };
                                     // Replace the old value with the already built response.
-                                    action_map
-                                        .borrow_mut()
-                                        .insert(id, ActionMapValue::Response(hyper_response));
+                                    action_map.borrow_mut().insert(
+                                        id,
+                                        ActionMapValue::JsonResponse(response_status, json_body),
+                                    );
                                 })
                                 .map_err(|_| ()),
                         );
