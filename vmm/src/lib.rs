@@ -405,185 +405,196 @@ impl Vmm {
     /// only call this from run_vmm() or other functions
     /// that can guarantee single instances
     pub fn boot_kernel(&mut self) -> Result<()> {
-        let mem_size = self.vm_config.mem_size_mib << 20;
-        let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
-        let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
+        let boot_result = {
+            let mut try_boot = || -> Result<()> {
+                let mem_size = self.vm_config.mem_size_mib << 20;
+                let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
+                let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
 
-        let vcpu_count = self.vm_config.vcpu_count;
+                let vcpu_count = self.vm_config.vcpu_count;
 
-        if self.kernel_config.is_none() {
-            return Err(Error::MissingKernelConfig);
-        }
+                if self.kernel_config.is_none() {
+                    return Err(Error::MissingKernelConfig);
+                }
 
-        /* Instantiating MMIO device manager
-        'mmio_base' address has to be an address which is protected by the kernel, in this case
-        the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
-        */
-        let mut device_manager =
-            DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+                /* Instantiating MMIO device manager
+                'mmio_base' address has to be an address which is protected by the kernel, in this case
+                the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
+                */
+                let mut device_manager =
+                    DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
-        self.attach_block_devices(&mut device_manager)?;
-        self.attach_net_devices(&mut device_manager)?;
+                self.attach_block_devices(&mut device_manager)?;
+                self.attach_net_devices(&mut device_manager)?;
 
-        // safe to unwrap since we've already validated it's Some()
-        let kernel_config = self.kernel_config.as_mut().unwrap();
+                // safe to unwrap since we've already validated it's Some()
+                let kernel_config = self.kernel_config.as_mut().unwrap();
 
-        if let Some(cid) = self.cfg.vsock_guest_cid {
-            let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
+                if let Some(cid) = self.cfg.vsock_guest_cid {
+                    let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
 
-            let vsock_box = Box::new(devices::virtio::Vsock::new(cid, &guest_mem, epoll_config)
-                .map_err(Error::CreateVirtioVsock)?);
-            device_manager
-                .register_mmio(vsock_box, &mut kernel_config.cmdline)
-                .map_err(Error::RegisterMMIOVsockDevice)?;
-        }
+                    let vsock_box = Box::new(devices::virtio::Vsock::new(cid, &guest_mem, epoll_config)
+                        .map_err(Error::CreateVirtioVsock)?);
+                    device_manager
+                        .register_mmio(vsock_box, &mut kernel_config.cmdline)
+                        .map_err(Error::RegisterMMIOVsockDevice)?;
+                }
 
-        let kvm = Kvm::new().map_err(Error::Kvm)?;
-        self.vm = Some(Vm::new(&kvm, guest_mem).map_err(Error::Vm)?);
-        let vm = self.vm.as_mut().unwrap();
+                let kvm = Kvm::new().map_err(Error::Kvm)?;
+                self.vm = Some(Vm::new(&kvm, guest_mem).map_err(Error::Vm)?);
+                let vm = self.vm.as_mut().unwrap();
 
-        vm.setup().map_err(Error::VmSetup)?;
+                vm.setup().map_err(Error::VmSetup)?;
 
-        for request in device_manager.vm_requests {
-            if let VmResponse::Err(e) = request.execute(vm.get_fd()) {
-                return Err(Error::DeviceVmRequest(e));
-            }
-        }
-
-        // This is the easy way out of consuming the value of the kernel_cmdline.
-        // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
-        let cmdline_cstring = CString::new(kernel_config.cmdline.clone()).unwrap();
-
-        kernel_loader::load_kernel(
-            vm.get_memory(),
-            kernel_config.kernel_start_addr,
-            &mut kernel_config.kernel_file,
-        )?;
-        kernel_loader::load_cmdline(
-            vm.get_memory(),
-            kernel_config.cmdline_addr,
-            &cmdline_cstring,
-        )?;
-
-        x86_64::configure_system(
-            vm.get_memory(),
-            kernel_config.kernel_start_addr,
-            kernel_config.cmdline_addr,
-            cmdline_cstring.to_bytes().len() + 1,
-            vcpu_count,
-        )?;
-
-        self.exit_evt = Some(EventFd::new().map_err(Error::EventFd)?);
-        let exit_evt = self.exit_evt.as_mut().unwrap();
-        self.epoll_context.add_event(exit_evt, EpollDispatch::Exit)?;
-
-        let mut io_bus = devices::Bus::new();
-        let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
-        let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
-        self.stdio_serial = Some(Arc::new(Mutex::new(devices::Serial::new_out(
-        com_evt_1_3.try_clone().map_err(Error::EventFd)?,
-        Box::new(stdout()),
-        ))));
-        let stdio_serial = self.stdio_serial.as_mut().unwrap();
-        self.epoll_context
-            .add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
-
-        //TODO: put all thse things related to setting up io bus in a struct or something
-        vm.set_io_bus(
-            &mut io_bus,
-            &stdio_serial,
-            &com_evt_1_3,
-            &com_evt_2_4,
-            exit_evt,
-        ).map_err(Error::VmIOBus)?;
-
-        self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
-        let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
-        self.kill_signaled = Some(Arc::new(AtomicBool::new(false)));
-        let kill_signaled = self.kill_signaled.as_mut().unwrap();
-
-        let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
-
-        for cpu_id in 0..vcpu_count {
-            let io_bus = io_bus.clone();
-            let mmio_bus = device_manager.bus.clone();
-            let kill_signaled = kill_signaled.clone();
-            let vcpu_thread_barrier = vcpu_thread_barrier.clone();
-            let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
-
-            let mut vcpu = Vcpu::new(cpu_id, &vm).map_err(Error::Vcpu)?;
-            vcpu.configure(vcpu_count, kernel_config.kernel_start_addr, &vm)
-                .map_err(Error::VcpuConfigure)?;
-            vcpu_handles.push(thread::Builder::new()
-                .name(format!("fc_vcpu{}", cpu_id))
-                .spawn(move || {
-                    unsafe {
-                        extern "C" fn handle_signal() {}
-                        // Our signal handler does nothing and is trivially async signal safe.
-                        register_signal_handler(0, handle_signal)
-                            .expect("failed to register vcpu signal handler");
+                for request in device_manager.vm_requests {
+                    if let VmResponse::Err(e) = request.execute(vm.get_fd()) {
+                        return Err(Error::DeviceVmRequest(e));
                     }
+                }
 
-                    vcpu_thread_barrier.wait();
+                // This is the easy way out of consuming the value of the kernel_cmdline.
+                // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
+                let cmdline_cstring = CString::new(kernel_config.cmdline.clone()).unwrap();
 
-                    loop {
-                        match vcpu.run() {
-                            Ok(run) => match run {
-                                VcpuExit::IoIn(addr, data) => {
-                                    io_bus.read(addr as u64, data);
+                kernel_loader::load_kernel(
+                    vm.get_memory(),
+                    kernel_config.kernel_start_addr,
+                    &mut kernel_config.kernel_file,
+                )?;
+                kernel_loader::load_cmdline(
+                    vm.get_memory(),
+                    kernel_config.cmdline_addr,
+                    &cmdline_cstring,
+                )?;
+
+                x86_64::configure_system(
+                    vm.get_memory(),
+                    kernel_config.kernel_start_addr,
+                    kernel_config.cmdline_addr,
+                    cmdline_cstring.to_bytes().len() + 1,
+                    vcpu_count,
+                )?;
+
+                self.exit_evt = Some(EventFd::new().map_err(Error::EventFd)?);
+                let exit_evt = self.exit_evt.as_mut().unwrap();
+                self.epoll_context.add_event(exit_evt, EpollDispatch::Exit)?;
+
+                let mut io_bus = devices::Bus::new();
+                let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
+                let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
+                self.stdio_serial = Some(Arc::new(Mutex::new(devices::Serial::new_out(
+                    com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+                    Box::new(stdout()),
+                ))));
+                let stdio_serial = self.stdio_serial.as_mut().unwrap();
+                self.epoll_context
+                    .add_event_from_rawfd(libc::STDIN_FILENO, EpollDispatch::Stdin)?;
+
+                //TODO: put all thse things related to setting up io bus in a struct or something
+                vm.set_io_bus(
+                    &mut io_bus,
+                    &stdio_serial,
+                    &com_evt_1_3,
+                    &com_evt_2_4,
+                    exit_evt,
+                ).map_err(Error::VmIOBus)?;
+
+                self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
+                let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
+                self.kill_signaled = Some(Arc::new(AtomicBool::new(false)));
+                let kill_signaled = self.kill_signaled.as_mut().unwrap();
+
+                let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
+
+                for cpu_id in 0..vcpu_count {
+                    let io_bus = io_bus.clone();
+                    let mmio_bus = device_manager.bus.clone();
+                    let kill_signaled = kill_signaled.clone();
+                    let vcpu_thread_barrier = vcpu_thread_barrier.clone();
+                    let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
+
+                    let mut vcpu = Vcpu::new(cpu_id, &vm).map_err(Error::Vcpu)?;
+                    vcpu.configure(vcpu_count, kernel_config.kernel_start_addr, &vm)
+                        .map_err(Error::VcpuConfigure)?;
+                    vcpu_handles.push(thread::Builder::new()
+                        .name(format!("fc_vcpu{}", cpu_id))
+                        .spawn(move || {
+                            unsafe {
+                                extern "C" fn handle_signal() {}
+                                // Our signal handler does nothing and is trivially async signal safe.
+                                register_signal_handler(0, handle_signal)
+                                    .expect("failed to register vcpu signal handler");
+                            }
+
+                            vcpu_thread_barrier.wait();
+
+                            loop {
+                                match vcpu.run() {
+                                    Ok(run) => match run {
+                                        VcpuExit::IoIn(addr, data) => {
+                                            io_bus.read(addr as u64, data);
+                                        }
+                                        VcpuExit::IoOut(addr, data) => {
+                                            io_bus.write(addr as u64, data);
+                                        }
+                                        VcpuExit::MmioRead(addr, data) => {
+                                            mmio_bus.read(addr, data);
+                                        }
+                                        VcpuExit::MmioWrite(addr, data) => {
+                                            mmio_bus.write(addr, data);
+                                        }
+                                        VcpuExit::Hlt => {
+                                            info!("KVM_EXIT_HLT");
+                                            break;
+                                        }
+                                        VcpuExit::Shutdown => {
+                                            info!("KVM_EXIT_SHUTDOWN");
+                                            break;
+                                        }
+                                        r => {
+                                            error!("unexpected exit reason: {:?}", r);
+                                            break;
+                                        }
+                                    },
+                                    Err(e) => match e {
+                                        vstate::Error::VcpuRun(ref v) => match v.errno() {
+                                            libc::EAGAIN | libc::EINTR => {}
+                                            _ => {
+                                                error!("vcpu hit unknown error: {:?}", e);
+                                                break;
+                                            }
+                                        },
+                                        _ => {
+                                            error!("unrecognized error type for vcpu run");
+                                            break;
+                                        }
+                                    },
                                 }
-                                VcpuExit::IoOut(addr, data) => {
-                                    io_bus.write(addr as u64, data);
-                                }
-                                VcpuExit::MmioRead(addr, data) => {
-                                    mmio_bus.read(addr, data);
-                                }
-                                VcpuExit::MmioWrite(addr, data) => {
-                                    mmio_bus.write(addr, data);
-                                }
-                                VcpuExit::Hlt => {
-                                    info!("KVM_EXIT_HLT");
+
+                                if kill_signaled.load(Ordering::SeqCst) {
                                     break;
                                 }
-                                VcpuExit::Shutdown => {
-                                    info!("KVM_EXIT_SHUTDOWN");
-                                    break;
-                                }
-                                r => {
-                                    error!("unexpected exit reason: {:?}", r);
-                                    break;
-                                }
-                            },
-                            Err(e) => match e {
-                                vstate::Error::VcpuRun(ref v) => match v.errno() {
-                                    libc::EAGAIN | libc::EINTR => {}
-                                    _ => {
-                                        error!("vcpu hit unknown error: {:?}", e);
-                                        break;
-                                    }
-                                },
-                                _ => {
-                                    error!("unrecognized error type for vcpu run");
-                                    break;
-                                }
-                            },
-                        }
+                            }
 
-                        if kill_signaled.load(Ordering::SeqCst) {
-                            break;
-                        }
-                    }
+                            vcpu_exit_evt
+                                .write(1)
+                                .expect("failed to signal vcpu exit eventfd");
+                        })
+                        .map_err(Error::VcpuSpawn)?);
+                }
 
-                    vcpu_exit_evt
-                        .write(1)
-                        .expect("failed to signal vcpu exit eventfd");
-                })
-                .map_err(Error::VcpuSpawn)?);
+                vcpu_thread_barrier.wait();
+
+                Ok(())
+            };
+
+            try_boot()
+        };
+
+        if boot_result.is_err() {
+            self.stop();
         }
-
-        vcpu_thread_barrier.wait();
-
-        Ok(())
+        boot_result
     }
 
     fn stop(&mut self) {
