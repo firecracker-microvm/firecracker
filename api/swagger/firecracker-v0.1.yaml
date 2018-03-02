@@ -310,8 +310,8 @@ definitions:
       vsock_id:
         type: string
       guest_cid:
-        type: string
-        description: "Guest Vsock CID"
+        type: integer
+        description: "Guest Vsock CID (should be an u32 value)"
       state:
         $ref: '#/definitions/DeviceState'
 
