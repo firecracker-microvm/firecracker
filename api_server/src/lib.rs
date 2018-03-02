@@ -35,7 +35,8 @@ use sys_util::EventFd;
 // because it's inherently static at this point.
 pub enum ActionMapValue {
     Pending(AsyncRequestBody),
-    Response(hyper::Response),
+    // The response status code, and the response json body.
+    JsonResponse(hyper::StatusCode, String),
 }
 
 // A map that holds information about currently pending, and previous async actions.
