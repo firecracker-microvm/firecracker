@@ -643,12 +643,12 @@ impl Vmm {
 
         if boot_result.is_err() {
             error!("boot failed: {:?}", boot_result);
-            self.stop();
+            let _ = self.stop();
         }
         boot_result
     }
 
-    fn stop(&mut self) {
+    fn stop(&mut self) -> Result<()> {
         if let Some(v) = self.kill_signaled.take() {
             v.store(true, Ordering::SeqCst);
         };
@@ -667,9 +667,9 @@ impl Vmm {
         };
 
         if let Some(evt) = self.exit_evt.take() {
-            let _ = self.epoll_context.remove_event(evt);
+            self.epoll_context.remove_event(evt)?;
         }
-        let _ = self.epoll_context.disable_stdin_event();
+        self.epoll_context.disable_stdin_event()?;
 
         self.stdio_serial.take();
         self.vm.take();
@@ -677,6 +677,7 @@ impl Vmm {
         //TODO:
         // - clean epoll_context:
         //   - remove block, net
+        Ok(())
     }
 
     pub fn run_control(&mut self) -> Result<()> {
@@ -713,7 +714,7 @@ impl Vmm {
                                 }
                                 None => warn!("leftover exit-evt in epollcontext!"),
                             }
-                            self.stop();
+                            self.stop()?;
                             break 'poll;
                         }
                         EpollDispatch::Stdin => {
@@ -779,11 +780,14 @@ impl Vmm {
                         sender.send(result).expect("one-shot channel closed");
                     }
                     AsyncRequest::StopInstance(sender) => {
-                        sender
-                            .send(AsyncOutcome::Error(
-                                "StopInstance not implemented".to_string(),
-                            ))
-                            .expect("one-shot channel closed");
+                        let result = match self.stop() {
+                            Ok(_) => AsyncOutcome::Ok(0),
+                            Err(e) => AsyncOutcome::Error(format!(
+                                "failed to stop instance! err: {:?}",
+                                e
+                            )),
+                        };
+                        sender.send(result).expect("one-shot channel closed");
                     }
                 };
             }
