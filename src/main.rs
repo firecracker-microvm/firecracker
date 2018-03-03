@@ -3,18 +3,20 @@ extern crate clap;
 
 extern crate api_server;
 extern crate devices;
+extern crate net_util;
 extern crate sys_util;
 extern crate vmm;
 
-use clap::{App, Arg, SubCommand};
 use std::fs::File;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::sync::mpsc::channel;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{channel, Receiver};
+
+use clap::{App, Arg, SubCommand};
 
 use api_server::{ApiRequest, ApiServer};
 use api_server::request::sync::{DeviceState, NetworkInterfaceBody, VsockJsonBody};
+use net_util::MacAddr;
 use sys_util::{syslog, EventFd, GuestAddress};
 use vmm::{CMDLINE_MAX_SIZE, CMDLINE_OFFSET, KERNEL_START_OFFSET};
 use vmm::{kernel_cmdline, KernelConfig};
@@ -94,6 +96,12 @@ fn main() {
                     Arg::with_name("vsock_guest_cid")
                         .long("vsock-guest-cid")
                         .help("The guest CID for the virtio-vhost-vsock device")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("guest_mac")
+                        .long("guest-mac")
+                        .help("The MAC address of the guest network interface.")
                         .takes_value(true),
                 ),
         )
@@ -187,11 +195,15 @@ fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<A
     if let Some(value) = cmd_arguments.value_of("tap_dev_name") {
         let host_dev_name = String::from(value);
 
+        let guest_mac = cmd_arguments
+            .value_of("guest_mac")
+            .map(|s| MacAddr::parse_str(s).expect("invalid guest MAC"));
+
         let body = NetworkInterfaceBody {
             iface_id: String::from("0"),
             state: DeviceState::Attached,
             host_dev_name,
-            guest_mac: None,
+            guest_mac,
         };
 
         vmm.put_net_device(body).expect("failed adding net device.");
