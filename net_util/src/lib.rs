@@ -11,6 +11,7 @@ extern crate libc;
 extern crate net_sys;
 extern crate sys_util;
 
+mod mac;
 mod tap;
 
 use std::io::Error as IoError;
@@ -18,6 +19,7 @@ use std::mem;
 use std::net;
 use std::os::unix::io::FromRawFd;
 
+pub use mac::{MacAddr, MAC_ADDR_LEN};
 pub use tap::{Error as TapError, Tap};
 
 #[derive(Debug)]
