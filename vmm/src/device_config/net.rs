@@ -4,11 +4,11 @@ use std::rc::Rc;
 use std::result;
 
 use api_server::request::sync::{Error as SyncError, NetworkInterfaceBody, OkStatus as SyncOkStatus};
-use net_util::{Tap, TapError};
+use net_util::{MacAddr, Tap, TapError};
 
 pub struct NetworkInterfaceConfig {
     // The request body received from the API side.
-    _body: NetworkInterfaceBody,
+    body: NetworkInterfaceBody,
     // We extract the id from the body and hold it as a reference counted String. This should
     // come in handy later on, when we'll need the id to appear in a number of data structures
     // to implement efficient lookup, update, deletion, etc.
@@ -29,7 +29,7 @@ impl NetworkInterfaceConfig {
         let tap = Tap::open_named(body.host_dev_name.as_str())?;
 
         Ok(NetworkInterfaceConfig {
-            _body: body,
+            body,
             id,
             tap: Some(tap),
         })
@@ -41,6 +41,10 @@ impl NetworkInterfaceConfig {
 
     pub fn take_tap(&mut self) -> Option<Tap> {
         self.tap.take()
+    }
+
+    pub fn guest_mac(&self) -> Option<&MacAddr> {
+        self.body.guest_mac.as_ref()
     }
 }
 
@@ -58,10 +62,12 @@ impl NetworkInterfaceConfigs {
 
     pub fn put(&mut self, body: NetworkInterfaceBody) -> result::Result<SyncOkStatus, SyncError> {
         let cfg = NetworkInterfaceConfig::try_from_body(body).map_err(SyncError::OpenTap)?;
-
         for x in self.if_list.iter() {
             if x.id_as_str() == cfg.id_as_str() {
                 return Err(SyncError::UpdateNotImplemented);
+            }
+            if x.guest_mac() == cfg.guest_mac() {
+                return Err(SyncError::GuestMacAddressInUse);
             }
         }
         self.if_list.push_back(cfg);
