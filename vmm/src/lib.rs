@@ -387,6 +387,7 @@ impl Vmm {
             // objects, so the unwrap() shouldn't panic.
             let net_box = Box::new(devices::virtio::Net::new_with_tap(
                 cfg.take_tap().unwrap(),
+                cfg.guest_mac(),
                 epoll_config,
             ).map_err(Error::NetDeviceNew)?);
 

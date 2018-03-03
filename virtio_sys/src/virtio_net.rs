@@ -6,6 +6,8 @@ pub const VIRTIO_F_VERSION_1: ::std::os::raw::c_uint = 32;
 
 pub const VIRTIO_NET_F_CSUM: ::std::os::raw::c_uint = 0;
 pub const VIRTIO_NET_F_GUEST_CSUM: ::std::os::raw::c_uint = 1;
+// This feature allows users to specify the MAC address of a guest interface.
+pub const VIRTIO_NET_F_MAC: ::std::os::raw::c_uint = 5;
 pub const VIRTIO_NET_F_GUEST_TSO4: ::std::os::raw::c_uint = 7;
 pub const VIRTIO_NET_F_GUEST_UFO: ::std::os::raw::c_uint = 10;
 pub const VIRTIO_NET_F_HOST_TSO4: ::std::os::raw::c_uint = 11;
