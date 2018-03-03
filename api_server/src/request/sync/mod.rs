@@ -87,6 +87,7 @@ impl GenerateResponse for OkStatus {
 #[derive(Debug)]
 pub enum Error {
     GuestCIDAlreadyInUse,
+    GuestMacAddressInUse,
     OpenTap(TapError),
     UpdateNotImplemented,
 }
@@ -98,6 +99,10 @@ impl GenerateResponse for Error {
             GuestCIDAlreadyInUse => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The specified guest CID is already in use."),
+            ),
+            GuestMacAddressInUse => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("The specified guest MAC address is already in use."),
             ),
             OpenTap(_) => json_response(
                 StatusCode::BadRequest,
