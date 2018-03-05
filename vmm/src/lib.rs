@@ -274,6 +274,7 @@ impl Vmm {
             .add_event(&api_event_fd, EpollDispatch::ApiRequest)
             .expect("cannot add API eventfd to epoll");
         let block_device_configs = BlockDeviceConfigs::new();
+        println!("force integ tests");
         Ok(Vmm {
             _cfg: cfg,
             vm_config: VirtualMachineConfig::default(),
