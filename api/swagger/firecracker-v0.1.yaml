@@ -25,58 +25,6 @@ produces:
   - application/json
 
 paths:
-  /boot-source:
-    put:
-      summary: Creates new boot source. If boot source already exists,
-                updates its state based on new input. May fail if update is not possible.
-                The only supported boot source is LocalImage.
-      operationId: "putGuestBootSource"
-      parameters:
-      - name: "body"
-        in: body
-        description: "Guest boot source properties"
-        required: true
-        schema:
-          $ref: "#/definitions/BootSource"
-      responses:
-        201:
-          description: Boot source created.
-        204:
-          description: Boot source updated.
-        400:
-          description: Boot source cannot be created due to bad input.
-          schema:
-            $ref: "#/definitions/Error"
-        default:
-          description: Internal server error.
-          schema:
-            $ref: "#/definitions/Error"
-
-  /machine-config:
-    put:
-      summary: Updates the Virtual Machine Configuration with the specified input. The Machine Configuration has default values
-                for the vCPU count (=1) and the memory size (=256 MiB). May fail if update is not possible.
-      operationId: "putMachineConfiguration"
-      parameters:
-      - name: "body"
-        in: body
-        description: "Machine Configuration"
-        schema:
-          $ref: "#/definitions/MachineConfiguration"
-      responses:
-        201:
-          description: Machine Configuration created.
-        204:
-          description: Machine Configuration updated.
-        400:
-          description: Machine Configuration cannot be updated due to bad input.
-          schema:
-            $ref: "#/definitions/Error"
-        default:
-          description: Internal server error.
-          schema:
-            $ref: "#/definitions/Error"
-
   /actions/{action_id}:
     get:
       summary: Return detailed information about an action.
@@ -126,6 +74,33 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /boot-source:
+    put:
+      summary: Creates new boot source. If boot source already exists,
+                updates its state based on new input. May fail if update is not possible.
+                The only supported boot source is LocalImage.
+      operationId: "putGuestBootSource"
+      parameters:
+      - name: "body"
+        in: body
+        description: "Guest boot source properties"
+        required: true
+        schema:
+          $ref: "#/definitions/BootSource"
+      responses:
+        201:
+          description: Boot source created.
+        204:
+          description: Boot source updated.
+        400:
+          description: Boot source cannot be created due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
+
   /drives/{drive_id}:
     put:
       summary: Creates new drive with ID specified by "drive_id" path parameter. If drive with specified ID
@@ -150,6 +125,31 @@ paths:
           description: Drive updated.
         400:
           description: Drive cannot be created due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
+
+  /machine-config:
+    put:
+      summary: Updates the Virtual Machine Configuration with the specified input. The Machine Configuration has default values
+                for the vCPU count (=1) and the memory size (=256 MiB). May fail if update is not possible.
+      operationId: "putMachineConfiguration"
+      parameters:
+      - name: "body"
+        in: body
+        description: "Machine Configuration"
+        schema:
+          $ref: "#/definitions/MachineConfiguration"
+      responses:
+        201:
+          description: Machine Configuration created.
+        204:
+          description: Machine Configuration updated.
+        400:
+          description: Machine Configuration cannot be updated due to bad input.
           schema:
             $ref: "#/definitions/Error"
         default:
@@ -242,30 +242,26 @@ definitions:
         type: string
         description: "kernel boot arguments"
 
-  MachineConfiguration:
+  DeviceState:
+    type: string
+    enum:
+      - "attached"
+      - "detaching"
+      - "detached"
+  Drive:
     type: object
-    description: |
-      Machine Configuration descriptor by which you can specify the number of vCPU of one machine with "vcpu_count"
-      and the memory size in MiB with "mem_size_mib".
+    required:
+      - drive_id
     properties:
-      vcpu_count:
-        type: integer
-        description: "Number of vCPUs"
-      mem_size_mib:
-        type: integer
-        description: "Memory size of VM"
-
-  LocalImage:
-    type: object
-    description: |
-      Locations for local kernel image and initrd files. Empty path(s) means not used.
-    properties:
-      kernel_image_path:
+      drive_id:
         type: string
-        description: "host level path to the kernel image used to boot the guest"
-      initrd_path:
+      path_on_host:
         type: string
-        description: "host level path to initrd used to boot the guest"
+        description: "host level path for the guest drive"
+      is_root_device:
+        type: boolean
+      state:
+        $ref: "#/definitions/DeviceState"
 
   InstanceActionInfo:
     type: object
@@ -292,26 +288,30 @@ definitions:
       timestamp:
         type: string
 
-  DeviceState:
-    type: string
-    enum:
-      - "attached"
-      - "detaching"
-      - "detached"
-  Drive:
+  LocalImage:
     type: object
-    required:
-      - drive_id
+    description: |
+      Locations for local kernel image and initrd files. Empty path(s) means not used.
     properties:
-      drive_id:
+      kernel_image_path:
         type: string
-      path_on_host:
+        description: "host level path to the kernel image used to boot the guest"
+      initrd_path:
         type: string
-        description: "host level path for the guest drive"
-      is_root_device:
-        type: boolean
-      state:
-        $ref: "#/definitions/DeviceState"
+        description: "host level path to initrd used to boot the guest"
+
+  MachineConfiguration:
+    type: object
+    description: |
+      Machine Configuration descriptor by which you can specify the number of vCPU of one machine with "vcpu_count"
+      and the memory size in MiB with "mem_size_mib".
+    properties:
+      vcpu_count:
+        type: integer
+        description: "Number of vCPUs"
+      mem_size_mib:
+        type: integer
+        description: "Memory size of VM"
 
   NetworkInterface:
     type: object
