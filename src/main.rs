@@ -8,7 +8,6 @@ extern crate sys_util;
 extern crate vmm;
 
 use std::fs::File;
-use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 
@@ -20,8 +19,9 @@ use net_util::MacAddr;
 use sys_util::{syslog, EventFd, GuestAddress};
 use vmm::{CMDLINE_MAX_SIZE, CMDLINE_OFFSET, KERNEL_START_OFFSET};
 use vmm::{kernel_cmdline, KernelConfig};
-use vmm::machine::{MachineCfg, DEFAULT_SUBNET_MASK};
 use vmm::device_config::BlockDeviceConfig;
+
+const DEFAULT_SUBNET_MASK: &str = "255.255.255.0";
 
 fn main() {
     if let Err(e) = syslog::init() {
@@ -128,20 +128,16 @@ fn main() {
             let api_event_fd = server
                 .get_event_fd_clone()
                 .expect("cannot clone API eventFD");
-            // vmm thread should not need a MachineCfg, will give the default for the moment
-            // and remove it later on
             let _vmm_thread_handle =
-                vmm::start_vmm_thread(MachineCfg::default(), api_event_fd, from_api);
+                vmm::start_vmm_thread( api_event_fd, from_api);
             server.bind_and_run(bind_path).unwrap();
         }
     }
 }
 
 fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<ApiRequest>>) {
-    let cfg = parse_args(&cmd_arguments);
 
     let mut vmm = vmm::Vmm::new(
-        cfg,
         EventFd::new().expect("cannot create eventFD"),
         from_api,
     ).expect("cannot create VMM");
@@ -239,20 +235,4 @@ fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<A
     vmm.configure_kernel(kernel_config);
     vmm.boot_kernel().expect("cannot boot kernel");
     vmm.run_control().expect("VMM loop error!");
-}
-
-fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
-    // TODO: this is also no longer necesssary, right?
-    let root_blk_file = cmd_arguments
-        .value_of("root_blk_file")
-        .map(|s| PathBuf::from(s));
-
-    // no longer used; remove when refactoring MachineCfg
-    let host_ip: Option<Ipv4Addr> = Some("1.2.3.4".parse().unwrap());
-    // no longer used; remove when refactoring MachineCfg
-    let subnet_mask: Ipv4Addr = "255.255.255.0".parse().unwrap();
-    // no longer used; remove when refactoring MachineCfg
-    let vsock_guest_cid = None;
-
-    MachineCfg::new(root_blk_file, host_ip, subnet_mask, vsock_guest_cid)
 }

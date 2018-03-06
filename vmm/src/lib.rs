@@ -16,7 +16,6 @@ extern crate x86_64;
 pub mod device_config;
 pub mod device_manager;
 pub mod kernel_cmdline;
-pub mod machine;
 mod vm_control;
 mod vstate;
 
@@ -43,7 +42,6 @@ use device_manager::*;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
 use kvm::*;
-use machine::MachineCfg;
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use vm_control::VmResponse;
 use vstate::{Vcpu, Vm};
@@ -245,8 +243,6 @@ impl Default for VirtualMachineConfig {
 }
 
 pub struct Vmm {
-    // TODO: no longer used apparently; refactor&remove
-    _cfg: MachineCfg,
     vm_config: VirtualMachineConfig,
     core: Option<VmmCore>,
     kernel_config: Option<KernelConfig>,
@@ -265,7 +261,6 @@ pub struct Vmm {
 
 impl Vmm {
     pub fn new(
-        cfg: MachineCfg,
         api_event_fd: EventFd,
         from_api: Receiver<Box<ApiRequest>>,
     ) -> Result<Self> {
@@ -275,7 +270,6 @@ impl Vmm {
             .expect("cannot add API eventfd to epoll");
         let block_device_configs = BlockDeviceConfigs::new();
         Ok(Vmm {
-            _cfg: cfg,
             vm_config: VirtualMachineConfig::default(),
             core: None,
             kernel_config: None,
@@ -839,12 +833,11 @@ impl Vmm {
 }
 
 pub fn start_vmm_thread(
-    cfg: MachineCfg,
     api_event_fd: EventFd,
     from_api: Receiver<Box<ApiRequest>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        let mut vmm = Vmm::new(cfg, api_event_fd, from_api).expect("cannot create VMM");
+        let mut vmm = Vmm::new( api_event_fd, from_api).expect("cannot create VMM");
         vmm.run_control().expect("VMM thread fail");
         // TODO: maybe offer through API: an instance status reporting error messages (r)
     })
