@@ -89,7 +89,7 @@ mod tests {
     use super::*;
 
     use std::convert::From;
-    use std::mem::{size_of, align_of, transmute};
+    use std::mem::{align_of, size_of, transmute};
 
     #[cfg(target_endian = "little")]
     const NATIVE_LITTLE: bool = true;

@@ -419,9 +419,8 @@ impl Clone for __kernel_fd_set {
         *self
     }
 }
-pub type __kernel_sighandler_t = ::std::option::Option<
-    unsafe extern "C" fn(arg1: ::std::os::raw::c_int),
->;
+pub type __kernel_sighandler_t =
+    ::std::option::Option<unsafe extern "C" fn(arg1: ::std::os::raw::c_int)>;
 pub type __kernel_key_t = ::std::os::raw::c_int;
 pub type __kernel_mqd_t = ::std::os::raw::c_int;
 pub type __kernel_old_uid_t = ::std::os::raw::c_ushort;
@@ -512,9 +511,7 @@ fn bindgen_test_layout___kernel_sockaddr_storage() {
         concat!("Alignment of ", stringify!(__kernel_sockaddr_storage))
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const __kernel_sockaddr_storage)).ss_family as *const _ as usize
-        },
+        unsafe { &(*(0 as *const __kernel_sockaddr_storage)).ss_family as *const _ as usize },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -981,9 +978,7 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__lock as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__lock as *const _ as usize },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -993,9 +988,7 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__count as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__count as *const _ as usize },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -1005,9 +998,7 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__owner as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__owner as *const _ as usize },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -1029,9 +1020,7 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__kind as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__kind as *const _ as usize },
         16usize,
         concat!(
             "Alignment of field: ",
@@ -1041,9 +1030,7 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__spins as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__spins as *const _ as usize },
         20usize,
         concat!(
             "Alignment of field: ",
@@ -1065,9 +1052,7 @@ fn bindgen_test_layout_pthread_mutex_t___pthread_mutex_s() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__list as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_mutex_t___pthread_mutex_s)).__list as *const _ as usize },
         24usize,
         concat!(
             "Alignment of field: ",
@@ -1213,9 +1198,7 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         concat!("Alignment of ", stringify!(pthread_cond_t__bindgen_ty_1))
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__lock as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__lock as *const _ as usize },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1225,9 +1208,7 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__futex as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__futex as *const _ as usize },
         4usize,
         concat!(
             "Alignment of field: ",
@@ -1237,9 +1218,7 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__total_seq as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__total_seq as *const _ as usize },
         8usize,
         concat!(
             "Alignment of field: ",
@@ -1249,9 +1228,7 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__wakeup_seq as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__wakeup_seq as *const _ as usize },
         16usize,
         concat!(
             "Alignment of field: ",
@@ -1261,9 +1238,7 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__woken_seq as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__woken_seq as *const _ as usize },
         24usize,
         concat!(
             "Alignment of field: ",
@@ -1273,9 +1248,7 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__mutex as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__mutex as *const _ as usize },
         32usize,
         concat!(
             "Alignment of field: ",
@@ -1285,9 +1258,7 @@ fn bindgen_test_layout_pthread_cond_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__nwaiters as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_cond_t__bindgen_ty_1)).__nwaiters as *const _ as usize },
         40usize,
         concat!(
             "Alignment of field: ",
@@ -1451,9 +1422,7 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         concat!("Alignment of ", stringify!(pthread_rwlock_t__bindgen_ty_1))
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__lock as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__lock as *const _ as usize },
         0usize,
         concat!(
             "Alignment of field: ",
@@ -1525,9 +1494,7 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__writer as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__writer as *const _ as usize },
         24usize,
         concat!(
             "Alignment of field: ",
@@ -1537,9 +1504,7 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__shared as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__shared as *const _ as usize },
         28usize,
         concat!(
             "Alignment of field: ",
@@ -1561,9 +1526,7 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__pad1 as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__pad1 as *const _ as usize },
         33usize,
         concat!(
             "Alignment of field: ",
@@ -1573,9 +1536,7 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__pad2 as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__pad2 as *const _ as usize },
         40usize,
         concat!(
             "Alignment of field: ",
@@ -1585,9 +1546,7 @@ fn bindgen_test_layout_pthread_rwlock_t__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__flags as *const _ as usize
-        },
+        unsafe { &(*(0 as *const pthread_rwlock_t__bindgen_ty_1)).__flags as *const _ as usize },
         48usize,
         concat!(
             "Alignment of field: ",
@@ -2972,9 +2931,7 @@ fn bindgen_test_layout_if_settings__bindgen_ty_1() {
         )
     );
     assert_eq!(
-        unsafe {
-            &(*(0 as *const if_settings__bindgen_ty_1)).fr_pvc_info as *const _ as usize
-        },
+        unsafe { &(*(0 as *const if_settings__bindgen_ty_1)).fr_pvc_info as *const _ as usize },
         0usize,
         concat!(
             "Alignment of field: ",
