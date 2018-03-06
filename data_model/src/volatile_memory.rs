@@ -23,7 +23,7 @@ use std::io::Result as IoResult;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::mem::size_of;
-use std::ptr::{write_volatile, read_volatile};
+use std::ptr::{read_volatile, write_volatile};
 use std::result;
 use std::fmt;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
@@ -44,14 +44,11 @@ impl fmt::Display for VolatileMemoryError {
             &VolatileMemoryError::OutOfBounds { addr } => {
                 write!(f, "address 0x{:x} is out of bounds", addr)
             }
-            &VolatileMemoryError::Overflow { base, offset } => {
-                write!(
-                    f,
-                    "address 0x{:x} offset by 0x{:x} would overflow",
-                    base,
-                    offset
-                )
-            }
+            &VolatileMemoryError::Overflow { base, offset } => write!(
+                f,
+                "address 0x{:x} offset by 0x{:x} would overflow",
+                base, offset
+            ),
         }
     }
 }
@@ -79,12 +76,10 @@ type Result<T> = VolatileMemoryResult<T>;
 /// ```
 pub fn calc_offset(base: usize, offset: usize) -> Result<usize> {
     match base.checked_add(offset) {
-        None => {
-            Err(Error::Overflow {
-                base: base,
-                offset: offset,
-            })
-        }
+        None => Err(Error::Overflow {
+            base: base,
+            offset: offset,
+        }),
         Some(m) => Ok(m),
     }
 }
@@ -111,9 +106,7 @@ impl<'a> VolatileMemory for &'a mut [u8] {
         if mem_end > self.len() {
             return Err(Error::OutOfBounds { addr: mem_end });
         }
-        Ok(unsafe {
-            VolatileSlice::new((self.as_ptr() as usize + offset) as *mut _, count)
-        })
+        Ok(unsafe { VolatileSlice::new((self.as_ptr() as usize + offset) as *mut _, count) })
     }
 }
 
@@ -275,7 +268,6 @@ impl<'a> VolatileSlice<'a> {
         w.write_all(unsafe { self.as_slice() })
     }
 
-
     /// Reads up to this slice's size to memory from a readable object and returns how many bytes
     /// were actually read on success.
     ///
@@ -433,7 +425,7 @@ mod tests {
     use super::*;
 
     use std::sync::Arc;
-    use std::thread::{spawn, sleep};
+    use std::thread::{sleep, spawn};
     use std::time::Duration;
 
     #[derive(Clone)]

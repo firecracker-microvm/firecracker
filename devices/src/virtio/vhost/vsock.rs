@@ -152,8 +152,6 @@ impl VirtioDevice for Vsock {
         }
     }
 
-
-
     fn activate(
         &mut self,
         _: GuestMemory,
@@ -228,8 +226,14 @@ impl VirtioDevice for Vsock {
                     );
 
                     // vsock specific ioctl setup for running device
-                    handler.get_device().set_guest_cid(cid).map_err(Error::VhostVsockSetCid)?;
-                    handler.get_device().start().map_err(Error::VhostVsockStart)?;
+                    handler
+                        .get_device()
+                        .set_guest_cid(cid)
+                        .map_err(Error::VhostVsockSetCid)?;
+                    handler
+                        .get_device()
+                        .start()
+                        .map_err(Error::VhostVsockStart)?;
 
                     let queue_evt_raw_fd = handler.get_queue_evt();
                     //channel should be open and working

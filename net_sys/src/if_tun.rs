@@ -252,9 +252,8 @@ impl Clone for __kernel_fd_set {
         *self
     }
 }
-pub type __kernel_sighandler_t = ::std::option::Option<
-    unsafe extern "C" fn(arg1: ::std::os::raw::c_int),
->;
+pub type __kernel_sighandler_t =
+    ::std::option::Option<unsafe extern "C" fn(arg1: ::std::os::raw::c_int)>;
 pub type __kernel_key_t = ::std::os::raw::c_int;
 pub type __kernel_mqd_t = ::std::os::raw::c_int;
 pub type __kernel_old_uid_t = ::std::os::raw::c_ushort;
