@@ -8,14 +8,14 @@ use kvm_sys::kvm_segment;
 
 /// Constructor for a conventional segment GDT (or LDT) entry. Derived from the kernel's segment.h.
 pub fn gdt_entry(flags: u16, base: u32, limit: u32) -> u64 {
-    ((((base as u64) & 0xff000000u64) << (56 - 24)) | (((flags as u64) & 0x0000f0ffu64) << 40) |
-         (((limit as u64) & 0x000f0000u64) << (48 - 16)) |
-         (((base as u64) & 0x00ffffffu64) << 16) | (((limit as u64) & 0x0000ffffu64)))
+    ((((base as u64) & 0xff000000u64) << (56 - 24)) | (((flags as u64) & 0x0000f0ffu64) << 40)
+        | (((limit as u64) & 0x000f0000u64) << (48 - 16))
+        | (((base as u64) & 0x00ffffffu64) << 16) | (((limit as u64) & 0x0000ffffu64)))
 }
 
 fn get_base(entry: u64) -> u64 {
-    ((((entry) & 0xFF00000000000000) >> 32) | (((entry) & 0x000000FF00000000) >> 16) |
-         (((entry) & 0x00000000FFFF0000) >> 16))
+    ((((entry) & 0xFF00000000000000) >> 32) | (((entry) & 0x000000FF00000000) >> 16)
+        | (((entry) & 0x00000000FFFF0000) >> 16))
 }
 
 fn get_limit(entry: u64) -> u32 {

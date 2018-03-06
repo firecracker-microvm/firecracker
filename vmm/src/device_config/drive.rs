@@ -96,7 +96,7 @@ mod tests {
     use super::*;
     use std::fs::{self, File};
 
-   // Helper function for creating a dummy file
+    // Helper function for creating a dummy file
     // The filename has to be unique among all tests because the tests are run on many threads
     fn create_dummy_path(filename: String) -> PathBuf {
         let _file = File::create(filename.clone());

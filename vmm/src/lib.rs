@@ -260,10 +260,7 @@ pub struct Vmm {
 }
 
 impl Vmm {
-    pub fn new(
-        api_event_fd: EventFd,
-        from_api: Receiver<Box<ApiRequest>>,
-    ) -> Result<Self> {
+    pub fn new(api_event_fd: EventFd, from_api: Receiver<Box<ApiRequest>>) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         epoll_context
             .add_event(&api_event_fd, EpollDispatch::ApiRequest)
@@ -837,7 +834,7 @@ pub fn start_vmm_thread(
     from_api: Receiver<Box<ApiRequest>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        let mut vmm = Vmm::new( api_event_fd, from_api).expect("cannot create VMM");
+        let mut vmm = Vmm::new(api_event_fd, from_api).expect("cannot create VMM");
         vmm.run_control().expect("VMM thread fail");
         // TODO: maybe offer through API: an instance status reporting error messages (r)
     })
