@@ -128,19 +128,15 @@ fn main() {
             let api_event_fd = server
                 .get_event_fd_clone()
                 .expect("cannot clone API eventFD");
-            let _vmm_thread_handle =
-                vmm::start_vmm_thread( api_event_fd, from_api);
+            let _vmm_thread_handle = vmm::start_vmm_thread(api_event_fd, from_api);
             server.bind_and_run(bind_path).unwrap();
         }
     }
 }
 
 fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<ApiRequest>>) {
-
-    let mut vmm = vmm::Vmm::new(
-        EventFd::new().expect("cannot create eventFD"),
-        from_api,
-    ).expect("cannot create VMM");
+    let mut vmm = vmm::Vmm::new(EventFd::new().expect("cannot create eventFD"), from_api)
+        .expect("cannot create VMM");
 
     // configure virtual machine from command line
     if cmd_arguments.is_present("vcpu_count") {

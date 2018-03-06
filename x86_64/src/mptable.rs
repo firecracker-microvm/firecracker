@@ -61,8 +61,7 @@ const MPTABLE_START: usize = 0x400 * 639; // Last 1k of Linux's 640k base RAM.
 
 fn compute_checksum<T: Copy>(v: &T) -> u8 {
     // Safe because we are only reading the bytes within the size of the `T` reference `v`.
-    let v_slice =
-        unsafe { slice::from_raw_parts(v as *const T as *const u8, mem::size_of::<T>()) };
+    let v_slice = unsafe { slice::from_raw_parts(v as *const T as *const u8, mem::size_of::<T>()) };
     let mut checksum: u8 = 0;
     for i in v_slice.iter() {
         checksum = checksum.wrapping_add(*i);
