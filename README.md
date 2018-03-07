@@ -1,5 +1,4 @@
 # What is Firecracker
-
 Firecracker is a new virtualization technology that enables customers to deploy lightweight *micro* Virtual Machines or microVMs. Firecracker microVMs combine the security and workload isolation properties of traditional VMs with the speed and resource efficiency enabled by containers. MicroVMs can initiate user-space code execution in less than 150ms, have a footprint of less than 32 MiB of memory, and provide a secure, trusted environment for multi-tenant services. Customers can create microVMs with any combination of vCPU and memory to match their application requirements.
 
 MicroVMs are created and managed by the Firecracker process, which implements a virtual machine manager based on Linux's Kernel-based Virtual Machine (KVM), the state of art for Linux virtualization. Firecracker provides the minimal required device emulation to the guest operating system while excluding non-essential functionality to enable faster startup time and a reduced memory footprint. The Firecracker process also provides a control API, enforces microVM sandboxing, and handles resource rate limiting for microVMs.
