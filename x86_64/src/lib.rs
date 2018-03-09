@@ -85,21 +85,22 @@ pub const ZERO_PAGE_OFFSET: usize = 0x7000;
 /// For x86_64 all addresses are valid from the start of the kenel except a
 /// carve out at the end of 32bit address space.
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
-    let mem_end = GuestAddress(size);
-    let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
-    let end_32bit_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
-
+    let memory_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
+    let memory_gap_end = GuestAddress(FIRST_ADDR_PAST_32BITS);
+    let requested_memory_size = GuestAddress(size);
     let mut regions = Vec::new();
-    if mem_end < end_32bit_gap_start {
+
+    // case1: guest memory fits before the gap
+    if requested_memory_size <= memory_gap_start {
         regions.push((GuestAddress(0), size));
+    // case2: guest memory extends beyond the gap
     } else {
-        regions.push((GuestAddress(0), end_32bit_gap_start.offset()));
-        if mem_end > first_addr_past_32bits {
-            regions.push((
-                first_addr_past_32bits,
-                mem_end.offset_from(first_addr_past_32bits),
-            ));
-        }
+        // push memory before the gap
+        regions.push((GuestAddress(0), memory_gap_start.offset()));
+        regions.push((
+            memory_gap_end,
+            requested_memory_size.offset_from(memory_gap_start),
+        ));
     }
 
     regions
