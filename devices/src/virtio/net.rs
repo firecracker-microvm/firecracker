@@ -30,7 +30,8 @@ use virtio_sys::virtio_config::*;
 /// http://docs.oasis-open.org/virtio/virtio/v1.0/virtio-v1.0.html#x1-1740003
 const MAX_BUFFER_SIZE: usize = 65562;
 const QUEUE_SIZE: u16 = 256;
-const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE, QUEUE_SIZE];
+const NUM_QUEUES: usize = 2;
+const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE; NUM_QUEUES];
 
 // A frame is available for reading from the tap device to receive in the guest.
 pub const RX_TAP_EVENT: DeviceEventT = 0;
@@ -465,8 +466,12 @@ impl VirtioDevice for Net {
         mut queues: Vec<Queue>,
         mut queue_evts: Vec<EventFd>,
     ) -> ActivateResult {
-        if queues.len() != 2 || queue_evts.len() != 2 {
-            error!("virtio-net: expected 2 queues, got {}", queues.len());
+        if queues.len() != NUM_QUEUES || queue_evts.len() != NUM_QUEUES {
+            error!(
+                "virtio-net expected {} queues, got {}",
+                NUM_QUEUES,
+                queues.len()
+            );
             return Err(ActivateError::BadActivate);
         }
 
