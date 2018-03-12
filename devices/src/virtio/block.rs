@@ -754,7 +754,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 1);
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_IOERR
             );
         }
@@ -773,7 +773,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 1);
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_IOERR
             );
         }
@@ -794,7 +794,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 1);
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_UNSUPP
             );
         }
@@ -819,7 +819,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_OK
             );
         }
@@ -841,7 +841,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, vq.dtable[1].len.get());
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_OK
             );
             assert_eq!(m.read_obj_from_addr::<u64>(data_addr).unwrap(), 123456789);
@@ -861,7 +861,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_OK
             );
         }
