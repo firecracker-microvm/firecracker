@@ -22,6 +22,7 @@ use virtio_sys::virtio_blk::*;
 const SECTOR_SHIFT: u8 = 9;
 const SECTOR_SIZE: u64 = 0x01 << SECTOR_SHIFT;
 const QUEUE_SIZE: u16 = 256;
+const NUM_QUEUES: usize = 1;
 const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
 
 pub const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
@@ -361,8 +362,12 @@ impl VirtioDevice for Block {
         queues: Vec<Queue>,
         mut queue_evts: Vec<EventFd>,
     ) -> ActivateResult {
-        if queues.len() != 1 || queue_evts.len() != 1 {
-            error!("virtio-block: expected 1 queue, got {}", queues.len());
+        if queues.len() != NUM_QUEUES || queue_evts.len() != NUM_QUEUES {
+            error!(
+                "virtio-block expected {} queue, got {}",
+                NUM_QUEUES,
+                queues.len()
+            );
             return Err(ActivateError::BadActivate);
         }
 

@@ -162,7 +162,7 @@ impl VirtioDevice for Vsock {
     ) -> ActivateResult {
         if queues.len() != NUM_QUEUES || queue_evts.len() != NUM_QUEUES {
             error!(
-                "vsock: virtio-vsock expected {} queues, got {}",
+                "virtio-vsock expected {} queues, got {}",
                 NUM_QUEUES,
                 queues.len()
             );
