@@ -945,8 +945,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_1__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_1)).base_address as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_1)).base_address as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -958,8 +958,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_1__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_1)).reserved1 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_1)).reserved1 as *const _
+                as usize
         },
         2usize,
         concat!(
@@ -971,8 +971,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_1__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_1)).reserved2 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_1)).reserved2 as *const _
+                as usize
         },
         4usize,
         concat!(
@@ -1029,8 +1029,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_1__bindgen_ty_2() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_2)).slot as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_2)).slot as *const _
+                as usize
         },
         1usize,
         concat!(
@@ -1042,8 +1042,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_1__bindgen_ty_2() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_2)).function as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_2)).function as *const _
+                as usize
         },
         2usize,
         concat!(
@@ -1055,8 +1055,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_1__bindgen_ty_2() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_2)).channel as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_2)).channel as *const _
+                as usize
         },
         3usize,
         concat!(
@@ -1068,8 +1068,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_1__bindgen_ty_2() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_2)).reserved as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_2)).reserved as *const _
+                as usize
         },
         4usize,
         concat!(
@@ -1110,8 +1110,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_1__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_3)).reserved as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_3)).reserved as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -1152,8 +1152,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_1__bindgen_ty_4() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_4)).reserved as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_4)).reserved as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -1194,8 +1194,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_1__bindgen_ty_5() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_5)).reserved as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_5)).reserved as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -1236,8 +1236,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_1__bindgen_ty_6() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_6)).reserved as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_1__bindgen_ty_6)).reserved as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -1375,8 +1375,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_1)).device as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_1)).device as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -1388,8 +1388,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_1)).reserved1 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_1)).reserved1 as *const _
+                as usize
         },
         1usize,
         concat!(
@@ -1401,8 +1401,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_1)).reserved2 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_1)).reserved2 as *const _
+                as usize
         },
         2usize,
         concat!(
@@ -1414,8 +1414,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_1)).reserved3 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_1)).reserved3 as *const _
+                as usize
         },
         4usize,
         concat!(
@@ -1427,8 +1427,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_1() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_1)).reserved4 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_1)).reserved4 as *const _
+                as usize
         },
         8usize,
         concat!(
@@ -1474,8 +1474,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_2() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_2)).device as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_2)).device as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -1499,8 +1499,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_2() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_2)).reserved1 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_2)).reserved1 as *const _
+                as usize
         },
         2usize,
         concat!(
@@ -1512,8 +1512,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_2() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_2)).reserved2 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_2)).reserved2 as *const _
+                as usize
         },
         3usize,
         concat!(
@@ -1525,8 +1525,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_2() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_2)).reserved3 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_2)).reserved3 as *const _
+                as usize
         },
         4usize,
         concat!(
@@ -1538,8 +1538,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_2() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_2)).reserved4 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_2)).reserved4 as *const _
+                as usize
         },
         8usize,
         concat!(
@@ -1607,8 +1607,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_3)).reserved1 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_3)).reserved1 as *const _
+                as usize
         },
         10usize,
         concat!(
@@ -1620,8 +1620,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_3() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_3)).reserved2 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_3)).reserved2 as *const _
+                as usize
         },
         12usize,
         concat!(
@@ -1663,8 +1663,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_4() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_4)).serial_number as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_4)).serial_number
+                as *const _ as usize
         },
         0usize,
         concat!(
@@ -1676,8 +1676,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_4() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_4)).reserved as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_4)).reserved as *const _
+                as usize
         },
         8usize,
         concat!(
@@ -1731,8 +1731,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_5() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_5)).reserved as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_5)).reserved as *const _
+                as usize
         },
         8usize,
         concat!(
@@ -1774,8 +1774,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_6() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_6)).wwid as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_6)).wwid as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -1829,8 +1829,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_7() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_7)).identity_tag as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_7)).identity_tag as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -1842,8 +1842,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_7() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_7)).reserved as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_7)).reserved as *const _
+                as usize
         },
         8usize,
         concat!(
@@ -1886,8 +1886,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_8() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_8)).array_number as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_8)).array_number as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -1899,8 +1899,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_8() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_8)).reserved1 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_8)).reserved1 as *const _
+                as usize
         },
         4usize,
         concat!(
@@ -1912,8 +1912,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_8() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_8)).reserved2 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_8)).reserved2 as *const _
+                as usize
         },
         8usize,
         concat!(
@@ -1958,8 +1958,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_9() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_9)).device as *const _ as
-                usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_9)).device as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -1971,8 +1971,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_9() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_9)).reserved1 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_9)).reserved1 as *const _
+                as usize
         },
         1usize,
         concat!(
@@ -1984,8 +1984,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_9() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_9)).reserved2 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_9)).reserved2 as *const _
+                as usize
         },
         2usize,
         concat!(
@@ -1997,8 +1997,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_9() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_9)).reserved3 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_9)).reserved3 as *const _
+                as usize
         },
         4usize,
         concat!(
@@ -2010,8 +2010,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_9() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_9)).reserved4 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_9)).reserved4 as *const _
+                as usize
         },
         8usize,
         concat!(
@@ -2053,8 +2053,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_10() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_10)).reserved1 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_10)).reserved1 as *const _
+                as usize
         },
         0usize,
         concat!(
@@ -2066,8 +2066,8 @@ fn bindgen_test_layout_edd_device_params__bindgen_ty_2__bindgen_ty_10() {
     );
     assert_eq!(
         unsafe {
-            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_10)).reserved2 as
-                *const _ as usize
+            &(*(0 as *const edd_device_params__bindgen_ty_2__bindgen_ty_10)).reserved2 as *const _
+                as usize
         },
         8usize,
         concat!(

@@ -17,19 +17,12 @@ use epoll;
 use super::{DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_BLOCK};
 use sys_util::Result as SysResult;
 use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};
+use virtio_sys::virtio_blk::*;
 
 const SECTOR_SHIFT: u8 = 9;
 const SECTOR_SIZE: u64 = 0x01 << SECTOR_SHIFT;
 const QUEUE_SIZE: u16 = 256;
 const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
-
-const VIRTIO_BLK_T_IN: u32 = 0;
-const VIRTIO_BLK_T_OUT: u32 = 1;
-const VIRTIO_BLK_T_FLUSH: u32 = 4;
-
-const VIRTIO_BLK_S_OK: u8 = 0;
-const VIRTIO_BLK_S_IOERR: u8 = 1;
-const VIRTIO_BLK_S_UNSUPP: u8 = 2;
 
 pub const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
 pub const KILL_EVENT: DeviceEventT = 1;
@@ -93,7 +86,7 @@ enum ExecuteError {
 }
 
 impl ExecuteError {
-    fn status(&self) -> u8 {
+    fn status(&self) -> u32 {
         match self {
             &ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
             &ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
@@ -761,7 +754,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 1);
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_IOERR
             );
         }
@@ -780,7 +773,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 1);
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_IOERR
             );
         }
@@ -801,7 +794,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 1);
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_UNSUPP
             );
         }
@@ -826,7 +819,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_OK
             );
         }
@@ -848,7 +841,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, vq.dtable[1].len.get());
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_OK
             );
             assert_eq!(m.read_obj_from_addr::<u64>(data_addr).unwrap(), 123456789);
@@ -868,7 +861,7 @@ mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
             assert_eq!(
-                m.read_obj_from_addr::<u8>(status_addr).unwrap(),
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_OK
             );
         }

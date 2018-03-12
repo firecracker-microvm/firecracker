@@ -18,11 +18,12 @@ use libc::EAGAIN;
 use {DeviceEventT, EpollHandler};
 use super::{ActivateError, ActivateResult};
 use epoll;
-use net_util::{Tap, TapError};
+use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use net_sys;
 use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_NET};
 use sys_util::{Error as SysError, EventFd, GuestMemory};
-use virtio_sys::virtio_net;
+use virtio_sys::virtio_net::*;
+use virtio_sys::virtio_config::*;
 
 /// The maximum buffer size when segmentation offload is enabled. This
 /// includes the 12-byte virtio net header.
@@ -318,11 +319,18 @@ pub struct Net {
     tap: Option<Tap>,
     avail_features: u64,
     acked_features: u64,
+    // The config space will only consist of the MAC address specified by the user,
+    // or nothing, if no such address if provided.
+    config_space: Vec<u8>,
     epoll_config: EpollConfig,
 }
 
 impl Net {
-    pub fn new_with_tap(tap: Tap, epoll_config: EpollConfig) -> Result<Self, NetError> {
+    pub fn new_with_tap(
+        tap: Tap,
+        guest_mac: Option<&MacAddr>,
+        epoll_config: EpollConfig,
+    ) -> Result<Self, NetError> {
         let kill_evt = EventFd::new().map_err(NetError::CreateKillEventFd)?;
 
         // Set offload flags to match the virtio features below.
@@ -330,24 +338,35 @@ impl Net {
             net_sys::TUN_F_CSUM | net_sys::TUN_F_UFO | net_sys::TUN_F_TSO4 | net_sys::TUN_F_TSO6,
         ).map_err(NetError::TapSetOffload)?;
 
-        let vnet_hdr_size = mem::size_of::<virtio_net::virtio_net_hdr_v1>() as i32;
+        let vnet_hdr_size = mem::size_of::<virtio_net_hdr_v1>() as i32;
         tap.set_vnet_hdr_size(vnet_hdr_size)
             .map_err(NetError::TapSetVnetHdrSize)?;
 
-        let avail_features = 1 << virtio_net::VIRTIO_NET_F_GUEST_CSUM
-            | 1 << virtio_net::VIRTIO_NET_F_CSUM
-            | 1 << virtio_net::VIRTIO_NET_F_GUEST_TSO4
-            | 1 << virtio_net::VIRTIO_NET_F_GUEST_UFO
-            | 1 << virtio_net::VIRTIO_NET_F_HOST_TSO4
-            | 1 << virtio_net::VIRTIO_NET_F_HOST_UFO
-            | 1 << virtio_net::VIRTIO_F_VERSION_1;
+        let mut avail_features =
+            1 << VIRTIO_NET_F_GUEST_CSUM | 1 << VIRTIO_NET_F_CSUM | 1 << VIRTIO_NET_F_GUEST_TSO4
+                | 1 << VIRTIO_NET_F_GUEST_UFO | 1 << VIRTIO_NET_F_HOST_TSO4
+                | 1 << VIRTIO_NET_F_HOST_UFO | 1 << VIRTIO_F_VERSION_1;
+
+        let mut config_space;
+        if let Some(mac) = guest_mac {
+            config_space = Vec::with_capacity(MAC_ADDR_LEN);
+            // This is safe, because we know the capacity is large enough.
+            unsafe { config_space.set_len(MAC_ADDR_LEN) }
+            config_space[..].copy_from_slice(mac.get_bytes());
+            // When this feature isn't available, the driver generates a random MAC address.
+            // Otherwise, it should attempt to read the device MAC address from the config space.
+            avail_features |= 1 << VIRTIO_NET_F_MAC;
+        } else {
+            config_space = Vec::new();
+        }
 
         Ok(Net {
             workers_kill_evt: Some(kill_evt.try_clone().map_err(NetError::CloneKillEventFd)?),
-            kill_evt: kill_evt,
+            kill_evt,
             tap: Some(tap),
-            avail_features: avail_features,
+            avail_features,
             acked_features: 0u64,
+            config_space,
             epoll_config,
         })
     }
@@ -357,6 +376,7 @@ impl Net {
     pub fn new(
         ip_addr: Ipv4Addr,
         netmask: Ipv4Addr,
+        guest_mac: Option<&MacAddr>,
         epoll_config: EpollConfig,
     ) -> Result<Self, NetError> {
         let tap = Tap::new().map_err(NetError::TapOpen)?;
@@ -364,7 +384,7 @@ impl Net {
         tap.set_netmask(netmask).map_err(NetError::TapSetNetmask)?;
         tap.enable().map_err(NetError::TapEnable)?;
 
-        Self::new_with_tap(tap, epoll_config)
+        Self::new_with_tap(tap, guest_mac, epoll_config)
     }
 }
 
@@ -420,6 +440,21 @@ impl VirtioDevice for Net {
             v &= !unrequested_features;
         }
         self.acked_features |= v;
+    }
+
+    // Taken from block.rs. This will only read data that is actually available in the config space,
+    // and leave the rest of the destination buffer as is. When the length of the configuration
+    // space is 0, nothing actually happens.
+    fn read_config(&self, offset: u64, mut data: &mut [u8]) {
+        let config_len = self.config_space.len() as u64;
+        if offset >= config_len {
+            return;
+        }
+        if let Some(end) = offset.checked_add(data.len() as u64) {
+            // This write can't fail, offset and end are checked against config_len.
+            data.write(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
+                .unwrap();
+        }
     }
 
     fn activate(
@@ -526,6 +561,7 @@ mod tests {
                 net: Net::new(
                     "192.168.249.1".parse().unwrap(),
                     "255.255.255.0".parse().unwrap(),
+                    None,
                     epoll_config,
                 ).unwrap(),
                 epoll_raw_fd,
@@ -576,12 +612,10 @@ mod tests {
         assert_eq!(n.device_type(), TYPE_NET);
         assert_eq!(n.queue_max_sizes(), QUEUE_SIZES);
 
-        let features = 1 << virtio_net::VIRTIO_NET_F_GUEST_CSUM | 1 << virtio_net::VIRTIO_NET_F_CSUM
-            | 1 << virtio_net::VIRTIO_NET_F_GUEST_TSO4
-            | 1 << virtio_net::VIRTIO_NET_F_GUEST_UFO
-            | 1 << virtio_net::VIRTIO_NET_F_HOST_TSO4
-            | 1 << virtio_net::VIRTIO_NET_F_HOST_UFO
-            | 1 << virtio_net::VIRTIO_F_VERSION_1;
+        let features = 1 << VIRTIO_NET_F_GUEST_CSUM | 1 << VIRTIO_NET_F_CSUM
+            | 1 << VIRTIO_NET_F_GUEST_TSO4 | 1 << VIRTIO_NET_F_GUEST_UFO
+            | 1 << VIRTIO_NET_F_HOST_TSO4 | 1 << VIRTIO_NET_F_HOST_UFO
+            | 1 << VIRTIO_F_VERSION_1;
 
         assert_eq!(n.features(0), features as u32);
         assert_eq!(n.features(1), (features >> 32) as u32);

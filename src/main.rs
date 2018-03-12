@@ -3,23 +3,25 @@ extern crate clap;
 
 extern crate api_server;
 extern crate devices;
+extern crate net_util;
 extern crate sys_util;
 extern crate vmm;
 
-use clap::{App, Arg, SubCommand};
 use std::fs::File;
-use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::sync::mpsc::channel;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{channel, Receiver};
+
+use clap::{App, Arg, SubCommand};
 
 use api_server::{ApiRequest, ApiServer};
 use api_server::request::sync::{DeviceState, NetworkInterfaceBody, VsockJsonBody};
+use net_util::MacAddr;
 use sys_util::{syslog, EventFd, GuestAddress};
 use vmm::{CMDLINE_MAX_SIZE, CMDLINE_OFFSET, KERNEL_START_OFFSET};
 use vmm::{kernel_cmdline, KernelConfig};
-use vmm::machine::{MachineCfg, DEFAULT_SUBNET_MASK};
 use vmm::device_config::BlockDeviceConfig;
+
+const DEFAULT_SUBNET_MASK: &str = "255.255.255.0";
 
 fn main() {
     if let Err(e) = syslog::init() {
@@ -95,6 +97,12 @@ fn main() {
                         .long("vsock-guest-cid")
                         .help("The guest CID for the virtio-vhost-vsock device")
                         .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("guest_mac")
+                        .long("guest-mac")
+                        .help("The MAC address of the guest network interface.")
+                        .takes_value(true),
                 ),
         )
         .get_matches();
@@ -120,23 +128,15 @@ fn main() {
             let api_event_fd = server
                 .get_event_fd_clone()
                 .expect("cannot clone API eventFD");
-            // vmm thread should not need a MachineCfg, will give the default for the moment
-            // and remove it later on
-            let _vmm_thread_handle =
-                vmm::start_vmm_thread(MachineCfg::default(), api_event_fd, from_api);
+            let _vmm_thread_handle = vmm::start_vmm_thread(api_event_fd, from_api);
             server.bind_and_run(bind_path).unwrap();
         }
     }
 }
 
 fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<ApiRequest>>) {
-    let cfg = parse_args(&cmd_arguments);
-
-    let mut vmm = vmm::Vmm::new(
-        cfg,
-        EventFd::new().expect("cannot create eventFD"),
-        from_api,
-    ).expect("cannot create VMM");
+    let mut vmm = vmm::Vmm::new(EventFd::new().expect("cannot create eventFD"), from_api)
+        .expect("cannot create VMM");
 
     // configure virtual machine from command line
     if cmd_arguments.is_present("vcpu_count") {
@@ -187,11 +187,15 @@ fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<A
     if let Some(value) = cmd_arguments.value_of("tap_dev_name") {
         let host_dev_name = String::from(value);
 
+        let guest_mac = cmd_arguments
+            .value_of("guest_mac")
+            .map(|s| MacAddr::parse_str(s).expect("invalid guest MAC"));
+
         let body = NetworkInterfaceBody {
             iface_id: String::from("0"),
             state: DeviceState::Attached,
             host_dev_name,
-            guest_mac: None,
+            guest_mac,
         };
 
         vmm.put_net_device(body).expect("failed adding net device.");
@@ -227,20 +231,4 @@ fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<A
     vmm.configure_kernel(kernel_config);
     vmm.boot_kernel().expect("cannot boot kernel");
     vmm.run_control().expect("VMM loop error!");
-}
-
-fn parse_args(cmd_arguments: &clap::ArgMatches) -> MachineCfg {
-    // TODO: this is also no longer necesssary, right?
-    let root_blk_file = cmd_arguments
-        .value_of("root_blk_file")
-        .map(|s| PathBuf::from(s));
-
-    // no longer used; remove when refactoring MachineCfg
-    let host_ip: Option<Ipv4Addr> = Some("1.2.3.4".parse().unwrap());
-    // no longer used; remove when refactoring MachineCfg
-    let subnet_mask: Ipv4Addr = "255.255.255.0".parse().unwrap();
-    // no longer used; remove when refactoring MachineCfg
-    let vsock_guest_cid = None;
-
-    MachineCfg::new(root_blk_file, host_ip, subnet_mask, vsock_guest_cid)
 }

@@ -94,7 +94,7 @@ impl BlockDeviceConfigs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
+    use std::fs::{self, File};
 
     // Helper function for creating a dummy file
     // The filename has to be unique among all tests because the tests are run on many threads
@@ -105,7 +105,7 @@ mod tests {
 
     // Helper function for deleting a dummy file
     fn delete_dummy_path(filename: String) {
-        let _rs = std::fs::remove_file(filename);
+        let _rs = fs::remove_file(filename);
     }
 
     #[test]

@@ -101,8 +101,8 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
 /// * `vcpu` - Structure for the vcpu that holds the vcpu fd.
 pub fn setup_msrs(vcpu: &kvm::VcpuFd) -> Result<()> {
     let entry_vec = create_msr_entries();
-    let vec_size_bytes = mem::size_of::<kvm_msrs>() +
-        (entry_vec.len() * mem::size_of::<kvm_msr_entry>());
+    let vec_size_bytes =
+        mem::size_of::<kvm_msrs>() + (entry_vec.len() * mem::size_of::<kvm_msr_entry>());
     let vec: Vec<u8> = Vec::with_capacity(vec_size_bytes);
     let msrs: &mut kvm_msrs = unsafe {
         // Converting the vector's memory to a struct is unsafe.  Carefully using the read-only
@@ -180,25 +180,23 @@ fn write_gdt_table(table: &[u64], guest_mem: &GuestMemory) -> Result<()> {
         let addr = guest_mem
             .checked_offset(boot_gdt_addr, index * mem::size_of::<u64>())
             .ok_or(Error::WriteGDTFailure)?;
-        guest_mem.write_obj_at_addr(*entry, addr).map_err(|_| {
-            Error::WriteGDTFailure
-        })?;
+        guest_mem
+            .write_obj_at_addr(*entry, addr)
+            .map_err(|_| Error::WriteGDTFailure)?;
     }
     Ok(())
 }
 
 fn write_idt_value(val: u64, guest_mem: &GuestMemory) -> Result<()> {
     let boot_idt_addr = GuestAddress(BOOT_IDT_OFFSET);
-    guest_mem.write_obj_at_addr(val, boot_idt_addr).map_err(
-        |_| {
-            Error::WriteIDTFailure
-        },
-    )
+    guest_mem
+        .write_obj_at_addr(val, boot_idt_addr)
+        .map_err(|_| Error::WriteIDTFailure)
 }
 
 fn configure_segments_and_sregs(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
     let gdt_table: [u64; BOOT_GDT_MAX as usize] = [
-        gdt::gdt_entry(0, 0, 0), // NULL
+        gdt::gdt_entry(0, 0, 0),            // NULL
         gdt::gdt_entry(0xa09b, 0, 0xfffff), // CODE
         gdt::gdt_entry(0xc093, 0, 0xfffff), // DATA
         gdt::gdt_entry(0x808b, 0, 0xfffff), // TSS
@@ -239,11 +237,8 @@ fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
 
     mem.write_obj_at_addr(boot_pdpte_addr.offset() as u64 | 0x03, boot_pml4_addr)
         .map_err(|_| Error::WritePML4Address)?;
-    mem.write_obj_at_addr(0x83u64, boot_pdpte_addr).map_err(
-        |_| {
-            Error::WritePDPTEAddress
-        },
-    )?;
+    mem.write_obj_at_addr(0x83u64, boot_pdpte_addr)
+        .map_err(|_| Error::WritePDPTEAddress)?;
     sregs.cr3 = boot_pml4_addr.offset() as u64;
     sregs.cr4 |= X86_CR4_PAE;
     sregs.cr0 |= X86_CR0_PG;

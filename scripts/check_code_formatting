@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# !!! This script does NOT modify the sources
+# --write-mode=diff leaves the sources unchanged throwing an error if differences are detected
+if [ $# -lt 1 ]; then
+    >&2 echo "Usage: $0 <project_path>"
+    exit 1
+fi
+
+project_path=$1
+rust_files=$(find ${project_path} -path ${project_path}/target -prune -o -iname "*.rs" -print)
+
+for file in ${rust_files}; do
+    rustup run nightly-2018-01-08 rustfmt ${file} --write-mode=diff || exit 1
+done
+
