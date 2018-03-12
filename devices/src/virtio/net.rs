@@ -22,7 +22,8 @@ use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use net_sys;
 use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_NET};
 use sys_util::{Error as SysError, EventFd, GuestMemory};
-use virtio_sys::virtio_net;
+use virtio_sys::virtio_net::*;
+use virtio_sys::virtio_config::*;
 
 /// The maximum buffer size when segmentation offload is enabled. This
 /// includes the 12-byte virtio net header.
@@ -337,17 +338,14 @@ impl Net {
             net_sys::TUN_F_CSUM | net_sys::TUN_F_UFO | net_sys::TUN_F_TSO4 | net_sys::TUN_F_TSO6,
         ).map_err(NetError::TapSetOffload)?;
 
-        let vnet_hdr_size = mem::size_of::<virtio_net::virtio_net_hdr_v1>() as i32;
+        let vnet_hdr_size = mem::size_of::<virtio_net_hdr_v1>() as i32;
         tap.set_vnet_hdr_size(vnet_hdr_size)
             .map_err(NetError::TapSetVnetHdrSize)?;
 
-        let mut avail_features = 1 << virtio_net::VIRTIO_NET_F_GUEST_CSUM
-            | 1 << virtio_net::VIRTIO_NET_F_CSUM
-            | 1 << virtio_net::VIRTIO_NET_F_GUEST_TSO4
-            | 1 << virtio_net::VIRTIO_NET_F_GUEST_UFO
-            | 1 << virtio_net::VIRTIO_NET_F_HOST_TSO4
-            | 1 << virtio_net::VIRTIO_NET_F_HOST_UFO
-            | 1 << virtio_net::VIRTIO_F_VERSION_1;
+        let mut avail_features =
+            1 << VIRTIO_NET_F_GUEST_CSUM | 1 << VIRTIO_NET_F_CSUM | 1 << VIRTIO_NET_F_GUEST_TSO4
+                | 1 << VIRTIO_NET_F_GUEST_UFO | 1 << VIRTIO_NET_F_HOST_TSO4
+                | 1 << VIRTIO_NET_F_HOST_UFO | 1 << VIRTIO_F_VERSION_1;
 
         let mut config_space;
         if let Some(mac) = guest_mac {
@@ -357,7 +355,7 @@ impl Net {
             config_space[..].copy_from_slice(mac.get_bytes());
             // When this feature isn't available, the driver generates a random MAC address.
             // Otherwise, it should attempt to read the device MAC address from the config space.
-            avail_features |= 1 << virtio_net::VIRTIO_NET_F_MAC;
+            avail_features |= 1 << VIRTIO_NET_F_MAC;
         } else {
             config_space = Vec::new();
         }
@@ -444,8 +442,8 @@ impl VirtioDevice for Net {
         self.acked_features |= v;
     }
 
-    // Take from drive.rs. This will only read data that is actually available in the config space,
-    // and leave the rest of the destination buffer as is. When the lenght of the configuration
+    // Taken from block.rs. This will only read data that is actually available in the config space,
+    // and leave the rest of the destination buffer as is. When the length of the configuration
     // space is 0, nothing actually happens.
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
         let config_len = self.config_space.len() as u64;
@@ -614,12 +612,10 @@ mod tests {
         assert_eq!(n.device_type(), TYPE_NET);
         assert_eq!(n.queue_max_sizes(), QUEUE_SIZES);
 
-        let features = 1 << virtio_net::VIRTIO_NET_F_GUEST_CSUM | 1 << virtio_net::VIRTIO_NET_F_CSUM
-            | 1 << virtio_net::VIRTIO_NET_F_GUEST_TSO4
-            | 1 << virtio_net::VIRTIO_NET_F_GUEST_UFO
-            | 1 << virtio_net::VIRTIO_NET_F_HOST_TSO4
-            | 1 << virtio_net::VIRTIO_NET_F_HOST_UFO
-            | 1 << virtio_net::VIRTIO_F_VERSION_1;
+        let features = 1 << VIRTIO_NET_F_GUEST_CSUM | 1 << VIRTIO_NET_F_CSUM
+            | 1 << VIRTIO_NET_F_GUEST_TSO4 | 1 << VIRTIO_NET_F_GUEST_UFO
+            | 1 << VIRTIO_NET_F_HOST_TSO4 | 1 << VIRTIO_NET_F_HOST_UFO
+            | 1 << VIRTIO_F_VERSION_1;
 
         assert_eq!(n.features(0), features as u32);
         assert_eq!(n.features(1), (features >> 32) as u32);
