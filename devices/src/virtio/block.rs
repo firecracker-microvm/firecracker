@@ -5,12 +5,12 @@
 use std::cmp;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::os::linux::fs::MetadataExt;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::result;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-
 use {DeviceEventT, EpollHandler};
 use super::{ActivateError, ActivateResult};
 use epoll;
@@ -33,6 +33,7 @@ enum RequestType {
     In,
     Out,
     Flush,
+    GetDeviceID,
     Unsupported(u32),
 }
 
@@ -50,6 +51,8 @@ enum ParseError {
     DescriptorChainTooShort,
     /// Guest gave us a descriptor that was too short to use.
     DescriptorLengthTooSmall,
+    /// Getting a block's metadata fails for any reason
+    GetFileMetadata,
 }
 
 fn request_type(
@@ -62,6 +65,7 @@ fn request_type(
         VIRTIO_BLK_T_IN => Ok(RequestType::In),
         VIRTIO_BLK_T_OUT => Ok(RequestType::Out),
         VIRTIO_BLK_T_FLUSH => Ok(RequestType::Flush),
+        VIRTIO_BLK_T_GET_ID => Ok(RequestType::GetDeviceID),
         t => Ok(RequestType::Unsupported(t)),
     }
 }
@@ -75,6 +79,21 @@ fn sector(mem: &GuestMemory, desc_addr: GuestAddress) -> result::Result<u64, Par
 
     mem.read_obj_from_addr(addr)
         .map_err(ParseError::GuestMemory)
+}
+
+fn build_device_id(disk_image: &File) -> result::Result<String, ParseError> {
+    let blk_metadata = match disk_image.metadata() {
+        Err(_) => return Err(ParseError::GetFileMetadata),
+        Ok(m) => m,
+    };
+    // this is how kvmtool does it
+    let device_id = format!(
+        "{}{}{}",
+        blk_metadata.st_dev(),
+        blk_metadata.st_rdev(),
+        blk_metadata.st_ino()
+    ).to_owned();
+    Ok(device_id)
 }
 
 #[derive(Debug)]
@@ -155,6 +174,7 @@ impl Request {
         &self,
         disk: &mut T,
         mem: &GuestMemory,
+        disk_id: &Vec<u8>,
     ) -> result::Result<u32, ExecuteError> {
         disk.seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
             .map_err(ExecuteError::Seek)?;
@@ -169,6 +189,10 @@ impl Request {
                     .map_err(ExecuteError::Write)?;
             }
             RequestType::Flush => disk.flush().map_err(ExecuteError::Flush)?,
+            RequestType::GetDeviceID => {
+                mem.write_slice_at_addr(&disk_id.as_slice(), self.data_addr)
+                    .map_err(ExecuteError::Write)?;
+            }
             RequestType::Unsupported(t) => return Err(ExecuteError::Unsupported(t)),
         };
         Ok(0)
@@ -182,6 +206,7 @@ pub struct BlockEpollHandler {
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
     queue_evt: EventFd,
+    disk_image_id: Vec<u8>,
 }
 
 impl BlockEpollHandler {
@@ -194,17 +219,19 @@ impl BlockEpollHandler {
             let len;
             match Request::parse(&avail_desc, &self.mem) {
                 Ok(request) => {
-                    let status = match request.execute(&mut self.disk_image, &self.mem) {
-                        Ok(l) => {
-                            len = l;
-                            VIRTIO_BLK_S_OK
-                        }
-                        Err(e) => {
-                            error!("failed executing disk request: {:?}", e);
-                            len = 1; // 1 byte for the status
-                            e.status()
-                        }
-                    };
+                    let status =
+                        match request.execute(&mut self.disk_image, &self.mem, &self.disk_image_id)
+                        {
+                            Ok(l) => {
+                                len = l;
+                                VIRTIO_BLK_S_OK
+                            }
+                            Err(e) => {
+                                error!("failed executing disk request: {:?}", e);
+                                len = 1; // 1 byte for the status
+                                e.status()
+                            }
+                        };
                     // We use unwrap because the request parsing process already checked that the
                     // status_addr was valid.
                     self.mem
@@ -386,6 +413,25 @@ impl VirtioDevice for Block {
             let queue_evt_raw_fd = queue_evt.as_raw_fd();
             let kill_evt_raw_fd = kill_evt.as_raw_fd();
 
+            let disk_image_id = match build_device_id(&disk_image) {
+                // in case of error we put in an empty one
+                Err(_) => {
+                    warn!("could not generate device id");
+                    Vec::new()
+                }
+                Ok(m) => {
+                    // the kernel only knows to read a maximum of VIRTIO_BLK_ID_BYTES
+                    // this will also zero out any leftover bytes
+                    let mut buf = vec![0; VIRTIO_BLK_ID_BYTES as usize];
+                    let disk_id = m.as_bytes();
+                    let bytes_to_copy = cmp::min(disk_id.len(), VIRTIO_BLK_ID_BYTES as usize);
+                    for i in 0..bytes_to_copy {
+                        buf[i] = disk_id[i];
+                    }
+                    buf
+                }
+            };
+
             let handler = BlockEpollHandler {
                 queues,
                 mem,
@@ -393,13 +439,13 @@ impl VirtioDevice for Block {
                 interrupt_status: status,
                 interrupt_evt,
                 queue_evt,
+                disk_image_id,
             };
 
             //the channel should be open at this point
             self.epoll_config.sender.send(Box::new(handler)).unwrap();
 
             //TODO: barrier needed here by any chance?
-
             epoll::ctl(
                 self.epoll_config.epoll_raw_fd,
                 epoll::EPOLL_CTL_ADD,
