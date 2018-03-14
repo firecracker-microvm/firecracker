@@ -80,6 +80,12 @@ fn main() {
                         .takes_value(true),
                 )
                 .arg(
+                    Arg::with_name("read_only_root")
+                        .long("read-only-root")
+                        .help("Open the file backing the root block device as read-only.")
+                        .takes_value(false),
+                )
+                .arg(
                     Arg::with_name("tap_dev_name")
                         .long("tap-dev-name")
                         .help("Name of existing TAP interface to use for guest Virtio net device")
@@ -178,7 +184,7 @@ fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<A
         let root_block_device = BlockDeviceConfig {
             path_on_host: PathBuf::from(cmd_arguments.value_of("root_blk_file").unwrap()),
             is_root_device: true,
-            is_read_only: false,
+            is_read_only: cmd_arguments.is_present("read_only_root"),
             drive_id: String::from("1"),
         };
         vmm.put_block_device(root_block_device)
