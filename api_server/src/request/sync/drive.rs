@@ -7,6 +7,13 @@ use request::ParsedRequest;
 use http_service::{empty_response, json_fault_message, json_response};
 use super::{DeviceState, GenerateResponse, SyncRequest};
 
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[allow(non_camel_case_types)]
+pub enum DrivePermissions {
+    ro,
+    rw,
+}
+
 // This struct represents the strongly typed equivalent of the json body from drive
 // related requests.
 #[derive(Debug, Deserialize, Serialize)]
@@ -15,6 +22,13 @@ pub struct DriveDescription {
     pub path_on_host: String,
     pub state: DeviceState,
     pub is_root_device: bool,
+    pub permissions: DrivePermissions,
+}
+
+impl DriveDescription {
+    pub fn is_read_only(&self) -> bool {
+        self.permissions == DrivePermissions::ro
+    }
 }
 
 #[derive(Debug)]
