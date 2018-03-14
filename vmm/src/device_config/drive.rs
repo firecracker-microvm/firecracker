@@ -13,6 +13,7 @@ pub struct BlockDeviceConfig {
     pub drive_id: String,
     pub path_on_host: PathBuf,
     pub is_root_device: bool,
+    pub is_read_only: bool,
 }
 
 // Wrapper for the collection that holds all the Block Devices Configs
@@ -23,10 +24,12 @@ pub struct BlockDeviceConfigs {
 
 impl From<DriveDescription> for BlockDeviceConfig {
     fn from(item: DriveDescription) -> Self {
+        let is_read_only = item.is_read_only();
         BlockDeviceConfig {
             drive_id: item.drive_id,
             path_on_host: PathBuf::from(item.path_on_host),
             is_root_device: item.is_root_device,
+            is_read_only,
         }
     }
 }

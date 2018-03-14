@@ -178,6 +178,7 @@ fn vmm_no_api_handler(cmd_arguments: &clap::ArgMatches, from_api: Receiver<Box<A
         let root_block_device = BlockDeviceConfig {
             path_on_host: PathBuf::from(cmd_arguments.value_of("root_blk_file").unwrap()),
             is_root_device: true,
+            is_read_only: false,
             drive_id: String::from("1"),
         };
         vmm.put_block_device(root_block_device)
