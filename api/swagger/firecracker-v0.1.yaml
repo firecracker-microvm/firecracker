@@ -248,6 +248,13 @@ definitions:
       - "attached"
       - "detaching"
       - "detached"
+
+  DrivePermissions:
+    type: string
+    enum:
+      - "ro"
+      - "rw"
+
   Drive:
     type: object
     required:
@@ -260,6 +267,8 @@ definitions:
         description: "host level path for the guest drive"
       is_root_device:
         type: boolean
+      permissions:
+        $ref: "#/definitions/DrivePermissions"
       state:
         $ref: "#/definitions/DeviceState"
 
