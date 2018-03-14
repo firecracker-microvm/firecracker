@@ -829,6 +829,8 @@ mod tests {
             );
         }
 
+        // test unsupported block commands
+        // currently 0, 1, 4, 8 are supported
         {
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
@@ -837,7 +839,8 @@ mod tests {
             m.write_obj_at_addr::<u64>(0, GuestAddress(0x1000 + 8))
                 .unwrap();
             // ... but generate an unsupported request
-            m.write_obj_at_addr::<u32>(8, GuestAddress(0x1000)).unwrap();
+            m.write_obj_at_addr::<u32>(16, GuestAddress(0x1000))
+                .unwrap();
 
             invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
 
