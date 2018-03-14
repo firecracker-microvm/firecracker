@@ -337,13 +337,16 @@ impl Vmm {
         if block_dev.has_root_block_device() {
             // this is a simple solution to add a block as a root device; should be improved
             kernel_config.cmdline.insert_str(" root=/dev/vda").unwrap();
+            if block_dev.has_read_only_root() {
+                kernel_config.cmdline.insert_str(" ro").unwrap();
+            }
 
             let epoll_context = &mut self.epoll_context;
             for drive_config in self.block_device_configs.config_list.iter() {
                 // adding root blk device from file (currently always opened as read + write)
                 let root_image = OpenOptions::new()
                     .read(true)
-                    .write(true)
+                    .write(!drive_config.is_read_only)
                     .open(&drive_config.path_on_host)
                     .map_err(Error::RootDiskImage)?;
                 let epoll_config = epoll_context.allocate_virtio_block_tokens();
