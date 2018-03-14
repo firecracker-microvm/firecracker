@@ -472,7 +472,7 @@ mod tests {
     use std::fs::OpenOptions;
     use std::path::PathBuf;
     use std::sync::mpsc::Receiver;
-
+    use std::ascii::AsciiExt;
     use libc;
     use sys_util::TempDir;
 
@@ -537,6 +537,9 @@ mod tests {
 
         m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH, a).unwrap();
         assert_eq!(request_type(m, a).unwrap(), RequestType::Flush);
+
+        m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_GET_ID, a).unwrap();
+        assert_eq!(request_type(m, a).unwrap(), RequestType::GetDeviceID);
 
         // The value written here should be invalid.
         m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH + 10, a)
@@ -736,10 +739,18 @@ mod tests {
         let queues = vec![vq.create_queue()];
         let mem = m.clone();
         let disk_image = b.disk_image.take().unwrap();
+        let blk_metadata = disk_image.metadata();
         let status = Arc::new(AtomicUsize::new(0));
         let interrupt_evt = EventFd::new().unwrap();
         let queue_evt = EventFd::new().unwrap();
 
+        let disk_image_id_str = build_device_id(&disk_image).unwrap();
+        let mut disk_image_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
+        let disk_image_id_bytes = disk_image_id_str.as_bytes();
+        let bytes_to_copy = cmp::min(disk_image_id_bytes.len(), VIRTIO_BLK_ID_BYTES as usize);
+        for i in 0..bytes_to_copy {
+            disk_image_id[i] = disk_image_id_bytes[i];
+        }
         let mut h = BlockEpollHandler {
             queues,
             mem,
@@ -747,6 +758,7 @@ mod tests {
             interrupt_status: status,
             interrupt_evt,
             queue_evt,
+            disk_image_id,
         };
 
         for i in 0..3 {
@@ -831,6 +843,7 @@ mod tests {
 
         // test unsupported block commands
         // currently 0, 1, 4, 8 are supported
+
         {
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
@@ -902,7 +915,7 @@ mod tests {
         }
 
         {
-            // finally, let's also do a flush request
+            // testing that the flush request completes succesfully
 
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
@@ -920,6 +933,47 @@ mod tests {
             );
         }
 
+        {
+            // testing that the driver receives the correct device id
+
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
+                .unwrap();
+
+            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
+                VIRTIO_BLK_S_OK
+            );
+
+            assert!(blk_metadata.is_ok());
+            let blk_meta = blk_metadata.unwrap();
+            let expected_device_id = format!(
+                "{}{}{}",
+                blk_meta.st_dev(),
+                blk_meta.st_rdev(),
+                blk_meta.st_ino()
+            );
+
+            let mut buf = [0; VIRTIO_BLK_ID_BYTES as usize];
+            assert_eq!(
+                m.read_slice_at_addr(&mut buf, data_addr).unwrap(),
+                VIRTIO_BLK_ID_BYTES as usize
+            );
+            let chars_to_trim: &[char] = &['\u{0}'];
+            let received_device_id = format!(
+                "{}",
+                String::from_utf8(buf.to_ascii_lowercase())
+                    .unwrap()
+                    .trim_matches(chars_to_trim)
+            );
+            assert_eq!(received_device_id, expected_device_id);
+        }
         // can be called like this for now, because it currently doesn't really do anything
         // besides outputting some message
         h.handle_event(KILL_EVENT, 0);
