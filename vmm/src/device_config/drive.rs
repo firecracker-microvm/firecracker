@@ -13,20 +13,24 @@ pub struct BlockDeviceConfig {
     pub drive_id: String,
     pub path_on_host: PathBuf,
     pub is_root_device: bool,
+    pub is_read_only: bool,
 }
 
 // Wrapper for the collection that holds all the Block Devices Configs
 pub struct BlockDeviceConfigs {
     pub config_list: LinkedList<BlockDeviceConfig>,
     has_root_block: bool,
+    read_only_root: bool,
 }
 
 impl From<DriveDescription> for BlockDeviceConfig {
     fn from(item: DriveDescription) -> Self {
+        let is_read_only = item.is_read_only();
         BlockDeviceConfig {
             drive_id: item.drive_id,
             path_on_host: PathBuf::from(item.path_on_host),
             is_root_device: item.is_root_device,
+            is_read_only,
         }
     }
 }
@@ -36,11 +40,16 @@ impl BlockDeviceConfigs {
         BlockDeviceConfigs {
             config_list: LinkedList::<BlockDeviceConfig>::new(),
             has_root_block: false,
+            read_only_root: false,
         }
     }
 
     pub fn has_root_block_device(&self) -> bool {
         return self.has_root_block;
+    }
+
+    pub fn has_read_only_root(&self) -> bool {
+        self.read_only_root
     }
 
     pub fn contains_drive_path(&self, drive_path: PathBuf) -> bool {
@@ -79,9 +88,10 @@ impl BlockDeviceConfigs {
             if self.has_root_block {
                 return Err(DriveError::RootBlockDeviceAlreadyAdded);
             } else {
+                self.has_root_block = true;
+                self.read_only_root = block_device_config.is_read_only;
                 // Root Device should be the first in the list
                 self.config_list.push_front(block_device_config);
-                self.has_root_block = true;
             }
         } else {
             self.config_list.push_back(block_device_config);
@@ -123,6 +133,7 @@ mod tests {
         let dummy_block_device = BlockDeviceConfig {
             path_on_host: dummy_path,
             is_root_device: false,
+            is_read_only: false,
             drive_id: String::from("1"),
         };
 
@@ -148,6 +159,7 @@ mod tests {
         let dummy_block_device = BlockDeviceConfig {
             path_on_host: dummy_path,
             is_root_device: true,
+            is_read_only: false,
             drive_id: String::from("1"),
         };
         let mut block_devices_configs = BlockDeviceConfigs::new();
@@ -171,6 +183,7 @@ mod tests {
         let root_block_device_1 = BlockDeviceConfig {
             path_on_host: dummy_path_1.clone(),
             is_root_device: true,
+            is_read_only: false,
             drive_id: String::from("1"),
         };
 
@@ -179,6 +192,7 @@ mod tests {
         let root_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2.clone(),
             is_root_device: true,
+            is_read_only: false,
             drive_id: String::from("2"),
         };
 
@@ -203,6 +217,7 @@ mod tests {
         let root_block_device = BlockDeviceConfig {
             path_on_host: dummy_path_1.clone(),
             is_root_device: true,
+            is_read_only: false,
             drive_id: String::from("1"),
         };
 
@@ -211,6 +226,7 @@ mod tests {
         let dummy_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2.clone(),
             is_root_device: false,
+            is_read_only: false,
             drive_id: String::from("2"),
         };
 
@@ -219,6 +235,7 @@ mod tests {
         let dummy_block_device_3 = BlockDeviceConfig {
             path_on_host: dummy_path_3.clone(),
             is_root_device: false,
+            is_read_only: false,
             drive_id: String::from("3"),
         };
 
@@ -256,6 +273,7 @@ mod tests {
         let root_block_device = BlockDeviceConfig {
             path_on_host: dummy_path_1.clone(),
             is_root_device: true,
+            is_read_only: false,
             drive_id: String::from("1"),
         };
 
@@ -264,6 +282,7 @@ mod tests {
         let dummy_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2.clone(),
             is_root_device: false,
+            is_read_only: false,
             drive_id: String::from("2"),
         };
 
@@ -272,6 +291,7 @@ mod tests {
         let dummy_block_device_3 = BlockDeviceConfig {
             path_on_host: dummy_path_3.clone(),
             is_root_device: false,
+            is_read_only: false,
             drive_id: String::from("3"),
         };
 
