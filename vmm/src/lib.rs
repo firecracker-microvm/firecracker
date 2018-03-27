@@ -1,7 +1,5 @@
 extern crate epoll;
 extern crate libc;
-#[macro_use(defer)]
-extern crate scopeguard;
 
 extern crate api_server;
 extern crate devices;
@@ -300,6 +298,7 @@ pub struct Vmm {
     kill_signaled: Option<Arc<AtomicBool>>,
     vcpu_handles: Option<Vec<thread::JoinHandle<()>>>,
     exit_evt: Option<EpollEvent>,
+    stdin_handle: Option<io::Stdin>,
     stdio_serial: Option<Arc<Mutex<devices::Serial>>>,
     vm: Option<Vm>,
 
@@ -336,6 +335,7 @@ impl Vmm {
             kill_signaled: None,
             vcpu_handles: None,
             exit_evt: None,
+            stdin_handle: None,
             stdio_serial: None,
             vm: None,
             block_device_configs,
@@ -684,13 +684,17 @@ impl Vmm {
 
         vcpu_thread_barrier.wait();
 
+        self.stdin_handle = Some(io::stdin());
+        let stdin_lock = self.stdin_handle.as_ref().unwrap().lock();
+        stdin_lock.set_raw_mode().map_err(Error::Terminal)?;
+
         // unwrap() to crash if the other thread poisoned this lock
         self.shared_info.write().unwrap().state = InstanceState::Running;
 
         Ok(())
     }
 
-    fn stop(&mut self) -> Result<()> {
+    pub fn stop(&mut self) -> Result<()> {
         // unwrap() to crash if the other thread poisoned this lock
         let mut shared_info = self.shared_info.write().unwrap();
         shared_info.state = InstanceState::Halting;
@@ -716,6 +720,12 @@ impl Vmm {
             self.epoll_context.remove_event(evt)?;
         }
         self.epoll_context.disable_stdin_event()?;
+        if let Some(stdin_handle) = self.stdin_handle.take() {
+            let stdin_lock = stdin_handle.lock();
+            if let Err(e) = stdin_lock.set_canon_mode() {
+                warn!("cannot set canon mode for stdin: {:?}", e);
+            }
+        };
 
         self.stdio_serial.take();
         self.vm.take();
@@ -730,15 +740,6 @@ impl Vmm {
     }
 
     pub fn run_control(&mut self, api_enabled: bool) -> Result<()> {
-        let stdin_handle = io::stdin();
-        let stdin_lock = stdin_handle.lock();
-        stdin_lock.set_raw_mode().map_err(Error::Terminal)?;
-        defer! {{
-            if let Err(e) = stdin_lock.set_canon_mode() {
-                warn!("cannot set canon mode for stdin: {:?}", e);
-            }
-        }};
-
         const EPOLL_EVENTS_LEN: usize = 100;
 
         let mut events = Vec::<epoll::Event>::with_capacity(EPOLL_EVENTS_LEN);
@@ -771,6 +772,7 @@ impl Vmm {
                         }
                         EpollDispatch::Stdin => {
                             let mut out = [0u8; 64];
+                            let stdin_lock = self.stdin_handle.as_ref().unwrap().lock();
                             match stdin_lock.read_raw(&mut out[..]) {
                                 Ok(0) => {
                                     // Zero-length read indicates EOF. Remove from pollables.
@@ -961,8 +963,14 @@ pub fn start_vmm_thread(
     thread::spawn(move || {
         // if this fails, consider it fatal: .expect()
         let mut vmm = Vmm::new(api_shared_info, api_event_fd, from_api).expect("cannot create VMM");
+        let r = vmm.run_control(true);
+        // make sure we clean up when this loop breaks on error
+        if r.is_err() {
+            // stop() is safe to call at any moment; ignore the result
+            let _ = vmm.stop();
+        }
         // vmm thread errors are irrecoverable for now: .expect()
-        vmm.run_control(true).expect("VMM thread fail");
+        r.expect("VMM thread fail");
         // TODO: maybe offer through API: an instance status reporting error messages (r)
     })
 }
