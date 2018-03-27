@@ -251,5 +251,11 @@ fn vmm_no_api_handler(
     };
     vmm.configure_kernel(kernel_config);
     vmm.boot_kernel().expect("cannot boot kernel");
-    vmm.run_control(false).expect("VMM loop error!");
+    let r = vmm.run_control(false);
+    // make sure we clean up when this loop breaks on error
+    if r.is_err() {
+        // stop() is safe to call at any moment; ignore the result
+        let _ = vmm.stop();
+    }
+    r.expect("VMM loop error!");
 }
