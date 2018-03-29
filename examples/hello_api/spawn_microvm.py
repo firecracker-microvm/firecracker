@@ -99,6 +99,7 @@ requests.put(
         'drive_id': '1',
         'path_on_host': '/tmp/firecracker0001/ami-rootfs.ext4',
         'state': 'Attached',
+        'permissions': 'rw',
         'is_root_device': True
     }
 )
@@ -111,6 +112,7 @@ requests.put(
         'drive_id': '2',
         'path_on_host': '/tmp/firecracker0001/scratch.ext4',
         'state': 'Attached',
+        'permissions': 'rw',
         'is_root_device': False
     }
 )
