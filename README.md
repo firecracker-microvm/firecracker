@@ -6,19 +6,18 @@ MicroVMs are created and managed by the Firecracker process, which implements a 
 
 # Overview
 
-This Readme currently pertains to the v0.1 release.
-
-Firecracker consists of single micro Virtual Machine Manager binary that will spawn a RESTful API endpoint when started. In v0.1, the API endpoint can be used to:
+Firecracker consists of a single micro Virtual Machine Manager binary that will spawn a RESTful API endpoint when started. The API endpoint can be used to:
 * Add one or more vCPUs to the microVM.
 * Add memory to the microVM.
 * Add one or more network interfaces to the microVM.
 * Add one or more read/write disks (block devices) to the microVM.
 * Add one or more vSockets to the microVM.
 * Start the microVM using a given kernel image and root file system.
+* Stop the microVM
 
-## What's Included in v0.1?
+## What's Included in the current version?
 * One-process virtual machine manager (one Firecracker per microVM).
-* RESTful API running on a unix socket. The API supported by v0.1 can be found at `api/swagger/firecracker-v0.1.yaml`.
+* RESTful API running on a unix socket. The API supported by the current version can be found at `api/swagger/firecracker-beta.yaml`.
 * Emulated keyboard (i8042) and serial console (UART). The microVM serial console input and output are connected to those of the Firecracker process (this allows direct console access to the guest OS).
 * The capability of mapping an existing host tun-tap device as a virtIO/net device into the microVM.
 * The capability of mapping an existing host file as a virtIO/block device into the microVM.
@@ -54,7 +53,7 @@ To run microVMs with Firecracker, you will need to have:
 
 The python-based toy example below will start a Firecracker microVM with 2 vCPUs, 256 MiB or RAM, two network interfaces, two disks (rootfs and temp), and a vsocket.
 
-Currently, only the core parts of the API (`/actions`, `/machine-config`, `/boot-source`, `/network-interfaces`, `/drives`, and `/vsocks`) are implemented. See section [What's Included in v0.1?](https://quip-amazon.com/Y3RFAqZFxBwE#BGO9CAEkkRE) for more details. For the planned v1.0 API description see `/api/swagger/all.yaml`.
+Currently, only the core parts of the API (`/actions`, `/machine-config`, `/boot-source`, `/network-interfaces`, `/drives`, and `/vsocks`) are implemented. For the planned v1.0 API description see `/api/swagger/all.yaml`.
 
 The toy example snapshot below uses a Python script to start a Firecracker instance. The Firecracker binary, as well as compatible kernel, root file system, and temp file system images are assumed to already exist. The TUN/TAP devices passed to the networking API are also assumed to already exist. Firecracker requires root privileges to open vsock interfaces on a host.
 
@@ -102,6 +101,7 @@ requests.put(
         'drive_id': '1',
         'path_on_host': '/tmp/firecracker0001/ami-rootfs.ext4',
         'state': 'Attached',
+        'permissions': 'rw',
         'is_root_device': True
     }
 )
@@ -114,6 +114,7 @@ requests.put(
         'drive_id': '2',
         'path_on_host': '/tmp/firecracker0001/scratch.ext4',
         'state': 'Attached',
+        'permissions': 'rw',
         'is_root_device': False
     }
 )
@@ -143,18 +144,15 @@ requests.put(
 )
 ```
 
-## Notes for v0.1
+## Notes
 1. The Kernel and RootFS need to work together, and the Kernel needs to run with Firecracker's limited device model.
 2. Vsocket usage currently requires root privileges, and both host (`CONFIG_VHOST_VSOCK`) and guest (`CONFIG_VIRTIO_VSOCKETS`) kernel support.
-3. During bootup, an error will be displayed when mounting the disk: `[ERROR:devices/src/virtio/block.rs:209] failed executing disk request: Unsupported(8)`. This is because we don't currently create an ID in the virtio block device. It should be benign.
-4. When creating more than one Firecracker v0.1 microVM, make sure you will have separate copies of the file system images. All drives are currently mounted in read-write mode.
-5. Firecracker v0.1 uses default values for the following parameters:
+3. It is the user's responsability to make sure that the same backing file is not added as a read-write block device to multiple Firecracker instances. A file can be safely added as a read-only block device to multiple Firecracker instances.
+4. Firecracker uses default values for the following parameters:
     1. Kernel Command Line: `console=ttyS0 noapic reboot=k panic=1 pci=off nomodules`. This can be changed with a `PUT` request to `/boot-source`.
     2. Number of vCPUs: 1. This can be changed with a `PUT` request to `/machine-config`
-    3. Memory Size: 128 Mib. This can be changed with a `PUT` request to `/machine-config`
+    3. Memory Size: 128 MiB. This can be changed with a `PUT` request to `/machine-config`
     4.  Unix domain socket: `/tmp/firecracker.socket`. This can be changed only when Firecracker is started, by using the command line parameter `--api-sock`.
-6. Firecracker v0.1 links the microVM serial console output to its stdout, and its stdin to the microVM serial console input. Therefore, you can interact with the microVM guest in the screen session.
-7. Important: The unix domain socket is not deleted when Firecracker v0.1 is stopped. You have to remove it yourself after stopping the Firecracker process.
-
-## Shutting Down
-Firecracker v0.1 doesn't emulate a power management device, so poweroff doesn't work as expected (it leaves Firecracker hanging).
+5. Firecracker links the microVM serial console output to its stdout, and its stdin to the microVM serial console input. Therefore, you can interact with the microVM guest in the screen session.
+6. Important: The unix domain socket is not deleted when Firecracker is stopped. You have to remove it yourself after stopping the Firecracker process.
+7. Firecracker doesn't yet emulate a power management device. This means that any shutdown/poweroff command issued by the guest OS only does partial shutdown then hangs. The linux 'reboot' command when run in the guest OS will actually cleanly shut down the guest without bringing it back up.

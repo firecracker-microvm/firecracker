@@ -1,10 +1,10 @@
 swagger: "2.0"
 info:
-  title: Firecracker v0.1 API
-  description: Firecraker v0.1 - RESTful public-facing API.
+  title: Firecracker v0.2 API
+  description: Firecraker v0.2 - RESTful public-facing API.
                The API is accessible through HTTP calls on specific URLs carrying JSON modeled data.
                The transport medium is a Unix Domain Socket.
-  version: 0.1.0
+  version: 0.2.0
   termsOfService: ""
   contact:
     email: "compute-capsule@amazon.com"

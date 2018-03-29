@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.2.0]
+
+### Added
+
+* Users can now interrogate Instance Information (currently just instance state) through the API.
+
+### Changed
+
+* Renamed `api/swagger/all.yaml` to `api/swagger/firecracker-v1.0.yaml` which specifies targeted API support for Firecracker v1.0.
+* Renamed `api/swagger/firecracker-v0.1.yaml` to `api/swagger/firecracker-beta.yaml` which specifies the currently supported API.
+* Users can now enforce that an emulated block device is read-only via the API. To specify whether a block device is read-only or read-write, an extra "permissions" field was added to the Drive definition in the API. The root filesystem is automatically mounted in the guest OS as ro/rw according to the specified "permissions". It's the responsibility of the user to mount any other read-only block device as such within the guest OS.
+* Users can now stop the guest VM using the API. Actions of type 'InstanceHalt' are now supported via the API.
+
+### Fixed
+
+* Added support for getDeviceID() in virtIO-block. Without this, the guest Linux kernel would complain at boot time that the operation is unsupported.
+* STDIN control is returned to the Firecracker process when guest VM is inactive. Raw mode STDIN is forwarded to the guest OS when guest VM is running.
+
+### Removed
+
+* Removed `api/swagger/actions.yaml`.
+* Removed `api/swagger/devices.yaml`.
+* Removed `api/swagger/firecracker-mvp.yaml`.
+* Removed `api/swagger/limiters.yaml`.
+
+
 ## [0.1.1]
 
 ### Changed
