@@ -7,8 +7,11 @@ pub use self::sync::{BootSourceBody, DriveDescription, MachineConfigurationBody,
                      NetworkInterfaceBody, SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest,
                      VsockJsonBody};
 
+pub mod instance_info;
+
 pub enum ParsedRequest {
     Dummy,
+    GetInstanceInfo,
     GetActions,
     GetAction(String),
     // the first String is the id

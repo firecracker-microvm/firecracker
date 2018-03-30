@@ -17,6 +17,7 @@ pub mod request;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 use std::sync::mpsc;
 use std::path::Path;
 
@@ -29,6 +30,7 @@ use fc_util::LriHashMap;
 use http_service::ApiServerHttpService;
 pub use request::ApiRequest;
 use request::AsyncRequestBody;
+use request::instance_info::InstanceInfo;
 use sys_util::EventFd;
 
 // When information is requested about an async action, it can still be waiting to be processed
@@ -52,6 +54,8 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct ApiServer {
+    // VMM instance info directly accessible from the API thread.
+    vmm_shared_info: Arc<RwLock<InstanceInfo>>,
     // Sender which allows passing messages to the VMM.
     api_request_sender: Rc<mpsc::Sender<Box<ApiRequest>>>,
     max_previous_actions: usize,
@@ -60,10 +64,12 @@ pub struct ApiServer {
 
 impl ApiServer {
     pub fn new(
+        vmm_shared_info: Arc<RwLock<InstanceInfo>>,
         api_request_sender: mpsc::Sender<Box<ApiRequest>>,
         max_previous_actions: usize,
     ) -> Result<Self> {
         Ok(ApiServer {
+            vmm_shared_info,
             api_request_sender: Rc::new(api_request_sender),
             max_previous_actions,
             efd: Rc::new(EventFd::new().map_err(Error::Eventfd)?),
@@ -87,6 +93,7 @@ impl ApiServer {
                 // For the sake of clarity: when we use self.efd.clone(), the intent is to
                 // clone the wrapping Rc, not the EventFd itself.
                 let service = ApiServerHttpService::new(
+                    self.vmm_shared_info.clone(),
                     self.api_request_sender.clone(),
                     self.efd.clone(),
                     action_map.clone(),

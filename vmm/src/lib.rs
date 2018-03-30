@@ -26,11 +26,12 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{Arc, Barrier, Mutex, RwLock};
 use std::thread;
 
 use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
+use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse,
                                 NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
                                 SyncRequest, VsockJsonBody};
@@ -292,6 +293,7 @@ impl Default for VirtualMachineConfig {
 
 pub struct Vmm {
     vm_config: VirtualMachineConfig,
+    shared_info: Arc<RwLock<InstanceInfo>>,
 
     /// guest VM core resources
     kernel_config: Option<KernelConfig>,
@@ -316,7 +318,11 @@ pub struct Vmm {
 }
 
 impl Vmm {
-    pub fn new(api_event_fd: EventFd, from_api: Receiver<Box<ApiRequest>>) -> Result<Self> {
+    pub fn new(
+        api_shared_info: Arc<RwLock<InstanceInfo>>,
+        api_event_fd: EventFd,
+        from_api: Receiver<Box<ApiRequest>>,
+    ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // if this fails, it's fatal, .expect() it
         let api_event = epoll_context
@@ -325,6 +331,7 @@ impl Vmm {
         let block_device_configs = BlockDeviceConfigs::new();
         Ok(Vmm {
             vm_config: VirtualMachineConfig::default(),
+            shared_info: api_shared_info,
             kernel_config: None,
             kill_signaled: None,
             vcpu_handles: None,
@@ -501,6 +508,8 @@ impl Vmm {
         if self.kernel_config.is_none() {
             return Err(Error::MissingKernelConfig);
         }
+        // unwrap() to crash if the other thread poisoned this lock
+        self.shared_info.write().unwrap().state = InstanceState::Starting;
 
         let mem_size = self.vm_config.mem_size_mib << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
@@ -675,10 +684,17 @@ impl Vmm {
 
         vcpu_thread_barrier.wait();
 
+        // unwrap() to crash if the other thread poisoned this lock
+        self.shared_info.write().unwrap().state = InstanceState::Running;
+
         Ok(())
     }
 
     fn stop(&mut self) -> Result<()> {
+        // unwrap() to crash if the other thread poisoned this lock
+        let mut shared_info = self.shared_info.write().unwrap();
+        shared_info.state = InstanceState::Halting;
+
         if let Some(v) = self.kill_signaled.take() {
             v.store(true, Ordering::SeqCst);
         };
@@ -707,6 +723,9 @@ impl Vmm {
         //TODO:
         // - clean epoll_context:
         //   - remove block, net
+
+        shared_info.state = InstanceState::Halted;
+
         Ok(())
     }
 
@@ -808,12 +827,24 @@ impl Vmm {
             ApiRequest::Async(req) => {
                 match req {
                     AsyncRequest::StartInstance(sender) => {
-                        let result = match self.boot_kernel() {
-                            Ok(_) => AsyncOutcome::Ok(0),
-                            Err(e) => {
-                                let _ = self.stop();
-                                AsyncOutcome::Error(format!("cannot boot kernel: {:?}", e))
+                        let instance_state = {
+                            // unwrap() to crash if the other thread poisoned this lock
+                            let shared_info = self.shared_info.read().unwrap();
+                            shared_info.state.clone()
+                        };
+                        let result = match instance_state {
+                            InstanceState::Starting
+                            | InstanceState::Running
+                            | InstanceState::Halting => {
+                                AsyncOutcome::Error("Guest Instance already running.".to_string())
                             }
+                            _ => match self.boot_kernel() {
+                                Ok(_) => AsyncOutcome::Ok(0),
+                                Err(e) => {
+                                    let _ = self.stop();
+                                    AsyncOutcome::Error(format!("cannot boot kernel: {:?}", e))
+                                }
+                            },
                         };
                         // doing expect() to crash this thread as well if the other thread crashed
                         sender.send(result).expect("one-shot channel closed");
@@ -923,12 +954,13 @@ impl Vmm {
 }
 
 pub fn start_vmm_thread(
+    api_shared_info: Arc<RwLock<InstanceInfo>>,
     api_event_fd: EventFd,
     from_api: Receiver<Box<ApiRequest>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         // if this fails, consider it fatal: .expect()
-        let mut vmm = Vmm::new(api_event_fd, from_api).expect("cannot create VMM");
+        let mut vmm = Vmm::new(api_shared_info, api_event_fd, from_api).expect("cannot create VMM");
         // vmm thread errors are irrecoverable for now: .expect()
         vmm.run_control(true).expect("VMM thread fail");
         // TODO: maybe offer through API: an instance status reporting error messages (r)
