@@ -27,17 +27,17 @@ produces:
 paths:
   /:
     get:
-      summary: Return general information about an instance.
+      summary: Return general information about an instance
       operationId: describeInstance
       responses:
         200:
-          description: The instance information.
+          description: The instance information
           schema:
-            $ref: '#/definitions/InstanceInfo'
+            $ref: "#/definitions/InstanceInfo"
         default:
-          description: Unexpected error.
+          description: Internal Server Error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /boot-source:
     get:
       summary: "Get configured boot source."

@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::result;
 use std::str;
 use std::sync::mpsc;
+use std::sync::{Arc, RwLock};
 
 use futures::{Future, Stream};
 use futures::future::{self, Either};
@@ -12,6 +13,7 @@ use serde_json;
 use tokio_core::reactor::Handle;
 
 use request::{self, ApiRequest, AsyncOutcome, AsyncRequestBody, ParsedRequest};
+use request::instance_info::InstanceInfo;
 use super::{ActionMap, ActionMapValue};
 use sys_util::EventFd;
 
@@ -136,9 +138,11 @@ fn parse_request<'a>(
     let _is_delete = method == Method::Delete;
 
     if v.len() == 0 {
-        // todo: On GET, this should return the "GET /" defined in the API,
-        // otherwise an error.
-        return Ok(ParsedRequest::Dummy);
+        if is_get {
+            return Ok(ParsedRequest::GetInstanceInfo);
+        } else {
+            return Err(Error::InvalidPathMethod(path, method));
+        }
     }
 
     // The unwraps on id_from_path in later code should not panic because they are only
@@ -248,6 +252,8 @@ fn send_to_vmm(
 // In hyper, a struct that implements the Service trait is created to handle each incoming
 // request. This is the one for our ApiServer.
 pub struct ApiServerHttpService {
+    // VMM instance info directly accessible from this API thread.
+    vmm_shared_info: Arc<RwLock<InstanceInfo>>,
     // This allows sending messages to the VMM thread. It makes sense to use a Rc for the sender
     // (instead of cloning) because everything happens on a single thread, so there's no risk of
     // having races (if that was even a problem to begin with).
@@ -262,12 +268,14 @@ pub struct ApiServerHttpService {
 
 impl ApiServerHttpService {
     pub fn new(
+        vmm_shared_info: Arc<RwLock<InstanceInfo>>,
         api_request_sender: Rc<mpsc::Sender<Box<ApiRequest>>>,
         vmm_send_event: Rc<EventFd>,
         action_map: Rc<RefCell<ActionMap>>,
         handle: Rc<Handle>,
     ) -> Self {
         ApiServerHttpService {
+            vmm_shared_info,
             api_request_sender,
             vmm_send_event,
             action_map,
@@ -290,6 +298,7 @@ impl hyper::server::Service for ApiServerHttpService {
         let mut action_map = self.action_map.clone();
         let method = req.method().clone();
         let path = String::from(req.path());
+        let shared_info_lock = self.vmm_shared_info.clone();
         let api_request_sender = self.api_request_sender.clone();
         let handle = self.handle.clone();
         let vmm_send_event = self.vmm_send_event.clone();
@@ -306,6 +315,19 @@ impl hyper::server::Service for ApiServerHttpService {
                 Ok(parsed_req) => match parsed_req {
                     // TODO: remove this when all actions are implemented.
                     Dummy => Either::A(future::ok(json_response(StatusCode::Ok, "I'm a dummy."))),
+                    GetInstanceInfo => {
+                        // unwrap() to crash if the other thread poisoned this lock
+                        let shared_info = shared_info_lock.read().unwrap();
+                        // Serialize it to a JSON string.
+                        let body_result = serde_json::to_string(&(*shared_info));
+                        match body_result {
+                            Ok(body) => Either::A(future::ok(json_response(StatusCode::Ok, body))),
+                            Err(e) => Either::A(future::ok(json_response(
+                                StatusCode::InternalServerError,
+                                json_fault_message(e.to_string()),
+                            ))),
+                        }
+                    }
                     GetActions => {
                         // TODO: return a proper response, both here and for other requests which
                         // are in a similar condition right now.
