@@ -4,11 +4,11 @@ version = "0.1.0"
 authors = ["The Chromium OS Authors"]
 
 [dependencies]
-libc = "=0.2.32"
+libc = ">=0.2.39"
 
 net_sys = { path = "../net_sys" }
 sys_util = { path = "../sys_util" }
 
 [dev-dependencies]
 lazy_static = "=1.0.0"
-pnet = "=0.20.0"
+pnet = "=0.21.0"

@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-libc = "=0.2.32"
+libc = ">=0.2.39"
 epoll = "=2.1.0"
 scopeguard = "=0.3.3"
 
