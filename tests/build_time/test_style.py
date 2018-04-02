@@ -24,4 +24,5 @@ def test_style():
 
     # If there's missbehaving syntax, rustfmt will exit with an error code, and
     # print out the correctin. pytest will handle that.
+    # TODO: because of the newer rustfmt verion, there are now syntax errors.
     run('cargo fmt --all -- --write-mode=diff', shell=True, check=True)
