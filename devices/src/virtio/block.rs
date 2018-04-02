@@ -18,6 +18,7 @@ use super::{DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TY
 use sys_util::Result as SysResult;
 use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};
 use virtio_sys::virtio_blk::*;
+use virtio_sys::virtio_config::*;
 
 const SECTOR_SHIFT: u8 = 9;
 const SECTOR_SIZE: u64 = 0x01 << SECTOR_SHIFT;
@@ -313,6 +314,8 @@ impl EpollConfig {
 pub struct Block {
     kill_evt: Option<EventFd>,
     disk_image: Option<File>,
+    avail_features: u64,
+    acked_features: u64,
     config_space: Vec<u8>,
     epoll_config: EpollConfig,
 }
@@ -333,7 +336,11 @@ impl Block {
     /// Create a new virtio block device that operates on the given file.
     ///
     /// The given file must be seekable and sizable.
-    pub fn new(mut disk_image: File, epoll_config: EpollConfig) -> SysResult<Block> {
+    pub fn new(
+        mut disk_image: File,
+        is_disk_read_only: bool,
+        epoll_config: EpollConfig,
+    ) -> SysResult<Block> {
         let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
         if disk_size % SECTOR_SIZE != 0 {
             warn!(
@@ -342,9 +349,18 @@ impl Block {
                 disk_size, SECTOR_SIZE
             );
         }
+
+        let mut avail_features = 1 << VIRTIO_F_VERSION_1;
+
+        if is_disk_read_only {
+            avail_features |= 1 << VIRTIO_BLK_F_RO;
+        };
+
         Ok(Block {
             kill_evt: None,
             disk_image: Some(disk_image),
+            avail_features,
+            acked_features: 0u64,
             config_space: build_config_space(disk_size),
             epoll_config,
         })
@@ -367,6 +383,46 @@ impl VirtioDevice for Block {
 
     fn queue_max_sizes(&self) -> &[u16] {
         QUEUE_SIZES
+    }
+
+    fn features(&self, page: u32) -> u32 {
+        match page {
+            // Get the lower 32-bits of the features bitfield.
+            0 => self.avail_features as u32,
+            // Get the upper 32-bits of the features bitfield.
+            1 => (self.avail_features >> 32) as u32,
+            _ => {
+                warn!(
+                    "block: virtio-block got request for features page: {}",
+                    page
+                );
+                0u32
+            }
+        }
+    }
+
+    fn ack_features(&mut self, page: u32, value: u32) {
+        let mut v = match page {
+            0 => value as u64,
+            1 => (value as u64) << 32,
+            _ => {
+                warn!(
+                    "block: virtio-block device cannot ack unknown feature page: {}",
+                    page
+                );
+                0u64
+            }
+        };
+
+        // Check if the guest is ACK'ing a feature that we didn't claim to have.
+        let unrequested_features = v & !self.avail_features;
+        if unrequested_features != 0 {
+            warn!("block: virtio-block got unknown feature ack: {:x}", v);
+
+            // Don't count these features as acked.
+            v &= !unrequested_features;
+        }
+        self.acked_features |= v;
     }
 
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
@@ -504,7 +560,7 @@ mod tests {
             f.set_len(0x1000).unwrap();
 
             DummyBlock {
-                block: Block::new(f, epoll_config).unwrap(),
+                block: Block::new(f, false, epoll_config).unwrap(),
                 epoll_raw_fd,
                 _receiver,
             }
