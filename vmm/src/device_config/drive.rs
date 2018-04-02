@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_add_non_root_block_device() {
-        let dummy_filename = String::from("non_root_block_device");
+        let dummy_filename = String::from("test_add_non_root_block_device");
         let dummy_path = create_dummy_path(dummy_filename.clone());
 
         let dummy_block_device = BlockDeviceConfig {
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_add_one_root_block_device() {
-        let dummy_filename = String::from("one_root_block_device");
+        let dummy_filename = String::from("test_add_one_root_block_device");
         let dummy_path = create_dummy_path(dummy_filename.clone());
 
         let dummy_block_device = BlockDeviceConfig {
@@ -178,19 +178,19 @@ mod tests {
 
     #[test]
     fn test_add_two_root_block_devices_configs() {
-        let dummy_filename_1 = String::from("two_root_block_devices_configs_1");
+        let dummy_filename_1 = String::from("test_add_two_root_block_devices_configs_1");
         let dummy_path_1 = create_dummy_path(dummy_filename_1.clone());
         let root_block_device_1 = BlockDeviceConfig {
-            path_on_host: dummy_path_1.clone(),
+            path_on_host: dummy_path_1,
             is_root_device: true,
             is_read_only: false,
             drive_id: String::from("1"),
         };
 
-        let dummy_filename_2 = String::from("two_root_block_devices_configs_2");
+        let dummy_filename_2 = String::from("test_add_two_root_block_devices_configs_2");
         let dummy_path_2 = create_dummy_path(dummy_filename_2.clone());
         let root_block_device_2 = BlockDeviceConfig {
-            path_on_host: dummy_path_2.clone(),
+            path_on_host: dummy_path_2,
             is_root_device: true,
             is_read_only: false,
             drive_id: String::from("2"),
@@ -212,28 +212,28 @@ mod tests {
     #[test]
     /// Test BlockDevicesConfigs::add when you first add the root device and then the other devices
     fn test_add_root_block_device_first() {
-        let dummy_filename_1 = String::from("root_block_device_first_1");
+        let dummy_filename_1 = String::from("test_add_root_block_device_first_1");
         let dummy_path_1 = create_dummy_path(dummy_filename_1.clone());
         let root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path_1.clone(),
+            path_on_host: dummy_path_1,
             is_root_device: true,
             is_read_only: false,
             drive_id: String::from("1"),
         };
 
-        let dummy_filename_2 = String::from("root_block_device_first_2");
+        let dummy_filename_2 = String::from("test_add_root_block_device_first_2");
         let dummy_path_2 = create_dummy_path(dummy_filename_2.clone());
         let dummy_block_device_2 = BlockDeviceConfig {
-            path_on_host: dummy_path_2.clone(),
+            path_on_host: dummy_path_2,
             is_root_device: false,
             is_read_only: false,
             drive_id: String::from("2"),
         };
 
-        let dummy_filename_3 = String::from("root_block_device_first_3");
+        let dummy_filename_3 = String::from("test_add_root_block_device_first_3");
         let dummy_path_3 = create_dummy_path(dummy_filename_3.clone());
         let dummy_block_device_3 = BlockDeviceConfig {
-            path_on_host: dummy_path_3.clone(),
+            path_on_host: dummy_path_3,
             is_root_device: false,
             is_read_only: false,
             drive_id: String::from("3"),
@@ -268,28 +268,28 @@ mod tests {
     #[test]
     /// Test BlockDevicesConfigs::add when you add other devices first and then the root device
     fn test_root_block_device_add_last() {
-        let dummy_filename_1 = String::from("root_block_device_first_1");
+        let dummy_filename_1 = String::from("test_root_block_device_add_last_1");
         let dummy_path_1 = create_dummy_path(dummy_filename_1.clone());
         let root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path_1.clone(),
+            path_on_host: dummy_path_1,
             is_root_device: true,
             is_read_only: false,
             drive_id: String::from("1"),
         };
 
-        let dummy_filename_2 = String::from("root_block_device_first_2");
+        let dummy_filename_2 = String::from("test_root_block_device_add_last_2");
         let dummy_path_2 = create_dummy_path(dummy_filename_2.clone());
         let dummy_block_device_2 = BlockDeviceConfig {
-            path_on_host: dummy_path_2.clone(),
+            path_on_host: dummy_path_2,
             is_root_device: false,
             is_read_only: false,
             drive_id: String::from("2"),
         };
 
-        let dummy_filename_3 = String::from("root_block_device_first_3");
+        let dummy_filename_3 = String::from("test_root_block_device_add_last_3");
         let dummy_path_3 = create_dummy_path(dummy_filename_3.clone());
         let dummy_block_device_3 = BlockDeviceConfig {
-            path_on_host: dummy_path_3.clone(),
+            path_on_host: dummy_path_3,
             is_root_device: false,
             is_read_only: false,
             drive_id: String::from("3"),
