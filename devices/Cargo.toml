@@ -6,7 +6,7 @@ authors = ["The Chromium OS Authors"]
 [dependencies]
 byteorder = "=1.2.1"
 epoll = "=2.1.0"
-libc = "=0.2.32"
+libc = ">=0.2.39"
 
 net_util = { path = "../net_util" }
 net_sys = { path = "../net_sys" }
