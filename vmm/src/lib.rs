@@ -417,7 +417,7 @@ impl Vmm {
 
             let epoll_context = &mut self.epoll_context;
             for drive_config in self.block_device_configs.config_list.iter() {
-                // adding root blk device from file (currently always opened as read + write)
+                // adding root blk device from file
                 let root_image = OpenOptions::new()
                     .read(true)
                     .write(!drive_config.is_read_only)
@@ -425,8 +425,11 @@ impl Vmm {
                     .map_err(Error::RootDiskImage)?;
                 let epoll_config = epoll_context.allocate_virtio_block_tokens();
 
-                let block_box = Box::new(devices::virtio::Block::new(root_image, epoll_config)
-                    .map_err(Error::RootBlockDeviceNew)?);
+                let block_box = Box::new(devices::virtio::Block::new(
+                    root_image,
+                    drive_config.is_read_only,
+                    epoll_config,
+                ).map_err(Error::RootBlockDeviceNew)?);
                 device_manager
                     .register_mmio(block_box, &mut kernel_config.cmdline)
                     .map_err(Error::RegisterBlock)?;
