@@ -9,7 +9,7 @@ def install_rustfmt_if_needed():
     # rustfmt may not be available yet.
     # grep will return exitcode 1 if rustfmt is not in the component list.
     rustfmt_check = run(
-        'rustup component list | grep --silent rustfmt',
+        'rustup component list | grep --silent "rustfmt.*(installed)"',
         shell=True
     )
 
