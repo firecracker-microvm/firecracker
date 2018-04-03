@@ -3,3 +3,6 @@ Cargo.lock
 *.rs.bk
 *.iml
 .idea
+__pycache__
+*.pyc
+.pytest_cache
