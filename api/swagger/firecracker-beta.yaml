@@ -29,7 +29,7 @@ paths:
       operationId: describeInstance
       responses:
         200:
-          description: The instance information.
+          description: The instance information
           schema:
             $ref: "#/definitions/InstanceInfo"
         default:
@@ -52,7 +52,7 @@ paths:
           schema:
             $ref: "#/definitions/InstanceActionInfo"
         404:
-          description: Action not found.
+          description: Action not found
           schema:
             $ref: "#/definitions/Error"
         409:

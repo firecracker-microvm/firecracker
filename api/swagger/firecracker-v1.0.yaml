@@ -27,7 +27,7 @@ produces:
 paths:
   /:
     get:
-      summary: Return general information about an instance
+      summary: Return general information about an instance.
       operationId: describeInstance
       responses:
         200:
@@ -40,85 +40,87 @@ paths:
             $ref: "#/definitions/Error"
   /boot-source:
     get:
-      summary: "Get configured boot source."
-      operationId: "getGuestBootSource"
+      summary: Get configured boot source
+      operationId: getGuestBootSource
       responses:
         200:
-          description: Specified boot source.
+          description: Specified boot source
           schema:
             $ref: "#/definitions/BootSource"
         404:
-          description: Boot source does not exist.
+          description: Boot source does not exist
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
     put:
-      summary: "Creates new boot source. If boot source already exists,
-                updates its state based on new input. May fail if update is not possible."
-      operationId: "putGuestBootSource"
+      summary: Creates new boot source. If boot source already exists,
+               updates its state based on new input. May fail if update is not possible.
+               The only supported boot source is LocalImage.
+      operationId: putGuestBootSource
       parameters:
-      - name: "body"
+      - name: body
         in: body
-        description: "Guest boot source properties"
+        description: Guest boot source properties
         required: true
         schema:
           $ref: "#/definitions/BootSource"
       responses:
         201:
-          description: Boot source created.
+          description: Boot source created
         204:
-          description: Boot source updated.
+          description: Boot source updated
         400:
-          description: Boot source cannot be created due to bad input.
+          description: Boot source cannot be created due to bad input
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /machine-config:
     get:
-      summary: "Get Virtual Machine configuration."
-      operationId: "getMachineConfiguration"
+      summary: Get Virtual Machine configuration
+      operationId: getMachineConfiguration
       responses:
         200:
-          description: Get the machine configuration.
+          description: Get the machine configuration
           schema:
             $ref: "#/definitions/MachineConfiguration"
         404:
-          description: Machine Configuration does not exist.
+          description: Machine Configuration does not exist
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
     put:
-      summary: "Updates the Virtual Machine Configuration with the specified input. The Machine Configuration has default values
-                for the vCPU count (=1) and the memory size (=256 MiB). May fail if update is not possible."
-      operationId: "putMachineConfiguration"
+      summary: Updates the Virtual Machine Configuration with the specified input.
+               The Machine Configuration has default values for the vCPU count (=1) and the memory size (=256 MiB).
+               May fail if update is not possible.
+      operationId: putMachineConfiguration
       parameters:
-      - name: "body"
+      - name: body
         in: body
-        description: "Machine Configuration"
+        description: Machine Configuration Parameters
         schema:
           $ref: "#/definitions/MachineConfiguration"
       responses:
         201:
-          description: Machine Configuration created.
+          description: Machine Configuration created
         204:
-          description: Machine Configuration updated.
+          description: Machine Configuration updated
         400:
-          description: Machine Configuration cannot be updated due to bad input.
+          description: Machine Configuration cannot be updated due to bad input
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
 
   /metadata:
     get:
@@ -126,70 +128,76 @@ paths:
       operationId: getMetadata
       responses:
         200:
-          description: The instance metadata.
+          description: The instance metadata
           schema:
-            $ref: '#/definitions/InstanceMetadata'
+            $ref: "#/definitions/InstanceMetadata"
         default:
-          description: Unexpected error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /actions:
     get:
       summary: Return the list of (most recent) actions for an instance.
       operationId: listInstanceActions
       responses:
         200:
-          description: The (most recent) instance actions listed by action identifier.
+          description: The (most recent) instance actions listed by action identifier
           schema:
             type: array
             items:
               type: string
         default:
-          description: Unexpected error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
-  /action/{action_id}:
+            $ref: "#/definitions/Error"
+  /actions/{action_id}:
     get:
       summary: Return detailed information about an action.
       operationId: describeInstanceAction
       parameters:
       - name: action_id
         in: path
-        description: The action identifier.
+        description: The action identifier
         required: true
         type: string
       responses:
         200:
-          description: The instance action information.
+          description: The instance action information
           schema:
-            $ref: '#/definitions/InstanceActionInfo'
+            $ref: "#/definitions/InstanceActionInfo"
+        404:
+          description: Action not found
+          schema:
+            $ref: "#/definitions/Error"
+        409:
+          description: Action is still pending
+          schema:
+            $ref: "#/definitions/Error"
         default:
-          description: Unexpected error.
+          description: Internal Server Error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
     put:
-      summary: Create an instance action.
+      summary: Creates an instance action.
       operationId: createInstanceAction
       parameters:
       - name: action_id
         in: path
-        description: The action identifier.
+        description: The action identifier
         required: true
         type: string
       - name: info
         in: body
         required: true
         schema:
-          $ref: '#/definitions/InstanceActionInfo'
+          $ref: "#/definitions/InstanceActionInfo"
       responses:
         201:
-          description: No previous action existed so a new one was created.
-        204:
-          description: Action updated.
+          description: Action created
         default:
-          description: Unexpected error.
+          description: Internal Server Error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /limiters:
     get:
       summary: Retrieves list of currently created limiters.
@@ -203,87 +211,87 @@ paths:
             NULL, start from the beginning.
       responses:
         200:
-          description: List of limiters.
+          description: List of limiters
           schema:
-            $ref: '#/definitions/LimiterList'
+            $ref: "#/definitions/LimiterList"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /limiters/{limiter_id}:
     get:
-      summary: "Retrieves limiter specified by 'limiter_id' path parameter."
+      summary: Retrieves limiter specified by limiter_id path parameter.
       operationId: describeLimiter
       parameters:
         - name: limiter_id
           in: path
-          description: Id of the limiter to retrieve.
+          description: Id of the limiter to retrieve
           required: true
           type: string
       responses:
         200:
-          description: Specified limiter.
+          description: Specified limiter
           schema:
-            $ref: '#/definitions/Limiter'
+            $ref: "#/definitions/Limiter"
         404:
-          description: Limiter does not exist.
+          description: Limiter does not exist
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
     put:
-      summary: "Creates new limiter with ID specified by 'limiter_id' path parameter. If limiter with specified ID
-                already exists, updates its state based on new input. May fail if update is not possible."
+      summary: Creates new limiter with ID specified by limiter_id path parameter. If limiter with specified ID
+                already exists, updates its state based on new input. May fail if update is not possible.
       operationId: updateLimiter
       parameters:
         - name: limiter_id
           in: path
-          description: Id of the limiter to retrieve.
+          description: Id of the limiter to retrieve
           required: true
           type: string
         - name: limiter
           in: body
-          description: Limiter to create or update.
+          description: Limiter to create or update
           required: true
           schema:
-            $ref: '#/definitions/Limiter'
+            $ref: "#/definitions/Limiter"
       responses:
         201:
-          description: Limiter created.
+          description: Limiter created
         204:
-          description: Limiter updated.
+          description: Limiter updated
         400:
-          description: Limiter cannot be created due to bad input.
+          description: Limiter cannot be created due to bad input
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
     delete:
-      summary: "Deletes limiter with ID specified by 'limiter_id' path parameter.
-                Will clean up any resources associated with this limiter."
+      summary: Deletes limiter with ID specified by limiter_id path parameter.
+               Will clean up any resources associated with this limiter.
       operationId: deleteLimiter
       parameters:
         - name: limiter_id
           in: path
-          description: Id of the limiter to retrieve.
+          description: Id of the limiter to retrieve
           required: true
           type: string
       responses:
         202:
-          description: Limiter deleted.
+          description: Limiter deleted
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /drives:
     get:
-      summary: "All guest drives"
-      description: "Returns list of guest storage drives."
-      operationId: "getGuestDrives"
+      summary: All guest drives.
+      description: Returns list of guest storage drives
+      operationId: getGuestDrives
       responses:
         200:
           description: List of guest drives
@@ -292,136 +300,136 @@ paths:
             items:
               $ref: "#/definitions/Drive"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /drives/{drive_id}:
     get:
-      summary: "Get guest drive by 'drive_id' path parameter."
-      operationId: "getGuestDriveByID"
+      summary: Get guest drive by drive_id path parameter.
+      operationId: getGuestDriveByID
       parameters:
-      - name: "drive_id"
+      - name: drive_id
         in: path
-        description: "The id of the guest drive."
+        description: The id of the guest drive
         required: true
         type: string
       responses:
         200:
-          description: Specified drive.
+          description: Specified drive
           schema:
             $ref: "#/definitions/Drive"
         404:
-          description: Drive does not exist.
+          description: Drive does not exist
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
     put:
-      summary: "Creates new drive with ID specified by 'drive_id' path parameter. If drive with specified ID
-                already exists, updates its state based on new input. May fail if update is not possible."
-      operationId: "putGuestDriveByID"
+      summary: Creates new drive with ID specified by drive_id path parameter. If a drive with the specified ID
+               already exists, updates its state based on new input. May fail if update is not possible.
+      operationId: putGuestDriveByID
       parameters:
-      - name: "drive_id"
+      - name: drive_id
         in: path
-        description: "The id of the guest drive."
+        description: The id of the guest drive
         required: true
         type: string
-      - name: "body"
+      - name: body
         in: body
-        description: "Guest drive properties"
+        description: Guest drive properties
         required: true
         schema:
           $ref: "#/definitions/Drive"
       responses:
         201:
-          description: Drive created.
+          description: Drive created
         204:
-          description: Drive updated.
+          description: Drive updated
         400:
-          description: Drive cannot be created due to bad input.
+          description: Drive cannot be created due to bad input
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
     delete:
-      summary: "Deletes drive with ID specified by 'drive_id' path parameter.
-                Will clean up any resources associated with this drive."
-      operationId: "deleteGuestDriveByID"
+      summary: Deletes drive with ID specified by drive_id path parameter.
+               Will clean up any resources associated with this drive.
+      operationId: deleteGuestDriveByID
       parameters:
-      - name: "drive_id"
+      - name: drive_id
         in: path
-        description: "The id of guest drive to delete."
+        description: The id of guest drive to delete
         required: true
         type: string
       responses:
         202:
-          description: Drive deleted.
+          description: Drive deleted
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /drives/{drive_id}/limiters:
     get:
-      summary: Retrieves list of limiters IDs currently applied to the drive with 'drive_id'.
-      operationId: "getLimitersForGuestDrive"
+      summary: Retrieves list of limiters IDs currently applied to the drive with drive_id.
+      operationId: getLimitersForGuestDrive
       parameters:
-      - name: "drive_id"
+      - name: drive_id
         in: path
-        description: "The id of the guest drive to get limiters for."
+        description: The id of the guest drive to get limiters for
         required: true
         type: string
       responses:
         200:
-          description: List of limiters IDs currently applied to this drive.
+          description: List of limiters IDs currently applied to this drive
           schema:
             type: array
             items:
               type: integer
               format: int32
         404:
-          description: Drive does not exist.
+          description: Drive does not exist
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /drives/{drive_id}/limiters/{limiter_id}:
     put:
-      summary: Applies limiter 'limiter_id' to drive 'drive_id'
+      summary: Applies limiter limiter_id to drive drive_id.
       operationId: applyLimiterToDrive
       parameters:
-      - name: "drive_id"
+      - name: drive_id
         in: path
-        description: "The id of the guest drive to apply limiter 'limiter_id' to."
+        description: The id of the guest drive to apply limiter limiter_id to
         required: true
         type: string
-      - name: "limiter_id"
+      - name: limiter_id
         in: path
-        description: "The id of the limiter to be applied to drive 'drive_id'."
+        description: The id of the limiter to be applied to drive drive_id.
         required: true
         type: string
       responses:
         200:
-          description: Limiter applied.
+          description: Limiter applied
         400:
-          description: Limiter cannot be applied due to bad input.
+          description: Limiter cannot be applied due to bad input
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
 
   /network-interfaces:
     get:
-      summary: "All guest network interfaces"
-      description: "Returns list of guest network interfaces."
-      operationId: "getGuestNetworkInterfaces"
+      summary: All guest network interfaces.
+      description: Returns list of guest network interfaces
+      operationId: getGuestNetworkInterfaces
       responses:
         200:
           description: List of guest network interfaces
@@ -430,118 +438,118 @@ paths:
             items:
               $ref: "#/definitions/NetworkInterface"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /network-interfaces/{iface_id}:
     get:
-      summary: "Get guest network interface by 'iface_id' path parameter."
-      operationId: "getGuestNetworkInterfaceByID"
+      summary: Get guest network interface by iface_id path parameter.
+      operationId: getGuestNetworkInterfaceByID
       parameters:
-      - name: "iface_id"
+      - name: iface_id
         in: path
-        description: "The id of the guest network interface."
+        description: The id of the guest network interface
         required: true
         type: string
       responses:
         200:
-          description: Specified network interface.
+          description: Specified network interface
           schema:
             $ref: "#/definitions/NetworkInterface"
         404:
-          description: Network interface does not exist.
+          description: Network interface does not exist
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
     put:
-      summary: "Creates new network interface with ID specified by 'iface_id' path parameter.
-                If network interface with specified ID already exists,
-                updates its state based on new input. May fail if update is not possible."
-      operationId: "putGuestNetworkInterfaceByID"
+      summary: Creates new network interface with ID specified by iface_id path parameter.
+               If network interface with specified ID already exists,
+               updates its state based on new input. May fail if update is not possible.
+      operationId: putGuestNetworkInterfaceByID
       parameters:
-      - name: "iface_id"
+      - name: iface_id
         in: path
-        description: "The id of the guest network interface."
+        description: The id of the guest network interface
         required: true
         type: string
-      - name: "body"
+      - name: body
         in: body
-        description: "Guest network interface properties"
+        description: Guest network interface properties
         required: true
         schema:
           $ref: "#/definitions/NetworkInterface"
       responses:
         201:
-          description: Network interface created.
+          description: Network interface created
         204:
-          description: Network interface updated.
+          description: Network interface updated
         400:
-          description: Network interface cannot be created due to bad input.
+          description: Network interface cannot be created due to bad input
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
     delete:
-      summary: "Deletes network interface with ID specified by 'iface_id' path parameter.
-                Will clean up any resources associated with this network interface."
-      operationId: "deleteGuestNetworkInterfaceByID"
+      summary: Deletes network interface with ID specified by iface_id path parameter.
+               Will clean up any resources associated with this network interface.
+      operationId: deleteGuestNetworkInterfaceByID
       parameters:
-      - name: "iface_id"
+      - name: iface_id
         in: path
-        description: "The id of guest network interface to delete."
+        description: The id of guest network interface to delete
         required: true
         type: string
       responses:
         202:
-          description: Network interface deleted.
+          description: Network interface deleted
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /network-interfaces/{iface_id}/limiters:
     get:
-      summary: Retrieves list of limiters IDs currently applied to the network interface with 'iface_id'.
-      operationId: "getLimitersForGuestNetworkInterface"
+      summary: Retrieves list of limiters IDs currently applied to the network interface with iface_id.
+      operationId: getLimitersForGuestNetworkInterface
       parameters:
-      - name: "iface_id"
+      - name: iface_id
         in: path
-        description: "The id of the guest network interface to get limiters for."
+        description: The id of the guest network interface to get limiters for
         required: true
         type: string
       responses:
         200:
-          description: List of limiters IDs currently applied to this network interface.
+          description: List of limiters IDs currently applied to this network interface
           schema:
             type: array
             items:
               type: integer
               format: int32
         404:
-          description: Network interface does not exist.
+          description: Network interface does not exist
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /network-interfaces/{iface_id}/limiters/{limiter_id}:
     put:
-      summary: Applies limiter 'limiter_id' to network interface 'iface_id'
+      summary: Applies limiter limiter_id to network interface iface_id.
       operationId: applyLimiterToNetworkInterface
       parameters:
-      - name: "iface_id"
+      - name: iface_id
         in: path
-        description: "The id of the guest network interface to apply limiter 'limiter_id' to."
+        description: The id of the guest network interface to apply limiter limiter_id to
         required: true
         type: string
-      - name: "limiter_id"
+      - name: limiter_id
         in: path
-        description: "The id of the limiter to be applied to network interface 'iface_id'."
+        description: The id of the limiter to be applied to network interface iface_id
         required: true
         type: string
       responses:
@@ -550,16 +558,16 @@ paths:
         400:
           description: Limiter cannot be applied due to bad input.
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /vsocks:
     get:
-      summary: "All guest vsocks"
-      description: "Returns list of guest storage vsocks."
-      operationId: "getGuestVsocks"
+      summary: All guest vsocks.
+      description: Returns list of guest storage vsocks
+      operationId: getGuestVsocks
       responses:
         200:
           description: List of guest vsocks
@@ -568,165 +576,165 @@ paths:
             items:
               $ref: "#/definitions/Vsock"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /vsocks/{vsock_id}:
     get:
-      summary: "Get guest vsock by 'vsock_id' path parameter."
-      operationId: "getGuestVsockByID"
+      summary: Get guest vsock by vsock_id path parameter.
+      operationId: getGuestVsockByID
       parameters:
-      - name: "vsock_id"
+      - name: vsock_id
         in: path
-        description: "The id of the guest vsock."
+        description: The id of the guest vsock
         required: true
         type: string
       responses:
         200:
-          description: Specified vsock.
+          description: Specified vsock
           schema:
             $ref: "#/definitions/Vsock"
         404:
-          description: Vsock does not exist.
+          description: Vsock does not exist
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
     put:
-      summary: "Creates new vsock with ID specified by 'vsock_id' path parameter. If vsock with specified ID
-                already exists, updates its state based on new input. May fail if update is not possible."
-      operationId: "putGuestVsockByID"
+      summary: Creates new vsock with ID specified by vsock_id path parameter. If vsock with specified ID
+               already exists, updates its state based on new input. May fail if update is not possible.
+      operationId: putGuestVsockByID
       parameters:
-      - name: "vsock_id"
+      - name: vsock_id
         in: path
-        description: "The id of the guest vsock."
+        description: The id of the guest vsock
         required: true
         type: string
-      - name: "body"
+      - name: body
         in: body
-        description: "Guest vsock properties"
+        description: Guest vsock properties
         required: true
         schema:
           $ref: "#/definitions/Vsock"
       responses:
         201:
-          description: Vsock created.
+          description: Vsock created
         204:
-          description: Vsock updated.
+          description: Vsock updated
         400:
-          description: Vsock cannot be created due to bad input.
+          description: Vsock cannot be created due to bad input
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
     delete:
-      summary: "Deletes vsock with ID specified by 'vsock_id' path parameter.
-                Will clean up any resources associated with this vsock."
-      operationId: "deleteGuestVsockByID"
+      summary: Deletes vsock with ID specified by vsock_id path parameter.
+               Will clean up any resources associated with this vsock.
+      operationId: deleteGuestVsockByID
       parameters:
-      - name: "vsock_id"
+      - name: vsock_id
         in: path
-        description: "The id of guest vsock to delete."
+        description: The id of guest vsock to delete
         required: true
         type: string
       responses:
         202:
-          description: Vsock deleted.
+          description: Vsock deleted
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /vsocks/{vsock_id}/limiters:
     get:
-      summary: Retrieves list of limiters IDs currently applied to the vsock with 'vsock_id'.
-      operationId: "getLimitersForGuestVsock"
+      summary: Retrieves list of limiters IDs currently applied to the vsock with vsock_id.
+      operationId: getLimitersForGuestVsock
       parameters:
-      - name: "vsock_id"
+      - name: vsock_id
         in: path
-        description: "The id of the guest vsock to get limiters for."
+        description: The id of the guest vsock to get limiters for
         required: true
         type: string
       responses:
         200:
-          description: List of limiters IDs currently applied to this vsock.
+          description: List of limiters IDs currently applied to this vsock
           schema:
             type: array
             items:
               type: integer
               format: int32
         404:
-          description: Vsock does not exist.
+          description: Vsock does not exist
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
   /vsocks/{vsock_id}/limiters/{limiter_id}:
     put:
-      summary: Applies limiter 'limiter_id' to vsock 'vsock_id'
+      summary: Applies limiter limiter_id to vsock vsock_id
       operationId: applyLimiterToVsock
       parameters:
-      - name: "vsock_id"
+      - name: vsock_id
         in: path
-        description: "The id of the guest vsock to apply limiter 'limiter_id' to."
+        description: The id of the guest vsock to apply limiter limiter_id to
         required: true
         type: string
-      - name: "limiter_id"
+      - name: limiter_id
         in: path
-        description: "The id of the limiter to be applied to vsock 'vsock_id'."
+        description: The id of the limiter to be applied to vsock vsock_id
         required: true
         type: string
       responses:
         200:
-          description: Limiter applied.
+          description: Limiter applied
         400:
-          description: Limiter cannot be applied due to bad input.
+          description: Limiter cannot be applied due to bad input
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
         default:
-          description: Internal server error.
+          description: Internal server error
           schema:
-            $ref: '#/definitions/Error'
+            $ref: "#/definitions/Error"
 
 definitions:
   NodeInfo:
-    description: Node information for this instance.
+    description: Node information for this instance
     properties:
-      nr_huge_pages:
+      memory:
         type: integer
         format: int32
-        description: The number of 2MiB pages of memory in this instance.
+        description: The number of MiB of memory allotted to this instance
       cores:
         type: integer
         format: int32
-        description: The number of CPU cores in this instance.
+        description: The number of CPU cores in this instance
       cpu_features:
         type: integer
         format: int64
-        description: Bitmask for the active CPU features in this instance.
+        description: Bitmask for the active CPU features in this instance
 
   InstanceMetadata:
-    description: Instance metadata or metainformation.
+    description: Instance metadata or metainformation
     properties:
       virt_id:
         type: integer
         format: int64
-        description: The numeric instance-id.
+        description: The numeric instance-id
       account_id:
         type: string
-        description: The AWS account ID of the instance's owner
+        description: The AWS account ID of the instance owner
       instance_type:
         type: string
-        description: The instance type - e.g. 'm3.xlarge', etc.
+        description: The instance type - e.g. m3.xlarge, etc
       image_id:
         type: integer
         format: int64
-        description: The numeric image id (ami) of the instance.
+        description: The numeric image id (ami) of the instance
       detailed_monitoring:
         type: boolean
         description: True for enabling detailed monitoring
@@ -758,46 +766,46 @@ definitions:
           - Destroying
           - Destroyed
       node_info:
-        $ref: '#/definitions/NodeInfo'
+        $ref: "#/definitions/NodeInfo"
 
   BootSource:
     type: object
     description: |
-      Boot source descriptor. 'source_type' will specify the boot source type and depending
-      on its value: one and only one of 'local_image', 'drive_boot' or 'network_boot' should
+      Boot source descriptor. source_type will specify the boot source type and depending
+      on its value: one and only one of local_image, drive_boot or network_boot should
       describe the boot resource in detail.
     properties:
       boot_source_id:
         type: string
-        description: "unique identifier for this boot source"
+        description: unique identifier for this boot source
       source_type:
         type: string
-        description: "type of boot source"
+        description: type of boot source
         enum:
-        - "LocalImage"
-        - "DriveBoot"
-        - "NetworkBoot"
+        - LocalImage
+        - DriveBoot
+        - NetworkBoot
       local_image:
-        $ref: '#/definitions/LocalImage'
+        $ref: "#/definitions/LocalImage"
       drive_boot:
-        $ref: '#/definitions/DriveBoot'
+        $ref: "#/definitions/DriveBoot"
       network_boot:
-        $ref: '#/definitions/NetworkBoot'
+        $ref: "#/definitions/NetworkBoot"
       boot_args:
         type: string
-        description: "kernel boot arguments"
+        description: kernel boot arguments
   MachineConfiguration:
     type: object
     description: |
-      Machine Configuration descriptor by which you can specify the number of vCPU of one machine with 'vcpu_count'
-      and the memory size in MiB with 'mem_size_mib'.
+      Machine Configuration descriptor by which you can specify the number of vCPU of one machine with vcpu_count
+      and the memory size in MiB with mem_size_mib.
     properties:
       vcpu_count:
         type: integer
-        description: "Number of vCPUs"
+        description: Number of vCPUs
       mem_size_mib:
         type: integer
-        description: "Memory size of VM"
+        description: Memory size of VM
   LocalImage:
     type: object
     description: |
@@ -805,24 +813,24 @@ definitions:
     properties:
       kernel_image_path:
         type: string
-        description: "host level path to the kernel image used to boot the guest"
+        description: host level path to the kernel image used to boot the guest
       initrd_path:
         type: string
-        description: "host level path to initrd used to boot the guest"
+        description: host level path to initrd used to boot the guest
   DriveBoot:
     type: object
-    description: Drive to use as boot source.
+    description: Drive to use as boot source
     properties:
       drive_id:
         type: string
-        description: "unique identifier specifying which drive to boot from"
+        description: unique identifier specifying which drive to boot from
   NetworkBoot:
     type: object
-    description: Network to use as boot source.
+    description: Network to use as boot source
     properties:
       iface_id:
         type: string
-        description: "unique identifier specifying which network interface to boot from"
+        description: unique identifier specifying which network interface to boot from
 
   InstanceStartAction:
     type: object
@@ -845,7 +853,7 @@ definitions:
         minLength: 1
         maxLength: 64
       action_type:
-        description: Enumeration indicating what type of action is contained in the payload.
+        description: Enumeration indicating what type of action is contained in the payload
         type: string
         enum:
           - InstanceStart
@@ -854,7 +862,7 @@ definitions:
           - InstanceDeviceDetach
       # Note that Attach is implicit in device create (PUT)
       instance_device_detach_action:
-          $ref: '#/definitions/InstanceDeviceDetachAction'
+          $ref: "#/definitions/InstanceDeviceDetachAction"
       # Timestamp generated by FC - output only
       timestamp:
         type: string
@@ -868,9 +876,9 @@ definitions:
       device_type:
         type: string
         enum:
-          - "drive"
-          - "network-iface"
-          - "vsock"
+          - drive
+          - network-iface
+          - vsock
       device_resource_id:
         type: string
         minLength: 1
@@ -913,11 +921,11 @@ definitions:
     type: object
     properties:
       bandwidth:
-        $ref: '#/definitions/TokenBucket'
-        description: In bits.
+        $ref: "#/definitions/TokenBucket"
+        description: In bits
       pps:
-        $ref: '#/definitions/TokenBucket'
-        description: In packets or ops.
+        $ref: "#/definitions/TokenBucket"
+        description: In packets or ops
       max_queue_len:
         type: integer
         format: int64
@@ -925,16 +933,16 @@ definitions:
     type: object
     properties:
       limiter_id:
-        description: Id of this limiter.
+        description: Id of this limiter
         type: string
       egress:
-        $ref: '#/definitions/LimiterConfig'
+        $ref: "#/definitions/LimiterConfig"
       ingress:
-        $ref: '#/definitions/LimiterConfig'
+        $ref: "#/definitions/LimiterConfig"
       egress_counters:
-        $ref: '#/definitions/LimiterCounters'
+        $ref: "#/definitions/LimiterCounters"
       ingress_counters:
-        $ref: '#/definitions/LimiterCounters'
+        $ref: "#/definitions/LimiterCounters"
   LimiterList:
     type: object
     properties:
@@ -946,14 +954,14 @@ definitions:
       limiters:
         type: array
         items:
-          $ref: '#/definitions/Limiter'
+          $ref: "#/definitions/Limiter"
 
   DeviceState:
     type: string
     enum:
-      - "attached"
-      - "detaching"
-      - "detached"
+      - attached
+      - detaching
+      - detached
   Drive:
     type: object
     required:
@@ -963,11 +971,11 @@ definitions:
         type: string
       path_on_host:
         type: string
-        description: "host level path for the guest drive"
+        description: host level path for the guest drive
       is_root_device:
         type: boolean
       state:
-        $ref: '#/definitions/DeviceState'
+        $ref: "#/definitions/DeviceState"
   NetworkInterface:
     type: object
     required:
@@ -979,9 +987,9 @@ definitions:
         type: string
       path_on_host:
         type: string
-        description: "host level path for the guest network interface"
+        description: host level path for the guest network interface
       state:
-        $ref: '#/definitions/DeviceState'
+        $ref: "#/definitions/DeviceState"
   Vsock:
     type: object
     required:
@@ -991,12 +999,12 @@ definitions:
         type: string
       path_on_host:
         type: string
-        description: "host level path for the guest vsock"
+        description: host level path for the guest vsock
       state:
-        $ref: '#/definitions/DeviceState'
+        $ref: "#/definitions/DeviceState"
 
   Error:
     properties:
       faultMessage:
         type: string
-        description: A description of the error condition.
+        description: A description of the error condition
