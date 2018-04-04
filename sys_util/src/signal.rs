@@ -17,13 +17,13 @@ extern "C" {
 
 /// Returns the minimum (inclusive) real-time signal number.
 #[allow(non_snake_case)]
-pub fn SIGRTMIN() -> c_int {
+fn SIGRTMIN() -> c_int {
     unsafe { __libc_current_sigrtmin() }
 }
 
 /// Returns the maximum (inclusive) real-time signal number.
 #[allow(non_snake_case)]
-pub fn SIGRTMAX() -> c_int {
+fn SIGRTMAX() -> c_int {
     unsafe { __libc_current_sigrtmax() }
 }
 
@@ -69,6 +69,7 @@ pub unsafe trait Killable {
 
         // Safe because we ensure we are using a valid pthread handle, a valid signal number, and
         // check the return result.
+
         let ret = unsafe { pthread_kill(self.pthread_handle(), (num as i32) + SIGRTMIN()) };
         if ret < 0 {
             return errno_result();
@@ -81,5 +82,41 @@ pub unsafe trait Killable {
 unsafe impl<T> Killable for JoinHandle<T> {
     fn pthread_handle(&self) -> pthread_t {
         self.as_pthread_t()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+
+    extern "C" fn handle_signal() {}
+
+    #[test]
+    fn test_register_signal_handler() {
+        // testing bad value
+        unsafe {
+            assert!(register_signal_handler(SIGRTMAX() as u8, handle_signal).is_err());
+            format!(
+                "{:?}",
+                register_signal_handler(SIGRTMAX() as u8, handle_signal)
+            );
+        }
+
+        unsafe {
+            assert!(register_signal_handler(0, handle_signal).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_killing_thread() {
+        let killable = thread::spawn(|| thread::current().id());
+        let killable_id = killable.join().unwrap();
+        assert!(killable_id != thread::current().id());
+        let killable = thread::spawn(|| loop {});
+        let res = killable.kill(SIGRTMAX() as u8);
+        assert!(res.is_err());
+        format!("{:?}", res);
+        assert!(killable.kill(0).is_ok());
     }
 }
