@@ -110,3 +110,44 @@ unsafe impl<'a> Terminal for StdinLock<'a> {
         STDIN_FILENO
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+    use std::fs::File;
+    use std::path::Path;
+    use std::os::unix::io::AsRawFd;
+
+    unsafe impl Terminal for File {
+        fn tty_fd(&self) -> RawFd {
+            self.as_raw_fd()
+        }
+    }
+
+    #[test]
+    fn test_a_tty() {
+        let stdin_handle = io::stdin();
+        let stdin = stdin_handle.lock();
+
+        assert!(stdin.set_canon_mode().is_ok());
+        assert!(stdin.set_raw_mode().is_ok());
+        assert!(stdin.set_raw_mode().is_ok());
+        assert!(stdin.set_canon_mode().is_ok());
+        assert!(stdin.set_non_block(true).is_ok());
+        //trying to read 3 bytes in non-blocking mode will give error as there is nothing to read
+        let mut out = [0u8; 3];
+        assert!(stdin.read_raw(&mut out[..]).is_err());
+        let mut out = [0u8; 0];
+        assert_eq!(stdin.read_raw(&mut out[..]).unwrap(), 0);
+        assert!(stdin.set_non_block(false).is_ok());
+        // trying to read more than 0 would block the terminal
+        assert_eq!(stdin.read_raw(&mut out[..]).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_a_non_tty() {
+        let file = File::open(Path::new("/dev/zero")).unwrap();
+        assert!(file.set_canon_mode().is_ok());
+    }
+}

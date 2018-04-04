@@ -484,6 +484,7 @@ mod tests {
         // Check that a bad address returns an error.
         let bad_addr = GuestAddress(0x123456);
         assert!(mem.get_host_address(bad_addr).is_err());
+        format!("{:?}", mem.get_host_address(bad_addr));
     }
 
     #[test]
@@ -540,5 +541,7 @@ mod tests {
         });
         assert!(res.is_ok());
         assert_eq!(regions, iterated_regions);
+        assert_eq!(gm.clone().regions[0].guest_base, regions[0].0);
+        assert_eq!(gm.clone().regions[1].guest_base, regions[1].0);
     }
 }
