@@ -349,7 +349,7 @@ mod tests {
     use super::*;
     use super::super::TempDir;
     use std::path::{Path, PathBuf};
-    use std::fs::{File, OpenOptions};
+    use std::fs::{remove_file, File, OpenOptions};
     use std::mem;
     use data_model::{VolatileMemory, VolatileMemoryError};
 
@@ -440,23 +440,42 @@ mod tests {
                 .read_to_memory(2, &mut file, mem::size_of::<u32>())
                 .is_err()
         );
+
         assert!(
             mem_map
                 .read_to_memory(1, &mut file, mem::size_of::<u32>())
                 .is_ok()
         );
+
+        let empty_file = "/tmp/nothing";
+        let mut f = File::create(Path::new(empty_file)).unwrap();
+        assert!(
+            mem_map
+                .read_to_memory(1, &mut f, mem::size_of::<u32>())
+                .is_err()
+        );
+        format!(
+            "{:?}",
+            mem_map.read_to_memory(1, &mut f, mem::size_of::<u32>())
+        );
+        remove_file(empty_file).unwrap();
+
         assert_eq!(mem_map.read_obj::<u32>(1).unwrap(), 0);
 
         let mut sink = Vec::new();
         assert!(
             mem_map
-                .write_from_memory(2, &mut sink, mem::size_of::<u32>())
-                .is_err()
+                .write_from_memory(1, &mut sink, mem::size_of::<u32>())
+                .is_ok()
         );
         assert!(
             mem_map
-                .write_from_memory(1, &mut sink, mem::size_of::<u32>())
-                .is_ok()
+                .write_from_memory(2, &mut sink, mem::size_of::<u32>())
+                .is_err()
+        );
+        format!(
+            "{:?}",
+            mem_map.write_from_memory(2, &mut sink, mem::size_of::<u32>())
         );
         assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
     }

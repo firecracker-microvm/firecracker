@@ -569,6 +569,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn syslog_file() {
         init().unwrap();
         let shm_name = CStr::from_bytes_with_nul(b"/crosvm_shm\0").unwrap();

@@ -1,7 +1,6 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
 use std;
 use std::io::Read;
 use std::mem;
@@ -104,6 +103,7 @@ mod test {
         let mut tr: TestRead = Default::default();
         unsafe {
             assert!(read_struct(&mut Cursor::new(source), &mut tr).is_err());
+            format!("{:?}", read_struct(&mut Cursor::new(source), &mut tr));
         }
     }
 
