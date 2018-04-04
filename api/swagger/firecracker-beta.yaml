@@ -285,6 +285,12 @@ definitions:
       state:
         $ref: "#/definitions/DeviceState"
 
+  Error:
+    properties:
+      faultMessage:
+        type: string
+        description: A description of the error condition
+
   InstanceActionInfo:
     type: object
     description: Variant wrapper containing the real action
@@ -369,9 +375,3 @@ definitions:
         description: Guest Vsock CID
       state:
         $ref: "#/definitions/DeviceState"
-
-  Error:
-    properties:
-      faultMessage:
-        type: string
-        description: A description of the error condition
