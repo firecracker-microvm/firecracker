@@ -11,7 +11,7 @@ extern crate fc_util;
 extern crate net_util;
 extern crate sys_util;
 
-mod http_service;
+pub mod http_service;
 pub mod request;
 
 use std::cell::RefCell;

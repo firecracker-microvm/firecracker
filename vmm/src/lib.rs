@@ -1,4 +1,5 @@
 extern crate epoll;
+extern crate hyper;
 extern crate libc;
 
 extern crate api_server;
@@ -27,6 +28,7 @@ use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 
 use api_server::ApiRequest;
+use api_server::http_service::json_response;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse,
@@ -283,8 +285,7 @@ pub struct KernelConfig {
     pub cmdline_addr: GuestAddress,
 }
 
-// This structure should replace MachineCfg; For now it is safer to duplicate the work as the
-// net support is not fuully integrated.
+#[derive(Clone)]
 pub struct VirtualMachineConfig {
     vcpu_count: u8,
     mem_size_mib: usize,
@@ -296,6 +297,18 @@ impl Default for VirtualMachineConfig {
             vcpu_count: 1,
             mem_size_mib: 128,
         }
+    }
+}
+
+impl GenerateResponse for VirtualMachineConfig {
+    fn generate_response(&self) -> hyper::Response {
+        json_response(
+            hyper::StatusCode::Ok,
+            format!(
+                "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?} }}",
+                self.vcpu_count, self.mem_size_mib
+            ),
+        )
     }
 }
 
@@ -911,6 +924,12 @@ impl Vmm {
             }
             ApiRequest::Sync(req) => {
                 match req {
+                    SyncRequest::GetMachineConfiguration(sender) => {
+                        sender
+                            .send(Box::new(self.vm_config.clone()))
+                            .map_err(|_| ())
+                            .expect("one-shot channel closed");
+                    }
                     SyncRequest::PutDrive(drive_description, sender) => {
                         match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
                             Ok(_) =>
