@@ -210,6 +210,7 @@ const EDX_HTT_SHIFT: u32 = 28; // Hyper Threading Enabled.
 
 /// A wrapper around creating and using a kvm-based VCPU
 pub struct Vcpu {
+    cpuid: CpuId,
     fd: VcpuFd,
     id: u8,
 }
@@ -220,12 +221,18 @@ impl Vcpu {
     /// The `id` argument is the CPU number between [0, max vcpus).
     pub fn new(id: u8, vm: &Vm) -> Result<Self> {
         let kvm_vcpu = VcpuFd::new(id, &vm.fd).map_err(Error::VcpuFd)?;
-        Ok(Vcpu { fd: kvm_vcpu, id })
+        // Initially the cpuid per vCPU is the one supported by this VM
+        Ok(Vcpu {
+            fd: kvm_vcpu,
+            cpuid: vm.fd.get_supported_cpuid(),
+            id,
+        })
     }
 
     /// Sets up the cpuid entries for the given vcpu
-    fn filter_cpuid(&self, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<()> {
-        let entries = kvm_cpuid.mut_entries_slice();
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn filter_cpuid(&mut self, cpu_count: u8) -> Result<()> {
+        let entries = self.cpuid.mut_entries_slice();
 
         for entry in entries.iter_mut() {
             match entry.function {
@@ -253,6 +260,14 @@ impl Vcpu {
         Ok(())
     }
 
+    /// Returns a clone of the CPUID entries of this vCPU
+    /// For now this function is only used for testing; the cfg(test) should be removed when
+    /// this function will be used for configuring the cpu features
+    #[cfg(test)]
+    pub fn get_cpuid(&self) -> CpuId {
+        return self.cpuid.clone();
+    }
+
     /// /// Configures the vcpu and should be called once per vcpu from the vcpu's thread.
     ///
     /// # Arguments
@@ -265,11 +280,10 @@ impl Vcpu {
         kernel_start_addr: GuestAddress,
         vm: &Vm,
     ) -> Result<()> {
-        let mut kvm_cpuid = vm.get_fd().get_cpuid();
-        self.filter_cpuid(nrcpus, &mut kvm_cpuid)?;
+        self.filter_cpuid(nrcpus)?;
 
         self.fd
-            .set_cpuid2(&kvm_cpuid)
+            .set_cpuid2(&self.cpuid)
             .map_err(Error::SetSupportedCpusFailed)?;
 
         regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
@@ -339,6 +353,17 @@ mod tests {
         let mut vm = Vm::new(&kvm).expect("new vm failed");
         assert!(vm.memory_init(gm).is_ok());
         Vcpu::new(0, &mut vm).unwrap();
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn test_cpuid() {
+        let kvm = Kvm::new().unwrap();
+        let mut vm = Vm::new(&kvm).unwrap();
+        let mut vcpu = Vcpu::new(0, &mut vm).unwrap();
+        assert_eq!(vcpu.get_cpuid(), vm.fd.get_supported_cpuid());
+        assert!(vcpu.filter_cpuid(1).is_ok());
+        assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
     }
 
     #[test]

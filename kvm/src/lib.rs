@@ -135,7 +135,7 @@ impl Into<u64> for NoDatamatch {
 #[derive(Debug)]
 pub struct VmFd {
     vm: File,
-    cpuid: CpuId,
+    supported_cpuid: CpuId,
     run_size: usize,
 }
 
@@ -152,7 +152,7 @@ impl VmFd {
             let kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)?;
             Ok(VmFd {
                 vm: vm_file,
-                cpuid: kvm_cpuid,
+                supported_cpuid: kvm_cpuid,
                 run_size: run_mmap_size,
             })
         } else {
@@ -166,8 +166,8 @@ impl VmFd {
     }
 
     /// Returns a clone of the system supported CPUID values associated with this VmFd
-    pub fn get_cpuid(&self) -> CpuId {
-        self.cpuid.clone()
+    pub fn get_supported_cpuid(&self) -> CpuId {
+        self.supported_cpuid.clone()
     }
 
     /// Creates/modifies a guest physical memory slot
@@ -633,7 +633,7 @@ impl AsRawFd for VcpuFd {
 /// Wrapper for kvm_cpuid2 which has a zero length array at the end.
 /// Hides the zero length array behind a bounds check.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CpuId {
     bytes: Vec<u8>,       // Actually accessed as a kvm_cpuid2 struct.
     allocated_len: usize, // Number of kvm_cpuid_entry2 structs at the end of kvm_cpuid2.
@@ -659,7 +659,7 @@ impl CpuId {
         }
     }
 
-    /// Get the entries slice so they can be modified before passing to the VCPU.
+    /// Get the mutable entries slice so they can be modified before passing to the VCPU.
     pub fn mut_entries_slice(&mut self) -> &mut [kvm_cpuid_entry2] {
         unsafe {
             // We have ensured in new that there is enough space for the structure so this
@@ -726,13 +726,24 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         if kvm.check_extension(Cap::ExtCpuid) {
             let mut vm = VmFd::new(&kvm).unwrap();
-            let mut cpuid = vm.get_cpuid();
+            let mut cpuid = vm.get_supported_cpuid();
             assert!(cpuid.mut_entries_slice().len() <= MAX_KVM_CPUID_ENTRIES);
             let nr_vcpus = kvm.get_nr_vcpus();
             for cpu_id in 0..nr_vcpus {
                 let vcpu = VcpuFd::new(cpu_id as u8, &mut vm).unwrap();
                 vcpu.set_cpuid2(&mut cpuid).unwrap();
             }
+        }
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn test_get_cpuid_features() {
+        let kvm = Kvm::new().unwrap();
+        if kvm.check_extension(Cap::ExtCpuid) {
+            let vm = VmFd::new(&kvm).unwrap();
+            let mut cpuid = vm.get_supported_cpuid();
+            assert!(cpuid.mut_entries_slice().len() <= MAX_KVM_CPUID_ENTRIES);
         }
     }
 
@@ -1024,6 +1035,7 @@ mod tests {
         }
     }
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
     fn faulty_kvm_fds_test() {
         let badf_error = Error::new(libc::EBADF);
@@ -1042,7 +1054,7 @@ mod tests {
         assert_eq!(VmFd::new(&faulty_kvm).unwrap_err(), badf_error);
         let mut faulty_vm_fd = VmFd {
             vm: unsafe { File::from_raw_fd(-1) },
-            cpuid: CpuId::new(max_cpus),
+            supported_cpuid: CpuId::new(max_cpus),
             run_size: 0,
         };
         assert_eq!(
