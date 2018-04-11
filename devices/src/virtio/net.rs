@@ -76,7 +76,8 @@ struct NetEpollHandler {
     deferred_rx: bool,
     // TODO(smbarber): http://crbug.com/753630
     // Remove once MRG_RXBUF is supported and this variable is actually used.
-    #[allow(dead_code)] acked_features: u64,
+    #[allow(dead_code)]
+    acked_features: u64,
     rx_queue_evt: EventFd,
     tx_queue_evt: EventFd,
 }
