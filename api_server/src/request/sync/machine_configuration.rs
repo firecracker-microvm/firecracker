@@ -9,8 +9,10 @@ use request::sync::GenerateResponse;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MachineConfigurationBody {
-    #[serde(skip_serializing_if = "Option::is_none")] pub vcpu_count: Option<u8>,
-    #[serde(skip_serializing_if = "Option::is_none")] pub mem_size_mib: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vcpu_count: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_size_mib: Option<usize>,
 }
 
 #[derive(Debug)]
