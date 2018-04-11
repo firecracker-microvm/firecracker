@@ -33,17 +33,22 @@ pub enum Cap {
     IrqInjectStatus = KVM_CAP_IRQ_INJECT_STATUS,
     AssignDevIrq = KVM_CAP_ASSIGN_DEV_IRQ,
     JoinMemoryRegionsWorks = KVM_CAP_JOIN_MEMORY_REGIONS_WORKS,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] Mce = KVM_CAP_MCE,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    Mce = KVM_CAP_MCE,
     Irqfd = KVM_CAP_IRQFD,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] Pit2 = KVM_CAP_PIT2,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    Pit2 = KVM_CAP_PIT2,
     SetBootCpuId = KVM_CAP_SET_BOOT_CPU_ID,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] PitState2 = KVM_CAP_PIT_STATE2,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    PitState2 = KVM_CAP_PIT_STATE2,
     Ioeventfd = KVM_CAP_IOEVENTFD,
     SetIdentityMapAddr = KVM_CAP_SET_IDENTITY_MAP_ADDR,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] XenHvm = KVM_CAP_XEN_HVM,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    XenHvm = KVM_CAP_XEN_HVM,
     AdjustClock = KVM_CAP_ADJUST_CLOCK,
     InternalErrorData = KVM_CAP_INTERNAL_ERROR_DATA,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] VcpuEvents = KVM_CAP_VCPU_EVENTS,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    VcpuEvents = KVM_CAP_VCPU_EVENTS,
     S390Psw = KVM_CAP_S390_PSW,
     PpcSegstate = KVM_CAP_PPC_SEGSTATE,
     Hyperv = KVM_CAP_HYPERV,
@@ -52,13 +57,16 @@ pub enum Cap {
     PciSegment = KVM_CAP_PCI_SEGMENT,
     PpcPairedSingles = KVM_CAP_PPC_PAIRED_SINGLES,
     IntrShadow = KVM_CAP_INTR_SHADOW,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] Debugregs = KVM_CAP_DEBUGREGS,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    Debugregs = KVM_CAP_DEBUGREGS,
     X86RobustSinglestep = KVM_CAP_X86_ROBUST_SINGLESTEP,
     PpcOsi = KVM_CAP_PPC_OSI,
     PpcUnsetIrq = KVM_CAP_PPC_UNSET_IRQ,
     EnableCap = KVM_CAP_ENABLE_CAP,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] Xsave = KVM_CAP_XSAVE,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] Xcrs = KVM_CAP_XCRS,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    Xsave = KVM_CAP_XSAVE,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    Xcrs = KVM_CAP_XCRS,
     PpcGetPvinfo = KVM_CAP_PPC_GET_PVINFO,
     PpcIrqLevel = KVM_CAP_PPC_IRQ_LEVEL,
     AsyncPf = KVM_CAP_ASYNC_PF,

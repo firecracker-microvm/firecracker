@@ -21,10 +21,12 @@ pub struct LocalImage {
 pub struct BootSourceBody {
     boot_source_id: String,
     source_type: BootSourceType,
-    #[serde(skip_serializing_if = "Option::is_none")] pub local_image: Option<LocalImage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_image: Option<LocalImage>,
     // drive_boot to be added later
     // network_boot to be added later
-    #[serde(skip_serializing_if = "Option::is_none")] pub boot_args: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub boot_args: Option<String>,
 }
 
 #[derive(Debug)]

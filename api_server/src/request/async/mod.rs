@@ -55,7 +55,8 @@ pub struct AsyncRequestBody {
     action_type: AsyncActionType,
     #[serde(skip_serializing_if = "Option::is_none")]
     instance_device_detach_action: Option<InstanceDeviceDetachAction>,
-    #[serde(skip_serializing_if = "Option::is_none")] timestamp: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timestamp: Option<u64>,
 }
 
 impl AsyncRequestBody {
