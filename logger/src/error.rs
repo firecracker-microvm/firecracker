@@ -34,3 +34,42 @@ impl fmt::Display for LoggerError {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::ErrorKind;
+
+    #[test]
+    fn test_formatting() {
+        assert!(
+            format!(
+                "{:?}",
+                LoggerError::NeverInitialized(String::from("Bad Log Path Provided"))
+            ).contains("NeverInitialized")
+        );
+        assert!(
+            format!(
+                "{:?}",
+                LoggerError::Poisoned(String::from("Never Initialized"))
+            ).contains("Poisoned")
+        );
+        assert!(
+            format!(
+                "{:?}",
+                LoggerError::FileLogWrite(std::io::Error::new(ErrorKind::Interrupted, "write"))
+            ).contains("FileLogWrite")
+        );
+        assert!(
+            format!(
+                "{:?}",
+                LoggerError::FileLogFlush(std::io::Error::new(ErrorKind::Interrupted, "flush"))
+            ).contains("FileLogFlush")
+        );
+        assert!(
+            format!(
+                "{:?}",
+                LoggerError::FileLogLock(String::from("File log lock"))
+            ).contains("FileLogLock")
+        );
+    }
+}

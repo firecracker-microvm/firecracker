@@ -338,3 +338,131 @@ impl Log for Logger {
         // everything else flushes by itself
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::BufReader;
+    use std::io::BufRead;
+    use std::fs::remove_file;
+    use log::MetadataBuilder;
+
+    fn validate_logs(
+        log_path: &str,
+        expected: &[(&'static str, &'static str, &'static str)],
+    ) -> bool {
+        let f = File::open(log_path).unwrap();
+        let mut reader = BufReader::new(f);
+
+        let mut line = String::new();
+        for tuple in expected {
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.contains(&tuple.0));
+            assert!(line.contains(&tuple.1));
+            assert!(line.contains(&tuple.2));
+        }
+        false
+    }
+
+    #[test]
+    fn test_default_values() {
+        let l = Logger::new();
+        assert_eq!(l.level_info.code, log::Level::Warn);
+        assert_eq!(l.level_info.writer, Destination::Stderr);
+        assert_eq!(l.show_line_numbers, true);
+        assert_eq!(l.show_level, true);
+        format!("{:?}", l.level_info.code);
+        format!("{:?}", l.level_info.writer);
+        format!("{:?}", l.show_line_numbers);
+        format!("{:?}", l);
+    }
+
+    #[test]
+    fn test_init() {
+        let l = Logger::new().set_include_origin(false, true);
+        assert_eq!(l.show_line_numbers, false);
+
+        let l = Logger::new()
+            .set_include_origin(true, true)
+            .set_include_level(true)
+            .set_level(log::Level::Info);
+        assert_eq!(l.show_line_numbers, true);
+        assert_eq!(l.show_file_path, true);
+        assert_eq!(l.show_level, true);
+
+        assert!(l.init(Some(String::from("tmp.log"))).is_ok());
+        info!("info");
+        warn!("warning");
+
+        let l = Logger::new();
+        assert!(l.init(None).is_ok());
+
+        info!("info");
+        warn!("warning");
+        error!("error");
+
+        // here we also test that the second initialization had no effect given that the
+        // logging system can only be initialized once per program
+        validate_logs(
+            "tmp.log",
+            &[
+                ("[INFO", "lib.rs", "info"),
+                ("[WARN", "lib.rs", "warn"),
+                ("[INFO", "lib.rs", "info"),
+                ("[WARN", "lib.rs", "warn"),
+                ("[ERROR", "lib.rs", "error"),
+            ],
+        );
+        remove_file("tmp.log").unwrap();
+
+        let l = Logger::new();
+        unsafe {
+            if let Err(e) = set_boxed_logger(Box::new(l)) {
+                INIT_RES = Err(LoggerError::NeverInitialized(format!("{}", e)));
+            }
+            assert!(format!("{:?}", INIT_RES).contains("NeverInitialized"));
+        }
+        let l = Logger::new();
+        assert!(l.init(None).is_err());
+        unsafe {
+            assert!(format!("{:?}", INIT_RES).contains("Poisoned"));
+        }
+
+        let l = Logger::new()
+            .set_include_level(true)
+            .set_include_origin(false, false);
+        let error_metadata = MetadataBuilder::new().level(Level::Error).build();
+        let log_record = log::Record::builder().metadata(error_metadata).build();
+        Logger::log(&l, &log_record);
+        let l = Logger::new()
+            .set_include_level(false)
+            .set_include_origin(true, true);
+        Logger::log(&l, &log_record);
+    }
+
+    #[test]
+    fn test_get_default_destination() {
+        assert_eq!(
+            get_default_destination(log::Level::Error),
+            Destination::Stderr
+        );
+        assert_eq!(
+            get_default_destination(log::Level::Warn),
+            Destination::Stderr
+        );
+        assert_eq!(
+            get_default_destination(log::Level::Info),
+            Destination::Stdout
+        );
+        assert_eq!(
+            get_default_destination(log::Level::Debug),
+            Destination::Stdout
+        );
+        assert_eq!(
+            get_default_destination(log::Level::Trace),
+            Destination::Stdout
+        );
+    }
+}

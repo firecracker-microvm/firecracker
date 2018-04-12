@@ -50,3 +50,40 @@ impl FileLogWriter {
             .map_err(|e| LoggerError::FileLogLock(format!("{}", e)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::remove_file;
+
+    #[test]
+    fn test_new() {
+        let mut file: String = "./inexistent/tmp.log".to_string();
+        assert!(FileLogWriter::new(&file).is_err());
+        format!("{:?}", FileLogWriter::new(&file));
+        file = "tmp_writers_new.log".to_string();
+        let res = FileLogWriter::new(&file);
+        format!("{:?}", res);
+        remove_file(file).unwrap();
+        assert!(res.is_ok())
+    }
+
+    #[test]
+    fn test_write() {
+        let file: String = "tmp_writers_write.log".to_string();
+        let fw = FileLogWriter::new(&file).unwrap();
+        let msg = String::from("some message");
+        let res = fw.write(&msg);
+        remove_file(file).unwrap();
+        assert!(res.is_ok())
+    }
+
+    #[test]
+    fn test_flush() {
+        let file: String = "tmp_writers_flush.log".to_string();
+        let fw = FileLogWriter::new(&file).unwrap();
+        let res = fw.flush();
+        remove_file(file).unwrap();
+        assert!(res.is_ok())
+    }
+}
