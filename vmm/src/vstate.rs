@@ -52,17 +52,26 @@ impl ::std::convert::From<sys_util::Error> for Error {
 /// A wrapper around creating and using a VM.
 pub struct Vm {
     fd: VmFd,
-    guest_mem: GuestMemory,
+    guest_mem: Option<GuestMemory>,
 }
 
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new(kvm: &Kvm, guest_mem: GuestMemory) -> Result<Self> {
+    pub fn new(kvm: &Kvm) -> Result<Self> {
         //create fd for interacting with kvm-vm specific functions
         let vm_fd = VmFd::new(&kvm).map_err(Error::VmFd)?;
+
+        Ok(Vm {
+            fd: vm_fd,
+            guest_mem: None,
+        })
+    }
+
+    /// Currently this is x86 specific (because of the TSS address setup)
+    pub fn memory_init(&mut self, guest_mem: GuestMemory) -> Result<()> {
         guest_mem.with_regions(|index, guest_addr, size, host_addr| {
             // Safe because the guest regions are guaranteed not to overlap.
-            vm_fd.set_user_memory_region(
+            self.fd.set_user_memory_region(
                 index as u32,
                 guest_addr.offset() as u64,
                 size as u64,
@@ -70,21 +79,22 @@ impl Vm {
                 0,
             )
         })?;
+        self.guest_mem = Some(guest_mem);
 
-        Ok(Vm {
-            fd: vm_fd,
-            guest_mem,
-        })
-    }
-
-    /// All setup required before starting a vm goes here
-    /// Currently this is x86 specific
-    pub fn setup(&self) -> Result<()> {
         let tss_addr = GuestAddress(KVM_TSS_ADDRESS);
         self.fd
             .set_tss_address(tss_addr.offset())
             .map_err(Error::VmSetup)?;
+
+        Ok(())
+    }
+
+    pub fn create_irqchip(&self) -> Result<()> {
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
+        Ok(())
+    }
+
+    pub fn create_pit(&self) -> Result<()> {
         self.fd.create_pit2().map_err(Error::VmSetup)?;
         Ok(())
     }
@@ -146,8 +156,8 @@ impl Vm {
     ///
     /// Note that `GuestMemory` does not include any device memory that may have been added after
     /// this VM was constructed.
-    pub fn get_memory(&self) -> &GuestMemory {
-        &self.guest_mem
+    pub fn get_memory(&self) -> Option<&GuestMemory> {
+        self.guest_mem.as_ref()
     }
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
@@ -231,7 +241,9 @@ impl Vcpu {
             .map_err(Error::SetSupportedCpusFailed)?;
 
         regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
-        let kernel_end = vm.get_memory()
+        // Safe to unwrap because this method is called after the VM is configured
+        let vm_memory = vm.get_memory().unwrap();
+        let kernel_end = vm_memory
             .checked_offset(kernel_start_addr, KERNEL_64BIT_ENTRY_OFFSET)
             .ok_or(Error::KernelOffsetPastEnd)?;
         regs::setup_regs(
@@ -241,7 +253,7 @@ impl Vcpu {
             x86_64::ZERO_PAGE_OFFSET as u64,
         ).map_err(Error::REGSConfiguration)?;
         regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
-        regs::setup_sregs(vm.get_memory(), &self.fd).map_err(Error::SREGSConfiguration)?;
+        regs::setup_sregs(vm_memory, &self.fd).map_err(Error::SREGSConfiguration)?;
         interrupts::set_lint(&self.fd).map_err(Error::LocalIntConfiguration)?;
         Ok(())
     }
@@ -266,17 +278,25 @@ mod tests {
     fn create_vm() {
         let kvm = Kvm::new().unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
-        Vm::new(&kvm, gm).unwrap();
+        let mut vm = Vm::new(&kvm).expect("new vm failed");
+        assert!(vm.memory_init(gm).is_ok());
     }
 
     #[test]
     fn get_memory() {
         let kvm = Kvm::new().unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
-        let vm = Vm::new(&kvm, gm).unwrap();
+        let mut vm = Vm::new(&kvm).expect("new vm failed");
+        assert!(vm.memory_init(gm).is_ok());
         let obj_addr = GuestAddress(0xf0);
-        vm.get_memory().write_obj_at_addr(67u8, obj_addr).unwrap();
-        let read_val: u8 = vm.get_memory().read_obj_from_addr(obj_addr).unwrap();
+        vm.get_memory()
+            .unwrap()
+            .write_obj_at_addr(67u8, obj_addr)
+            .unwrap();
+        let read_val: u8 = vm.get_memory()
+            .unwrap()
+            .read_obj_from_addr(obj_addr)
+            .unwrap();
         assert_eq!(read_val, 67u8);
     }
 
@@ -284,7 +304,8 @@ mod tests {
     fn create_vcpu() {
         let kvm = Kvm::new().unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
-        let mut vm = Vm::new(&kvm, gm).unwrap();
+        let mut vm = Vm::new(&kvm).expect("new vm failed");
+        assert!(vm.memory_init(gm).is_ok());
         Vcpu::new(0, &mut vm).unwrap();
     }
 
@@ -304,8 +325,10 @@ mod tests {
         let mem = GuestMemory::new(&vec![(load_addr, mem_size)]).unwrap();
 
         let kvm = Kvm::new().expect("new kvm failed");
-        let mut vm = Vm::new(&kvm, mem).expect("new vm failed");
+        let mut vm = Vm::new(&kvm).expect("new vm failed");
+        assert!(vm.memory_init(mem).is_ok());
         vm.get_memory()
+            .unwrap()
             .write_slice_at_addr(&code, load_addr)
             .expect("Writing code to memory failed.");
 
