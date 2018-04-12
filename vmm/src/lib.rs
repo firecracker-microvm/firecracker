@@ -290,6 +290,8 @@ impl Default for VirtualMachineConfig {
 }
 
 pub struct Vmm {
+    kvm_fd: Kvm,
+
     vm_config: VirtualMachineConfig,
     shared_info: Arc<RwLock<InstanceInfo>>,
 
@@ -328,7 +330,9 @@ impl Vmm {
             .add_event(api_event_fd, EpollDispatch::ApiRequest)
             .expect("cannot add API eventfd to epoll");
         let block_device_configs = BlockDeviceConfigs::new();
+        let kvm_fd = Kvm::new().map_err(Error::Kvm)?;
         Ok(Vmm {
+            kvm_fd,
             vm_config: VirtualMachineConfig::default(),
             shared_info: api_shared_info,
             kernel_config: None,
@@ -534,8 +538,7 @@ impl Vmm {
         // safe to unwrap since we've already validated it's Some()
         let kernel_config = self.kernel_config.as_mut().unwrap();
 
-        let kvm = Kvm::new().map_err(Error::Kvm)?;
-        self.vm = Some(Vm::new(&kvm, guest_mem).map_err(Error::Vm)?);
+        self.vm = Some(Vm::new(&self.kvm_fd, guest_mem).map_err(Error::Vm)?);
         // safe to unwrap since it's set just above
         let vm = self.vm.as_mut().unwrap();
 
