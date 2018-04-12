@@ -8,7 +8,6 @@ extern crate libc;
 
 extern crate byteorder;
 extern crate kvm_sys;
-#[macro_use]
 extern crate sys_util;
 
 mod cap;
@@ -79,12 +78,8 @@ impl Kvm {
     /// Gets the recommended maximum number of VCPUs per VM.
     pub fn get_nr_vcpus(&self) -> usize {
         match self.check_extension_int(Cap::NrVcpus) {
-            0 => 4, // according to api.txt
             x if x > 0 => x as usize,
-            _ => {
-                warn!("kernel returned invalid number of VCPUs");
-                4
-            }
+            _ => 4,
         }
     }
 
