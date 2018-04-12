@@ -290,7 +290,7 @@ impl Default for VirtualMachineConfig {
 }
 
 pub struct Vmm {
-    kvm_fd: Kvm,
+    _kvm_fd: Kvm,
 
     vm_config: VirtualMachineConfig,
     shared_info: Arc<RwLock<InstanceInfo>>,
@@ -302,7 +302,7 @@ pub struct Vmm {
     exit_evt: Option<EpollEvent>,
     stdin_handle: Option<io::Stdin>,
     stdio_serial: Option<Arc<Mutex<devices::Serial>>>,
-    vm: Option<Vm>,
+    vm: Vm,
 
     /// guest VM devices
     // If there is a Root Block Device, this should be added as the first element of the list
@@ -331,8 +331,10 @@ impl Vmm {
             .expect("cannot add API eventfd to epoll");
         let block_device_configs = BlockDeviceConfigs::new();
         let kvm_fd = Kvm::new().map_err(Error::Kvm)?;
+        let vm = Vm::new(&kvm_fd).map_err(Error::Vm)?;
+
         Ok(Vmm {
-            kvm_fd,
+            _kvm_fd: kvm_fd,
             vm_config: VirtualMachineConfig::default(),
             shared_info: api_shared_info,
             kernel_config: None,
@@ -341,7 +343,7 @@ impl Vmm {
             exit_evt: None,
             stdin_handle: None,
             stdio_serial: None,
-            vm: None,
+            vm,
             block_device_configs,
             network_interface_configs: NetworkInterfaceConfigs::new(),
             vsock_device_configs: VsockDeviceConfigs::new(),
@@ -538,14 +540,12 @@ impl Vmm {
         // safe to unwrap since we've already validated it's Some()
         let kernel_config = self.kernel_config.as_mut().unwrap();
 
-        self.vm = Some(Vm::new(&self.kvm_fd, guest_mem).map_err(Error::Vm)?);
-        // safe to unwrap since it's set just above
-        let vm = self.vm.as_mut().unwrap();
-
-        vm.setup().map_err(Error::VmSetup)?;
+        self.vm.memory_init(guest_mem).map_err(Error::VmSetup)?;
+        self.vm.create_irqchip().map_err(Error::VmSetup)?;
+        self.vm.create_pit().map_err(Error::VmSetup)?;
 
         for request in device_manager.vm_requests {
-            if let VmResponse::Err(e) = request.execute(vm.get_fd()) {
+            if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
                 return Err(Error::DeviceVmRequest(e));
             }
         }
@@ -555,19 +555,17 @@ impl Vmm {
         let cmdline_cstring = CString::new(kernel_config.cmdline.clone())
             .map_err(|_| Error::KernelCmdLine(kernel_cmdline::Error::InvalidAscii))?;
 
+        // Safe to unwrap because the VM memory was initialized before in vm.memory_init()
+        let vm_memory = self.vm.get_memory().unwrap();
         kernel_loader::load_kernel(
-            vm.get_memory(),
+            vm_memory,
             kernel_config.kernel_start_addr,
             &mut kernel_config.kernel_file,
         )?;
-        kernel_loader::load_cmdline(
-            vm.get_memory(),
-            kernel_config.cmdline_addr,
-            &cmdline_cstring,
-        )?;
+        kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)?;
 
         x86_64::configure_system(
-            vm.get_memory(),
+            vm_memory,
             kernel_config.kernel_start_addr,
             kernel_config.cmdline_addr,
             cmdline_cstring.to_bytes().len() + 1,
@@ -593,13 +591,15 @@ impl Vmm {
         self.epoll_context.enable_stdin_event()?;
 
         //TODO: put all thse things related to setting up io bus in a struct or something
-        vm.set_io_bus(
-            &mut io_bus,
-            &stdio_serial,
-            &com_evt_1_3,
-            &com_evt_2_4,
-            exit_evt,
-        ).map_err(Error::VmIOBus)?;
+        self.vm
+            .set_io_bus(
+                &mut io_bus,
+                &stdio_serial,
+                &com_evt_1_3,
+                &com_evt_2_4,
+                exit_evt,
+            )
+            .map_err(Error::VmIOBus)?;
 
         self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
         // safe to unwrap since it's set just above
@@ -617,8 +617,8 @@ impl Vmm {
             let vcpu_thread_barrier = vcpu_thread_barrier.clone();
             let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
 
-            let mut vcpu = Vcpu::new(cpu_id, &vm).map_err(Error::Vcpu)?;
-            vcpu.configure(vcpu_count, kernel_config.kernel_start_addr, &vm)
+            let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(Error::Vcpu)?;
+            vcpu.configure(vcpu_count, kernel_config.kernel_start_addr, &self.vm)
                 .map_err(Error::VcpuConfigure)?;
             vcpu_handles.push(thread::Builder::new()
                 .name(format!("fc_vcpu{}", cpu_id))
@@ -734,8 +734,6 @@ impl Vmm {
         };
 
         self.stdio_serial.take();
-        self.vm.take();
-
         //TODO:
         // - clean epoll_context:
         //   - remove block, net
