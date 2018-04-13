@@ -11,5 +11,6 @@ devices = { path = "devices" }
 net_util = { path = "net_util" }
 sys_util = { path = "sys_util" }
 vmm = { path = "vmm" }
+logger = { path = "logger" }
 
 [workspace]

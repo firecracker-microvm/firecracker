@@ -3,6 +3,7 @@ extern crate clap;
 
 extern crate api_server;
 extern crate devices;
+extern crate logger;
 extern crate net_util;
 extern crate sys_util;
 extern crate vmm;
@@ -18,7 +19,8 @@ use api_server::{ApiRequest, ApiServer};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::{DeviceState, NetworkInterfaceBody, VsockJsonBody};
 use net_util::MacAddr;
-use sys_util::{syslog, EventFd, GuestAddress};
+use sys_util::{EventFd, GuestAddress};
+use logger::Logger;
 use vmm::{CMDLINE_MAX_SIZE, CMDLINE_OFFSET, KERNEL_START_OFFSET};
 use vmm::{kernel_cmdline, KernelConfig};
 use vmm::device_config::BlockDeviceConfig;
@@ -26,11 +28,6 @@ use vmm::device_config::BlockDeviceConfig;
 const DEFAULT_SUBNET_MASK: &str = "255.255.255.0";
 
 fn main() {
-    if let Err(e) = syslog::init() {
-        println!("failed to initialize syslog: {:?}", e);
-        return;
-    }
-
     let cmd_arguments = App::new("firecracker")
         .version(crate_version!())
         .author(crate_authors!())
@@ -111,6 +108,13 @@ fn main() {
                         .long("guest-mac")
                         .help("The MAC address of the guest network interface.")
                         .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("log_file")
+                        .short("l")
+                        .long("log-file")
+                        .help("File to serve as logging output")
+                        .takes_value(true),
                 ),
         )
         .get_matches();
@@ -157,6 +161,27 @@ fn vmm_no_api_handler(
         EventFd::new().expect("cannot create eventFD"),
         from_api,
     ).expect("cannot create VMM");
+
+    // this is temporary; user will be able to customize logging subsystem through API
+    if cmd_arguments.is_present("log_file") {
+        if let Err(e) = Logger::new()
+            .set_level(logger::Level::Info)
+            .init(Some(String::from(
+                cmd_arguments.value_of("log_file").unwrap(),
+            ))) {
+            eprintln!(
+                "main: Failed to initialize logging subsystem: {:?}. Trying without a file",
+                e
+            );
+            if let Err(e) = Logger::new().set_level(logger::Level::Info).init(None) {
+                panic!("main: Failed to initialize logging subsystem: {:?}", e);
+            }
+        }
+    } else {
+        if let Err(e) = Logger::new().set_level(logger::Level::Info).init(None) {
+            panic!("main: Failed to initialize logging subsystem: {:?}", e);
+        }
+    }
 
     // configure virtual machine from command line
     if cmd_arguments.is_present("vcpu_count") {
