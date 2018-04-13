@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-use sys_util::EventFd;
+use sys_util::{EventFd, Result};
 
 use BusDevice;
 
@@ -16,9 +16,12 @@ pub struct I8042Device {
 impl I8042Device {
     /// Constructs a i8042 device that will signal the given event when the guest requests it.
     pub fn new(reset_evt: EventFd) -> I8042Device {
-        I8042Device {
-            reset_evt: reset_evt,
-        }
+        I8042Device { reset_evt }
+    }
+
+    /// Returns a clone of the EventFd
+    pub fn get_eventfd_clone(&self) -> Result<EventFd> {
+        return self.reset_evt.try_clone();
     }
 }
 
