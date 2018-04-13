@@ -19,12 +19,11 @@ mod vstate;
 
 use std::ffi::CString;
 use std::fs::{File, OpenOptions};
-use std::io::{self, stdout};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Barrier, Mutex, RwLock};
+use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 
 use api_server::ApiRequest;
@@ -64,6 +63,7 @@ pub enum Error {
     Kvm(sys_util::Error),
     Poll(std::io::Error),
     Serial(sys_util::Error),
+    StdinHandle(sys_util::Error),
     Terminal(sys_util::Error),
     Vcpu(vstate::Error),
     VcpuConfigure(vstate::Error),
@@ -301,8 +301,6 @@ pub struct Vmm {
     kill_signaled: Option<Arc<AtomicBool>>,
     vcpu_handles: Option<Vec<thread::JoinHandle<()>>>,
     exit_evt: Option<EpollEvent>,
-    stdin_handle: Option<io::Stdin>,
-    stdio_serial: Option<Arc<Mutex<devices::Serial>>>,
     vm: Vm,
 
     /// guest VM devices
@@ -344,8 +342,6 @@ impl Vmm {
             kill_signaled: None,
             vcpu_handles: None,
             exit_evt: None,
-            stdin_handle: None,
-            stdio_serial: None,
             vm,
             device_manager: None,
             block_device_configs,
@@ -551,7 +547,7 @@ impl Vmm {
         self.vm
             .memory_init(self.guest_memory.clone().unwrap())
             .map_err(Error::VmSetup)?;
-        self.vm.create_irqchip().map_err(Error::VmSetup)?;
+        self.vm.setup_irqchip().map_err(Error::VmSetup)?;
         self.vm.create_pit().map_err(Error::VmSetup)?;
 
         let device_manager = self.device_manager.as_ref().unwrap();
@@ -561,12 +557,16 @@ impl Vmm {
             }
         }
 
+        self.vm
+            .device_manager
+            .register_devices()
+            .map_err(Error::VmIOBus)?;
+
         Ok(())
     }
 
-    pub fn start_vcpus(&mut self, io_bus: devices::Bus) -> Result<()> {
+    pub fn start_vcpus(&mut self) -> Result<()> {
         let vcpu_count = self.vm_config.vcpu_count;
-        let exit_evt = &self.exit_evt.as_mut().unwrap().event_fd;
         self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
         // safe to unwrap since it's set just above
         let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
@@ -577,12 +577,18 @@ impl Vmm {
         let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
 
         for cpu_id in 0..vcpu_count {
-            let io_bus = io_bus.clone();
+            let io_bus = self.vm.device_manager.io_bus.clone();
             let device_manager = self.device_manager.as_ref().unwrap();
             let mmio_bus = device_manager.bus.clone();
             let kill_signaled = kill_signaled.clone();
             let vcpu_thread_barrier = vcpu_thread_barrier.clone();
-            let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
+            let vcpu_exit_evt = self.vm
+                .device_manager
+                .i8042
+                .lock()
+                .unwrap()
+                .get_eventfd_clone()
+                .unwrap();
 
             let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(Error::Vcpu)?;
             let kernel_config = self.kernel_config.as_mut().unwrap();
@@ -690,6 +696,22 @@ impl Vmm {
         Ok(())
     }
 
+    pub fn register_events(&mut self) -> Result<()> {
+        let event_fd = self.vm
+            .device_manager
+            .i8042
+            .lock()
+            .unwrap()
+            .get_eventfd_clone()
+            .unwrap();
+        let exit_epoll_evt = self.epoll_context.add_event(event_fd, EpollDispatch::Exit)?;
+        self.exit_evt = Some(exit_epoll_evt);
+
+        self.epoll_context.enable_stdin_event()?;
+
+        Ok(())
+    }
+
     /// make sure to check Result of this function and call self.stop() in case of Err
     pub fn start_instance(&mut self) -> Result<()> {
         self.check_health()?;
@@ -701,38 +723,11 @@ impl Vmm {
 
         self.init_devices()?;
         self.init_microvm()?;
+
         self.load_kernel()?;
 
-        let event_fd = EventFd::new().map_err(Error::EventFd)?;
-        let exit_epoll_evt = self.epoll_context.add_event(event_fd, EpollDispatch::Exit)?;
-        self.exit_evt = Some(exit_epoll_evt);
-
-        let mut io_bus = devices::Bus::new();
-        let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
-        let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
-        self.stdio_serial = Some(Arc::new(Mutex::new(devices::Serial::new_out(
-            com_evt_1_3.try_clone().map_err(Error::EventFd)?,
-            Box::new(stdout()),
-        ))));
-
-        self.epoll_context.enable_stdin_event()?;
-
-        //TODO: put all thse things related to setting up io bus in a struct or something
-        self.vm
-            .set_io_bus(
-                &mut io_bus,
-                &self.stdio_serial.as_mut().unwrap(),
-                &com_evt_1_3,
-                &com_evt_2_4,
-                &self.exit_evt.as_mut().unwrap().event_fd,
-            )
-            .map_err(Error::VmIOBus)?;
-
-        self.start_vcpus(io_bus)?;
-
-        self.stdin_handle = Some(io::stdin());
-        let stdin_lock = self.stdin_handle.as_ref().unwrap().lock();
-        stdin_lock.set_raw_mode().map_err(Error::Terminal)?;
+        self.register_events()?;
+        self.start_vcpus()?;
 
         // unwrap() to crash if the other thread poisoned this lock
         self.shared_info.write().unwrap().state = InstanceState::Running;
@@ -766,14 +761,13 @@ impl Vmm {
             self.epoll_context.remove_event(evt)?;
         }
         self.epoll_context.disable_stdin_event()?;
-        if let Some(stdin_handle) = self.stdin_handle.take() {
-            let stdin_lock = stdin_handle.lock();
-            if let Err(e) = stdin_lock.set_canon_mode() {
-                warn!("cannot set canon mode for stdin: {:?}", e);
-            }
-        };
+        self.vm
+            .device_manager
+            .stdin_handle
+            .lock()
+            .set_canon_mode()
+            .map_err(Error::StdinHandle)?;
 
-        self.stdio_serial.take();
         //TODO:
         // - clean epoll_context:
         //   - remove block, net
@@ -816,7 +810,7 @@ impl Vmm {
                         }
                         EpollDispatch::Stdin => {
                             let mut out = [0u8; 64];
-                            let stdin_lock = self.stdin_handle.as_ref().unwrap().lock();
+                            let stdin_lock = self.vm.device_manager.stdin_handle.lock();
                             match stdin_lock.read_raw(&mut out[..]) {
                                 Ok(0) => {
                                     // Zero-length read indicates EOF. Remove from pollables.
@@ -826,18 +820,17 @@ impl Vmm {
                                     warn!("error while reading stdin: {:?}", e);
                                     self.epoll_context.disable_stdin_event()?;
                                 }
-                                Ok(count) => match self.stdio_serial {
-                                    Some(ref mut serial) => {
-                                        // unwrap() to panic if another thread panicked
-                                        // while holding the lock
-                                        serial
-                                            .lock()
-                                            .unwrap()
-                                            .queue_input_bytes(&out[..count])
-                                            .map_err(Error::Serial)?;
-                                    }
-                                    None => warn!("leftover stdin event in epollcontext!"),
-                                },
+                                Ok(count) => {
+                                    // unwrap() to panic if another thread panicked
+                                    // while holding the lock
+                                    self.vm
+                                        .device_manager
+                                        .stdio_serial
+                                        .lock()
+                                        .unwrap()
+                                        .queue_input_bytes(&out[..count])
+                                        .map_err(Error::Serial)?;
+                                }
                             }
                         }
                         EpollDispatch::DeviceHandler(device_idx, device_token) => {
