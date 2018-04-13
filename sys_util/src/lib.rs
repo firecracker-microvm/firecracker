@@ -36,16 +36,3 @@ pub use libc_ioctl::*;
 
 pub use mmap::Error as MmapError;
 pub use guest_memory::Error as GuestMemoryError;
-
-use libc::{c_long, pid_t, syscall};
-
-use syscall_defines::linux::LinuxSyscall::SYS_getpid;
-
-/// This bypasses `libc`'s caching `getpid(2)` wrapper which can be invalid if a raw clone was used
-/// elsewhere.
-/// TODO(dpopa@): get rid of this when syslog is gone too
-#[inline(always)]
-pub fn getpid() -> pid_t {
-    // Safe because this syscall can never fail and we give it a valid syscall number.
-    unsafe { syscall(SYS_getpid as c_long) as pid_t }
-}
