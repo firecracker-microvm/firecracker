@@ -7,7 +7,7 @@ use http_service::{empty_response, json_fault_message, json_response};
 use request::{ParsedRequest, SyncRequest};
 use request::sync::GenerateResponse;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct MachineConfigurationBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vcpu_count: Option<u8>,
