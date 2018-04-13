@@ -250,7 +250,7 @@ fn vmm_no_api_handler(
         cmdline_addr: GuestAddress(CMDLINE_OFFSET),
     };
     vmm.configure_kernel(kernel_config);
-    vmm.boot_kernel().expect("cannot boot kernel");
+    vmm.start_instance().expect("cannot boot kernel");
     let r = vmm.run_control(false);
     // make sure we clean up when this loop breaks on error
     if r.is_err() {
