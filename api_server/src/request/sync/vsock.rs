@@ -7,7 +7,7 @@ use super::{DeviceState, SyncRequest};
 
 // This struct represents the strongly typed equivalent of the json body
 // from vsock related requests.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct VsockJsonBody {
     pub vsock_id: String,
     pub guest_cid: u32,

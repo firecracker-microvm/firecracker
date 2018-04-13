@@ -7,17 +7,17 @@ use http_service::{empty_response, json_fault_message, json_response};
 use request::{ParsedRequest, SyncRequest};
 use request::sync::GenerateResponse;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub enum BootSourceType {
     LocalImage,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct LocalImage {
     pub kernel_image_path: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct BootSourceBody {
     boot_source_id: String,
     source_type: BootSourceType,
