@@ -3,7 +3,8 @@ extern crate sys_util;
 extern crate x86_64;
 
 use std::result;
-use sys_util::{EventFd, GuestAddress, GuestMemory};
+use std::io::{self, stdout};
+use sys_util::{EventFd, GuestAddress, GuestMemory, Terminal};
 use std::sync::{Arc, Mutex};
 use kvm::*;
 use x86_64::{interrupts, regs};
@@ -51,6 +52,7 @@ impl ::std::convert::From<sys_util::Error> for Error {
 
 /// A wrapper around creating and using a VM.
 pub struct Vm {
+    pub device_manager: LegacyDeviceManager,
     fd: VmFd,
     guest_mem: Option<GuestMemory>,
 }
@@ -64,6 +66,7 @@ impl Vm {
         Ok(Vm {
             fd: vm_fd,
             guest_mem: None,
+            device_manager: LegacyDeviceManager::new()?,
         })
     }
 
@@ -89,66 +92,22 @@ impl Vm {
         Ok(())
     }
 
-    pub fn create_irqchip(&self) -> Result<()> {
+    /// This function creates the irq chip and adds 2 interrupt events to the IRQ
+    pub fn setup_irqchip(&self) -> Result<()> {
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
+
+        self.fd
+            .register_irqfd(&self.device_manager.com_evt_1_3, 4)
+            .map_err(Error::Irq)?;
+        self.fd
+            .register_irqfd(&self.device_manager.com_evt_2_4, 3)
+            .map_err(Error::Irq)?;
+
         Ok(())
     }
 
     pub fn create_pit(&self) -> Result<()> {
         self.fd.create_pit2().map_err(Error::VmSetup)?;
-        Ok(())
-    }
-
-    /// Attaching the serial with its related EventFd(s) and the exit event
-    pub fn set_io_bus(
-        &self,
-        io_bus: &mut devices::Bus,
-        stdio_serial: &Arc<Mutex<devices::Serial>>,
-        com_evt_1_3: &EventFd,
-        com_evt_2_4: &EventFd,
-        exit_evt: &EventFd,
-    ) -> Result<()> {
-        io_bus.insert(stdio_serial.clone(), 0x3f8, 0x8).unwrap();
-        io_bus
-            .insert(
-                Arc::new(Mutex::new(devices::Serial::new_sink(com_evt_2_4
-                    .try_clone()
-                    .map_err(Error::EventFd)?))),
-                0x2f8,
-                0x8,
-            )
-            .unwrap();
-        io_bus
-            .insert(
-                Arc::new(Mutex::new(devices::Serial::new_sink(com_evt_1_3
-                    .try_clone()
-                    .map_err(Error::EventFd)?))),
-                0x3e8,
-                0x8,
-            )
-            .unwrap();
-        io_bus
-            .insert(
-                Arc::new(Mutex::new(devices::Serial::new_sink(com_evt_2_4
-                    .try_clone()
-                    .map_err(Error::EventFd)?))),
-                0x2e8,
-                0x8,
-            )
-            .unwrap();
-
-        self.fd.register_irqfd(&com_evt_1_3, 4).map_err(Error::Irq)?;
-        self.fd.register_irqfd(&com_evt_2_4, 3).map_err(Error::Irq)?;
-
-        io_bus
-            .insert(
-                Arc::new(Mutex::new(devices::I8042Device::new(exit_evt
-                    .try_clone()
-                    .map_err(Error::EventFd)?))),
-                0x064,
-                0x1,
-            )
-            .unwrap();
         Ok(())
     }
 
@@ -164,6 +123,77 @@ impl Vm {
     ///
     pub fn get_fd(&self) -> &VmFd {
         &self.fd
+    }
+}
+
+pub struct LegacyDeviceManager {
+    pub io_bus: devices::Bus,
+    pub stdio_serial: Arc<Mutex<devices::Serial>>,
+    pub i8042: Arc<Mutex<devices::I8042Device>>,
+
+    com_evt_1_3: EventFd,
+    com_evt_2_4: EventFd,
+    pub stdin_handle: io::Stdin,
+}
+
+impl LegacyDeviceManager {
+    pub fn new() -> Result<Self> {
+        let io_bus = devices::Bus::new();
+        let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
+        let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
+        let stdio_serial = Arc::new(Mutex::new(devices::Serial::new_out(
+            com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+            Box::new(stdout()),
+        )));
+
+        // Create exit event for i8042
+        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
+        let i8042 = Arc::new(Mutex::new(devices::I8042Device::new(exit_evt)));
+
+        Ok(LegacyDeviceManager {
+            io_bus,
+            stdio_serial,
+            i8042,
+            com_evt_1_3,
+            com_evt_2_4,
+            stdin_handle: io::stdin(),
+        })
+    }
+
+    pub fn register_devices(&mut self) -> Result<()> {
+        self.io_bus
+            .insert(self.stdio_serial.clone(), 0x3f8, 0x8)
+            .unwrap();
+        self.io_bus
+            .insert(
+                Arc::new(Mutex::new(devices::Serial::new_sink(self.com_evt_2_4
+                    .try_clone()
+                    .map_err(Error::EventFd)?))),
+                0x2f8,
+                0x8,
+            )
+            .unwrap();
+        self.io_bus
+            .insert(
+                Arc::new(Mutex::new(devices::Serial::new_sink(self.com_evt_1_3
+                    .try_clone()
+                    .map_err(Error::EventFd)?))),
+                0x3e8,
+                0x8,
+            )
+            .unwrap();
+        self.io_bus
+            .insert(
+                Arc::new(Mutex::new(devices::Serial::new_sink(self.com_evt_2_4
+                    .try_clone()
+                    .map_err(Error::EventFd)?))),
+                0x2e8,
+                0x8,
+            )
+            .unwrap();
+        self.stdin_handle.lock().set_raw_mode()?;
+        self.io_bus.insert(self.i8042.clone(), 0x064, 0x1).unwrap();
+        Ok(())
     }
 }
 
