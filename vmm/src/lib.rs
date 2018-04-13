@@ -6,8 +6,9 @@ extern crate devices;
 extern crate kernel_loader;
 extern crate kvm;
 extern crate kvm_sys;
-extern crate net_util;
 #[macro_use]
+extern crate logger;
+extern crate net_util;
 extern crate sys_util;
 extern crate x86_64;
 

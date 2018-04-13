@@ -10,8 +10,7 @@ extern crate syscall_defines;
 
 #[macro_use]
 pub mod ioctl;
-#[macro_use]
-pub mod syslog;
+
 mod mmap;
 mod eventfd;
 mod errno;
