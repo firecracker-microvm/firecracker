@@ -296,6 +296,7 @@ pub struct Vmm {
     shared_info: Arc<RwLock<InstanceInfo>>,
 
     /// guest VM core resources
+    guest_memory: Option<GuestMemory>,
     kernel_config: Option<KernelConfig>,
     kill_signaled: Option<Arc<AtomicBool>>,
     vcpu_handles: Option<Vec<thread::JoinHandle<()>>>,
@@ -305,6 +306,7 @@ pub struct Vmm {
     vm: Vm,
 
     /// guest VM devices
+    device_manager: Option<DeviceManager>,
     // If there is a Root Block Device, this should be added as the first element of the list
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
@@ -337,6 +339,7 @@ impl Vmm {
             _kvm_fd: kvm_fd,
             vm_config: VirtualMachineConfig::default(),
             shared_info: api_shared_info,
+            guest_memory: None,
             kernel_config: None,
             kill_signaled: None,
             vcpu_handles: None,
@@ -344,6 +347,7 @@ impl Vmm {
             stdin_handle: None,
             stdio_serial: None,
             vm,
+            device_manager: None,
             block_device_configs,
             network_interface_configs: NetworkInterfaceConfigs::new(),
             vsock_device_configs: VsockDeviceConfigs::new(),
@@ -512,24 +516,26 @@ impl Vmm {
         self.kernel_config = Some(kernel_config);
     }
 
-    /// make sure to check Result of this function and call self.stop() in case of Err
-    pub fn boot_kernel(&mut self) -> Result<()> {
+    pub fn init_guest_memory(&mut self) -> Result<()> {
+        let mem_size = self.vm_config.mem_size_mib << 20;
+        let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
+        self.guest_memory = Some(GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?);
+        Ok(())
+    }
+
+    pub fn check_health(&self) -> Result<()> {
         if self.kernel_config.is_none() {
             return Err(Error::MissingKernelConfig);
         }
-        // unwrap() to crash if the other thread poisoned this lock
-        self.shared_info.write().unwrap().state = InstanceState::Starting;
+        Ok(())
+    }
 
-        let mem_size = self.vm_config.mem_size_mib << 20;
-        let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
-        let guest_mem = GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?;
-
-        let vcpu_count = self.vm_config.vcpu_count;
-
+    pub fn init_devices(&mut self) -> Result<()> {
+        let guest_mem = self.guest_memory.clone().unwrap();
         /* Instantiating MMIO device manager
-        'mmio_base' address has to be an address which is protected by the kernel, in this case
-        the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
-        */
+       'mmio_base' address has to be an address which is protected by the kernel, in this case
+       the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
+       */
         let mut device_manager =
             DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
@@ -537,70 +543,30 @@ impl Vmm {
         self.attach_net_devices(&mut device_manager)?;
         self.attach_vsock_devices(&guest_mem, &mut device_manager)?;
 
-        // safe to unwrap since we've already validated it's Some()
-        let kernel_config = self.kernel_config.as_mut().unwrap();
+        self.device_manager = Some(device_manager);
+        Ok(())
+    }
 
-        self.vm.memory_init(guest_mem).map_err(Error::VmSetup)?;
+    pub fn init_microvm(&mut self) -> Result<()> {
+        self.vm
+            .memory_init(self.guest_memory.clone().unwrap())
+            .map_err(Error::VmSetup)?;
         self.vm.create_irqchip().map_err(Error::VmSetup)?;
         self.vm.create_pit().map_err(Error::VmSetup)?;
 
-        for request in device_manager.vm_requests {
+        let device_manager = self.device_manager.as_ref().unwrap();
+        for request in &device_manager.vm_requests {
             if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
                 return Err(Error::DeviceVmRequest(e));
             }
         }
 
-        // This is the easy way out of consuming the value of the kernel_cmdline.
-        // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
-        let cmdline_cstring = CString::new(kernel_config.cmdline.clone())
-            .map_err(|_| Error::KernelCmdLine(kernel_cmdline::Error::InvalidAscii))?;
+        Ok(())
+    }
 
-        // Safe to unwrap because the VM memory was initialized before in vm.memory_init()
-        let vm_memory = self.vm.get_memory().unwrap();
-        kernel_loader::load_kernel(
-            vm_memory,
-            kernel_config.kernel_start_addr,
-            &mut kernel_config.kernel_file,
-        )?;
-        kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)?;
-
-        x86_64::configure_system(
-            vm_memory,
-            kernel_config.kernel_start_addr,
-            kernel_config.cmdline_addr,
-            cmdline_cstring.to_bytes().len() + 1,
-            vcpu_count,
-        )?;
-
-        let event_fd = EventFd::new().map_err(Error::EventFd)?;
-        let exit_epoll_evt = self.epoll_context.add_event(event_fd, EpollDispatch::Exit)?;
-        self.exit_evt = Some(exit_epoll_evt);
-        // safe to unwrap since it's set just above
+    pub fn start_vcpus(&mut self, io_bus: devices::Bus) -> Result<()> {
+        let vcpu_count = self.vm_config.vcpu_count;
         let exit_evt = &self.exit_evt.as_mut().unwrap().event_fd;
-
-        let mut io_bus = devices::Bus::new();
-        let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
-        let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
-        self.stdio_serial = Some(Arc::new(Mutex::new(devices::Serial::new_out(
-            com_evt_1_3.try_clone().map_err(Error::EventFd)?,
-            Box::new(stdout()),
-        ))));
-        // safe to unwrap since it's set just above
-        let stdio_serial = self.stdio_serial.as_mut().unwrap();
-
-        self.epoll_context.enable_stdin_event()?;
-
-        //TODO: put all thse things related to setting up io bus in a struct or something
-        self.vm
-            .set_io_bus(
-                &mut io_bus,
-                &stdio_serial,
-                &com_evt_1_3,
-                &com_evt_2_4,
-                exit_evt,
-            )
-            .map_err(Error::VmIOBus)?;
-
         self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
         // safe to unwrap since it's set just above
         let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
@@ -612,12 +578,14 @@ impl Vmm {
 
         for cpu_id in 0..vcpu_count {
             let io_bus = io_bus.clone();
+            let device_manager = self.device_manager.as_ref().unwrap();
             let mmio_bus = device_manager.bus.clone();
             let kill_signaled = kill_signaled.clone();
             let vcpu_thread_barrier = vcpu_thread_barrier.clone();
             let vcpu_exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
 
             let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(Error::Vcpu)?;
+            let kernel_config = self.kernel_config.as_mut().unwrap();
             vcpu.configure(vcpu_count, kernel_config.kernel_start_addr, &self.vm)
                 .map_err(Error::VcpuConfigure)?;
             vcpu_handles.push(thread::Builder::new()
@@ -689,6 +657,78 @@ impl Vmm {
         }
 
         vcpu_thread_barrier.wait();
+
+        Ok(())
+    }
+
+    pub fn load_kernel(&mut self) -> Result<()> {
+        // This is the easy way out of consuming the value of the kernel_cmdline.
+        // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
+        // safe to unwrap since we've already validated that the kernel_config has a value
+        // in the check_health function
+        let kernel_config = self.kernel_config.as_mut().unwrap();
+        let cmdline_cstring = CString::new(kernel_config.cmdline.clone())
+            .map_err(|_| Error::KernelCmdLine(kernel_cmdline::Error::InvalidAscii))?;
+
+        // Safe to unwrap because the VM memory was initialized before in vm.memory_init()
+        let vm_memory = self.vm.get_memory().unwrap();
+        kernel_loader::load_kernel(
+            vm_memory,
+            kernel_config.kernel_start_addr,
+            &mut kernel_config.kernel_file,
+        )?;
+        kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)?;
+
+        x86_64::configure_system(
+            vm_memory,
+            kernel_config.kernel_start_addr,
+            kernel_config.cmdline_addr,
+            cmdline_cstring.to_bytes().len() + 1,
+            self.vm_config.vcpu_count,
+        )?;
+
+        Ok(())
+    }
+
+    /// make sure to check Result of this function and call self.stop() in case of Err
+    pub fn start_instance(&mut self) -> Result<()> {
+        self.check_health()?;
+
+        // unwrap() to crash if the other thread poisoned this lock
+        self.shared_info.write().unwrap().state = InstanceState::Starting;
+
+        self.init_guest_memory()?;
+
+        self.init_devices()?;
+        self.init_microvm()?;
+        self.load_kernel()?;
+
+        let event_fd = EventFd::new().map_err(Error::EventFd)?;
+        let exit_epoll_evt = self.epoll_context.add_event(event_fd, EpollDispatch::Exit)?;
+        self.exit_evt = Some(exit_epoll_evt);
+
+        let mut io_bus = devices::Bus::new();
+        let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
+        let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
+        self.stdio_serial = Some(Arc::new(Mutex::new(devices::Serial::new_out(
+            com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+            Box::new(stdout()),
+        ))));
+
+        self.epoll_context.enable_stdin_event()?;
+
+        //TODO: put all thse things related to setting up io bus in a struct or something
+        self.vm
+            .set_io_bus(
+                &mut io_bus,
+                &self.stdio_serial.as_mut().unwrap(),
+                &com_evt_1_3,
+                &com_evt_2_4,
+                &self.exit_evt.as_mut().unwrap().event_fd,
+            )
+            .map_err(Error::VmIOBus)?;
+
+        self.start_vcpus(io_bus)?;
 
         self.stdin_handle = Some(io::stdin());
         let stdin_lock = self.stdin_handle.as_ref().unwrap().lock();
@@ -844,7 +884,7 @@ impl Vmm {
                             | InstanceState::Halting => {
                                 AsyncOutcome::Error("Guest Instance already running.".to_string())
                             }
-                            _ => match self.boot_kernel() {
+                            _ => match self.start_instance() {
                                 Ok(_) => AsyncOutcome::Ok(0),
                                 Err(e) => {
                                     let _ = self.stop();
