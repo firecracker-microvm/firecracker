@@ -3,14 +3,13 @@
 // found in the LICENSE file.
 
 //! Emulates virtual and hardware devices.
-
 extern crate byteorder;
 extern crate epoll;
 extern crate libc;
-
+#[macro_use]
+extern crate logger;
 extern crate net_sys;
 extern crate net_util;
-#[macro_use]
 extern crate sys_util;
 extern crate vhost_backend;
 extern crate vhost_sys;

@@ -21,15 +21,16 @@
 //!     error!("this is a error");
 //! }
 //! ```
-// workaround to marco_reexport
+// workaround to macro_reexport
 extern crate log;
 pub use log::*;
+pub use log::Level::*;
 
 mod error;
 mod writers;
 
 use error::LoggerError;
-use log::{set_boxed_logger, set_max_level, Level, Log, Metadata, Record};
+use log::{set_boxed_logger, set_max_level, Log, Metadata, Record};
 use std::result;
 use std::sync::{Arc, Once, ONCE_INIT};
 use writers::*;
