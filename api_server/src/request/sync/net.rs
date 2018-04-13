@@ -39,7 +39,7 @@ where
 
 // This struct represents the strongly typed equivalent of the json body from net iface
 // related requests.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct NetworkInterfaceBody {
     pub iface_id: String,
     pub state: DeviceState,
