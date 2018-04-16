@@ -2,7 +2,7 @@ use std::result::Result;
 
 pub const MAC_ADDR_LEN: usize = 6;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MacAddr {
     bytes: [u8; MAC_ADDR_LEN],
 }
