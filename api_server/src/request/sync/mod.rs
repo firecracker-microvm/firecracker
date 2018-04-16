@@ -13,8 +13,8 @@ pub mod machine_configuration;
 mod net;
 mod vsock;
 
-pub use self::drive::{DriveDescription, DriveError, PutDriveOutcome};
-pub use self::boot_source::BootSourceBody;
+pub use self::drive::{DriveDescription, DriveError, DrivePermissions, PutDriveOutcome};
+pub use self::boot_source::{BootSourceBody, BootSourceType, LocalImage};
 pub use self::machine_configuration::MachineConfigurationBody;
 pub use self::net::NetworkInterfaceBody;
 pub use self::vsock::VsockJsonBody;
@@ -45,7 +45,7 @@ where
 pub type SyncOutcomeSender = oneshot::Sender<Box<GenerateResponse + Send>>;
 pub type SyncOutcomeReceiver = oneshot::Receiver<Box<GenerateResponse + Send>>;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum DeviceState {
     Attached,
 }
@@ -117,3 +117,54 @@ impl GenerateResponse for Error {
 }
 
 pub type Result<T> = result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std;
+
+    // Implementation for the "==" operator.
+    // Can't derive PartialEq directly because the sender members can't be compared.
+    impl PartialEq for SyncRequest {
+        fn eq(&self, other: &SyncRequest) -> bool {
+            match (self, other) {
+                (&SyncRequest::PutBootSource(ref bsb, _),
+                    &SyncRequest::PutBootSource(ref other_bsb, _))
+                => bsb == other_bsb,
+                (&SyncRequest::PutDrive(ref ddesc, _), &SyncRequest::PutDrive(ref other_ddesc, _))
+                => ddesc == other_ddesc,
+                (&SyncRequest::PutMachineConfiguration(ref mcb, _),
+                    &SyncRequest::PutMachineConfiguration(ref other_mcb, _))
+                => mcb == other_mcb,
+                (&SyncRequest::PutNetworkInterface(ref netif, _),
+                    &SyncRequest::PutNetworkInterface(ref other_netif, _))
+                => netif == other_netif,
+                (&SyncRequest::PutVsock(ref vjb, _), &SyncRequest::PutVsock(ref other_vjb, _))
+                => vjb == other_vjb,
+                _ => false
+            }
+        }
+    }
+
+    #[test]
+    fn test_generate_response_okstatus() {
+        let ret = OkStatus::Created.generate_response();
+        assert_eq!(ret.status(), StatusCode::Created);
+    }
+
+    #[test]
+    fn test_generate_response_error() {
+        let mut ret = Error::GuestCIDAlreadyInUse.generate_response();
+        assert_eq!(ret.status(), StatusCode::BadRequest);
+
+        ret = Error::GuestMacAddressInUse.generate_response();
+        assert_eq!(ret.status(), StatusCode::BadRequest);
+
+        ret = Error::OpenTap(TapError::OpenTun(std::io::Error::from_raw_os_error(22)))
+            .generate_response();
+        assert_eq!(ret.status(), StatusCode::BadRequest);
+
+        ret = Error::UpdateNotImplemented.generate_response();
+        assert_eq!(ret.status(), StatusCode::InternalServerError);
+    }
+}
