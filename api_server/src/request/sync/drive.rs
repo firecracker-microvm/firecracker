@@ -7,7 +7,7 @@ use request::ParsedRequest;
 use http_service::{empty_response, json_fault_message, json_response};
 use super::{DeviceState, GenerateResponse, SyncRequest};
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[allow(non_camel_case_types)]
 pub enum DrivePermissions {
     ro,
@@ -16,7 +16,7 @@ pub enum DrivePermissions {
 
 // This struct represents the strongly typed equivalent of the json body from drive
 // related requests.
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DriveDescription {
     pub drive_id: String,
     pub path_on_host: String,
@@ -93,5 +93,57 @@ impl DriveDescription {
             SyncRequest::PutDrive(self, sender),
             receiver,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_read_only() {
+        assert!(DriveDescription {
+            drive_id: String::from("foo"),
+            path_on_host: String::from("/foo/bar"),
+            state: DeviceState::Attached,
+            is_root_device: true,
+            permissions: DrivePermissions::ro
+        }.is_read_only());
+    }
+
+    #[test]
+    fn test_generate_response_drive_error() {
+        assert_eq!(DriveError::RootBlockDeviceAlreadyAdded.generate_response().status(),
+                   StatusCode::BadRequest);
+        assert_eq!(DriveError::InvalidBlockDevicePath.generate_response().status(),
+                   StatusCode::BadRequest);
+        assert_eq!(DriveError::BlockDevicePathAlreadyExists.generate_response().status(),
+                   StatusCode::BadRequest);
+        assert_eq!(DriveError::NotImplemented.generate_response().status(),
+                   StatusCode::InternalServerError);
+    }
+
+    #[test]
+    fn test_generate_response_put_drive_outcome() {
+        assert_eq!(PutDriveOutcome::Created.generate_response().status(), StatusCode::Created);
+        assert_eq!(PutDriveOutcome::Updated.generate_response().status(), StatusCode::NoContent);
+        assert_eq!(PutDriveOutcome::Error(DriveError::NotImplemented).generate_response().status(),
+                   StatusCode::InternalServerError);
+    }
+
+    #[test]
+    fn test_into_parsed_request() {
+        let desc = DriveDescription {
+            drive_id: String::from("foo"),
+            path_on_host: String::from("/foo/bar"),
+            state: DeviceState::Attached,
+            is_root_device: true,
+            permissions: DrivePermissions::ro
+        };
+
+        assert!(&desc.clone().into_parsed_request("bar").is_err());
+        let (sender, receiver) = oneshot::channel();
+        assert!(&desc.clone().into_parsed_request("foo").eq(
+                   &Ok(ParsedRequest::Sync(SyncRequest::PutDrive(desc, sender), receiver))));
     }
 }
