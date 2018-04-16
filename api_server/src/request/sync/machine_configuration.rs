@@ -7,7 +7,7 @@ use http_service::{empty_response, json_fault_message, json_response};
 use request::{ParsedRequest, SyncRequest};
 use request::sync::GenerateResponse;
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct MachineConfigurationBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vcpu_count: Option<u8>,
@@ -62,5 +62,40 @@ impl MachineConfigurationBody {
             SyncRequest::PutMachineConfiguration(self, sender),
             receiver,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_response_put_machine_configuration_error() {
+        assert_eq!(PutMachineConfigurationError::InvalidVcpuCount.generate_response().status(),
+                   StatusCode::BadRequest);
+        assert_eq!(PutMachineConfigurationError::InvalidMemorySize.generate_response().status(),
+                   StatusCode::BadRequest);
+    }
+
+    #[test]
+    fn test_generate_response_put_machine_configuration_outcome() {
+        assert_eq!(PutMachineConfigurationOutcome::Created.generate_response().status(),
+                   StatusCode::Created);
+        assert_eq!(PutMachineConfigurationOutcome::Updated.generate_response().status(),
+                   StatusCode::NoContent);
+        assert_eq!(PutMachineConfigurationOutcome::Error(
+            PutMachineConfigurationError::InvalidVcpuCount).generate_response().status(),
+                   StatusCode::BadRequest);
+    }
+
+    #[test]
+    fn test_into_parsed_request() {
+        let body = MachineConfigurationBody {
+            vcpu_count: Some(8),
+            mem_size_mib: Some(1024)
+        };
+        let (sender, receiver) = oneshot::channel();
+        assert!(body.clone().into_parsed_request().eq(&Ok(ParsedRequest::Sync(
+            SyncRequest::PutMachineConfiguration(body, sender), receiver))));
     }
 }
