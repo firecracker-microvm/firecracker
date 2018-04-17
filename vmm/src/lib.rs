@@ -48,6 +48,7 @@ pub const KERNEL_START_OFFSET: usize = 0x200000;
 pub const CMDLINE_OFFSET: usize = 0x20000;
 pub const CMDLINE_MAX_SIZE: usize = KERNEL_START_OFFSET - CMDLINE_OFFSET;
 pub const DEFAULT_KERNEL_CMDLINE: &str = "console=ttyS0 noapic reboot=k panic=1 pci=off nomodules";
+const VCPU_RTSIG_OFFSET: u8 = 0;
 
 #[derive(Debug)]
 pub enum Error {
@@ -599,8 +600,8 @@ impl Vmm {
                 .spawn(move || {
                     unsafe {
                         extern "C" fn handle_signal() {}
-                        // Our signal handler does nothing and is trivially async signal safe.
-                        register_signal_handler(0, handle_signal)
+                        // async signal safe handler used to kill the vcpu handles.
+                        register_signal_handler(VCPU_RTSIG_OFFSET, handle_signal)
                             .expect("failed to register vcpu signal handler");
                     }
 
@@ -746,7 +747,7 @@ impl Vmm {
 
         if let Some(handles) = self.vcpu_handles.take() {
             for handle in handles {
-                match handle.kill(0) {
+                match handle.kill(VCPU_RTSIG_OFFSET) {
                     Ok(_) => {
                         if let Err(e) = handle.join() {
                             warn!("failed to join vcpu thread: {:?}", e);
