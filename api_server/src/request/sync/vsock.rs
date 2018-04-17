@@ -7,7 +7,7 @@ use super::{DeviceState, SyncRequest};
 
 // This struct represents the strongly typed equivalent of the json body
 // from vsock related requests.
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct VsockJsonBody {
     pub vsock_id: String,
     pub guest_cid: u32,
@@ -27,5 +27,24 @@ impl VsockJsonBody {
             SyncRequest::PutVsock(self, sender),
             receiver,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vsock_into_parsed_request() {
+        let vsock = VsockJsonBody {
+            vsock_id: String::from("foo"),
+            guest_cid: 42,
+            state: DeviceState::Attached
+        };
+
+        assert!(vsock.clone().into_parsed_request("bar").is_err());
+        let (sender, receiver) = oneshot::channel();
+        assert!(vsock.clone().into_parsed_request("foo").eq(&Ok(ParsedRequest::Sync(
+            SyncRequest::PutVsock(vsock, sender), receiver))));
     }
 }
