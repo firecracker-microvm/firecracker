@@ -33,6 +33,7 @@ pub use tempdir::*;
 pub use terminal::*;
 pub use signal::*;
 pub use ioctl::*;
+pub use libc_ioctl::*;
 
 pub use mmap::Error as MmapError;
 pub use guest_memory::Error as GuestMemoryError;
