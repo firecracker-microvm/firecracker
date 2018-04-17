@@ -3,13 +3,10 @@
 // found in the LICENSE file.
 
 use libc::{c_int, pthread_kill, pthread_t, signal, EINVAL, SIG_ERR};
-
-use std::thread::JoinHandle;
 use std::os::unix::thread::JoinHandleExt;
+use std::thread::JoinHandle;
+use super::{errno_result, Error, Result};
 
-use {errno_result, Error, Result};
-
-#[link(name = "c")]
 extern "C" {
     fn __libc_current_sigrtmin() -> c_int;
     fn __libc_current_sigrtmax() -> c_int;
