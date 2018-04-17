@@ -201,8 +201,8 @@ impl LegacyDeviceManager {
 // CPUID bits in ebx, ecx, and edx.
 const EBX_CLFLUSH_CACHELINE: u32 = 8; // Flush a cache line size.
 const EBX_CLFLUSH_SIZE_SHIFT: u32 = 8; // Bytes flushed when executing CLFLUSH.
-const EBX_CPU_COUNT_SHIFT: u32 = 16; // Index of this CPU.
-const EBX_CPUID_SHIFT: u32 = 24; // Index of this CPU.
+const EBX_CPU_COUNT_SHIFT: u32 = 16; // The logical processor count .
+const EBX_APICID_SHIFT: u32 = 24; // The (fixed) default APIC ID.
 const ECX_EPB_SHIFT: u32 = 3; // "Energy Performance Bias" bit.
 const ECX_TSC_DEADLINE_TIMER_SHIFT: u32 = 24;
 const ECX_HYPERVISOR_SHIFT: u32 = 31; // Flag to be set when the cpu is running on a hypervisor.
@@ -242,7 +242,7 @@ impl Vcpu {
                         entry.ecx |= 1 << ECX_TSC_DEADLINE_TIMER_SHIFT;
                         entry.ecx |= 1 << ECX_HYPERVISOR_SHIFT;
                     }
-                    entry.ebx = ((self.id as u32) << EBX_CPUID_SHIFT) as u32
+                    entry.ebx = ((self.id as u32) << EBX_APICID_SHIFT) as u32
                         | (EBX_CLFLUSH_CACHELINE << EBX_CLFLUSH_SIZE_SHIFT);
                     if cpu_count > 1 {
                         entry.ebx |= (cpu_count as u32) << EBX_CPU_COUNT_SHIFT;
