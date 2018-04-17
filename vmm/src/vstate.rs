@@ -253,6 +253,11 @@ impl Vcpu {
                     // Clear X86 EPB feature.  No frequency selection in the hypervisor.
                     entry.ecx &= !(1 << ECX_EPB_SHIFT);
                 }
+                11 => {
+                    // EDX bits 31..0 contain x2APIC ID of current logical processor
+                    // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
+                    entry.edx = self.id as u32;
+                }
                 _ => (),
             }
         }
