@@ -128,8 +128,8 @@ impl Vm {
 
 pub struct LegacyDeviceManager {
     pub io_bus: devices::Bus,
-    pub stdio_serial: Arc<Mutex<devices::Serial>>,
-    pub i8042: Arc<Mutex<devices::I8042Device>>,
+    pub stdio_serial: Arc<Mutex<devices::legacy::Serial>>,
+    pub i8042: Arc<Mutex<devices::legacy::I8042Device>>,
 
     com_evt_1_3: EventFd,
     com_evt_2_4: EventFd,
@@ -141,14 +141,14 @@ impl LegacyDeviceManager {
         let io_bus = devices::Bus::new();
         let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
         let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
-        let stdio_serial = Arc::new(Mutex::new(devices::Serial::new_out(
+        let stdio_serial = Arc::new(Mutex::new(devices::legacy::Serial::new_out(
             com_evt_1_3.try_clone().map_err(Error::EventFd)?,
             Box::new(stdout()),
         )));
 
         // Create exit event for i8042
         let exit_evt = EventFd::new().map_err(Error::EventFd)?;
-        let i8042 = Arc::new(Mutex::new(devices::I8042Device::new(exit_evt)));
+        let i8042 = Arc::new(Mutex::new(devices::legacy::I8042Device::new(exit_evt)));
 
         Ok(LegacyDeviceManager {
             io_bus,
@@ -166,27 +166,27 @@ impl LegacyDeviceManager {
             .unwrap();
         self.io_bus
             .insert(
-                Arc::new(Mutex::new(devices::Serial::new_sink(self.com_evt_2_4
-                    .try_clone()
-                    .map_err(Error::EventFd)?))),
+                Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
+                    self.com_evt_2_4.try_clone().map_err(Error::EventFd)?,
+                ))),
                 0x2f8,
                 0x8,
             )
             .unwrap();
         self.io_bus
             .insert(
-                Arc::new(Mutex::new(devices::Serial::new_sink(self.com_evt_1_3
-                    .try_clone()
-                    .map_err(Error::EventFd)?))),
+                Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
+                    self.com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+                ))),
                 0x3e8,
                 0x8,
             )
             .unwrap();
         self.io_bus
             .insert(
-                Arc::new(Mutex::new(devices::Serial::new_sink(self.com_evt_2_4
-                    .try_clone()
-                    .map_err(Error::EventFd)?))),
+                Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
+                    self.com_evt_2_4.try_clone().map_err(Error::EventFd)?,
+                ))),
                 0x2e8,
                 0x8,
             )
