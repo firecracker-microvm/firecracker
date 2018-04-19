@@ -17,14 +17,11 @@ extern crate vhost_sys;
 extern crate virtio_sys;
 
 mod bus;
-mod i8042;
-mod serial;
+pub mod legacy;
 
 pub mod virtio;
 
 pub use self::bus::{Bus, BusDevice};
-pub use self::i8042::I8042Device;
-pub use self::serial::Serial;
 
 pub type DeviceEventT = u16;
 
