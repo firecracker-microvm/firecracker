@@ -36,7 +36,7 @@ use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSo
 use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
                                                        PutMachineConfigurationOutcome};
 use device_config::*;
-use device_manager::*;
+use device_manager::mmio::MMIODeviceManager;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
 use kvm::*;
@@ -74,11 +74,11 @@ pub enum Error {
     VmIOBus(vstate::Error),
     RootDiskImage(std::io::Error),
     RootBlockDeviceNew(sys_util::Error),
-    RegisterBlock(device_manager::Error),
+    RegisterBlock(device_manager::mmio::Error),
     NetDeviceNew(devices::virtio::NetError),
-    RegisterNet(device_manager::Error),
+    RegisterNet(device_manager::mmio::Error),
     CreateVirtioVsock(devices::virtio::vhost::Error),
-    RegisterMMIOVsockDevice(device_manager::Error),
+    RegisterMMIOVsockDevice(device_manager::mmio::Error),
     DeviceVmRequest(sys_util::Error),
     DriveError(DriveError),
     ApiChannel,
@@ -305,7 +305,7 @@ pub struct Vmm {
     vm: Vm,
 
     /// guest VM devices
-    device_manager: Option<DeviceManager>,
+    device_manager: Option<MMIODeviceManager>,
     // If there is a Root Block Device, this should be added as the first element of the list
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
@@ -401,7 +401,7 @@ impl Vmm {
     /// If there is no root block device, no other devices are attached.The root device should be
     /// the first to be attached as a way to make sure it ends up on /dev/vda
     /// This function is to be called only from boot_source
-    fn attach_block_devices(&mut self, device_manager: &mut DeviceManager) -> Result<()> {
+    fn attach_block_devices(&mut self, device_manager: &mut MMIODeviceManager) -> Result<()> {
         // If there's no root device, do not attach any other devices
         let block_dev = &self.block_device_configs;
         let kernel_config = match self.kernel_config.as_mut() {
@@ -414,12 +414,12 @@ impl Vmm {
             kernel_config
                 .cmdline
                 .insert_str(" root=/dev/vda")
-                .map_err(|e| Error::RegisterBlock(device_manager::Error::Cmdline(e)))?;
+                .map_err(|e| Error::RegisterBlock(device_manager::mmio::Error::Cmdline(e)))?;
             if block_dev.has_read_only_root() {
                 kernel_config
                     .cmdline
                     .insert_str(" ro")
-                    .map_err(|e| Error::RegisterBlock(device_manager::Error::Cmdline(e)))?;
+                    .map_err(|e| Error::RegisterBlock(device_manager::mmio::Error::Cmdline(e)))?;
             }
 
             let epoll_context = &mut self.epoll_context;
@@ -438,7 +438,7 @@ impl Vmm {
                     epoll_config,
                 ).map_err(Error::RootBlockDeviceNew)?);
                 device_manager
-                    .register_mmio(block_box, &mut kernel_config.cmdline)
+                    .register_device(block_box, &mut kernel_config.cmdline)
                     .map_err(Error::RegisterBlock)?;
             }
         }
@@ -453,7 +453,7 @@ impl Vmm {
         self.network_interface_configs.put(body)
     }
 
-    fn attach_net_devices(&mut self, device_manager: &mut DeviceManager) -> Result<()> {
+    fn attach_net_devices(&mut self, device_manager: &mut MMIODeviceManager) -> Result<()> {
         let kernel_config = match self.kernel_config.as_mut() {
             Some(x) => x,
             None => return Err(Error::MissingKernelConfig),
@@ -470,7 +470,7 @@ impl Vmm {
             ).map_err(Error::NetDeviceNew)?);
 
             device_manager
-                .register_mmio(net_box, &mut kernel_config.cmdline)
+                .register_device(net_box, &mut kernel_config.cmdline)
                 .map_err(Error::RegisterNet)?;
         }
         Ok(())
@@ -486,7 +486,7 @@ impl Vmm {
     fn attach_vsock_devices(
         &mut self,
         guest_mem: &GuestMemory,
-        device_manager: &mut DeviceManager,
+        device_manager: &mut MMIODeviceManager,
     ) -> Result<()> {
         let kernel_config = match self.kernel_config.as_mut() {
             Some(x) => x,
@@ -502,7 +502,7 @@ impl Vmm {
                 epoll_config,
             ).map_err(Error::CreateVirtioVsock)?);
             device_manager
-                .register_mmio(vsock_box, &mut kernel_config.cmdline)
+                .register_device(vsock_box, &mut kernel_config.cmdline)
                 .map_err(Error::RegisterMMIOVsockDevice)?;
         }
 
@@ -534,7 +534,7 @@ impl Vmm {
        the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
        */
         let mut device_manager =
-            DeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
         self.attach_block_devices(&mut device_manager)?;
         self.attach_net_devices(&mut device_manager)?;
