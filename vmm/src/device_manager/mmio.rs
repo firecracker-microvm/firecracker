@@ -12,7 +12,7 @@ use sys_util;
 use sys_util::GuestMemory;
 use vm_control::VmRequest;
 
-/// Errors for device manager.
+/// Errors for MMIO device manager.
 #[derive(Debug)]
 pub enum Error {
     /// Could not create the mmio device to wrap a VirtioDevice.
@@ -55,7 +55,7 @@ const IRQ_BASE: u32 = 5;
 const MMIO_LEN: u64 = 0x1000;
 
 /// Manages the complexities of adding a device.
-pub struct DeviceManager {
+pub struct MMIODeviceManager {
     pub bus: devices::Bus,
     pub vm_requests: Vec<VmRequest>,
     guest_mem: GuestMemory,
@@ -63,10 +63,10 @@ pub struct DeviceManager {
     irq: u32,
 }
 
-impl DeviceManager {
+impl MMIODeviceManager {
     /// Create a new DeviceManager.
-    pub fn new(guest_mem: GuestMemory, mmio_base: u64) -> DeviceManager {
-        DeviceManager {
+    pub fn new(guest_mem: GuestMemory, mmio_base: u64) -> MMIODeviceManager {
+        MMIODeviceManager {
             guest_mem: guest_mem,
             vm_requests: Vec::new(),
             mmio_base: mmio_base,
@@ -76,7 +76,7 @@ impl DeviceManager {
     }
 
     /// Register a device to be used via MMIO transport.
-    pub fn register_mmio(
+    pub fn register_device(
         &mut self,
         device: Box<devices::virtio::VirtioDevice>,
         cmdline: &mut kernel_cmdline::Cmdline,
@@ -169,14 +169,14 @@ mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem =
             GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let mut device_manager = DeviceManager::new(guest_mem, 0xd0000000);
+        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd0000000);
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
 
         assert!(
             device_manager
-                .register_mmio(dummy_box, &mut cmdline)
+                .register_device(dummy_box, &mut cmdline)
                 .is_ok()
         );
     }
@@ -187,20 +187,20 @@ mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem =
             GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let mut device_manager = DeviceManager::new(guest_mem, 0xd0000000);
+        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd0000000);
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         for _i in IRQ_BASE..(MAX_IRQ + 1) {
             device_manager
-                .register_mmio(dummy_box.clone(), &mut cmdline)
+                .register_device(dummy_box.clone(), &mut cmdline)
                 .unwrap();
         }
         assert_eq!(
             format!(
                 "{}",
                 device_manager
-                    .register_mmio(dummy_box.clone(), &mut cmdline)
+                    .register_device(dummy_box.clone(), &mut cmdline)
                     .unwrap_err()
             ),
             "no more IRQs are available".to_string()
@@ -228,7 +228,7 @@ mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem =
             GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let device_manager = DeviceManager::new(guest_mem, 0xd0000000);
+        let device_manager = MMIODeviceManager::new(guest_mem, 0xd0000000);
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let e = Error::Cmdline(
             cmdline
