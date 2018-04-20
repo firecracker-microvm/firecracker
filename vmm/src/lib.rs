@@ -36,7 +36,9 @@ use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSo
 use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
                                                        PutMachineConfigurationOutcome};
 use device_config::*;
+use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
+
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
 use kvm::*;
@@ -71,7 +73,8 @@ pub enum Error {
     VcpuSpawn(std::io::Error),
     Vm(vstate::Error),
     VmSetup(vstate::Error),
-    VmIOBus(vstate::Error),
+    CreateLegacyDevice(device_manager::legacy::Error),
+    LegacyIOBus(device_manager::legacy::Error),
     RootDiskImage(std::io::Error),
     RootBlockDeviceNew(sys_util::Error),
     RegisterBlock(device_manager::mmio::Error),
@@ -93,6 +96,12 @@ impl std::convert::From<kernel_loader::Error> for Error {
 impl std::convert::From<x86_64::Error> for Error {
     fn from(e: x86_64::Error) -> Error {
         Error::ConfigureSystem(e)
+    }
+}
+
+impl std::convert::From<kernel_cmdline::Error> for Error {
+    fn from(e: kernel_cmdline::Error) -> Error {
+        Error::RegisterBlock(device_manager::mmio::Error::Cmdline(e))
     }
 }
 
@@ -305,7 +314,9 @@ pub struct Vmm {
     vm: Vm,
 
     /// guest VM devices
-    device_manager: Option<MMIODeviceManager>,
+    mmio_device_manager: Option<MMIODeviceManager>,
+    legacy_device_manager: LegacyDeviceManager,
+
     // If there is a Root Block Device, this should be added as the first element of the list
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
@@ -344,7 +355,9 @@ impl Vmm {
             vcpu_handles: None,
             exit_evt: None,
             vm,
-            device_manager: None,
+            mmio_device_manager: None,
+            legacy_device_manager: LegacyDeviceManager::new()
+                .map_err(|e| Error::CreateLegacyDevice(e))?,
             block_device_configs,
             network_interface_configs: NetworkInterfaceConfigs::new(),
             vsock_device_configs: VsockDeviceConfigs::new(),
@@ -411,15 +424,9 @@ impl Vmm {
 
         if block_dev.has_root_block_device() {
             // this is a simple solution to add a block as a root device; should be improved
-            kernel_config
-                .cmdline
-                .insert_str(" root=/dev/vda")
-                .map_err(|e| Error::RegisterBlock(device_manager::mmio::Error::Cmdline(e)))?;
+            kernel_config.cmdline.insert_str(" root=/dev/vda")?;
             if block_dev.has_read_only_root() {
-                kernel_config
-                    .cmdline
-                    .insert_str(" ro")
-                    .map_err(|e| Error::RegisterBlock(device_manager::mmio::Error::Cmdline(e)))?;
+                kernel_config.cmdline.insert_str(" ro")?;
             }
 
             let epoll_context = &mut self.epoll_context;
@@ -540,7 +547,7 @@ impl Vmm {
         self.attach_net_devices(&mut device_manager)?;
         self.attach_vsock_devices(&guest_mem, &mut device_manager)?;
 
-        self.device_manager = Some(device_manager);
+        self.mmio_device_manager = Some(device_manager);
         Ok(())
     }
 
@@ -548,20 +555,24 @@ impl Vmm {
         self.vm
             .memory_init(self.guest_memory.clone().unwrap())
             .map_err(Error::VmSetup)?;
-        self.vm.setup_irqchip().map_err(Error::VmSetup)?;
+        self.vm
+            .setup_irqchip(
+                &self.legacy_device_manager.com_evt_1_3,
+                &self.legacy_device_manager.com_evt_2_4,
+            )
+            .map_err(Error::VmSetup)?;
         self.vm.create_pit().map_err(Error::VmSetup)?;
 
-        let device_manager = self.device_manager.as_ref().unwrap();
+        let device_manager = self.mmio_device_manager.as_ref().unwrap();
         for request in &device_manager.vm_requests {
             if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
                 return Err(Error::DeviceVmRequest(e));
             }
         }
 
-        self.vm
-            .device_manager
+        self.legacy_device_manager
             .register_devices()
-            .map_err(Error::VmIOBus)?;
+            .map_err(Error::LegacyIOBus)?;
 
         Ok(())
     }
@@ -578,13 +589,12 @@ impl Vmm {
         let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
 
         for cpu_id in 0..vcpu_count {
-            let io_bus = self.vm.device_manager.io_bus.clone();
-            let device_manager = self.device_manager.as_ref().unwrap();
+            let io_bus = self.legacy_device_manager.io_bus.clone();
+            let device_manager = self.mmio_device_manager.as_ref().unwrap();
             let mmio_bus = device_manager.bus.clone();
             let kill_signaled = kill_signaled.clone();
             let vcpu_thread_barrier = vcpu_thread_barrier.clone();
-            let vcpu_exit_evt = self.vm
-                .device_manager
+            let vcpu_exit_evt = self.legacy_device_manager
                 .i8042
                 .lock()
                 .unwrap()
@@ -698,8 +708,7 @@ impl Vmm {
     }
 
     pub fn register_events(&mut self) -> Result<()> {
-        let event_fd = self.vm
-            .device_manager
+        let event_fd = self.legacy_device_manager
             .i8042
             .lock()
             .unwrap()
@@ -762,8 +771,7 @@ impl Vmm {
             self.epoll_context.remove_event(evt)?;
         }
         self.epoll_context.disable_stdin_event()?;
-        self.vm
-            .device_manager
+        self.legacy_device_manager
             .stdin_handle
             .lock()
             .set_canon_mode()
@@ -811,7 +819,7 @@ impl Vmm {
                         }
                         EpollDispatch::Stdin => {
                             let mut out = [0u8; 64];
-                            let stdin_lock = self.vm.device_manager.stdin_handle.lock();
+                            let stdin_lock = self.legacy_device_manager.stdin_handle.lock();
                             match stdin_lock.read_raw(&mut out[..]) {
                                 Ok(0) => {
                                     // Zero-length read indicates EOF. Remove from pollables.
@@ -824,8 +832,7 @@ impl Vmm {
                                 Ok(count) => {
                                     // unwrap() to panic if another thread panicked
                                     // while holding the lock
-                                    self.vm
-                                        .device_manager
+                                    self.legacy_device_manager
                                         .stdio_serial
                                         .lock()
                                         .unwrap()
