@@ -13,7 +13,7 @@ Firecracker consists of a single micro Virtual Machine Manager binary that will 
 * Add one or more read/write disks (block devices) to the microVM.
 * Add one or more vSockets to the microVM.
 * Start the microVM using a given kernel image and root file system.
-* Stop the microVM
+* Stop the microVM.
 
 ## What's Included in the current version?
 * One-process virtual machine manager (one Firecracker per microVM).
@@ -147,7 +147,7 @@ requests.put(
 ## Notes
 1. The Kernel and RootFS need to work together, and the Kernel needs to run with Firecracker's limited device model.
 2. Vsocket usage currently requires root privileges, and both host (`CONFIG_VHOST_VSOCK`) and guest (`CONFIG_VIRTIO_VSOCKETS`) kernel support.
-3. It is the user's responsability to make sure that the same backing file is not added as a read-write block device to multiple Firecracker instances. A file can be safely added as a read-only block device to multiple Firecracker instances.
+3. It is the user's responsibility to make sure that the same backing file is not added as a read-write block device to multiple Firecracker instances. A file can be safely added as a read-only block device to multiple Firecracker instances.
 4. Firecracker uses default values for the following parameters:
     1. Kernel Command Line: `console=ttyS0 noapic reboot=k panic=1 pci=off nomodules`. This can be changed with a `PUT` request to `/boot-source`.
     2. Number of vCPUs: 1. This can be changed with a `PUT` request to `/machine-config`
