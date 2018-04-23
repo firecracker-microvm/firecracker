@@ -167,8 +167,12 @@ impl Vcpu {
                     }
                     entry.ebx = ((self.id as u32) << EBX_APICID_SHIFT) as u32
                         | (EBX_CLFLUSH_CACHELINE << EBX_CLFLUSH_SIZE_SHIFT);
-                    if cpu_count > 1 {
-                        entry.ebx |= (cpu_count as u32) << EBX_CPU_COUNT_SHIFT;
+                    entry.ebx |= (cpu_count as u32) << EBX_CPU_COUNT_SHIFT;
+                    // Make sure that Hyperthreading is disabled
+                    entry.edx &= !(1 << EDX_HTT_SHIFT);
+                    // Enable Hyperthreading for even vCPU count so you don't end up with
+                    // an even and > 1 number of sibilings
+                    if cpu_count > 1 && cpu_count % 2 == 0 {
                         entry.edx |= 1 << EDX_HTT_SHIFT;
                     }
                 }
