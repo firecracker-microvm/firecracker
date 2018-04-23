@@ -604,7 +604,7 @@ definitions:
     properties:
       vcpu_count:
         type: integer
-        description: Number of vCPUs
+        description: Number of vCPUs (either 1 or an even number)
       mem_size_mib:
         type: integer
         description: Memory size of VM

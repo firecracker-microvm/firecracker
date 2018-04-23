@@ -21,7 +21,10 @@ impl GenerateResponse for PutMachineConfigurationError {
         match *self {
             InvalidVcpuCount => json_response(
                 StatusCode::BadRequest,
-                json_fault_message("The vCPU number is invalid!"),
+                json_fault_message(
+                    "The vCPU number is invalid! The vCPU number can only \
+                     be 1 or an even number.",
+                ),
             ),
             InvalidMemorySize => json_response(
                 StatusCode::BadRequest,
