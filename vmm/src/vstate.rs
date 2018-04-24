@@ -17,6 +17,7 @@ const BOOT_STACK_POINTER: usize = 0x8000;
 #[derive(Debug)]
 pub enum Error {
     AlreadyRunning,
+    VcpuCountOverflow,
     GuestMemory(sys_util::GuestMemoryError),
     Kvm(sys_util::Error),
     VmFd(sys_util::Error),
@@ -129,7 +130,16 @@ const EBX_APICID_SHIFT: u32 = 24; // The (fixed) default APIC ID.
 const ECX_EPB_SHIFT: u32 = 3; // "Energy Performance Bias" bit.
 const ECX_TSC_DEADLINE_TIMER_SHIFT: u32 = 24;
 const ECX_HYPERVISOR_SHIFT: u32 = 31; // Flag to be set when the cpu is running on a hypervisor.
+const ECX_LEVEL_TYPE_SHIFT: u32 = 8; // Shift for setting level type for leaf 11
 const EDX_HTT_SHIFT: u32 = 28; // Hyper Threading Enabled.
+
+const LEAFBH_LEVEL_TYPE_INVALID: u32 = 0;
+const LEAFBH_LEVEL_TYPE_THREAD: u32 = 1;
+const LEAFBH_LEVEL_TYPE_CORE: u32 = 2;
+
+// The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to get a
+// unique topology of the next level. This allows 64 logical processors/package.
+const LEAFBH_INDEX1_APICID_SHIFT: u32 = 6;
 
 /// A wrapper around creating and using a kvm-based VCPU
 pub struct Vcpu {
@@ -152,11 +162,24 @@ impl Vcpu {
         })
     }
 
+    /// This function is used for setting leaf 01H EBX[23-16]
+    /// The maximum number of addressable logical CPUs is computed as the closest power of 2
+    /// higher or equal to the CPU count configured by the user
+    fn get_max_addressable_lprocessors(cpu_count: u8) -> result::Result<u8, Error> {
+        let mut max_addressable_lcpu = (cpu_count as f64).log2().ceil();
+        max_addressable_lcpu = (2 as f64).powf(max_addressable_lcpu);
+        // check that this number is still an u8
+        if max_addressable_lcpu > u8::max_value().into() {
+            return Err(Error::VcpuCountOverflow);
+        }
+        Ok(max_addressable_lcpu as u8)
+    }
+
     /// Sets up the cpuid entries for the given vcpu
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn filter_cpuid(&mut self, cpu_count: u8) -> Result<()> {
         let entries = self.cpuid.mut_entries_slice();
-
+        let max_addr_cpu = Vcpu::get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
         for entry in entries.iter_mut() {
             match entry.function {
                 1 => {
@@ -167,7 +190,7 @@ impl Vcpu {
                     }
                     entry.ebx = ((self.id as u32) << EBX_APICID_SHIFT) as u32
                         | (EBX_CLFLUSH_CACHELINE << EBX_CLFLUSH_SIZE_SHIFT);
-                    entry.ebx |= (cpu_count as u32) << EBX_CPU_COUNT_SHIFT;
+                    entry.ebx |= max_addr_cpu << EBX_CPU_COUNT_SHIFT;
                     // Make sure that Hyperthreading is disabled
                     entry.edx &= !(1 << EDX_HTT_SHIFT);
                     // Enable Hyperthreading for even vCPU count so you don't end up with
@@ -181,6 +204,52 @@ impl Vcpu {
                     entry.ecx &= !(1 << ECX_EPB_SHIFT);
                 }
                 11 => {
+                    // Hide the actual topology of the underlying host
+                    match entry.index {
+                        0 => {
+                            // Thread Level Topology; index = 0
+                            if cpu_count == 1 {
+                                // No APIC ID at the next level, set EAX to 0
+                                entry.eax = 0;
+                                // Set the numbers of logical processors to 1
+                                entry.ebx = 1;
+                                // There are no hyperthreads for 1 VCPU, set the level type = 2 (Core)
+                                entry.ecx = LEAFBH_LEVEL_TYPE_CORE << ECX_LEVEL_TYPE_SHIFT;
+                            } else {
+                                // To get the next level APIC ID, shift right with 1 because we have
+                                // maximum 2 hyperthreads per core that can be represented with 1 bit
+                                entry.eax = 1;
+                                // 2 logical cores at this level
+                                entry.ebx = 2;
+                                // enforce this level to be of type thread
+                                entry.ecx = LEAFBH_LEVEL_TYPE_THREAD << ECX_LEVEL_TYPE_SHIFT;
+                            }
+                        }
+                        1 => {
+                            // Core Level Processor Topology; index = 1
+                            entry.eax = LEAFBH_INDEX1_APICID_SHIFT;
+                            if cpu_count == 1 {
+                                // For 1 vCPU, this level is invalid
+                                entry.ebx = 0;
+                                // ECX[7:0] = entry.index; ECX[15:8] = 0 (Invalid Level)
+                                entry.ecx = (entry.index as u32)
+                                    | (LEAFBH_LEVEL_TYPE_INVALID << ECX_LEVEL_TYPE_SHIFT);
+                            } else {
+                                entry.ebx = cpu_count as u32;
+                                entry.ecx = (entry.index as u32)
+                                    | (LEAFBH_LEVEL_TYPE_CORE << ECX_LEVEL_TYPE_SHIFT);
+                            }
+                        }
+                        level => {
+                            // Core Level Processor Topology; index >=2
+                            // No other levels available; This should already be set to correctly,
+                            // and it is added here as a "re-enforcement" in case we run on
+                            // different hardware
+                            entry.eax = 0;
+                            entry.ebx = 0;
+                            entry.ecx = level;
+                        }
+                    }
                     // EDX bits 31..0 contain x2APIC ID of current logical processor
                     // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
                     entry.edx = self.id as u32;
@@ -251,6 +320,7 @@ impl Vcpu {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kvm_sys::bindings::kvm_cpuid_entry2;
 
     #[test]
     fn create_vm() {
@@ -289,6 +359,16 @@ mod tests {
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
+    fn test_get_max_addressable_lprocessors() {
+        assert_eq!(Vcpu::get_max_addressable_lprocessors(1).unwrap(), 1);
+        assert_eq!(Vcpu::get_max_addressable_lprocessors(2).unwrap(), 2);
+        assert_eq!(Vcpu::get_max_addressable_lprocessors(4).unwrap(), 4);
+        assert_eq!(Vcpu::get_max_addressable_lprocessors(6).unwrap(), 8);
+        assert!(Vcpu::get_max_addressable_lprocessors(u8::max_value()).is_err());
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
     fn test_cpuid() {
         let kvm = Kvm::new().unwrap();
         let mut vm = Vm::new(&kvm).unwrap();
@@ -296,6 +376,43 @@ mod tests {
         assert_eq!(vcpu.get_cpuid(), vm.fd.get_supported_cpuid());
         assert!(vcpu.filter_cpuid(1).is_ok());
         assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
+        let entries = vcpu.cpuid.mut_entries_slice();
+        // TODO: add tests for the other cpuid leaves
+        // Test the extended topology
+        // See https://www.scss.tcd.ie/~jones/CS4021/processor-identification-cpuid-instruction-note.pdf
+        let leaf11_index0 = kvm_cpuid_entry2 {
+            function: 11,
+            index: 0,
+            flags: 1,
+            eax: 0,
+            ebx: 1,                                              // nr of hyperthreads/core
+            ecx: LEAFBH_LEVEL_TYPE_CORE << ECX_LEVEL_TYPE_SHIFT, // ECX[15:8] = 2 (Core Level)
+            edx: 0,                                              // EDX = APIC ID = 0
+            padding: [0, 0, 0],
+        };
+        assert!(entries.contains(&leaf11_index0));
+        let leaf11_index1 = kvm_cpuid_entry2 {
+            function: 11,
+            index: 1,
+            flags: 1,
+            eax: LEAFBH_INDEX1_APICID_SHIFT,
+            ebx: 0,
+            ecx: 1, // ECX[15:8] = 0 (Invalid Level) & ECX[7:0] = 1 (Level Number)
+            edx: 0, // EDX = APIC ID = 0
+            padding: [0, 0, 0],
+        };
+        assert!(entries.contains(&leaf11_index1));
+        let leaf11_index2 = kvm_cpuid_entry2 {
+            function: 11,
+            index: 2,
+            flags: 1,
+            eax: 0,
+            ebx: 0, // nr of hyperthreads/core
+            ecx: 2, // ECX[15:8] = 0 (Invalid Level) & ECX[7:0] = 2 (Level Number)
+            edx: 0, // EDX = APIC ID = 0
+            padding: [0, 0, 0],
+        };
+        assert!(entries.contains(&leaf11_index2));
     }
 
     #[test]
