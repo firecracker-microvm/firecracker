@@ -36,6 +36,8 @@ pub enum DriveError {
     RootBlockDeviceAlreadyAdded,
     InvalidBlockDevicePath,
     BlockDevicePathAlreadyExists,
+    BlockDeviceUpdateFailed,
+    BlockDeviceUpdateNotAllowed,
     NotImplemented,
 }
 
@@ -55,9 +57,17 @@ impl GenerateResponse for DriveError {
                 StatusCode::BadRequest,
                 json_fault_message("The block device path was already added to a different drive!"),
             ),
+            BlockDeviceUpdateFailed => json_response(
+                StatusCode::InternalServerError,
+                json_fault_message("The update operation failed!"),
+            ),
+            BlockDeviceUpdateNotAllowed => json_response(
+                StatusCode::Forbidden,
+                json_fault_message("The update operation is not allowed!"),
+            ),
             NotImplemented => json_response(
                 StatusCode::InternalServerError,
-                json_fault_message("The update operation is not implemented!"),
+                json_fault_message("The operation is not implemented!"),
             ),
         }
     }
@@ -132,6 +142,18 @@ mod tests {
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
+        );
+        assert_eq!(
+            DriveError::BlockDeviceUpdateFailed
+                .generate_response()
+                .status(),
+            StatusCode::InternalServerError
+        );
+        assert_eq!(
+            DriveError::BlockDeviceUpdateNotAllowed
+                .generate_response()
+                .status(),
+            StatusCode::Forbidden
         );
         assert_eq!(
             DriveError::NotImplemented.generate_response().status(),

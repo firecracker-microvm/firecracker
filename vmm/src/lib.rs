@@ -22,7 +22,7 @@ mod vm_control;
 mod vstate;
 
 use std::ffi::CString;
-use std::fs::{File, OpenOptions};
+use std::fs::{metadata, File, OpenOptions};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -350,21 +350,65 @@ impl Vmm {
         })
     }
 
-    /// only call this function as part of the API
+    /// Only call this function as part of the API.
     /// If the drive_id does not exit, a new Block Device Config is added to the list.
-    /// Else, the drive will be updated
+    /// Else, if the VM is running, the block device will be updated.
+    /// Updating before the VM has started is not allowed.
     pub fn put_block_device(
         &mut self,
         block_device_config: BlockDeviceConfig,
-    ) -> result::Result<(), DriveError> {
+    ) -> result::Result<PutDriveOutcome, DriveError> {
         // if the id of the drive already exists in the list, the operation is update
         if self.block_device_configs
             .contains_drive_id(block_device_config.drive_id.clone())
         {
-            return Err(DriveError::NotImplemented);
+            if self.mmio_device_manager.is_some() {
+                return self.update_block_device(&block_device_config);
+            } else {
+                Err(DriveError::BlockDeviceUpdateNotAllowed)
+            }
         } else {
-            self.block_device_configs.add(block_device_config)
+            match self.block_device_configs.add(block_device_config) {
+                Ok(_) => Ok(PutDriveOutcome::Created),
+                Err(e) => Err(e),
+            }
         }
+    }
+
+    pub fn update_block_device(
+        &mut self,
+        block_device_config: &BlockDeviceConfig,
+    ) -> result::Result<PutDriveOutcome, DriveError> {
+        // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
+        // called before the guest boots, and this function is called after boot.
+        let device_manager = self.mmio_device_manager.as_ref().unwrap();
+
+        for drive_config in self.block_device_configs.config_list.iter() {
+            if drive_config.drive_id == block_device_config.drive_id {
+                match device_manager.get_address(&drive_config.drive_id) {
+                    Some(&address) => {
+                        let metadata = metadata(&block_device_config.path_on_host)
+                            .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                        let new_size = metadata.len();
+                        if new_size % virtio::block::SECTOR_SIZE != 0 {
+                            warn!(
+                                "Disk size {} is not a multiple of sector size {}; \
+                                 the remainder will not be visible to the guest.",
+                                new_size,
+                                virtio::block::SECTOR_SIZE
+                            );
+                        }
+                        return device_manager
+                            .update_drive(address, new_size)
+                            .map(|_| PutDriveOutcome::Updated)
+                            .map_err(|_| DriveError::BlockDeviceUpdateFailed);
+                    }
+                    _ => return Err(DriveError::BlockDeviceUpdateFailed),
+                }
+            }
+        }
+
+        Err(DriveError::BlockDeviceUpdateNotAllowed)
     }
 
     pub fn put_virtual_machine_configuration(
@@ -432,7 +476,11 @@ impl Vmm {
                     epoll_config,
                 ).map_err(Error::RootBlockDeviceNew)?);
                 device_manager
-                    .register_device(block_box, &mut kernel_config.cmdline)
+                    .register_device(
+                        block_box,
+                        &mut kernel_config.cmdline,
+                        Some(drive_config.drive_id.clone()),
+                    )
                     .map_err(Error::RegisterBlock)?;
             }
         }
@@ -464,7 +512,7 @@ impl Vmm {
             ).map_err(Error::NetDeviceNew)?);
 
             device_manager
-                .register_device(net_box, &mut kernel_config.cmdline)
+                .register_device(net_box, &mut kernel_config.cmdline, None)
                 .map_err(Error::RegisterNet)?;
         }
         Ok(())
@@ -919,16 +967,14 @@ impl Vmm {
                     }
                     SyncRequest::PutDrive(drive_description, sender) => {
                         match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
-                            Ok(_) =>
-                            // doing expect() to crash this thread if the other thread crashed
-                                sender.send(Box::new(PutDriveOutcome::Created))
-                                    .map_err(|_| ())
-                                    .expect("one-shot channel closed"),
-                            Err(e) =>
-                            // doing expect() to crash this thread if the other thread crashed
-                                sender.send(Box::new(e))
-                                    .map_err(|_| ())
-                                    .expect("one-shot channel closed"),
+                            Ok(outcome) => sender
+                                .send(Box::new(outcome))
+                                .map_err(|_| ())
+                                .expect("one-shot channel closed"),
+                            Err(e) => sender
+                                .send(Box::new(e))
+                                .map_err(|_| ())
+                                .expect("one-shot channel closed"),
                         }
                     }
                     SyncRequest::PutLogger(logger_description, sender) => {

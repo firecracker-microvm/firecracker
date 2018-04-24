@@ -83,7 +83,7 @@ impl BlockDeviceConfigs {
         }
 
         // check whether the Device Config belongs to a root device
-        // we need to satify the condition by which a VMM can only have on root device
+        // we need to satisfy the condition by which a VMM can only have on root device
         if block_device_config.is_root_device {
             if self.has_root_block {
                 return Err(DriveError::RootBlockDeviceAlreadyAdded);

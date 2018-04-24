@@ -268,12 +268,12 @@ impl BusDevice for MmioDevice {
         }
 
         if !self.device_activated && self.is_driver_ready() && self.are_queues_valid() {
-            if let Some(interrupt_evt) = self.interrupt_evt.take() {
+            if let Some(ref interrupt_evt) = self.interrupt_evt {
                 if let Some(mem) = self.mem.take() {
                     self.device
                         .activate(
                             mem,
-                            interrupt_evt,
+                            interrupt_evt.try_clone().unwrap(),
                             self.interrupt_status.clone(),
                             self.queues.clone(),
                             self.queue_evts.split_off(0),
@@ -283,6 +283,15 @@ impl BusDevice for MmioDevice {
                 }
             }
         }
+    }
+
+    fn interrupt(&self, irq_mask: u32) {
+        self.interrupt_status
+            .fetch_or(irq_mask as usize, Ordering::SeqCst);
+        // interrupt_evt() is safe to unwrap because the inner interrupt_evt is initialized in the
+        // constructor.
+        // write() is safe to unwrap because the inner syscall is tailored to be safe as well.
+        self.interrupt_evt().unwrap().write(1).unwrap();
     }
 }
 
