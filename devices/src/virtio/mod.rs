@@ -23,11 +23,14 @@ const DEVICE_DRIVER_OK: u32 = 0x04;
 const DEVICE_FEATURES_OK: u32 = 0x08;
 const DEVICE_FAILED: u32 = 0x80;
 
-// Types taken from linux/virtio_ids.h
+/// Types taken from linux/virtio_ids.h.
 const TYPE_NET: u32 = 1;
 const TYPE_BLOCK: u32 = 2;
 
-const INTERRUPT_STATUS_USED_RING: u32 = 0x1;
+/// Interrupt flags (re: interrupt status & acknowledge registers).
+/// See linux/virtio_mmio.h.
+pub const VIRTIO_MMIO_INT_VRING: u32 = 0x01;
+pub const VIRTIO_MMIO_INT_CONFIG: u32 = 0x02;
 
 /// Offset from the base MMIO address of a virtio device used by the guest to notify the device of
 /// queue events.

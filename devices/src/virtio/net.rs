@@ -20,7 +20,7 @@ use super::{ActivateError, ActivateResult};
 use epoll;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use net_sys;
-use super::{Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_NET};
+use super::{Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
 use sys_util::{Error as SysError, EventFd, GuestMemory};
 use virtio_sys::virtio_net::*;
 use virtio_sys::virtio_config::*;
@@ -85,7 +85,7 @@ struct NetEpollHandler {
 impl NetEpollHandler {
     fn signal_used_queue(&self) {
         self.interrupt_status
-            .fetch_or(INTERRUPT_STATUS_USED_RING as usize, Ordering::SeqCst);
+            .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
         self.interrupt_evt.write(1).unwrap();
     }
 
