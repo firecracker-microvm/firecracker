@@ -1358,7 +1358,7 @@ fn bindgen_test_layout_kvm_cpuid() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct kvm_cpuid_entry2 {
     pub function: __u32,
     pub index: __u32,
