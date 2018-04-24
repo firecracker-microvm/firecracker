@@ -14,14 +14,14 @@ use std::sync::mpsc;
 use {DeviceEventT, EpollHandler};
 use super::{ActivateError, ActivateResult};
 use epoll;
-use super::{DescriptorChain, Queue, VirtioDevice, INTERRUPT_STATUS_USED_RING, TYPE_BLOCK};
+use super::{DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING};
 use sys_util::Result as SysResult;
 use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};
 use virtio_sys::virtio_blk::*;
 use virtio_sys::virtio_config::*;
 
 const SECTOR_SHIFT: u8 = 9;
-const SECTOR_SIZE: u64 = 0x01 << SECTOR_SHIFT;
+pub const SECTOR_SIZE: u64 = 0x01 << SECTOR_SHIFT;
 const QUEUE_SIZE: u16 = 256;
 const NUM_QUEUES: usize = 1;
 const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
@@ -256,7 +256,7 @@ impl BlockEpollHandler {
 
     fn signal_used_queue(&self) {
         self.interrupt_status
-            .fetch_or(INTERRUPT_STATUS_USED_RING as usize, Ordering::SeqCst);
+            .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
         self.interrupt_evt.write(1).unwrap();
     }
 
@@ -320,7 +320,7 @@ pub struct Block {
     epoll_config: EpollConfig,
 }
 
-fn build_config_space(disk_size: u64) -> Vec<u8> {
+pub fn build_config_space(disk_size: u64) -> Vec<u8> {
     // We only support disk size, which uses the first two words of the configuration space.
     // If the image is not a multiple of the sector size, the tail bits are not exposed.
     // The config space is little endian.
@@ -435,6 +435,17 @@ impl VirtioDevice for Block {
             data.write(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
                 .unwrap();
         }
+    }
+
+    fn write_config(&mut self, offset: u64, data: &[u8]) {
+        let data_len = data.len() as u64;
+        let config_len = self.config_space.len() as u64;
+        if offset + data_len > config_len {
+            warn!("block: failed to write config space");
+            return;
+        }
+        let (_, right) = self.config_space.split_at_mut(offset as usize);
+        right.copy_from_slice(&data[..]);
     }
 
     fn activate(
@@ -773,6 +784,18 @@ mod tests {
         let result = b.activate(m.clone(), ievt, stat, queues, queue_evts);
 
         assert!(result.is_ok());
+
+        // test write config
+        let new_config: [u8; 8] = [0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        b.write_config(0, &new_config);
+        let mut new_config_read = [0u8; 8];
+        b.read_config(0, &mut new_config_read);
+        assert_eq!(new_config, new_config_read);
+        // invalid write
+        b.write_config(5, &new_config);
+        new_config_read = [0u8; 8];
+        b.read_config(0, &mut new_config_read);
+        assert_eq!(new_config, new_config_read);
     }
 
     fn invoke_handler(h: &mut BlockEpollHandler, e: DeviceEventT) {

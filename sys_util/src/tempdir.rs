@@ -21,7 +21,7 @@ pub struct TempDir {
 }
 
 impl TempDir {
-    /// Creates a new tempory directory.
+    /// Creates a new temporary directory.
     /// The directory will be removed when the object goes out of scope.
     ///
     /// # Examples

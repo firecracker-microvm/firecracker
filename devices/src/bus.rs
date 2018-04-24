@@ -19,6 +19,8 @@ pub trait BusDevice: Send {
     fn read(&mut self, offset: u64, data: &mut [u8]) {}
     /// Writes at `offset` into this device
     fn write(&mut self, offset: u64, data: &[u8]) {}
+    /// Triggers the `irq_mask` interrupt on this device
+    fn interrupt(&self, irq_mask: u32) {}
 }
 
 #[derive(Debug)]
@@ -79,7 +81,7 @@ impl Bus {
         None
     }
 
-    fn get_device(&self, addr: u64) -> Option<(u64, &Mutex<BusDevice>)> {
+    pub fn get_device(&self, addr: u64) -> Option<(u64, &Mutex<BusDevice>)> {
         if let Some((BusRange(start, len), dev)) = self.first_before(addr) {
             let offset = addr - start;
             if offset < len {

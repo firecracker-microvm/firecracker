@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
@@ -25,6 +26,8 @@ pub enum Error {
     Cmdline(kernel_cmdline::Error),
     /// No more IRQs are available.
     IrqsExhausted,
+    /// Failed to update the mmio device.
+    UpdateFailed,
 }
 
 impl fmt::Display for Error {
@@ -37,6 +40,7 @@ impl fmt::Display for Error {
                 write!(f, "unable to add device to kernel command line: {}", e)
             }
             &Error::IrqsExhausted => write!(f, "no more IRQs are available"),
+            &Error::UpdateFailed => write!(f, "failed to update the mmio device"),
         }
     }
 }
@@ -54,6 +58,10 @@ const IRQ_BASE: u32 = 5;
 /// Currently hardcoded to 4K
 const MMIO_LEN: u64 = 0x1000;
 
+/// This represents the offset at which the device should call BusDevice::write in order to write
+/// to its configuration space.
+const MMIO_CFG_SPACE_OFF: u64 = 0x100;
+
 /// Manages the complexities of adding a device.
 pub struct MMIODeviceManager {
     pub bus: devices::Bus,
@@ -61,6 +69,7 @@ pub struct MMIODeviceManager {
     guest_mem: GuestMemory,
     mmio_base: u64,
     irq: u32,
+    id_to_addr_map: HashMap<String, u64>,
 }
 
 impl MMIODeviceManager {
@@ -72,6 +81,7 @@ impl MMIODeviceManager {
             mmio_base: mmio_base,
             irq: IRQ_BASE,
             bus: devices::Bus::new(),
+            id_to_addr_map: HashMap::new(),
         }
     }
 
@@ -80,7 +90,8 @@ impl MMIODeviceManager {
         &mut self,
         device: Box<devices::virtio::VirtioDevice>,
         cmdline: &mut kernel_cmdline::Cmdline,
-    ) -> Result<()> {
+        id: Option<String>,
+    ) -> Result<u64> {
         if self.irq > MAX_IRQ {
             return Err(Error::IrqsExhausted);
         }
@@ -111,17 +122,43 @@ impl MMIODeviceManager {
         // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
         // to kernel commandline for virtio mmio devices to get recognized
         // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
-        // bytes to 1024; further, the '{}' formatting rust construct will automatically transform it to decimal
+        // bytes to 1024; further, the '{}' formatting rust construct will automatically
+        // transform it to decimal
         cmdline
             .insert(
                 "virtio_mmio.device",
                 &format!("{}K@0x{:08x}:{}", MMIO_LEN / 1024, self.mmio_base, self.irq),
             )
             .map_err(Error::Cmdline)?;
+        let ret = self.mmio_base;
         self.mmio_base += MMIO_LEN;
         self.irq += 1;
 
-        Ok(())
+        if let Some(device_id) = id {
+            self.id_to_addr_map.insert(device_id.clone(), ret);
+        }
+
+        Ok(ret)
+    }
+
+    /// Update a drive by rebuilding its config space and rewriting it on the bus.
+    pub fn update_drive(&self, addr: u64, new_size: u64) -> Result<()> {
+        if let Some((_, device)) = self.bus.get_device(addr) {
+            let data = devices::virtio::build_config_space(new_size);
+            let mut busdev = device.lock().unwrap();
+
+            busdev.write(MMIO_CFG_SPACE_OFF, &data[..]);
+            busdev.interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG);
+
+            Ok(())
+        } else {
+            Err(Error::UpdateFailed)
+        }
+    }
+
+    /// Gets the address of the specified device on the bus.
+    pub fn get_address(&self, id: &String) -> Option<&u64> {
+        return self.id_to_addr_map.get(id.as_str());
     }
 }
 
@@ -176,7 +213,7 @@ mod tests {
 
         assert!(
             device_manager
-                .register_device(dummy_box, &mut cmdline)
+                .register_device(dummy_box, &mut cmdline, None)
                 .is_ok()
         );
     }
@@ -193,14 +230,14 @@ mod tests {
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         for _i in IRQ_BASE..(MAX_IRQ + 1) {
             device_manager
-                .register_device(dummy_box.clone(), &mut cmdline)
+                .register_device(dummy_box.clone(), &mut cmdline, None)
                 .unwrap();
         }
         assert_eq!(
             format!(
                 "{}",
                 device_manager
-                    .register_device(dummy_box.clone(), &mut cmdline)
+                    .register_device(dummy_box.clone(), &mut cmdline, None)
                     .unwrap_err()
             ),
             "no more IRQs are available".to_string()
@@ -251,5 +288,43 @@ mod tests {
         assert_eq!(format!("{}", e), "failed to clone ioeventfd: Error(0)");
         let e = Error::CloneIrqFd(sys_util::Error::new(0));
         assert_eq!(format!("{}", e), "failed to clone irqfd: Error(0)");
+        let e = Error::UpdateFailed;
+        assert_eq!(format!("{}", e), "failed to update the mmio device");
+    }
+
+    #[test]
+    fn test_update_drive() {
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x1000);
+        let guest_mem =
+            GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd0000000);
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let dummy_box = Box::new(DummyDevice { dummy: 0 });
+
+        if let Ok(addr) =
+            device_manager.register_device(dummy_box, &mut cmdline, Some(String::from("foo")))
+        {
+            assert!(device_manager.update_drive(addr, 1048576).is_ok());
+        }
+        assert!(device_manager.update_drive(0xbeef, 1048576).is_err());
+    }
+
+    #[test]
+    fn test_get_address() {
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x1000);
+        let guest_mem =
+            GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd0000000);
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
+        let dummy_box = Box::new(DummyDevice { dummy: 0 });
+
+        let id = String::from("foo");
+        if let Ok(addr) = device_manager.register_device(dummy_box, &mut cmdline, Some(id.clone()))
+        {
+            assert_eq!(Some(&addr), device_manager.get_address(&id));
+        }
+        assert_eq!(None, device_manager.get_address(&String::from("bar")));
     }
 }
