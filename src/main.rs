@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::sync::mpsc::{channel, Receiver};
 
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg};
 
 use api_server::{ApiRequest, ApiServer};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
@@ -23,15 +23,28 @@ use vmm::{CMDLINE_MAX_SIZE, CMDLINE_OFFSET, KERNEL_START_OFFSET};
 use vmm::{kernel_cmdline, KernelConfig};
 use vmm::device_config::BlockDeviceConfig;
 
-const DEFAULT_SUBNET_MASK: &str = "255.255.255.0";
+#[cfg(not(debug_assertions))]
+fn build_cmd_arguments() -> clap::ArgMatches<'static> {
+    App::new("firecracker")
+        .version(crate_version!())
+        .author(crate_authors!())
+        .about("Launch a microvm.")
+        .arg(
+            Arg::with_name("api_sock")
+                .long("api-sock")
+                .help("Path to unix domain socket used by the API")
+                .default_value("/tmp/firecracker.socket")
+                .takes_value(true),
+        )
+        .get_matches()
+}
 
-fn main() {
-    if let Err(e) = syslog::init() {
-        println!("failed to initialize syslog: {:?}", e);
-        return;
-    }
+#[cfg(debug_assertions)]
+fn build_cmd_arguments() -> clap::ArgMatches<'static> {
+    use clap::SubCommand;
 
-    let cmd_arguments = App::new("firecracker")
+    const DEFAULT_SUBNET_MASK: &str = "255.255.255.0";
+    App::new("firecracker")
         .version(crate_version!())
         .author(crate_authors!())
         .about("Launch a microvm.")
@@ -113,7 +126,16 @@ fn main() {
                         .takes_value(true),
                 ),
         )
-        .get_matches();
+        .get_matches()
+}
+
+fn main() {
+    if let Err(e) = syslog::init() {
+        println!("failed to initialize syslog: {:?}", e);
+        return;
+    }
+
+    let cmd_arguments = build_cmd_arguments();
 
     let (to_vmm, from_api) = channel();
 
