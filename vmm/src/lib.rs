@@ -315,13 +315,14 @@ impl EpollContext {
         match maybe.handler {
             Some(ref mut v) => v.as_mut(),
             None => {
-                //this should only be called in response to an epoll trigger, and the channel
-                //should always contain a message after the events were added to epoll
-                //by the activate() call
-                maybe
-                    .handler
-                    .get_or_insert(maybe.receiver.try_recv().unwrap())
-                    .as_mut()
+                // this should only be called in response to an epoll trigger,
+                // and this branch of the match should only be active on the first call (the first
+                // epoll event for this device), therefore the channel is guaranteed to contain
+                // a message for the first epoll event since both epoll event registration and
+                // channel send() happen in the device activate() function
+                maybe.handler = Some(maybe.receiver.try_recv().unwrap());
+                // get a mutable reference to the boxed content of the option
+                maybe.handler.as_mut().unwrap().as_mut()
             }
         }
     }
