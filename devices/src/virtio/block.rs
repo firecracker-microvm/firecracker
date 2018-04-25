@@ -465,20 +465,18 @@ impl VirtioDevice for Block {
             return Err(ActivateError::BadActivate);
         }
 
-        let (self_kill_evt, kill_evt) = match EventFd::new().and_then(|e| Ok((e.try_clone()?, e))) {
-            Ok(v) => v,
-            Err(e) => {
-                error!("failed creating kill EventFd pair: {:?}", e);
-                return Err(ActivateError::BadActivate);
-            }
-        };
-        self.kill_evt = Some(self_kill_evt);
+        let kill_evt = EventFd::new().map_err(|e| {
+            error!("failed creating kill EventFd: {:?}", e);
+            ActivateError::BadActivate
+        })?;
+
+        let kill_evt_raw_fd = kill_evt.as_raw_fd();
+        self.kill_evt = Some(kill_evt);
 
         if let Some(disk_image) = self.disk_image.take() {
             let queue_evt = queue_evts.remove(0);
 
             let queue_evt_raw_fd = queue_evt.as_raw_fd();
-            let kill_evt_raw_fd = kill_evt.as_raw_fd();
 
             let disk_image_id = match build_device_id(&disk_image) {
                 // in case of error we put in an empty one
