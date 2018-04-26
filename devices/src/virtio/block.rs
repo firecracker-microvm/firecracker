@@ -26,8 +26,12 @@ const QUEUE_SIZE: u16 = 256;
 const NUM_QUEUES: usize = 1;
 const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
 
+// new descriptors are pending on the virtio queue
 pub const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
+// device shutdown has been requested
 pub const KILL_EVENT: DeviceEventT = 1;
+// number of DeviceEventT events supported by this implementation
+pub const BLOCK_EVENTS_COUNT: usize = 2;
 
 #[derive(Debug, PartialEq)]
 enum RequestType {
@@ -302,8 +306,8 @@ impl EpollConfig {
         sender: mpsc::Sender<Box<EpollHandler>>,
     ) -> Self {
         EpollConfig {
-            q_avail_token: first_token,
-            kill_token: first_token + 1,
+            q_avail_token: first_token + QUEUE_AVAIL_EVENT as u64,
+            kill_token: first_token + KILL_EVENT as u64,
             epoll_raw_fd,
             sender,
         }
