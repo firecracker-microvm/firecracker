@@ -288,7 +288,7 @@ impl EpollContext {
         let device_idx = self.device_handlers.len();
         let (sender, receiver) = channel();
 
-        for x in 0..count - 1 {
+        for x in 0..count {
             self.dispatch_table.push(Some(EpollDispatch::DeviceHandler(
                 device_idx,
                 x as DeviceEventT,
