@@ -301,12 +301,12 @@ impl EpollContext {
     }
 
     pub fn allocate_virtio_block_tokens(&mut self) -> virtio::block::EpollConfig {
-        let (dispatch_base, sender) = self.allocate_tokens(2);
+        let (dispatch_base, sender) = self.allocate_tokens(virtio::block::BLOCK_EVENTS_COUNT);
         virtio::block::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
     pub fn allocate_virtio_net_tokens(&mut self) -> virtio::net::EpollConfig {
-        let (dispatch_base, sender) = self.allocate_tokens(4);
+        let (dispatch_base, sender) = self.allocate_tokens(virtio::net::NET_EVENTS_COUNT);
         virtio::net::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 

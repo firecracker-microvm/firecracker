@@ -41,6 +41,8 @@ pub const RX_QUEUE_EVENT: DeviceEventT = 1;
 pub const TX_QUEUE_EVENT: DeviceEventT = 2;
 // Device shutdown has been requested.
 pub const KILL_EVENT: DeviceEventT = 3;
+// number of DeviceEventT events supported by this implementation
+pub const NET_EVENTS_COUNT: usize = 4;
 
 #[derive(Debug)]
 pub enum NetError {
@@ -307,10 +309,10 @@ impl EpollConfig {
         sender: mpsc::Sender<Box<EpollHandler>>,
     ) -> Self {
         EpollConfig {
-            rx_tap_token: first_token,
-            rx_queue_token: first_token + 1,
-            tx_queue_token: first_token + 2,
-            kill_token: first_token + 3,
+            rx_tap_token: first_token + RX_TAP_EVENT as u64,
+            rx_queue_token: first_token + RX_QUEUE_EVENT as u64,
+            tx_queue_token: first_token + TX_QUEUE_EVENT as u64,
+            kill_token: first_token + KILL_EVENT as u64,
             epoll_raw_fd,
             sender,
         }
