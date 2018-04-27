@@ -11,28 +11,26 @@ extern crate syscall_defines;
 #[macro_use]
 pub mod ioctl;
 
-mod mmap;
-mod eventfd;
 mod errno;
+mod eventfd;
 mod guest_address;
 mod guest_memory;
+mod mmap;
+mod signal;
 mod struct_util;
 mod tempdir;
 mod terminal;
-mod signal;
 
-pub use mmap::*;
+pub use errno::{errno_result, Error, Result};
 pub use eventfd::*;
-pub use errno::{Error, Result};
-pub use errno::errno_result;
 pub use guest_address::*;
 pub use guest_memory::*;
+pub use ioctl::*;
+pub use mmap::*;
+pub use signal::*;
 pub use struct_util::*;
 pub use tempdir::*;
 pub use terminal::*;
-pub use signal::*;
-pub use ioctl::*;
-pub use libc_ioctl::*;
 
-pub use mmap::Error as MmapError;
 pub use guest_memory::Error as GuestMemoryError;
+pub use mmap::Error as MmapError;
