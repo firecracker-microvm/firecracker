@@ -67,7 +67,7 @@ impl Kvm {
     /// Gets the size of the mmap required to use vcpu's `kvm_run` structure.
     pub fn get_vcpu_mmap_size(&self) -> Result<usize> {
         // Safe because we know that our file is a KVM fd and we verify the return result.
-        let res = unsafe { ioctl(self, KVM_GET_VCPU_MMAP_SIZE() as c_ulong) };
+        let res = unsafe { ioctl(self, KVM_GET_VCPU_MMAP_SIZE()) };
         if res > 0 {
             Ok(res as usize)
         } else {

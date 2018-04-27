@@ -30,6 +30,12 @@ So far, no stress testing & benchmarking has been done. This is scheduled for a 
 
 # Getting Started
 
+## Add musl target to the active toolchain
+Firecracker supports musl-only build, so before building the project add the musl target to rust's active toolchain:
+```bash
+rustup target add x86_64-unknown-linux-musl
+```
+
 ## Build the Firecracker Binary
 Clone this repo and build it with Rust's: `cargo build --release`.
 
