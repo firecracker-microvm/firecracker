@@ -3,8 +3,9 @@
 // found in the LICENSE file.
 
 //! Macros and wrapper functions for dealing with ioctls.
-
-use std::os::raw::c_uint;
+use libc;
+use std::os::raw::{c_int, c_uint, c_ulong, c_void};
+use std::os::unix::io::AsRawFd;
 
 /// Raw macro to declare a function that returns an ioctl number.
 #[macro_export]
@@ -77,88 +78,38 @@ pub const IOC_INOUT: c_uint = 3221225472;
 pub const IOCSIZE_MASK: c_uint = 1073676288;
 pub const IOCSIZE_SHIFT: c_uint = 16;
 
-/// separate module to deal with calling ioctl's inside libc
-/// libc musl has as second parameter an i32 so separate code goes for that
-#[cfg(not(target_env = "musl"))]
-pub mod libc_ioctl {
-    use libc;
-    use std::os::raw::{c_int, c_ulong, c_void};
-    use std::os::unix::io::AsRawFd;
-
-    /// Run an ioctl with no arguments.
-    pub unsafe fn ioctl<F: AsRawFd>(fd: &F, request: c_ulong) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), request, 0)
-    }
-
-    /// Run an ioctl with a single value argument.
-    pub unsafe fn ioctl_with_val<F: AsRawFd>(fd: &F, request: c_ulong, arg: c_ulong) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), request, arg)
-    }
-
-    /// Run an ioctl with an immutable reference.
-    pub unsafe fn ioctl_with_ref<F: AsRawFd, T>(fd: &F, request: c_ulong, arg: &T) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), request, arg as *const T as *const c_void)
-    }
-
-    /// Run an ioctl with a mutable reference.
-    pub unsafe fn ioctl_with_mut_ref<F: AsRawFd, T>(
-        fd: &F,
-        request: c_ulong,
-        arg: &mut T,
-    ) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), request, arg as *mut T as *mut c_void)
-    }
-
-    /// Run an ioctl with a raw pointer.
-    pub unsafe fn ioctl_with_ptr<F: AsRawFd, T>(fd: &F, request: c_ulong, arg: *const T) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), request, arg as *const c_void)
-    }
-
-    /// Run an ioctl with a mutable raw pointer.
-    pub unsafe fn ioctl_with_mut_ptr<F: AsRawFd, T>(
-        fd: &F,
-        request: c_ulong,
-        arg: *mut T,
-    ) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), request, arg as *mut c_void)
-    }
+/// Run an ioctl with no arguments.
+pub unsafe fn ioctl<F: AsRawFd>(fd: &F, req: c_ulong) -> c_int {
+    libc::ioctl(fd.as_raw_fd(), req as c_int, 0)
 }
 
-#[cfg(target_env = "musl")]
-pub mod libc_ioctl {
-    use libc;
-    use std::os::raw::{c_int, c_ulong, c_void};
-    use std::os::unix::io::AsRawFd;
+/// Run an ioctl with a single value argument.
+pub unsafe fn ioctl_with_val<F: AsRawFd>(fd: &F, req: c_ulong, arg: c_ulong) -> c_int {
+    libc::ioctl(fd.as_raw_fd(), req as c_int, arg)
+}
 
-    /// Run an ioctl with no arguments.
-    pub unsafe fn ioctl<F: AsRawFd>(fd: &F, req: c_ulong) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), req as i32, 0)
-    }
+/// Run an ioctl with an immutable reference.
+pub unsafe fn ioctl_with_ref<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: &T) -> c_int {
+    libc::ioctl(
+        fd.as_raw_fd(),
+        req as c_int,
+        arg as *const T as *const c_void,
+    )
+}
 
-    /// Run an ioctl with a single value argument.
-    pub unsafe fn ioctl_with_val<F: AsRawFd>(fd: &F, req: c_ulong, arg: c_ulong) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), req as i32, arg)
-    }
+/// Run an ioctl with a mutable reference.
+pub unsafe fn ioctl_with_mut_ref<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: &mut T) -> c_int {
+    libc::ioctl(fd.as_raw_fd(), req as c_int, arg as *mut T as *mut c_void)
+}
 
-    /// Run an ioctl with an immutable reference.
-    pub unsafe fn ioctl_with_ref<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: &T) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), req as i32, arg as *const T as *const c_void)
-    }
+/// Run an ioctl with a raw pointer.
+pub unsafe fn ioctl_with_ptr<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: *const T) -> c_int {
+    libc::ioctl(fd.as_raw_fd(), req as c_int, arg as *const c_void)
+}
 
-    /// Run an ioctl with a mutable reference.
-    pub unsafe fn ioctl_with_mut_ref<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: &mut T) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), req as i32, arg as *mut T as *mut c_void)
-    }
-
-    /// Run an ioctl with a raw pointer.
-    pub unsafe fn ioctl_with_ptr<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: *const T) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), req as i32, arg as *const c_void)
-    }
-
-    /// Run an ioctl with a mutable raw pointer.
-    pub unsafe fn ioctl_with_mut_ptr<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: *mut T) -> c_int {
-        libc::ioctl(fd.as_raw_fd(), req as i32, arg as *mut c_void)
-    }
+/// Run an ioctl with a mutable raw pointer.
+pub unsafe fn ioctl_with_mut_ptr<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: *mut T) -> c_int {
+    libc::ioctl(fd.as_raw_fd(), req as c_int, arg as *mut c_void)
 }
 
 #[cfg(test)]
