@@ -86,8 +86,15 @@ unsafe impl<T> Killable for JoinHandle<T> {
 mod tests {
     use super::*;
     use std::thread;
+    use std::time::Duration;
 
-    extern "C" fn handle_signal() {}
+    static mut SIGNAL_HANDLER_CALLED: bool = false;
+
+    extern "C" fn handle_signal() {
+        unsafe {
+            SIGNAL_HANDLER_CALLED = true;
+        }
+    }
 
     #[test]
     fn test_register_signal_handler() {
@@ -106,15 +113,49 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_killing_thread() {
         let killable = thread::spawn(|| thread::current().id());
         let killable_id = killable.join().unwrap();
-        assert!(killable_id != thread::current().id());
+        assert_ne!(killable_id, thread::current().id());
+
+        // We install a signal handler for the specified signal; otherwise the whole process will
+        // be brought down when the signal is received, as part of the default behaviour. Signal
+        // handlers are global, so we install this before starting the thread.
+        unsafe {
+            register_signal_handler(0, handle_signal)
+                .expect("failed to register vcpu signal handler");
+        }
+
         let killable = thread::spawn(|| loop {});
+
         let res = killable.kill(SIGRTMAX() as u8);
         assert!(res.is_err());
         format!("{:?}", res);
+
+        unsafe {
+            assert!(!SIGNAL_HANDLER_CALLED);
+        }
+
         assert!(killable.kill(0).is_ok());
+
+        // We're waiting to detect that the signal handler has been called.
+        const MAX_WAIT_ITERS: u32 = 20;
+        let mut iter_count =  0;
+        loop {
+            thread::sleep(Duration::from_millis(100));
+
+            if unsafe { SIGNAL_HANDLER_CALLED } {
+                break;
+            }
+
+            iter_count += 1;
+            // timeout if we wait too long
+            assert!(iter_count <= MAX_WAIT_ITERS);
+        }
+
+        // Our signal handler doesn't do anything which influences the killable thread, so the
+        // previous signal is effectively ignored. If we were to join killable here, we would block
+        // forever as the loop keeps running. Since we don't join, the thread will become detached
+        // as the handle is dropped, and will be killed when the process/main thread exits.
     }
 }
