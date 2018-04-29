@@ -1,16 +1,22 @@
+""" Tests if both the debug and the release builds pass. """
+
 from subprocess import run
 
 import pytest
 
 
-def build(flags):
-    # if run will raise errors, pytest will handle them.
-    run('cargo build --quiet ' + flags, shell=True, check=True)
+def build(flags=''):
+    run(
+        'cargo build --target=x86_64-unknown-linux-musl --quiet ' + flags +
+        ' >/dev/null 2>&1',
+        shell=True,
+        check=True
+    )
 
 
 @pytest.mark.timeout(240)
 def test_build_debug():
-    build('')
+    build()
 
 
 @pytest.mark.timeout(240)
