@@ -1,3 +1,5 @@
+""" Runs unit tests at integration time. """
+
 from subprocess import run
 
 import pytest
@@ -5,9 +7,10 @@ import pytest
 
 @pytest.mark.timeout(240)
 def test_unittests():
-    # If cargo test will raise errors, pytest will handle them.
+    """ Runs all unit tests from all Rust crates in the repo. """
     run(
-       'RUST_BACKTRACE=1 cargo test --all --quiet --no-fail-fast',
+       'RUST_BACKTRACE=1 cargo test --all --quiet --no-fail-fast'
+       '    >/dev/null 2>&1',
        shell=True,
        check=True
     )

@@ -1,53 +1,58 @@
+"""
+Tests pertaining to line/branch test coverage for the Firecracker code base.
+
+# TODO
+
+- Put the coverage in `s3://spec.firecracker` and update it automatically.
+  target should be put in `s3://spec.firecracker` and automatically updated.
+- Remove the taskset workaround once the kcov fix is picked up by cargo-kcov.
+"""
+
+
 import re
-import shutil
 from subprocess import run
 
 import pytest
 
 
-COVERAGE_TARGET_PCT = 90
-COVERAGE_REGEX = r'"covered":"(\d+\.\d)"'
-COVERAGE_RESULTS_DIR = 'build/test_coverage_output'
-SUCCESS_CODE = 0
-
-
-def install_cargo_kcov_if_needed():
-    # TODO: Move this to a fixture.
-    # cargo kcov may not be available yet.
-    # grep will return exitcode 1 if it is not in the component list.
-    cargo_kcov_check = run(
-        'cargo install --list | grep cargo-kcov',
-        shell=True
-    )
-
-    if not cargo_kcov_check.returncode == SUCCESS_CODE:
-        # Rust kcov usage is done via cargo-kcov. For more information see
-        # github.com/kennytm/cargo-kcov
-        # For OS-specific dependencies see
-        # github.com/SimonKagstrom/kcov/blob/master/INSTALL.md
-        run('cargo install cargo-kcov', shell=True, check=True)
-        run('cargo kcov --print-install-kcov-sh | sh', shell=True, check=True)
-        run('rm -rf kcov-* v*.tar.gz', shell=True, check=True)
-
-
 @pytest.mark.timeout(240)
-def test_coverage():
-    install_cargo_kcov_if_needed()
+def test_coverage(testsession_tmp_path):
+    """
+    Test line coverage with kcov. The result is extracted from the index.json
+    created by kcov after a coverag run.
+    """
 
-    # Run kcov. pytest will handle any errors.
+    COVERAGE_TARGET_PCT = 90
+    # TODO: Put the coverage in s3 and update it automatically.
+
+    COVERAGE_FILE = 'index.json'
+    """ kcov will aggregate coverage data in this file. """
+
+    COVERAGE_REGEX = r'"covered":"(\d+\.\d)"'
+    """ Regex for extracting coverage data from a kcov output file. """
+
+    exclude_pattern = (
+        '${CARGO_HOME:-$HOME/.cargo/},'
+        'tests/,'
+        'usr/lib/gcc,'
+        'lib/x86_64-linux-gnu/,'
+        'pnet'
+    )
     run(
-        'cargo kcov --all --output ' + COVERAGE_RESULTS_DIR,
+        'taskset --cpu-list 0-63 '
+        'cargo kcov --all --target=x86_64-unknown-linux-musl '
+        '    --output ' + testsession_tmp_path +
+        '    -- --exclude-pattern=' + exclude_pattern + ' --verify '
+        '>/dev/null 2>&1',
         shell=True,
         check=True
     )
+    # By default, `cargo kcov` passes `--exclude-pattern=$CARGO_HOME --verify`
+    # to kcov. To pass others arguments, we need to include the defaults.
+    #
+    # TODO: remove the taskset once kcov is fixed.
 
-    # Get the kcov coverage.
-    with open(COVERAGE_RESULTS_DIR + '/index.json') as cov_output:
+    with open(testsession_tmp_path + COVERAGE_FILE) as cov_output:
         coverage = float(re.findall(COVERAGE_REGEX, cov_output.read())[0])
 
-    # Clean up
-    # TODO: Move the cleanup to a test fixture we don't deal with cleanup here
-    shutil.rmtree(COVERAGE_RESULTS_DIR)
-
-    # Assert on the coverage target.
     assert coverage >= COVERAGE_TARGET_PCT
