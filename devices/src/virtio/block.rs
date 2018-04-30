@@ -528,7 +528,6 @@ mod tests {
     use std::fs::OpenOptions;
     use std::path::PathBuf;
     use std::sync::mpsc::Receiver;
-    use std::ascii::AsciiExt;
     use libc;
     use sys_util::TempDir;
 
