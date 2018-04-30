@@ -6,7 +6,6 @@
 
 extern crate libc;
 extern crate memory_model;
-extern crate syscall_defines;
 
 #[macro_use]
 pub mod ioctl;
