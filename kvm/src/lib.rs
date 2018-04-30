@@ -685,6 +685,10 @@ impl CpuId {
 mod tests {
     use super::*;
 
+    //as per https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/fpu/internal.h
+    pub const KVM_FPU_CWD: usize = 0x37f;
+    pub const KVM_FPU_MXCSR: usize = 0x1f80;
+
     //kvm system related function tests
     #[test]
     fn new() {
