@@ -1,0 +1,27 @@
+From ad2d80366b046fcfdeb9e666d45ae2c07879894e Mon Sep 17 00:00:00 2001
+From: Diana Popa <dpopa@amazon.com>
+Date: Mon, 30 Apr 2018 13:03:20 +0300
+Subject: [PATCH] virtio_sys: removing warning on packed struct...
+
+containing an unaligned field.
+
+Signed-off-by: Diana Popa <dpopa@amazon.com>
+---
+ virtio_sys/src/virtio_net.rs | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/virtio_sys/src/virtio_net.rs b/virtio_sys/src/virtio_net.rs
+index a75a216..7e1f795 100644
+--- a/virtio_sys/src/virtio_net.rs
++++ b/virtio_sys/src/virtio_net.rs
+@@ -599,7 +599,6 @@ fn bindgen_test_layout_virtio_net_ctrl_hdr() {
+ }
+ pub type virtio_net_ctrl_ack = __u8;
+ #[repr(C, packed)]
+-#[derive(Debug, Default)]
+ pub struct virtio_net_ctrl_mac {
+     pub entries: __virtio32,
+     pub macs: __IncompleteArrayField<[__u8; 6usize]>,
+-- 
+2.7.4
+
