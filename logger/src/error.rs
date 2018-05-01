@@ -8,6 +8,8 @@ use std::fmt;
 pub enum LoggerError {
     /// First attempt at initialization failed.
     NeverInitialized(String),
+    /// The logger does not allow reinitialization.
+    AlreadyInitialized,
     /// Initialization has previously failed and can not be retried.
     Poisoned(String),
     /// Creating log file fails.
@@ -24,6 +26,7 @@ impl fmt::Display for LoggerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
             LoggerError::NeverInitialized(ref e) => e,
+            LoggerError::AlreadyInitialized => "Reinitialization of logger not allowed",
             LoggerError::Poisoned(ref e) => e,
             LoggerError::CreateLogFile(ref e) => e.description(),
             LoggerError::FileLogWrite(ref e) => e.description(),
@@ -47,6 +50,7 @@ mod tests {
                 LoggerError::NeverInitialized(String::from("Bad Log Path Provided"))
             ).contains("NeverInitialized")
         );
+        assert!(format!("{:?}", LoggerError::AlreadyInitialized).contains("AlreadyInitialized"));
         assert!(
             format!(
                 "{:?}",

@@ -163,22 +163,24 @@ fn vmm_no_api_handler(
     ).expect("cannot create VMM");
 
     // this is temporary; user will be able to customize logging subsystem through API
+    let mut l = Logger::new();
+    l.set_level(logger::Level::Info);
     if cmd_arguments.is_present("log_file") {
-        if let Err(e) = Logger::new()
-            .set_level(logger::Level::Info)
-            .init(Some(String::from(
-                cmd_arguments.value_of("log_file").unwrap(),
-            ))) {
+        if let Err(e) = l.init(Some(String::from(
+            cmd_arguments.value_of("log_file").unwrap(),
+        ))) {
             eprintln!(
                 "main: Failed to initialize logging subsystem: {:?}. Trying without a file",
                 e
             );
-            if let Err(e) = Logger::new().set_level(logger::Level::Info).init(None) {
+            l = Logger::new();
+            l.set_level(logger::Level::Info);
+            if let Err(e) = l.init(None) {
                 panic!("main: Failed to initialize logging subsystem: {:?}", e);
             }
         }
     } else {
-        if let Err(e) = Logger::new().set_level(logger::Level::Info).init(None) {
+        if let Err(e) = l.init(None) {
             panic!("main: Failed to initialize logging subsystem: {:?}", e);
         }
     }
