@@ -64,8 +64,11 @@ pub const DEFAULT_LEVEL: Level = Level::Warn;
 
 /// Synchronization primitives used to run a one-time global initialization.
 ///
+const UNINITIALIZED: usize = 0;
+const INITIALIZED: usize = 1;
+
 static INIT: Once = ONCE_INIT;
-static mut INIT_RES: Result<()> = Ok(());
+static mut INIT_RES: Result<usize> = Ok(UNINITIALIZED);
 
 /// Logger representing the logging subsystem.
 ///
@@ -132,9 +135,8 @@ impl Logger {
     ///     warn!("This will print 'WARN' surrounded by square brackets followed by log message");
     /// }
     /// ```
-    pub fn set_include_level(mut self, option: bool) -> Self {
+    pub fn set_include_level(&mut self, option: bool) {
         self.show_level = option;
-        self
     }
 
     /// Enables or disables including the file path and the line numbers in the tag of the log message.
@@ -156,7 +158,7 @@ impl Logger {
     ///     warn!("This will print '[WARN:file_path.rs:155]' followed by log message");
     /// }
     /// ```
-    pub fn set_include_origin(mut self, file_path: bool, line_numbers: bool) -> Self {
+    pub fn set_include_origin(&mut self, file_path: bool, line_numbers: bool) {
         self.show_file_path = file_path;
         self.show_line_numbers = line_numbers;
 
@@ -164,8 +166,6 @@ impl Logger {
         if !self.show_file_path {
             self.show_line_numbers = false;
         }
-
-        self
     }
 
     /// Explicitly sets the log level for the Logger.
@@ -190,12 +190,11 @@ impl Logger {
     ///         .unwrap();
     /// }
     /// ```
-    pub fn set_level(mut self, level: Level) -> Self {
+    pub fn set_level(&mut self, level: Level) {
         self.level_info.code = level;
         if self.level_info.writer != Destination::File {
             self.level_info.writer = get_default_destination(level);
         }
-        self
     }
 
     /// Creates the first portion (to the left of the separator)
@@ -259,7 +258,10 @@ impl Logger {
                     "{}",
                     INIT_RES.as_ref().err().unwrap()
                 )));
+            } else if INIT_RES.is_ok() && INIT_RES.as_ref().unwrap() != &UNINITIALIZED {
+                return Err(LoggerError::AlreadyInitialized);
             }
+
             INIT.call_once(|| {
                 if let Some(path) = log_path.as_ref() {
                     match FileLogWriter::new(path) {
@@ -283,6 +285,8 @@ impl Logger {
                     "{}",
                     INIT_RES.as_ref().err().unwrap()
                 )));
+            } else {
+                INIT_RES = Ok(INITIALIZED);
             }
         }
         Ok(())
@@ -382,13 +386,14 @@ mod tests {
 
     #[test]
     fn test_init() {
-        let l = Logger::new().set_include_origin(false, true);
+        let mut l = Logger::new();
+        l.set_include_origin(false, true);
         assert_eq!(l.show_line_numbers, false);
 
-        let l = Logger::new()
-            .set_include_origin(true, true)
-            .set_include_level(true)
-            .set_level(log::Level::Info);
+        let mut l = Logger::new();
+        l.set_include_origin(true, true);
+        l.set_include_level(true);
+        l.set_level(log::Level::Info);
         assert_eq!(l.show_line_numbers, true);
         assert_eq!(l.show_file_path, true);
         assert_eq!(l.show_level, true);
@@ -398,7 +403,7 @@ mod tests {
         warn!("warning");
 
         let l = Logger::new();
-        assert!(l.init(None).is_ok());
+        assert!(l.init(None).is_err());
 
         info!("info");
         warn!("warning");
@@ -431,15 +436,15 @@ mod tests {
             assert!(format!("{:?}", INIT_RES).contains("Poisoned"));
         }
 
-        let l = Logger::new()
-            .set_include_level(true)
-            .set_include_origin(false, false);
+        let mut l = Logger::new();
+        l.set_include_level(true);
+        l.set_include_origin(false, false);
         let error_metadata = MetadataBuilder::new().level(Level::Error).build();
         let log_record = log::Record::builder().metadata(error_metadata).build();
         Logger::log(&l, &log_record);
-        let l = Logger::new()
-            .set_include_level(false)
-            .set_include_origin(true, true);
+        let mut l = Logger::new();
+        l.set_include_level(false);
+        l.set_include_origin(true, true);
         Logger::log(&l, &log_record);
     }
 
