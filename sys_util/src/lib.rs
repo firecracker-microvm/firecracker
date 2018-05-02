@@ -4,8 +4,8 @@
 
 //! Small system utility modules for usage by other modules.
 
-extern crate data_model;
 extern crate libc;
+extern crate memory_model;
 extern crate syscall_defines;
 
 #[macro_use]

@@ -65,7 +65,7 @@ type Result<T> = VolatileMemoryResult<T>;
 /// # Examples
 ///
 /// ```
-/// # use data_model::*;
+/// # use memory_model::*;
 /// # fn get_slice(offset: usize, count: usize) -> VolatileMemoryResult<()> {
 ///   let mem_end = calc_offset(offset, count)?;
 ///   if mem_end > 100 {
@@ -153,7 +153,7 @@ impl<'a> VolatileSlice<'a> {
     /// ```
     /// # use std::fs::File;
     /// # use std::path::Path;
-    /// # use data_model::VolatileMemory;
+    /// # use memory_model::VolatileMemory;
     /// # fn test_write_null() -> Result<(), ()> {
     /// let mut mem = [0u8; 32];
     /// let mem_ref = &mut mem[..];
@@ -189,7 +189,7 @@ impl<'a> VolatileSlice<'a> {
     /// ```
     /// # use std::fs::File;
     /// # use std::path::Path;
-    /// # use data_model::VolatileMemory;
+    /// # use memory_model::VolatileMemory;
     /// # fn test_write_null() -> Result<(), ()> {
     /// let mut mem = [0u8; 32];
     /// let mem_ref = &mut mem[..];
@@ -228,7 +228,7 @@ impl<'a> VolatileSlice<'a> {
     /// ```
     /// # use std::fs::File;
     /// # use std::path::Path;
-    /// # use data_model::VolatileMemory;
+    /// # use memory_model::VolatileMemory;
     /// # fn test_write_null() -> Result<(), ()> {
     /// #     let mut mem = [0u8; 32];
     /// #     let mem_ref = &mut mem[..];
@@ -254,7 +254,7 @@ impl<'a> VolatileSlice<'a> {
     /// ```
     /// # use std::fs::File;
     /// # use std::path::Path;
-    /// # use data_model::VolatileMemory;
+    /// # use memory_model::VolatileMemory;
     /// # fn test_write_null() -> Result<(), ()> {
     /// #     let mut mem = [0u8; 32];
     /// #     let mem_ref = &mut mem[..];
@@ -281,7 +281,7 @@ impl<'a> VolatileSlice<'a> {
     /// ```
     /// # use std::fs::File;
     /// # use std::path::Path;
-    /// # use data_model::VolatileMemory;
+    /// # use memory_model::VolatileMemory;
     /// # fn test_write_null() -> Result<(), ()> {
     /// #     let mut mem = [0u8; 32];
     /// #     let mem_ref = &mut mem[..];
@@ -307,7 +307,7 @@ impl<'a> VolatileSlice<'a> {
     /// ```
     /// # use std::fs::File;
     /// # use std::path::Path;
-    /// # use data_model::VolatileMemory;
+    /// # use memory_model::VolatileMemory;
     /// # fn test_write_null() -> Result<(), ()> {
     /// #     let mut mem = [0u8; 32];
     /// #     let mem_ref = &mut mem[..];
@@ -350,7 +350,7 @@ impl<'a> VolatileMemory for VolatileSlice<'a> {
 /// # Examples
 ///
 /// ```
-/// # use data_model::VolatileRef;
+/// # use memory_model::VolatileRef;
 ///   let mut v = 5u32;
 ///   assert_eq!(v, 5);
 ///   let v_ref = unsafe { VolatileRef::new(&mut v as *mut u32) };
@@ -391,7 +391,7 @@ impl<'a, T: DataInit> VolatileRef<'a, T> {
     ///
     /// ```
     /// # use std::mem::size_of;
-    /// # use data_model::VolatileRef;
+    /// # use memory_model::VolatileRef;
     ///   let v_ref = unsafe { VolatileRef::new(0 as *mut u32) };
     ///   assert_eq!(v_ref.size(), size_of::<u32>());
     /// ```

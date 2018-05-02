@@ -8,8 +8,8 @@ use std::io::{Read, Write};
 use std::result;
 use std::sync::Arc;
 
-use data_model::DataInit;
-use data_model::volatile_memory::*;
+use memory_model::DataInit;
+use memory_model::volatile_memory::*;
 use guest_address::GuestAddress;
 use mmap::{self, MemoryMapping};
 

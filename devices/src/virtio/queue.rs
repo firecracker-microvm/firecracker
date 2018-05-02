@@ -320,7 +320,7 @@ impl Queue {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    extern crate data_model;
+    extern crate memory_model;
 
     use std::marker::PhantomData;
     use std::mem;
@@ -338,7 +338,7 @@ pub(crate) mod tests {
     // The DataInit trait is required to use mem.read_obj_from_addr and write_obj_at_addr.
     impl<'a, T> SomeplaceInMemory<'a, T>
     where
-        T: data_model::DataInit,
+        T: memory_model::DataInit,
     {
         fn new(location: GuestAddress, mem: &'a GuestMemory) -> Self {
             SomeplaceInMemory {
@@ -431,7 +431,7 @@ pub(crate) mod tests {
 
     impl<'a, T> VirtqRing<'a, T>
     where
-        T: data_model::DataInit,
+        T: memory_model::DataInit,
     {
         fn new(start: GuestAddress, mem: &'a GuestMemory, qsize: u16, alignment: usize) -> Self {
             assert_eq!(start.0 & (alignment - 1), 0);
@@ -474,7 +474,7 @@ pub(crate) mod tests {
         pub len: u32,
     }
 
-    unsafe impl data_model::DataInit for VirtqUsedElem {}
+    unsafe impl memory_model::DataInit for VirtqUsedElem {}
 
     pub type VirtqAvail<'a> = VirtqRing<'a, u16>;
     pub type VirtqUsed<'a> = VirtqRing<'a, VirtqUsedElem>;
