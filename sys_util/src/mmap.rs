@@ -14,8 +14,8 @@ use libc;
 
 use errno;
 
-use data_model::volatile_memory::*;
-use data_model::DataInit;
+use memory_model::volatile_memory::*;
+use memory_model::DataInit;
 
 #[derive(Debug)]
 pub enum Error {
@@ -351,7 +351,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::fs::{remove_file, File, OpenOptions};
     use std::mem;
-    use data_model::{VolatileMemory, VolatileMemoryError};
+    use memory_model::{VolatileMemory, VolatileMemoryError};
 
     #[test]
     fn basic_map() {

@@ -3,10 +3,10 @@
 // found in the LICENSE file.
 
 extern crate byteorder;
-extern crate data_model;
 extern crate kvm;
 extern crate kvm_sys;
 extern crate libc;
+extern crate memory_model;
 extern crate sys_util;
 
 #[allow(dead_code)]
@@ -28,7 +28,7 @@ impl Clone for bootparam::boot_params {
     }
 }
 // boot_params is just a series of ints, it is safe to initialize it.
-unsafe impl data_model::DataInit for bootparam::boot_params {}
+unsafe impl memory_model::DataInit for bootparam::boot_params {}
 
 #[allow(dead_code)]
 #[allow(non_upper_case_globals)]
@@ -39,13 +39,13 @@ mod msr_index;
 #[allow(non_camel_case_types)]
 mod mpspec;
 // These mpspec types are only data, reading them from data is a safe initialization.
-unsafe impl data_model::DataInit for mpspec::mpc_bus {}
-unsafe impl data_model::DataInit for mpspec::mpc_cpu {}
-unsafe impl data_model::DataInit for mpspec::mpc_intsrc {}
-unsafe impl data_model::DataInit for mpspec::mpc_ioapic {}
-unsafe impl data_model::DataInit for mpspec::mpc_table {}
-unsafe impl data_model::DataInit for mpspec::mpc_lintsrc {}
-unsafe impl data_model::DataInit for mpspec::mpf_intel {}
+unsafe impl memory_model::DataInit for mpspec::mpc_bus {}
+unsafe impl memory_model::DataInit for mpspec::mpc_cpu {}
+unsafe impl memory_model::DataInit for mpspec::mpc_intsrc {}
+unsafe impl memory_model::DataInit for mpspec::mpc_ioapic {}
+unsafe impl memory_model::DataInit for mpspec::mpc_table {}
+unsafe impl memory_model::DataInit for mpspec::mpc_lintsrc {}
+unsafe impl memory_model::DataInit for mpspec::mpf_intel {}
 
 mod gdt;
 pub mod interrupts;
