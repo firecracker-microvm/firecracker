@@ -17,4 +17,4 @@ vhost_backend = { path = "../vhost_backend" }
 logger = {path = "../logger"}
 
 [dev-dependencies]
-data_model = { path = "../data_model"}
+memory_model = { path = "../memory_model"}

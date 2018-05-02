@@ -10,7 +10,7 @@
 //! # Examples
 //!
 //! ```
-//! # use  data_model::*;
+//! # use  memory_model::*;
 //!   let b: Be32 = From::from(3);
 //!   let l: Le32 = From::from(3);
 //!
