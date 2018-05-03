@@ -2,6 +2,7 @@ extern crate epoll;
 extern crate libc;
 
 extern crate api_server;
+extern crate data_model;
 extern crate devices;
 extern crate kernel_loader;
 extern crate kvm;
@@ -36,6 +37,7 @@ use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
                                                        PutMachineConfigurationOutcome};
+use data_model::vm::MachineConfiguration;
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -284,26 +286,10 @@ pub struct KernelConfig {
     pub cmdline_addr: GuestAddress,
 }
 
-// This structure should replace MachineCfg; For now it is safer to duplicate the work as the
-// net support is not fuully integrated.
-pub struct VirtualMachineConfig {
-    vcpu_count: u8,
-    mem_size_mib: usize,
-}
-
-impl Default for VirtualMachineConfig {
-    fn default() -> Self {
-        VirtualMachineConfig {
-            vcpu_count: 1,
-            mem_size_mib: 128,
-        }
-    }
-}
-
 pub struct Vmm {
     _kvm_fd: Kvm,
 
-    vm_config: VirtualMachineConfig,
+    vm_config: MachineConfiguration,
     shared_info: Arc<RwLock<InstanceInfo>>,
 
     /// guest VM core resources
@@ -348,7 +334,7 @@ impl Vmm {
 
         Ok(Vmm {
             _kvm_fd: kvm_fd,
-            vm_config: VirtualMachineConfig::default(),
+            vm_config: MachineConfiguration::default(),
             shared_info: api_shared_info,
             guest_memory: None,
             kernel_config: None,
@@ -396,7 +382,7 @@ impl Vmm {
             if vcpu_count_value == 0 {
                 return Err(PutMachineConfigurationError::InvalidVcpuCount);
             }
-            self.vm_config.vcpu_count = vcpu_count_value;
+            self.vm_config.vcpu_count = vcpu_count;
         }
 
         if mem_size_mib.is_some() {
@@ -405,7 +391,7 @@ impl Vmm {
             if mem_size_mib_value == 0 {
                 return Err(PutMachineConfigurationError::InvalidMemorySize);
             }
-            self.vm_config.mem_size_mib = mem_size_mib.unwrap();
+            self.vm_config.mem_size_mib = mem_size_mib;
         }
 
         Ok(())
@@ -522,7 +508,8 @@ impl Vmm {
     }
 
     pub fn init_guest_memory(&mut self) -> Result<()> {
-        let mem_size = self.vm_config.mem_size_mib << 20;
+        // safe to unwrap because vm_config it is initialized with a default value
+        let mem_size = self.vm_config.mem_size_mib.unwrap() << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
         self.guest_memory = Some(GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?);
         Ok(())
@@ -579,7 +566,8 @@ impl Vmm {
     }
 
     pub fn start_vcpus(&mut self) -> Result<()> {
-        let vcpu_count = self.vm_config.vcpu_count;
+        // safe to unwrap because vm_config has a default value for vcpu_count
+        let vcpu_count = self.vm_config.vcpu_count.unwrap();
         self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
         // safe to unwrap since it's set just above
         let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
@@ -702,7 +690,7 @@ impl Vmm {
             kernel_config.kernel_start_addr,
             kernel_config.cmdline_addr,
             cmdline_cstring.to_bytes().len() + 1,
-            self.vm_config.vcpu_count,
+            self.vm_config.vcpu_count.unwrap(),
         )?;
 
         Ok(())

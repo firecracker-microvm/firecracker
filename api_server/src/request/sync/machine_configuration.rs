@@ -3,17 +3,10 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
 
+use data_model::vm::MachineConfiguration;
 use http_service::{empty_response, json_fault_message, json_response};
 use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 use request::sync::GenerateResponse;
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct MachineConfigurationBody {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub vcpu_count: Option<u8>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mem_size_mib: Option<usize>,
-}
 
 #[derive(Debug)]
 pub enum PutMachineConfigurationError {
@@ -55,7 +48,7 @@ impl GenerateResponse for PutMachineConfigurationOutcome {
     }
 }
 
-impl IntoParsedRequest for MachineConfigurationBody {
+impl IntoParsedRequest for MachineConfiguration {
     fn into_parsed_request(self, _method: Method) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
@@ -109,7 +102,7 @@ mod tests {
 
     #[test]
     fn test_into_parsed_request() {
-        let body = MachineConfigurationBody {
+        let body = MachineConfiguration {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
         };

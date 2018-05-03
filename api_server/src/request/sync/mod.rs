@@ -4,6 +4,7 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{self, StatusCode};
 
+use data_model::vm::MachineConfiguration;
 use http_service::{empty_response, json_fault_message, json_response};
 use net_util::TapError;
 
@@ -15,7 +16,6 @@ mod vsock;
 
 pub use self::drive::{DriveDescription, DriveError, DrivePermissions, PutDriveOutcome};
 pub use self::boot_source::{BootSourceBody, BootSourceType, LocalImage};
-pub use self::machine_configuration::MachineConfigurationBody;
 pub use self::net::NetworkInterfaceBody;
 pub use self::vsock::VsockJsonBody;
 
@@ -55,7 +55,7 @@ pub enum DeviceState {
 pub enum SyncRequest {
     PutBootSource(BootSourceBody, SyncOutcomeSender),
     PutDrive(DriveDescription, SyncOutcomeSender),
-    PutMachineConfiguration(MachineConfigurationBody, SyncOutcomeSender),
+    PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
     PutVsock(VsockJsonBody, SyncOutcomeSender),
 }
