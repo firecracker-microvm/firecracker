@@ -7,6 +7,7 @@ extern crate serde_json;
 extern crate tokio_core;
 extern crate tokio_uds;
 
+extern crate data_model;
 extern crate fc_util;
 extern crate net_util;
 extern crate sys_util;

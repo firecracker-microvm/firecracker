@@ -1,0 +1,8 @@
+[package]
+name = "data_model"
+version = "0.1.0"
+authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+serde = "=1.0.27"
+serde_derive = "=1.0.27"
