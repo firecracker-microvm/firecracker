@@ -6,8 +6,8 @@ use std::result;
 use hyper::Method;
 pub use self::async::{AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest,
                       AsyncRequestBody};
-pub use self::sync::{BootSourceBody, DriveDescription, NetworkInterfaceBody, SyncOutcomeReceiver,
-                     SyncOutcomeSender, SyncRequest, VsockJsonBody};
+pub use self::sync::{APILoggerDescription, BootSourceBody, DriveDescription, NetworkInterfaceBody,
+                     SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest, VsockJsonBody};
 
 pub mod instance_info;
 
