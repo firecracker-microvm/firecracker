@@ -65,7 +65,7 @@ enum Error<'a> {
     Generic(StatusCode, String),
     // The HTTP method & request path combination is not valid.
     InvalidPathMethod(&'a str, Method),
-    // An error occured when deserializing the json body of a request.
+    // An error occurred when deserializing the json body of a request.
     SerdeJson(serde_json::Error),
 }
 
@@ -148,6 +148,25 @@ fn parse_boot_source_req<'a>(
 
         0 if method == Method::Put => Ok(serde_json::from_slice::<request::BootSourceBody>(body)
             .map_err(Error::SerdeJson)?
+            .into_parsed_request()
+            .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
+        _ => Err(Error::InvalidPathMethod(path, method)),
+    }
+}
+
+// Turns a GET/PUT /boot-source HTTP request into a ParsedRequest
+fn parse_logger_req<'a>(
+    path_tokens: &Vec<&str>,
+    path: &'a str,
+    method: Method,
+    body: &Chunk,
+) -> Result<'a, ParsedRequest> {
+    match path_tokens[1..].len() {
+        0 if method == Method::Get => Ok(ParsedRequest::Dummy),
+
+        0 if method == Method::Put => Ok(serde_json::from_slice::<request::APILoggerDescription>(
+            body,
+        ).map_err(Error::SerdeJson)?
             .into_parsed_request()
             .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -265,6 +284,8 @@ fn parse_request<'a>(
                 method,
                 path,
                 str::from_utf8(body.as_ref()).unwrap()
+                // when time will come, we could better do
+                // serde_json::from_slice(&body).unwrap()
             )
         );
     }
@@ -297,6 +318,7 @@ fn parse_request<'a>(
         "actions" => parse_actions_req(&path_tokens, path, method, &id_from_path, body, action_map),
         "boot-source" => parse_boot_source_req(&path_tokens, path, method, body),
         "drives" => parse_drives_req(&path_tokens, path, method, &id_from_path, body),
+        "logger" => parse_logger_req(&path_tokens, path, method, body),
         "machine-config" => parse_machine_config_req(&path_tokens, path, method, body),
         "network-interfaces" => parse_netif_req(&path_tokens, path, method, &id_from_path, body),
         "vsocks" => parse_vsocks_req(&path_tokens, path, method, &id_from_path, body),

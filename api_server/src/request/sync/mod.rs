@@ -10,12 +10,14 @@ use net_util::TapError;
 
 pub mod boot_source;
 mod drive;
+mod logger;
 pub mod machine_configuration;
 mod net;
 mod vsock;
 
 pub use self::drive::{DriveDescription, DriveError, DrivePermissions, PutDriveOutcome};
 pub use self::boot_source::{BootSourceBody, BootSourceType, LocalImage};
+pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, PutLoggerOutcome};
 pub use self::net::NetworkInterfaceBody;
 pub use self::vsock::VsockJsonBody;
 
@@ -56,6 +58,7 @@ pub enum SyncRequest {
     GetMachineConfiguration(SyncOutcomeSender),
     PutBootSource(BootSourceBody, SyncOutcomeSender),
     PutDrive(DriveDescription, SyncOutcomeSender),
+    PutLogger(APILoggerDescription, SyncOutcomeSender),
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
     PutVsock(VsockJsonBody, SyncOutcomeSender),

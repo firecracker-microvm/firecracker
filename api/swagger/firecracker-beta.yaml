@@ -143,6 +143,29 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /logger:
+      put:
+        summary: Initializes the logging system by specifying a log path on the host.
+        operationId: putLogger
+        parameters:
+        - name: body
+          in: body
+          description: Logging system description
+          required: true
+          schema:
+            $ref: "#/definitions/Logger"
+        responses:
+          201:
+            description: Logger created.
+          400:
+            description: Logger cannot be initialized due to bad input.
+            schema:
+              $ref: "#/definitions/Error"
+          default:
+            description: Internal server error.
+            schema:
+              $ref: "#/definitions/Error"
+
   /machine-config:
     get:
       summary: Get the machine configuration of the VM.
@@ -347,6 +370,25 @@ definitions:
       kernel_image_path:
         type: string
         description: Host level path to the kernel image used to boot the guest
+
+  Logger:
+    type: object
+    description:
+      Describes the configuration option for the logger intitialization.
+    properties:
+      path:
+        type: string
+        description: The path on the host for the log file.
+      level:
+        type: string
+        description: Set the level.
+        enum: [Error, Warning, Info, Debug]
+      show_level:
+        type: boolean
+        description: Whether or not to output the level in the logs.
+      show_log_origin:
+        type: boolean
+        description: Whether or not to include the file path and line number of the log's origin.
 
   MachineConfiguration:
     type: object
