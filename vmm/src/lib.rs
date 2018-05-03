@@ -17,6 +17,7 @@ extern crate x86_64;
 pub mod device_config;
 pub mod device_manager;
 pub mod kernel_cmdline;
+mod logger_config;
 mod vm_control;
 mod vstate;
 
@@ -34,7 +35,7 @@ use api_server::request::async::{AsyncOutcome, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse,
                                 NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
-                                SyncRequest, VsockJsonBody};
+                                PutLoggerOutcome, SyncRequest, VsockJsonBody};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
                                                        PutMachineConfigurationOutcome};
@@ -911,20 +912,6 @@ impl Vmm {
                             .map_err(|_| ())
                             .expect("one-shot channel closed");
                     }
-                    SyncRequest::PutDrive(drive_description, sender) => {
-                        match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
-                            Ok(_) =>
-                                // doing expect() to crash this thread if the other thread crashed
-                                sender.send(Box::new(PutDriveOutcome::Created))
-                                .map_err(|_| ())
-                                .expect("one-shot channel closed"),
-                            Err(e) =>
-                                // doing expect() to crash this thread if the other thread crashed
-                                sender.send(Box::new(e))
-                                .map_err(|_| ())
-                                .expect("one-shot channel closed"),
-                        }
-                    }
                     SyncRequest::PutBootSource(boot_source_body, sender) => {
                         // check that the kernel path exists and it is valid
                         let box_response: Box<GenerateResponse + Send> = match boot_source_body
@@ -969,6 +956,32 @@ impl Vmm {
                             .send(box_response)
                             .map_err(|_| ())
                             .expect("one-shot channel closed");
+                    }
+                    SyncRequest::PutDrive(drive_description, sender) => {
+                        match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
+                            Ok(_) =>
+                            // doing expect() to crash this thread if the other thread crashed
+                                sender.send(Box::new(PutDriveOutcome::Created))
+                                    .map_err(|_| ())
+                                    .expect("one-shot channel closed"),
+                            Err(e) =>
+                            // doing expect() to crash this thread if the other thread crashed
+                                sender.send(Box::new(e))
+                                    .map_err(|_| ())
+                                    .expect("one-shot channel closed"),
+                        }
+                    }
+                    SyncRequest::PutLogger(logger_description, sender) => {
+                        match logger_config::init_logger(logger_description) {
+                            Ok(_) => sender
+                                .send(Box::new(PutLoggerOutcome::Initialized))
+                                .map_err(|_| ())
+                                .expect("one-shot channel closed"),
+                            Err(e) => sender
+                                .send(Box::new(e))
+                                .map_err(|_| ())
+                                .expect("one-shot channel closed"),
+                        }
                     }
                     SyncRequest::PutMachineConfiguration(machine_config_body, sender) => {
                         let boxed_response = match self.put_virtual_machine_configuration(
