@@ -12,7 +12,7 @@ use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 use tokio_core::reactor::Handle;
 
-use request::{self, ApiRequest, AsyncOutcome, AsyncRequestBody, ParsedRequest};
+use request::{self, ApiRequest, AsyncOutcome, AsyncRequestBody, IntoParsedRequest, ParsedRequest};
 use request::instance_info::InstanceInfo;
 use super::{ActionMap, ActionMapValue};
 use sys_util::EventFd;
@@ -188,7 +188,7 @@ fn parse_machine_config_req<'a>(
             request::MachineConfigurationBody,
         >(body)
             .map_err(Error::SerdeJson)?
-            .into_parsed_request()
+            .into_parsed_request(method)
             .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -881,7 +881,7 @@ mod tests {
             mem_size_mib: Some(1025),
         };
 
-        match mcb.into_parsed_request() {
+        match mcb.into_parsed_request(Method::Put) {
             Ok(pr) => match parse_machine_config_req(&path_tokens, &path, Method::Put, &body) {
                 Ok(pr_mcb) => assert!(pr.eq(&pr_mcb)),
                 _ => assert!(false),
