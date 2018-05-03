@@ -48,13 +48,41 @@ impl GenerateResponse for PutMachineConfigurationOutcome {
     }
 }
 
+impl GenerateResponse for MachineConfiguration {
+    fn generate_response(&self) -> Response {
+        let vcpu_count = match self.vcpu_count {
+            Some(v) => v.to_string(),
+            None => String::from("Uninitialized"),
+        };
+        let mem_size = match self.mem_size_mib {
+            Some(v) => v.to_string(),
+            None => String::from("Uninitialized"),
+        };
+
+        json_response(
+            StatusCode::Ok,
+            format!(
+                "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?} }}",
+                vcpu_count, mem_size
+            ),
+        )
+    }
+}
+
 impl IntoParsedRequest for MachineConfiguration {
-    fn into_parsed_request(self, _method: Method) -> result::Result<ParsedRequest, String> {
+    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
-        Ok(ParsedRequest::Sync(
-            SyncRequest::PutMachineConfiguration(self, sender),
-            receiver,
-        ))
+        match method {
+            Method::Get => Ok(ParsedRequest::Sync(
+                SyncRequest::GetMachineConfiguration(sender),
+                receiver,
+            )),
+            Method::Put => Ok(ParsedRequest::Sync(
+                SyncRequest::PutMachineConfiguration(self, sender),
+                receiver,
+            )),
+            _ => Ok(ParsedRequest::Dummy),
+        }
     }
 }
 
@@ -114,6 +142,21 @@ mod tests {
                     SyncRequest::PutMachineConfiguration(body, sender),
                     receiver
                 )))
+        );
+        let uninitialized = MachineConfiguration {
+            vcpu_count: None,
+            mem_size_mib: None,
+        };
+        assert!(
+            uninitialized
+                .clone()
+                .into_parsed_request(Method::Get)
+                .is_ok()
+        );
+        assert!(
+            uninitialized
+                .into_parsed_request(Method::Patch)
+                .eq(&Ok(ParsedRequest::Dummy))
         );
     }
 }

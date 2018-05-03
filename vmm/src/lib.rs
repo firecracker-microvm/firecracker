@@ -900,6 +900,12 @@ impl Vmm {
             }
             ApiRequest::Sync(req) => {
                 match req {
+                    SyncRequest::GetMachineConfiguration(sender) => {
+                        sender
+                            .send(Box::new(self.vm_config.clone()))
+                            .map_err(|_| ())
+                            .expect("one-shot channel closed");
+                    }
                     SyncRequest::PutDrive(drive_description, sender) => {
                         match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
                             Ok(_) =>
