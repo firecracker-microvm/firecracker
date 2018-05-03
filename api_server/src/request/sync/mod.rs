@@ -53,6 +53,7 @@ pub enum DeviceState {
 // This enum contains messages for the VMM which represent sync requests. They each contain various
 // bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
 pub enum SyncRequest {
+    GetMachineConfiguration(SyncOutcomeSender),
     PutBootSource(BootSourceBody, SyncOutcomeSender),
     PutDrive(DriveDescription, SyncOutcomeSender),
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
