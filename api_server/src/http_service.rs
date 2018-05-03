@@ -183,7 +183,15 @@ fn parse_machine_config_req<'a>(
     body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
-        0 if method == Method::Get => Ok(ParsedRequest::Dummy),
+        0 if method == Method::Get => {
+            let empty_machine_config = MachineConfiguration {
+                vcpu_count: None,
+                mem_size_mib: None,
+            };
+            Ok(empty_machine_config
+                .into_parsed_request(method)
+                .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?)
+        }
 
         0 if method == Method::Put => Ok(serde_json::from_slice::<MachineConfiguration>(body)
             .map_err(Error::SerdeJson)?
@@ -860,10 +868,7 @@ mod tests {
         let body: Chunk = Chunk::from(json);
 
         // GET
-        match parse_machine_config_req(&path_tokens, &path, Method::Get, &body) {
-            Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false),
-        }
+        assert!(parse_machine_config_req(&path_tokens, &path, Method::Get, &body).is_ok());
 
         assert!(
             parse_machine_config_req(
