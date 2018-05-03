@@ -1,6 +1,9 @@
 pub mod async;
 pub mod sync;
 
+use std::result;
+
+use hyper::Method;
 pub use self::async::{AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest,
                       AsyncRequestBody};
 pub use self::sync::{BootSourceBody, DriveDescription, MachineConfigurationBody,
@@ -25,4 +28,8 @@ pub enum ParsedRequest {
 pub enum ApiRequest {
     Async(AsyncRequest),
     Sync(SyncRequest),
+}
+
+pub trait IntoParsedRequest {
+    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String>;
 }
