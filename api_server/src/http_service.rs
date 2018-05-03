@@ -198,17 +198,22 @@ fn parse_request<'a>(
                 .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
             _ => Err(Error::InvalidPathMethod(path, method)),
         },
-        "machine-config" => match v[1..].len() {
-            0 if is_get => Ok(ParsedRequest::Dummy),
+        "machine-config" => {
+            match v[1..].len() {
+                0 if is_get => Ok(serde_json::from_slice::<request::MachineConfigurationBody>(
+                    body,
+                ).map_err(Error::SerdeJson)?
+                    .into_parsed_request(Method::Get)
+                    .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
 
-            0 if is_put => Ok(
-                serde_json::from_slice::<request::MachineConfigurationBody>(body)
-                    .map_err(Error::SerdeJson)?
-                    .into_parsed_request()
-                    .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?,
-            ),
-            _ => Err(Error::InvalidPathMethod(path, method)),
-        },
+                0 if is_put => Ok(serde_json::from_slice::<request::MachineConfigurationBody>(
+                    body,
+                ).map_err(Error::SerdeJson)?
+                    .into_parsed_request(Method::Put)
+                    .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
+                _ => Err(Error::InvalidPathMethod(path, method)),
+            }
+        }
         "network-interfaces" => match v[1..].len() {
             0 if is_get => Ok(ParsedRequest::Dummy),
 
