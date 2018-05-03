@@ -1,10 +1,10 @@
 use std::result;
 
 use futures::sync::oneshot;
-use hyper::{Response, StatusCode};
+use hyper::{Method, Response, StatusCode};
 
 use http_service::{empty_response, json_fault_message, json_response};
-use request::{ParsedRequest, SyncRequest};
+use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 use request::sync::GenerateResponse;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -55,8 +55,8 @@ impl GenerateResponse for PutMachineConfigurationOutcome {
     }
 }
 
-impl MachineConfigurationBody {
-    pub fn into_parsed_request(self) -> result::Result<ParsedRequest, String> {
+impl IntoParsedRequest for MachineConfigurationBody {
+    fn into_parsed_request(self, _method: Method) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
             SyncRequest::PutMachineConfiguration(self, sender),
@@ -116,7 +116,7 @@ mod tests {
         let (sender, receiver) = oneshot::channel();
         assert!(
             body.clone()
-                .into_parsed_request()
+                .into_parsed_request(Method::Put)
                 .eq(&Ok(ParsedRequest::Sync(
                     SyncRequest::PutMachineConfiguration(body, sender),
                     receiver
