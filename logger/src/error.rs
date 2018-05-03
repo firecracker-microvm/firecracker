@@ -10,8 +10,6 @@ pub enum LoggerError {
     NeverInitialized(String),
     /// The logger does not allow reinitialization.
     AlreadyInitialized,
-    /// Initialization has previously failed and can not be retried.
-    Poisoned(String),
     /// Creating log file fails.
     CreateLogFile(std::io::Error),
     /// Writing to log file fails.
@@ -25,13 +23,20 @@ pub enum LoggerError {
 impl fmt::Display for LoggerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
-            LoggerError::NeverInitialized(ref e) => e,
-            LoggerError::AlreadyInitialized => "Reinitialization of logger not allowed",
-            LoggerError::Poisoned(ref e) => e,
-            LoggerError::CreateLogFile(ref e) => e.description(),
-            LoggerError::FileLogWrite(ref e) => e.description(),
-            LoggerError::FileLogFlush(ref e) => e.description(),
-            LoggerError::FileLogLock(ref e) => e,
+            LoggerError::NeverInitialized(ref e) => format!("{}", e),
+            LoggerError::AlreadyInitialized => {
+                format!("{}", "Reinitialization of logger not allowed.")
+            }
+            LoggerError::CreateLogFile(ref e) => {
+                format!("Failed to create log file. Error: {}", e.description())
+            }
+            LoggerError::FileLogWrite(ref e) => {
+                format!("Failed to write to log file. Error: {}", e.description())
+            }
+            LoggerError::FileLogFlush(ref e) => {
+                format!("Failed to flush log file. Error: {}", e.description())
+            }
+            LoggerError::FileLogLock(ref e) => format!("{}", e),
         };
         write!(f, "{}", printable)
     }

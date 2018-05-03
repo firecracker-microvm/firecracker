@@ -32,7 +32,9 @@ mod writers;
 use error::LoggerError;
 use log::{set_boxed_logger, set_max_level, Log, Metadata, Record};
 use std::result;
-use std::sync::{Arc, Once, ONCE_INIT};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+
 use writers::*;
 
 /// Output sources for the log subsystem.
@@ -65,10 +67,10 @@ pub const DEFAULT_LEVEL: Level = Level::Warn;
 /// Synchronization primitives used to run a one-time global initialization.
 ///
 const UNINITIALIZED: usize = 0;
-const INITIALIZED: usize = 1;
+const INITIALIZING: usize = 1;
+const INITIALIZED: usize = 2;
 
-static INIT: Once = ONCE_INIT;
-static mut INIT_RES: Result<usize> = Ok(UNINITIALIZED);
+static STATE: AtomicUsize = ATOMIC_USIZE_INIT;
 
 /// Logger representing the logging subsystem.
 ///
@@ -248,47 +250,34 @@ impl Logger {
     /// }
     /// ```
     pub fn init(mut self, log_path: Option<String>) -> Result<()> {
-        unsafe {
-            if INIT_RES.is_err() {
-                INIT_RES = Err(LoggerError::Poisoned(format!(
-                    "{}",
-                    INIT_RES.as_ref().err().unwrap()
-                )));
-                return Err(LoggerError::Poisoned(format!(
-                    "{}",
-                    INIT_RES.as_ref().err().unwrap()
-                )));
-            } else if INIT_RES.is_ok() && INIT_RES.as_ref().unwrap() != &UNINITIALIZED {
-                return Err(LoggerError::AlreadyInitialized);
-            }
-
-            INIT.call_once(|| {
-                if let Some(path) = log_path.as_ref() {
-                    match FileLogWriter::new(path) {
-                        Ok(t) => {
-                            self.file = Some(Arc::new(t));
-                            self.level_info.writer = Destination::File;
-                        }
-                        Err(ref e) => {
-                            INIT_RES = Err(LoggerError::NeverInitialized(format!("{}", e)));
-                        }
-                    };
-                }
-                set_max_level(self.level_info.code.to_level_filter());
-
-                if let Err(e) = set_boxed_logger(Box::new(self)) {
-                    INIT_RES = Err(LoggerError::NeverInitialized(format!("{}", e)))
-                }
-            });
-            if INIT_RES.is_err() {
-                return Err(LoggerError::NeverInitialized(format!(
-                    "{}",
-                    INIT_RES.as_ref().err().unwrap()
-                )));
-            } else {
-                INIT_RES = Ok(INITIALIZED);
-            }
+        // if the logger was already initialized, return error
+        if STATE.compare_and_swap(UNINITIALIZED, INITIALIZING, Ordering::SeqCst) != UNINITIALIZED {
+            return Err(LoggerError::AlreadyInitialized);
         }
+
+        // otherwise try initialization
+        if let Some(path) = log_path.as_ref() {
+            match FileLogWriter::new(path) {
+                Ok(t) => {
+                    self.file = Some(Arc::new(t));
+                    self.level_info.writer = Destination::File;
+                }
+                Err(ref e) => {
+                    STATE.store(UNINITIALIZED, Ordering::SeqCst);
+                    return Err(LoggerError::NeverInitialized(format!("{}", e)));
+                }
+            };
+        }
+
+        // if code reaches here, we are all good
+        set_max_level(self.level_info.code.to_level_filter());
+
+        if let Err(e) = set_boxed_logger(Box::new(self)) {
+            STATE.store(UNINITIALIZED, Ordering::SeqCst);
+            return Err(LoggerError::NeverInitialized(format!("{}", e)));
+        }
+
+        STATE.store(INITIALIZED, Ordering::SeqCst);
         Ok(())
     }
 }
