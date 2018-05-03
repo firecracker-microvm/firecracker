@@ -410,20 +410,21 @@ mod tests {
                 ("[ERROR", "lib.rs", "error"),
             ],
         );
-        remove_file("tmp.log").unwrap();
 
         let l = Logger::new();
-        unsafe {
-            if let Err(e) = set_boxed_logger(Box::new(l)) {
-                INIT_RES = Err(LoggerError::NeverInitialized(format!("{}", e)));
-            }
-            assert!(format!("{:?}", INIT_RES).contains("NeverInitialized"));
-        }
+        STATE.store(UNINITIALIZED, Ordering::SeqCst);
+        assert_eq!(
+            format!("{:?}", l.init(Some(String::from("tmp.log"))).err().unwrap()),
+            "NeverInitialized(\"attempted to set a logger after \
+             the logging system was already initialized\")"
+        );
+
+        remove_file("tmp.log").unwrap();
+
+        // exercise the case when there is an error in opening file
         let l = Logger::new();
-        assert!(l.init(None).is_err());
-        unsafe {
-            assert!(format!("{:?}", INIT_RES).contains("Poisoned"));
-        }
+        STATE.store(UNINITIALIZED, Ordering::SeqCst);
+        assert!(l.init(Some(String::from(""))).is_err());
 
         let mut l = Logger::new();
         l.set_include_level(true);
@@ -431,10 +432,21 @@ mod tests {
         let error_metadata = MetadataBuilder::new().level(Level::Error).build();
         let log_record = log::Record::builder().metadata(error_metadata).build();
         Logger::log(&l, &log_record);
+
+        assert_eq!(l.show_level, true);
+        assert_eq!(l.show_file_path, false);
+        assert_eq!(l.show_line_numbers, false);
+
         let mut l = Logger::new();
         l.set_include_level(false);
         l.set_include_origin(true, true);
+        let error_metadata = MetadataBuilder::new().level(Level::Info).build();
+        let log_record = log::Record::builder().metadata(error_metadata).build();
         Logger::log(&l, &log_record);
+
+        assert_eq!(l.show_level, false);
+        assert_eq!(l.show_file_path, true);
+        assert_eq!(l.show_line_numbers, true);
     }
 
     #[test]

@@ -55,30 +55,60 @@ mod tests {
                 LoggerError::NeverInitialized(String::from("Bad Log Path Provided"))
             ).contains("NeverInitialized")
         );
-        assert!(format!("{:?}", LoggerError::AlreadyInitialized).contains("AlreadyInitialized"));
-        assert!(
+        assert_eq!(
             format!(
-                "{:?}",
-                LoggerError::Poisoned(String::from("Never Initialized"))
-            ).contains("Poisoned")
+                "{}",
+                LoggerError::NeverInitialized(String::from("Bad Log Path Provided"))
+            ),
+            "Bad Log Path Provided"
         );
+
+        assert!(format!("{:?}", LoggerError::AlreadyInitialized).contains("AlreadyInitialized"));
+        assert_eq!(
+            format!("{}", LoggerError::AlreadyInitialized),
+            "Reinitialization of logger not allowed."
+        );
+
         assert!(
             format!(
                 "{:?}",
                 LoggerError::FileLogWrite(std::io::Error::new(ErrorKind::Interrupted, "write"))
             ).contains("FileLogWrite")
         );
+        assert_eq!(
+            format!(
+                "{}",
+                LoggerError::FileLogWrite(std::io::Error::new(ErrorKind::Interrupted, "write"))
+            ),
+            "Failed to write to log file. Error: write"
+        );
+
         assert!(
             format!(
                 "{:?}",
                 LoggerError::FileLogFlush(std::io::Error::new(ErrorKind::Interrupted, "flush"))
             ).contains("FileLogFlush")
         );
+        assert_eq!(
+            format!(
+                "{}",
+                LoggerError::FileLogFlush(std::io::Error::new(ErrorKind::Interrupted, "flush"))
+            ),
+            "Failed to flush log file. Error: flush"
+        );
+
         assert!(
             format!(
                 "{:?}",
                 LoggerError::FileLogLock(String::from("File log lock"))
             ).contains("FileLogLock")
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                LoggerError::FileLogLock(String::from("File log lock"))
+            ),
+            "File log lock"
         );
     }
 }
