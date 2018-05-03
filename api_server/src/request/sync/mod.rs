@@ -141,6 +141,10 @@ mod tests {
                     &SyncRequest::PutDrive(ref other_ddesc, _),
                 ) => ddesc == other_ddesc,
                 (
+                    &SyncRequest::PutLogger(ref logdesc, _),
+                    &SyncRequest::PutLogger(ref other_logdesc, _),
+                ) => logdesc == other_logdesc,
+                (
                     &SyncRequest::PutMachineConfiguration(ref mcb, _),
                     &SyncRequest::PutMachineConfiguration(ref other_mcb, _),
                 ) => mcb == other_mcb,
