@@ -12,6 +12,7 @@ use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 use tokio_core::reactor::Handle;
 
+use data_model::vm::MachineConfiguration;
 use request::{self, ApiRequest, AsyncOutcome, AsyncRequestBody, IntoParsedRequest, ParsedRequest};
 use request::instance_info::InstanceInfo;
 use super::{ActionMap, ActionMapValue};
@@ -184,9 +185,7 @@ fn parse_machine_config_req<'a>(
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
-        0 if method == Method::Put => Ok(serde_json::from_slice::<
-            request::MachineConfigurationBody,
-        >(body)
+        0 if method == Method::Put => Ok(serde_json::from_slice::<MachineConfiguration>(body)
             .map_err(Error::SerdeJson)?
             .into_parsed_request(method)
             .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
@@ -500,8 +499,8 @@ mod tests {
     use net_util::MacAddr;
     use fc_util::LriHashMap;
     use request::async::AsyncRequest;
-    use request::sync::{DeviceState, DriveDescription, DrivePermissions, MachineConfigurationBody,
-                        NetworkInterfaceBody, SyncRequest, VsockJsonBody};
+    use request::sync::{DeviceState, DriveDescription, DrivePermissions, NetworkInterfaceBody,
+                        SyncRequest, VsockJsonBody};
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret = body.fold(Vec::new(), |mut acc, chunk| {
@@ -876,7 +875,7 @@ mod tests {
         );
 
         // PUT
-        let mcb = MachineConfigurationBody {
+        let mcb = MachineConfiguration {
             vcpu_count: Some(42),
             mem_size_mib: Some(1025),
         };

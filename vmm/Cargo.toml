@@ -9,6 +9,7 @@ epoll = "=2.1.0"
 scopeguard = "=0.3.3"
 
 api_server = { path = "../api_server" }
+data_model = { path = "../data_model" }
 devices = { path = "../devices" }
 kernel_loader = { path = "../kernel_loader" }
 kvm = { path = "../kvm" }
