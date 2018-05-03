@@ -7,7 +7,7 @@ use http_service::{empty_response, json_fault_message, json_response};
 use request::{ParsedRequest, SyncRequest};
 use request::sync::GenerateResponse;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum APILoggerLevel {
     Error,
     Warning,
@@ -15,7 +15,7 @@ pub enum APILoggerLevel {
     Debug,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct APILoggerDescription {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,5 +65,63 @@ impl APILoggerDescription {
             SyncRequest::PutLogger(self, sender),
             receiver,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_response_logger_error() {
+        assert_eq!(
+            APILoggerError::InitializationFailure("Could not initialize log system".to_string())
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
+        assert!(
+            format!(
+                "{:?}",
+                APILoggerError::InitializationFailure(
+                    "Could not initialize log system".to_string()
+                )
+            ).contains("InitializationFailure")
+        );
+    }
+
+    #[test]
+    fn test_generate_response_put_logger_outcome() {
+        assert_eq!(
+            PutLoggerOutcome::Initialized.generate_response().status(),
+            StatusCode::Created
+        );
+        assert_eq!(
+            PutLoggerOutcome::Error(APILoggerError::InitializationFailure(
+                "Could not initialize log system".to_string()
+            )).generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
+    }
+
+    #[test]
+    fn test_into_parsed_request() {
+        let desc = APILoggerDescription {
+            source_type: APILoggerSourceType::LocalPath,
+            source: String::from(""),
+            level: None,
+            show_level: None,
+            show_log_origin: None,
+        };
+        format!("{:?}", desc);
+        assert!(&desc.clone().into_parsed_request().is_ok());
+        let (sender, receiver) = oneshot::channel();
+        assert!(&desc.clone()
+            .into_parsed_request()
+            .eq(&Ok(ParsedRequest::Sync(
+                SyncRequest::PutLogger(desc, sender),
+                receiver
+            ))));
     }
 }
