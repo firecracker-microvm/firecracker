@@ -108,8 +108,7 @@ mod tests {
     #[test]
     fn test_into_parsed_request() {
         let desc = APILoggerDescription {
-            source_type: APILoggerSourceType::LocalPath,
-            source: String::from(""),
+            path: String::from(""),
             level: None,
             show_level: None,
             show_log_origin: None,

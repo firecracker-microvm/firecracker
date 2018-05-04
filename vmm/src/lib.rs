@@ -17,7 +17,7 @@ extern crate x86_64;
 pub mod device_config;
 pub mod device_manager;
 pub mod kernel_cmdline;
-mod logger_config;
+mod api_logger_config;
 mod vm_control;
 mod vstate;
 
@@ -972,7 +972,7 @@ impl Vmm {
                         }
                     }
                     SyncRequest::PutLogger(logger_description, sender) => {
-                        match logger_config::init_logger(logger_description) {
+                        match api_logger_config::init_logger(logger_description) {
                             Ok(_) => sender
                                 .send(Box::new(PutLoggerOutcome::Initialized))
                                 .map_err(|_| ())
