@@ -107,7 +107,7 @@ fn parse_actions_req<'a>(
     method: Method,
     id_from_path: &Option<&str>,
     body: &Chunk,
-    action_map: &mut Rc<RefCell<ActionMap>>
+    action_map: &mut Rc<RefCell<ActionMap>>,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::GetActions),
@@ -140,7 +140,7 @@ fn parse_boot_source_req<'a>(
     path_tokens: &Vec<&str>,
     path: &'a str,
     method: Method,
-    body: &Chunk
+    body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::Dummy),
@@ -159,15 +159,14 @@ fn parse_drives_req<'a>(
     path: &'a str,
     method: Method,
     id_from_path: &Option<&str>,
-    body: &Chunk
+    body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
         1 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
-        1 if method == Method::Put =>
-            Ok(serde_json::from_slice::<request::DriveDescription>(body)
+        1 if method == Method::Put => Ok(serde_json::from_slice::<request::DriveDescription>(body)
             .map_err(Error::SerdeJson)?
             .into_parsed_request(id_from_path.unwrap())
             .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
@@ -180,17 +179,17 @@ fn parse_machine_config_req<'a>(
     path_tokens: &Vec<&str>,
     path: &'a str,
     method: Method,
-    body: &Chunk
+    body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
-        0 if method == Method::Put => Ok(
-            serde_json::from_slice::<request::MachineConfigurationBody>(body)
-                .map_err(Error::SerdeJson)?
-                .into_parsed_request()
-                .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?,
-        ),
+        0 if method == Method::Put => Ok(serde_json::from_slice::<
+            request::MachineConfigurationBody,
+        >(body)
+            .map_err(Error::SerdeJson)?
+            .into_parsed_request()
+            .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -201,19 +200,18 @@ fn parse_netif_req<'a>(
     path: &'a str,
     method: Method,
     id_from_path: &Option<&str>,
-    body: &Chunk
+    body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
         1 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
-        1 if method == Method::Put => Ok(
-            serde_json::from_slice::<request::NetworkInterfaceBody>(body)
-                .map_err(Error::SerdeJson)?
-                .into_parsed_request(id_from_path.unwrap())
-                .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?,
-        ),
+        1 if method == Method::Put => Ok(serde_json::from_slice::<request::NetworkInterfaceBody>(
+            body,
+        ).map_err(Error::SerdeJson)?
+            .into_parsed_request(id_from_path.unwrap())
+            .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -224,7 +222,7 @@ fn parse_vsocks_req<'a>(
     path: &'a str,
     method: Method,
     id_from_path: &Option<&str>,
-    body: &Chunk
+    body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::Dummy),
@@ -493,34 +491,30 @@ impl hyper::server::Service for ApiServerHttpService {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hyper::header::{Headers, ContentType};
+    use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use futures::sync::oneshot;
     use net_util::MacAddr;
     use fc_util::LriHashMap;
     use request::async::AsyncRequest;
-    use request::sync::{SyncRequest, DriveDescription, DeviceState, DrivePermissions,
-                        MachineConfigurationBody, NetworkInterfaceBody, VsockJsonBody};
+    use request::sync::{DeviceState, DriveDescription, DrivePermissions, MachineConfigurationBody,
+                        NetworkInterfaceBody, SyncRequest, VsockJsonBody};
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret = body.fold(Vec::new(), |mut acc, chunk| {
             acc.extend_from_slice(&*chunk);
             Ok::<_, hyper::Error>(acc)
-        })
-            .and_then(move |value| {
-                Ok(value)
-            });
+        }).and_then(move |value| Ok(value));
 
         String::from_utf8_lossy(&ret.wait().unwrap()).into()
     }
 
     #[derive(Serialize, Deserialize)]
     struct Foo {
-        bar: u32
+        bar: u32,
     }
 
     #[test]
@@ -529,8 +523,7 @@ mod tests {
         let content_type_hdr = ContentType::plaintext();
         headers.set(ContentType::plaintext());
         let body = String::from("This is a test");
-        let resp = build_response_base::<String>(StatusCode::Ok,
-                                                 Some(headers), Some(body.clone()));
+        let resp = build_response_base::<String>(StatusCode::Ok, Some(headers), Some(body.clone()));
 
         assert_eq!(resp.status(), StatusCode::Ok);
         assert_eq!(resp.headers().len(), 1);
@@ -552,27 +545,39 @@ mod tests {
         let resp = json_response::<String>(StatusCode::Ok, body.clone());
         assert_eq!(resp.status(), StatusCode::Ok);
         assert_eq!(resp.headers().len(), 1);
-        assert_eq!(resp.headers().get::<ContentType>(), Some(&ContentType::json()));
+        assert_eq!(
+            resp.headers().get::<ContentType>(),
+            Some(&ContentType::json())
+        );
         assert_eq!(body_to_string(resp.body()), body);
     }
 
     #[test]
     fn test_basic_json_body() {
         let body = basic_json_body("42", "the answer to life, the universe and everything");
-        assert_eq!(body, "{\n  \"42\": \"the answer to life, the universe and everything\"\n}");
+        assert_eq!(
+            body,
+            "{\n  \"42\": \"the answer to life, the universe and everything\"\n}"
+        );
     }
 
     #[test]
     fn test_json_fault_message() {
         let body = json_fault_message("This is an error message");
-        assert_eq!(body, "{\n  \"fault_message\": \"This is an error message\"\n}");
+        assert_eq!(
+            body,
+            "{\n  \"fault_message\": \"This is an error message\"\n}"
+        );
     }
 
     #[test]
     fn test_error_to_response() {
         let mut response: hyper::Response = Error::ActionExists.into();
         assert_eq!(response.status(), StatusCode::Conflict);
-        assert_eq!(response.headers().get::<ContentType>(), Some(&ContentType::json()));
+        assert_eq!(
+            response.headers().get::<ContentType>(),
+            Some(&ContentType::json())
+        );
 
         let json_err_key = "fault_message";
         let json_err_val = "This is an error message";
@@ -580,7 +585,10 @@ mod tests {
         let message = String::from("This is an error message");
         response = Error::Generic(StatusCode::ServiceUnavailable, message).into();
         assert_eq!(response.status(), StatusCode::ServiceUnavailable);
-        assert_eq!(response.headers().get::<ContentType>(), Some(&ContentType::json()));
+        assert_eq!(
+            response.headers().get::<ContentType>(),
+            Some(&ContentType::json())
+        );
         assert_eq!(body_to_string(response.body()), err_message);
 
         let path = String::from("/foo");
@@ -589,17 +597,23 @@ mod tests {
         let json_err_val = format!("Invalid request method and/or path: {} {}", &method, &path);
         let err_message = format!("{{\n  \"{}\": \"{}\"\n}}", &json_err_key, &json_err_val);
         assert_eq!(response.status(), StatusCode::BadRequest);
-        assert_eq!(response.headers().get::<ContentType>(), Some(&ContentType::json()));
+        assert_eq!(
+            response.headers().get::<ContentType>(),
+            Some(&ContentType::json())
+        );
         assert_eq!(body_to_string(response.body()), err_message);
 
         let res = serde_json::from_str::<Foo>(&"foo");
         match res {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 println!("{:?}", &e);
                 response = Error::SerdeJson(e).into();
                 assert_eq!(response.status(), StatusCode::BadRequest);
-                assert_eq!(response.headers().get::<ContentType>(), Some(&ContentType::json()));
+                assert_eq!(
+                    response.headers().get::<ContentType>(),
+                    Some(&ContentType::json())
+                );
             }
         }
     }
@@ -611,8 +625,8 @@ mod tests {
 
     #[test]
     fn test_parse_actions_req() {
-        let mut action_map: Rc<RefCell<ActionMap>> = Rc::new(RefCell::new(LriHashMap::<String,
-            ActionMapValue>::new(1)));
+        let mut action_map: Rc<RefCell<ActionMap>> =
+            Rc::new(RefCell::new(LriHashMap::<String, ActionMapValue>::new(1)));
         let path = "/foo/bar";
         let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
         let id_from_path = Some(path_tokens[1]);
@@ -634,9 +648,10 @@ mod tests {
             Method::Get,
             &id_from_path,
             &body,
-            &mut action_map) {
+            &mut action_map,
+        ) {
             Ok(pr) => assert!(pr.eq(&ParsedRequest::GetActions)),
-            _ => assert!(false)
+            _ => assert!(false),
         }
 
         // GET GetAction
@@ -646,9 +661,10 @@ mod tests {
             Method::Get,
             &id_from_path,
             &body,
-            &mut action_map) {
+            &mut action_map,
+        ) {
             Ok(pr) => assert!(pr.eq(&ParsedRequest::GetAction(String::from("bar")))),
-            _ => assert!(false)
+            _ => assert!(false),
         }
 
         // PUT
@@ -658,57 +674,61 @@ mod tests {
             Method::Put,
             &id_from_path,
             &body,
-            &mut action_map) {
+            &mut action_map,
+        ) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Async(
                     String::from("bar"),
                     AsyncRequest::StartInstance(sender),
-                    receiver)));
+                    receiver
+                )));
 
-                match action_map
-                    .borrow_mut()
-                    .get_mut("bar")
-                    {
-                        Some(&mut ActionMapValue::Pending(ref body)) => {
-                            // The components of AsyncRequestBody are private, so an object can't be
-                            // instantiated here. Reverting to comparison by string formatting.
-                            assert_eq!(format!("{:?}", body),
-                                       "AsyncRequestBody { \
-                                            action_id: \"bar\", \
-                                            action_type: InstanceStart, \
-                                            instance_device_detach_action: Some(\
-                                                InstanceDeviceDetachAction { \
-                                                    device_type: Drive, \
-                                                    device_resource_id: \"dummy\", \
-                                                    force: true }), \
-                                            timestamp: Some(1522850095) }");
-                        },
-                        _ => assert!(false)
-                    };
-            },
-            _ => assert!(false)
+                match action_map.borrow_mut().get_mut("bar") {
+                    Some(&mut ActionMapValue::Pending(ref body)) => {
+                        // The components of AsyncRequestBody are private, so an object can't be
+                        // instantiated here. Reverting to comparison by string formatting.
+                        assert_eq!(
+                            format!("{:?}", body),
+                            "AsyncRequestBody { \
+                             action_id: \"bar\", \
+                             action_type: InstanceStart, \
+                             instance_device_detach_action: Some(\
+                             InstanceDeviceDetachAction { \
+                             device_type: Drive, \
+                             device_resource_id: \"dummy\", \
+                             force: true }), \
+                             timestamp: Some(1522850095) }"
+                        );
+                    }
+                    _ => assert!(false),
+                };
+            }
+            _ => assert!(false),
         }
 
         // Error cases
-        assert!(parse_actions_req(
-            &path_tokens,
-            &path,
-            Method::Put,
-            &id_from_path,
-            &Chunk::from("foo"),
-            &mut action_map)
-            .is_err());
+        assert!(
+            parse_actions_req(
+                &path_tokens,
+                &path,
+                Method::Put,
+                &id_from_path,
+                &Chunk::from("foo"),
+                &mut action_map
+            ).is_err()
+        );
 
-        assert!(parse_actions_req(
-            &"/foo/bar/baz"[1..].split_terminator('/').collect(),
-            &"/foo/bar/baz",
-            Method::Put,
-            &id_from_path,
-            &Chunk::from("foo"),
-            &mut action_map)
-            .is_err());
-
+        assert!(
+            parse_actions_req(
+                &"/foo/bar/baz"[1..].split_terminator('/').collect(),
+                &"/foo/bar/baz",
+                Method::Put,
+                &id_from_path,
+                &Chunk::from("foo"),
+                &mut action_map
+            ).is_err()
+        );
     }
 
     #[test]
@@ -724,13 +744,9 @@ mod tests {
         let body: Chunk = Chunk::from(json);
 
         // GET
-        match parse_boot_source_req(
-            &path_tokens,
-            &path,
-            Method::Get,
-            &body) {
+        match parse_boot_source_req(&path_tokens, &path, Method::Get, &body) {
             Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false)
+            _ => assert!(false),
         }
 
         // PUT
@@ -740,37 +756,33 @@ mod tests {
         let res_bsb = serde_json::from_slice::<request::BootSourceBody>(&body);
         match res_bsb {
             Ok(boot_source_body) => {
-                match parse_boot_source_req(
-                    &path_tokens,
-                    &path,
-                    Method::Put,
-                    &body) {
+                match parse_boot_source_req(&path_tokens, &path, Method::Put, &body) {
                     Ok(pr) => {
                         let (sender, receiver) = oneshot::channel();
                         assert!(pr.eq(&ParsedRequest::Sync(
                             SyncRequest::PutBootSource(boot_source_body, sender),
                             receiver,
                         )));
-                    },
-                    _ => assert!(false)
+                    }
+                    _ => assert!(false),
                 }
-            },
-            _ => assert!(false)
+            }
+            _ => assert!(false),
         }
 
         // Error cases
-        assert!(parse_boot_source_req(
-            &path_tokens,
-            &path,
-            Method::Put,
-            &Chunk::from("foo")).is_err());
+        assert!(
+            parse_boot_source_req(&path_tokens, &path, Method::Put, &Chunk::from("foo")).is_err()
+        );
 
-        assert!(parse_boot_source_req(
-            &"/foo/bar"[1..].split_terminator('/').collect(),
-            &"/foo/bar",
-            Method::Put,
-            &Chunk::from("foo")).is_err());
-
+        assert!(
+            parse_boot_source_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Chunk::from("foo")
+            ).is_err()
+        );
     }
 
     #[test]
@@ -793,19 +805,15 @@ mod tests {
             &"/foo",
             Method::Get,
             &None,
-            &body) {
+            &body,
+        ) {
             Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false)
+            _ => assert!(false),
         }
 
-        match parse_drives_req(
-            &path_tokens,
-            &path,
-            Method::Get,
-            &id_from_path,
-            &body) {
+        match parse_drives_req(&path_tokens, &path, Method::Get, &id_from_path, &body) {
             Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false)
+            _ => assert!(false),
         }
 
         // PUT
@@ -818,27 +826,28 @@ mod tests {
         };
 
         match drive_desc.into_parsed_request("bar") {
-            Ok(pr) => {
-                match parse_drives_req(
-                    &"/foo/bar"[1..].split_terminator('/').collect(),
-                    &"/foo/bar",
-                    Method::Put,
-                    &Some("bar"),
-                    &body) {
-                    Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
-                    _ => assert!(false)
-                }
-            }
-            _ => assert!(false)
+            Ok(pr) => match parse_drives_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Some("bar"),
+                &body,
+            ) {
+                Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
+                _ => assert!(false),
+            },
+            _ => assert!(false),
         }
 
-        assert!(parse_drives_req(
-            &"/foo"[1..].split_terminator('/').collect(),
-            &"/foo",
-            Method::Put,
-            &None,
-            &body).is_err());
-
+        assert!(
+            parse_drives_req(
+                &"/foo"[1..].split_terminator('/').collect(),
+                &"/foo",
+                Method::Put,
+                &None,
+                &body
+            ).is_err()
+        );
     }
 
     #[test]
@@ -852,47 +861,39 @@ mod tests {
         let body: Chunk = Chunk::from(json);
 
         // GET
-        match parse_machine_config_req(
-            &path_tokens,
-            &path,
-            Method::Get,
-            &body) {
+        match parse_machine_config_req(&path_tokens, &path, Method::Get, &body) {
             Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false)
+            _ => assert!(false),
         }
 
-        assert!(parse_machine_config_req(
-            &"/foo/bar"[1..].split_terminator('/').collect(),
-            &"/foo/bar",
-            Method::Get,
-            &body).is_err());
+        assert!(
+            parse_machine_config_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Get,
+                &body
+            ).is_err()
+        );
 
         // PUT
         let mcb = MachineConfigurationBody {
             vcpu_count: Some(42),
-            mem_size_mib: Some(1025)
+            mem_size_mib: Some(1025),
         };
 
         match mcb.into_parsed_request() {
-            Ok(pr) => {
-                match parse_machine_config_req(
-                    &path_tokens,
-                    &path,
-                    Method::Put,
-                    &body) {
-                    Ok(pr_mcb) => assert!(pr.eq(&pr_mcb)),
-                    _ => assert!(false)
-                }
-            }
-            _ => assert!(false)
+            Ok(pr) => match parse_machine_config_req(&path_tokens, &path, Method::Put, &body) {
+                Ok(pr_mcb) => assert!(pr.eq(&pr_mcb)),
+                _ => assert!(false),
+            },
+            _ => assert!(false),
         }
 
         // Error cases
-        assert!(parse_machine_config_req(
-            &path_tokens,
-            &path,
-            Method::Put,
-            &Chunk::from("foo bar")).is_err());
+        assert!(
+            parse_machine_config_req(&path_tokens, &path, Method::Put, &Chunk::from("foo bar"))
+                .is_err()
+        );
 
         // FIXME #236
         // A non-machine configuration json body should cause this request to fail the parsing
@@ -904,12 +905,14 @@ mod tests {
         //    Method::Put,
         //    &Chunk::from("{\"foo\": \"bar\"}")).is_err());
 
-        assert!(parse_machine_config_req(
-            &"/foo/bar"[1..].split_terminator('/').collect(),
-            &"/foo/bar",
-            Method::Put,
-            &Chunk::from("{\"foo\": \"bar\"")).is_err());
-
+        assert!(
+            parse_machine_config_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Chunk::from("{\"foo\": \"bar\"")
+            ).is_err()
+        );
     }
 
     #[test]
@@ -931,19 +934,15 @@ mod tests {
             &"/foo",
             Method::Get,
             &None,
-            &body) {
+            &body,
+        ) {
             Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false)
+            _ => assert!(false),
         }
 
-        match parse_netif_req(
-            &path_tokens,
-            &path,
-            Method::Get,
-            &id_from_path,
-            &body) {
+        match parse_netif_req(&path_tokens, &path, Method::Get, &id_from_path, &body) {
             Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false)
+            _ => assert!(false),
         }
 
         // PUT
@@ -951,45 +950,53 @@ mod tests {
             iface_id: String::from("bar"),
             state: DeviceState::Attached,
             host_dev_name: String::from("foo"),
-            guest_mac: Some(MacAddr::parse_str("12:34:56:78:9a:BC").unwrap())
+            guest_mac: Some(MacAddr::parse_str("12:34:56:78:9a:BC").unwrap()),
         };
 
         match netif.into_parsed_request("bar") {
-            Ok(pr) => {
-                match parse_netif_req(
-                    &"/foo/bar"[1..].split_terminator('/').collect(),
-                    &"/foo/bar",
-                    Method::Put,
-                    &Some("bar"),
-                    &body) {
-                    Ok(pr_netif) => assert!(pr.eq(&pr_netif)),
-                    _ => assert!(false)
-                }
-            }
-            _ => assert!(false)
+            Ok(pr) => match parse_netif_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Some("bar"),
+                &body,
+            ) {
+                Ok(pr_netif) => assert!(pr.eq(&pr_netif)),
+                _ => assert!(false),
+            },
+            _ => assert!(false),
         }
 
         // Error cases
-        assert!(parse_netif_req(
-            &"/foo/bar"[1..].split_terminator('/').collect(),
-            &"/foo/bar",
-            Method::Put,
-            &Some("bar"),
-            &Chunk::from("foo bar")).is_err());
+        assert!(
+            parse_netif_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Some("bar"),
+                &Chunk::from("foo bar")
+            ).is_err()
+        );
 
-        assert!(parse_netif_req(
-            &"/foo/bar"[1..].split_terminator('/').collect(),
-            &"/foo/bar",
-            Method::Put,
-            &Some("bar"),
-            &Chunk::from("{\"foo\": \"bar\"}")).is_err());
+        assert!(
+            parse_netif_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Some("bar"),
+                &Chunk::from("{\"foo\": \"bar\"}")
+            ).is_err()
+        );
 
-        assert!(parse_netif_req(
-            &"/foo"[1..].split_terminator('/').collect(),
-            &"/foo",
-            Method::Put,
-            &None,
-            &body).is_err());
+        assert!(
+            parse_netif_req(
+                &"/foo"[1..].split_terminator('/').collect(),
+                &"/foo",
+                Method::Put,
+                &None,
+                &body
+            ).is_err()
+        );
     }
 
     #[test]
@@ -1010,55 +1017,53 @@ mod tests {
             &"/foo",
             Method::Get,
             &None,
-            &body) {
+            &body,
+        ) {
             Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false)
+            _ => assert!(false),
         }
 
-        match parse_vsocks_req(
-            &path_tokens,
-            &path,
-            Method::Get,
-            &id_from_path,
-            &body) {
+        match parse_vsocks_req(&path_tokens, &path, Method::Get, &id_from_path, &body) {
             Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false)
+            _ => assert!(false),
         }
 
         // PUT
         let vsock = VsockJsonBody {
             vsock_id: String::from("bar"),
             guest_cid: 42,
-            state: DeviceState::Attached
+            state: DeviceState::Attached,
         };
 
         match vsock.into_parsed_request("bar") {
-            Ok(pr) => {
-                match parse_vsocks_req(
-                    &"/foo/bar"[1..].split_terminator('/').collect(),
-                    &"/foo/bar",
-                    Method::Put,
-                    &Some("bar"),
-                    &body) {
-                    Ok(pr_vsock) => assert!(pr.eq(&pr_vsock)),
-                    _ => assert!(false)
-                }
-            }
-            _ => assert!(false)
+            Ok(pr) => match parse_vsocks_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Some("bar"),
+                &body,
+            ) {
+                Ok(pr_vsock) => assert!(pr.eq(&pr_vsock)),
+                _ => assert!(false),
+            },
+            _ => assert!(false),
         }
 
-        assert!(parse_vsocks_req(
-            &"/foo"[1..].split_terminator('/').collect(),
-            &"/foo",
-            Method::Put,
-            &None,
-            &body).is_err());
+        assert!(
+            parse_vsocks_req(
+                &"/foo"[1..].split_terminator('/').collect(),
+                &"/foo",
+                Method::Put,
+                &None,
+                &body
+            ).is_err()
+        );
     }
 
     #[test]
     fn test_parse_request() {
-        let mut action_map: Rc<RefCell<ActionMap>> = Rc::new(RefCell::new(LriHashMap::<String,
-            ActionMapValue>::new(1)));
+        let mut action_map: Rc<RefCell<ActionMap>> =
+            Rc::new(RefCell::new(LriHashMap::<String, ActionMapValue>::new(1)));
         let body: Chunk = Chunk::from("{ \"foo\": \"bar\" }");
 
         assert!(parse_request(&mut action_map, Method::Get, "foo/bar", &body).is_err());
@@ -1072,7 +1077,7 @@ mod tests {
             Method::Trace,
             Method::Connect,
             Method::Patch,
-            Method::Extension(String::from("foobar"))
+            Method::Extension(String::from("foobar")),
         ];
 
         for method in &all_methods {
@@ -1082,7 +1087,7 @@ mod tests {
         // Test empty request
         match parse_request(&mut action_map, Method::Get, "/", &body) {
             Ok(pr) => assert!(pr.eq(&ParsedRequest::GetInstanceInfo)),
-            _ => assert!(false)
+            _ => assert!(false),
         }
         for method in &all_methods {
             if *method != Method::Get {
@@ -1106,7 +1111,7 @@ mod tests {
             "/drives",
             "/machine-config",
             "/network-interfaces",
-            "/vsocks"
+            "/vsocks",
         ] {
             assert!(parse_request(&mut action_map, Method::Get, path, &body).is_ok());
             for method in &all_methods {

@@ -102,33 +102,59 @@ mod tests {
 
     #[test]
     fn test_is_read_only() {
-        assert!(DriveDescription {
-            drive_id: String::from("foo"),
-            path_on_host: String::from("/foo/bar"),
-            state: DeviceState::Attached,
-            is_root_device: true,
-            permissions: DrivePermissions::ro
-        }.is_read_only());
+        assert!(
+            DriveDescription {
+                drive_id: String::from("foo"),
+                path_on_host: String::from("/foo/bar"),
+                state: DeviceState::Attached,
+                is_root_device: true,
+                permissions: DrivePermissions::ro,
+            }.is_read_only()
+        );
     }
 
     #[test]
     fn test_generate_response_drive_error() {
-        assert_eq!(DriveError::RootBlockDeviceAlreadyAdded.generate_response().status(),
-                   StatusCode::BadRequest);
-        assert_eq!(DriveError::InvalidBlockDevicePath.generate_response().status(),
-                   StatusCode::BadRequest);
-        assert_eq!(DriveError::BlockDevicePathAlreadyExists.generate_response().status(),
-                   StatusCode::BadRequest);
-        assert_eq!(DriveError::NotImplemented.generate_response().status(),
-                   StatusCode::InternalServerError);
+        assert_eq!(
+            DriveError::RootBlockDeviceAlreadyAdded
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
+        assert_eq!(
+            DriveError::InvalidBlockDevicePath
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
+        assert_eq!(
+            DriveError::BlockDevicePathAlreadyExists
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
+        assert_eq!(
+            DriveError::NotImplemented.generate_response().status(),
+            StatusCode::InternalServerError
+        );
     }
 
     #[test]
     fn test_generate_response_put_drive_outcome() {
-        assert_eq!(PutDriveOutcome::Created.generate_response().status(), StatusCode::Created);
-        assert_eq!(PutDriveOutcome::Updated.generate_response().status(), StatusCode::NoContent);
-        assert_eq!(PutDriveOutcome::Error(DriveError::NotImplemented).generate_response().status(),
-                   StatusCode::InternalServerError);
+        assert_eq!(
+            PutDriveOutcome::Created.generate_response().status(),
+            StatusCode::Created
+        );
+        assert_eq!(
+            PutDriveOutcome::Updated.generate_response().status(),
+            StatusCode::NoContent
+        );
+        assert_eq!(
+            PutDriveOutcome::Error(DriveError::NotImplemented)
+                .generate_response()
+                .status(),
+            StatusCode::InternalServerError
+        );
     }
 
     #[test]
@@ -138,12 +164,16 @@ mod tests {
             path_on_host: String::from("/foo/bar"),
             state: DeviceState::Attached,
             is_root_device: true,
-            permissions: DrivePermissions::ro
+            permissions: DrivePermissions::ro,
         };
 
         assert!(&desc.clone().into_parsed_request("bar").is_err());
         let (sender, receiver) = oneshot::channel();
-        assert!(&desc.clone().into_parsed_request("foo").eq(
-                   &Ok(ParsedRequest::Sync(SyncRequest::PutDrive(desc, sender), receiver))));
+        assert!(&desc.clone()
+            .into_parsed_request("foo")
+            .eq(&Ok(ParsedRequest::Sync(
+                SyncRequest::PutDrive(desc, sender),
+                receiver
+            ))));
     }
 }

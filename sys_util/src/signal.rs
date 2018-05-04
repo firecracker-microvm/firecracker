@@ -140,7 +140,7 @@ mod tests {
 
         // We're waiting to detect that the signal handler has been called.
         const MAX_WAIT_ITERS: u32 = 20;
-        let mut iter_count =  0;
+        let mut iter_count = 0;
         loop {
             thread::sleep(Duration::from_millis(100));
 
