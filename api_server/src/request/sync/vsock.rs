@@ -39,12 +39,19 @@ mod tests {
         let vsock = VsockJsonBody {
             vsock_id: String::from("foo"),
             guest_cid: 42,
-            state: DeviceState::Attached
+            state: DeviceState::Attached,
         };
 
         assert!(vsock.clone().into_parsed_request("bar").is_err());
         let (sender, receiver) = oneshot::channel();
-        assert!(vsock.clone().into_parsed_request("foo").eq(&Ok(ParsedRequest::Sync(
-            SyncRequest::PutVsock(vsock, sender), receiver))));
+        assert!(
+            vsock
+                .clone()
+                .into_parsed_request("foo")
+                .eq(&Ok(ParsedRequest::Sync(
+                    SyncRequest::PutVsock(vsock, sender),
+                    receiver
+                )))
+        );
     }
 }

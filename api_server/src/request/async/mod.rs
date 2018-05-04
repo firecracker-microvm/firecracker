@@ -97,7 +97,7 @@ mod tests {
             match (self, other) {
                 (&AsyncRequest::StartInstance(_), &AsyncRequest::StartInstance(_)) => true,
                 (&AsyncRequest::StopInstance(_), &AsyncRequest::StopInstance(_)) => true,
-                _ => false
+                _ => false,
             }
         }
     }
@@ -105,25 +105,28 @@ mod tests {
     impl PartialEq for ParsedRequest {
         fn eq(&self, other: &ParsedRequest) -> bool {
             match (self, other) {
-                (&ParsedRequest::Async(ref id, ref request, _),
-                    &ParsedRequest::Async(ref other_id, ref other_request, _)) =>
-                        id == other_id && request == other_request,
-                (&ParsedRequest::Sync(ref sync_req, _),
-                    &ParsedRequest::Sync(ref other_sync_req, _)) =>
-                        sync_req == other_sync_req,
+                (
+                    &ParsedRequest::Async(ref id, ref request, _),
+                    &ParsedRequest::Async(ref other_id, ref other_request, _),
+                ) => id == other_id && request == other_request,
+                (
+                    &ParsedRequest::Sync(ref sync_req, _),
+                    &ParsedRequest::Sync(ref other_sync_req, _),
+                ) => sync_req == other_sync_req,
                 (&ParsedRequest::Dummy, &ParsedRequest::Dummy) => true,
                 (&ParsedRequest::GetInstanceInfo, &ParsedRequest::GetInstanceInfo) => true,
                 (&ParsedRequest::GetActions, &ParsedRequest::GetActions) => true,
-                (&ParsedRequest::GetAction(ref id), &ParsedRequest::GetAction(ref other_id)) =>
-                    id == other_id,
-                _ => false
+                (&ParsedRequest::GetAction(ref id), &ParsedRequest::GetAction(ref other_id)) => {
+                    id == other_id
+                }
+                _ => false,
             }
         }
     }
 
     #[test]
     fn test_to_parsed_request() {
-        let jsons = vec!(
+        let jsons = vec![
             "{
                 \"action_id\": \"dummy\",
                 \"action_type\": \"InstanceStart\",
@@ -154,14 +157,14 @@ mod tests {
             "{
                 \"action_id\": \"dummy\",
                 \"action_type\": \"IAmNotAnActionType\"\
-              }"
-        );
+              }",
+        ];
         let (sender, receiver) = oneshot::channel();
         let req: ParsedRequest = ParsedRequest::Async(
-                String::from("dummy"),
-                AsyncRequest::StartInstance(sender),
-                receiver
-            );
+            String::from("dummy"),
+            AsyncRequest::StartInstance(sender),
+            receiver,
+        );
 
         let mut result: Result<AsyncRequestBody, serde_json::Error> =
             serde_json::from_str(jsons[0]);
@@ -189,8 +192,7 @@ mod tests {
                         \"force\": true},
                     \"timestamp\": 1522850095
                   }";
-        let mut async_body: AsyncRequestBody =
-            serde_json::from_slice(j).unwrap();
+        let mut async_body: AsyncRequestBody = serde_json::from_slice(j).unwrap();
         async_body.set_timestamp(1522850096);
 
         assert_eq!(async_body.timestamp, Some(1522850096));

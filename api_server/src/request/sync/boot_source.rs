@@ -84,38 +84,60 @@ mod tests {
 
     #[test]
     fn test_generate_response_put_boot_source_config_error() {
-        assert_eq!(PutBootSourceConfigError::InvalidKernelPath.generate_response().status(),
-                   StatusCode::BadRequest);
-        assert_eq!(PutBootSourceConfigError::InvalidKernelCommandLine.generate_response().status(),
-                   StatusCode::BadRequest);
+        assert_eq!(
+            PutBootSourceConfigError::InvalidKernelPath
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
+        assert_eq!(
+            PutBootSourceConfigError::InvalidKernelCommandLine
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
     }
 
     #[test]
     fn test_generate_response_put_boot_source_outcome() {
-        assert_eq!(PutBootSourceOutcome::Created.generate_response().status(),
-                   StatusCode::Created);
-        assert_eq!(PutBootSourceOutcome::Updated.generate_response().status(),
-                   StatusCode::NoContent);
-        assert_eq!(PutBootSourceOutcome::Error(PutBootSourceConfigError::InvalidKernelPath)
-                       .generate_response().status(), StatusCode::BadRequest);
+        assert_eq!(
+            PutBootSourceOutcome::Created.generate_response().status(),
+            StatusCode::Created
+        );
+        assert_eq!(
+            PutBootSourceOutcome::Updated.generate_response().status(),
+            StatusCode::NoContent
+        );
+        assert_eq!(
+            PutBootSourceOutcome::Error(PutBootSourceConfigError::InvalidKernelPath)
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
     }
 
     #[test]
     fn test_into_parsed_request() {
-        let body  = BootSourceBody {
+        let body = BootSourceBody {
             boot_source_id: String::from("/foo/bar"),
             source_type: BootSourceType::LocalImage,
-            local_image: Some(LocalImage { kernel_image_path: String::from("/foo/bar") }),
-            boot_args: Some(String::from("foobar"))
+            local_image: Some(LocalImage {
+                kernel_image_path: String::from("/foo/bar"),
+            }),
+            boot_args: Some(String::from("foobar")),
         };
-        let same_body  = BootSourceBody {
+        let same_body = BootSourceBody {
             boot_source_id: String::from("/foo/bar"),
             source_type: BootSourceType::LocalImage,
-            local_image: Some(LocalImage { kernel_image_path: String::from("/foo/bar") }),
-            boot_args: Some(String::from("foobar"))
+            local_image: Some(LocalImage {
+                kernel_image_path: String::from("/foo/bar"),
+            }),
+            boot_args: Some(String::from("foobar")),
         };
         let (sender, receiver) = oneshot::channel();
         assert!(body.into_parsed_request().eq(&Ok(ParsedRequest::Sync(
-            SyncRequest::PutBootSource(same_body, sender), receiver))))
+            SyncRequest::PutBootSource(same_body, sender),
+            receiver
+        ))))
     }
 }
