@@ -287,6 +287,8 @@ definitions:
         type: boolean
       permissions:
         $ref: "#/definitions/DrivePermissions"
+      rate_limiter:
+        $ref: "#/definitions/RateLimiter"
       state:
         $ref: "#/definitions/DeviceState"
 
@@ -385,4 +387,28 @@ definitions:
         description: Host level path for the guest network interface
       state:
         $ref: "#/definitions/DeviceState"
+
+  RateLimiter:
+    type: object
+    properties:
+      bandwidth:
+        $ref: "#/definitions/TokenBucket"
+        description: Token bucket with bytes as tokens
+      ops:
+        $ref: "#/definitions/TokenBucket"
+        description: Token bucket with operations as tokens
+
+  TokenBucket:
+    type: object
+    properties:
+      size:
+        type: integer
+        format: int64
+        description: The total number of tokens this bucket can hold
+        minimum: 0
+      refill_time:
+        type: integer
+        format: int64
+        description: The amount of milliseconds it takes for the bucket to refill
+        minimum: 0
 
