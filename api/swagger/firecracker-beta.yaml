@@ -114,8 +114,9 @@ paths:
 
   /drives/{drive_id}:
     put:
-      summary: Creates new drive with ID specified by drive_id path parameter. If a drive with the specified ID
-               already exists, updates its state based on new input. May fail if update is not possible.
+      summary: Creates new drive with ID specified by drive_id path parameter.
+               If a drive with the specified ID already exists, updates its state based on new input.
+               May fail if update is not possible.
       operationId: putGuestDriveByID
       parameters:
       - name: drive_id
@@ -321,9 +322,8 @@ definitions:
   InstanceInfo:
     properties:
       state:
-        description: |
-          The current detailed state of the Firecracker instance. This value is
-          read-only by the control-plane.
+        description: The current detailed state of the Firecracker instance.
+                     This value is read-only by the control-plane.
         type: string
         enum:
           - Uninitialized
@@ -362,9 +362,8 @@ definitions:
 
   MachineConfiguration:
     type: object
-    description:
-      Machine Configuration descriptor by which you can specify the number of vCPU of one machine with vcpu_count
-      and the memory size in MiB with mem_size_mib
+    description: Machine Configuration descriptor by which you can specify the number of vCPU
+                 of one machine with vcpu_count and the memory size in MiB with mem_size_mib.
     properties:
       vcpu_count:
         type: integer
