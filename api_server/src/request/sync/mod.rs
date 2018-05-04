@@ -128,20 +128,26 @@ mod tests {
     impl PartialEq for SyncRequest {
         fn eq(&self, other: &SyncRequest) -> bool {
             match (self, other) {
-                (&SyncRequest::PutBootSource(ref bsb, _),
-                    &SyncRequest::PutBootSource(ref other_bsb, _))
-                => bsb == other_bsb,
-                (&SyncRequest::PutDrive(ref ddesc, _), &SyncRequest::PutDrive(ref other_ddesc, _))
-                => ddesc == other_ddesc,
-                (&SyncRequest::PutMachineConfiguration(ref mcb, _),
-                    &SyncRequest::PutMachineConfiguration(ref other_mcb, _))
-                => mcb == other_mcb,
-                (&SyncRequest::PutNetworkInterface(ref netif, _),
-                    &SyncRequest::PutNetworkInterface(ref other_netif, _))
-                => netif == other_netif,
-                (&SyncRequest::PutVsock(ref vjb, _), &SyncRequest::PutVsock(ref other_vjb, _))
-                => vjb == other_vjb,
-                _ => false
+                (
+                    &SyncRequest::PutBootSource(ref bsb, _),
+                    &SyncRequest::PutBootSource(ref other_bsb, _),
+                ) => bsb == other_bsb,
+                (
+                    &SyncRequest::PutDrive(ref ddesc, _),
+                    &SyncRequest::PutDrive(ref other_ddesc, _),
+                ) => ddesc == other_ddesc,
+                (
+                    &SyncRequest::PutMachineConfiguration(ref mcb, _),
+                    &SyncRequest::PutMachineConfiguration(ref other_mcb, _),
+                ) => mcb == other_mcb,
+                (
+                    &SyncRequest::PutNetworkInterface(ref netif, _),
+                    &SyncRequest::PutNetworkInterface(ref other_netif, _),
+                ) => netif == other_netif,
+                (&SyncRequest::PutVsock(ref vjb, _), &SyncRequest::PutVsock(ref other_vjb, _)) => {
+                    vjb == other_vjb
+                }
+                _ => false,
             }
         }
     }

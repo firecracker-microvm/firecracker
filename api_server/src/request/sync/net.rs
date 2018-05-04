@@ -75,12 +75,19 @@ mod tests {
             iface_id: String::from("foo"),
             state: DeviceState::Attached,
             host_dev_name: String::from("bar"),
-            guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap())
+            guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
         };
 
         assert!(netif.clone().into_parsed_request("bar").is_err());
         let (sender, receiver) = oneshot::channel();
-        assert!(netif.clone().into_parsed_request("foo").eq(&Ok(ParsedRequest::Sync(
-            SyncRequest::PutNetworkInterface(netif, sender), receiver))));
+        assert!(
+            netif
+                .clone()
+                .into_parsed_request("foo")
+                .eq(&Ok(ParsedRequest::Sync(
+                    SyncRequest::PutNetworkInterface(netif, sender),
+                    receiver
+                )))
+        );
     }
 }
