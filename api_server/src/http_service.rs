@@ -833,6 +833,7 @@ mod tests {
             state: DeviceState::Attached,
             is_root_device: true,
             permissions: DrivePermissions::ro,
+            rate_limiter: None,
         };
 
         match drive_desc.into_parsed_request("bar") {
