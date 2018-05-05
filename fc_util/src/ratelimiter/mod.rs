@@ -240,3 +240,10 @@ impl AsRawFd for RateLimiter {
         }
     }
 }
+
+impl Default for RateLimiter {
+    fn default() -> Self {
+        // safe to unwrap since this will not attempt to create timer_fd
+        RateLimiter::new(0, 0, 0, 0).unwrap()
+    }
+}
