@@ -3,6 +3,7 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Response, StatusCode};
 
+use super::rate_limiter::RateLimiter;
 use super::{DeviceState, GenerateResponse, SyncRequest};
 use http_service::{empty_response, json_fault_message, json_response};
 use request::ParsedRequest;
@@ -23,6 +24,8 @@ pub struct DriveDescription {
     pub state: DeviceState,
     pub is_root_device: bool,
     pub permissions: DrivePermissions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limiter: Option<RateLimiter>,
 }
 
 impl DriveDescription {
@@ -119,6 +122,7 @@ mod tests {
                 state: DeviceState::Attached,
                 is_root_device: true,
                 permissions: DrivePermissions::ro,
+                rate_limiter: None,
             }.is_read_only()
         );
     }
@@ -187,6 +191,7 @@ mod tests {
             state: DeviceState::Attached,
             is_root_device: true,
             permissions: DrivePermissions::ro,
+            rate_limiter: None,
         };
 
         assert!(&desc.clone().into_parsed_request("bar").is_err());

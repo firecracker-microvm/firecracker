@@ -4,6 +4,7 @@ extern crate libc;
 extern crate api_server;
 extern crate data_model;
 extern crate devices;
+extern crate fc_util;
 extern crate kernel_loader;
 extern crate kvm;
 extern crate kvm_sys;
@@ -47,6 +48,7 @@ use device_manager::mmio::MMIODeviceManager;
 
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
+use fc_util::ratelimiter::RateLimiter;
 use kvm::*;
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use vm_control::VmResponse;
@@ -81,6 +83,7 @@ pub enum Error {
     VmSetup(vstate::Error),
     CreateLegacyDevice(device_manager::legacy::Error),
     LegacyIOBus(device_manager::legacy::Error),
+    RateLimiterNew(std::io::Error),
     RootDiskImage(std::io::Error),
     RootBlockDeviceNew(sys_util::Error),
     RegisterBlock(device_manager::mmio::Error),
@@ -539,10 +542,23 @@ impl Vmm {
                     .map_err(Error::RootDiskImage)?;
                 let epoll_config = epoll_context.allocate_virtio_block_tokens();
 
+                let rate_limiter = match drive_config.rate_limiter.as_ref() {
+                    Some(rate_limiter) => {
+                        // TODO: propagate the error, don't blindly unwrap()
+                        RateLimiter::new(
+                            rate_limiter.bandwidth.size,
+                            rate_limiter.bandwidth.refill_time,
+                            rate_limiter.ops.size,
+                            rate_limiter.ops.refill_time,
+                        ).map_err(Error::RateLimiterNew)?
+                    }
+                    None => RateLimiter::default(),
+                };
                 let block_box = Box::new(devices::virtio::Block::new(
                     root_image,
                     drive_config.is_read_only,
                     epoll_config,
+                    rate_limiter,
                 ).map_err(Error::RootBlockDeviceNew)?);
                 device_manager
                     .register_device(
