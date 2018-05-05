@@ -403,6 +403,7 @@ impl Block {
         mut disk_image: File,
         is_disk_read_only: bool,
         epoll_config: EpollConfig,
+        rate_limiter: RateLimiter,
     ) -> SysResult<Block> {
         let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
         if disk_size % SECTOR_SIZE != 0 {
@@ -419,10 +420,6 @@ impl Block {
             avail_features |= 1 << VIRTIO_BLK_F_RO;
         };
 
-        // manually add a disabled rate-limiter here
-        // a proper one will be added through API in the next commits
-        // TODO: propagate the error, don't unwrap()
-        let rate_limiter = RateLimiter::new(0, 0, 0, 0).unwrap();
         Ok(Block {
             kill_evt: None,
             disk_image: Some(disk_image),
