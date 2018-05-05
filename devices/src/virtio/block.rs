@@ -1,7 +1,9 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+extern crate fc_util;
 
+use self::fc_util::ratelimiter::{RateLimiter, TokenType};
 use super::{ActivateError, ActivateResult};
 use super::{DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING};
 use epoll;
@@ -30,8 +32,10 @@ const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
 pub const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
 // device shutdown has been requested
 pub const KILL_EVENT: DeviceEventT = 1;
+// rate limiter budget is now available
+pub const RATE_LIMITER_EVENT: DeviceEventT = 2;
 // number of DeviceEventT events supported by this implementation
-pub const BLOCK_EVENTS_COUNT: usize = 2;
+pub const BLOCK_EVENTS_COUNT: usize = 3;
 
 #[derive(Debug, PartialEq)]
 enum RequestType {
@@ -211,12 +215,14 @@ pub struct BlockEpollHandler {
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
     queue_evt: EventFd,
+    rate_limiter: RateLimiter,
     disk_image_id: Vec<u8>,
 }
 
 impl BlockEpollHandler {
     fn process_queue(&mut self, queue_index: usize) -> bool {
         let queue = &mut self.queues[queue_index];
+        let mut rate_limited = false;
 
         let mut used_desc_heads = [(0, 0); QUEUE_SIZE as usize];
         let mut used_count = 0;
@@ -224,6 +230,29 @@ impl BlockEpollHandler {
             let len;
             match Request::parse(&avail_desc, &self.mem) {
                 Ok(request) => {
+                    // if limiter.consume() fails it means there is no more TokenType::Ops
+                    // budget and rate limiting is in effect
+                    if !self.rate_limiter.consume(1, TokenType::Ops) {
+                        rate_limited = true;
+                        // stop processing the queue
+                        break;
+                    }
+                    // if this request is of data transfer type
+                    if request.request_type == RequestType::In
+                        || request.request_type == RequestType::Out
+                    {
+                        // if limiter.consume() fails it means there is no more TokenType::Bytes
+                        // budget and rate limiting is in effect
+                        if !self.rate_limiter
+                            .consume(request.data_len as u64, TokenType::Bytes)
+                        {
+                            rate_limited = true;
+                            // revert the OPS consume()
+                            self.rate_limiter.manual_replenish(1, TokenType::Ops);
+                            // stop processing the queue
+                            break;
+                        }
+                    }
                     let status =
                         match request.execute(&mut self.disk_image, &self.mem, &self.disk_image_id)
                         {
@@ -251,6 +280,11 @@ impl BlockEpollHandler {
             used_desc_heads[used_count] = (avail_desc.index, len);
             used_count += 1;
         }
+        if rate_limited {
+            // if rate limiting kicked in, queue had advanced one element that we aborted
+            // processing; go back one element so it can be processed next time
+            queue.go_to_previous_position();
+        }
 
         for &(desc_index, len) in &used_desc_heads[..used_count] {
             queue.add_used(&self.mem, desc_index, len);
@@ -268,6 +302,16 @@ impl BlockEpollHandler {
     fn set_queue(&mut self, idx: usize, q: Queue) {
         self.queues[idx] = q;
     }
+
+    #[cfg(test)]
+    fn get_rate_limiter(&self) -> &RateLimiter {
+        &self.rate_limiter
+    }
+
+    #[cfg(test)]
+    fn set_rate_limiter(&mut self, rate_limiter: RateLimiter) {
+        self.rate_limiter = rate_limiter;
+    }
 }
 
 impl EpollHandler for BlockEpollHandler {
@@ -279,6 +323,11 @@ impl EpollHandler for BlockEpollHandler {
                     return;
                 }
 
+                // while limiter is blocked, don't process any more requests
+                if self.rate_limiter.is_blocked() {
+                    return;
+                }
+
                 if self.process_queue(0) {
                     self.signal_used_queue();
                 }
@@ -286,6 +335,13 @@ impl EpollHandler for BlockEpollHandler {
             KILL_EVENT => {
                 //TODO: change this when implementing device removal
                 info!("block device killed")
+            }
+            RATE_LIMITER_EVENT => {
+                // on rate limiter event, call the rate limiter handler
+                // and restart processing the queue
+                if self.rate_limiter.event_handler().is_ok() && self.process_queue(0) {
+                    self.signal_used_queue();
+                }
             }
             _ => panic!("unknown token for block device"),
         }
@@ -295,6 +351,7 @@ impl EpollHandler for BlockEpollHandler {
 pub struct EpollConfig {
     q_avail_token: u64,
     kill_token: u64,
+    rate_limiter_token: u64,
     epoll_raw_fd: RawFd,
     sender: mpsc::Sender<Box<EpollHandler>>,
 }
@@ -308,6 +365,7 @@ impl EpollConfig {
         EpollConfig {
             q_avail_token: first_token + QUEUE_AVAIL_EVENT as u64,
             kill_token: first_token + KILL_EVENT as u64,
+            rate_limiter_token: first_token + RATE_LIMITER_EVENT as u64,
             epoll_raw_fd,
             sender,
         }
@@ -322,6 +380,7 @@ pub struct Block {
     acked_features: u64,
     config_space: Vec<u8>,
     epoll_config: EpollConfig,
+    rate_limiter: Option<RateLimiter>,
 }
 
 pub fn build_config_space(disk_size: u64) -> Vec<u8> {
@@ -360,6 +419,10 @@ impl Block {
             avail_features |= 1 << VIRTIO_BLK_F_RO;
         };
 
+        // manually add a disabled rate-limiter here
+        // a proper one will be added through API in the next commits
+        // TODO: propagate the error, don't unwrap()
+        let rate_limiter = RateLimiter::new(0, 0, 0, 0).unwrap();
         Ok(Block {
             kill_evt: None,
             disk_image: Some(disk_image),
@@ -367,6 +430,7 @@ impl Block {
             acked_features: 0u64,
             config_space: build_config_space(disk_size),
             epoll_config,
+            rate_limiter: Some(rate_limiter),
         })
     }
 }
@@ -508,8 +572,11 @@ impl VirtioDevice for Block {
                 interrupt_status: status,
                 interrupt_evt,
                 queue_evt,
+                // safe to .take().unwrap() since activate is only called once
+                rate_limiter: self.rate_limiter.take().unwrap(),
                 disk_image_id,
             };
+            let rate_limiter_rawfd = handler.rate_limiter.as_raw_fd();
 
             //the channel should be open at this point
             self.epoll_config.sender.send(Box::new(handler)).unwrap();
@@ -529,6 +596,15 @@ impl VirtioDevice for Block {
                 epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token),
             ).map_err(ActivateError::EpollCtl)?;
 
+            if rate_limiter_rawfd != -1 {
+                epoll::ctl(
+                    self.epoll_config.epoll_raw_fd,
+                    epoll::EPOLL_CTL_ADD,
+                    rate_limiter_rawfd,
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rate_limiter_token),
+                ).map_err(ActivateError::EpollCtl)?;
+            }
+
             return Ok(());
         }
 
@@ -542,6 +618,8 @@ mod tests {
     use std::fs::OpenOptions;
     use std::path::PathBuf;
     use std::sync::mpsc::Receiver;
+    use std::thread;
+    use std::time::Duration;
     use sys_util::TempDir;
 
     use super::*;
@@ -571,8 +649,10 @@ mod tests {
                 .unwrap();
             f.set_len(0x1000).unwrap();
 
+            // rate limiting enabled but with a high operation rate (10 million ops/s)
+            let rate_limiter = RateLimiter::new(0, 0, 100000, 10).unwrap();
             DummyBlock {
-                block: Block::new(f, false, epoll_config).unwrap(),
+                block: Block::new(f, false, epoll_config, rate_limiter).unwrap(),
                 epoll_raw_fd,
                 _receiver,
             }
@@ -800,10 +880,16 @@ mod tests {
         assert_eq!(new_config, new_config_read);
     }
 
+    /// FIXME: this function takes any event as parameter, but is actually
+    /// only equipped to handle the queue event.
     fn invoke_handler(h: &mut BlockEpollHandler, e: DeviceEventT) {
+        // leave at least one event here so that reading it later won't block
         h.interrupt_evt.write(1).unwrap();
+        // trigger the queue event
         h.queue_evt.write(1).unwrap();
+        // handle event
         h.handle_event(e, 0);
+        // validate the queue operation finished successfully
         assert_eq!(h.interrupt_evt.read(), Ok(2));
     }
 
@@ -838,6 +924,7 @@ mod tests {
             interrupt_status: status,
             interrupt_evt,
             queue_evt,
+            rate_limiter: RateLimiter::default(),
             disk_image_id,
         };
 
@@ -995,7 +1082,7 @@ mod tests {
         }
 
         {
-            // testing that the flush request completes succesfully
+            // testing that the flush request completes successfully
 
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
@@ -1054,6 +1141,141 @@ mod tests {
             );
             assert_eq!(received_device_id, expected_device_id);
         }
+
+        // test the bandwidth rate limiter
+        {
+            // create bandwidth rate limiter that allows only 80 bytes/s with bucket size of 8 bytes
+            let mut rl = RateLimiter::new(8, 100, 0, 0).unwrap();
+            // use up the budget
+            assert!(rl.consume(8, TokenType::Bytes));
+
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+            h.set_rate_limiter(rl);
+
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
+                .unwrap();
+            // make data read only, 8 bytes in len, and set the actual value to be written
+            vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
+            vq.dtable[1].len.set(8);
+            m.write_obj_at_addr::<u64>(123456789, data_addr).unwrap();
+
+            // following write procedure should fail because of bandwidth rate limiting
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                // trigger the attempt to write
+                h.queue_evt.write(1).unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT, 0);
+
+                // assert that limiter is blocked
+                assert!(h.get_rate_limiter().is_blocked());
+                // assert that no operation actually completed (limiter blocked it)
+                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                // make sure the data is still queued for processing
+                assert_eq!(vq.used.idx.get(), 0);
+            }
+
+            // wait for 100ms to give the rate-limiter timer a chance to replenish
+            // wait for an extra 50ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(150));
+
+            // following write procedure should succeed because bandwidth should now be available
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                h.handle_event(RATE_LIMITER_EVENT, 0);
+                // validate the rate_limiter is no longer blocked
+                assert!(!h.get_rate_limiter().is_blocked());
+                // make sure the virtio queue operation completed this time
+                assert_eq!(h.interrupt_evt.read(), Ok(2));
+
+                // make sure the data queue advanced
+                assert_eq!(vq.used.idx.get(), 1);
+                assert_eq!(vq.used.ring[0].get().id, 0);
+                assert_eq!(vq.used.ring[0].get().len, 0);
+                assert_eq!(
+                    m.read_obj_from_addr::<u32>(status_addr).unwrap(),
+                    VIRTIO_BLK_S_OK
+                );
+            }
+        }
+
+        // test the ops/s rate limiter
+        {
+            // create ops rate limiter that allows only 10 ops/s with bucket size of 1 ops
+            let mut rl = RateLimiter::new(0, 0, 1, 100).unwrap();
+            // use up the budget
+            assert!(rl.consume(1, TokenType::Ops));
+
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+            h.set_rate_limiter(rl);
+
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
+                .unwrap();
+            // make data read only, 8 bytes in len, and set the actual value to be written
+            vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
+            vq.dtable[1].len.set(8);
+            m.write_obj_at_addr::<u64>(123456789, data_addr).unwrap();
+
+            // following write procedure should fail because of ops rate limiting
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                // trigger the attempt to write
+                h.queue_evt.write(1).unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT, 0);
+
+                // assert that limiter is blocked
+                assert!(h.get_rate_limiter().is_blocked());
+                // assert that no operation actually completed (limiter blocked it)
+                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                // make sure the data is still queued for processing
+                assert_eq!(vq.used.idx.get(), 0);
+            }
+
+            // do a second write that still fails but this time on the fast path
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                // trigger the attempt to write
+                h.queue_evt.write(1).unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT, 0);
+
+                // assert that limiter is blocked
+                assert!(h.get_rate_limiter().is_blocked());
+                // assert that no operation actually completed (limiter blocked it)
+                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                // make sure the data is still queued for processing
+                assert_eq!(vq.used.idx.get(), 0);
+            }
+
+            // wait for 100ms to give the rate-limiter timer a chance to replenish
+            // wait for an extra 50ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(150));
+
+            // following write procedure should succeed because ops budget should now be available
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                h.handle_event(RATE_LIMITER_EVENT, 0);
+                // validate the rate_limiter is no longer blocked
+                assert!(!h.get_rate_limiter().is_blocked());
+                // make sure the virtio queue operation completed this time
+                assert_eq!(h.interrupt_evt.read(), Ok(2));
+
+                // make sure the data queue advanced
+                assert_eq!(vq.used.idx.get(), 1);
+                assert_eq!(vq.used.ring[0].get().id, 0);
+                assert_eq!(vq.used.ring[0].get().len, 0);
+                assert_eq!(
+                    m.read_obj_from_addr::<u32>(status_addr).unwrap(),
+                    VIRTIO_BLK_S_OK
+                );
+            }
+        }
+
         // can be called like this for now, because it currently doesn't really do anything
         // besides outputting some message
         h.handle_event(KILL_EVENT, 0);
