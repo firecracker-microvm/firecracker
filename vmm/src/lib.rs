@@ -363,11 +363,7 @@ impl Vmm {
         if self.block_device_configs
             .contains_drive_id(block_device_config.drive_id.clone())
         {
-            if self.mmio_device_manager.is_some() {
-                return self.update_block_device(&block_device_config);
-            } else {
-                Err(DriveError::BlockDeviceUpdateNotAllowed)
-            }
+            return self.update_block_device(&block_device_config);
         } else {
             match self.block_device_configs.add(block_device_config) {
                 Ok(_) => Ok(PutDriveOutcome::Created),
@@ -376,7 +372,20 @@ impl Vmm {
         }
     }
 
-    pub fn update_block_device(
+    fn update_block_device(
+        &mut self,
+        block_device_config: &BlockDeviceConfig,
+    ) -> result::Result<PutDriveOutcome, DriveError> {
+        if self.mmio_device_manager.is_some() {
+            self.live_update_block_device(block_device_config)
+        } else {
+            self.block_device_configs
+                .update(block_device_config)
+                .map(|_| PutDriveOutcome::Updated)
+        }
+    }
+
+    fn live_update_block_device(
         &mut self,
         block_device_config: &BlockDeviceConfig,
     ) -> result::Result<PutDriveOutcome, DriveError> {
@@ -897,7 +906,7 @@ impl Vmm {
         sender.send(result).expect("one-shot channel closed");
     }
 
-    fn check_instance_running(&self) -> bool {
+    fn is_instance_running(&self) -> bool {
         let instance_state = {
             // unwrap() to crash if the other thread poisoned this lock
             let shared_info = self.shared_info.read().unwrap();
@@ -911,8 +920,8 @@ impl Vmm {
 
     fn handle_put_drive(&mut self, drive_description: DriveDescription, sender: SyncOutcomeSender) {
         match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
-            Ok(outcome) => sender
-                .send(Box::new(outcome))
+            Ok(ret) => sender
+                .send(Box::new(ret))
                 .map_err(|_| ())
                 .expect("one-shot channel closed"),
             Err(e) => sender
@@ -927,6 +936,14 @@ impl Vmm {
         logger_description: APILoggerDescription,
         sender: SyncOutcomeSender,
     ) {
+        if self.is_instance_running() {
+            sender
+                .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
+                .map_err(|_| ())
+                .expect("one-shot channel closed");
+            return;
+        }
+
         match api_logger_config::init_logger(logger_description) {
             Ok(_) => sender
                 .send(Box::new(PutLoggerOutcome::Initialized))
@@ -944,9 +961,9 @@ impl Vmm {
         boot_source_body: BootSourceBody,
         sender: SyncOutcomeSender,
     ) {
-        if self.check_instance_running() {
+        if self.is_instance_running() {
             sender
-                .send(Box::new(SyncError::UpdateNotAllowed))
+                .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
                 .map_err(|_| ())
                 .expect("one-shot channel closed");
             return;
@@ -969,7 +986,7 @@ impl Vmm {
                                 kernel_start_addr: GuestAddress(KERNEL_START_OFFSET),
                                 cmdline_addr: GuestAddress(CMDLINE_OFFSET),
                             };
-                            // if the kernel was already configure, we have an update operation
+                            // if the kernel was already configured, we have an update operation
                             let outcome = match self.kernel_config {
                                 Some(_) => PutBootSourceOutcome::Updated,
                                 None => PutBootSourceOutcome::Created,
@@ -1002,9 +1019,9 @@ impl Vmm {
         machine_config: MachineConfiguration,
         sender: SyncOutcomeSender,
     ) {
-        if self.check_instance_running() {
+        if self.is_instance_running() {
             sender
-                .send(Box::new(SyncError::UpdateNotAllowed))
+                .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
                 .map_err(|_| ())
                 .expect("one-shot channel closed");
             return;
@@ -1029,9 +1046,9 @@ impl Vmm {
         netif_body: NetworkInterfaceBody,
         sender: SyncOutcomeSender,
     ) {
-        if self.check_instance_running() {
+        if self.is_instance_running() {
             sender
-                .send(Box::new(SyncError::UpdateNotAllowed))
+                .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
                 .map_err(|_| ())
                 .expect("one-shot channel closed");
             return;
