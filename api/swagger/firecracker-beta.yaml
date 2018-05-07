@@ -238,38 +238,6 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
-  /vsocks/{vsock_id}:
-    put:
-      summary: Creates new vsock with ID specified by vsock_id path parameter. If vsock with specified ID
-               already exists, updates its state based on new input. May fail if update is not possible.
-      operationId: putGuestVsockByID
-      parameters:
-      - name: vsock_id
-        in: path
-        description: The id of the guest vsock
-        required: true
-        type: string
-      - name: body
-        in: body
-        description: Guest vsock properties
-        required: true
-        schema:
-          $ref: "#/definitions/Vsock"
-      responses:
-        201:
-          description: Vsock created
-        204:
-          description: Vsock updated
-        400:
-          description: Vsock cannot be created due to bad input
-          schema:
-            $ref: "#/definitions/Error"
-        default:
-          description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
-
 definitions:
   BootSource:
     type: object
@@ -418,16 +386,3 @@ definitions:
       state:
         $ref: "#/definitions/DeviceState"
 
-  Vsock:
-    type: object
-    required:
-      - vsock_id
-    properties:
-      vsock_id:
-        type: string
-      guest_cid:
-        type: integer
-        minimum: 3
-        description: Guest Vsock CID
-      state:
-        $ref: "#/definitions/DeviceState"

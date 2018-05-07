@@ -13,13 +13,11 @@ mod drive;
 mod logger;
 pub mod machine_configuration;
 mod net;
-mod vsock;
 
 pub use self::drive::{DriveDescription, DriveError, DrivePermissions, PutDriveOutcome};
 pub use self::boot_source::{BootSourceBody, BootSourceType, LocalImage};
 pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, PutLoggerOutcome};
 pub use self::net::NetworkInterfaceBody;
-pub use self::vsock::VsockJsonBody;
 
 // Unlike async requests, sync request have outcomes which implement this trait. The idea is for
 // each outcome to be a struct which is cheaply and quickly instantiated by the VMM thread, then
@@ -61,7 +59,6 @@ pub enum SyncRequest {
     PutLogger(APILoggerDescription, SyncOutcomeSender),
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
-    PutVsock(VsockJsonBody, SyncOutcomeSender),
 }
 
 // TODO: do we still need this?
@@ -152,9 +149,6 @@ mod tests {
                     &SyncRequest::PutNetworkInterface(ref netif, _),
                     &SyncRequest::PutNetworkInterface(ref other_netif, _),
                 ) => netif == other_netif,
-                (&SyncRequest::PutVsock(ref vjb, _), &SyncRequest::PutVsock(ref other_vjb, _)) => {
-                    vjb == other_vjb
-                }
                 _ => false,
             }
         }

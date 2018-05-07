@@ -242,28 +242,6 @@ fn parse_netif_req<'a>(
     }
 }
 
-// Turns a GET/PUT /vsocks HTTP request into a ParsedRequest
-fn parse_vsocks_req<'a>(
-    path_tokens: &Vec<&str>,
-    path: &'a str,
-    method: Method,
-    id_from_path: &Option<&str>,
-    body: &Chunk,
-) -> Result<'a, ParsedRequest> {
-    match path_tokens[1..].len() {
-        0 if method == Method::Get => Ok(ParsedRequest::Dummy),
-
-        1 if method == Method::Get => Ok(ParsedRequest::Dummy),
-
-        1 if method == Method::Put => Ok(serde_json::from_slice::<request::VsockJsonBody>(body)
-            .map_err(Error::SerdeJson)?
-            .into_parsed_request(id_from_path.unwrap())
-            .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
-
-        _ => Err(Error::InvalidPathMethod(path, method)),
-    }
-}
-
 // This turns an incoming HTTP request into a ParsedRequest, which is an item containing both the
 // message to be passed to the VMM, and associated entities, such as channels which allow the
 // reception of the outcome back from the VMM.
@@ -321,7 +299,6 @@ fn parse_request<'a>(
         "logger" => parse_logger_req(&path_tokens, path, method, body),
         "machine-config" => parse_machine_config_req(&path_tokens, path, method, body),
         "network-interfaces" => parse_netif_req(&path_tokens, path, method, &id_from_path, body),
-        "vsocks" => parse_vsocks_req(&path_tokens, path, method, &id_from_path, body),
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -530,7 +507,7 @@ mod tests {
     use fc_util::LriHashMap;
     use request::async::AsyncRequest;
     use request::sync::{DeviceState, DriveDescription, DrivePermissions, NetworkInterfaceBody,
-                        SyncRequest, VsockJsonBody};
+                        SyncRequest};
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret = body.fold(Vec::new(), |mut acc, chunk| {
@@ -1026,67 +1003,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_vsocks_req() {
-        let path = "/foo/bar";
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-        let id_from_path = Some(path_tokens[1]);
-        let json = "{
-                \"vsock_id\": \"bar\",
-                \"guest_cid\": 42,
-                \"state\": \"Attached\"
-              }";
-        let body: Chunk = Chunk::from(json);
-
-        // GET
-        match parse_vsocks_req(
-            &"/foo"[1..].split_terminator('/').collect(),
-            &"/foo",
-            Method::Get,
-            &None,
-            &body,
-        ) {
-            Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false),
-        }
-
-        match parse_vsocks_req(&path_tokens, &path, Method::Get, &id_from_path, &body) {
-            Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false),
-        }
-
-        // PUT
-        let vsock = VsockJsonBody {
-            vsock_id: String::from("bar"),
-            guest_cid: 42,
-            state: DeviceState::Attached,
-        };
-
-        match vsock.into_parsed_request("bar") {
-            Ok(pr) => match parse_vsocks_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
-                Method::Put,
-                &Some("bar"),
-                &body,
-            ) {
-                Ok(pr_vsock) => assert!(pr.eq(&pr_vsock)),
-                _ => assert!(false),
-            },
-            _ => assert!(false),
-        }
-
-        assert!(
-            parse_vsocks_req(
-                &"/foo"[1..].split_terminator('/').collect(),
-                &"/foo",
-                Method::Put,
-                &None,
-                &body
-            ).is_err()
-        );
-    }
-
-    #[test]
     fn test_parse_request() {
         let mut action_map: Rc<RefCell<ActionMap>> =
             Rc::new(RefCell::new(LriHashMap::<String, ActionMapValue>::new(1)));
@@ -1137,7 +1053,6 @@ mod tests {
             "/drives",
             "/machine-config",
             "/network-interfaces",
-            "/vsocks",
         ] {
             assert!(parse_request(&mut action_map, Method::Get, path, &body).is_ok());
             for method in &all_methods {
