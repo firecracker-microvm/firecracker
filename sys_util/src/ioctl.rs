@@ -115,18 +115,18 @@ pub unsafe fn ioctl_with_mut_ptr<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: *mut 
 #[cfg(test)]
 mod tests {
     const TUNTAP: ::std::os::raw::c_uint = 0x54;
-    const VHOST: ::std::os::raw::c_uint = 0xaf;
+    const KVMIO: ::std::os::raw::c_uint = 0xAE;
 
-    ioctl_io_nr!(VHOST_SET_OWNER, VHOST, 0x01);
+    ioctl_io_nr!(KVM_CREATE_VM, KVMIO, 0x01);
     ioctl_ior_nr!(TUNGETFEATURES, TUNTAP, 0xcf, ::std::os::raw::c_uint);
     ioctl_iow_nr!(TUNSETQUEUE, TUNTAP, 0xd9, ::std::os::raw::c_int);
-    ioctl_iowr_nr!(VHOST_GET_VRING_BASE, VHOST, 0x12, ::std::os::raw::c_int);
+    ioctl_iowr_nr!(KVM_GET_MSR_INDEX_LIST, KVMIO, 0x2, ::std::os::raw::c_int);
 
     #[test]
     fn ioctl_macros() {
-        assert_eq!(0x0000af01, VHOST_SET_OWNER());
-        assert_eq!(0x800454cf, TUNGETFEATURES());
-        assert_eq!(0x400454d9, TUNSETQUEUE());
-        assert_eq!(0xc004af12, VHOST_GET_VRING_BASE());
+        assert_eq!(0x0000AE01, KVM_CREATE_VM());
+        assert_eq!(0x800454CF, TUNGETFEATURES());
+        assert_eq!(0x400454D9, TUNSETQUEUE());
+        assert_eq!(0xC004AE02, KVM_GET_MSR_INDEX_LIST());
     }
 }
