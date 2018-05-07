@@ -11,7 +11,6 @@ Firecracker consists of a single micro Virtual Machine Manager binary that will 
 * Add memory to the microVM.
 * Add one or more network interfaces to the microVM.
 * Add one or more read/write disks (block devices) to the microVM.
-* Add one or more vSockets to the microVM.
 * Start the microVM using a given kernel image and root file system.
 * Stop the microVM.
 
@@ -21,7 +20,6 @@ Firecracker consists of a single micro Virtual Machine Manager binary that will 
 * Emulated keyboard (i8042) and serial console (UART). The microVM serial console input and output are connected to those of the Firecracker process (this allows direct console access to the guest OS).
 * The capability of mapping an existing host tun-tap device as a virtIO/net device into the microVM.
 * The capability of mapping an existing host file as a virtIO/block device into the microVM.
-* The capability of creating a virtIO/vsock between the host and the microVM.
 * Default demand fault paging & CPU oversubscription.
 
 ## Limits and Performance
@@ -47,21 +45,19 @@ Firecracker expects network interfaces and drives to be created beforehand and p
 
 ## Select the Guest Kernel and RootFS
 To run microVMs with Firecracker, you will need to have:
-* a guest kernel image that boots and runs with Firecracker's minimal/VirtIO device model, and
-* a guest root file system that boots with that kernel.
-* The guest RootFS can be an image file or drive.
+* a guest kernel image that boots and runs with Firecracker's minimal/VirtIO device model
+* a guest root file system that boots with that kernel (can be an image file or drive).
 
 ## Runtime Dependencies
-* Firecracker needs rw access to `/dev/kvm`. You can grant these rights, e.g., to tall users, with: `sudo chmod a+rw /dev/kvm`
-* If you want to use vsocks between the Firecracker guest and host, Firecracker will need to be run with sudo rights.
+* Firecracker needs rw access to `/dev/kvm`. You can grant these rights, e.g., to all users, with: `sudo chmod a+rw /dev/kvm`.
 
 ## Start Firecracker & the Micro VM
 
-The python-based toy example below will start a Firecracker microVM with 2 vCPUs, 256 MiB or RAM, two network interfaces, two disks (rootfs and temp), and a vsocket.
+The python-based toy example below will start a Firecracker microVM with 2 vCPUs, 256 MiB or RAM, two network interfaces and two disks (rootfs and temp).
 
-Currently, only the core parts of the API (`/actions`, `/machine-config`, `/boot-source`, `/network-interfaces`, `/drives`, and `/vsocks`) are implemented. For the planned v1.0 API description see `/api/swagger/all.yaml`.
+Currently, only the core parts of the API (`/actions`, `/machine-config`, `/boot-source`, `/network-interfaces` and `/drives`) are implemented. For the planned v1.0 API description see `/api/swagger/firecracker-v1.0.yaml`.
 
-The toy example snapshot below uses a Python script to start a Firecracker instance. The Firecracker binary, as well as compatible kernel, root file system, and temp file system images are assumed to already exist. The TUN/TAP devices passed to the networking API are also assumed to already exist. Firecracker requires root privileges to open vsock interfaces on a host.
+The toy example snapshot below uses a Python script to start a Firecracker instance. The Firecracker binary, as well as compatible kernel, root file system, and temp file system images are assumed to already exist. The TUN/TAP devices passed to the networking API are also assumed to already exist.
 
 The full example can be found in [the examples directory](examples/hello_api/spawn_microvm.py)
 
@@ -125,13 +121,6 @@ requests.put(
     }
 )
 
-# Add a vsocket between the host and guest OSs (requiers both to be Linux).
-# Requires appropriate privileges, and both host and guest kernel support.
-requests.put(
-    firecracker.vsocks_url + '/1',
-    json={'vsock_id': '1', 'guest_cid': 10001, 'state': 'Attached'}
-)
-
 # Specify a boot source: a kernel image.
 # Currently, only linux kernel images are supported.
 requests.put(
@@ -152,13 +141,12 @@ requests.put(
 
 ## Notes
 1. The Kernel and RootFS need to work together, and the Kernel needs to run with Firecracker's limited device model.
-2. Vsocket usage currently requires root privileges, and both host (`CONFIG_VHOST_VSOCK`) and guest (`CONFIG_VIRTIO_VSOCKETS`) kernel support.
-3. It is the user's responsibility to make sure that the same backing file is not added as a read-write block device to multiple Firecracker instances. A file can be safely added as a read-only block device to multiple Firecracker instances.
-4. Firecracker uses default values for the following parameters:
+2. It is the user's responsibility to make sure that the same backing file is not added as a read-write block device to multiple Firecracker instances. A file can be safely added as a read-only block device to multiple Firecracker instances.
+3. Firecracker uses default values for the following parameters:
     1. Kernel Command Line: `console=ttyS0 noapic reboot=k panic=1 pci=off nomodules`. This can be changed with a `PUT` request to `/boot-source`.
     2. Number of vCPUs: 1. This can be changed with a `PUT` request to `/machine-config`
     3. Memory Size: 128 MiB. This can be changed with a `PUT` request to `/machine-config`
-    4.  Unix domain socket: `/tmp/firecracker.socket`. This can be changed only when Firecracker is started, by using the command line parameter `--api-sock`.
-5. Firecracker links the microVM serial console output to its stdout, and its stdin to the microVM serial console input. Therefore, you can interact with the microVM guest in the screen session.
-6. Important: The unix domain socket is not deleted when Firecracker is stopped. You have to remove it yourself after stopping the Firecracker process.
-7. Firecracker doesn't yet emulate a power management device. This means that any shutdown/poweroff command issued by the guest OS only does partial shutdown then hangs. The linux 'reboot' command when run in the guest OS will actually cleanly shut down the guest without bringing it back up.
+    4. Unix domain socket: `/tmp/firecracker.socket`. This can be changed only when Firecracker is started, by using the command line parameter `--api-sock`.
+4. Firecracker links the microVM serial console output to its stdout, and its stdin to the microVM serial console input. Therefore, you can interact with the microVM guest in the screen session.
+5. Important: The unix domain socket is not deleted when Firecracker is stopped. You have to remove it yourself after stopping the Firecracker process.
+6. Firecracker doesn't yet emulate a power management device. This means that any shutdown/poweroff command issued by the guest OS only does partial shutdown then hangs. The linux 'reboot' command when run in the guest OS will actually cleanly shut down the guest without bringing it back up.
