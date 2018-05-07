@@ -11,13 +11,10 @@ extern crate logger;
 extern crate net_sys;
 extern crate net_util;
 extern crate sys_util;
-extern crate vhost_backend;
-extern crate vhost_sys;
 extern crate virtio_sys;
 
 mod bus;
 pub mod legacy;
-
 pub mod virtio;
 
 pub use self::bus::{Bus, BusDevice};

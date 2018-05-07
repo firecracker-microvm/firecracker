@@ -8,13 +8,11 @@ byteorder = "=1.2.1"
 epoll = "=2.1.0"
 libc = ">=0.2.39"
 
+logger = {path = "../logger"}
 net_util = { path = "../net_util" }
 net_sys = { path = "../net_sys" }
 sys_util = { path = "../sys_util" }
 virtio_sys = { path = "../virtio_sys" }
-vhost_sys = { path = "../vhost_sys" }
-vhost_backend = { path = "../vhost_backend" }
-logger = {path = "../logger"}
 
 [dev-dependencies]
 memory_model = { path = "../memory_model"}
