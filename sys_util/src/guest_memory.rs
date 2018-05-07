@@ -328,34 +328,6 @@ impl GuestMemory {
         })
     }
 
-    /// Convert a GuestAddress into a pointer in the address space of this
-    /// process. This should only be necessary for giving addresses to the
-    /// kernel, as with vhost ioctls. Normal reads/writes to guest memory should
-    /// be done through `write_from_memory`, `read_obj_from_addr`, etc.
-    ///
-    /// # Arguments
-    /// * `guest_addr` - Guest address to convert.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use sys_util::{GuestAddress, GuestMemory};
-    /// # fn test_host_addr() -> Result<(), ()> {
-    ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
-    ///     let addr = gm.get_host_address(GuestAddress(0x1200)).unwrap();
-    ///     println!("Host address is {:p}", addr);
-    ///     Ok(())
-    /// # }
-    /// ```
-    pub fn get_host_address(&self, guest_addr: GuestAddress) -> Result<*const u8> {
-        self.do_in_region(guest_addr, |mapping, offset| {
-            // This is safe; `do_in_region` already checks that offset is in
-            // bounds.
-            Ok(unsafe { mapping.as_ptr().offset(offset as isize) } as *const u8)
-        })
-    }
-
     pub fn do_in_region<F, T>(&self, guest_addr: GuestAddress, cb: F) -> Result<T>
     where
         F: FnOnce(&MemoryMapping, usize) -> Result<T>,
@@ -460,31 +432,6 @@ mod tests {
         let num2: u64 = gm.read_obj_from_addr(GuestAddress(0x1000 + 32)).unwrap();
         assert_eq!(val1, num1);
         assert_eq!(val2, num2);
-    }
-
-    // Get the base address of the mapping for a GuestAddress.
-    fn get_mapping(mem: &GuestMemory, addr: GuestAddress) -> Result<*const u8> {
-        mem.do_in_region(addr, |mapping, _| Ok(mapping.as_ptr() as *const u8))
-    }
-
-    #[test]
-    fn guest_to_host() {
-        let start_addr1 = GuestAddress(0x0);
-        let start_addr2 = GuestAddress(0x100);
-        let mem = GuestMemory::new(&vec![(start_addr1, 0x100), (start_addr2, 0x400)]).unwrap();
-
-        // Verify the host addresses match what we expect from the mappings.
-        let addr1_base = get_mapping(&mem, start_addr1).unwrap();
-        let addr2_base = get_mapping(&mem, start_addr2).unwrap();
-        let host_addr1 = mem.get_host_address(start_addr1).unwrap();
-        let host_addr2 = mem.get_host_address(start_addr2).unwrap();
-        assert_eq!(host_addr1, addr1_base);
-        assert_eq!(host_addr2, addr2_base);
-
-        // Check that a bad address returns an error.
-        let bad_addr = GuestAddress(0x123456);
-        assert!(mem.get_host_address(bad_addr).is_err());
-        format!("{:?}", mem.get_host_address(bad_addr));
     }
 
     #[test]
