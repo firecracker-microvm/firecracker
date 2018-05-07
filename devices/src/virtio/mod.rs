@@ -6,19 +6,16 @@
 use std;
 use sys_util::Error as SysError;
 use std::io::Error as IOError;
-use self::vhost::Error as VhostBackendError;
 
 pub mod block;
 mod mmio;
 pub mod net;
 mod queue;
-pub mod vhost;
 
 pub use self::block::*;
 pub use self::mmio::*;
 pub use self::net::*;
 pub use self::queue::*;
-pub use self::vhost::vsock::*;
 
 const DEVICE_ACKNOWLEDGE: u32 = 0x01;
 const DEVICE_DRIVER: u32 = 0x02;
@@ -29,7 +26,6 @@ const DEVICE_FAILED: u32 = 0x80;
 // Types taken from linux/virtio_ids.h
 const TYPE_NET: u32 = 1;
 const TYPE_BLOCK: u32 = 2;
-const TYPE_VSOCK: u32 = 19;
 
 const INTERRUPT_STATUS_USED_RING: u32 = 0x1;
 
@@ -43,7 +39,6 @@ pub enum ActivateError {
     TryClone(SysError),
     EpollCtl(IOError),
     BadActivate,
-    BadVhostActivate(VhostBackendError),
 }
 
 pub type ActivateResult = std::result::Result<(), ActivateError>;
