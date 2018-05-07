@@ -73,6 +73,7 @@ impl fmt::Debug for SyncRequest {
 
 pub enum OkStatus {
     Created,
+    Updated,
 }
 
 impl GenerateResponse for OkStatus {
@@ -80,6 +81,7 @@ impl GenerateResponse for OkStatus {
         use self::OkStatus::*;
         match *self {
             Created => empty_response(StatusCode::Created),
+            Updated => empty_response(StatusCode::NoContent),
         }
     }
 }
@@ -90,7 +92,7 @@ pub enum Error {
     GuestCIDAlreadyInUse,
     GuestMacAddressInUse,
     OpenTap(TapError),
-    UpdateNotAllowed,
+    UpdateNotAllowedPostBoot,
     UpdateNotImplemented,
 }
 
@@ -110,7 +112,7 @@ impl GenerateResponse for Error {
                 StatusCode::BadRequest,
                 json_fault_message("Could not open TAP device."),
             ),
-            UpdateNotAllowed => json_response(
+            UpdateNotAllowedPostBoot => json_response(
                 StatusCode::Forbidden,
                 json_fault_message("The update operation is not allowed"),
             ),
@@ -161,8 +163,11 @@ mod tests {
 
     #[test]
     fn test_generate_response_okstatus() {
-        let ret = OkStatus::Created.generate_response();
+        let mut ret = OkStatus::Created.generate_response();
         assert_eq!(ret.status(), StatusCode::Created);
+
+        ret = OkStatus::Updated.generate_response();
+        assert_eq!(ret.status(), StatusCode::NoContent);
     }
 
     #[test]

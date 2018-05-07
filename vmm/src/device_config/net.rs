@@ -62,11 +62,14 @@ impl NetworkInterfaceConfigs {
 
     pub fn put(&mut self, body: NetworkInterfaceBody) -> result::Result<SyncOkStatus, SyncError> {
         let cfg = NetworkInterfaceConfig::try_from_body(body).map_err(SyncError::OpenTap)?;
-        for x in self.if_list.iter() {
-            if x.id_as_str() == cfg.id_as_str() {
-                return Err(SyncError::UpdateNotImplemented);
+        for device_config in self.if_list.iter_mut() {
+            if device_config.id_as_str() == cfg.id_as_str() {
+                device_config.tap = cfg.tap;
+                device_config.body = cfg.body.clone();
+                return Ok(SyncOkStatus::Updated);
             }
-            if x.guest_mac() == cfg.guest_mac() {
+
+            if device_config.guest_mac() == cfg.guest_mac() {
                 return Err(SyncError::GuestMacAddressInUse);
             }
         }
@@ -76,5 +79,42 @@ impl NetworkInterfaceConfigs {
 
     pub fn iter_mut(&mut self) -> linked_list::IterMut<NetworkInterfaceConfig> {
         self.if_list.iter_mut()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use api_server::request::sync::DeviceState;
+    use net_util::MacAddr;
+
+    #[test]
+    fn test_put() {
+        let mut netif_configs = NetworkInterfaceConfigs::new();
+        assert!(netif_configs.if_list.is_empty());
+
+        if let Ok(mac) = MacAddr::parse_str("01:23:45:67:89:0A") {
+            let mut netif_body = NetworkInterfaceBody {
+                iface_id: String::from("foo"),
+                state: DeviceState::Attached,
+                host_dev_name: String::from("bar"),
+                guest_mac: Some(mac.clone()),
+            };
+            assert!(netif_configs.put(netif_body.clone()).is_ok());
+            assert_eq!(netif_configs.if_list.len(), 1);
+
+            netif_body.host_dev_name = String::from("baz");
+            assert!(netif_configs.put(netif_body).is_ok());
+            assert_eq!(netif_configs.if_list.len(), 1);
+
+            let other_netif_body = NetworkInterfaceBody {
+                iface_id: String::from("bar"),
+                state: DeviceState::Attached,
+                host_dev_name: String::from("foo"),
+                guest_mac: Some(mac.clone()),
+            };
+            assert!(netif_configs.put(other_netif_body).is_err());
+            assert_eq!(netif_configs.if_list.len(), 1);
+        }
     }
 }
