@@ -35,7 +35,7 @@ use api_server::request::async::{AsyncOutcome, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse,
                                 NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
-                                PutLoggerOutcome, SyncRequest, VsockJsonBody};
+                                PutLoggerOutcome, SyncRequest};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
                                                        PutMachineConfigurationOutcome};
@@ -85,8 +85,6 @@ pub enum Error {
     RegisterBlock(device_manager::mmio::Error),
     NetDeviceNew(devices::virtio::NetError),
     RegisterNet(device_manager::mmio::Error),
-    CreateVirtioVsock(devices::virtio::vhost::Error),
-    RegisterMMIOVsockDevice(device_manager::mmio::Error),
     DeviceVmRequest(sys_util::Error),
     DriveError(DriveError),
     ApiChannel,
@@ -154,9 +152,12 @@ impl EpollContext {
     pub fn new() -> Result<Self> {
         let epoll_raw_fd = epoll::create(true).map_err(Error::EpollFd)?;
 
-        // initial capacity large enough to hold 1 exit and 1 stdin events, plus 2 queue events
-        // for virtio block, another 4 for virtio net and another 2 for vsock. The total is 10
-        // elements. Allowing spare capacity to avoid reallocations.
+        // initial capacity large enough to hold:
+        // * 1 exit event
+        // * 1 stdin event
+        // * 2 queue events for virtio block
+        // * 4 for virtio net
+        // the total is 8 elements; allowing spare capacity to avoid reallocations.
         let mut dispatch_table = Vec::with_capacity(20);
         let stdin_index = dispatch_table.len() as u64;
         dispatch_table.push(None);
@@ -250,11 +251,6 @@ impl EpollContext {
         virtio::net::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
-    pub fn allocate_virtio_vsock_tokens(&mut self) -> virtio::vhost::handle::VhostEpollConfig {
-        let (dispatch_base, sender) = self.allocate_tokens(2);
-        virtio::vhost::handle::VhostEpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
-    }
-
     fn get_device_handler(&mut self, device_idx: usize) -> &mut EpollHandler {
         let ref mut maybe = self.device_handlers[device_idx];
         match maybe.handler {
@@ -310,7 +306,6 @@ pub struct Vmm {
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
     network_interface_configs: NetworkInterfaceConfigs,
-    vsock_device_configs: VsockDeviceConfigs,
 
     epoll_context: EpollContext,
 
@@ -349,7 +344,6 @@ impl Vmm {
                 .map_err(|e| Error::CreateLegacyDevice(e))?,
             block_device_configs,
             network_interface_configs: NetworkInterfaceConfigs::new(),
-            vsock_device_configs: VsockDeviceConfigs::new(),
             epoll_context,
             api_event,
             from_api,
@@ -476,39 +470,6 @@ impl Vmm {
         Ok(())
     }
 
-    pub fn put_vsock_device(
-        &mut self,
-        body: VsockJsonBody,
-    ) -> result::Result<SyncOkStatus, SyncError> {
-        self.vsock_device_configs.put(body)
-    }
-
-    fn attach_vsock_devices(
-        &mut self,
-        guest_mem: &GuestMemory,
-        device_manager: &mut MMIODeviceManager,
-    ) -> Result<()> {
-        let kernel_config = match self.kernel_config.as_mut() {
-            Some(x) => x,
-            None => return Err(Error::MissingKernelConfig),
-        };
-
-        for cfg in self.vsock_device_configs.iter() {
-            let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
-
-            let vsock_box = Box::new(devices::virtio::Vsock::new(
-                cfg.get_guest_cid() as u64,
-                guest_mem,
-                epoll_config,
-            ).map_err(Error::CreateVirtioVsock)?);
-            device_manager
-                .register_device(vsock_box, &mut kernel_config.cmdline)
-                .map_err(Error::RegisterMMIOVsockDevice)?;
-        }
-
-        Ok(())
-    }
-
     pub fn configure_kernel(&mut self, kernel_config: KernelConfig) {
         self.kernel_config = Some(kernel_config);
     }
@@ -539,7 +500,6 @@ impl Vmm {
 
         self.attach_block_devices(&mut device_manager)?;
         self.attach_net_devices(&mut device_manager)?;
-        self.attach_vsock_devices(&guest_mem, &mut device_manager)?;
 
         self.mmio_device_manager = Some(device_manager);
         Ok(())
@@ -999,10 +959,6 @@ impl Vmm {
                     }
                     SyncRequest::PutNetworkInterface(body, outcome_sender) => outcome_sender
                         .send(Box::new(self.put_net_device(body)))
-                        .map_err(|_| ())
-                        .expect("one-shot channel closed"),
-                    SyncRequest::PutVsock(body, outcome_sender) => outcome_sender
-                        .send(Box::new(self.put_vsock_device(body)))
                         .map_err(|_| ())
                         .expect("one-shot channel closed"),
                 }
