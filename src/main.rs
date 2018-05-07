@@ -17,7 +17,7 @@ use clap::{App, Arg, SubCommand};
 
 use api_server::{ApiRequest, ApiServer};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
-use api_server::request::sync::{DeviceState, NetworkInterfaceBody, VsockJsonBody};
+use api_server::request::sync::{DeviceState, NetworkInterfaceBody};
 use net_util::MacAddr;
 use sys_util::{EventFd, GuestAddress};
 use logger::Logger;
@@ -95,12 +95,6 @@ fn main() {
                         .long("subnet-mask")
                         .default_value(DEFAULT_SUBNET_MASK)
                         .help("Subnet mask for the IP address of host interface")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("vsock_guest_cid")
-                        .long("vsock-guest-cid")
-                        .help("The guest CID for the virtio-vhost-vsock device")
                         .takes_value(true),
                 )
                 .arg(
@@ -247,18 +241,6 @@ fn vmm_no_api_handler(
         };
 
         vmm.put_net_device(body).expect("failed adding net device.");
-    }
-
-    if let Some(cid) = cmd_arguments.value_of("vsock_guest_cid") {
-        let cid = cid.parse::<u32>().expect("unable to parse cid value.");
-        let body = VsockJsonBody {
-            vsock_id: String::from("1"),
-            guest_cid: cid,
-            state: DeviceState::Attached,
-        };
-
-        vmm.put_vsock_device(body)
-            .expect("cannot add vsock device.");
     }
 
     // configure kernel from command line

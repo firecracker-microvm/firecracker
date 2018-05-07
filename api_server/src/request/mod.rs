@@ -7,7 +7,7 @@ use hyper::Method;
 pub use self::async::{AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest,
                       AsyncRequestBody};
 pub use self::sync::{APILoggerDescription, BootSourceBody, DriveDescription, NetworkInterfaceBody,
-                     SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest, VsockJsonBody};
+                     SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest};
 
 pub mod instance_info;
 
