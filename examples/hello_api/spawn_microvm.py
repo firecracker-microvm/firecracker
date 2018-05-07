@@ -19,7 +19,6 @@ class Firecracker:
     machine_config_path = '/machine-config'
     network_ifaces_path = '/network-interfaces'
     drives_path = '/drives'
-    vsocks_path = '/vsocks'
     boot_source_path = '/boot-source'
     actions_path = '/actions'
 
@@ -39,7 +38,6 @@ class Firecracker:
         self.machine_config_url = usocket_url + self.machine_config_path
         self.network_ifaces_url = usocket_url + self.network_ifaces_path
         self.drives_url = usocket_url + self.drives_path
-        self.vsocks_url = usocket_url + self.vsocks_path
         self.boot_source_url = usocket_url + self.boot_source_path
         self.actions_url = usocket_url + self.actions_path
 
@@ -57,6 +55,7 @@ class Firecracker:
             '.socket'
         )
         return usocket_url
+
 
 # Spawn a new Firecracker Virtual Machine Manager process.
 firecracker = Firecracker('0001')
@@ -117,12 +116,6 @@ requests.put(
     }
 )
 
-# Add a vsocket between the host and guest OSs (requiers both to be Linux).
-# Requires appropriate privileges, and both host and guest kernel support.
-requests.put(
-    firecracker.vsocks_url + '/1',
-    json={'vsock_id': '1', 'guest_cid': 10001, 'state': 'Attached'}
-)
 
 # Specify a boot source: a kernel image.
 # Currently, only linux kernel images are supported.
