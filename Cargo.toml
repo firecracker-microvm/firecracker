@@ -13,4 +13,7 @@ sys_util = { path = "sys_util" }
 vmm = { path = "vmm" }
 logger = { path = "logger" }
 
+[profile.release]
+lto = true
+
 [workspace]
