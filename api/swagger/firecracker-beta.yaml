@@ -144,6 +144,20 @@ paths:
             $ref: "#/definitions/Error"
 
   /machine-config:
+    get:
+      summary: Get the machine configuration of the VM.
+      description: Get the machine configuration of the VM. When called before the PUT operation, it will return
+                   the default values for the vCPU count (=1) and the memory size (=256 MiB).
+      responses:
+        200:
+          description: OK
+          schema:
+            $ref: "#/definitions/MachineConfiguration"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
     put:
       summary: Updates the Virtual Machine Configuration with the specified input.
                The Machine Configuration has default values for the vCPU count (=1) and the memory size (=256 MiB).
