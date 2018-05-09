@@ -4,6 +4,14 @@ use std::sync::{Arc, Mutex};
 use devices;
 use sys_util::{self, EventFd, Terminal};
 
+#[derive(Debug)]
+pub enum Error {
+    EventFd(sys_util::Error),
+    StdinHandle(sys_util::Error),
+}
+
+type Result<T> = ::std::result::Result<T, Error>;
+
 pub struct LegacyDeviceManager {
     pub io_bus: devices::Bus,
     pub stdio_serial: Arc<Mutex<devices::legacy::Serial>>,
@@ -14,15 +22,8 @@ pub struct LegacyDeviceManager {
     pub stdin_handle: io::Stdin,
 }
 
-pub type Result<T> = ::std::result::Result<T, Error>;
-
-#[derive(Debug)]
-pub enum Error {
-    EventFd(sys_util::Error),
-    StdinHandle(sys_util::Error),
-}
-
 impl LegacyDeviceManager {
+    /// Create a new DeviceManager handling legacy devices (uart, i8042).
     pub fn new() -> Result<Self> {
         let io_bus = devices::Bus::new();
         let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
@@ -46,6 +47,7 @@ impl LegacyDeviceManager {
         })
     }
 
+    /// Register supported legacy devices.
     pub fn register_devices(&mut self) -> Result<()> {
         self.io_bus
             .insert(self.stdio_serial.clone(), 0x3f8, 0x8)
@@ -83,5 +85,32 @@ impl LegacyDeviceManager {
             .map_err(|e| Error::StdinHandle(e))?;
         self.io_bus.insert(self.i8042.clone(), 0x064, 0x1).unwrap();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_register_legacy_devices() {
+        let ldm = LegacyDeviceManager::new();
+        assert!(ldm.is_ok());
+        assert!(&ldm.unwrap().register_devices().is_ok());
+        // we need to reset the terminal otherwise stdin will remain in raw mode
+        let stdin_handle = io::stdin();
+        stdin_handle.lock().set_canon_mode().unwrap();
+    }
+
+    #[test]
+    fn test_debug_error() {
+        assert_eq!(
+            format!("{:?}", Error::EventFd(sys_util::Error::new(0))),
+            "EventFd(Error(0))"
+        );
+        assert_eq!(
+            format!("{:?}", Error::StdinHandle(sys_util::Error::new(1))),
+            "StdinHandle(Error(1))"
+        );
     }
 }
