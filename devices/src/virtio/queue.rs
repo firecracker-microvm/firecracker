@@ -109,11 +109,12 @@ impl<'a> DescriptorChain<'a> {
     /// the head of the next _available_ descriptor chain.
     pub fn next_descriptor(&self) -> Option<DescriptorChain<'a>> {
         if self.has_next() {
-            DescriptorChain::checked_new(self.mem, self.desc_table, self.queue_size, self.next)
-                .map(|mut c| {
+            DescriptorChain::checked_new(self.mem, self.desc_table, self.queue_size, self.next).map(
+                |mut c| {
                     c.ttl = self.ttl - 1;
                     c
-                })
+                },
+            )
         } else {
             None
         }
@@ -315,6 +316,13 @@ impl Queue {
 
         mem.write_obj_at_addr(self.next_used.0 as u16, used_ring.unchecked_add(2))
             .unwrap();
+    }
+
+    /// Goes back one position in the available descriptor chain offered by the driver.
+    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
+    /// of an iterator increment on the queue.
+    pub fn go_to_previous_position(&mut self) {
+        self.next_avail -= Wrapping(1);
     }
 }
 

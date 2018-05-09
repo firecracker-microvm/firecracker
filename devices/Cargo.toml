@@ -8,7 +8,8 @@ byteorder = "=1.2.1"
 epoll = "=2.1.0"
 libc = ">=0.2.39"
 
-logger = {path = "../logger"}
+fc_util = { path = "../fc_util" }
+logger = { path = "../logger" }
 net_util = { path = "../net_util" }
 net_sys = { path = "../net_sys" }
 sys_util = { path = "../sys_util" }

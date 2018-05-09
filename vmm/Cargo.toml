@@ -12,6 +12,7 @@ scopeguard = "=0.3.3"
 api_server = { path = "../api_server" }
 data_model = { path = "../data_model" }
 devices = { path = "../devices" }
+fc_util = { path = "../fc_util"}
 kernel_loader = { path = "../kernel_loader" }
 kvm = { path = "../kvm" }
 kvm_sys = { path = "../kvm_sys" }

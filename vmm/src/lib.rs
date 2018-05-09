@@ -4,6 +4,7 @@ extern crate libc;
 extern crate api_server;
 extern crate data_model;
 extern crate devices;
+extern crate fc_util;
 extern crate kernel_loader;
 extern crate kvm;
 extern crate kvm_sys;
@@ -30,22 +31,23 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 
-use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
-use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse,
-                                NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
-                                PutLoggerOutcome, SyncRequest};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
                                                        PutMachineConfigurationOutcome};
 use data_model::vm::MachineConfiguration;
+use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse,
+                                NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
+                                PutLoggerOutcome, SyncRequest};
+use api_server::ApiRequest;
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
+use fc_util::ratelimiter::RateLimiter;
 use kvm::*;
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use vm_control::VmResponse;
@@ -80,6 +82,7 @@ pub enum Error {
     VmSetup(vstate::Error),
     CreateLegacyDevice(device_manager::legacy::Error),
     LegacyIOBus(device_manager::legacy::Error),
+    RateLimiterNew(std::io::Error),
     RootDiskImage(std::io::Error),
     RootBlockDeviceNew(sys_util::Error),
     RegisterBlock(device_manager::mmio::Error),
@@ -229,7 +232,7 @@ impl EpollContext {
         let device_idx = self.device_handlers.len();
         let (sender, receiver) = channel();
 
-        for x in 0..count - 1 {
+        for x in 0..count {
             self.dispatch_table.push(Some(EpollDispatch::DeviceHandler(
                 device_idx,
                 x as DeviceEventT,
@@ -242,12 +245,12 @@ impl EpollContext {
     }
 
     pub fn allocate_virtio_block_tokens(&mut self) -> virtio::block::EpollConfig {
-        let (dispatch_base, sender) = self.allocate_tokens(2);
+        let (dispatch_base, sender) = self.allocate_tokens(virtio::block::BLOCK_EVENTS_COUNT);
         virtio::block::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
     pub fn allocate_virtio_net_tokens(&mut self) -> virtio::net::EpollConfig {
-        let (dispatch_base, sender) = self.allocate_tokens(4);
+        let (dispatch_base, sender) = self.allocate_tokens(virtio::net::NET_EVENTS_COUNT);
         virtio::net::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
@@ -256,13 +259,14 @@ impl EpollContext {
         match maybe.handler {
             Some(ref mut v) => v.as_mut(),
             None => {
-                //this should only be called in response to an epoll trigger, and the channel
-                //should always contain a message after the events were added to epoll
-                //by the activate() call
-                maybe
-                    .handler
-                    .get_or_insert(maybe.receiver.try_recv().unwrap())
-                    .as_mut()
+                //this should only be called in response to an epoll trigger,
+                //and this branch of the match should only be active on the first call (the first
+                //epoll event for this device), therefore the channel is guaranteed to contain
+                //a message for the first epoll event since both epoll event registration and
+                //channel send() happen in the device activate() function
+                maybe.handler = Some(maybe.receiver.try_recv().unwrap());
+                //get a mutable reference to the boxed content of the option
+                maybe.handler.as_mut().unwrap().as_mut()
             }
         }
     }
@@ -470,10 +474,23 @@ impl Vmm {
                     .map_err(Error::RootDiskImage)?;
                 let epoll_config = epoll_context.allocate_virtio_block_tokens();
 
+                let rate_limiter = match drive_config.rate_limiter.as_ref() {
+                    Some(rate_limiter) => {
+                        // TODO: propagate the error, don't blindly unwrap()
+                        RateLimiter::new(
+                            rate_limiter.bandwidth.size,
+                            rate_limiter.bandwidth.refill_time,
+                            rate_limiter.ops.size,
+                            rate_limiter.ops.refill_time,
+                        ).map_err(Error::RateLimiterNew)?
+                    },
+                    None => RateLimiter::default(),
+                };
                 let block_box = Box::new(devices::virtio::Block::new(
                     root_image,
                     drive_config.is_read_only,
                     epoll_config,
+                    rate_limiter,
                 ).map_err(Error::RootBlockDeviceNew)?);
                 device_manager
                     .register_device(

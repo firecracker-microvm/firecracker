@@ -10,20 +10,20 @@ extern crate vmm;
 
 use std::fs::File;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
 use std::sync::mpsc::{channel, Receiver};
+use std::sync::{Arc, RwLock};
 
 use clap::{App, Arg, SubCommand};
 
-use api_server::{ApiRequest, ApiServer};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::{DeviceState, NetworkInterfaceBody};
+use api_server::{ApiRequest, ApiServer};
+use logger::Logger;
 use net_util::MacAddr;
 use sys_util::{EventFd, GuestAddress};
-use logger::Logger;
-use vmm::{CMDLINE_MAX_SIZE, CMDLINE_OFFSET, KERNEL_START_OFFSET};
-use vmm::{kernel_cmdline, KernelConfig};
 use vmm::device_config::BlockDeviceConfig;
+use vmm::{kernel_cmdline, KernelConfig};
+use vmm::{CMDLINE_MAX_SIZE, CMDLINE_OFFSET, KERNEL_START_OFFSET};
 
 const DEFAULT_SUBNET_MASK: &str = "255.255.255.0";
 
@@ -221,6 +221,7 @@ fn vmm_no_api_handler(
             is_root_device: true,
             is_read_only: cmd_arguments.is_present("read_only_root"),
             drive_id: String::from("1"),
+            rate_limiter: None,
         };
         vmm.put_block_device(root_block_device)
             .expect("cannot add root block device.");

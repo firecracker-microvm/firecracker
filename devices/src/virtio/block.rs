@@ -1,24 +1,26 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+extern crate fc_util;
 
+use self::fc_util::ratelimiter::{RateLimiter, TokenType};
+use super::{ActivateError, ActivateResult};
+use super::{DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING};
+use epoll;
 use std::cmp;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::result;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use {DeviceEventT, EpollHandler};
-use super::{ActivateError, ActivateResult};
-use epoll;
-use super::{DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING};
+use std::sync::Arc;
 use sys_util::Result as SysResult;
 use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};
 use virtio_sys::virtio_blk::*;
 use virtio_sys::virtio_config::*;
+use {DeviceEventT, EpollHandler};
 
 const SECTOR_SHIFT: u8 = 9;
 pub const SECTOR_SIZE: u64 = 0x01 << SECTOR_SHIFT;
@@ -26,8 +28,14 @@ const QUEUE_SIZE: u16 = 256;
 const NUM_QUEUES: usize = 1;
 const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
 
+// new descriptors are pending on the virtio queue
 pub const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
+// device shutdown has been requested
 pub const KILL_EVENT: DeviceEventT = 1;
+// device shutdown has been requested
+pub const RATE_LIMITER_EVENT: DeviceEventT = 2;
+// number of DeviceEventT events supported by this implementation
+pub const BLOCK_EVENTS_COUNT: usize = 3;
 
 #[derive(Debug, PartialEq)]
 enum RequestType {
@@ -207,12 +215,14 @@ pub struct BlockEpollHandler {
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
     queue_evt: EventFd,
+    rate_limiter: RateLimiter,
     disk_image_id: Vec<u8>,
 }
 
 impl BlockEpollHandler {
     fn process_queue(&mut self, queue_index: usize) -> bool {
         let queue = &mut self.queues[queue_index];
+        let mut rate_limited = false;
 
         let mut used_desc_heads = [(0, 0); QUEUE_SIZE as usize];
         let mut used_count = 0;
@@ -220,6 +230,27 @@ impl BlockEpollHandler {
             let len;
             match Request::parse(&avail_desc, &self.mem) {
                 Ok(request) => {
+                    // if limiter.consume() fails it means there is no more TokenType::Ops
+                    // budget and rate limiting is in effect
+                    if !self.rate_limiter.consume(1, TokenType::Ops) {
+                        rate_limited = true;
+                        // stop processing the queue
+                        break;
+                    }
+                    // if this request is of data transfer type
+                    if request.request_type == RequestType::In
+                        || request.request_type == RequestType::Out
+                    {
+                        // if limiter.consume() fails it means there is no more TokenType::Bytes
+                        // budget and rate limiting is in effect
+                        if !self.rate_limiter
+                            .consume(request.data_len as u64, TokenType::Bytes)
+                        {
+                            rate_limited = true;
+                            // stop processing the queue
+                            break;
+                        }
+                    }
                     let status =
                         match request.execute(&mut self.disk_image, &self.mem, &self.disk_image_id)
                         {
@@ -246,6 +277,11 @@ impl BlockEpollHandler {
             }
             used_desc_heads[used_count] = (avail_desc.index, len);
             used_count += 1;
+        }
+        if rate_limited {
+            // if rate limiting kicked in, queue had advanced one element that we aborted
+            // processing; go back one element so it can be processed next time
+            queue.go_to_previous_position();
         }
 
         for &(desc_index, len) in &used_desc_heads[..used_count] {
@@ -275,6 +311,11 @@ impl EpollHandler for BlockEpollHandler {
                     return;
                 }
 
+                // while limiter is blocked, don't process any more requests
+                if self.rate_limiter.is_blocked() {
+                    return;
+                }
+
                 if self.process_queue(0) {
                     self.signal_used_queue();
                 }
@@ -282,6 +323,14 @@ impl EpollHandler for BlockEpollHandler {
             KILL_EVENT => {
                 //TODO: change this when implementing device removal
                 info!("block device killed")
+            }
+            RATE_LIMITER_EVENT => {
+                // on rate limiter event, call the rate limiter handler
+                // and restart processing the queue
+                self.rate_limiter.event_handler();
+                if self.process_queue(0) {
+                    self.signal_used_queue();
+                }
             }
             _ => panic!("unknown token for block device"),
         }
@@ -291,6 +340,7 @@ impl EpollHandler for BlockEpollHandler {
 pub struct EpollConfig {
     q_avail_token: u64,
     kill_token: u64,
+    rate_limiter_token: u64,
     epoll_raw_fd: RawFd,
     sender: mpsc::Sender<Box<EpollHandler>>,
 }
@@ -302,8 +352,9 @@ impl EpollConfig {
         sender: mpsc::Sender<Box<EpollHandler>>,
     ) -> Self {
         EpollConfig {
-            q_avail_token: first_token,
-            kill_token: first_token + 1,
+            q_avail_token: first_token + QUEUE_AVAIL_EVENT as u64,
+            kill_token: first_token + KILL_EVENT as u64,
+            rate_limiter_token: first_token + RATE_LIMITER_EVENT as u64,
             epoll_raw_fd,
             sender,
         }
@@ -318,6 +369,7 @@ pub struct Block {
     acked_features: u64,
     config_space: Vec<u8>,
     epoll_config: EpollConfig,
+    rate_limiter: Option<RateLimiter>,
 }
 
 pub fn build_config_space(disk_size: u64) -> Vec<u8> {
@@ -340,6 +392,7 @@ impl Block {
         mut disk_image: File,
         is_disk_read_only: bool,
         epoll_config: EpollConfig,
+        rate_limiter: RateLimiter,
     ) -> SysResult<Block> {
         let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
         if disk_size % SECTOR_SIZE != 0 {
@@ -363,6 +416,7 @@ impl Block {
             acked_features: 0u64,
             config_space: build_config_space(disk_size),
             epoll_config,
+            rate_limiter: Some(rate_limiter),
         })
     }
 }
@@ -465,20 +519,18 @@ impl VirtioDevice for Block {
             return Err(ActivateError::BadActivate);
         }
 
-        let (self_kill_evt, kill_evt) = match EventFd::new().and_then(|e| Ok((e.try_clone()?, e))) {
-            Ok(v) => v,
-            Err(e) => {
-                error!("failed creating kill EventFd pair: {:?}", e);
-                return Err(ActivateError::BadActivate);
-            }
-        };
-        self.kill_evt = Some(self_kill_evt);
+        let kill_evt = EventFd::new().map_err(|e| {
+            error!("failed creating kill EventFd: {:?}", e);
+            ActivateError::BadActivate
+        })?;
+
+        let kill_evt_raw_fd = kill_evt.as_raw_fd();
+        self.kill_evt = Some(kill_evt);
 
         if let Some(disk_image) = self.disk_image.take() {
             let queue_evt = queue_evts.remove(0);
 
             let queue_evt_raw_fd = queue_evt.as_raw_fd();
-            let kill_evt_raw_fd = kill_evt.as_raw_fd();
 
             let disk_image_id = match build_device_id(&disk_image) {
                 // in case of error we put in an empty one
@@ -506,8 +558,11 @@ impl VirtioDevice for Block {
                 interrupt_status: status,
                 interrupt_evt,
                 queue_evt,
+                // safe to .take().unwrap() since activate is only called once
+                rate_limiter: self.rate_limiter.take().unwrap(),
                 disk_image_id,
             };
+            let rate_limiter_rawfd = handler.rate_limiter.as_raw_fd();
 
             //the channel should be open at this point
             self.epoll_config.sender.send(Box::new(handler)).unwrap();
@@ -527,6 +582,15 @@ impl VirtioDevice for Block {
                 epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token),
             ).map_err(ActivateError::EpollCtl)?;
 
+            if rate_limiter_rawfd != -1 {
+                epoll::ctl(
+                    self.epoll_config.epoll_raw_fd,
+                    epoll::EPOLL_CTL_ADD,
+                    rate_limiter_rawfd,
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rate_limiter_token),
+                ).map_err(ActivateError::EpollCtl)?;
+            }
+
             return Ok(());
         }
 
@@ -536,14 +600,14 @@ impl VirtioDevice for Block {
 
 #[cfg(test)]
 mod tests {
+    use libc;
     use std::fs::OpenOptions;
     use std::path::PathBuf;
     use std::sync::mpsc::Receiver;
-    use libc;
     use sys_util::TempDir;
 
-    use virtio::queue::tests::*;
     use super::*;
+    use virtio::queue::tests::*;
 
     struct DummyBlock {
         block: Block,
@@ -569,8 +633,10 @@ mod tests {
                 .unwrap();
             f.set_len(0x1000).unwrap();
 
+            // rate limiting disabled for this dummy device
+            let rate_limiter = RateLimiter::new(0, 0, 0, 0).unwrap();
             DummyBlock {
-                block: Block::new(f, false, epoll_config).unwrap(),
+                block: Block::new(f, false, epoll_config, rate_limiter).unwrap(),
                 epoll_raw_fd,
                 _receiver,
             }
@@ -836,6 +902,7 @@ mod tests {
             interrupt_status: status,
             interrupt_evt,
             queue_evt,
+            rate_limiter: RateLimiter::new(0, 0, 0, 0).unwrap(),
             disk_image_id,
         };
 

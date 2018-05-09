@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use std::result;
 
-use api_server::request::sync::{DriveDescription, DriveError};
+use api_server::request::sync::{DriveDescription, DriveError, RateLimiter};
 
 type Result<T> = result::Result<T, DriveError>;
 
@@ -14,6 +14,7 @@ pub struct BlockDeviceConfig {
     pub path_on_host: PathBuf,
     pub is_root_device: bool,
     pub is_read_only: bool,
+    pub rate_limiter: Option<RateLimiter>,
 }
 
 // Wrapper for the collection that holds all the Block Devices Configs
@@ -31,6 +32,7 @@ impl From<DriveDescription> for BlockDeviceConfig {
             path_on_host: PathBuf::from(item.path_on_host),
             is_root_device: item.is_root_device,
             is_read_only,
+            rate_limiter: item.rate_limiter,
         }
     }
 }
@@ -135,6 +137,7 @@ mod tests {
             is_root_device: false,
             is_read_only: false,
             drive_id: String::from("1"),
+            rate_limiter: None,
         };
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
@@ -161,6 +164,7 @@ mod tests {
             is_root_device: true,
             is_read_only: false,
             drive_id: String::from("1"),
+            rate_limiter: None,
         };
         let mut block_devices_configs = BlockDeviceConfigs::new();
         assert!(
@@ -185,6 +189,7 @@ mod tests {
             is_root_device: true,
             is_read_only: false,
             drive_id: String::from("1"),
+            rate_limiter: None,
         };
 
         let dummy_filename_2 = String::from("test_add_two_root_block_devices_configs_2");
@@ -194,6 +199,7 @@ mod tests {
             is_root_device: true,
             is_read_only: false,
             drive_id: String::from("2"),
+            rate_limiter: None,
         };
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
@@ -219,6 +225,7 @@ mod tests {
             is_root_device: true,
             is_read_only: false,
             drive_id: String::from("1"),
+            rate_limiter: None,
         };
 
         let dummy_filename_2 = String::from("test_add_root_block_device_first_2");
@@ -228,6 +235,7 @@ mod tests {
             is_root_device: false,
             is_read_only: false,
             drive_id: String::from("2"),
+            rate_limiter: None,
         };
 
         let dummy_filename_3 = String::from("test_add_root_block_device_first_3");
@@ -237,6 +245,7 @@ mod tests {
             is_root_device: false,
             is_read_only: false,
             drive_id: String::from("3"),
+            rate_limiter: None,
         };
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
@@ -275,6 +284,7 @@ mod tests {
             is_root_device: true,
             is_read_only: false,
             drive_id: String::from("1"),
+            rate_limiter: None,
         };
 
         let dummy_filename_2 = String::from("test_root_block_device_add_last_2");
@@ -284,6 +294,7 @@ mod tests {
             is_root_device: false,
             is_read_only: false,
             drive_id: String::from("2"),
+            rate_limiter: None,
         };
 
         let dummy_filename_3 = String::from("test_root_block_device_add_last_3");
@@ -293,6 +304,7 @@ mod tests {
             is_root_device: false,
             is_read_only: false,
             drive_id: String::from("3"),
+            rate_limiter: None,
         };
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
