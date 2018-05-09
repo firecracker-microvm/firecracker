@@ -73,7 +73,7 @@ pub struct MMIODeviceManager {
 }
 
 impl MMIODeviceManager {
-    /// Create a new DeviceManager.
+    /// Create a new DeviceManager handling mmio devices (virtio net, block).
     pub fn new(guest_mem: GuestMemory, mmio_base: u64) -> MMIODeviceManager {
         MMIODeviceManager {
             guest_mem: guest_mem,
