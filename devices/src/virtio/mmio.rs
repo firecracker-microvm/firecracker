@@ -273,12 +273,12 @@ impl BusDevice for MmioDevice {
                     self.device
                         .activate(
                             mem,
-                            interrupt_evt.try_clone().unwrap(),
+                            interrupt_evt.try_clone().expect("Failed to clone eventfd"),
                             self.interrupt_status.clone(),
                             self.queues.clone(),
                             self.queue_evts.split_off(0),
                         )
-                        .unwrap();
+                        .expect("Failed to activate device");
                     self.device_activated = true;
                 }
             }
