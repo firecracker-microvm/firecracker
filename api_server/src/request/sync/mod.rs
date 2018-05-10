@@ -4,6 +4,7 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{self, StatusCode};
 
+use data_model::vm::boot_source::BootSource;
 use data_model::vm::MachineConfiguration;
 use http_service::{empty_response, json_fault_message, json_response};
 use net_util::TapError;
@@ -15,7 +16,6 @@ pub mod machine_configuration;
 mod net;
 mod rate_limiter;
 
-pub use self::boot_source::{BootSourceBody, BootSourceType, LocalImage};
 pub use self::drive::{DriveDescription, DriveError, DrivePermissions, PutDriveOutcome};
 pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, PutLoggerOutcome};
 pub use self::net::NetworkInterfaceBody;
@@ -57,7 +57,7 @@ pub enum DeviceState {
 // bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
 pub enum SyncRequest {
     GetMachineConfiguration(SyncOutcomeSender),
-    PutBootSource(BootSourceBody, SyncOutcomeSender),
+    PutBootSource(BootSource, SyncOutcomeSender),
     PutDrive(DriveDescription, SyncOutcomeSender),
     PutLogger(APILoggerDescription, SyncOutcomeSender),
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),

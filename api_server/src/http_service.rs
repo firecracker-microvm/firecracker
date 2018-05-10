@@ -13,6 +13,7 @@ use serde_json;
 use tokio_core::reactor::Handle;
 
 use super::{ActionMap, ActionMapValue};
+use data_model::vm::boot_source::BootSource;
 use data_model::vm::MachineConfiguration;
 use logger::{Metric, METRICS};
 use request::instance_info::InstanceInfo;
@@ -171,12 +172,12 @@ fn parse_boot_source_req<'a>(
 
         0 if method == Method::Put => {
             METRICS.put_api_requests.boot_source_count.inc();
-            Ok(serde_json::from_slice::<request::BootSourceBody>(body)
+            Ok(serde_json::from_slice::<BootSource>(body)
                 .map_err(|e| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::SerdeJson(e)
                 })?
-                .into_parsed_request()
+                .into_parsed_request(Method::Put)
                 .map_err(|s| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -934,9 +935,9 @@ mod tests {
 
         // PUT
         // Falling back to json deserialization for constructing the "correct" request because not
-        // all of BootSourceBody's members are accessible. Rather than making them all public just
+        // all of BootSource's members are accessible. Rather than making them all public just
         // for the purpose of unit tests, it's preferable to trust the deserialization.
-        let res_bsb = serde_json::from_slice::<request::BootSourceBody>(&body);
+        let res_bsb = serde_json::from_slice::<BootSource>(&body);
         match res_bsb {
             Ok(boot_source_body) => {
                 match parse_boot_source_req(&path_tokens, &path, Method::Put, &body) {

@@ -5,7 +5,7 @@ use std::result;
 
 pub use self::async::{AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest,
                       AsyncRequestBody};
-pub use self::sync::{APILoggerDescription, BootSourceBody, DriveDescription, NetworkInterfaceBody,
+pub use self::sync::{APILoggerDescription, DriveDescription, NetworkInterfaceBody,
                      SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest};
 use hyper::Method;
 

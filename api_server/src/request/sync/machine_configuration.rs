@@ -3,41 +3,28 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
 
-use data_model::vm::MachineConfiguration;
+use data_model::vm::{MachineConfiguration, MachineConfigurationError,
+                     PutMachineConfigurationOutcome};
 use http_service::{empty_response, json_fault_message, json_response};
 use request::sync::GenerateResponse;
 use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 
-#[derive(Debug, PartialEq)]
-pub enum PutMachineConfigurationError {
-    InvalidVcpuCount,
-    InvalidMemorySize,
-}
-
-impl GenerateResponse for PutMachineConfigurationError {
+impl GenerateResponse for MachineConfigurationError {
     fn generate_response(&self) -> Response {
-        use self::PutMachineConfigurationError::*;
-
         match self {
-            InvalidVcpuCount => json_response(
+            MachineConfigurationError::InvalidVcpuCount => json_response(
                 StatusCode::BadRequest,
                 json_fault_message(
                     "The vCPU number is invalid! The vCPU number can only \
                      be 1 or an even number when hyperthreading is enabled.",
                 ),
             ),
-            InvalidMemorySize => json_response(
+            MachineConfigurationError::InvalidMemorySize => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The memory size (MiB) is invalid."),
             ),
         }
     }
-}
-
-pub enum PutMachineConfigurationOutcome {
-    Created,
-    Updated,
-    Error(PutMachineConfigurationError),
 }
 
 impl GenerateResponse for PutMachineConfigurationOutcome {
@@ -112,13 +99,13 @@ mod tests {
     #[test]
     fn test_generate_response_put_machine_configuration_error() {
         assert_eq!(
-            PutMachineConfigurationError::InvalidVcpuCount
+            MachineConfigurationError::InvalidVcpuCount
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
         );
         assert_eq!(
-            PutMachineConfigurationError::InvalidMemorySize
+            MachineConfigurationError::InvalidMemorySize
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
@@ -140,7 +127,7 @@ mod tests {
             StatusCode::NoContent
         );
         assert_eq!(
-            PutMachineConfigurationOutcome::Error(PutMachineConfigurationError::InvalidVcpuCount)
+            PutMachineConfigurationOutcome::Error(MachineConfigurationError::InvalidVcpuCount)
                 .generate_response()
                 .status(),
             StatusCode::BadRequest

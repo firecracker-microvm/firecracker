@@ -37,3 +37,15 @@ impl fmt::Display for CpuFeaturesTemplate {
         }
     }
 }
+
+#[derive(Debug, PartialEq)]
+pub enum MachineConfigurationError {
+    InvalidVcpuCount,
+    InvalidMemorySize,
+}
+
+pub enum PutMachineConfigurationOutcome {
+    Created,
+    Updated,
+    Error(MachineConfigurationError),
+}

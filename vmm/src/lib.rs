@@ -35,17 +35,15 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
-use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
-use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
-                                                       PutMachineConfigurationOutcome};
 use api_server::request::sync::{rate_limiter_description_into_implementation,
-                                APILoggerDescription, BootSourceBody, DriveDescription,
-                                DriveError, Error as SyncError, GenerateResponse,
-                                NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
-                                PutLoggerOutcome, SyncOutcomeSender, SyncRequest};
-
+                                APILoggerDescription, DriveDescription, DriveError,
+                                Error as SyncError, GenerateResponse, NetworkInterfaceBody,
+                                OkStatus as SyncOkStatus, PutDriveOutcome, PutLoggerOutcome,
+                                SyncOutcomeSender, SyncRequest};
 use api_server::ApiRequest;
-use data_model::vm::MachineConfiguration;
+use data_model::vm::boot_source::{BootSource, BootSourceError, PutBootSourceOutcome};
+use data_model::vm::{MachineConfiguration, MachineConfigurationError,
+                     PutMachineConfigurationOutcome};
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -516,18 +514,18 @@ impl Vmm {
     pub fn put_virtual_machine_configuration(
         &mut self,
         machine_config: MachineConfiguration,
-    ) -> std::result::Result<(), PutMachineConfigurationError> {
+    ) -> std::result::Result<(), MachineConfigurationError> {
         if let Some(vcpu_count_value) = machine_config.vcpu_count {
-            // Check that the vcpu_count value is >=1
+            // Check that the vcpu_count value is >=1.
             if vcpu_count_value <= 0 {
-                return Err(PutMachineConfigurationError::InvalidVcpuCount);
+                return Err(MachineConfigurationError::InvalidVcpuCount);
             }
         }
 
         if let Some(mem_size_mib_value) = machine_config.mem_size_mib {
             // TODO: add other memory checks
             if mem_size_mib_value <= 0 {
-                return Err(PutMachineConfigurationError::InvalidMemorySize);
+                return Err(MachineConfigurationError::InvalidMemorySize);
             }
         }
 
@@ -541,10 +539,10 @@ impl Vmm {
             None => self.vm_config.vcpu_count.unwrap(),
         };
 
-        // if hyperthreading is enabled or is to be enabled in this call
-        // only allow vcpu count to be 1 or even
+        // If hyperthreading is enabled or is to be enabled in this call
+        // only allow vcpu count to be 1 or even.
         if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
-            return Err(PutMachineConfigurationError::InvalidVcpuCount);
+            return Err(MachineConfigurationError::InvalidVcpuCount);
         }
 
         // Update all the fields that have a new value
@@ -1143,11 +1141,7 @@ impl Vmm {
         }
     }
 
-    fn handle_put_boot_source(
-        &mut self,
-        boot_source_body: BootSourceBody,
-        sender: SyncOutcomeSender,
-    ) {
+    fn handle_put_boot_source(&mut self, boot_source_body: BootSource, sender: SyncOutcomeSender) {
         if self.is_instance_running() {
             sender
                 .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
@@ -1157,14 +1151,14 @@ impl Vmm {
         }
 
         // check that the kernel path exists and it is valid
-        let box_response: Box<GenerateResponse + Send> = match boot_source_body.local_image {
-            Some(image) => match File::open(image.kernel_image_path) {
+        let box_response: Box<GenerateResponse + Send> = match boot_source_body.get_kernel_image() {
+            Some(image) => match File::open(image) {
                 Ok(kernel_file) => {
                     let mut cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
                     match cmdline.insert_str(
                         boot_source_body
-                            .boot_args
-                            .unwrap_or(String::from(DEFAULT_KERNEL_CMDLINE)),
+                            .get_boot_args()
+                            .unwrap_or(&String::from(DEFAULT_KERNEL_CMDLINE)),
                     ) {
                         Ok(_) => {
                             let kernel_config = KernelConfig {
@@ -1181,12 +1175,12 @@ impl Vmm {
                             self.configure_kernel(kernel_config);
                             Box::new(outcome)
                         }
-                        Err(_) => Box::new(PutBootSourceConfigError::InvalidKernelCommandLine),
+                        Err(_) => Box::new(BootSourceError::InvalidKernelCommandLine),
                     }
                 }
-                Err(_e) => Box::new(PutBootSourceConfigError::InvalidKernelPath),
+                Err(_e) => Box::new(BootSourceError::InvalidKernelPath),
             },
-            None => Box::new(PutBootSourceConfigError::InvalidKernelPath),
+            None => Box::new(BootSourceError::InvalidKernelPath),
         };
         sender
             .send(box_response)
@@ -1380,7 +1374,7 @@ mod tests {
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
                 .unwrap_err(),
-            PutMachineConfigurationError::InvalidVcpuCount
+            MachineConfigurationError::InvalidVcpuCount
         );
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
 
@@ -1395,7 +1389,7 @@ mod tests {
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
                 .unwrap_err(),
-            PutMachineConfigurationError::InvalidMemorySize
+            MachineConfigurationError::InvalidMemorySize
         );
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
         assert_eq!(vmm.vm_config.mem_size_mib, Some(256));
@@ -1414,7 +1408,7 @@ mod tests {
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
                 .unwrap_err(),
-            PutMachineConfigurationError::InvalidVcpuCount
+            MachineConfigurationError::InvalidVcpuCount
         );
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
         // Test that you can change the ht flag when you have a valid vcpu count

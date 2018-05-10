@@ -1,60 +1,26 @@
 use std::result;
 
 use futures::sync::oneshot;
-use hyper::{Response, StatusCode};
+use hyper::{Method, Response, StatusCode};
 
+use data_model::vm::boot_source::{BootSource, BootSourceError, PutBootSourceOutcome};
 use http_service::{empty_response, json_fault_message, json_response};
 use request::sync::GenerateResponse;
-use request::{ParsedRequest, SyncRequest};
+use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
-pub enum BootSourceType {
-    LocalImage,
-}
-
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
-pub struct LocalImage {
-    pub kernel_image_path: String,
-}
-
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
-pub struct BootSourceBody {
-    boot_source_id: String,
-    source_type: BootSourceType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub local_image: Option<LocalImage>,
-    // drive_boot to be added later
-    // network_boot to be added later
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub boot_args: Option<String>,
-}
-
-#[derive(Debug)]
-pub enum PutBootSourceConfigError {
-    InvalidKernelPath,
-    InvalidKernelCommandLine,
-}
-
-impl GenerateResponse for PutBootSourceConfigError {
+impl GenerateResponse for BootSourceError {
     fn generate_response(&self) -> Response {
-        use self::PutBootSourceConfigError::*;
         match *self {
-            InvalidKernelPath => json_response(
+            BootSourceError::InvalidKernelPath => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The kernel path is invalid!"),
             ),
-            InvalidKernelCommandLine => json_response(
+            BootSourceError::InvalidKernelCommandLine => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The kernel command line is invalid!"),
             ),
         }
     }
-}
-
-pub enum PutBootSourceOutcome {
-    Created,
-    Updated,
-    Error(PutBootSourceConfigError),
 }
 
 impl GenerateResponse for PutBootSourceOutcome {
@@ -68,8 +34,8 @@ impl GenerateResponse for PutBootSourceOutcome {
     }
 }
 
-impl BootSourceBody {
-    pub fn into_parsed_request(self) -> result::Result<ParsedRequest, String> {
+impl IntoParsedRequest for BootSource {
+    fn into_parsed_request(self, _method: Method) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
             SyncRequest::PutBootSource(self, sender),
@@ -81,17 +47,18 @@ impl BootSourceBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json;
 
     #[test]
     fn test_generate_response_put_boot_source_config_error() {
         assert_eq!(
-            PutBootSourceConfigError::InvalidKernelPath
+            BootSourceError::InvalidKernelPath
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
         );
         assert_eq!(
-            PutBootSourceConfigError::InvalidKernelCommandLine
+            BootSourceError::InvalidKernelCommandLine
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
@@ -109,7 +76,7 @@ mod tests {
             StatusCode::NoContent
         );
         assert_eq!(
-            PutBootSourceOutcome::Error(PutBootSourceConfigError::InvalidKernelPath)
+            PutBootSourceOutcome::Error(BootSourceError::InvalidKernelPath)
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
@@ -118,26 +85,31 @@ mod tests {
 
     #[test]
     fn test_into_parsed_request() {
-        let body = BootSourceBody {
-            boot_source_id: String::from("/foo/bar"),
-            source_type: BootSourceType::LocalImage,
-            local_image: Some(LocalImage {
-                kernel_image_path: String::from("/foo/bar"),
-            }),
-            boot_args: Some(String::from("foobar")),
-        };
-        let same_body = BootSourceBody {
-            boot_source_id: String::from("/foo/bar"),
-            source_type: BootSourceType::LocalImage,
-            local_image: Some(LocalImage {
-                kernel_image_path: String::from("/foo/bar"),
-            }),
-            boot_args: Some(String::from("foobar")),
-        };
+        let body = r#"{
+            "boot_source_id": "/foo/bar",
+            "source_type": "LocalImage",
+            "local_image": { "kernel_image_path": "/foo/bar"}
+        }"#;
+        let result1: Result<BootSource, serde_json::Error> = serde_json::from_str(body);
+        assert!(result1.is_ok());
+
+        let body = r#"{
+            "boot_source_id": "/foo/bar",
+            "source_type": "LocalImage",
+            "local_image": { "kernel_image_path": "/foo/bar"}
+        }"#;
+        let result2: Result<BootSource, serde_json::Error> = serde_json::from_str(body);
+        assert!(result2.is_ok());
+
         let (sender, receiver) = oneshot::channel();
-        assert!(body.into_parsed_request().eq(&Ok(ParsedRequest::Sync(
-            SyncRequest::PutBootSource(same_body, sender),
-            receiver
-        ))))
+        assert!(
+            result1
+                .unwrap()
+                .into_parsed_request(Method::Put)
+                .eq(&Ok(ParsedRequest::Sync(
+                    SyncRequest::PutBootSource(result2.unwrap(), sender),
+                    receiver
+                )))
+        )
     }
 }
