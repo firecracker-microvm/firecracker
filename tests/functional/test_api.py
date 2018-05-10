@@ -9,7 +9,7 @@ Tests that ensure the corectness of the Firecracker API.
 import pytest
 
 
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(240)
 def test_api_happy_start(test_microvm_any, uhttp):
     """ Tests a regular microvm API start sequence. """
 
