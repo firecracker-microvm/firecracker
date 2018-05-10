@@ -126,6 +126,7 @@ impl Bus {
     /// Returns true on success, otherwise `data` is untouched.
     pub fn read(&self, addr: u64, data: &mut [u8]) -> bool {
         if let Some((offset, dev)) = self.get_device(addr) {
+            // OK to unwrap as lock() failing is a serious error condition and should panic.
             dev.lock().unwrap().read(offset, data);
             true
         } else {
@@ -138,6 +139,7 @@ impl Bus {
     /// Returns true on success, otherwise `data` is untouched.
     pub fn write(&self, addr: u64, data: &[u8]) -> bool {
         if let Some((offset, dev)) = self.get_device(addr) {
+            // OK to unwrap as lock() failing is a serious error condition and should panic.
             dev.lock().unwrap().write(offset, data);
             true
         } else {

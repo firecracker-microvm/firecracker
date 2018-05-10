@@ -16,6 +16,8 @@ use vm_control::VmRequest;
 /// Errors for MMIO device manager.
 #[derive(Debug)]
 pub enum Error {
+    /// Failed to perform an operation on the bus.
+    BusError(devices::BusError),
     /// Could not create the mmio device to wrap a VirtioDevice.
     CreateMmioDevice(sys_util::Error),
     /// Failed to clone a queue's ioeventfd.
@@ -33,6 +35,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            &Error::BusError(ref e) => write!(f, "failed to perform bus operation: {:?}", e),
             &Error::CreateMmioDevice(ref e) => write!(f, "failed to create mmio device: {:?}", e),
             &Error::CloneIoeventFd(ref e) => write!(f, "failed to clone ioeventfd: {:?}", e),
             &Error::CloneIrqFd(ref e) => write!(f, "failed to clone irqfd: {:?}", e),
@@ -117,7 +120,7 @@ impl MMIODeviceManager {
 
         self.bus
             .insert(Arc::new(Mutex::new(mmio_device)), self.mmio_base, MMIO_LEN)
-            .unwrap();
+            .map_err(|err| Error::BusError(err))?;
 
         // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
         // to kernel commandline for virtio mmio devices to get recognized
@@ -145,7 +148,7 @@ impl MMIODeviceManager {
     pub fn update_drive(&self, addr: u64, new_size: u64) -> Result<()> {
         if let Some((_, device)) = self.bus.get_device(addr) {
             let data = devices::virtio::build_config_space(new_size);
-            let mut busdev = device.lock().unwrap();
+            let mut busdev = device.lock().map_err(|_| Error::UpdateFailed)?;
 
             busdev.write(MMIO_CFG_SPACE_OFF, &data[..]);
             busdev.interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG);

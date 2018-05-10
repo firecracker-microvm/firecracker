@@ -17,7 +17,7 @@ mod bus;
 pub mod legacy;
 pub mod virtio;
 
-pub use self::bus::{Bus, BusDevice};
+pub use self::bus::{Bus, BusDevice, Error as BusError};
 
 pub type DeviceEventT = u16;
 

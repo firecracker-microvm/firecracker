@@ -18,6 +18,7 @@ pub enum Error {
     InvalidGuestAddress(GuestAddress),
     MemoryAccess(GuestAddress, mmap::Error),
     MemoryMappingFailed(mmap::Error),
+    MemoryNotInitialized,
     MemoryRegionOverlap,
     NoMemoryRegions,
     RegionOperationFailed,

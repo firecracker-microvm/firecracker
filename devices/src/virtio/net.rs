@@ -88,7 +88,9 @@ impl NetEpollHandler {
     fn signal_used_queue(&self) {
         self.interrupt_status
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
-        self.interrupt_evt.write(1).unwrap();
+        if self.interrupt_evt.write(1).is_err() {
+            error!("Write failed on eventfd");
+        }
     }
 
     // Copies a single frame from `self.rx_buf` into the guest. Returns true
@@ -183,8 +185,12 @@ impl NetEpollHandler {
                 Err(e) => {
                     // The tap device is nonblocking, so any error aside from EAGAIN is
                     // unexpected.
-                    if e.raw_os_error().unwrap() != EAGAIN {
-                        warn!("net: rx: failed to read tap: {:?}", e);
+                    if let Some(err) = e.raw_os_error() {
+                        if err != EAGAIN {
+                            error!("net: rx: failed to read tap: {:?}", e);
+                        }
+                    } else {
+                        error!("net: rx: failed to read tap: {:?}", e);
                     }
                     break;
                 }
@@ -504,7 +510,10 @@ impl VirtioDevice for Net {
                 let tx_queue_raw_fd = handler.tx_queue_evt.as_raw_fd();
 
                 //channel should be open and working
-                self.epoll_config.sender.send(Box::new(handler)).unwrap();
+                self.epoll_config
+                    .sender
+                    .send(Box::new(handler))
+                    .expect("Failed to send through channel");
 
                 //TODO: barrier needed here maybe?
 

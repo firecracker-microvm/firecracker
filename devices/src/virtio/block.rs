@@ -295,6 +295,7 @@ impl BlockEpollHandler {
     fn signal_used_queue(&self) {
         self.interrupt_status
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
+        // The write() is safe because the underlying syscall is properly engineered.
         self.interrupt_evt.write(1).unwrap();
     }
 
@@ -576,7 +577,10 @@ impl VirtioDevice for Block {
             let rate_limiter_rawfd = handler.rate_limiter.as_raw_fd();
 
             //the channel should be open at this point
-            self.epoll_config.sender.send(Box::new(handler)).unwrap();
+            self.epoll_config
+                .sender
+                .send(Box::new(handler))
+                .expect("Failed to send through the cannel");
 
             //TODO: barrier needed here by any chance?
             epoll::ctl(

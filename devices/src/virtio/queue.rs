@@ -51,13 +51,41 @@ impl<'a> DescriptorChain<'a> {
             None => return None,
         };
         // These reads can't fail unless Guest memory is hopelessly broken.
-        let addr = GuestAddress(mem.read_obj_from_addr::<u64>(desc_head).unwrap() as usize);
+        let addr = match mem.read_obj_from_addr::<u64>(desc_head) {
+            Ok(ret) => GuestAddress(ret as usize),
+            Err(_) => {
+                // TODO log address
+                error!("Failed to read from memory");
+                return None;
+            }
+        };
         if mem.checked_offset(desc_head, 16).is_none() {
             return None;
         }
-        let len: u32 = mem.read_obj_from_addr(desc_head.unchecked_add(8)).unwrap();
-        let flags: u16 = mem.read_obj_from_addr(desc_head.unchecked_add(12)).unwrap();
-        let next: u16 = mem.read_obj_from_addr(desc_head.unchecked_add(14)).unwrap();
+        let len: u32 = match mem.read_obj_from_addr(desc_head.unchecked_add(8)) {
+            Ok(ret) => ret,
+            Err(_) => {
+                // TODO log address
+                error!("Failed to read from memory");
+                return None;
+            }
+        };
+        let flags: u16 = match mem.read_obj_from_addr(desc_head.unchecked_add(12)) {
+            Ok(ret) => ret,
+            Err(_) => {
+                // TODO log address
+                error!("Failed to read from memory");
+                return None;
+            }
+        };
+        let next: u16 = match mem.read_obj_from_addr(desc_head.unchecked_add(14)) {
+            Ok(ret) => ret,
+            Err(_) => {
+                // TODO log address
+                error!("Failed to read from memory");
+                return None;
+            }
+        };
         let chain = DescriptorChain {
             mem: mem,
             desc_table: desc_table,
@@ -132,6 +160,20 @@ pub struct AvailIter<'a, 'b> {
     next_avail: &'b mut Wrapping<u16>,
 }
 
+impl<'a, 'b> AvailIter<'a, 'b> {
+    pub fn new(mem: &'a GuestMemory, q_next_avail: &'b mut Wrapping<u16>) -> AvailIter<'a, 'b> {
+        AvailIter {
+            mem: mem,
+            desc_table: GuestAddress(0),
+            avail_ring: GuestAddress(0),
+            next_index: Wrapping(0),
+            last_index: Wrapping(0),
+            queue_size: 0,
+            next_avail: q_next_avail,
+        }
+    }
+}
+
 impl<'a, 'b> Iterator for AvailIter<'a, 'b> {
     type Item = DescriptorChain<'a>;
 
@@ -146,7 +188,14 @@ impl<'a, 'b> Iterator for AvailIter<'a, 'b> {
             None => return None,
         };
         // This index is checked below in checked_new
-        let desc_index: u16 = self.mem.read_obj_from_addr(avail_addr).unwrap();
+        let desc_index: u16 = match self.mem.read_obj_from_addr(avail_addr) {
+            Ok(ret) => ret,
+            Err(_) => {
+                // TODO log address
+                error!("Failed to read from memory");
+                return None;
+            }
+        };
 
         self.next_index += Wrapping(1);
 
@@ -262,22 +311,24 @@ impl Queue {
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
     pub fn iter<'a, 'b>(&'b mut self, mem: &'a GuestMemory) -> AvailIter<'a, 'b> {
         if !self.is_valid(mem) {
-            return AvailIter {
-                mem: mem,
-                desc_table: GuestAddress(0),
-                avail_ring: GuestAddress(0),
-                next_index: Wrapping(0),
-                last_index: Wrapping(0),
-                queue_size: 0,
-                next_avail: &mut self.next_avail,
-            };
+            return AvailIter::new(mem, &mut self.next_avail);
         }
         let queue_size = self.actual_size();
         let avail_ring = self.avail_ring;
 
-        let index_addr = mem.checked_offset(avail_ring, 2).unwrap();
+        let index_addr = match mem.checked_offset(avail_ring, 2) {
+            Some(ret) => ret,
+            None => {
+                // TODO log address
+                warn!("Invalid offset");
+                return AvailIter::new(mem, &mut self.next_avail);
+            }
+        };
         // Note that last_index has no invalid values
-        let last_index: u16 = mem.read_obj_from_addr::<u16>(index_addr).unwrap();
+        let last_index: u16 = match mem.read_obj_from_addr::<u16>(index_addr) {
+            Ok(ret) => ret,
+            Err(_) => return AvailIter::new(mem, &mut self.next_avail),
+        };
 
         AvailIter {
             mem: mem,
