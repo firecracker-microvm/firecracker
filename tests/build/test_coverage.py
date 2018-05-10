@@ -22,7 +22,7 @@ def test_coverage(testsession_tmp_path):
     created by kcov after a coverag run.
     """
 
-    COVERAGE_TARGET_PCT = 90
+    COVERAGE_TARGET_PCT = 70
     # TODO: Put the coverage in s3 and update it automatically.
 
     COVERAGE_FILE = 'index.json'
@@ -42,8 +42,9 @@ def test_coverage(testsession_tmp_path):
         'taskset --cpu-list 0-63 '
         'cargo kcov --all --target=x86_64-unknown-linux-musl '
         '    --output ' + testsession_tmp_path +
-        '    -- --exclude-pattern=' + exclude_pattern + ' --verify '
-        '>/dev/null 2>&1',
+        '    -- --exclude-pattern=' + exclude_pattern + ' --verify ',
+        # '>/dev/null 2>&1',
+        # HACK: we need a consistent way to control test output.
         shell=True,
         check=True
     )
