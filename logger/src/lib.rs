@@ -22,15 +22,21 @@
 //! }
 //! ```
 // workaround to macro_reexport
+#[macro_use]
+extern crate lazy_static;
 extern crate log;
+extern crate time;
 pub use log::Level::*;
 pub use log::*;
 
 mod error;
+mod metrics;
 mod writers;
 
 use error::LoggerError;
 use log::{set_boxed_logger, set_max_level, Log, Metadata, Record};
+use metrics::get_metrics;
+
 use std::result;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
@@ -269,8 +275,7 @@ impl Logger {
             };
         }
 
-        // if code reaches here, we are all good
-        set_max_level(self.level_info.code.to_level_filter());
+        set_max_level(Level::Trace.to_level_filter());
 
         if let Err(e) = set_boxed_logger(Box::new(self)) {
             STATE.store(UNINITIALIZED, Ordering::SeqCst);
@@ -287,7 +292,7 @@ impl Logger {
 impl Log for Logger {
     // test whether a log level is enabled for the current module
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= self.level_info.code
+        metadata.level() <= self.level_info.code || metadata.level() == Level::Trace
     }
 
     fn log(&self, record: &Record) {
@@ -298,6 +303,37 @@ impl Log for Logger {
                 MSG_SEPARATOR,
                 record.args()
             );
+
+            if record.level().eq(&log::Level::Trace) {
+                let mut guard = match get_metrics().lock() {
+                    Ok(g) => g,
+                    Err(e) => {
+                        eprintln!(
+                            "{}",
+                            LoggerError::MutexLockFailure(format!(
+                                "Getting lock on metrics mutex failed. Error: {:?}",
+                                e
+                            ))
+                        );
+                        return;
+                    }
+                };
+                let metric_key = String::from(format!("{}", (record.args())));
+                let mut metric = guard.get_mut(&metric_key);
+                match metric {
+                    Some(ref mut m) => match m.log_metric() {
+                        Ok(t) => msg = t,
+                        Err(e) => match e {
+                            LoggerError::LogMetricFailure => {
+                                panic!("Logging metrics encountered illogical events")
+                            }
+                            LoggerError::LogMetricRateLimit => return,
+                            _ => (),
+                        },
+                    },
+                    None => eprintln!("No metric {} found", format!("{}", (record.args()))), // should this be a panic??
+                }
+            }
 
             match self.level_info.writer {
                 Destination::Stderr => {
@@ -337,10 +373,17 @@ impl Log for Logger {
 mod tests {
     use super::*;
     use log::MetadataBuilder;
-    use std::fs::File;
-    use std::fs::remove_file;
+
+    use metrics::LogMetric::{MetricGetInstanceInfoFailures, MetricGetInstanceInfoRate};
+    use std::fs::{copy, remove_file, File};
     use std::io::BufRead;
     use std::io::BufReader;
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    fn log_file_str() -> String {
+        String::from("tmp.log")
+    }
 
     fn validate_logs(
         log_path: &str,
@@ -387,7 +430,7 @@ mod tests {
         assert_eq!(l.show_file_path, true);
         assert_eq!(l.show_level, true);
 
-        assert!(l.init(Some(String::from("tmp.log"))).is_ok());
+        assert!(l.init(Some(log_file_str())).is_ok());
         info!("info");
         warn!("warning");
 
@@ -401,7 +444,7 @@ mod tests {
         // here we also test that the second initialization had no effect given that the
         // logging system can only be initialized once per program
         validate_logs(
-            "tmp.log",
+            &log_file_str(),
             &[
                 ("[INFO", "lib.rs", "info"),
                 ("[WARN", "lib.rs", "warn"),
@@ -411,15 +454,19 @@ mod tests {
             ],
         );
 
-        let l = Logger::new();
-        STATE.store(UNINITIALIZED, Ordering::SeqCst);
-        assert_eq!(
-            format!("{:?}", l.init(Some(String::from("tmp.log"))).err().unwrap()),
-            "NeverInitialized(\"attempted to set a logger after \
-             the logging system was already initialized\")"
-        );
+        // testing logging metric
+        trace!("{:?}", MetricGetInstanceInfoFailures);
+        trace!("{:?}", MetricGetInstanceInfoRate);
+        sleep(Duration::from_secs(3));
+        trace!("{:?}", MetricGetInstanceInfoFailures);
+        trace!("{:?}", MetricGetInstanceInfoRate);
+        sleep(Duration::from_secs(3));
+        trace!("{:?}", MetricGetInstanceInfoFailures);
+        trace!("{:?}", MetricGetInstanceInfoRate);
 
-        remove_file("tmp.log").unwrap();
+        // leaving this commented so that you can test this RFC
+        copy(log_file_str(), "rfc.log").unwrap();
+        remove_file(log_file_str()).unwrap();
 
         // exercise the case when there is an error in opening file
         let l = Logger::new();
@@ -447,6 +494,24 @@ mod tests {
         assert_eq!(l.show_level, false);
         assert_eq!(l.show_file_path, true);
         assert_eq!(l.show_line_numbers, true);
+
+        STATE.store(INITIALIZED, Ordering::SeqCst);
+        let l = Logger::new();
+
+        assert_eq!(
+            format!("{:?}", l.init(None).err()),
+            "Some(AlreadyInitialized)"
+        );
+
+        let l = Logger::new();
+        STATE.store(UNINITIALIZED, Ordering::SeqCst);
+        let res = format!("{:?}", l.init(Some(log_file_str())).err().unwrap());
+        remove_file(log_file_str()).unwrap();
+        assert_eq!(
+            res,
+            "NeverInitialized(\"attempted to set a logger after \
+             the logging system was already initialized\")"
+        );
     }
 
     #[test]

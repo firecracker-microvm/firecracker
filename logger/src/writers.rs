@@ -47,7 +47,7 @@ impl FileLogWriter {
     fn get_line_writer(&self) -> Result<(MutexGuard<LineWriter<File>>)> {
         self.line_writer
             .lock()
-            .map_err(|e| LoggerError::FileLogLock(format!("{}", e)))
+            .map_err(|e| LoggerError::MutexLockFailure(format!("{}", e)))
     }
 }
 

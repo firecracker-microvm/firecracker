@@ -17,7 +17,11 @@ pub enum LoggerError {
     /// Flushing to disk fails.
     FileLogFlush(std::io::Error),
     /// Error obtaining lock on mutex.
-    FileLogLock(String),
+    MutexLockFailure(String),
+    /// Error in the logging of the metrics.
+    LogMetricFailure,
+    /// Signals not logging a metric due to rate limiting.
+    LogMetricRateLimit,
 }
 
 impl fmt::Display for LoggerError {
@@ -36,7 +40,11 @@ impl fmt::Display for LoggerError {
             LoggerError::FileLogFlush(ref e) => {
                 format!("Failed to flush log file. Error: {}", e.description())
             }
-            LoggerError::FileLogLock(ref e) => format!("{}", e),
+            LoggerError::MutexLockFailure(ref e) => format!("{}", e),
+            LoggerError::LogMetricFailure => {
+                format!("{}", "Failure in the logging of the metrics.")
+            }
+            LoggerError::LogMetricRateLimit => format!("{}", "Metric will not yet be logged."),
         };
         write!(f, "{}", printable)
     }
@@ -100,15 +108,27 @@ mod tests {
         assert!(
             format!(
                 "{:?}",
-                LoggerError::FileLogLock(String::from("File log lock"))
-            ).contains("FileLogLock")
+                LoggerError::MutexLockFailure(String::from("Mutex lock"))
+            ).contains("MutexLockFailure")
         );
         assert_eq!(
             format!(
                 "{}",
-                LoggerError::FileLogLock(String::from("File log lock"))
+                LoggerError::MutexLockFailure(String::from("Mutex lock"))
             ),
-            "File log lock"
+            "Mutex lock"
+        );
+
+        assert!(format!("{:?}", LoggerError::LogMetricFailure).contains("LogMetricFailure"));
+        assert_eq!(
+            format!("{}", LoggerError::LogMetricFailure),
+            "Failure in the logging of the metrics."
+        );
+
+        assert!(format!("{:?}", LoggerError::LogMetricRateLimit).contains("LogMetricRateLimit"));
+        assert_eq!(
+            format!("{}", LoggerError::LogMetricRateLimit),
+            "Metric will not yet be logged."
         );
     }
 }
