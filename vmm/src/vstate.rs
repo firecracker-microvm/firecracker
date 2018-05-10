@@ -133,6 +133,11 @@ const ECX_HYPERVISOR_SHIFT: u32 = 31; // Flag to be set when the cpu is running 
 const ECX_LEVEL_TYPE_SHIFT: u32 = 8; // Shift for setting level type for leaf 11
 const EDX_HTT_SHIFT: u32 = 28; // Hyper Threading Enabled.
 
+// Deterministic Cache Parameters Leaf
+const EAX_CACHE_LEVEL: u32 = 5;
+const EAX_MAX_ADDR_IDS_SHARING_CACHE: u32 = 14;
+const EAX_MAX_ADDR_IDS_IN_PACKAGE: u32 = 26;
+
 const LEAFBH_LEVEL_TYPE_INVALID: u32 = 0;
 const LEAFBH_LEVEL_TYPE_THREAD: u32 = 1;
 const LEAFBH_LEVEL_TYPE_CORE: u32 = 2;
@@ -197,6 +202,48 @@ impl Vcpu {
                     // an even and > 1 number of sibilings
                     if cpu_count > 1 && cpu_count % 2 == 0 {
                         entry.edx |= 1 << EDX_HTT_SHIFT;
+                    }
+                }
+                4 => {
+                    // Deterministic Cache Parameters Leaf
+                    // Only use the last 3 bits of EAX[5:32] because the level is encoded in EAX[5:7]
+                    let cache_level = (entry.eax >> EAX_CACHE_LEVEL) & (0b111 as u32);
+                    match cache_level {
+                        // L1 & L2 Cache
+                        1 | 2 => {
+                            // Set the maximum addressable IDS sharing the data cache to zero
+                            // when you only have 1 vcpu because there are no other threads on
+                            // the machine to share the data/instruction cache
+                            // This sets EAX[25:14]
+                            entry.eax &= !(0b111111111111 << EAX_MAX_ADDR_IDS_SHARING_CACHE);
+                            if cpu_count > 1 {
+                                // Hyperthreading is enabled by default for vcpu_count > 2
+                                entry.eax |= 1 << EAX_MAX_ADDR_IDS_SHARING_CACHE;
+                            }
+                        }
+                        // L3 Cache
+                        3 => {
+                            // Set the maximum addressable IDS sharing the data cache to zero
+                            // when you only have 1 vcpu because there are no other threads on
+                            // the machine to share the data/instruction cache
+                            // This sets EAX[25:14]
+                            entry.eax &= !(0b111111111111 << EAX_MAX_ADDR_IDS_SHARING_CACHE);
+                            if cpu_count > 1 {
+                                entry.eax |=
+                                    ((cpu_count - 1) as u32) << EAX_MAX_ADDR_IDS_SHARING_CACHE;
+                            }
+                        }
+                        _ => (),
+                    }
+
+                    // Maximum number of addressable IDs for processor cores in the physical package
+                    // should be the same on all cache levels
+                    // set this to 0 because there is only 1 core available for vcpu_count <= 2
+                    // This sets EAX[31:26]
+                    entry.eax &= !(0b111111 << EAX_MAX_ADDR_IDS_IN_PACKAGE);
+                    if cpu_count > 2 {
+                        // we have HT enabled by default, so we will have cpu_count/2 cores in package
+                        entry.eax |= (((cpu_count >> 1) - 1) as u32) << EAX_MAX_ADDR_IDS_IN_PACKAGE;
                     }
                 }
                 6 => {
