@@ -21,6 +21,7 @@
 //!     error!("this is a error");
 //! }
 //! ```
+extern crate chrono;
 // workaround to macro_reexport
 #[macro_use]
 extern crate lazy_static;
@@ -37,6 +38,7 @@ use error::LoggerError;
 use log::{set_boxed_logger, set_max_level, Log, Metadata, Record};
 use metrics::get_metrics;
 
+use chrono::Local;
 use std::result;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
@@ -298,7 +300,8 @@ impl Log for Logger {
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
             let mut msg = format!(
-                "{}{}{}",
+                "{} {}{}{}",
+                Local::now().format("%Y-%m-%dT%H:%M:%S"),
                 self.create_prefix(&record),
                 MSG_SEPARATOR,
                 record.args()
@@ -322,7 +325,15 @@ impl Log for Logger {
                 let mut metric = guard.get_mut(&metric_key);
                 match metric {
                     Some(ref mut m) => match m.log_metric() {
-                        Ok(t) => msg = t,
+                        Ok(t) => {
+                            msg = format!(
+                                "{} {}{}{}",
+                                Local::now().format("%Y-%m-%dT%H:%M:%S"),
+                                self.create_prefix(&record),
+                                MSG_SEPARATOR,
+                                t
+                            )
+                        }
                         Err(e) => match e {
                             LoggerError::LogMetricFailure => {
                                 panic!("Logging metrics encountered illogical events")
