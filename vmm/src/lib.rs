@@ -89,11 +89,13 @@ pub enum Error {
     RegisterBlock(device_manager::mmio::Error),
     NetDeviceNew(devices::virtio::NetError),
     RegisterNet(device_manager::mmio::Error),
+    NetDeviceUnconfigured,
     DeviceVmRequest(sys_util::Error),
     DriveError(DriveError),
     ApiChannel,
     KvmApiVersion(i32),
     KvmCap(kvm::Cap),
+    GeneralFailure,
 }
 
 impl std::convert::From<kernel_loader::Error> for Error {
@@ -313,19 +315,21 @@ impl EpollContext {
         virtio::net::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
-    fn get_device_handler(&mut self, device_idx: usize) -> &mut EpollHandler {
+    fn get_device_handler(&mut self, device_idx: usize) -> Result<&mut EpollHandler> {
         let ref mut maybe = self.device_handlers[device_idx];
         match maybe.handler {
-            Some(ref mut v) => v.as_mut(),
+            Some(ref mut v) => Ok(v.as_mut()),
             None => {
                 // this should only be called in response to an epoll trigger,
                 // and this branch of the match should only be active on the first call (the first
                 // epoll event for this device), therefore the channel is guaranteed to contain
                 // a message for the first epoll event since both epoll event registration and
                 // channel send() happen in the device activate() function
-                maybe.handler = Some(maybe.receiver.try_recv().unwrap());
-                // get a mutable reference to the boxed content of the option
-                maybe.handler.as_mut().unwrap().as_mut()
+                let received = maybe
+                    .receiver
+                    .try_recv()
+                    .map_err(|_| Error::GeneralFailure)?;
+                Ok(maybe.handler.get_or_insert(received).as_mut())
             }
         }
     }
@@ -488,8 +492,7 @@ impl Vmm {
         vcpu_count: Option<u8>,
         mem_size_mib: Option<usize>,
     ) -> std::result::Result<(), PutMachineConfigurationError> {
-        if vcpu_count.is_some() {
-            let vcpu_count_value = vcpu_count.unwrap();
+        if let Some(vcpu_count_value) = vcpu_count {
             // Only allow the number of vcpus to be 1 or an even value
             // This is needed for creating a meaningful CPU topology (already enforced by the
             // API call, but still here to avoid future mistakes)
@@ -501,9 +504,8 @@ impl Vmm {
             self.vm_config.vcpu_count = vcpu_count;
         }
 
-        if mem_size_mib.is_some() {
+        if let Some(mem_size_mib_value) = mem_size_mib {
             // TODO: add other memory checks
-            let mem_size_mib_value = mem_size_mib.unwrap();
             if mem_size_mib_value == 0 {
                 return Err(PutMachineConfigurationError::InvalidMemorySize);
             }
@@ -588,17 +590,19 @@ impl Vmm {
 
         for cfg in self.network_interface_configs.iter_mut() {
             let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
-            // The following take_tap() should only be called once, on valid NetworkInterfaceConfig
-            // objects, so the unwrap() shouldn't panic.
-            let net_box = Box::new(devices::virtio::Net::new_with_tap(
-                cfg.take_tap().unwrap(),
-                cfg.guest_mac(),
-                epoll_config,
-            ).map_err(Error::NetDeviceNew)?);
+            if let Some(tap) = cfg.take_tap() {
+                let net_box = Box::new(devices::virtio::Net::new_with_tap(
+                    tap,
+                    cfg.guest_mac(),
+                    epoll_config,
+                ).map_err(Error::NetDeviceNew)?);
 
-            device_manager
-                .register_device(net_box, &mut kernel_config.cmdline, None)
-                .map_err(Error::RegisterNet)?;
+                device_manager
+                    .register_device(net_box, &mut kernel_config.cmdline, None)
+                    .map_err(Error::RegisterNet)?;
+            } else {
+                return Err(Error::NetDeviceUnconfigured);
+            }
         }
         Ok(())
     }
@@ -623,11 +627,12 @@ impl Vmm {
     }
 
     pub fn init_devices(&mut self) -> Result<()> {
-        let guest_mem = self.guest_memory.clone().unwrap();
-        /* Instantiating MMIO device manager
-       'mmio_base' address has to be an address which is protected by the kernel, in this case
-       the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
-       */
+        let guest_mem = self.guest_memory.clone().ok_or(Error::GuestMemory(
+            sys_util::GuestMemoryError::MemoryNotInitialized,
+        ))?;
+        // Instantiating MMIO device manager
+        // 'mmio_base' address has to be an address which is protected by the kernel, in this case
+        // the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
         let mut device_manager =
             MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
@@ -640,7 +645,9 @@ impl Vmm {
 
     pub fn init_microvm(&mut self) -> Result<()> {
         self.vm
-            .memory_init(self.guest_memory.clone().unwrap())
+            .memory_init(self.guest_memory.clone().ok_or(Error::VmSetup(
+                vstate::Error::GuestMemory(sys_util::GuestMemoryError::MemoryNotInitialized),
+            ))?)
             .map_err(Error::VmSetup)?;
         self.vm
             .setup_irqchip(
@@ -650,6 +657,8 @@ impl Vmm {
             .map_err(Error::VmSetup)?;
         self.vm.create_pit().map_err(Error::VmSetup)?;
 
+        // Safe to unwrap() because mmio_device_manager is instantiated in init_devices, which
+        // is called before init_microvm.
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
         for request in &device_manager.vm_requests {
             if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
@@ -678,18 +687,23 @@ impl Vmm {
 
         for cpu_id in 0..vcpu_count {
             let io_bus = self.legacy_device_manager.io_bus.clone();
+            // Safe to unwrap() because mmio_device_manager is instantiated in init_devices, which
+            // is called before start_vcpus.
             let device_manager = self.mmio_device_manager.as_ref().unwrap();
             let mmio_bus = device_manager.bus.clone();
             let kill_signaled = kill_signaled.clone();
             let vcpu_thread_barrier = vcpu_thread_barrier.clone();
+            // If the lock is poisoned, it's OK to panic.
             let vcpu_exit_evt = self.legacy_device_manager
                 .i8042
                 .lock()
                 .unwrap()
                 .get_eventfd_clone()
-                .unwrap();
+                .map_err(|_| Error::GeneralFailure)?;
 
             let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(Error::Vcpu)?;
+
+            // Safe to unwrap() because the value was just checked.
             let kernel_config = self.kernel_config.as_mut().unwrap();
             vcpu.configure(vcpu_count, kernel_config.kernel_start_addr, &self.vm)
                 .map_err(Error::VcpuConfigure)?;
@@ -789,19 +803,19 @@ impl Vmm {
             kernel_config.kernel_start_addr,
             kernel_config.cmdline_addr,
             cmdline_cstring.to_bytes().len() + 1,
-            self.vm_config.vcpu_count.unwrap(),
+            self.vm_config.vcpu_count.ok_or(Error::GeneralFailure)?,
         )?;
-
         Ok(())
     }
 
     pub fn register_events(&mut self) -> Result<()> {
+        // If the lock is poisoned, it's OK to panic.
         let event_fd = self.legacy_device_manager
             .i8042
             .lock()
             .unwrap()
             .get_eventfd_clone()
-            .unwrap();
+            .map_err(|_| Error::GeneralFailure)?;
         let exit_epoll_evt = self.epoll_context.add_event(event_fd, EpollDispatch::Exit)?;
         self.exit_evt = Some(exit_epoll_evt);
 
@@ -930,8 +944,14 @@ impl Vmm {
                             }
                         }
                         EpollDispatch::DeviceHandler(device_idx, device_token) => {
-                            let handler = self.epoll_context.get_device_handler(device_idx);
-                            handler.handle_event(device_token, events[i].events().bits());
+                            match self.epoll_context.get_device_handler(device_idx) {
+                                Ok(handler) => {
+                                    handler.handle_event(device_token, events[i].events().bits())
+                                }
+                                Err(e) => {
+                                    warn!("invalid handler for device {}: {:?}", device_idx, e)
+                                }
+                            }
                         }
                         EpollDispatch::ApiRequest => {
                             self.api_event.event_fd.read().map_err(Error::EventFd)?;

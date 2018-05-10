@@ -26,9 +26,10 @@ where
 
     // This should only be called when the LriHashMap is full.
     fn make_room_for_new_key(&mut self) {
-        // Being full should imply list len > 0.
+        // Being full should imply list len > 0. Otherwise, something is very wrong and unwrap()
+        // should panic.
         let old_key = self.keys_ordered_by_insertion_time.pop_back().unwrap();
-        // If old_key was in the list, it should also be in the map.
+        // If old_key was in the list, it should also be in the map, therefore unwrap() is safe.
         self.hash_map.remove(&old_key).unwrap();
     }
 
@@ -45,7 +46,7 @@ where
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
         let key_already_present = self.contains_key(&k);
         if self.keys_ordered_by_insertion_time.len() == self.capacity && !key_already_present {
-            self.make_room_for_new_key()
+            self.make_room_for_new_key();
         }
 
         self.do_insert(k, v, key_already_present)

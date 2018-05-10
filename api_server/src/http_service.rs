@@ -64,6 +64,8 @@ enum Error<'a> {
     ActionExists,
     // A generic error, with a given status code and message to be turned into a fault message.
     Generic(StatusCode, String),
+    // The resource ID is invalid.
+    InvalidID,
     // The HTTP method & request path combination is not valid.
     InvalidPathMethod(&'a str, Method),
     // An error occurred when deserializing the json body of a request.
@@ -79,6 +81,9 @@ impl<'a> Into<hyper::Response> for Error<'a> {
                 json_fault_message("An action with the same id already exists."),
             ),
             Error::Generic(status, msg) => json_response(status, json_fault_message(msg)),
+            Error::InvalidID => {
+                json_response(StatusCode::BadRequest, json_fault_message("Invalid ID"))
+            }
             Error::InvalidPathMethod(path, method) => json_response(
                 StatusCode::BadRequest,
                 json_fault_message(format!(
@@ -114,20 +119,22 @@ fn parse_actions_req<'a>(
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::GetActions),
 
-        1 if method == Method::Get => Ok(ParsedRequest::GetAction(String::from(
-            id_from_path.unwrap(),
-        ))),
+        1 if method == Method::Get => {
+            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
+            Ok(ParsedRequest::GetAction(String::from(unwrapped_id)))
+        }
 
         1 if method == Method::Put => {
+            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
             let async_body: AsyncRequestBody =
                 serde_json::from_slice(body.as_ref()).map_err(Error::SerdeJson)?;
             let parsed_req = async_body
-                .to_parsed_request(id_from_path.unwrap())
+                .to_parsed_request(unwrapped_id)
                 .map_err(|msg| Error::Generic(StatusCode::BadRequest, msg))?;
             action_map
                 .borrow_mut()
                 .insert_unique(
-                    String::from(id_from_path.unwrap()),
+                    String::from(unwrapped_id),
                     ActionMapValue::Pending(async_body),
                 )
                 .map_err(|_| Error::ActionExists)?;
@@ -192,7 +199,7 @@ fn parse_drives_req<'a>(
 
         1 if method == Method::Put => Ok(serde_json::from_slice::<request::DriveDescription>(body)
             .map_err(Error::SerdeJson)?
-            .into_parsed_request(id_from_path.unwrap())
+            .into_parsed_request(id_from_path.ok_or(Error::InvalidID)?)
             .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -237,11 +244,15 @@ fn parse_netif_req<'a>(
 
         1 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
-        1 if method == Method::Put => Ok(serde_json::from_slice::<request::NetworkInterfaceBody>(
-            body,
-        ).map_err(Error::SerdeJson)?
-            .into_parsed_request(id_from_path.unwrap())
-            .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
+        1 if method == Method::Put => {
+            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
+            Ok(
+                serde_json::from_slice::<request::NetworkInterfaceBody>(body)
+                    .map_err(Error::SerdeJson)?
+                    .into_parsed_request(unwrapped_id)
+                    .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?,
+            )
+        }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -595,6 +606,16 @@ mod tests {
         let message = String::from("This is an error message");
         response = Error::Generic(StatusCode::ServiceUnavailable, message).into();
         assert_eq!(response.status(), StatusCode::ServiceUnavailable);
+        assert_eq!(
+            response.headers().get::<ContentType>(),
+            Some(&ContentType::json())
+        );
+        assert_eq!(body_to_string(response.body()), err_message);
+
+        response = Error::InvalidID.into();
+        let json_err_val = "Invalid ID";
+        let err_message = format!("{{\n  \"{}\": \"{}\"\n}}", &json_err_key, &json_err_val);
+        assert_eq!(response.status(), StatusCode::BadRequest);
         assert_eq!(
             response.headers().get::<ContentType>(),
             Some(&ContentType::json())
