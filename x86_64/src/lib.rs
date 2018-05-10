@@ -47,6 +47,7 @@ unsafe impl memory_model::DataInit for mpspec::mpc_table {}
 unsafe impl memory_model::DataInit for mpspec::mpc_lintsrc {}
 unsafe impl memory_model::DataInit for mpspec::mpf_intel {}
 
+pub mod cpuid;
 mod gdt;
 pub mod interrupts;
 mod mptable;

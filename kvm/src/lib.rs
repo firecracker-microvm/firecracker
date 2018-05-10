@@ -29,7 +29,7 @@ pub use cap::*;
 pub use kvm_sys::KVM_API_VERSION;
 
 /// Taken from Linux Kernel v4.14.13 (arch/x86/include/asm/kvm_host.h)
-const MAX_KVM_CPUID_ENTRIES: usize = 80;
+pub const MAX_KVM_CPUID_ENTRIES: usize = 80;
 
 /// A wrapper around opening and using `/dev/kvm`.
 ///
