@@ -299,7 +299,7 @@ mod tests {
         assert_eq!(0xfffff, sregs.tr.limit);
         assert_eq!(0, sregs.tr.avl);
         assert_eq!(X86_CR0_PE, sregs.cr0);
-        assert_eq!(EFER_LME, sregs.efer);
+        assert_eq!(EFER_LME | EFER_LMA, sregs.efer);
     }
 
     #[test]
