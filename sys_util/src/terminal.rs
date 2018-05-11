@@ -135,14 +135,8 @@ mod tests {
         assert!(stdin.set_raw_mode().is_ok());
         assert!(stdin.set_canon_mode().is_ok());
         assert!(stdin.set_non_block(true).is_ok());
-        //trying to read 3 bytes in non-blocking mode will give error as there is nothing to read
-        let mut out = [0u8; 3];
-        assert!(stdin.read_raw(&mut out[..]).is_err());
         let mut out = [0u8; 0];
-        assert_eq!(stdin.read_raw(&mut out[..]).unwrap(), 0);
-        assert!(stdin.set_non_block(false).is_ok());
-        // trying to read more than 0 would block the terminal
-        assert_eq!(stdin.read_raw(&mut out[..]).unwrap(), 0);
+        assert!(stdin.read_raw(&mut out[..]).is_ok());
     }
 
     #[test]
