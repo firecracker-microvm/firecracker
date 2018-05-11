@@ -883,8 +883,8 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn lapic_test() {
-        use std::mem;
         use std::io::Cursor;
+        use std::mem;
         //we might get read of byteorder if we replace 5h3 mem::transmute with something safer
         use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
         //as per https://github.com/torvalds/linux/arch/x86/kvm/lapic.c

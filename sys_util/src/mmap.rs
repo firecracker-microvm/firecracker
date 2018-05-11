@@ -7,15 +7,15 @@
 
 use std;
 use std::io::{Read, Write};
-use std::ptr::null_mut;
 use std::os::unix::io::AsRawFd;
+use std::ptr::null_mut;
 
 use libc;
 
 use errno;
 
-use memory_model::volatile_memory::*;
 use memory_model::DataInit;
+use memory_model::volatile_memory::*;
 
 #[derive(Debug)]
 pub enum Error {
@@ -346,12 +346,12 @@ impl Drop for MemoryMapping {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::TempDir;
-    use std::path::{Path, PathBuf};
+    use super::*;
+    use memory_model::{VolatileMemory, VolatileMemoryError};
     use std::fs::{remove_file, File, OpenOptions};
     use std::mem;
-    use memory_model::{VolatileMemory, VolatileMemoryError};
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn basic_map() {

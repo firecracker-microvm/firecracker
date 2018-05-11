@@ -4,13 +4,13 @@
 
 use std::{mem, result};
 
+use gdt;
 use kvm;
 use kvm_sys::kvm_fpu;
 use kvm_sys::kvm_msr_entry;
 use kvm_sys::kvm_msrs;
 use kvm_sys::kvm_regs;
 use kvm_sys::kvm_sregs;
-use gdt;
 use sys_util;
 use sys_util::{GuestAddress, GuestMemory};
 

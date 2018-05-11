@@ -3,9 +3,9 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Response, StatusCode};
 
-use request::ParsedRequest;
-use http_service::{empty_response, json_fault_message, json_response};
 use super::{DeviceState, GenerateResponse, SyncRequest};
+use http_service::{empty_response, json_fault_message, json_response};
+use request::ParsedRequest;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[allow(non_camel_case_types)]

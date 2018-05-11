@@ -55,13 +55,13 @@ pub mod regs;
 use std::mem;
 use std::result;
 
-use bootparam::boot_params;
 use bootparam::E820_RAM;
+use bootparam::boot_params;
 use sys_util::{GuestAddress, GuestMemory};
 
-pub use regs::Error as RegError;
 pub use interrupts::Error as IntError;
 pub use mptable::Error as MpTableError;
+pub use regs::Error as RegError;
 
 #[derive(Debug)]
 pub enum Error {

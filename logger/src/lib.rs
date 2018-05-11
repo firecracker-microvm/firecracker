@@ -23,8 +23,8 @@
 //! ```
 // workaround to macro_reexport
 extern crate log;
-pub use log::*;
 pub use log::Level::*;
+pub use log::*;
 
 mod error;
 mod writers;
@@ -336,11 +336,11 @@ impl Log for Logger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
-    use std::io::BufReader;
-    use std::io::BufRead;
-    use std::fs::remove_file;
     use log::MetadataBuilder;
+    use std::fs::File;
+    use std::fs::remove_file;
+    use std::io::BufRead;
+    use std::io::BufReader;
 
     fn validate_logs(
         log_path: &str,

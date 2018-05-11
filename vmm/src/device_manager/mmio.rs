@@ -165,10 +165,10 @@ impl MMIODeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use devices::virtio::{ActivateResult, VirtioDevice};
+    use kernel_cmdline;
     use std::sync::atomic::AtomicUsize;
     use sys_util::{EventFd, GuestAddress, GuestMemory};
-    use kernel_cmdline;
-    use devices::virtio::{ActivateResult, VirtioDevice};
     const QUEUE_SIZES: &'static [u16] = &[64];
 
     #[allow(dead_code)]

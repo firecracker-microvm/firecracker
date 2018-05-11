@@ -109,11 +109,12 @@ impl<'a> DescriptorChain<'a> {
     /// the head of the next _available_ descriptor chain.
     pub fn next_descriptor(&self) -> Option<DescriptorChain<'a>> {
         if self.has_next() {
-            DescriptorChain::checked_new(self.mem, self.desc_table, self.queue_size, self.next)
-                .map(|mut c| {
+            DescriptorChain::checked_new(self.mem, self.desc_table, self.queue_size, self.next).map(
+                |mut c| {
                     c.ttl = self.ttl - 1;
                     c
-                })
+                },
+            )
         } else {
             None
         }

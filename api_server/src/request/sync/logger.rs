@@ -4,8 +4,8 @@ use futures::sync::oneshot;
 use hyper::{Response, StatusCode};
 
 use http_service::{empty_response, json_fault_message, json_response};
-use request::{ParsedRequest, SyncRequest};
 use request::sync::GenerateResponse;
+use request::{ParsedRequest, SyncRequest};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum APILoggerLevel {
