@@ -35,7 +35,11 @@ impl GenerateResponse for PutBootSourceOutcome {
 }
 
 impl IntoParsedRequest for BootSource {
-    fn into_parsed_request(self, _method: Method) -> result::Result<ParsedRequest, String> {
+    fn into_parsed_request(
+        self,
+        _method: Method,
+        _id_from_path: Option<&str>,
+    ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
             SyncRequest::PutBootSource(self, sender),
@@ -105,7 +109,7 @@ mod tests {
         assert!(
             result1
                 .unwrap()
-                .into_parsed_request(Method::Put)
+                .into_parsed_request(Method::Put, None)
                 .eq(&Ok(ParsedRequest::Sync(
                     SyncRequest::PutBootSource(result2.unwrap(), sender),
                     receiver

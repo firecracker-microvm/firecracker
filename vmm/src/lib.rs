@@ -35,12 +35,12 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
-use api_server::request::sync::{rate_limiter_description_into_implementation,
-                                APILoggerDescription, DriveDescription, DriveError,
-                                Error as SyncError, GenerateResponse, NetworkInterfaceBody,
-                                OkStatus as SyncOkStatus, PutDriveOutcome, PutLoggerOutcome,
+use api_server::request::sync::{APILoggerDescription, Error as SyncError, GenerateResponse,
+                                NetworkInterfaceBody, OkStatus as SyncOkStatus, PutLoggerOutcome,
                                 SyncOutcomeSender, SyncRequest};
 use api_server::ApiRequest;
+use data_model::device_config::{rate_limiter_description_into_implementation, DriveConfig,
+                                DriveError, PutDriveOutcome};
 use data_model::vm::boot_source::{BootSource, BootSourceError, PutBootSourceOutcome};
 use data_model::vm::{MachineConfiguration, MachineConfigurationError,
                      PutMachineConfigurationOutcome};
@@ -447,11 +447,11 @@ impl Vmm {
     /// Updating before the VM has started is not allowed.
     pub fn put_block_device(
         &mut self,
-        block_device_config: BlockDeviceConfig,
+        block_device_config: DriveConfig,
     ) -> result::Result<PutDriveOutcome, DriveError> {
         // if the id of the drive already exists in the list, the operation is update
         if self.block_device_configs
-            .contains_drive_id(block_device_config.drive_id.clone())
+            .contains_drive_id(block_device_config.get_id())
         {
             return self.update_block_device(&block_device_config);
         } else {
@@ -464,7 +464,7 @@ impl Vmm {
 
     fn update_block_device(
         &mut self,
-        block_device_config: &BlockDeviceConfig,
+        block_device_config: &DriveConfig,
     ) -> result::Result<PutDriveOutcome, DriveError> {
         if self.mmio_device_manager.is_some() {
             self.live_update_block_device(block_device_config)
@@ -477,17 +477,17 @@ impl Vmm {
 
     fn live_update_block_device(
         &mut self,
-        block_device_config: &BlockDeviceConfig,
+        block_device_config: &DriveConfig,
     ) -> result::Result<PutDriveOutcome, DriveError> {
         // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
         // called before the guest boots, and this function is called after boot.
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
 
         for drive_config in self.block_device_configs.config_list.iter() {
-            if drive_config.drive_id == block_device_config.drive_id {
-                match device_manager.get_address(&drive_config.drive_id) {
+            if drive_config.get_id() == block_device_config.get_id() {
+                match device_manager.get_address(drive_config.get_id()) {
                     Some(&address) => {
-                        let metadata = metadata(&block_device_config.path_on_host)
+                        let metadata = metadata(block_device_config.get_path_on_host())
                             .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
                         let new_size = metadata.len();
                         if new_size % virtio::block::SECTOR_SIZE != 0 {
@@ -584,17 +584,18 @@ impl Vmm {
                 // adding root blk device from file
                 let root_image = OpenOptions::new()
                     .read(true)
-                    .write(!drive_config.is_read_only)
-                    .open(&drive_config.path_on_host)
+                    .write(!drive_config.is_read_only())
+                    .open(drive_config.get_path_on_host())
                     .map_err(Error::RootDiskImage)?;
                 let epoll_config = epoll_context.allocate_virtio_block_tokens();
 
                 let rate_limiter = rate_limiter_description_into_implementation(
-                    drive_config.rate_limiter.as_ref(),
+                    drive_config.get_rate_limiter(),
                 ).map_err(Error::RateLimiterNew)?;
+
                 let block_box = Box::new(devices::virtio::Block::new(
                     root_image,
-                    drive_config.is_read_only,
+                    drive_config.is_read_only(),
                     epoll_config,
                     rate_limiter,
                 ).map_err(Error::RootBlockDeviceNew)?);
@@ -602,7 +603,7 @@ impl Vmm {
                     .register_device(
                         block_box,
                         &mut kernel_config.cmdline,
-                        Some(drive_config.drive_id.clone()),
+                        Some(drive_config.get_id().to_string()),
                     )
                     .map_err(Error::RegisterBlock)?;
             }
@@ -1103,8 +1104,8 @@ impl Vmm {
         }
     }
 
-    fn handle_put_drive(&mut self, drive_description: DriveDescription, sender: SyncOutcomeSender) {
-        match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
+    fn handle_put_drive(&mut self, drive_description: DriveConfig, sender: SyncOutcomeSender) {
+        match self.put_block_device(drive_description) {
             Ok(ret) => sender
                 .send(Box::new(ret))
                 .map_err(|_| ())

@@ -160,8 +160,8 @@ impl MMIODeviceManager {
     }
 
     /// Gets the address of the specified device on the bus.
-    pub fn get_address(&self, id: &String) -> Option<&u64> {
-        return self.id_to_addr_map.get(id.as_str());
+    pub fn get_address(&self, id: &str) -> Option<&u64> {
+        return self.id_to_addr_map.get(id);
     }
 }
 

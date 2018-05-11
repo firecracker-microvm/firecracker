@@ -1,46 +1,22 @@
 use std::collections::LinkedList;
 use std::path::PathBuf;
-
 use std::result;
 
-use api_server::request::sync::{DriveDescription, DriveError, RateLimiterDescription};
+use data_model::device_config::{DriveConfig, DriveError};
 
 type Result<T> = result::Result<T, DriveError>;
 
-/// Use this structure to set up the Block Device before booting the kernel
-#[derive(PartialEq, Debug, Clone)]
-pub struct BlockDeviceConfig {
-    pub drive_id: String,
-    pub path_on_host: PathBuf,
-    pub is_root_device: bool,
-    pub is_read_only: bool,
-    pub rate_limiter: Option<RateLimiterDescription>,
-}
-
-// Wrapper for the collection that holds all the Block Devices Configs
+// Wrapper for the collection that holds all the Drive Configs.
 pub struct BlockDeviceConfigs {
-    pub config_list: LinkedList<BlockDeviceConfig>,
+    pub config_list: LinkedList<DriveConfig>,
     has_root_block: bool,
     read_only_root: bool,
-}
-
-impl From<DriveDescription> for BlockDeviceConfig {
-    fn from(item: DriveDescription) -> Self {
-        let is_read_only = item.is_read_only();
-        BlockDeviceConfig {
-            drive_id: item.drive_id,
-            path_on_host: PathBuf::from(item.path_on_host),
-            is_root_device: item.is_root_device,
-            is_read_only,
-            rate_limiter: item.rate_limiter,
-        }
-    }
 }
 
 impl BlockDeviceConfigs {
     pub fn new() -> BlockDeviceConfigs {
         BlockDeviceConfigs {
-            config_list: LinkedList::<BlockDeviceConfig>::new(),
+            config_list: LinkedList::<DriveConfig>::new(),
             has_root_block: false,
             read_only_root: false,
         }
@@ -54,18 +30,18 @@ impl BlockDeviceConfigs {
         self.read_only_root
     }
 
-    pub fn contains_drive_path(&self, drive_path: PathBuf) -> bool {
+    fn contains_drive_path(&self, drive_path: &PathBuf) -> bool {
         for drive_config in self.config_list.iter() {
-            if drive_config.path_on_host == drive_path {
+            if drive_config.get_path_on_host() == drive_path {
                 return true;
             }
         }
         return false;
     }
 
-    pub fn contains_drive_id(&self, drive_id: String) -> bool {
+    pub fn contains_drive_id(&self, drive_id: &str) -> bool {
         for drive_config in self.config_list.iter() {
-            if drive_config.drive_id == drive_id {
+            if drive_config.get_id() == drive_id {
                 return true;
             }
         }
@@ -74,24 +50,24 @@ impl BlockDeviceConfigs {
 
     /// This function adds a Block Device Config to the list. The root block device is always
     /// added to the beginning of the list. Only one root block device can be added.
-    pub fn add(&mut self, block_device_config: BlockDeviceConfig) -> Result<()> {
+    pub fn add(&mut self, block_device_config: DriveConfig) -> Result<()> {
         // check if the path exists
-        if !block_device_config.path_on_host.exists() {
+        if !block_device_config.get_path_on_host().exists() {
             return Err(DriveError::InvalidBlockDevicePath);
         }
 
-        if self.contains_drive_path(block_device_config.path_on_host.clone()) {
+        if self.contains_drive_path(block_device_config.get_path_on_host()) {
             return Err(DriveError::BlockDevicePathAlreadyExists);
         }
 
         // check whether the Device Config belongs to a root device
         // we need to satisfy the condition by which a VMM can only have on root device
-        if block_device_config.is_root_device {
+        if block_device_config.is_root_device() {
             if self.has_root_block {
                 return Err(DriveError::RootBlockDeviceAlreadyAdded);
             } else {
                 self.has_root_block = true;
-                self.read_only_root = block_device_config.is_read_only;
+                self.read_only_root = block_device_config.is_read_only();
                 // Root Device should be the first in the list
                 self.config_list.push_front(block_device_config);
             }
@@ -107,8 +83,8 @@ impl BlockDeviceConfigs {
             return None;
         } else {
             for cfg in self.config_list.iter() {
-                if cfg.is_root_device {
-                    return Some(cfg.drive_id.clone());
+                if cfg.is_root_device() {
+                    return Some(cfg.get_id().to_string());
                 }
             }
         }
@@ -117,33 +93,33 @@ impl BlockDeviceConfigs {
 
     /// This function updates a Block Device Config prior to the guest boot. The update fails if it
     /// would result in two root block devices.
-    pub fn update(&mut self, block_device_config: &BlockDeviceConfig) -> Result<()> {
+    pub fn update(&mut self, block_device_config: &DriveConfig) -> Result<()> {
         // Check if the path exists
-        if !block_device_config.path_on_host.exists() {
+        if !block_device_config.get_path_on_host().exists() {
             return Err(DriveError::InvalidBlockDevicePath);
         }
 
         let root_id = self.get_root_id();
         for cfg in self.config_list.iter_mut() {
-            if cfg.drive_id == block_device_config.drive_id {
-                if cfg.is_root_device {
+            if cfg.get_id() == block_device_config.get_id() {
+                if cfg.is_root_device() {
                     // Check if the root block device is being updated
-                    self.has_root_block = block_device_config.is_root_device;
+                    self.has_root_block = block_device_config.is_root_device();
                     self.read_only_root =
-                        block_device_config.is_root_device && block_device_config.is_read_only;
-                } else if block_device_config.is_root_device {
+                        block_device_config.is_root_device() && block_device_config.is_read_only();
+                } else if block_device_config.is_root_device() {
                     // Check if a second root block device is being added
                     if root_id.is_some() {
                         return Err(DriveError::RootBlockDeviceAlreadyAdded);
                     } else {
                         // One of the non-root blocks is becoming root
                         self.has_root_block = true;
-                        self.read_only_root = block_device_config.is_read_only;
+                        self.read_only_root = block_device_config.is_read_only();
                     }
                 }
-                cfg.is_root_device = block_device_config.is_root_device;
-                cfg.path_on_host = block_device_config.path_on_host.clone();
-                cfg.is_read_only = block_device_config.is_read_only;
+                cfg.set_is_root_device(block_device_config.is_root_device());
+                cfg.set_is_read_only(block_device_config.is_read_only());
+                cfg.set_path_on_host(block_device_config.get_path_on_host());
 
                 return Ok(());
             }
@@ -155,9 +131,11 @@ impl BlockDeviceConfigs {
 
 #[cfg(test)]
 mod tests {
+    extern crate serde_json;
+
     use super::*;
-    use api_server::request::sync::{DeviceState, DrivePermissions};
     use std::fs::{self, File};
+    use std::result;
 
     // Helper function for creating a dummy file
     // The filename has to be unique among all tests because the tests are run on many threads
@@ -181,141 +159,148 @@ mod tests {
     #[test]
     fn test_add_non_root_block_device() {
         let dummy_filename = String::from("test_add_non_root_block_device");
-        let dummy_path = create_dummy_path(dummy_filename.clone());
-        let dummy_id = String::from("1");
 
-        let dummy_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path.clone(),
-            is_root_device: false,
-            is_read_only: false,
-            drive_id: dummy_id.clone(),
-            rate_limiter: None,
-        };
+        let body = r#"{
+            "drive_id": "1",
+            "path_on_host": "test_add_non_root_block_device",
+            "state": "Attached",
+            "is_root_device": false,
+            "permissions": "rw"
+        }"#;
+
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(body);
+        assert!(result.is_ok());
+        let dummy_block_device = result.unwrap();
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
-        let ret = block_devices_configs.add(dummy_block_device.clone());
-        // clean up before the assert!s to make sure the temp files are deleted
+        create_dummy_path(dummy_filename.clone());
+        let add_result = block_devices_configs.add(dummy_block_device.clone());
         delete_dummy_path(dummy_filename);
-        assert!(ret.is_ok());
+        assert!(add_result.is_ok());
 
         assert_eq!(block_devices_configs.has_root_block, false);
         assert_eq!(block_devices_configs.config_list.len(), 1);
         let dev_config = block_devices_configs.config_list.iter().next().unwrap();
         assert_eq!(dev_config, &dummy_block_device);
-        assert!(block_devices_configs.contains_drive_path(dummy_path));
-        assert!(!block_devices_configs.contains_drive_path(PathBuf::from("/foo/bar")));
-        assert!(block_devices_configs.contains_drive_id(dummy_id.clone()));
-        assert!(!block_devices_configs.contains_drive_id(String::from("foo")));
     }
 
     #[test]
-    fn test_add_one_root_block_device() {
-        let dummy_filename = String::from("test_add_one_root_block_device");
-        let dummy_path = create_dummy_path(dummy_filename.clone());
-
-        let dummy_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path,
-            is_root_device: true,
-            is_read_only: true,
-            drive_id: String::from("1"),
-            rate_limiter: None,
-        };
+    fn test_root_block_device_add() {
         let mut block_devices_configs = BlockDeviceConfigs::new();
-        let ret = block_devices_configs.add(dummy_block_device.clone());
-        delete_dummy_path(dummy_filename);
-        assert!(ret.is_ok());
+
+        let dummy_filename1 = String::from("test_root_block_device_add1");
+        create_dummy_path(dummy_filename1.clone());
+
+        let body = r#"{
+            "drive_id": "1",
+            "path_on_host": "test_root_block_device_add1",
+            "state": "Attached",
+            "is_root_device": true,
+            "permissions": "rw"
+        }"#;
+
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(body);
+        assert!(result.is_ok());
+        let root_block_device1 = result.unwrap();
+        let add_result = block_devices_configs.add(root_block_device1.clone());
+        delete_dummy_path(dummy_filename1);
+        assert!(add_result.is_ok());
 
         assert_eq!(block_devices_configs.has_root_block, true);
         assert_eq!(block_devices_configs.config_list.len(), 1);
-        let dev_config = block_devices_configs.config_list.iter().next().unwrap();
-        assert_eq!(dev_config, &dummy_block_device);
-        assert_eq!(block_devices_configs.has_read_only_root(), true);
-    }
 
-    #[test]
-    fn test_add_two_root_block_devices_configs() {
-        let dummy_filename_1 = String::from("test_add_two_root_block_devices_configs_1");
-        let dummy_path_1 = create_dummy_path(dummy_filename_1.clone());
-        let root_block_device_1 = BlockDeviceConfig {
-            path_on_host: dummy_path_1,
-            is_root_device: true,
-            is_read_only: false,
-            drive_id: String::from("1"),
-            rate_limiter: None,
-        };
+        // test adding two block devices
+        let dummy_filename_2 = String::from("test_root_block_device_add2");
+        create_dummy_path(dummy_filename_2.clone());
 
-        let dummy_filename_2 = String::from("test_add_two_root_block_devices_configs_2");
-        let dummy_path_2 = create_dummy_path(dummy_filename_2.clone());
-        let root_block_device_2 = BlockDeviceConfig {
-            path_on_host: dummy_path_2,
-            is_root_device: true,
-            is_read_only: false,
-            drive_id: String::from("2"),
-            rate_limiter: None,
-        };
+        let body = r#"{
+            "drive_id": "2",
+            "path_on_host": "test_root_block_device_add2",
+            "state": "Attached",
+            "is_root_device": true,
+            "permissions": "rw"
+        }"#;
 
-        let mut block_devices_configs = BlockDeviceConfigs::new();
-        let ret = block_devices_configs.add(root_block_device_1);
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(body);
+        assert!(result.is_ok());
+        let root_block_device_2 = result.unwrap();
+
         let actual_error = format!(
             "{:?}",
             block_devices_configs.add(root_block_device_2).unwrap_err()
         );
         let expected_error = format!("{:?}", DriveError::RootBlockDeviceAlreadyAdded);
 
-        delete_dummy_path(dummy_filename_1);
         delete_dummy_path(dummy_filename_2);
-
-        assert!(ret.is_ok());
         assert_eq!(expected_error, actual_error);
+
+        let dev_config = block_devices_configs.config_list.iter().next().unwrap();
+        assert_eq!(dev_config, &root_block_device1);
     }
 
     #[test]
     /// Test BlockDevicesConfigs::add when you first add the root device and then the other devices
-    fn test_add_root_block_device_first() {
+    fn test_add_ro_root_block_device_first() {
         let dummy_filename_1 = String::from("test_add_root_block_device_first_1");
-        let dummy_path_1 = create_dummy_path(dummy_filename_1.clone());
-        let root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path_1,
-            is_root_device: true,
-            is_read_only: false,
-            drive_id: String::from("1"),
-            rate_limiter: None,
-        };
+
+        create_dummy_path(dummy_filename_1.clone());
+        let body = r#"{
+            "drive_id": "1",
+            "path_on_host": "test_add_root_block_device_first_1",
+            "state": "Attached",
+            "is_root_device": true,
+            "permissions": "ro"
+        }"#;
+
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(body);
+        assert!(result.is_ok());
+        let root_block_device = result.unwrap();
 
         let dummy_filename_2 = String::from("test_add_root_block_device_first_2");
-        let dummy_path_2 = create_dummy_path(dummy_filename_2.clone());
-        let dummy_block_device_2 = BlockDeviceConfig {
-            path_on_host: dummy_path_2,
-            is_root_device: false,
-            is_read_only: false,
-            drive_id: String::from("2"),
-            rate_limiter: None,
-        };
+        create_dummy_path(dummy_filename_2.clone());
+
+        let body = r#"{
+            "drive_id": "2",
+            "path_on_host": "test_add_root_block_device_first_2",
+            "state": "Attached",
+            "is_root_device": false,
+            "permissions": "rw"
+        }"#;
+
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(body);
+        assert!(result.is_ok());
+        let dummy_block_device_2 = result.unwrap();
 
         let dummy_filename_3 = String::from("test_add_root_block_device_first_3");
-        let dummy_path_3 = create_dummy_path(dummy_filename_3.clone());
-        let dummy_block_device_3 = BlockDeviceConfig {
-            path_on_host: dummy_path_3,
-            is_root_device: false,
-            is_read_only: false,
-            drive_id: String::from("3"),
-            rate_limiter: None,
-        };
+        create_dummy_path(dummy_filename_3.clone());
+
+        let body = r#"{
+            "drive_id": "3",
+            "path_on_host": "test_add_root_block_device_first_3",
+            "state": "Attached",
+            "is_root_device": false,
+            "permissions": "rw"
+        }"#;
+
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(body);
+        assert!(result.is_ok());
+        let dummy_block_device_3 = result.unwrap();
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
-        let ret1 = block_devices_configs.add(root_block_device.clone());
-        let ret2 = block_devices_configs.add(dummy_block_device_2.clone());
-        let ret3 = block_devices_configs.add(dummy_block_device_3.clone());
+        let res_add1 = block_devices_configs.add(root_block_device.clone());
+        let res_add2 = block_devices_configs.add(dummy_block_device_2.clone());
+        let res_add3 = block_devices_configs.add(dummy_block_device_3.clone());
 
         delete_dummy_path(dummy_filename_1);
         delete_dummy_path(dummy_filename_2);
         delete_dummy_path(dummy_filename_3);
 
-        assert!(ret1.is_ok());
-        assert!(ret2.is_ok());
-        assert!(ret3.is_ok());
+        assert!(res_add1.is_ok());
+        assert!(res_add2.is_ok());
+        assert!(res_add3.is_ok());
 
         assert_eq!(block_devices_configs.has_root_block_device(), true);
+        assert_eq!(block_devices_configs.has_read_only_root(), true);
         assert_eq!(block_devices_configs.config_list.len(), 3);
 
         let mut block_dev_iter = block_devices_configs.config_list.iter();
@@ -328,126 +313,73 @@ mod tests {
     /// Test BlockDevicesConfigs::add when you add other devices first and then the root device
     fn test_root_block_device_add_last() {
         let dummy_filename_1 = String::from("test_root_block_device_add_last_1");
-        let dummy_path_1 = create_dummy_path(dummy_filename_1.clone());
-        let root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path_1,
-            is_root_device: true,
-            is_read_only: false,
-            drive_id: String::from("1"),
-            rate_limiter: None,
-        };
+
+        create_dummy_path(dummy_filename_1.clone());
+
+        let body = r#"{
+            "drive_id": "1",
+            "path_on_host": "test_root_block_device_add_last_1",
+            "state": "Attached",
+            "is_root_device": true,
+            "permissions": "rw"
+        }"#;
+
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(body);
+        assert!(result.is_ok());
+        let root_block_device = result.unwrap();
 
         let dummy_filename_2 = String::from("test_root_block_device_add_last_2");
-        let dummy_path_2 = create_dummy_path(dummy_filename_2.clone());
-        let dummy_block_device_2 = BlockDeviceConfig {
-            path_on_host: dummy_path_2,
-            is_root_device: false,
-            is_read_only: false,
-            drive_id: String::from("2"),
-            rate_limiter: None,
-        };
+        create_dummy_path(dummy_filename_2.clone());
+        let body = r#"{
+            "drive_id": "2",
+            "path_on_host": "test_root_block_device_add_last_2",
+            "state": "Attached",
+            "is_root_device": false,
+            "permissions": "rw"
+        }"#;
+
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(body);
+        assert!(result.is_ok());
+        let dummy_block_device_2 = result.unwrap();
 
         let dummy_filename_3 = String::from("test_root_block_device_add_last_3");
-        let dummy_path_3 = create_dummy_path(dummy_filename_3.clone());
-        let dummy_block_device_3 = BlockDeviceConfig {
-            path_on_host: dummy_path_3,
-            is_root_device: false,
-            is_read_only: false,
-            drive_id: String::from("3"),
-            rate_limiter: None,
-        };
+        create_dummy_path(dummy_filename_3.clone());
+
+        let body = r#"{
+            "drive_id": "3",
+            "path_on_host": "test_root_block_device_add_last_3",
+            "state": "Attached",
+            "is_root_device": false,
+            "permissions": "rw"
+        }"#;
+
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(body);
+        assert!(result.is_ok());
+        let dummy_block_device_3 = result.unwrap();
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
-        let ret2 = block_devices_configs.add(dummy_block_device_2.clone());
-        let ret3 = block_devices_configs.add(dummy_block_device_3.clone());
-        let ret1 = block_devices_configs.add(root_block_device.clone());
+
+        let res_add1 = block_devices_configs.add(dummy_block_device_2.clone());
+        let res_add2 = block_devices_configs.add(dummy_block_device_3.clone());
+        let res_add3 = block_devices_configs.add(root_block_device.clone());
 
         delete_dummy_path(dummy_filename_1);
         delete_dummy_path(dummy_filename_2);
         delete_dummy_path(dummy_filename_3);
 
-        assert!(ret2.is_ok());
-        assert!(ret3.is_ok());
-        assert!(ret1.is_ok());
+        assert!(res_add1.is_ok());
+        assert!(res_add2.is_ok());
+        assert!(res_add3.is_ok());
 
         assert_eq!(block_devices_configs.has_root_block_device(), true);
         assert_eq!(block_devices_configs.config_list.len(), 3);
+        assert!(block_devices_configs.contains_drive_id("1"));
+        assert!(!block_devices_configs.contains_drive_id("4"));
 
         let mut block_dev_iter = block_devices_configs.config_list.iter();
         // The root device should be first in the list no matter of the order in which the devices were added
         assert_eq!(block_dev_iter.next().unwrap(), &root_block_device);
         assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_2);
         assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_3);
-    }
-
-    #[test]
-    fn test_from_drive_description() {
-        let dd = DriveDescription {
-            is_root_device: true,
-            path_on_host: String::from("/foo/bar"),
-            drive_id: String::from("foo"),
-            state: DeviceState::Attached,
-            permissions: DrivePermissions::ro,
-            rate_limiter: None,
-        };
-
-        let drive = BlockDeviceConfig::from(dd);
-        assert_eq!(drive.drive_id, String::from("foo"));
-        assert_eq!(drive.path_on_host, PathBuf::from(String::from("/foo/bar")));
-        assert_eq!(drive.is_root_device, true);
-        assert_eq!(drive.is_read_only, true);
-    }
-
-    #[test]
-    fn test_update() {
-        let dummy_filename_1 = String::from("test_update_1");
-        let dummy_path_1 = create_dummy_path(dummy_filename_1.clone());
-        let root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path_1,
-            is_root_device: true,
-            is_read_only: false,
-            drive_id: String::from("1"),
-            rate_limiter: None,
-        };
-
-        let dummy_filename_2 = String::from("test_update_2");
-        let dummy_path_2 = create_dummy_path(dummy_filename_2.clone());
-        let mut dummy_block_device_2 = BlockDeviceConfig {
-            path_on_host: dummy_path_2.clone(),
-            is_root_device: false,
-            is_read_only: false,
-            drive_id: String::from("2"),
-            rate_limiter: None,
-        };
-
-        let mut block_devices_configs = BlockDeviceConfigs::new();
-
-        // Add 2 block devices
-        let ret1 = block_devices_configs.add(root_block_device.clone());
-        let ret2 = block_devices_configs.add(dummy_block_device_2.clone());
-
-        // Update OK
-        dummy_block_device_2.is_read_only = true;
-        let ret_update_ok = block_devices_configs.update(&dummy_block_device_2);
-
-        // Update with invalid path
-        let dummy_filename_3 = String::from("test_update_3");
-        let dummy_path_3 = PathBuf::from(dummy_filename_3.clone());
-        dummy_block_device_2.path_on_host = dummy_path_3;
-        let ret_inv_path = block_devices_configs.update(&dummy_block_device_2);
-
-        // Update with 2 root block devices
-        dummy_block_device_2.path_on_host = dummy_path_2;
-        dummy_block_device_2.is_root_device = true;
-        let ret_2roots = block_devices_configs.update(&dummy_block_device_2);
-
-        delete_dummy_path(dummy_filename_1);
-        delete_dummy_path(dummy_filename_2);
-
-        assert!(ret1.is_ok());
-        assert!(ret2.is_ok());
-        assert!(ret_update_ok.is_ok());
-        assert!(ret_inv_path.is_err());
-        assert!(ret_2roots.is_err());
     }
 }

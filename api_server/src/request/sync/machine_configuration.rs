@@ -68,7 +68,11 @@ impl GenerateResponse for MachineConfiguration {
 }
 
 impl IntoParsedRequest for MachineConfiguration {
-    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
+    fn into_parsed_request(
+        self,
+        method: Method,
+        _id_from_path: Option<&str>,
+    ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         match method {
             Method::Get => Ok(ParsedRequest::Sync(
@@ -145,7 +149,7 @@ mod tests {
         let (sender, receiver) = oneshot::channel();
         assert!(
             body.clone()
-                .into_parsed_request(Method::Put)
+                .into_parsed_request(Method::Put, None)
                 .eq(&Ok(ParsedRequest::Sync(
                     SyncRequest::PutMachineConfiguration(body, sender),
                     receiver
@@ -160,17 +164,17 @@ mod tests {
         assert!(
             uninitialized
                 .clone()
-                .into_parsed_request(Method::Get)
+                .into_parsed_request(Method::Get, None)
                 .is_ok()
         );
         assert!(
             uninitialized
                 .clone()
-                .into_parsed_request(Method::Patch)
+                .into_parsed_request(Method::Patch, None)
                 .eq(&Ok(ParsedRequest::Dummy))
         );
 
-        match uninitialized.into_parsed_request(Method::Put) {
+        match uninitialized.into_parsed_request(Method::Put, None) {
             Ok(_) => assert!(false),
             Err(e) => assert_eq!(e, String::from("Empty request.")),
         };

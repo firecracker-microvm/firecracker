@@ -7,12 +7,13 @@ use std::sync::{Arc, RwLock};
 
 use futures::future::{self, Either};
 use futures::{Future, Stream};
-
 use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 use tokio_core::reactor::Handle;
 
 use super::{ActionMap, ActionMapValue};
+
+use data_model::device_config::DriveConfig;
 use data_model::vm::boot_source::BootSource;
 use data_model::vm::MachineConfiguration;
 use logger::{Metric, METRICS};
@@ -177,7 +178,7 @@ fn parse_boot_source_req<'a>(
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::SerdeJson(e)
                 })?
-                .into_parsed_request(Method::Put)
+                .into_parsed_request(Method::Put, None)
                 .map_err(|s| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -203,12 +204,14 @@ fn parse_drives_req<'a>(
         1 if method == Method::Put => {
             METRICS.put_api_requests.drive_count.inc();
 
-            Ok(serde_json::from_slice::<request::DriveDescription>(body)
+            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
+
+            Ok(serde_json::from_slice::<DriveConfig>(body)
                 .map_err(|e| {
                     METRICS.put_api_requests.drive_fails.inc();
                     Error::SerdeJson(e)
                 })?
-                .into_parsed_request(id_from_path.unwrap())
+                .into_parsed_request(method, Some(unwrapped_id))
                 .map_err(|s| {
                     METRICS.put_api_requests.drive_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -264,7 +267,7 @@ fn parse_machine_config_req<'a>(
                 cpu_template: None,
             };
             Ok(empty_machine_config
-                .into_parsed_request(method)
+                .into_parsed_request(method, None)
                 .map_err(|s| {
                     METRICS.get_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -278,7 +281,7 @@ fn parse_machine_config_req<'a>(
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::SerdeJson(e)
                 })?
-                .into_parsed_request(method)
+                .into_parsed_request(method, None)
                 .map_err(|s| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -667,6 +670,7 @@ fn describe(sync: bool, method: &Method, path: &String, body: &String) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use data_model::device_config::DeviceState;
     use data_model::vm::CpuFeaturesTemplate;
     use fc_util::LriHashMap;
     use futures::sync::oneshot;
@@ -674,8 +678,7 @@ mod tests {
     use hyper::Body;
     use net_util::MacAddr;
     use request::async::AsyncRequest;
-    use request::sync::{DeviceState, DriveDescription, DrivePermissions, NetworkInterfaceBody,
-                        SyncRequest};
+    use request::sync::{NetworkInterfaceBody, SyncRequest};
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret = body.fold(Vec::new(), |mut acc, chunk| {
@@ -1001,16 +1004,11 @@ mod tests {
         }
 
         // PUT
-        let drive_desc = DriveDescription {
-            drive_id: String::from("bar"),
-            path_on_host: String::from("/foo/bar"),
-            state: DeviceState::Attached,
-            is_root_device: true,
-            permissions: DrivePermissions::ro,
-            rate_limiter: None,
-        };
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(json);
+        assert!(result.is_ok());
+        let drive_desc = result.unwrap();
 
-        match drive_desc.into_parsed_request("bar") {
+        match drive_desc.into_parsed_request(Method::Put, Some("bar")) {
             Ok(pr) => match parse_drives_req(
                 &"/foo/bar"[1..].split_terminator('/').collect(),
                 &"/foo/bar",
@@ -1067,7 +1065,7 @@ mod tests {
             cpu_template: Some(CpuFeaturesTemplate::T2),
         };
 
-        match mcb.into_parsed_request(Method::Put) {
+        match mcb.into_parsed_request(Method::Put, None) {
             Ok(pr) => match parse_machine_config_req(&path_tokens, &path, Method::Put, &body) {
                 Ok(pr_mcb) => assert!(pr.eq(&pr_mcb)),
                 _ => assert!(false),

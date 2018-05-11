@@ -1,48 +1,11 @@
+use futures::sync::oneshot;
+use hyper::{Method, Response, StatusCode};
 use std::result;
 
-use futures::sync::oneshot;
-use hyper::{Response, StatusCode};
-
-use super::rate_limiter::RateLimiterDescription;
-use super::{DeviceState, GenerateResponse, SyncRequest};
+use data_model::device_config::{DriveConfig, DriveError, PutDriveOutcome};
 use http_service::{empty_response, json_fault_message, json_response};
-use request::ParsedRequest;
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[allow(non_camel_case_types)]
-pub enum DrivePermissions {
-    ro,
-    rw,
-}
-
-// This struct represents the strongly typed equivalent of the json body from drive
-// related requests.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct DriveDescription {
-    pub drive_id: String,
-    pub path_on_host: String,
-    pub state: DeviceState,
-    pub is_root_device: bool,
-    pub permissions: DrivePermissions,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rate_limiter: Option<RateLimiterDescription>,
-}
-
-impl DriveDescription {
-    pub fn is_read_only(&self) -> bool {
-        self.permissions == DrivePermissions::ro
-    }
-}
-
-#[derive(Debug)]
-pub enum DriveError {
-    RootBlockDeviceAlreadyAdded,
-    InvalidBlockDevicePath,
-    BlockDevicePathAlreadyExists,
-    BlockDeviceUpdateFailed,
-    BlockDeviceUpdateNotAllowed,
-    NotImplemented,
-}
+use request::sync::GenerateResponse;
+use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 
 impl GenerateResponse for DriveError {
     fn generate_response(&self) -> Response {
@@ -76,12 +39,6 @@ impl GenerateResponse for DriveError {
     }
 }
 
-pub enum PutDriveOutcome {
-    Created,
-    Updated,
-    Error(DriveError),
-}
-
 impl GenerateResponse for PutDriveOutcome {
     fn generate_response(&self) -> Response {
         use self::PutDriveOutcome::*;
@@ -93,9 +50,13 @@ impl GenerateResponse for PutDriveOutcome {
     }
 }
 
-impl DriveDescription {
-    pub fn into_parsed_request(self, id_from_path: &str) -> result::Result<ParsedRequest, String> {
-        if id_from_path != self.drive_id {
+impl IntoParsedRequest for DriveConfig {
+    fn into_parsed_request(
+        self,
+        _method: Method,
+        id_from_path: Option<&str>,
+    ) -> result::Result<ParsedRequest, String> {
+        if id_from_path.is_some() && id_from_path.unwrap() != self.get_id() {
             return Err(String::from(
                 "The id from the path does not match the id from the body!",
             ));
@@ -111,21 +72,9 @@ impl DriveDescription {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    extern crate serde_json;
 
-    #[test]
-    fn test_is_read_only() {
-        assert!(
-            DriveDescription {
-                drive_id: String::from("foo"),
-                path_on_host: String::from("/foo/bar"),
-                state: DeviceState::Attached,
-                is_root_device: true,
-                permissions: DrivePermissions::ro,
-                rate_limiter: None,
-            }.is_read_only()
-        );
-    }
+    use super::*;
 
     #[test]
     fn test_generate_response_drive_error() {
@@ -185,19 +134,20 @@ mod tests {
 
     #[test]
     fn test_into_parsed_request() {
-        let desc = DriveDescription {
-            drive_id: String::from("foo"),
-            path_on_host: String::from("/foo/bar"),
-            state: DeviceState::Attached,
-            is_root_device: true,
-            permissions: DrivePermissions::ro,
-            rate_limiter: None,
-        };
+        let json = "{
+                \"drive_id\": \"foo\",
+                \"path_on_host\": \"/foo/bar\",
+                \"state\": \"Attached\",
+                \"is_root_device\": true,
+                \"permissions\": \"ro\"
+              }";
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(json);
+        assert!(result.is_ok());
+        let desc = result.unwrap();
 
-        assert!(&desc.clone().into_parsed_request("bar").is_err());
         let (sender, receiver) = oneshot::channel();
         assert!(&desc.clone()
-            .into_parsed_request("foo")
+            .into_parsed_request(Method::Put, Some("foo"))
             .eq(&Ok(ParsedRequest::Sync(
                 SyncRequest::PutDrive(desc, sender),
                 receiver
