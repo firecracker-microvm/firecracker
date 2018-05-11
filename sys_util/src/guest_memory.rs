@@ -8,9 +8,9 @@ use std::io::{Read, Write};
 use std::result;
 use std::sync::Arc;
 
+use guest_address::GuestAddress;
 use memory_model::DataInit;
 use memory_model::volatile_memory::*;
-use guest_address::GuestAddress;
 use mmap::{self, MemoryMapping};
 
 #[derive(Debug)]
@@ -357,9 +357,9 @@ impl VolatileMemory for GuestMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
     use std::mem;
     use std::path::Path;
-    use std::fs::File;
 
     #[test]
     fn two_regions() {

@@ -5,17 +5,17 @@ use std::str;
 use std::sync::mpsc;
 use std::sync::{Arc, RwLock};
 
-use futures::{Future, Stream};
 use futures::future::{self, Either};
+use futures::{Future, Stream};
 
 use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 use tokio_core::reactor::Handle;
 
-use data_model::vm::MachineConfiguration;
-use request::{self, ApiRequest, AsyncOutcome, AsyncRequestBody, IntoParsedRequest, ParsedRequest};
-use request::instance_info::InstanceInfo;
 use super::{ActionMap, ActionMapValue};
+use data_model::vm::MachineConfiguration;
+use request::instance_info::InstanceInfo;
+use request::{self, ApiRequest, AsyncOutcome, AsyncRequestBody, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
 
 fn build_response_base<B: Into<hyper::Body>>(
@@ -500,11 +500,11 @@ impl hyper::server::Service for ApiServerHttpService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hyper::header::{ContentType, Headers};
-    use hyper::Body;
-    use futures::sync::oneshot;
-    use net_util::MacAddr;
     use fc_util::LriHashMap;
+    use futures::sync::oneshot;
+    use hyper::Body;
+    use hyper::header::{ContentType, Headers};
+    use net_util::MacAddr;
     use request::async::AsyncRequest;
     use request::sync::{DeviceState, DriveDescription, DrivePermissions, NetworkInterfaceBody,
                         SyncRequest};

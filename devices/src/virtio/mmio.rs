@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use BusDevice;
 use super::*;
+use BusDevice;
 use sys_util::{EventFd, GuestAddress, GuestMemory, Result};
 
 //TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used

@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-use std::io;
 use std::collections::VecDeque;
+use std::io;
 
 use sys_util::{EventFd, Result};
 
@@ -231,8 +231,8 @@ impl BusDevice for Serial {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
     use std::io;
+    use std::sync::{Arc, Mutex};
 
     #[derive(Clone)]
     struct SharedBuffer {

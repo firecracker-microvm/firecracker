@@ -46,8 +46,8 @@ fn from_api_level(api_level: Option<APILoggerLevel>) -> Option<Level> {
 mod tests {
     use super::*;
     use api_server::request::sync::{APILoggerDescription, APILoggerLevel};
-    use std::io::{BufRead, BufReader};
     use std::fs::{self, File};
+    use std::io::{BufRead, BufReader};
 
     fn validate_logs(
         log_path: &str,

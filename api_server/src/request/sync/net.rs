@@ -6,8 +6,8 @@ use request::ParsedRequest;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
-use net_util::MacAddr;
 use super::{DeviceState, SyncRequest};
+use net_util::MacAddr;
 
 // used to serialize an Option<MacAddr>
 fn mac_serialize_with<S>(what: &Option<MacAddr>, serializer: S) -> result::Result<S::Ok, S::Error>

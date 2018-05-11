@@ -33,7 +33,7 @@
 use DataInit;
 
 macro_rules! endian_type {
-    ($old_type:ident, $new_type:ident, $to_new:ident, $from_new:ident) => (
+    ($old_type:ident, $new_type:ident, $to_new:ident, $from_new:ident) => {
         /// An unsigned integer type of with an explicit endianness.
         ///
         /// See module level documentation for examples.
@@ -72,7 +72,7 @@ macro_rules! endian_type {
                 $new_type($old_type::$to_new(v))
             }
         }
-    )
+    };
 }
 
 endian_type!(u16, Le16, to_le, from_le);
@@ -98,7 +98,7 @@ mod tests {
     const NATIVE_BIG: bool = !NATIVE_LITTLE;
 
     macro_rules! endian_test {
-        ($old_type:ty, $new_type:ty, $test_name:ident, $native:expr) => (
+        ($old_type:ty, $new_type:ty, $test_name:ident, $native:expr) => {
             mod $test_name {
                 use super::*;
 
@@ -131,7 +131,7 @@ mod tests {
                     assert!(endian_v == v);
                 }
             }
-        )
+        };
     }
 
     endian_test!(u16, Le16, test_le16, NATIVE_LITTLE);

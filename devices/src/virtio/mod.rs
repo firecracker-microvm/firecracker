@@ -4,8 +4,8 @@
 
 //! Implements virtio devices, queues, and transport mechanisms.
 use std;
-use sys_util::Error as SysError;
 use std::io::Error as IOError;
+use sys_util::Error as SysError;
 
 pub mod block;
 mod mmio;

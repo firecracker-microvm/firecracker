@@ -3,11 +3,11 @@ pub mod sync;
 
 use std::result;
 
-use hyper::Method;
 pub use self::async::{AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest,
                       AsyncRequestBody};
 pub use self::sync::{APILoggerDescription, BootSourceBody, DriveDescription, NetworkInterfaceBody,
                      SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest};
+use hyper::Method;
 
 pub mod instance_info;
 
