@@ -1,36 +1,22 @@
 use std::result;
 
 use futures::sync::oneshot;
+use hyper::Method;
 
-use super::{DeviceState, SyncRequest};
-use data_model::device_config::RateLimiterConfig;
+use data_model::device_config::NetworkInterfaceConfig;
+use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 
-use net_util::MacAddr;
-use request::ParsedRequest;
-
-// This struct represents the strongly typed equivalent of the json body from net iface
-// related requests.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct NetworkInterfaceBody {
-    pub iface_id: String,
-    pub state: DeviceState,
-    pub host_dev_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub guest_mac: Option<MacAddr>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rx_rate_limiter: Option<RateLimiterConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tx_rate_limiter: Option<RateLimiterConfig>,
-}
-
-impl NetworkInterfaceBody {
-    pub fn into_parsed_request(self, id_from_path: &str) -> result::Result<ParsedRequest, String> {
-        if id_from_path != self.iface_id {
+impl IntoParsedRequest for NetworkInterfaceConfig {
+    fn into_parsed_request(
+        self,
+        _method: Method,
+        id_from_path: Option<&str>,
+    ) -> result::Result<ParsedRequest, String> {
+        if id_from_path.is_some() && id_from_path.unwrap() != self.get_id() {
             return Err(String::from(
                 "The id from the path does not match the id from the body!",
             ));
         }
-
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
             SyncRequest::PutNetworkInterface(self, sender),
@@ -41,50 +27,39 @@ impl NetworkInterfaceBody {
 
 #[cfg(test)]
 mod tests {
+    extern crate serde_json;
+
     use super::*;
-    use serde_json;
 
     #[test]
-    fn test_netif_into_parsed_request() {
-        let netif = NetworkInterfaceBody {
-            iface_id: String::from("foo"),
-            state: DeviceState::Attached,
-            host_dev_name: String::from("bar"),
-            guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
-            rx_rate_limiter: None,
-            tx_rate_limiter: None,
-        };
+    fn test_network_config_into_parsed_request() {
+        let j = r#"{
+                "iface_id": "foo",
+                "state": "Attached",
+                "host_dev_name": "bar",
+                "guest_mac": "12:34:56:78:9A:BC"
+              }"#;
+        let netif: NetworkInterfaceConfig = serde_json::from_str(j).unwrap();
+        let netif2: NetworkInterfaceConfig = serde_json::from_str(j).unwrap();
 
-        assert!(netif.clone().into_parsed_request("bar").is_err());
         let (sender, receiver) = oneshot::channel();
         assert!(
             netif
-                .clone()
-                .into_parsed_request("foo")
+                .into_parsed_request(Method::Put, Some("foo"))
                 .eq(&Ok(ParsedRequest::Sync(
-                    SyncRequest::PutNetworkInterface(netif, sender),
+                    SyncRequest::PutNetworkInterface(netif2, sender),
                     receiver
                 )))
         );
     }
 
     #[test]
-    fn test_network_interface_body_serialization_and_deserialization() {
-        let netif = NetworkInterfaceBody {
-            iface_id: String::from("foo"),
-            state: DeviceState::Attached,
-            host_dev_name: String::from("bar"),
-            guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
-            rx_rate_limiter: Some(RateLimiterConfig::default()),
-            tx_rate_limiter: Some(RateLimiterConfig::default()),
-        };
-
-        // This is the json encoding of the netif variable.
+    fn test_network_config_serde() {
         let jstr = r#"{
             "iface_id": "foo",
-            "host_dev_name": "bar",
             "state": "Attached",
-            "guest_mac": "12:34:56:78:9A:bc",
+            "host_dev_name": "bar",
+            "guest_mac": "12:34:56:78:9a:bc",
             "rx_rate_limiter": {
                 "bandwidth": { "size": 0, "refill_time": 0 },
                 "ops": { "size": 0, "refill_time": 0 }
@@ -95,12 +70,10 @@ mod tests {
             }
         }"#;
 
-        let x = serde_json::from_str(jstr).expect("deserialization failed.");
-        assert_eq!(netif, x);
-
-        let y = serde_json::to_string(&netif).expect("serialization failed.");
-        let z = serde_json::from_str(y.as_ref()).expect("deserialization (2) failed.");
-        assert_eq!(x, z);
+        let x: NetworkInterfaceConfig =
+            serde_json::from_str(jstr).expect("deserialization failed.");
+        let y = serde_json::to_string(&x).expect("serialization failed.");
+        assert_eq!(y, String::from(jstr).replace("\n", "").replace(" ", ""));
 
         // Check that guest_mac and rate limiters are truly optional.
         let jstr_no_mac = r#"{
@@ -109,6 +82,6 @@ mod tests {
             "state": "Attached"
         }"#;
 
-        assert!(serde_json::from_str::<NetworkInterfaceBody>(jstr_no_mac).is_ok())
+        assert!(serde_json::from_str::<NetworkInterfaceConfig>(jstr_no_mac).is_ok())
     }
 }

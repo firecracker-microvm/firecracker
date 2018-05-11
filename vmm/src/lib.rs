@@ -10,7 +10,7 @@ extern crate kvm;
 extern crate kvm_sys;
 #[macro_use]
 extern crate logger;
-extern crate net_util;
+//extern crate net_util;
 extern crate sys_util;
 extern crate x86_64;
 
@@ -36,11 +36,11 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::{APILoggerDescription, Error as SyncError, GenerateResponse,
-                                NetworkInterfaceBody, OkStatus as SyncOkStatus, PutLoggerOutcome,
-                                SyncOutcomeSender, SyncRequest};
+                                OkStatus as SyncOkStatus, PutLoggerOutcome, SyncOutcomeSender,
+                                SyncRequest};
 use api_server::ApiRequest;
 use data_model::device_config::{rate_limiter_description_into_implementation, DriveConfig,
-                                DriveError, PutDriveOutcome};
+                                DriveError, NetworkInterfaceConfig, PutDriveOutcome};
 use data_model::vm::boot_source::{BootSource, BootSourceError, PutBootSourceOutcome};
 use data_model::vm::{MachineConfiguration, MachineConfigurationError,
                      PutMachineConfigurationOutcome};
@@ -614,7 +614,7 @@ impl Vmm {
 
     pub fn put_net_device(
         &mut self,
-        body: NetworkInterfaceBody,
+        body: NetworkInterfaceConfig,
     ) -> result::Result<SyncOkStatus, SyncError> {
         self.network_interface_configs.put(body)
     }
@@ -629,10 +629,10 @@ impl Vmm {
             let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
 
             let rx_rate_limiter = rate_limiter_description_into_implementation(
-                cfg.rx_rate_limiter.as_ref(),
+                cfg.get_rx_rate_limiter(),
             ).map_err(Error::RateLimiterNew)?;
             let tx_rate_limiter = rate_limiter_description_into_implementation(
-                cfg.tx_rate_limiter.as_ref(),
+                cfg.get_tx_rate_limiter(),
             ).map_err(Error::RateLimiterNew)?;
 
             if let Some(tap) = cfg.take_tap() {
@@ -1222,7 +1222,7 @@ impl Vmm {
 
     fn handle_put_network_interface(
         &mut self,
-        netif_body: NetworkInterfaceBody,
+        netif_body: NetworkInterfaceConfig,
         sender: SyncOutcomeSender,
     ) {
         if self.is_instance_running() {

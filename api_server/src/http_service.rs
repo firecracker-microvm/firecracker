@@ -12,8 +12,7 @@ use serde_json;
 use tokio_core::reactor::Handle;
 
 use super::{ActionMap, ActionMapValue};
-
-use data_model::device_config::DriveConfig;
+use data_model::device_config::{DriveConfig, NetworkInterfaceConfig};
 use data_model::vm::boot_source::BootSource;
 use data_model::vm::MachineConfiguration;
 use logger::{Metric, METRICS};
@@ -308,18 +307,16 @@ fn parse_netif_req<'a>(
             let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
             METRICS.put_api_requests.network_count.inc();
 
-            Ok(
-                serde_json::from_slice::<request::NetworkInterfaceBody>(body)
-                    .map_err(|e| {
-                        METRICS.put_api_requests.network_fails.inc();
-                        Error::SerdeJson(e)
-                    })?
-                    .into_parsed_request(unwrapped_id)
-                    .map_err(|s| {
-                        METRICS.put_api_requests.network_fails.inc();
-                        Error::Generic(StatusCode::BadRequest, s)
-                    })?,
-            )
+            Ok(serde_json::from_slice::<NetworkInterfaceConfig>(body)
+                .map_err(|e| {
+                    METRICS.put_api_requests.network_fails.inc();
+                    Error::SerdeJson(e)
+                })?
+                .into_parsed_request(method, Some(unwrapped_id))
+                .map_err(|s| {
+                    METRICS.put_api_requests.network_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -670,15 +667,14 @@ fn describe(sync: bool, method: &Method, path: &String, body: &String) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data_model::device_config::DeviceState;
     use data_model::vm::CpuFeaturesTemplate;
     use fc_util::LriHashMap;
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
-    use net_util::MacAddr;
     use request::async::AsyncRequest;
-    use request::sync::{NetworkInterfaceBody, SyncRequest};
+    use request::sync::SyncRequest;
+    use std::result;
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret = body.fold(Vec::new(), |mut acc, chunk| {
@@ -1129,16 +1125,14 @@ mod tests {
         }
 
         // PUT
-        let netif = NetworkInterfaceBody {
-            iface_id: String::from("bar"),
-            state: DeviceState::Attached,
-            host_dev_name: String::from("foo"),
-            guest_mac: Some(MacAddr::parse_str("12:34:56:78:9a:BC").unwrap()),
-            rx_rate_limiter: None,
-            tx_rate_limiter: None,
-        };
+        let result: result::Result<NetworkInterfaceConfig, serde_json::Error> =
+            serde_json::from_str(json);
+        assert!(result.is_ok());
 
-        match netif.into_parsed_request("bar") {
+        match result
+            .unwrap()
+            .into_parsed_request(Method::Put, Some("bar"))
+        {
             Ok(pr) => match parse_netif_req(
                 &"/foo/bar"[1..].split_terminator('/').collect(),
                 &"/foo/bar",

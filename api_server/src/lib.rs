@@ -86,9 +86,7 @@ impl ApiServer {
         let mut core = Core::new().map_err(Error::Io)?;
         let handle = Rc::new(core.handle());
 
-        let listener = if data_model::FIRECRACKER_IS_JAILED
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
+        let listener = if jailer::FIRECRACKER_IS_JAILED.load(std::sync::atomic::Ordering::Relaxed) {
             // This is a UnixListener of the tokio_uds variety. Using fd inherited from the jailer.
             UnixListener::from_listener(
                 unsafe { std::os::unix::net::UnixListener::from_raw_fd(jailer::LISTENER_FD) },

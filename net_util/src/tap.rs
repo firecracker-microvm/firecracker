@@ -8,8 +8,9 @@ use std::net;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
-use super::{create_sockaddr, create_socket, Error as NetUtilError};
 use libc;
+
+use super::{create_sockaddr, create_socket, Error as NetUtilError};
 use net_sys;
 use sys_util::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 
@@ -26,7 +27,7 @@ pub enum Error {
     InvalidIfname,
 }
 
-pub type Result<T> = ::std::result::Result<T, Error>;
+type Result<T> = ::std::result::Result<T, Error>;
 
 /// Handle for a network tap interface.
 ///
@@ -60,11 +61,10 @@ fn build_terminated_if_name(if_name: &str) -> Result<Vec<u8>> {
 }
 
 impl Tap {
-    pub fn open_named(if_name: &str) -> Result<Tap> {
+    pub fn open_named(if_name: &String) -> Result<Tap> {
         let terminated_if_name = build_terminated_if_name(if_name)?;
 
-        let fd = if ::data_model::FIRECRACKER_IS_JAILED.load(::std::sync::atomic::Ordering::Relaxed)
-        {
+        let fd = if ::jailer::FIRECRACKER_IS_JAILED.load(::std::sync::atomic::Ordering::Relaxed) {
             // This is the /dev/net/tun fd inherited from the jailer.
             ::jailer::DEV_NET_TUN_FD
         } else {
@@ -114,7 +114,7 @@ impl Tap {
 
     /// Create a new tap interface.
     pub fn new() -> Result<Tap> {
-        Self::open_named("vmtap%d")
+        Self::open_named(&String::from("vmtap%d"))
     }
 
     /// Set the host-side IP address for the tap interface.

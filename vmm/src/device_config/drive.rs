@@ -174,6 +174,7 @@ mod tests {
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
         create_dummy_path(dummy_filename.clone());
+
         let add_result = block_devices_configs.add(dummy_block_device.clone());
         delete_dummy_path(dummy_filename);
         assert!(add_result.is_ok());
@@ -202,6 +203,7 @@ mod tests {
         let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(body);
         assert!(result.is_ok());
         let root_block_device1 = result.unwrap();
+
         let add_result = block_devices_configs.add(root_block_device1.clone());
         delete_dummy_path(dummy_filename1);
         assert!(add_result.is_ok());
