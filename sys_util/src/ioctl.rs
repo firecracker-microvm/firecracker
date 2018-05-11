@@ -10,51 +10,64 @@ use std::os::unix::io::AsRawFd;
 /// Raw macro to declare a function that returns an ioctl number.
 #[macro_export]
 macro_rules! ioctl_ioc_nr {
-    ($name:ident, $dir:expr, $ty:expr, $nr:expr, $size:expr) => (
+    ($name:ident, $dir:expr, $ty:expr, $nr:expr, $size:expr) => {
         #[allow(non_snake_case)]
         pub fn $name() -> ::std::os::raw::c_ulong {
-            (($dir << $crate::ioctl::_IOC_DIRSHIFT) |
-            ($ty << $crate::ioctl::_IOC_TYPESHIFT) |
-            ($nr<< $crate::ioctl::_IOC_NRSHIFT) |
-            ($size << $crate::ioctl::_IOC_SIZESHIFT)) as ::std::os::raw::c_ulong
+            (($dir << $crate::ioctl::_IOC_DIRSHIFT) | ($ty << $crate::ioctl::_IOC_TYPESHIFT)
+                | ($nr << $crate::ioctl::_IOC_NRSHIFT)
+                | ($size << $crate::ioctl::_IOC_SIZESHIFT)) as ::std::os::raw::c_ulong
         }
-    )
+    };
 }
 
 /// Declare an ioctl that transfers no data.
 #[macro_export]
 macro_rules! ioctl_io_nr {
-    ($name:ident, $ty:expr, $nr:expr) => (
+    ($name:ident, $ty:expr, $nr:expr) => {
         ioctl_ioc_nr!($name, $crate::ioctl::_IOC_NONE, $ty, $nr, 0);
-    )
+    };
 }
 
 /// Declare an ioctl that reads data.
 #[macro_export]
 macro_rules! ioctl_ior_nr {
-    ($name:ident, $ty:expr, $nr:expr, $size:ty) => (
+    ($name:ident, $ty:expr, $nr:expr, $size:ty) => {
         ioctl_ioc_nr!(
-            $name, $crate::ioctl::_IOC_READ, $ty, $nr, ::std::mem::size_of::<$size>() as u32);
-    )
+            $name,
+            $crate::ioctl::_IOC_READ,
+            $ty,
+            $nr,
+            ::std::mem::size_of::<$size>() as u32
+        );
+    };
 }
 
 /// Declare an ioctl that writes data.
 #[macro_export]
 macro_rules! ioctl_iow_nr {
-    ($name:ident, $ty:expr, $nr:expr, $size:ty) => (
+    ($name:ident, $ty:expr, $nr:expr, $size:ty) => {
         ioctl_ioc_nr!(
-            $name, $crate::ioctl::_IOC_WRITE, $ty, $nr, ::std::mem::size_of::<$size>() as u32);
-    )
+            $name,
+            $crate::ioctl::_IOC_WRITE,
+            $ty,
+            $nr,
+            ::std::mem::size_of::<$size>() as u32
+        );
+    };
 }
 
 /// Declare an ioctl that reads and writes data.
 #[macro_export]
 macro_rules! ioctl_iowr_nr {
-    ($name:ident, $ty:expr, $nr:expr, $size:ty) => (
+    ($name:ident, $ty:expr, $nr:expr, $size:ty) => {
         ioctl_ioc_nr!(
-            $name, $crate::ioctl::_IOC_READ | $crate::ioctl::_IOC_WRITE, $ty, $nr,
-            ::std::mem::size_of::<$size>() as u32);
-    )
+            $name,
+            $crate::ioctl::_IOC_READ | $crate::ioctl::_IOC_WRITE,
+            $ty,
+            $nr,
+            ::std::mem::size_of::<$size>() as u32
+        );
+    };
 }
 
 pub const _IOC_NRBITS: c_uint = 8;

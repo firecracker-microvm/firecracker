@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+use super::{errno_result, Error, Result};
 use libc::{c_int, pthread_kill, pthread_t, signal, EINVAL, SIG_ERR};
 use std::os::unix::thread::JoinHandleExt;
 use std::thread::JoinHandle;
-use super::{errno_result, Error, Result};
 
 extern "C" {
     fn __libc_current_sigrtmin() -> c_int;

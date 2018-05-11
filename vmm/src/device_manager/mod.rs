@@ -1,2 +1,2 @@
-pub mod mmio;
 pub mod legacy;
+pub mod mmio;

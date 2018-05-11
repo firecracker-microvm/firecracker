@@ -4,8 +4,8 @@
 
 //! Helper for creating valid kernel command line strings.
 
-use std::result;
 use std::fmt;
+use std::result;
 
 /// The error type for command line building operations.
 #[derive(PartialEq, Debug)]

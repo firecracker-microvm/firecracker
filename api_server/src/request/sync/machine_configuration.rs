@@ -5,8 +5,8 @@ use hyper::{Method, Response, StatusCode};
 
 use data_model::vm::MachineConfiguration;
 use http_service::{empty_response, json_fault_message, json_response};
-use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 use request::sync::GenerateResponse;
+use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 
 #[derive(Debug)]
 pub enum PutMachineConfigurationError {

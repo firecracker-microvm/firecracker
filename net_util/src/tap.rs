@@ -8,9 +8,9 @@ use std::net;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
+use super::{create_sockaddr, create_socket, Error as NetUtilError};
 use libc;
 use net_sys;
-use super::{create_sockaddr, create_socket, Error as NetUtilError};
 use sys_util::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 
 #[derive(Debug)]
@@ -249,13 +249,13 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use self::pnet::datalink::{self, DataLinkReceiver, DataLinkSender, NetworkInterface};
     use self::pnet::datalink::Channel::Ethernet;
-    use self::pnet::packet::{MutablePacket, Packet};
+    use self::pnet::datalink::{self, DataLinkReceiver, DataLinkSender, NetworkInterface};
     use self::pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
-    use self::pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
     use self::pnet::packet::ip::IpNextHeaderProtocols;
+    use self::pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
     use self::pnet::packet::udp::{MutableUdpPacket, UdpPacket};
+    use self::pnet::packet::{MutablePacket, Packet};
     use self::pnet::util::MacAddr;
 
     use super::*;

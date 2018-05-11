@@ -4,9 +4,9 @@
 
 extern crate sys_util;
 
-use std::mem;
 use std::ffi::CStr;
 use std::io::{Read, Seek, SeekFrom};
+use std::mem;
 
 use sys_util::{GuestAddress, GuestMemory};
 
@@ -140,8 +140,8 @@ pub fn load_cmdline(
 
 #[cfg(test)]
 mod test {
-    use std::io::Cursor;
     use super::*;
+    use std::io::Cursor;
     use sys_util::{GuestAddress, GuestMemory};
 
     const MEM_SIZE: usize = 0x8000;

@@ -14,8 +14,8 @@ mod logger;
 pub mod machine_configuration;
 mod net;
 
-pub use self::drive::{DriveDescription, DriveError, DrivePermissions, PutDriveOutcome};
 pub use self::boot_source::{BootSourceBody, BootSourceType, LocalImage};
+pub use self::drive::{DriveDescription, DriveError, DrivePermissions, PutDriveOutcome};
 pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, PutLoggerOutcome};
 pub use self::net::NetworkInterfaceBody;
 

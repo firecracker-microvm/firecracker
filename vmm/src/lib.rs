@@ -14,10 +14,10 @@ extern crate num_cpus;
 extern crate sys_util;
 extern crate x86_64;
 
+mod api_logger_config;
 pub mod device_config;
 pub mod device_manager;
 pub mod kernel_cmdline;
-mod api_logger_config;
 mod vm_control;
 mod vstate;
 
@@ -33,12 +33,12 @@ use std::thread;
 use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
-use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse,
-                                NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
-                                PutLoggerOutcome, SyncRequest};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
                                                        PutMachineConfigurationOutcome};
+use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse,
+                                NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
+                                PutLoggerOutcome, SyncRequest};
 use data_model::vm::MachineConfiguration;
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;

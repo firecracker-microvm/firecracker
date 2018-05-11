@@ -10,7 +10,7 @@ use kvm_sys::kvm_segment;
 pub fn gdt_entry(flags: u16, base: u32, limit: u32) -> u64 {
     ((((base as u64) & 0xff000000u64) << (56 - 24)) | (((flags as u64) & 0x0000f0ffu64) << 40)
         | (((limit as u64) & 0x000f0000u64) << (48 - 16))
-        | (((base as u64) & 0x00ffffffu64) << 16) | (((limit as u64) & 0x0000ffffu64)))
+        | (((base as u64) & 0x00ffffffu64) << 16) | ((limit as u64) & 0x0000ffffu64))
 }
 
 fn get_base(entry: u64) -> u64 {
@@ -19,7 +19,7 @@ fn get_base(entry: u64) -> u64 {
 }
 
 fn get_limit(entry: u64) -> u32 {
-    ((((entry) & 0x000F000000000000) >> 32) | (((entry) & 0x000000000000FFFF))) as u32
+    ((((entry) & 0x000F000000000000) >> 32) | ((entry) & 0x000000000000FFFF)) as u32
 }
 
 fn get_g(entry: u64) -> u8 {

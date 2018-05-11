@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-use std::mem::zeroed;
 use std::io::StdinLock;
+use std::mem::zeroed;
 use std::os::unix::io::RawFd;
 
 use libc::{c_int, fcntl, isatty, read, tcgetattr, tcsetattr, termios, ECHO, F_GETFL, F_SETFL,
@@ -114,10 +114,10 @@ unsafe impl<'a> Terminal for StdinLock<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io;
     use std::fs::File;
-    use std::path::Path;
+    use std::io;
     use std::os::unix::io::AsRawFd;
+    use std::path::Path;
 
     unsafe impl Terminal for File {
         fn tty_fd(&self) -> RawFd {

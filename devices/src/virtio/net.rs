@@ -3,27 +3,27 @@
 // found in the LICENSE file.
 
 use std::cmp;
-use std::io::{self, Write};
 #[cfg(not(test))]
 use std::io::Read;
+use std::io::{self, Write};
 use std::mem;
 use std::net::Ipv4Addr;
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
 
 use libc::EAGAIN;
 
-use {DeviceEventT, EpollHandler};
 use super::{ActivateError, ActivateResult};
-use epoll;
-use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
-use net_sys;
 use super::{Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
+use epoll;
+use net_sys;
+use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use sys_util::{Error as SysError, EventFd, GuestMemory};
-use virtio_sys::virtio_net::*;
 use virtio_sys::virtio_config::*;
+use virtio_sys::virtio_net::*;
+use {DeviceEventT, EpollHandler};
 
 /// The maximum buffer size when segmentation offload is enabled. This
 /// includes the 12-byte virtio net header.
@@ -547,9 +547,9 @@ mod tests {
 
     use libc;
 
-    use virtio::queue::tests::*;
     use super::*;
     use sys_util::GuestAddress;
+    use virtio::queue::tests::*;
 
     struct DummyNet {
         net: Net,

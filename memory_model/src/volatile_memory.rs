@@ -19,13 +19,13 @@
 //! done concurrently without synchronization. With volatile access we know that the compiler has
 //! not reordered or elided the access.
 
+use std::fmt;
 use std::io::Result as IoResult;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::ptr::{read_volatile, write_volatile};
 use std::result;
-use std::fmt;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 
 use DataInit;

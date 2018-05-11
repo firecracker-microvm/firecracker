@@ -27,8 +27,8 @@ pub mod inn;
 // generated with bindgen /usr/include/linux/sockios.h --no-unstable-rust
 // --constified-enum '*' --with-derive-default
 pub mod sockios;
-pub use iff::*;
 pub use if_tun::*;
+pub use iff::*;
 pub use inn::*;
 pub use sockios::*;
 

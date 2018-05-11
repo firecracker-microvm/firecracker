@@ -17,10 +17,10 @@ pub mod request;
 
 use std::cell::RefCell;
 use std::io;
-use std::rc::Rc;
-use std::sync::{Arc, RwLock};
-use std::sync::mpsc;
 use std::path::Path;
+use std::rc::Rc;
+use std::sync::mpsc;
+use std::sync::{Arc, RwLock};
 
 use futures::{Future, Stream};
 use hyper::server::Http;

@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+use super::{ActivateError, ActivateResult};
+use super::{DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING};
+use epoll;
 use std::cmp;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -11,14 +14,11 @@ use std::result;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use {DeviceEventT, EpollHandler};
-use super::{ActivateError, ActivateResult};
-use epoll;
-use super::{DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING};
 use sys_util::Result as SysResult;
 use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};
 use virtio_sys::virtio_blk::*;
 use virtio_sys::virtio_config::*;
+use {DeviceEventT, EpollHandler};
 
 const SECTOR_SHIFT: u8 = 9;
 pub const SECTOR_SIZE: u64 = 0x01 << SECTOR_SHIFT;
@@ -536,14 +536,14 @@ impl VirtioDevice for Block {
 
 #[cfg(test)]
 mod tests {
+    use libc;
     use std::fs::OpenOptions;
     use std::path::PathBuf;
     use std::sync::mpsc::Receiver;
-    use libc;
     use sys_util::TempDir;
 
-    use virtio::queue::tests::*;
     use super::*;
+    use virtio::queue::tests::*;
 
     struct DummyBlock {
         block: Block,
