@@ -133,3 +133,34 @@ impl ApiServer {
         self.efd.try_clone().map_err(Error::Eventfd)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use request::instance_info::InstanceState;
+    use std::sync::mpsc::channel;
+
+    #[test]
+    fn test_debug_traits_enums() {
+        assert!(
+            format!("{:?}", Error::Io(std::io::Error::from_raw_os_error(22)))
+                .contains("Io(Os { code: 22")
+        );
+        assert_eq!(
+            format!("{:?}", Error::Eventfd(sys_util::Error::new(0))),
+            "Eventfd(Error(0))"
+        );
+    }
+
+    #[test]
+    fn test_api_server_init() {
+        let (to_vmm, _from_api) = channel();
+
+        let shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state: InstanceState::Uninitialized,
+        }));
+        let server = ApiServer::new(shared_info.clone(), to_vmm, 0);
+        assert!(server.is_ok());
+        assert!(server.unwrap().get_event_fd_clone().is_ok());
+    }
+}

@@ -13,7 +13,7 @@ pub enum AsyncOutcome {
     Error(String),
 }
 
-// The halves of a request/reponse channel associated with each async request.
+// The halves of a request/response channel associated with each async request.
 pub type AsyncOutcomeSender = oneshot::Sender<AsyncOutcome>;
 pub type AsyncOutcomeReceiver = oneshot::Receiver<AsyncOutcome>;
 
@@ -125,6 +125,80 @@ mod tests {
     }
 
     #[test]
+    fn test_ser_deser() {
+        let j = "\"Drive\"";
+        let result: Result<DeviceType, serde_json::Error> = serde_json::from_str(j);
+        assert!(result.is_ok());
+        let result = serde_json::to_string(&result.unwrap());
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            String::from(j).replace("\n", "").replace(" ", "")
+        );
+
+        let j = "{
+                    \"device_type\": \"Drive\",
+                    \"device_resource_id\": \"dummy\",
+                    \"force\": true\
+                    }";
+        let result: InstanceDeviceDetachAction = serde_json::from_str(j).unwrap();
+        assert_eq!(
+            format!("{:?}", result),
+            "InstanceDeviceDetachAction { device_type: Drive, device_resource_id: \"dummy\", force: true }"
+        );
+
+        let result = serde_json::to_string(&result);
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            String::from(j).replace("\n", "").replace(" ", "")
+        );
+
+        let j = "\"InstanceStart\"";
+        let result: Result<AsyncActionType, serde_json::Error> = serde_json::from_str(j);
+        assert!(result.is_ok());
+        let result = serde_json::to_string(&result.unwrap());
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            String::from(j).replace("\n", "").replace(" ", "")
+        );
+
+        let j = "\"InstanceHalt\"";
+        let result: Result<AsyncActionType, serde_json::Error> = serde_json::from_str(j);
+        assert!(result.is_ok());
+        let result = serde_json::to_string(&result.unwrap());
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            String::from(j).replace("\n", "").replace(" ", "")
+        );
+
+        let j = "{
+                \"action_id\": \"dummy\",
+                \"action_type\": \"InstanceStart\",
+                \"instance_device_detach_action\": {\
+                    \"device_type\": \"Drive\",
+                    \"device_resource_id\": \"dummy\",
+                    \"force\": true},
+                \"timestamp\": 1522850095\
+                }";
+        let result: AsyncRequestBody = serde_json::from_str(j).unwrap();
+        assert_eq!(
+            format!("{:?}", result),
+            "AsyncRequestBody { action_id: \"dummy\", action_type: InstanceStart, \
+             instance_device_detach_action: Some(InstanceDeviceDetachAction { device_type: Drive, \
+             device_resource_id: \"dummy\", force: true }), timestamp: Some(1522850095) }"
+        );
+        let result = serde_json::to_string(&result);
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            String::from(j).replace("\n", "").replace(" ", "")
+        );
+    }
+
+    #[test]
     fn test_to_parsed_request() {
         let jsons = vec![
             "{
@@ -196,5 +270,31 @@ mod tests {
         async_body.set_timestamp(1522850096);
 
         assert_eq!(async_body.timestamp, Some(1522850096));
+    }
+
+    #[test]
+    fn test_debug_traits_enums() {
+        assert_eq!(format!("{:?}", AsyncOutcome::Ok(0)), "Ok(0)");
+        assert_eq!(
+            format!("{:?}", AsyncOutcome::Error(String::from("SomeError"))),
+            "Error(\"SomeError\")"
+        );
+        let (sender, _receiver) = oneshot::channel();
+        assert!(
+            format!("{:?}", AsyncRequest::StartInstance(sender)).contains("StartInstance(Sender")
+        );
+        let (sender, _receiver) = oneshot::channel();
+        assert!(
+            format!("{:?}", AsyncRequest::StopInstance(sender)).contains("StopInstance(Sender")
+        );
+        assert_eq!(format!("{:?}", DeviceType::Drive), "Drive");
+        assert_eq!(
+            format!("{:?}", AsyncActionType::InstanceStart),
+            "InstanceStart"
+        );
+        assert_eq!(
+            format!("{:?}", AsyncActionType::InstanceHalt),
+            "InstanceHalt"
+        );
     }
 }

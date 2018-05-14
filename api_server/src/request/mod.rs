@@ -22,7 +22,6 @@ pub enum ParsedRequest {
 
 // This enum represents a message which is passed to the VMM to request the execution
 // of a certain action.
-#[derive(Debug)]
 pub enum ApiRequest {
     Async(AsyncRequest),
     Sync(SyncRequest),
