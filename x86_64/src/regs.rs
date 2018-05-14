@@ -263,6 +263,8 @@ pub fn setup_sregs(mem: &GuestMemory, vcpu: &kvm::VcpuFd) -> Result<()> {
     Ok(())
 }
 
+// bla
+
 #[cfg(test)]
 mod tests {
     use super::*;
