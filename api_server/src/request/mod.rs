@@ -5,7 +5,7 @@ use std::result;
 
 pub use self::async::{AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest,
                       AsyncRequestBody};
-pub use self::sync::{APILoggerDescription, SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest};
+pub use self::sync::{SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest};
 use hyper::Method;
 
 pub mod instance_info;

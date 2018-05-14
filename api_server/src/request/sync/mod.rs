@@ -6,6 +6,7 @@ use hyper::{self, StatusCode};
 
 use data_model::device_config::{DriveConfig, NetworkInterfaceConfig};
 use data_model::vm::boot_source::BootSource;
+use data_model::vm::LoggerDescription;
 use data_model::vm::MachineConfiguration;
 use http_service::{empty_response, json_fault_message, json_response};
 use net_util::TapError;
@@ -15,8 +16,6 @@ mod drive;
 mod logger;
 pub mod machine_configuration;
 mod net;
-
-pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, PutLoggerOutcome};
 
 // Unlike async requests, sync request have outcomes which implement this trait. The idea is for
 // each outcome to be a struct which is cheaply and quickly instantiated by the VMM thread, then
@@ -50,7 +49,7 @@ pub enum SyncRequest {
     GetMachineConfiguration(SyncOutcomeSender),
     PutBootSource(BootSource, SyncOutcomeSender),
     PutDrive(DriveConfig, SyncOutcomeSender),
-    PutLogger(APILoggerDescription, SyncOutcomeSender),
+    PutLogger(LoggerDescription, SyncOutcomeSender),
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceConfig, SyncOutcomeSender),
 }

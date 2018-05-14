@@ -35,13 +35,13 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
-use api_server::request::sync::{APILoggerDescription, Error as SyncError, GenerateResponse,
-                                OkStatus as SyncOkStatus, PutLoggerOutcome, SyncOutcomeSender,
-                                SyncRequest};
+use api_server::request::sync::{Error as SyncError, GenerateResponse, OkStatus as SyncOkStatus,
+                                SyncOutcomeSender, SyncRequest};
 use api_server::ApiRequest;
 use data_model::device_config::{rate_limiter_description_into_implementation, DriveConfig,
                                 DriveError, NetworkInterfaceConfig, PutDriveOutcome};
 use data_model::vm::boot_source::{BootSource, BootSourceError, PutBootSourceOutcome};
+use data_model::vm::{LoggerDescription, PutLoggerOutcome};
 use data_model::vm::{MachineConfiguration, MachineConfigurationError,
                      PutMachineConfigurationOutcome};
 use device_config::*;
@@ -1119,7 +1119,7 @@ impl Vmm {
 
     fn handle_put_logger(
         &mut self,
-        logger_description: APILoggerDescription,
+        logger_description: LoggerDescription,
         sender: SyncOutcomeSender,
     ) {
         if self.is_instance_running() {

@@ -14,10 +14,11 @@ use tokio_core::reactor::Handle;
 use super::{ActionMap, ActionMapValue};
 use data_model::device_config::{DriveConfig, NetworkInterfaceConfig};
 use data_model::vm::boot_source::BootSource;
+use data_model::vm::LoggerDescription;
 use data_model::vm::MachineConfiguration;
 use logger::{Metric, METRICS};
 use request::instance_info::InstanceInfo;
-use request::{self, ApiRequest, AsyncOutcome, AsyncRequestBody, IntoParsedRequest, ParsedRequest};
+use request::{ApiRequest, AsyncOutcome, AsyncRequestBody, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
 
 fn build_response_base<B: Into<hyper::Body>>(
@@ -232,18 +233,16 @@ fn parse_logger_req<'a>(
 
         0 if method == Method::Put => {
             METRICS.put_api_requests.logger_count.inc();
-            Ok(
-                serde_json::from_slice::<request::APILoggerDescription>(body)
-                    .map_err(|e| {
-                        METRICS.put_api_requests.logger_fails.inc();
-                        Error::SerdeJson(e)
-                    })?
-                    .into_parsed_request()
-                    .map_err(|s| {
-                        METRICS.put_api_requests.logger_fails.inc();
-                        Error::Generic(StatusCode::BadRequest, s)
-                    })?,
-            )
+            Ok(serde_json::from_slice::<LoggerDescription>(body)
+                .map_err(|e| {
+                    METRICS.put_api_requests.logger_fails.inc();
+                    Error::SerdeJson(e)
+                })?
+                .into_parsed_request(method, None)
+                .map_err(|s| {
+                    METRICS.put_api_requests.logger_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }

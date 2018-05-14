@@ -1,39 +1,16 @@
 use std::result;
 
 use futures::sync::oneshot;
-use hyper::{Response, StatusCode};
+use hyper::{Method, Response, StatusCode};
 
+use data_model::vm::{LoggerDescription, LoggerError, PutLoggerOutcome};
 use http_service::{empty_response, json_fault_message, json_response};
 use request::sync::GenerateResponse;
-use request::{ParsedRequest, SyncRequest};
+use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub enum APILoggerLevel {
-    Error,
-    Warning,
-    Info,
-    Debug,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct APILoggerDescription {
-    pub path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub level: Option<APILoggerLevel>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub show_level: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub show_log_origin: Option<bool>,
-}
-
-#[derive(Debug)]
-pub enum APILoggerError {
-    InitializationFailure(String),
-}
-
-impl GenerateResponse for APILoggerError {
+impl GenerateResponse for LoggerError {
     fn generate_response(&self) -> Response {
-        use self::APILoggerError::*;
+        use self::LoggerError::*;
         match *self {
             InitializationFailure(ref e) => json_response(
                 StatusCode::BadRequest,
@@ -41,11 +18,6 @@ impl GenerateResponse for APILoggerError {
             ),
         }
     }
-}
-
-pub enum PutLoggerOutcome {
-    Initialized,
-    Error(APILoggerError),
 }
 
 impl GenerateResponse for PutLoggerOutcome {
@@ -58,8 +30,12 @@ impl GenerateResponse for PutLoggerOutcome {
     }
 }
 
-impl APILoggerDescription {
-    pub fn into_parsed_request(self) -> result::Result<ParsedRequest, String> {
+impl IntoParsedRequest for LoggerDescription {
+    fn into_parsed_request(
+        self,
+        _method: Method,
+        _id_from_path: Option<&str>,
+    ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
             SyncRequest::PutLogger(self, sender),
@@ -75,7 +51,7 @@ mod tests {
     #[test]
     fn test_generate_response_logger_error() {
         assert_eq!(
-            APILoggerError::InitializationFailure("Could not initialize log system".to_string())
+            LoggerError::InitializationFailure("Could not initialize log system".to_string())
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
@@ -83,9 +59,7 @@ mod tests {
         assert!(
             format!(
                 "{:?}",
-                APILoggerError::InitializationFailure(
-                    "Could not initialize log system".to_string()
-                )
+                LoggerError::InitializationFailure("Could not initialize log system".to_string())
             ).contains("InitializationFailure")
         );
     }
@@ -97,7 +71,7 @@ mod tests {
             StatusCode::Created
         );
         assert_eq!(
-            PutLoggerOutcome::Error(APILoggerError::InitializationFailure(
+            PutLoggerOutcome::Error(LoggerError::InitializationFailure(
                 "Could not initialize log system".to_string()
             )).generate_response()
                 .status(),
@@ -107,17 +81,17 @@ mod tests {
 
     #[test]
     fn test_into_parsed_request() {
-        let desc = APILoggerDescription {
+        let desc = LoggerDescription {
             path: String::from(""),
             level: None,
             show_level: None,
             show_log_origin: None,
         };
         format!("{:?}", desc);
-        assert!(&desc.clone().into_parsed_request().is_ok());
+        assert!(&desc.clone().into_parsed_request(Method::Put, None).is_ok());
         let (sender, receiver) = oneshot::channel();
         assert!(&desc.clone()
-            .into_parsed_request()
+            .into_parsed_request(Method::Put, None)
             .eq(&Ok(ParsedRequest::Sync(
                 SyncRequest::PutLogger(desc, sender),
                 receiver
