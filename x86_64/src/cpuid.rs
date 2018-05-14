@@ -98,7 +98,7 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
                 // Make sure that Hyperthreading is disabled
                 entry.edx &= !(1 << leaf_0x1::edx::HTT_SHIFT);
                 // Enable Hyperthreading for even vCPU count so you don't end up with
-                // an even and > 1 number of sibilings
+                // an even and > 1 number of siblings
                 if cpu_count > 1 && cpu_count % 2 == 0 {
                     entry.edx |= 1 << leaf_0x1::edx::HTT_SHIFT;
                 }
@@ -151,6 +151,14 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
                 entry.eax &= !(1 << leaf_0x6::eax::TURBO_BOOST_SHIFT);
                 // Clear X86 EPB feature.  No frequency selection in the hypervisor.
                 entry.ecx &= !(1 << leaf_0x6::ecx::EPB_SHIFT);
+            }
+            0xA => {
+                // Architectural Performance Monitor Leaf
+                // Disable PMU
+                entry.eax = 0;
+                entry.ebx = 0;
+                entry.ecx = 0;
+                entry.edx = 0;
             }
             0xB => {
                 // Hide the actual topology of the underlying host
