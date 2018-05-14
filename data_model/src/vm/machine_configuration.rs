@@ -49,3 +49,52 @@ pub enum PutMachineConfigurationOutcome {
     Updated,
     Error(MachineConfigurationError),
 }
+
+#[cfg(test)]
+mod tests {
+    extern crate serde_json;
+
+    use super::*;
+
+    #[test]
+    fn test_machine_config_default() {
+        let mcfg = MachineConfiguration::default();
+        assert_eq!(mcfg.vcpu_count.unwrap(), 1);
+        assert_eq!(mcfg.mem_size_mib.unwrap(), 128);
+        assert_eq!(mcfg.ht_enabled.unwrap(), false);
+
+        let j = r#"{
+                "vcpu_count": 1,
+                "mem_size_mib": 128,
+                "ht_enabled": false
+        }"#;
+        let result: MachineConfiguration = serde_json::from_str(j).unwrap();
+
+        assert_eq!(
+            format!("{:?}", result.clone()),
+            "MachineConfiguration { vcpu_count: Some(1), mem_size_mib: Some(128), ht_enabled: Some(false), cpu_template: None }",
+        );
+
+        assert_eq!(result, mcfg);
+
+        let result = serde_json::to_string(&result);
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            String::from(j).replace("\n", "").replace(" ", "")
+        );
+    }
+
+    #[test]
+    fn test_machine_config_error() {
+        assert_eq!(
+            format!("{:?}", MachineConfigurationError::InvalidVcpuCount),
+            "InvalidVcpuCount"
+        );
+        assert_eq!(
+            format!("{:?}", MachineConfigurationError::InvalidMemorySize),
+            "InvalidMemorySize"
+        );
+    }
+
+}

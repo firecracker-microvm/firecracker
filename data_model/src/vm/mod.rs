@@ -1,6 +1,6 @@
 pub mod boot_source;
 mod logger;
-pub mod machine_configuration;
+mod machine_configuration;
 
 pub use vm::boot_source::{BootSource, BootSourceError};
 pub use vm::logger::{LoggerDescription, LoggerError, LoggerLevel, PutLoggerOutcome};

@@ -13,7 +13,7 @@ use net_util::TapError;
 pub mod boot_source;
 mod drive;
 mod logger;
-pub mod machine_configuration;
+mod machine_configuration;
 mod net;
 
 // Unlike async requests, sync request have outcomes which implement this trait. The idea is for
