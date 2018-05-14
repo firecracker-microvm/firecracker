@@ -9,6 +9,7 @@
 extern crate lazy_static;
 extern crate libc;
 extern crate net_sys;
+extern crate serde;
 extern crate sys_util;
 
 mod mac;
