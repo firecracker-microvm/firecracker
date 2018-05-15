@@ -163,6 +163,7 @@ impl Vcpu {
         vm: &Vm,
     ) -> Result<()> {
         cpuid::filter_cpuid(self.id, nrcpus, &mut self.cpuid).map_err(|e| Error::CpuId(e))?;
+        cpuid::set_cpuid_template(cpuid::CPUFeaturesTemplate::T2, &mut self.cpuid).unwrap();
 
         self.fd
             .set_cpuid2(&self.cpuid)
