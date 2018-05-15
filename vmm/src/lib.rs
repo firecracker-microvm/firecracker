@@ -31,14 +31,15 @@ use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 
 use api_server::ApiRequest;
-use api_server::request::async::{AsyncOutcome, AsyncRequest};
+use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
                                                        PutMachineConfigurationOutcome};
-use api_server::request::sync::{DriveError, Error as SyncError, GenerateResponse,
+use api_server::request::sync::{APILoggerDescription, BootSourceBody, DriveDescription,
+                                DriveError, Error as SyncError, GenerateResponse,
                                 NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
-                                PutLoggerOutcome, SyncRequest};
+                                PutLoggerOutcome, SyncOutcomeSender, SyncRequest};
 use data_model::vm::MachineConfiguration;
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
@@ -863,6 +864,149 @@ impl Vmm {
         Ok(())
     }
 
+    fn handle_start_instance(&mut self, sender: AsyncOutcomeSender) {
+        let instance_state = {
+            // unwrap() to crash if the other thread poisoned this lock
+            let shared_info = self.shared_info.read().unwrap();
+            shared_info.state.clone()
+        };
+        let result = match instance_state {
+            InstanceState::Starting | InstanceState::Running | InstanceState::Halting => {
+                AsyncOutcome::Error("Guest Instance already running.".to_string())
+            }
+            _ => match self.start_instance() {
+                Ok(_) => AsyncOutcome::Ok(0),
+                Err(e) => {
+                    let _ = self.stop();
+                    AsyncOutcome::Error(format!("cannot boot kernel: {:?}", e))
+                }
+            },
+        };
+        // doing expect() to crash this thread as well if the other thread crashed
+        sender.send(result).expect("one-shot channel closed");
+    }
+
+    fn handle_stop_instance(&mut self, sender: AsyncOutcomeSender) {
+        let result = match self.stop() {
+            Ok(_) => AsyncOutcome::Ok(0),
+            Err(e) => AsyncOutcome::Error(format!(
+                "Errors detected during instance stop()! err: {:?}",
+                e
+            )),
+        };
+        sender.send(result).expect("one-shot channel closed");
+    }
+
+    fn handle_put_drive(&mut self, drive_description: DriveDescription, sender: SyncOutcomeSender) {
+        match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
+            Ok(outcome) => sender
+                .send(Box::new(outcome))
+                .map_err(|_| ())
+                .expect("one-shot channel closed"),
+            Err(e) => sender
+                .send(Box::new(e))
+                .map_err(|_| ())
+                .expect("one-shot channel closed"),
+        }
+    }
+
+    fn handle_put_logger(
+        &mut self,
+        logger_description: APILoggerDescription,
+        sender: SyncOutcomeSender,
+    ) {
+        match api_logger_config::init_logger(logger_description) {
+            Ok(_) => sender
+                .send(Box::new(PutLoggerOutcome::Initialized))
+                .map_err(|_| ())
+                .expect("one-shot channel closed"),
+            Err(e) => sender
+                .send(Box::new(e))
+                .map_err(|_| ())
+                .expect("one-shot channel closed"),
+        }
+    }
+
+    fn handle_put_boot_source(
+        &mut self,
+        boot_source_body: BootSourceBody,
+        sender: SyncOutcomeSender,
+    ) {
+        // check that the kernel path exists and it is valid
+        let box_response: Box<GenerateResponse + Send> = match boot_source_body.local_image {
+            Some(image) => match File::open(image.kernel_image_path) {
+                Ok(kernel_file) => {
+                    let mut cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
+                    match cmdline.insert_str(
+                        boot_source_body
+                            .boot_args
+                            .unwrap_or(String::from(DEFAULT_KERNEL_CMDLINE)),
+                    ) {
+                        Ok(_) => {
+                            let kernel_config = KernelConfig {
+                                kernel_file,
+                                cmdline,
+                                kernel_start_addr: GuestAddress(KERNEL_START_OFFSET),
+                                cmdline_addr: GuestAddress(CMDLINE_OFFSET),
+                            };
+                            // if the kernel was already configure, we have an update operation
+                            let outcome = match self.kernel_config {
+                                Some(_) => PutBootSourceOutcome::Updated,
+                                None => PutBootSourceOutcome::Created,
+                            };
+                            self.configure_kernel(kernel_config);
+                            Box::new(outcome)
+                        }
+                        Err(_) => Box::new(PutBootSourceConfigError::InvalidKernelCommandLine),
+                    }
+                }
+                Err(_e) => Box::new(PutBootSourceConfigError::InvalidKernelPath),
+            },
+            None => Box::new(PutBootSourceConfigError::InvalidKernelPath),
+        };
+        sender
+            .send(box_response)
+            .map_err(|_| ())
+            .expect("one-shot channel closed");
+    }
+
+    fn handle_get_machine_configuration(&self, sender: SyncOutcomeSender) {
+        sender
+            .send(Box::new(self.vm_config.clone()))
+            .map_err(|_| ())
+            .expect("one-shot channel closed");
+    }
+
+    fn handle_put_machine_configuration(
+        &mut self,
+        machine_config: MachineConfiguration,
+        sender: SyncOutcomeSender,
+    ) {
+        let boxed_response = match self.put_virtual_machine_configuration(
+            machine_config.vcpu_count,
+            machine_config.mem_size_mib,
+        ) {
+            Ok(_) => Box::new(PutMachineConfigurationOutcome::Updated),
+            Err(e) => Box::new(PutMachineConfigurationOutcome::Error(e)),
+        };
+
+        sender
+            .send(boxed_response)
+            .map_err(|_| ())
+            .expect("one-shot channel closed");
+    }
+
+    fn handle_put_network_interface(
+        &mut self,
+        netif_body: NetworkInterfaceBody,
+        sender: SyncOutcomeSender,
+    ) {
+        sender
+            .send(Box::new(self.put_net_device(netif_body)))
+            .map_err(|_| ())
+            .expect("one-shot channel closed");
+    }
+
     fn run_api_cmd(&mut self) -> Result<()> {
         let request = match self.from_api.try_recv() {
             Ok(t) => t,
@@ -874,141 +1018,30 @@ impl Vmm {
             }
         };
         match *request {
-            ApiRequest::Async(req) => {
-                match req {
-                    AsyncRequest::StartInstance(sender) => {
-                        let instance_state = {
-                            // unwrap() to crash if the other thread poisoned this lock
-                            let shared_info = self.shared_info.read().unwrap();
-                            shared_info.state.clone()
-                        };
-                        let result = match instance_state {
-                            InstanceState::Starting
-                            | InstanceState::Running
-                            | InstanceState::Halting => {
-                                AsyncOutcome::Error("Guest Instance already running.".to_string())
-                            }
-                            _ => match self.start_instance() {
-                                Ok(_) => AsyncOutcome::Ok(0),
-                                Err(e) => {
-                                    let _ = self.stop();
-                                    AsyncOutcome::Error(format!("cannot boot kernel: {:?}", e))
-                                }
-                            },
-                        };
-                        // doing expect() to crash this thread as well if the other thread crashed
-                        sender.send(result).expect("one-shot channel closed");
-                    }
-                    AsyncRequest::StopInstance(sender) => {
-                        let result = match self.stop() {
-                            Ok(_) => AsyncOutcome::Ok(0),
-                            Err(e) => AsyncOutcome::Error(format!(
-                                "Errors detected during instance stop()! err: {:?}",
-                                e
-                            )),
-                        };
-                        // doing expect() to crash this thread as well if the other thread crashed
-                        sender.send(result).expect("one-shot channel closed");
-                    }
-                };
-            }
-            ApiRequest::Sync(req) => {
-                match req {
-                    SyncRequest::GetMachineConfiguration(sender) => {
-                        sender
-                            .send(Box::new(self.vm_config.clone()))
-                            .map_err(|_| ())
-                            .expect("one-shot channel closed");
-                    }
-                    SyncRequest::PutBootSource(boot_source_body, sender) => {
-                        // check that the kernel path exists and it is valid
-                        let box_response: Box<GenerateResponse + Send> = match boot_source_body
-                            .local_image
-                        {
-                            Some(image) => match File::open(image.kernel_image_path) {
-                                Ok(kernel_file) => {
-                                    let mut cmdline =
-                                        kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
-                                    match cmdline.insert_str(
-                                        boot_source_body
-                                            .boot_args
-                                            .unwrap_or(String::from(DEFAULT_KERNEL_CMDLINE)),
-                                    ) {
-                                        Ok(_) => {
-                                            let kernel_config = KernelConfig {
-                                                kernel_file,
-                                                cmdline,
-                                                kernel_start_addr: GuestAddress(
-                                                    KERNEL_START_OFFSET,
-                                                ),
-                                                cmdline_addr: GuestAddress(CMDLINE_OFFSET),
-                                            };
-                                            // if the kernel was already configure, we have an update operation
-                                            let outcome = match self.kernel_config {
-                                                Some(_) => PutBootSourceOutcome::Updated,
-                                                None => PutBootSourceOutcome::Created,
-                                            };
-                                            self.configure_kernel(kernel_config);
-                                            Box::new(outcome)
-                                        }
-                                        Err(_) => Box::new(
-                                            PutBootSourceConfigError::InvalidKernelCommandLine,
-                                        ),
-                                    }
-                                }
-                                Err(_e) => Box::new(PutBootSourceConfigError::InvalidKernelPath),
-                            },
-                            None => Box::new(PutBootSourceConfigError::InvalidKernelPath),
-                        };
-                        sender
-                            .send(box_response)
-                            .map_err(|_| ())
-                            .expect("one-shot channel closed");
-                    }
-                    SyncRequest::PutDrive(drive_description, sender) => {
-                        match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
-                            Ok(outcome) => sender
-                                .send(Box::new(outcome))
-                                .map_err(|_| ())
-                                .expect("one-shot channel closed"),
-                            Err(e) => sender
-                                .send(Box::new(e))
-                                .map_err(|_| ())
-                                .expect("one-shot channel closed"),
-                        }
-                    }
-                    SyncRequest::PutLogger(logger_description, sender) => {
-                        match api_logger_config::init_logger(logger_description) {
-                            Ok(_) => sender
-                                .send(Box::new(PutLoggerOutcome::Initialized))
-                                .map_err(|_| ())
-                                .expect("one-shot channel closed"),
-                            Err(e) => sender
-                                .send(Box::new(e))
-                                .map_err(|_| ())
-                                .expect("one-shot channel closed"),
-                        }
-                    }
-                    SyncRequest::PutMachineConfiguration(machine_config_body, sender) => {
-                        let boxed_response = match self.put_virtual_machine_configuration(
-                            machine_config_body.vcpu_count,
-                            machine_config_body.mem_size_mib,
-                        ) {
-                            Ok(_) => Box::new(PutMachineConfigurationOutcome::Updated),
-                            Err(e) => Box::new(PutMachineConfigurationOutcome::Error(e)),
-                        };
-
-                        sender
-                            .send(boxed_response)
-                            .map_err(|_| ())
-                            .expect("one-shot channel closed");;
-                    }
-                    SyncRequest::PutNetworkInterface(body, outcome_sender) => outcome_sender
-                        .send(Box::new(self.put_net_device(body)))
-                        .map_err(|_| ())
-                        .expect("one-shot channel closed"),
+            ApiRequest::Async(req) => match req {
+                AsyncRequest::StartInstance(sender) => self.handle_start_instance(sender),
+                AsyncRequest::StopInstance(sender) => self.handle_stop_instance(sender),
+            },
+            ApiRequest::Sync(req) => match req {
+                SyncRequest::GetMachineConfiguration(sender) => {
+                    self.handle_get_machine_configuration(sender)
                 }
-            }
+                SyncRequest::PutBootSource(boot_source_body, sender) => {
+                    self.handle_put_boot_source(boot_source_body, sender)
+                }
+                SyncRequest::PutDrive(drive_description, sender) => {
+                    self.handle_put_drive(drive_description, sender)
+                }
+                SyncRequest::PutLogger(logger_description, sender) => {
+                    self.handle_put_logger(logger_description, sender)
+                }
+                SyncRequest::PutMachineConfiguration(machine_config_body, sender) => {
+                    self.handle_put_machine_configuration(machine_config_body, sender)
+                }
+                SyncRequest::PutNetworkInterface(netif_body, sender) => {
+                    self.handle_put_network_interface(netif_body, sender)
+                }
+            },
         }
 
         Ok(())
