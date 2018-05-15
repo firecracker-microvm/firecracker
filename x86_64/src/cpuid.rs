@@ -1,22 +1,60 @@
 use kvm::CpuId;
+
 use std::result;
 
 // Basic CPUID Information
 mod leaf_0x1 {
+    pub mod eax {
+        pub const EXTENDED_FAMILY_ID_SHIFT: u32 = 20;
+        pub const EXTENDED_PROCESSOR_MODEL_SHIFT: u32 = 16;
+        pub const PROCESSOR_TYPE_SHIFT: u32 = 12;
+        pub const PROCESSOR_FAMILY_SHIFT: u32 = 8;
+        pub const PROCESSOR_MODEL_SHIFT: u32 = 4;
+    }
+
     pub mod ebx {
-        pub const APICID_SHIFT: u32 = 24; // The (fixed) default APIC ID.
-        pub const CLFLUSH_SIZE_SHIFT: u32 = 8; // Bytes flushed when executing CLFLUSH.
-        pub const CPU_COUNT_SHIFT: u32 = 16; // The logical processor count.
+        // The (fixed) default APIC ID.
+        pub const APICID_SHIFT: u32 = 24;
+        // Bytes flushed when executing CLFLUSH.
+        pub const CLFLUSH_SIZE_SHIFT: u32 = 8;
+        // The logical processor count.
+        pub const CPU_COUNT_SHIFT: u32 = 16;
     }
 
     pub mod ecx {
+        // DTES64 = 64-bit debug store
+        pub const DTES64_SHIFT: u32 = 2;
+        // MONITOR = Monitor/MWAIT
+        pub const MONITOR_SHIFT: u32 = 3;
+        // CPL Qualified Debug Store
+        pub const DS_CPL_SHIFT: u32 = 4;
+        // 5 = VMX (Virtual Machine Extensions)
+        // 6 = SMX (Safer Mode Extensions)
+        // 7 = EIST (Enhanced Intel SpeedStep® technology)
+        // TM2 = Thermal Monitor 2
+        pub const TM2_SHIFT: u32 = 8;
+        // CNXT_ID = L1 Context ID (L1 data cache can be set to adaptive/shared mode)
+        pub const CNXT_ID: u32 = 10;
+        // 11 = SDBG (cpu supports IA32_DEBUG_INTERFACE MSR for silicon debug)
+        // XTPR_UPDATE = xTPR Update Control
+        pub const XTPR_UPDATE_SHIFT: u32 = 14;
+        // PDCM = Perfmon and Debug Capability
+        pub const PDCM_SHIFT: u32 = 15;
+        // 18 = DCA Direct Cache Access (prefetch data from a memory mapped device)
         pub const TSC_DEADLINE_TIMER_SHIFT: u32 = 24;
-        // Flag to be set when the cpu is running on a hypervisor.
+        pub const OSXSAVE_SHIFT: u32 = 27;
+        // Cpu is running on a hypervisor.
         pub const HYPERVISOR_SHIFT: u32 = 31;
     }
 
     pub mod edx {
+        pub const PSN_SHIFT: u32 = 18; // Processor Serial Number
+        pub const DS_SHIFT: u32 = 21; // Debug Store.
+        pub const ACPI_SHIFT: u32 = 22; // Thermal Monitor and Software Controlled Clock Facilities.
+        pub const SS_SHIFT: u32 = 27; // Self Snoop
         pub const HTT_SHIFT: u32 = 28; // Hyper Threading Enabled.
+        pub const TM_SHIFT: u32 = 29; // Thermal Monitor.
+        pub const PBE_SHIFT: u32 = 31; // Pending Break Enable.
     }
 }
 
@@ -36,12 +74,78 @@ mod leaf_0x6 {
     }
 
     pub mod ecx {
-        pub const EPB_SHIFT: u32 = 3; // "Energy Performance Bias" bit.
+        // "Energy Performance Bias" bit.
+        pub const EPB_SHIFT: u32 = 3;
+    }
+}
+
+// Structured Extended Feature Flags Enumeration Leaf
+mod leaf_0x7 {
+    pub mod index0 {
+        pub mod ebx {
+            // 1 = TSC_ADJUST
+            pub const SGX_SHIFT: u32 = 2;
+            // 3 = BMI
+            pub const HLE_SHIFT: u32 = 4;
+            // 5 = AVX2
+            // FPU Data Pointer updated only on x87 exceptions if 1.
+            pub const FPDP_SHIFT: u32 = 6;
+            // 7 = SMEP (Supervisor-Mode Execution Prevention if 1)
+            // 8 = BMI2
+            // 9 = Enhanced REP MOVSB/STOSB if 1
+            // 10 = INVPCID
+            pub const RTM_SHIFT: u32 = 11;
+            // Intel® Resource Director Technology (Intel® RDT) Monitoring
+            pub const RDT_M_SHIFT: u32 = 12;
+            // 13 = Deprecates FPU CS and FPU DS values if 1
+            // 14 = MPX (Intel® Memory Protection Extensions)
+            // RDT = Intel® Resource Director Technology
+            pub const RDT_A_SHIFT: u32 = 15;
+            // AVX-512 Foundation instructions
+            pub const AVX512F_SHIFT: u32 = 16;
+            pub const RDSEED_SHIFT: u32 = 18;
+            pub const ADX_SHIFT: u32 = 19;
+            // 20 = SMAP (Supervisor-Mode Access Prevention)
+            // 21 & 22 reserved
+            // 23 = CLFLUSH_OPT (flushing multiple cache lines in parallel within a single logical processor)
+            // 24 = CLWB (Cache Line Write Back)
+            // PT = Intel Processor Trace
+            pub const PT_SHIFT: u32 = 25;
+            // AVX512CD = AVX512 Conflict Detection
+            pub const AVX512CD_SHIFT: u32 = 28;
+            // Intel Secure Hash Algorithm Extensions
+            pub const SHA_SHIFT: u32 = 29;
+            // 30 - 32 reserved
+        }
+
+        pub mod ecx {
+            // 0 = PREFETCHWT1 (move data closer to the processor in anticipation of future use)
+            // 1 = reserved
+            // 2 = UMIP (User Mode Instruction Prevention)
+            // 3 = PKU (Protection Keys for user-mode pages)
+            // 4 = OSPKE (If 1, OS has set CR4.PKE to enable protection keys)
+            // 5- 16 reserved
+            // 21 - 17 = The value of MAWAU used by the BNDLDX and BNDSTX instructions in 64-bit mode.
+            pub const RDPID_SHIFT: u32 = 22; // Read Processor ID
+                                             // 23 - 29 reserved
+                                             // SGX_LC = SGX Launch Configuration
+            pub const SGX_LC_SHIFT: u32 = 30;
+            // 31 reserved
+        }
+    }
+}
+
+mod leaf_0x80000001 {
+    pub mod ecx {
+        pub const PREFETCH_SHIFT: u32 = 8; // 3DNow! PREFETCH/PREFETCHW instructions
+    }
+
+    pub mod edx {
+        pub const PDPE1GB_SHIFT: u32 = 26; // 1-GByte pages are available if 1.
     }
 }
 
 // Extended Topology Leaf
-#[allow(non_snake_case)]
 mod leaf_0xb {
     pub const LEVEL_TYPE_INVALID: u32 = 0;
     pub const LEVEL_TYPE_THREAD: u32 = 1;
@@ -66,6 +170,10 @@ pub enum Error {
     VcpuCountOverflow,
 }
 
+pub enum CPUFeaturesTemplate {
+    T2,
+}
+
 /// This function is used for setting leaf 01H EBX[23-16]
 /// The maximum number of addressable logical CPUs is computed as the closest power of 2
 /// higher or equal to the CPU count configured by the user
@@ -79,6 +187,113 @@ fn get_max_addressable_lprocessors(cpu_count: u8) -> result::Result<u8, Error> {
     Ok(max_addressable_lcpu as u8)
 }
 
+// Converts a 4 letters string to u32; if the string has more than 4 letters, only the first 4 are returned
+fn str_to_u32(string: &str) -> u32 {
+    let str_bytes = string.as_bytes();
+    return (str_bytes[0] as u32) << 24 | (str_bytes[1] as u32) << 16 | (str_bytes[2] as u32) << 8
+        | (str_bytes[3] as u32);
+}
+
+pub fn set_cpuid_template(template: CPUFeaturesTemplate, kvm_cpuid: &mut CpuId) -> Result<()> {
+    let entries = kvm_cpuid.mut_entries_slice();
+    match template {
+        CPUFeaturesTemplate::T2 => {
+            for entry in entries.iter_mut() {
+                match entry.function {
+                    0x1 => {
+                        // Set CPU Basic Information
+                        // EAX[20:27] Extended Family ID = 0
+                        entry.eax &= !(0b11111111 << leaf_0x1::eax::EXTENDED_FAMILY_ID_SHIFT);
+
+                        // EAX[19:16] Extended Processor Model ID = 3 (Haswell)
+                        entry.eax &= !(0b1111 << leaf_0x1::eax::EXTENDED_PROCESSOR_MODEL_SHIFT);
+                        entry.eax |= 3 << leaf_0x1::eax::EXTENDED_PROCESSOR_MODEL_SHIFT;
+
+                        // EAX[13:12] Processor Type = 0 (Primary processor)
+                        entry.eax &= !(0b11 << leaf_0x1::eax::PROCESSOR_TYPE_SHIFT);
+
+                        // EAX[11:8] Processor Family = 6
+                        entry.eax &= !(0b1111 << leaf_0x1::eax::PROCESSOR_FAMILY_SHIFT);
+                        entry.eax |= 6 << leaf_0x1::eax::PROCESSOR_FAMILY_SHIFT;
+
+                        // EAX[7:4] Processor Model = 15
+                        entry.eax &= !(0b1111 << leaf_0x1::eax::PROCESSOR_MODEL_SHIFT);
+                        entry.eax |= 15 << leaf_0x1::eax::PROCESSOR_MODEL_SHIFT;
+
+                        // EAX[0:3] Stepping = 2
+                        entry.eax &= !(0b1111 as u32);
+                        entry.eax |= 2 as u32;
+
+                        // Disable Features
+                        entry.ebx &= !(1 << leaf_0x1::ecx::DTES64_SHIFT);
+                        entry.ebx &= !(1 << leaf_0x1::ecx::MONITOR_SHIFT);
+                        entry.ebx &= !(1 << leaf_0x1::ecx::DS_CPL_SHIFT);
+                        entry.ebx &= !(1 << leaf_0x1::ecx::TM2_SHIFT);
+                        entry.ebx &= !(1 << leaf_0x1::ecx::CNXT_ID);
+                        entry.ebx &= !(1 << leaf_0x1::ecx::XTPR_UPDATE_SHIFT);
+                        entry.ebx &= !(1 << leaf_0x1::ecx::PDCM_SHIFT);
+                        entry.ebx &= !(1 << leaf_0x1::ecx::OSXSAVE_SHIFT);
+
+                        entry.edx &= !(1 << leaf_0x1::edx::PSN_SHIFT);
+                        entry.edx &= !(1 << leaf_0x1::edx::DS_SHIFT);
+                        entry.edx &= !(1 << leaf_0x1::edx::ACPI_SHIFT);
+                        entry.edx &= !(1 << leaf_0x1::edx::SS_SHIFT);
+                        entry.edx &= !(1 << leaf_0x1::edx::TM_SHIFT);
+                        entry.edx &= !(1 << leaf_0x1::edx::PBE_SHIFT);
+                    }
+                    0x7 => {
+                        if entry.index == 0 {
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::SGX_SHIFT);
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::HLE_SHIFT);
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::FPDP_SHIFT);
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::RTM_SHIFT);
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::RDT_M_SHIFT);
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::RDT_A_SHIFT);
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512F_SHIFT);
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::RDSEED_SHIFT);
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::ADX_SHIFT);
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::PT_SHIFT);
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512CD_SHIFT);
+                            entry.ebx &= !(1 << leaf_0x7::index0::ebx::SHA_SHIFT);
+
+                            entry.ecx &= !(1 << leaf_0x7::index0::ecx::RDPID_SHIFT);
+                            entry.ecx &= !(1 << leaf_0x7::index0::ecx::SGX_LC_SHIFT);
+                        }
+                    }
+                    0x80000001 => {
+                        entry.ecx &= !(1 << leaf_0x80000001::ecx::PREFETCH_SHIFT);
+                        entry.edx &= !(1 << leaf_0x80000001::edx::PDPE1GB_SHIFT);
+                    }
+                    0x80000002 => {
+                        // set this leaf to "Intel(R) Xeon(R)"
+                        entry.eax = str_to_u32("etnI");
+                        entry.ebx = str_to_u32(")R(l");
+                        entry.ecx = str_to_u32("oeX ");
+                        entry.edx = str_to_u32(")R(n");
+                    }
+                    0x80000003 => {
+                        // set this leaf to " Processor"
+                        entry.eax = str_to_u32("orP ");
+                        entry.ebx = str_to_u32("ssec");
+                        entry.ecx = str_to_u32("  ro");
+                        entry.edx = 0;
+                    }
+                    0x80000004 => {
+                        entry.eax = 0;
+                        entry.ebx = 0;
+                        entry.ecx = 0;
+                        entry.edx = 0;
+                    }
+
+                    _ => (),
+                }
+            }
+
+            Ok(())
+        }
+    }
+}
+
 /// Sets up the cpuid entries for the given vcpu
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<()> {
@@ -88,10 +303,8 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
         match entry.function {
             0x1 => {
                 // X86 hypervisor feature
-                if entry.index == 0 {
-                    entry.ecx |= 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_SHIFT;
-                    entry.ecx |= 1 << leaf_0x1::ecx::HYPERVISOR_SHIFT;
-                }
+                entry.ecx |= 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_SHIFT;
+                entry.ecx |= 1 << leaf_0x1::ecx::HYPERVISOR_SHIFT;
                 entry.ebx = ((cpu_id as u32) << leaf_0x1::ebx::APICID_SHIFT) as u32
                     | (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_SHIFT);
                 entry.ebx |= max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_SHIFT;
@@ -238,7 +451,7 @@ mod tests {
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
-    fn test_filter_cpuid() {
+    fn test_cpuid() {
         let kvm = Kvm::new().unwrap();
         let mut kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
         match filter_cpuid(0, 1, &mut kvm_cpuid) {
@@ -246,8 +459,11 @@ mod tests {
             _ => assert!(false),
         };
 
+        assert!(set_cpuid_template(CPUFeaturesTemplate::T2, &mut kvm_cpuid).is_ok());
+
         let entries = kvm_cpuid.mut_entries_slice();
-        // TODO: add tests for the other cpuid leaves
+        // TODO: This should be tested as part of the CI; only check that the function result is ok
+        // after moving this to the CI
         // Test the extended topology
         // See https://www.scss.tcd.ie/~jones/CS4021/processor-identification-cpuid-instruction-note.pdf
         let leaf11_index0 = kvm_cpuid_entry2 {
