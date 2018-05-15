@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.3.0]
+
+### Added
+
+* Users can interrogate the Machine Configuration (i.e. vcpu count and memory size) using a GET request on /machine-config.
+* The logging system can be configured through the API using a PUT on /logger.
+* Block devices support live resize by calling PUT with the same parameters as when the block was created.
+* Release builds have Link Time Optimization (LTO) enabled.
+* Firecracker is built with musl, resulting in a statically linked binary.
+* More in-tree integration tests were added as part of the continuous integration system.
+
+### Changed
+
+* The vcpu count is enforced to 1 or an even number.
+* The Swagger definition of rate limiters was updated.
+* Syslog-enabled logs were replaced with a hostfile backed mechanism.
+
+### Fixed
+
+* The host topology of the CPU and the caches is not leaked into the microvm anymore.
+* Boot time was improved by advertising the availability of the TSC deadline timer.
+* Fixed an issue which prevented Firecracker from working on 4.14 (or newer) host kernels.
+* Specifying the MAC address for an interface through the API is optional.
+
+### Removed
+
+* Removed support for attaching vsock devices.
+* Removed support for building Firecracker with glibc.
+
+
 ## [0.2.0]
 
 ### Added

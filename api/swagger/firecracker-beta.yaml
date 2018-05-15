@@ -1,10 +1,10 @@
 swagger: "2.0"
 info:
-  title: Firecracker v0.2 API
-  description: Firecraker v0.2 - RESTful public-facing API.
+  title: Firecracker v0.3 API
+  description: Firecraker v0.3 - RESTful public-facing API.
                The API is accessible through HTTP calls on specific URLs carrying JSON modeled data.
                The transport medium is a Unix Domain Socket.
-  version: 0.2.0
+  version: 0.3.0
   termsOfService: ""
   contact:
     email: "compute-capsule@amazon.com"
@@ -170,7 +170,7 @@ paths:
     get:
       summary: Get the machine configuration of the VM.
       description: Get the machine configuration of the VM. When called before the PUT operation, it will return
-                   the default values for the vCPU count (=1) and the memory size (=256 MiB).
+                   the default values for the vCPU count (=1) and the memory size (=128 MiB).
       responses:
         200:
           description: OK
