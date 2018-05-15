@@ -90,6 +90,7 @@ pub enum Error {
     GuestCIDAlreadyInUse,
     GuestMacAddressInUse,
     OpenTap(TapError),
+    UpdateNotAllowed,
     UpdateNotImplemented,
 }
 
@@ -108,6 +109,10 @@ impl GenerateResponse for Error {
             OpenTap(_) => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("Could not open TAP device."),
+            ),
+            UpdateNotAllowed => json_response(
+                StatusCode::Forbidden,
+                json_fault_message("The update operation is not allowed"),
             ),
             UpdateNotImplemented => json_response(
                 StatusCode::InternalServerError,

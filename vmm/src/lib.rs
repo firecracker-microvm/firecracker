@@ -897,6 +897,18 @@ impl Vmm {
         sender.send(result).expect("one-shot channel closed");
     }
 
+    fn check_instance_running(&self) -> bool {
+        let instance_state = {
+            // unwrap() to crash if the other thread poisoned this lock
+            let shared_info = self.shared_info.read().unwrap();
+            shared_info.state.clone()
+        };
+        match instance_state {
+            InstanceState::Uninitialized => false,
+            _ => true,
+        }
+    }
+
     fn handle_put_drive(&mut self, drive_description: DriveDescription, sender: SyncOutcomeSender) {
         match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
             Ok(outcome) => sender
@@ -932,6 +944,14 @@ impl Vmm {
         boot_source_body: BootSourceBody,
         sender: SyncOutcomeSender,
     ) {
+        if self.check_instance_running() {
+            sender
+                .send(Box::new(SyncError::UpdateNotAllowed))
+                .map_err(|_| ())
+                .expect("one-shot channel closed");
+            return;
+        }
+
         // check that the kernel path exists and it is valid
         let box_response: Box<GenerateResponse + Send> = match boot_source_body.local_image {
             Some(image) => match File::open(image.kernel_image_path) {
@@ -982,6 +1002,14 @@ impl Vmm {
         machine_config: MachineConfiguration,
         sender: SyncOutcomeSender,
     ) {
+        if self.check_instance_running() {
+            sender
+                .send(Box::new(SyncError::UpdateNotAllowed))
+                .map_err(|_| ())
+                .expect("one-shot channel closed");
+            return;
+        }
+
         let boxed_response = match self.put_virtual_machine_configuration(
             machine_config.vcpu_count,
             machine_config.mem_size_mib,
@@ -1001,6 +1029,14 @@ impl Vmm {
         netif_body: NetworkInterfaceBody,
         sender: SyncOutcomeSender,
     ) {
+        if self.check_instance_running() {
+            sender
+                .send(Box::new(SyncError::UpdateNotAllowed))
+                .map_err(|_| ())
+                .expect("one-shot channel closed");
+            return;
+        }
+
         sender
             .send(Box::new(self.put_net_device(netif_body)))
             .map_err(|_| ())
