@@ -21,6 +21,7 @@ class Firecracker:
     drives_path = '/drives'
     boot_source_path = '/boot-source'
     actions_path = '/actions'
+    logger = '/logger'
 
     def __init__(self, socket_name):
         self.socket_name = socket_name
@@ -40,6 +41,7 @@ class Firecracker:
         self.drives_url = usocket_url + self.drives_path
         self.boot_source_url = usocket_url + self.boot_source_path
         self.actions_url = usocket_url + self.actions_path
+        self.logger_url = usocket_url + self.logger
 
         screen_cmd = (
             'screen -dmS ' + self.session_name +
@@ -116,6 +118,15 @@ requests.put(
     }
 )
 
+requests.put(
+    firecracker.logger_url,
+    json={
+        'path': '/tmp/firecracker0001/file.log',
+        'level': 'Info',
+        'show_level': True,
+        'show_log_origin': True,
+    }
+)
 
 # Specify a boot source: a kernel image.
 # Currently, only linux kernel images are supported.
