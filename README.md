@@ -11,6 +11,7 @@ Firecracker consists of a single micro Virtual Machine Manager binary that will 
 * Add memory to the microVM.
 * Add one or more network interfaces to the microVM.
 * Add one or more read/write disks (block devices) to the microVM.
+* Configure the logging system (i.e. path on host for log file, log level, etc).
 * Start the microVM using a given kernel image and root file system.
 * Stop the microVM.
 
@@ -20,6 +21,7 @@ Firecracker consists of a single micro Virtual Machine Manager binary that will 
 * Emulated keyboard (i8042) and serial console (UART). The microVM serial console input and output are connected to those of the Firecracker process (this allows direct console access to the guest OS).
 * The capability of mapping an existing host tun-tap device as a virtIO/net device into the microVM.
 * The capability of mapping an existing host file as a virtIO/block device into the microVM.
+* Logging capabilities.
 * Default demand fault paging & CPU oversubscription.
 
 ## Limits and Performance
@@ -50,6 +52,9 @@ To run microVMs with Firecracker, you will need to have:
 
 ## Runtime Dependencies
 * Firecracker needs rw access to `/dev/kvm`. You can grant these rights, e.g., to all users, with: `sudo chmod a+rw /dev/kvm`.
+
+## Testing
+* In-tree integration tests, that can be run locally or as part of a continuous integration system, are provided. See `tests/README.md` for more information.
 
 ## Start Firecracker & the Micro VM
 
@@ -118,6 +123,17 @@ requests.put(
         'state': 'Attached',
         'permissions': 'rw',
         'is_root_device': False
+    }
+)
+
+# Configure logging system.
+requests.put(
+    firecracker.logger_url,
+    json={
+        'path': '/tmp/firecracker0001/file.log',
+        'level': 'Info',
+        'show_level': True,
+        'show_log_origin': True,
     }
 )
 
