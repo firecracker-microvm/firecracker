@@ -5,7 +5,6 @@ Tests pertaining to line/branch test coverage for the Firecracker code base.
 
 - Put the coverage in `s3://spec.firecracker` and update it automatically.
   target should be put in `s3://spec.firecracker` and automatically updated.
-- Remove the taskset workaround once the kcov fix is picked up by cargo-kcov.
 """
 
 
@@ -39,7 +38,6 @@ def test_coverage(testsession_tmp_path):
         'pnet'
     )
     run(
-        'taskset --cpu-list 0-63 '
         'cargo kcov --all --target=x86_64-unknown-linux-musl '
         '    --output ' + testsession_tmp_path +
         '    -- --exclude-pattern=' + exclude_pattern + ' --verify ',

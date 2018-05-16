@@ -219,7 +219,6 @@ Pytest was chosen because:
 ### Bug fixes
 
 - Fix the /install-kcov.sh bug.
-- Remove the taskset workaround once the kcov fix is picked up by cargo-kcov.
 
 ## Further Reading
 
