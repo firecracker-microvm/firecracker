@@ -53,7 +53,7 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
     let max_addr_cpu = get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
     for entry in entries.iter_mut() {
         match entry.function {
-            1 => {
+            0x1 => {
                 // X86 hypervisor feature
                 if entry.index == 0 {
                     entry.ecx |= 1 << ECX_TSC_DEADLINE_TIMER_SHIFT;
@@ -70,7 +70,7 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
                     entry.edx |= 1 << EDX_HTT_SHIFT;
                 }
             }
-            4 => {
+            0x4 => {
                 // Deterministic Cache Parameters Leaf
                 // Only use the last 3 bits of EAX[5:32] because the level is encoded in EAX[5:7]
                 let cache_level = (entry.eax >> EAX_CACHE_LEVEL) & (0b111 as u32);
@@ -111,11 +111,11 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
                     entry.eax |= (((cpu_count >> 1) - 1) as u32) << EAX_MAX_ADDR_IDS_IN_PACKAGE;
                 }
             }
-            6 => {
+            0x6 => {
                 // Clear X86 EPB feature.  No frequency selection in the hypervisor.
                 entry.ecx &= !(1 << ECX_EPB_SHIFT);
             }
-            11 => {
+            0xB => {
                 // Hide the actual topology of the underlying host
                 match entry.index {
                     0 => {
