@@ -31,7 +31,7 @@ pub use log::Level::*;
 pub use log::*;
 
 mod error;
-mod metrics;
+pub mod metrics;
 mod writers;
 
 use error::LoggerError;
@@ -342,7 +342,7 @@ impl Log for Logger {
                             _ => (),
                         },
                     },
-                    None => eprintln!("No metric {} found", format!("{}", (record.args()))), // should this be a panic??
+                    None => return,
                 }
             }
 

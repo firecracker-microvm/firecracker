@@ -112,6 +112,8 @@ impl fmt::Debug for Metric {
 pub enum LogMetric {
     MetricGetInstanceInfoFailures,
     MetricGetInstanceInfoRate,
+    MetricPutBootSourceFailures,
+    MetricPutBootSourceRate,
 }
 
 fn build_metrics() -> HashMap<String, Metric> {
@@ -132,6 +134,30 @@ fn build_metrics() -> HashMap<String, Metric> {
             format!("{:?}", LogMetric::MetricGetInstanceInfoFailures),
             Metric {
                 key: LogMetric::MetricGetInstanceInfoFailures,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutBootSourceRate),
+            Metric {
+                key: LogMetric::MetricPutBootSourceRate,
+                category: Category::Api,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutBootSourceFailures),
+            Metric {
+                key: LogMetric::MetricPutBootSourceFailures,
                 category: Category::Api,
                 unit: Unit::Count,
                 counter: 0,
