@@ -9,6 +9,8 @@ extern crate tokio_uds;
 
 extern crate data_model;
 extern crate fc_util;
+#[macro_use]
+extern crate logger;
 extern crate net_util;
 extern crate sys_util;
 
