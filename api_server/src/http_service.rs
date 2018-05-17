@@ -14,6 +14,7 @@ use tokio_core::reactor::Handle;
 
 use super::{ActionMap, ActionMapValue};
 use data_model::vm::MachineConfiguration;
+use logger::metrics::LogMetric;
 use request::instance_info::InstanceInfo;
 use request::{self, ApiRequest, AsyncOutcome, AsyncRequestBody, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
@@ -146,10 +147,13 @@ fn parse_boot_source_req<'a>(
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
-        0 if method == Method::Put => Ok(serde_json::from_slice::<request::BootSourceBody>(body)
-            .map_err(Error::SerdeJson)?
-            .into_parsed_request()
-            .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
+        0 if method == Method::Put => {
+            trace!("{:?}", LogMetric::MetricPutBootSourceRate);
+            Ok(serde_json::from_slice::<request::BootSourceBody>(body)
+                .map_err(Error::SerdeJson)?
+                .into_parsed_request()
+                .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?)
+        }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
