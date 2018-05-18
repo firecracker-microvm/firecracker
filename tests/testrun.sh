@@ -144,13 +144,10 @@ acquire_pkg_installer() {
     declare acquired_installer=false
     for installer in "${SUPPORTED_INSTALLERS[@]}"; do
         if check_cmd $installer; then
-            if $acquired_installer; then
-                err "Found more than one supported package manager."
-            else
-                export PKG_INSTALLER=$installer
-                record_global_symbol PKG_INSTALLER
-                acquired_installer=true
-            fi
+            export PKG_INSTALLER=$installer
+            record_global_symbol PKG_INSTALLER
+            acquired_installer=true
+            break
         fi
     done
 
