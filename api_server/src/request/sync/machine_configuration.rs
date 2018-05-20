@@ -18,7 +18,7 @@ impl GenerateResponse for PutMachineConfigurationError {
     fn generate_response(&self) -> Response {
         use self::PutMachineConfigurationError::*;
 
-        match *self {
+        match self {
             InvalidVcpuCount => json_response(
                 StatusCode::BadRequest,
                 json_fault_message(
@@ -28,7 +28,7 @@ impl GenerateResponse for PutMachineConfigurationError {
             ),
             InvalidMemorySize => json_response(
                 StatusCode::BadRequest,
-                json_fault_message("The memory size (MiB) is invalid!"),
+                json_fault_message("The memory size (MiB) is invalid."),
             ),
         }
     }
@@ -80,10 +80,15 @@ impl IntoParsedRequest for MachineConfiguration {
                 SyncRequest::GetMachineConfiguration(sender),
                 receiver,
             )),
-            Method::Put => Ok(ParsedRequest::Sync(
-                SyncRequest::PutMachineConfiguration(self, sender),
-                receiver,
-            )),
+            Method::Put => {
+                if self.vcpu_count.is_none() && self.mem_size_mib.is_none() {
+                    return Err(String::from("Empty request."));
+                }
+                Ok(ParsedRequest::Sync(
+                    SyncRequest::PutMachineConfiguration(self, sender),
+                    receiver,
+                ))
+            }
             _ => Ok(ParsedRequest::Dummy),
         }
     }
