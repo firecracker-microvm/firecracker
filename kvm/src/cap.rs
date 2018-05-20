@@ -5,6 +5,7 @@
 use kvm_sys::*;
 
 /// A capability the kernel's KVM interface can possibly expose.
+#[derive(Clone, Copy, Debug)]
 #[repr(u32)]
 pub enum Cap {
     Irqchip = KVM_CAP_IRQCHIP,
@@ -117,4 +118,5 @@ pub enum Cap {
     PpcEnableHcall = KVM_CAP_PPC_ENABLE_HCALL,
     CheckExtensionVm = KVM_CAP_CHECK_EXTENSION_VM,
     S390UserSigp = KVM_CAP_S390_USER_SIGP,
+    ImmediateExit = KVM_CAP_IMMEDIATE_EXIT,
 }
