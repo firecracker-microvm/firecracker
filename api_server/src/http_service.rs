@@ -902,15 +902,14 @@ mod tests {
                 .is_err()
         );
 
-        // FIXME #236
-        // A non-machine configuration json body should cause this request to fail the parsing
-        // stage, but it doesn't because the implementation is incomplete. Commenting it out until
-        // it's fixed.
-        // assert!(parse_machine_config_req(
-        //    &path_tokens,
-        //    &path,
-        //    Method::Put,
-        //    &Chunk::from("{\"foo\": \"bar\"}")).is_err());
+        assert!(
+            parse_machine_config_req(
+                &path_tokens,
+                &path,
+                Method::Put,
+                &Chunk::from("{\"foo\": \"bar\"}")
+            ).is_err()
+        );
 
         assert!(
             parse_machine_config_req(
