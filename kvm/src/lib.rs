@@ -26,6 +26,8 @@ use sys_util::{ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, io
 
 pub use cap::*;
 
+pub use kvm_sys::KVM_API_VERSION;
+
 /// Taken from Linux Kernel v4.14.13 (arch/x86/include/asm/kvm_host.h)
 const MAX_KVM_CPUID_ENTRIES: usize = 80;
 
@@ -52,16 +54,24 @@ impl Kvm {
         })
     }
 
+    pub fn get_api_version(&self) -> i32 {
+        // Safe because we know that our file is a KVM fd and that the request is one of the ones
+        // defined by kernel.
+        unsafe { ioctl(self, KVM_GET_API_VERSION()) }
+    }
+
     /// Query the availability of a particular kvm capability
-    fn check_extension_int(&self, c: Cap) -> i32 {
+    pub fn check_extension_int(&self, c: Cap) -> i32 {
         // Safe because we know that our file is a KVM fd and that the extension is one of the ones
         // defined by kernel.
         unsafe { ioctl_with_val(self, KVM_CHECK_EXTENSION(), c as c_ulong) }
     }
 
     /// Checks if a particular `Cap` is available.
+    /// According to the KVM API doc, KVM_CHECK_EXTENSION returns "0 if unsupported; 1 (or some
+    /// other positive integer) if supported".
     pub fn check_extension(&self, c: Cap) -> bool {
-        self.check_extension_int(c) == 1
+        self.check_extension_int(c) >= 1
     }
 
     /// Gets the size of the mmap required to use vcpu's `kvm_run` structure.
@@ -1124,5 +1134,11 @@ mod tests {
             badf_error
         );
         assert_eq!(faulty_vcpu_fd.run().unwrap_err(), badf_error);
+    }
+
+    #[test]
+    fn test_kvm_api_version() {
+        let kvm = Kvm::new().unwrap();
+        assert_eq!(kvm.get_api_version(), KVM_API_VERSION as i32);
     }
 }

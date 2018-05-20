@@ -89,6 +89,8 @@ pub enum Error {
     DeviceVmRequest(sys_util::Error),
     DriveError(DriveError),
     ApiChannel,
+    KvmApiVersion(i32),
+    KvmCap(kvm::Cap),
 }
 
 impl std::convert::From<kernel_loader::Error> for Error {
@@ -110,6 +112,62 @@ impl std::convert::From<kernel_cmdline::Error> for Error {
 }
 
 type Result<T> = std::result::Result<T, Error>;
+
+struct KvmContext {
+    kvm: Kvm,
+    nr_vcpus: usize,
+    max_vcpus: usize,
+}
+
+impl KvmContext {
+    fn new() -> Result<Self> {
+        fn check_cap(kvm: &Kvm, cap: Cap) -> std::result::Result<(), Error> {
+            if !kvm.check_extension(cap) {
+                return Err(Error::KvmCap(cap));
+            }
+            Ok(())
+        }
+
+        let kvm = Kvm::new().map_err(Error::Kvm)?;
+
+        if kvm.get_api_version() != kvm::KVM_API_VERSION as i32 {
+            return Err(Error::KvmApiVersion(kvm.get_api_version()));
+        }
+
+        check_cap(&kvm, Cap::Irqchip)?;
+        check_cap(&kvm, Cap::Ioeventfd)?;
+        check_cap(&kvm, Cap::Irqfd)?;
+        check_cap(&kvm, Cap::ImmediateExit)?;
+        check_cap(&kvm, Cap::SetTssAddr)?;
+        check_cap(&kvm, Cap::UserMemory)?;
+
+        let nr_vcpus = kvm.get_nr_vcpus();
+        let max_vcpus = match kvm.check_extension_int(Cap::MaxVcpus) {
+            0 => nr_vcpus,
+            x => x as usize,
+        };
+
+        Ok(KvmContext {
+            kvm,
+            nr_vcpus,
+            max_vcpus,
+        })
+    }
+
+    pub fn fd(&self) -> &Kvm {
+        &self.kvm
+    }
+
+    #[allow(dead_code)]
+    pub fn nr_vcpus(&self) -> usize {
+        self.nr_vcpus
+    }
+
+    #[allow(dead_code)]
+    pub fn max_vcpus(&self) -> usize {
+        self.max_vcpus
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EpollDispatch {
@@ -286,7 +344,7 @@ pub struct KernelConfig {
 }
 
 pub struct Vmm {
-    _kvm_fd: Kvm,
+    _kvm: KvmContext,
 
     vm_config: MachineConfiguration,
     shared_info: Arc<RwLock<InstanceInfo>>,
@@ -327,11 +385,11 @@ impl Vmm {
             .add_event(api_event_fd, EpollDispatch::ApiRequest)
             .expect("cannot add API eventfd to epoll");
         let block_device_configs = BlockDeviceConfigs::new();
-        let kvm_fd = Kvm::new().map_err(Error::Kvm)?;
-        let vm = Vm::new(&kvm_fd).map_err(Error::Vm)?;
+        let kvm = KvmContext::new()?;
+        let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
         Ok(Vmm {
-            _kvm_fd: kvm_fd,
+            _kvm: kvm,
             vm_config: MachineConfiguration::default(),
             shared_info: api_shared_info,
             guest_memory: None,
@@ -1252,5 +1310,26 @@ mod tests {
         // reported event should no longer be available
         let idx = events[0].data() as usize;
         assert!(ep.dispatch_table[idx].is_none());
+    }
+
+    #[test]
+    fn test_kvm_context() {
+        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::io::FromRawFd;
+
+        let c = KvmContext::new().unwrap();
+        let nr_vcpus = c.nr_vcpus();
+        let max_vcpus = c.max_vcpus();
+
+        assert!(nr_vcpus > 0);
+        assert!(max_vcpus >= nr_vcpus);
+
+        let kvm = Kvm::new().unwrap();
+        let f = unsafe { File::from_raw_fd(kvm.as_raw_fd()) };
+        let m1 = f.metadata().unwrap();
+        let m2 = File::open("/dev/kvm").unwrap().metadata().unwrap();
+
+        assert_eq!(m1.dev(), m2.dev());
+        assert_eq!(m1.ino(), m2.ino());
     }
 }
