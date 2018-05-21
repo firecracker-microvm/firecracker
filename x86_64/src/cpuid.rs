@@ -52,7 +52,7 @@ mod leaf_0x1 {
         pub const DS_SHIFT: u32 = 21; // Debug Store.
         pub const ACPI_SHIFT: u32 = 22; // Thermal Monitor and Software Controlled Clock Facilities.
         pub const SS_SHIFT: u32 = 27; // Self Snoop
-        pub const HTT_SHIFT: u32 = 28; // Hyper Threading Enabled.
+        pub const HTT_SHIFT: u32 = 28; // Max APIC IDs reserved field is valid
         pub const TM_SHIFT: u32 = 29; // Thermal Monitor.
         pub const PBE_SHIFT: u32 = 31; // Pending Break Enable.
     }
@@ -296,7 +296,12 @@ pub fn set_cpuid_template(template: CPUFeaturesTemplate, kvm_cpuid: &mut CpuId) 
 
 /// Sets up the cpuid entries for the given vcpu
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<()> {
+pub fn filter_cpuid(
+    cpu_id: u8,
+    cpu_count: u8,
+    ht_enabled: bool,
+    kvm_cpuid: &mut CpuId,
+) -> Result<()> {
     let entries = kvm_cpuid.mut_entries_slice();
     let max_addr_cpu = get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
     for entry in entries.iter_mut() {
@@ -308,11 +313,13 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
                 entry.ebx = ((cpu_id as u32) << leaf_0x1::ebx::APICID_SHIFT) as u32
                     | (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_SHIFT);
                 entry.ebx |= max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_SHIFT;
-                // Make sure that Hyperthreading is disabled
+                // Make sure that HTT is disabled
                 entry.edx &= !(1 << leaf_0x1::edx::HTT_SHIFT);
-                // Enable Hyperthreading for even vCPU count so you don't end up with
-                // an even and > 1 number of siblings
-                if cpu_count > 1 && cpu_count % 2 == 0 {
+                // Max APIC IDs reserved field is Valid
+                // A value of 1 for HTT indicates the value in CPUID.1.EBX[23:16]
+                // (the Maximum number of addressable IDs for logical processors in this package) is
+                // valid for the package
+                if cpu_count > 1 {
                     entry.edx |= 1 << leaf_0x1::edx::HTT_SHIFT;
                 }
             }
@@ -328,15 +335,15 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
                         // the machine to share the data/instruction cache
                         // This sets EAX[25:14]
                         entry.eax &= !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE);
-                        if cpu_count > 1 {
-                            // Hyperthreading is enabled by default for vcpu_count > 2
+                        if cpu_count > 1 && ht_enabled {
+                            // There are 2 hyperthreads sharing L1 & L2 caches
                             entry.eax |= 1 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE;
                         }
                     }
                     // L3 Cache
                     3 => {
                         // Set the maximum addressable IDS sharing the data cache to zero
-                        // when you only have 1 vcpu because there are no other threads on
+                        // when you only have 1 vcpu because there are no other logical cores on
                         // the machine to share the data/instruction cache
                         // This sets EAX[25:14]
                         entry.eax &= !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE);
@@ -350,10 +357,9 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
 
                 // Maximum number of addressable IDs for processor cores in the physical package
                 // should be the same on all cache levels
-                // set this to 0 because there is only 1 core available for vcpu_count <= 2
                 // This sets EAX[31:26]
                 entry.eax &= !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE);
-                if cpu_count > 2 {
+                if cpu_count >= 2 {
                     // We don't handle properly the case where we have more than one socket
                     // Put all cores in the same socket
                     entry.eax |= ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE;
@@ -387,11 +393,19 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
                             entry.ecx =
                                 leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT;
                         } else {
-                            // To get the next level APIC ID, shift right with 1 because we have
-                            // maximum 2 hyperthreads per core that can be represented with 1 bit
-                            entry.eax = 1;
-                            // 2 logical cores at this level
-                            entry.ebx = 2;
+                            if ht_enabled {
+                                // When HT is enabled, there are 2 logical cores at this level
+                                // To get the next level APIC ID, shift right with 1 because we have
+                                // maximum 2 hyperthreads per core that can be represented with 1 bit
+                                entry.eax = 1;
+                                entry.ebx = 2;
+                            } else {
+                                // When HT is disabled, there is 1 logical core at this level
+                                // No bits used from the APIC id at the thread level
+                                entry.eax = 0;
+                                entry.ebx = 1;
+                            }
+
                             // enforce this level to be of type thread
                             entry.ecx =
                                 leaf_0xb::LEVEL_TYPE_THREAD << leaf_0xb::ecx::LEVEL_TYPE_SHIFT;
@@ -454,7 +468,7 @@ mod tests {
     fn test_cpuid() {
         let kvm = Kvm::new().unwrap();
         let mut kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
-        match filter_cpuid(0, 1, &mut kvm_cpuid) {
+        match filter_cpuid(0, 1, true, &mut kvm_cpuid) {
             Ok(_) => (),
             _ => assert!(false),
         };
