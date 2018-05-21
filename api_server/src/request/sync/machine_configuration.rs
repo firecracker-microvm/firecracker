@@ -8,7 +8,7 @@ use http_service::{empty_response, json_fault_message, json_response};
 use request::sync::GenerateResponse;
 use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum PutMachineConfigurationError {
     InvalidVcpuCount,
     InvalidMemorySize,
