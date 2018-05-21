@@ -411,20 +411,24 @@ impl Vmm {
         Err(DriveError::BlockDeviceUpdateNotAllowed)
     }
 
+    /// Updates the machine configuration parameters
+    /// If one or more parameters have invalid values, the update fails
     pub fn put_virtual_machine_configuration(
         &mut self,
         machine_config: MachineConfiguration,
     ) -> std::result::Result<(), PutMachineConfigurationError> {
         if let Some(vcpu_count_value) = machine_config.vcpu_count {
-            // Only allow the number of vcpus to be 1 or an even value
-            // This is needed for creating a meaningful CPU topology (already enforced by the
-            // API call, but still here to avoid future mistakes)
-            if vcpu_count_value <= 0 || (vcpu_count_value != 1 && vcpu_count_value % 2 == 1)
-                || vcpu_count_value > num_cpus::get() as u8
+            // Check that the vcpu_count_value is between 1 and the maximum number of cpus available
+            // on the host
+            if vcpu_count_value <= 0 || vcpu_count_value > num_cpus::get() as u8 {
+                return Err(PutMachineConfigurationError::InvalidVcpuCount);
+            }
+            // if hyperthreading is enabled, only allow vcpu count to be 1 or even
+            if (machine_config.ht_enabled == Some(true) || self.vm_config.ht_enabled == Some(true))
+                && (vcpu_count_value > 1 && vcpu_count_value % 2 == 1)
             {
                 return Err(PutMachineConfigurationError::InvalidVcpuCount);
             }
-            self.vm_config.vcpu_count = machine_config.vcpu_count;
         }
 
         if let Some(mem_size_mib_value) = machine_config.mem_size_mib {
@@ -432,8 +436,22 @@ impl Vmm {
             if mem_size_mib_value <= 0 {
                 return Err(PutMachineConfigurationError::InvalidMemorySize);
             }
-            self.vm_config.mem_size_mib = machine_config.mem_size_mib;
         }
+
+        // Update all the fields that have a new value
+        self.vm_config.vcpu_count = match machine_config.vcpu_count {
+            Some(_) => machine_config.vcpu_count,
+            None => self.vm_config.vcpu_count,
+        };
+
+        self.vm_config.mem_size_mib = match machine_config.mem_size_mib {
+            Some(_) => machine_config.mem_size_mib,
+            None => self.vm_config.mem_size_mib,
+        };
+        self.vm_config.ht_enabled = match machine_config.ht_enabled {
+            Some(_) => machine_config.ht_enabled,
+            None => self.vm_config.ht_enabled,
+        };
 
         Ok(())
     }
@@ -603,8 +621,14 @@ impl Vmm {
 
             let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(Error::Vcpu)?;
             let kernel_config = self.kernel_config.as_mut().unwrap();
-            vcpu.configure(vcpu_count, kernel_config.kernel_start_addr, &self.vm)
-                .map_err(Error::VcpuConfigure)?;
+            // Safe to unwrap the ht_enabled flag because the machine configure has default values
+            // for all fields
+            vcpu.configure(
+                vcpu_count,
+                self.vm_config.ht_enabled.unwrap(),
+                kernel_config.kernel_start_addr,
+                &self.vm,
+            ).map_err(Error::VcpuConfigure)?;
             vcpu_handles.push(thread::Builder::new()
                 .name(format!("fc_vcpu{}", cpu_id))
                 .spawn(move || {
@@ -1057,11 +1081,14 @@ mod tests {
         assert_eq!(vmm.vm_config.vcpu_count, Some(1));
         // mem_size = 128
         assert_eq!(vmm.vm_config.mem_size_mib, Some(128));
+        // ht_enabled = true
+        assert_eq!(vmm.vm_config.ht_enabled, Some(true));
 
         // test put machine configuration
         let machine_config = MachineConfiguration {
             vcpu_count: Some(2),
             mem_size_mib: None,
+            ht_enabled: None,
         };
         assert!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1073,6 +1100,7 @@ mod tests {
         let machine_config = MachineConfiguration {
             vcpu_count: None,
             mem_size_mib: Some(256),
+            ht_enabled: None,
         };
         assert!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1087,6 +1115,7 @@ mod tests {
         let machine_config = MachineConfiguration {
             vcpu_count: Some(0),
             mem_size_mib: None,
+            ht_enabled: None,
         };
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1096,7 +1125,8 @@ mod tests {
         assert_eq!(vmm.vm_config.vcpu_count, Some(2));
         let machine_config = MachineConfiguration {
             vcpu_count: Some(3),
-            mem_size_mib: None,
+            mem_size_mib: Some(1024),
+            ht_enabled: Some(false),
         };
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1104,19 +1134,47 @@ mod tests {
             PutMachineConfigurationError::InvalidVcpuCount
         );
         assert_eq!(vmm.vm_config.vcpu_count, Some(2));
+        assert_eq!(vmm.vm_config.mem_size_mib, Some(256));
+        assert_eq!(vmm.vm_config.ht_enabled, Some(true));
 
         // Test Error cases for put_machine_configuration with invalid value for the mem_size_mib
         // Test that the put method return error & that the mem_size_mib value is not changed
         let machine_config = MachineConfiguration {
-            vcpu_count: None,
+            vcpu_count: Some(1),
             mem_size_mib: Some(0),
+            ht_enabled: Some(false),
         };
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
                 .unwrap_err(),
             PutMachineConfigurationError::InvalidMemorySize
         );
+        assert_eq!(vmm.vm_config.vcpu_count, Some(2));
         assert_eq!(vmm.vm_config.mem_size_mib, Some(256));
+        assert_eq!(vmm.vm_config.ht_enabled, Some(true));
+
+        // Tests with no hyperthreading
+        let machine_config = MachineConfiguration {
+            vcpu_count: None,
+            mem_size_mib: None,
+            ht_enabled: Some(false),
+        };
+        assert!(
+            vmm.put_virtual_machine_configuration(machine_config)
+                .is_ok()
+        );
+        assert_eq!(vmm.vm_config.ht_enabled, Some(false));
+        // Check that you can set the vcpu count to 3 now
+        let machine_config = MachineConfiguration {
+            vcpu_count: Some(3),
+            mem_size_mib: None,
+            ht_enabled: None,
+        };
+        assert!(
+            vmm.put_virtual_machine_configuration(machine_config)
+                .is_ok()
+        );
+        assert_eq!(vmm.vm_config.vcpu_count, Some(3));
     }
 
     #[test]

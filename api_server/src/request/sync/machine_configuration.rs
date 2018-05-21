@@ -23,7 +23,7 @@ impl GenerateResponse for PutMachineConfigurationError {
                 StatusCode::BadRequest,
                 json_fault_message(
                     "The vCPU number is invalid! The vCPU number can only \
-                     be 1 or an even number.",
+                     be 1 or an even number when hyperthreading is enabled.",
                 ),
             ),
             InvalidMemorySize => json_response(
@@ -77,12 +77,16 @@ impl GenerateResponse for MachineConfiguration {
             Some(v) => v.to_string(),
             None => String::from("Uninitialized"),
         };
+        let ht_enabled = match self.ht_enabled {
+            Some(v) => v.to_string(),
+            None => String::from("Uninitialized"),
+        };
 
         json_response(
             StatusCode::Ok,
             format!(
-                "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?} }}",
-                vcpu_count, mem_size
+                "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?},  \"ht_enabled\": {:?} }}",
+                vcpu_count, mem_size, ht_enabled
             ),
         )
     }
@@ -152,6 +156,7 @@ mod tests {
         let body = MachineConfiguration {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
+            ht_enabled: Some(true),
         };
         let (sender, receiver) = oneshot::channel();
         assert!(
@@ -165,6 +170,7 @@ mod tests {
         let uninitialized = MachineConfiguration {
             vcpu_count: None,
             mem_size_mib: None,
+            ht_enabled: None,
         };
         assert!(
             uninitialized
