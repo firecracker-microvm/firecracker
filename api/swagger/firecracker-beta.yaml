@@ -171,7 +171,7 @@ paths:
     get:
       summary: Get the machine configuration of the VM.
       description: Get the machine configuration of the VM. When called before the PUT operation, it will return
-                   the default values for the vCPU count (=1) and the memory size (=128 MiB).
+                   the default values for the vCPU count (=1), memory size (=128 MiB) and Hyperthreading is disabled.
       responses:
         200:
           description: OK
@@ -185,7 +185,9 @@ paths:
     put:
       summary: Updates the Virtual Machine Configuration with the specified input.
                The Machine Configuration has default values for the vCPU count (=1) and the memory size (=256 MiB).
-               Will fail if update is not possible.
+               When Hyperthreading is enabled, the vCPU count has to be either 1 or an even number.
+               is disabled, there are no restrictions regarding the vCPU count.
+               If one of the parameters does not have a correct value, the update fails and no fields are updated.
       operationId: putMachineConfiguration
       parameters:
       - name: body
@@ -362,8 +364,10 @@ definitions:
 
   MachineConfiguration:
     type: object
-    description: Machine Configuration descriptor by which you can specify the number of vCPU
-                 of one machine with vcpu_count and the memory size in MiB with mem_size_mib.
+    description: Machine Configuration descriptor by which you can specify the number
+                 of vCPU of one machine with vcpu_count, the memory size in MiB with
+                 mem_size_mib and whether Hyperthreading is enabled/disabled with
+                 ht_enabled
     properties:
       vcpu_count:
         type: integer
@@ -371,6 +375,9 @@ definitions:
       mem_size_mib:
         type: integer
         description: Memory size of VM
+      ht_enabled:
+        type: bool
+        description: Flag for enabling/disabling Hyperthreading
 
   NetworkInterface:
     type: object
