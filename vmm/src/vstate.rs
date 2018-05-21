@@ -182,7 +182,7 @@ impl Vcpu {
 
     /// Sets up the cpuid entries for the given vcpu
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn filter_cpuid(&mut self, cpu_count: u8) -> Result<()> {
+    fn filter_cpuid(&mut self, cpu_count: u8, ht_enabled: bool) -> Result<()> {
         let entries = self.cpuid.mut_entries_slice();
         let max_addr_cpu = Vcpu::get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
         for entry in entries.iter_mut() {
@@ -200,7 +200,7 @@ impl Vcpu {
                     entry.edx &= !(1 << EDX_HTT_SHIFT);
                     // Enable Hyperthreading for even vCPU count so you don't end up with
                     // an even and > 1 number of sibilings
-                    if cpu_count > 1 && cpu_count % 2 == 0 {
+                    if cpu_count > 1 && cpu_count % 2 == 0 && ht_enabled{
                         entry.edx |= 1 << EDX_HTT_SHIFT;
                     }
                 }
@@ -216,8 +216,7 @@ impl Vcpu {
                             // the machine to share the data/instruction cache
                             // This sets EAX[25:14]
                             entry.eax &= !(0b111111111111 << EAX_MAX_ADDR_IDS_SHARING_CACHE);
-                            if cpu_count > 1 {
-                                // Hyperthreading is enabled by default for vcpu_count > 2
+                            if cpu_count > 1 && ht_enabled {
                                 entry.eax |= 1 << EAX_MAX_ADDR_IDS_SHARING_CACHE;
                             }
                         }
@@ -241,9 +240,14 @@ impl Vcpu {
                     // set this to 0 because there is only 1 core available for vcpu_count <= 2
                     // This sets EAX[31:26]
                     entry.eax &= !(0b111111 << EAX_MAX_ADDR_IDS_IN_PACKAGE);
-                    if cpu_count > 2 {
-                        // we have HT enabled by default, so we will have cpu_count/2 cores in package
+                    if cpu_count > 2 && ht_enabled {
+                        // When HT is enabled, there will be cpu_count/2 packages
                         entry.eax |= (((cpu_count >> 1) - 1) as u32) << EAX_MAX_ADDR_IDS_IN_PACKAGE;
+                    }
+
+                    if cpu_count > 1 && !ht_enabled {
+                        // When HT is disabled, there will be cpu_count packages
+                        entry.eax |= ((cpu_count - 1) as u32) << EAX_MAX_ADDR_IDS_IN_PACKAGE;
                     }
                 }
                 6 => {
@@ -266,8 +270,11 @@ impl Vcpu {
                                 // To get the next level APIC ID, shift right with 1 because we have
                                 // maximum 2 hyperthreads per core that can be represented with 1 bit
                                 entry.eax = 1;
-                                // 2 logical cores at this level
-                                entry.ebx = 2;
+                                if ht_enabled {
+                                    entry.ebx = 2;
+                                } else {
+                                    entry.ebx = 1;
+                                }
                                 // enforce this level to be of type thread
                                 entry.ecx = LEAFBH_LEVEL_TYPE_THREAD << ECX_LEVEL_TYPE_SHIFT;
                             }
@@ -325,10 +332,11 @@ impl Vcpu {
     pub fn configure(
         &mut self,
         nrcpus: u8,
+        ht_enabled: bool,
         kernel_start_addr: GuestAddress,
         vm: &Vm,
     ) -> Result<()> {
-        self.filter_cpuid(nrcpus)?;
+        self.filter_cpuid(nrcpus, ht_enabled)?;
 
         self.fd
             .set_cpuid2(&self.cpuid)
@@ -421,7 +429,7 @@ mod tests {
         let mut vm = Vm::new(&kvm).unwrap();
         let mut vcpu = Vcpu::new(0, &mut vm).unwrap();
         assert_eq!(vcpu.get_cpuid(), vm.fd.get_supported_cpuid());
-        assert!(vcpu.filter_cpuid(1).is_ok());
+        assert!(vcpu.filter_cpuid(1, true).is_ok());
         assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
         let entries = vcpu.cpuid.mut_entries_slice();
         // TODO: add tests for the other cpuid leaves
