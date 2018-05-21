@@ -34,6 +34,22 @@ impl GenerateResponse for PutMachineConfigurationError {
     }
 }
 
+impl PartialEq for PutMachineConfigurationError {
+    fn eq(&self, other: &PutMachineConfigurationError) -> bool {
+        match (self, other) {
+            (
+                &PutMachineConfigurationError::InvalidMemorySize,
+                &PutMachineConfigurationError::InvalidMemorySize,
+            ) => true,
+            (
+                &PutMachineConfigurationError::InvalidVcpuCount,
+                &PutMachineConfigurationError::InvalidVcpuCount,
+            ) => true,
+            _ => false,
+        }
+    }
+}
+
 pub enum PutMachineConfigurationOutcome {
     Created,
     Updated,
