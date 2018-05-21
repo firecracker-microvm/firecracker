@@ -217,6 +217,7 @@ fn parse_machine_config_req<'a>(
             let empty_machine_config = MachineConfiguration {
                 vcpu_count: None,
                 mem_size_mib: None,
+                ht_enabled: None,
             };
             Ok(empty_machine_config
                 .into_parsed_request(method)
@@ -888,7 +889,8 @@ mod tests {
         let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
         let json = "{
                 \"vcpu_count\": 42,
-                \"mem_size_mib\": 1025
+                \"mem_size_mib\": 1025,
+                \"ht_enabled\": true
               }";
         let body: Chunk = Chunk::from(json);
 
@@ -908,6 +910,7 @@ mod tests {
         let mcb = MachineConfiguration {
             vcpu_count: Some(42),
             mem_size_mib: Some(1025),
+            ht_enabled: Some(true),
         };
 
         match mcb.into_parsed_request(Method::Put) {

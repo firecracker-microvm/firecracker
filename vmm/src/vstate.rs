@@ -159,10 +159,12 @@ impl Vcpu {
     pub fn configure(
         &mut self,
         nrcpus: u8,
+        ht_enabled: bool,
         kernel_start_addr: GuestAddress,
         vm: &Vm,
     ) -> Result<()> {
-        cpuid::filter_cpuid(self.id, nrcpus, &mut self.cpuid).map_err(|e| Error::CpuId(e))?;
+        cpuid::filter_cpuid(self.id, nrcpus, ht_enabled, &mut self.cpuid)
+            .map_err(|e| Error::CpuId(e))?;
         cpuid::set_cpuid_template(cpuid::CPUFeaturesTemplate::T2, &mut self.cpuid).unwrap();
 
         self.fd
@@ -245,7 +247,8 @@ mod tests {
         let mut vm = Vm::new(&kvm).unwrap();
         let mut vcpu = Vcpu::new(0, &mut vm).unwrap();
         assert_eq!(vcpu.get_cpuid(), vm.fd.get_supported_cpuid());
-        assert!(cpuid::filter_cpuid(0, 1, &mut vcpu.cpuid).is_ok());
+        assert!(cpuid::filter_cpuid(0, 1, true, &mut vcpu.cpuid).is_ok());
+        assert!(cpuid::set_cpuid_template(cpuid::CPUFeaturesTemplate::T2, &mut vcpu.cpuid).is_ok());
         assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
     }
 
