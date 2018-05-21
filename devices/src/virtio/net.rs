@@ -170,8 +170,7 @@ impl NetEpollHandler {
     fn process_rx(&mut self) {
         // Read as many frames as possible.
         loop {
-            let res = self.read_tap();
-            match res {
+            match self.read_tap() {
                 Ok(count) => {
                     self.rx_count = count;
                     if !self.rx_single_frame() {
@@ -266,23 +265,26 @@ impl EpollHandler for NetEpollHandler {
             RX_QUEUE_EVENT => {
                 if let Err(e) = self.rx_queue_evt.read() {
                     error!("net: error reading rx queue EventFd: {:?}", e);
-                    //TODO: device should be removed from epoll
+                    // TODO: device should be removed from epoll
                 }
                 // There should be a buffer available now to receive the frame into.
                 if self.deferred_rx && self.rx_single_frame() {
                     self.deferred_rx = false;
+                    // process_rx() was interrupted possibly before consuming all
+                    // packets in the tap, try continuing now
+                    self.process_rx();
                 }
             }
             TX_QUEUE_EVENT => {
                 if let Err(e) = self.tx_queue_evt.read() {
                     error!("net: error reading tx queue EventFd: {:?}", e);
-                    //TODO: device should be removed from epoll
+                    // TODO: device should be removed from epoll
                 }
                 self.process_tx();
             }
             KILL_EVENT => {
                 info!("virtio net device killed")
-                //TODO: device should be removed from epoll
+                // TODO: device should be removed from epoll
             }
             _ => panic!("unknown token for virtio net device"),
         }
@@ -799,7 +801,6 @@ mod tests {
             h.rx_queue_evt.write(1).unwrap();
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(RX_QUEUE_EVENT, 0);
-            assert!(!h.deferred_rx);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
         }
 
