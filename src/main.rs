@@ -2,6 +2,7 @@
 extern crate clap;
 
 extern crate api_server;
+extern crate sys_util;
 extern crate vmm;
 
 use clap::{App, Arg};
@@ -9,8 +10,8 @@ use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
-use api_server::ApiServer;
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
+use sys_util::eventfd::EventFd;
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const MAX_STORED_ASYNC_REQS: usize = 100;
@@ -38,14 +39,24 @@ fn main() {
         state: InstanceState::Uninitialized,
     }));
     let (to_vmm, from_api) = channel();
-    let server = ApiServer::new(shared_info.clone(), to_vmm, MAX_STORED_ASYNC_REQS).unwrap();
 
-    let api_event_fd = server
-        .get_event_fd_clone()
-        .expect("cannot clone API eventFD");
-    let _vmm_thread_handle = vmm::start_vmm_thread(shared_info, api_event_fd, from_api);
+    let api_event_fd = EventFd::new().expect("Failed to create eventfd");
+    let _vmm_thread_handle = vmm::start_vmm_thread(
+        shared_info.clone(),
+        api_event_fd.try_clone().expect("Failed to clone eventfd"),
+        from_api,
+    );
+    let api_thread_handle = api_server::start_api_thread(
+        shared_info,
+        to_vmm,
+        MAX_STORED_ASYNC_REQS,
+        api_event_fd,
+        bind_path,
+    );
 
-    server.bind_and_run(bind_path).unwrap();
+    api_thread_handle
+        .join()
+        .expect("The API thread has panicked");
 }
 
 #[cfg(test)]
