@@ -6,7 +6,6 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 [dependencies]
 libc = ">=0.2.39"
 epoll = "=2.1.0"
-num_cpus = ">=1.8.0"
 scopeguard = "=0.3.3"
 
 api_server = { path = "../api_server" }
