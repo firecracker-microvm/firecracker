@@ -84,7 +84,6 @@ be run on every microvm image in the bucket, each as a separate test case.
 """
 
 import os
-import requests_unixsocket
 import time
 import tempfile
 import shutil
@@ -146,23 +145,6 @@ def testsession_tmp_path(test_session_root_path):
     )
     yield test_session_tmp_path
     shutil.rmtree(test_session_tmp_path)
-
-
-@pytest.fixture
-def uhttp():
-    """ Returns a unixsocket-capable http session object. """
-
-    def is_good_response(response: int):
-        """ Returns `True` for all HTTP 2xx response codes. """
-        if 200 <= response < 300:
-            return True
-        else:
-            return False
-
-    session = requests_unixsocket.Session()
-    session.is_good_response = is_good_response
-
-    return session
 
 
 @pytest.fixture
