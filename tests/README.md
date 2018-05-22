@@ -14,11 +14,20 @@ To run all tests:
 To run tests from specific directories and/or files:
 
 ``` sh
-./testrun.sh <dir_or_file_path_n> ...
+./testrun.sh [-- <dir_or_file_path>...]
 ```
 
 The `pytest` test runner is used. Any parameters passed to `testrun.sh` are
-passed to the `pytest` command.
+passed to the `pytest` command. `testrun.sh` is used to automate fetching of
+test dependencies (useful for continuos integration), and to sandbox test runs
+(useful for development environments). If you are not interested in these
+capabilities, use pytest directly:
+
+``` sh
+python3 -m pytest [<pytest argument>...]
+```
+
+For help on usage, see `./testrun.sh (-h|--help)`
 
 ### Output
 
@@ -27,8 +36,10 @@ passed to the `pytest` command.
 
 ### Dependencies
 
-- A bare-metal `Linux` host with `uname -r` >= 4.11.
-- Availability of either `yum` or `apt-get` to install packages, and `curl`.
+- A bare-metal `Linux` host with `uname -r` >= 4.14.
+- Either `yum` or `apt-get` (if you have both, run with
+  `./testrun.sh (-p|--pkg-manager) (yum|apt-get)` to specify which one to use).
+- Several basic GNU/Linux utilities: `curl`, `getopt`, `date`.
 - Root mode.
 
 Each testrun will create a temporary sandbox and install all other required
@@ -54,17 +65,20 @@ fixture, this test will be run on on every microvm image in the bucket, each as
 a separate test case.
 
 ``` python
-def test_with_any_microvm(test_microvm_any, uhttp):
-    uhttp.put(test_microvm_any.microvm_cfg_url, json={'vcpu_count': 2})
-    assert(uhttp.is_good_response(response.status_code))
+def test_with_any_microvm(test_microvm_any):
+    response = test_microvm_any.api_session.put(
+        test_microvm_any.microvm_cfg_url,
+        json={'vcpu_count': 2}
+    )
+    assert(test_microvm_any.api_session.is_good_response(response.status_code))
 
     # [...]
 
-    uhttp.put(
+    response = test_microvm_any.api_session.put(
         test_microvm_any.actions_url + '/1',
         json={'action_id': '1', 'action_type': 'InstanceStart'}
     )
-    assert(uhttp.is_good_response(response.status_code))
+    assert(test_microvm_any.api_session.is_good_response(response.status_code))
 ```
 
 If instead of `test_microvm_any`, a capability-based fixture would be used,
@@ -100,10 +114,29 @@ TagSet = [{"key": "capability:<cap_name>", "value": ""}, ...]
 
 ## Adding Fixtures
 
-By default, `pytest` will include `conftest.py` and make all fixtures therein
-available to all test functions, so that's a good place to add fixtures. You
-can also create `conftest.py` in sub-directories containing tests, or define
-fixtures directly in test files. See `pytest` documentation for details.
+By default, `pytest` makes all fixtures in `conftest.py` available to all test
+functions. You can also create `conftest.py` in sub-directories containing
+tests, or define fixtures directly in test files. See `pytest` documentation
+for details.
+
+## Working With Guest Files
+
+There are helper methods for writing to and reading from a guest filesystem.
+For example, to overwrite the guest init process and later extract a log:
+
+``` python
+def test_with_any_microvm_and_my_init(test_microvm_any):
+    # [...]
+    test_microvm_any.slot.fsfiles['mounted_root_fs'].copy_to(my_init, 'sbin/')
+    # [...]
+    test_microvm_any.slot.fsfiles['mounted_root_fs'].copy_from('logs/', 'log')
+```
+
+`copy_to()` source paths are relative to the host root and destination paths
+are relative to the `mounted_root_fs` root. Vice versa for `copy_from()`.
+
+Copying files to/from a guest file system while the guest is running results in
+undefined behavior.
 
 ## Example Manual Testrun
 
@@ -142,24 +175,26 @@ cd <firecracker repo>/tests
 `Q1:` I have a shell script that runs my tests and I don't want to rewrite it.
 `A1:` Insofar as it makes sense, you should write it as a python test function.
       However, you can always call the script from a shim python test function.
-      You can also add it as a microvm image resource in the s3 bucket, and it
-      will be made available under `microvm.slot.path`.
+      You can also add it as a microvm image resource in the s3 bucket (and it
+      will be made available under `microvm.slot.path`) or copy it over to a
+      guest filesystem as part of your test.
 
 `Q2:` I want to add more tests that I don't want to commit to the Firecracker
       repository.
-`A2:` Before running the integration tests, just add your test directory under
+`A2:` Before a testrun or test session, just add your test directory under
       `tests/`. `pytest` will discover all tests in this tree.
 
 `Q3:` I want to have my own test fixtures, and not commit them in the repo.
 `A3:` Add a `conftest.py` file in your test directory, and place your fixtures
-      there. `pytest` will bring the into scope for all your tests.
+      there. `pytest` will bring them into scope for all your tests.
 
 `Q4:` I want to use more microvm test images, but I don't want to add them to
       the common s3 bucket.
-`A4:` Create a new test directory as per `A2`. Then, create a `conftest.py`
-      file, and within, a `MicrovmImageFetcher` object using your own s3
-      bucket. Finally create a fixture similar to the `test_microvm_*` fixtures
-      in `tests/conftest.py`, and use that fixture in your tests.
+`A4:` Create a new test directory as per `A2`. Then, another fixture file as
+      per `A3`. Within that, follow the same pattern as in `conftest.py` to
+      insatiate a `MicrovmImageFetcher` object using your own s3 bucket.
+      Finally create a fixture similar to the `test_microvm_*` fixtures in
+      in `conftest.py`, and use that fixture in your tests.
 
 ## Implementation Goals
 
@@ -173,7 +208,7 @@ cd <firecracker repo>/tests
 
 Pytest was chosen because:
 
-- Python makes it easy to work with AWS and other clouds.
+- Python makes it easy to work in the clouds.
 - Python has built-in sandbox (virtual environment) support.
 - `pytest` has great test discovery and allows for simple, function-like tests.
 - `pytest` has powerful test fixture support.
@@ -190,26 +225,23 @@ Pytest was chosen because:
 - Support generating fixtures with more than one capability. This is supported
   by the MicrovmImageS3Fetcher, but not plumbed through.
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
-- `#[test] fn enable_disable_stdin_test()` from `vmm/src/lib.rs` fails if
-  `pytest` is allowed to record stdin and stdout. Currently this is worked
-  around by running pytest with `--capture=no`, which uglifies the output. A
-  better way would be a bonus (Pytest can have really nice reports!).
-- In `testrun.sh`, allow explicit package manager selection via arguments.
+- Manage output better: handle quietness levels, and use pytest reports.
 - Do the testrun in a container for better insulation.
 - Add support for non-Rust style checks.
 - Event-based monitoring of microvm socket file creation to avoid while spins.
-- Command line with help and quiet options for this script.
 - Self-tests (e.g., Tests that test the testing system, python3 style tests).
 
 ### Implementation
 
+- Run build tests / unit tests with `--release` once
+  `https://github.com/edef1c/libfringe/issues/75` is fixed.
 - Ensure that we're running in the correct path of the Firecracker repo.
 - Looking into `pytest-ordering` to ensure test order.
+- `#[test] fn enable_disable_stdin_test()` from `vmm/src/lib.rs` fails if
+  `pytest` is allowed to record stdin and stdout. Currently this is worked
+  around by running pytest with `--capture=no`, which uglifies the output.
 - The code would be less repetitive with a function that wraps
-  `subprocess.run('<command>, shell=True, check=True)`, controls
-  output verbosity by appending `>/dev/null [&2>1]` (or by leveraging python
-  logging to control output).
-- Add a quiet (=`>dev/null 2>&1`) version to the `testrun.sh` `say`.
+  `subprocess.run('<command>, shell=True, check=True)`.
 - Create an integrated, layered `say` system across the test runner and pytest
   (probably based on an environment variable).
 - Per test function dependency installation would make tests easer to write.
