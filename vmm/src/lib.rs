@@ -674,6 +674,14 @@ impl Vmm {
         // safe to unwrap since it's set just above
         let kill_signaled = self.kill_signaled.as_mut().unwrap();
 
+        extern "C" fn handle_signal() {}
+
+        unsafe {
+            // async signal safe handler used to kill the vcpu handles.
+            register_signal_handler(VCPU_RTSIG_OFFSET, handle_signal)
+                .expect("failed to register vcpu signal handler");
+        }
+
         let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
 
         for cpu_id in 0..vcpu_count {
@@ -696,15 +704,7 @@ impl Vmm {
             vcpu_handles.push(thread::Builder::new()
                 .name(format!("fc_vcpu{}", cpu_id))
                 .spawn(move || {
-                    unsafe {
-                        extern "C" fn handle_signal() {}
-                        // async signal safe handler used to kill the vcpu handles.
-                        register_signal_handler(VCPU_RTSIG_OFFSET, handle_signal)
-                            .expect("failed to register vcpu signal handler");
-                    }
-
                     vcpu_thread_barrier.wait();
-
                     loop {
                         match vcpu.run() {
                             Ok(run) => match run {
