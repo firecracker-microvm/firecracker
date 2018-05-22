@@ -7,9 +7,7 @@ import pytest
 
 def build(flags=''):
     run(
-        'cargo build --quiet ' + flags,
-        # ' >/dev/null 2>&1',
-        # HACK: we need a consistent way to control test output.
+        'cargo build ' + flags,
         shell=True,
         check=True
     )

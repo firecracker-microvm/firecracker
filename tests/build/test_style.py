@@ -38,4 +38,4 @@ def test_style():
     install_rustfmt_if_needed()
 
     run('cargo fmt --all -- --write-mode=diff', shell=True, check=True)
-    # Exits with an error if the style is bad.
+    """ Exits with an error if the style is bad. """

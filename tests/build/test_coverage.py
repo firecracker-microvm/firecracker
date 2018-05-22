@@ -38,20 +38,16 @@ def test_coverage(testsession_tmp_path):
         'pnet'
     )
     run(
-        'cargo kcov --all --target=x86_64-unknown-linux-musl '
+        'cargo kcov --all '
         '    --output ' + testsession_tmp_path +
         '    -- --exclude-pattern=' + exclude_pattern + ' --verify ',
-        # '>/dev/null 2>&1',
-        # HACK: we need a consistent way to control test output.
         shell=True,
         check=True
     )
     # By default, `cargo kcov` passes `--exclude-pattern=$CARGO_HOME --verify`
     # to kcov. To pass others arguments, we need to include the defaults.
-    #
-    # TODO: remove the taskset once kcov is fixed.
 
     with open(testsession_tmp_path + COVERAGE_FILE) as cov_output:
         coverage = float(re.findall(COVERAGE_REGEX, cov_output.read())[0])
     print("Coverage is: " + str(coverage))
-    assert coverage >= COVERAGE_TARGET_PCT
+    assert(coverage >= COVERAGE_TARGET_PCT)
