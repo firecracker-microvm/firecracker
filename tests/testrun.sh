@@ -31,17 +31,14 @@
 #
 # # TODO
 #
-# - Allow explicit package manager selection via arguments.
-# - Command line with help and quiet options for this script.
 # - Do the testrun in a container for better insulation.
 # - Add layers to `say` and integrate that with the python logging.
-# - Add a quiet (=`>dev/null 2>&1`) version to `say`.
 # - Fix the /install-kcov.sh bug.
 
 declare -r ACTIVITY_NAME='Firecracker Testrun'
 
 declare -ra SUPPORTED_PLATFORMS=(Linux)
-declare -ra SUPPORTED_INSTALLERS=(apt-get yum)
+declare -ra SUPPORTED_PKG_MANAGERS=(apt-get yum)
 
 declare -ra PYTHON_DEPS=( \
      pytest pytest-timeout \
@@ -51,6 +48,7 @@ declare -ra PYTHON_DEPS=( \
 
 declare -r RUSTUP_URL=https://sh.rustup.rs
 declare -ra RUST_DEPS=(cargo-kcov)
+
 declare -ra KCOV_YUM_DEPS=(\
     gcc gcc-c++ cmake \
     elfutils-libelf-devel libcurl-devel binutils-devel elfutils-devel \
@@ -60,16 +58,33 @@ declare -ra KCOV_APT_GET_DEPS=(\
     binutils-dev libcurl4-openssl-dev zlib1g-dev libdw-dev libiberty-dev \
 )
 
+declare -ra GCC_STATIC_YUM_DEPS=(glibc-static)
+# Some tests will build static binaries for use in systems without user space.
+
 declare -a GLOBAL_SYMBOLS
 
 main() {
-    setup
+    parse_options "$@"
+    # Exports `$OPT_*` per-option variables, and `$NON_OPTION_ARGUMENTS` 
+    set -- $NON_OPTION_ARGUMENTS
+    # `"$@"` is now everything after `'--'` from the initial options.
 
-    say "Starting testrun: pytest $@"
+    if [ $OPT_HELP ]; then
+        print_help
+        exit
+    fi
+
+    ensure_context
+
+    if [ $OPT_QUIET ]; then
+        exec 1>/dev/null
+    fi
+
+    setup
+    say "Starting testrun: pytest $*"
     
     pytest "$@"
-    # Run the test runner, `pytest`, passing all parameters the script
-    # received.
+    # Run the test runner, `pytest`, passing the non-option arguments.
 
     declare testrun_result="$?"
     if [ $testrun_result -eq 0 ]; then
@@ -85,31 +100,23 @@ main() {
     return $testrun_result
 }
 
-setup() {
-    say "Setup: Starting testrun setup."
+ensure_context() {
+    ensure_cmd date
+    export TIMESTAMP="date"
+    # This is used in `say()`, so it will prefix all output with a timestamp.
+    record_global_symbol TIMESTAMP
+
+    ensure_platform
+
+    export TIMESTAMP="date --utc --iso-8601=seconds"
+    # Once we know we are on a supported platform, we can be more specific in
+    # the timestamp format.
 
     exit_if_in_python_venv
     exit_if_in_rust_tmpenv
     ensure_root
-    ensure_platform
+    ensure_cmd getopt
     ensure_cmd curl
-
-    acquire_pkg_installer
-    # Will set `$PKG_INSTALLER` if successful.
-
-    export TR_TMPDIR=$(ensure mktemp -dt firecracker_testrun_XXXXXXXXXXXXXXXX)
-    # The Xs are replaced with entropy.
-    record_global_symbol TR_TMPDIR
-    say "Setup: Testrun temporary directory is: $TR_TMPDIR"
-
-    ensure_python3
-    create_python3_venv
-    install_python3_deps
-
-    create_rust_tmpenv
-    install_rust_and_deps
-
-    say "Setup: Successfully set up testrun."
 }
 
 exit_if_in_python_venv() {
@@ -137,25 +144,115 @@ ensure_platform() {
     fi
 }
 
-acquire_pkg_installer() {
-    # Store one and only one supported package installer to `$PKG_INSTALLER`.
-    # TODO: Allow explicit package manager selection via arguments.
+parse_options() {
+    ensure getopt -uQ -o hqp: -l help,quiet,pkg-manager: -- "$@"
+    # Check if we can read the options into an easy to parse string ...
+    declare opt="$(getopt -u -o hqp: -l help,quiet,pkg-manager: -- $@)"
+    # ... and actually parse them.
+    set -- $opt
+    # Sets $opt as the options string.
+    
+    while true; do
+        case "$1" in
+            -h | --help)
+                export OPT_HELP=1
+                record_global_symbol OPT_HELP
+                shift
+                ;;
+            -q | --quiet)
+                export OPT_QUIET=1
+                record_global_symbol OPT_QUIET
+                shift
+                ;;
+            -p | --pkg-manager)
+                # Removes the quotation marks around the option.
 
-    declare acquired_installer=false
-    for installer in "${SUPPORTED_INSTALLERS[@]}"; do
-        if check_cmd $installer; then
-            if $acquired_installer; then
-                err "Found more than one supported package manager."
-            else
-                export PKG_INSTALLER=$installer
-                record_global_symbol PKG_INSTALLER
-                acquired_installer=true
-            fi
-        fi
+                for pkg_manager in "${SUPPORTED_PKG_MANAGERS[@]}"; do
+                    if [ "$2" == "$pkg_manager" ]; then
+                        export OPT_PKG_MANAGER=$pkg_manager
+                        record_global_symbol OPT_PKG_MANAGER
+                    fi
+                done
+
+                if [ ! $OPT_PKG_MANAGER ]; then
+                    err "[-p | --pkg-manager]: $2 is an invalid choice."
+                fi
+
+                shift 2
+                ;;
+            --)
+                shift
+                break
+                # Everything after `'--'` is now the new option string.
+                ;;
+            *)
+                err "Invalid options. Try running with -h or --help."
+                ;;
+        esac
     done
 
-    if $acquired_installer; then
-        say "Setup: Package manager is: $PKG_INSTALLER"
+    export NON_OPTION_ARGUMENTS="$@"
+    record_global_symbol NON_OPTION_ARGUMENTS
+    # At this point, `"S@"` is everything originally after `'--'`, or nothing.
+}
+
+print_help() {
+    declare usage="usage: ./testrun.sh "
+    usage+="[-h|--help] | "
+    usage+="[ "
+        usage+="[-q|--quiet] [-p [yum|apt-get] | --pkg-manager [yum|apt-get]] "
+        usage+="[-- <pytest argument>...] "
+    usage+="]"
+    echo $usage
+}
+
+setup() {
+    say "Setup: Starting testrun setup."
+
+    acquire_pkg_manager
+    # Will set `$PKG_manager` if successful.
+
+    export TR_TMPDIR=$(ensure mktemp -dt firecracker_testrun_XXXXXXXXXXXXXXXX)
+    # The Xs are replaced with entropy.
+    record_global_symbol TR_TMPDIR
+    say "Setup: Testrun temporary directory is: $TR_TMPDIR"
+
+    ensure_python3
+    create_python3_venv
+    install_python3_deps
+
+    create_rust_tmpenv
+    install_rust_and_deps
+
+    ensure_gcc_static
+
+    say "Setup: Successfully set up testrun."
+}
+
+acquire_pkg_manager() {
+    # Store one and only one supported package manager to `$PKG_MANAGER`.
+
+    export PKG_MANAGER
+    record_global_symbol PKG_MANAGER
+    declare acquired_pkg_manager=0
+
+    if [ $OPT_PKG_MANAGER ]; then
+        ensure_cmd $OPT_PKG_MANAGER
+        PKG_MANAGER=$OPT_PKG_MANAGER
+        ((acquired_pkg_manager++))
+    else
+        for pkg_manager in "${SUPPORTED_PKG_MANAGERS[@]}"; do
+            if check_cmd $pkg_manager; then
+                PKG_MANAGER=$pkg_manager
+                ((acquired_pkg_manager++))
+            fi
+        done
+    fi
+
+    if [[ $acquired_pkg_manager -eq 1 ]]; then
+        say "Setup: Package manager is: $PKG_MANAGER"
+    elif [[ $acquired_pkg_manager -gt 1 ]]; then
+        err "Found more supported package managers. Try ./testrun.sh -h."
     else
         err "Could not find a supported package manager."
     fi
@@ -165,8 +262,8 @@ ensure_python3() {
     check_cmd python3
 
     if [ $? -ne 0 ]; then
-        ensure $PKG_INSTALLER install -q -y python3 2>/dev/null
-        # This syntax works with all installers supported so far.
+        ensure $PKG_MANAGER install -q -y python3 2>/dev/null
+        # This syntax works with all package managers supported so far.
         say "Setup: Installed python3."
     else
         say "Setup: python3 is present."
@@ -225,17 +322,17 @@ install_rust_and_deps() {
 
     say "Setup: Installing Rust coverage tooling."
 
-    if [[ $PKG_INSTALLER == "yum" ]]; then
+    if [ $PKG_MANAGER == "yum" ]; then
         declare deps="${KCOV_YUM_DEPS[@]}"
-    elif [[ $PKG_INSTALLER == "apt-get" ]]; then
+    elif [ $PKG_MANAGER == "apt-get" ]; then
         declare deps="${KCOV_APT_GET_DEPS[@]}"
     fi    
 
-    ensure $PKG_INSTALLER install -q -y $deps >/dev/null 2>&1
+    ensure $PKG_MANAGER install -q -y $deps >/dev/null 2>&1
     ensure cargo install -f -q cargo-kcov
 
     declare initial_path="$(pwd)"
-    cd $TR_TMPDIR
+    ensure cd $TR_TMPDIR
     ensure cargo kcov --print-install-kcov-sh >install-kcov.sh
     chmod +x install-kcov.sh
 
@@ -243,11 +340,21 @@ install_rust_and_deps() {
     # TODO: This fails to use $CARGO_HOME somehow, and errors out at the last
     #       line of the script. Fix this! The lines below are a workaround.
     ./install-kcov.sh >/dev/null 2>&1
-    cd "$TR_TMPDIR/kcov-34/build/"
+    ensure cd $TR_TMPDIR/kcov-*/build/
     cp src/kcov src/libkcov_sowrapper.so "${CARGO_HOME:-$HOME/.cargo}/bin"
-    cd $initial_path
+    ensure cd $initial_path
 
     say "Setup: Installed Rust coverage tooling."
+}
+
+ensure_gcc_static() {
+    if [ $PKG_MANAGER == "yum" ]; then
+        say "Setup: Installing gcc static build deps."
+        declare deps="${GCC_STATIC_YUM_DEPS[@]}"
+        ensure $PKG_MANAGER install -q -y $deps >/dev/null 2>&1
+        say "Setup: Installed gcc static build deps."
+    fi
+    # It looks like on Debian and Ubuntu gcc -static is included by default.
 }
 
 teardown() {
@@ -274,9 +381,8 @@ teardown() {
         say "Teardown: Deleted tree: $TR_TMPDIR"
     fi
 
-    destroy_globals
-
     say "Teardown: Testrun torn down."
+    destroy_globals
 }
 
 record_global_symbol() {
@@ -296,7 +402,7 @@ ensure() {
     # immediately terminate with an error showing the failing command.
     "$@"
     if [ $? != 0 ]; then
-        err "Command failed: $*"
+        err "Command failed: $@"
     fi
 }
 
@@ -327,7 +433,7 @@ err() {
 }
 
 say() {
-    echo "[$(date --utc --iso-8601=seconds)] $ACTIVITY_NAME: $1"
+    echo "[`$TIMESTAMP`] $ACTIVITY_NAME: $1"
 }
 
 main "$@"
