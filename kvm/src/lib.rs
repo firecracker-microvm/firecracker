@@ -551,7 +551,7 @@ impl VcpuFd {
     }
 
     /// Returns a reference to the kvm_run structure obtained by mmap-ing the associated VcpuFd
-    fn get_run(&self) -> &mut kvm_run {
+    pub fn get_run(&self) -> &mut kvm_run {
         // Safe because we know we mapped enough memory to hold the kvm_run struct because the
         // kernel told us how large it was.
         unsafe { &mut *(self.run_mmap.as_ptr() as *mut kvm_run) }

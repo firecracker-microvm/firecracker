@@ -5,6 +5,7 @@ extern crate x86_64;
 use std::result;
 
 use kvm::*;
+use kvm_sys::kvm_run;
 use sys_util::{EventFd, GuestAddress, GuestMemory};
 
 use x86_64::{cpuid, interrupts, regs};
@@ -197,6 +198,10 @@ impl Vcpu {
             Err(e) => return Err(Error::VcpuRun(<sys_util::Error>::new(e.errno()))),
         }
     }
+
+    pub fn get_run(&self) -> &mut kvm_run {
+        self.fd.get_run()
+    }
 }
 
 #[cfg(test)]
@@ -235,7 +240,11 @@ mod tests {
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(&kvm).expect("new vm failed");
         assert!(vm.memory_init(gm).is_ok());
-        Vcpu::new(0, &mut vm).unwrap();
+
+        let v = Vcpu::new(0, &mut vm).unwrap();
+        let p1 = v.fd.get_run() as *mut kvm_run;
+        let p2 = v.get_run() as *mut kvm_run;
+        assert_eq!(p1, p2);
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
