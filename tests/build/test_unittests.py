@@ -1,4 +1,11 @@
-""" Runs unit tests at integration time. """
+"""
+Runs unit tests at integration time.
+
+# TODO
+
+- Run with `--release` once  `https://github.com/edef1c/libfringe/issues/75`
+  is fixed
+"""
 
 from subprocess import run
 
@@ -9,9 +16,7 @@ import pytest
 def test_unittests():
     """ Runs all unit tests from all Rust crates in the repo. """
     run(
-       'RUST_BACKTRACE=1 cargo test --all --quiet --no-fail-fast',
-       # '    >/dev/null 2>&1',
-       # HACK: we need a consistent way to control test output.
+       'RUST_BACKTRACE=1 cargo test --all --no-fail-fast',
        shell=True,
        check=True
     )
