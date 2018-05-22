@@ -6,14 +6,101 @@ to create, test drive, and destroy microvms (based on microvm images).
 
 - Programming here is not defensive, since tests systems turn false negatives
   into a quality-improving positive feedback loop.
+
+# TODO
+
+- Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
 
 import os
 import shutil
+from subprocess import run
 import urllib
 import uuid
 
-from subprocess import run
+import requests_unixsocket
+
+
+class FilesystemFile:
+    """ Facility for creating and working with filesystem files. """
+
+    KNOWN_FILEFS_FORMATS = {'ext4'}
+    LOOP_MOUNT_PATH_SUFFIX = 'loop_mount_path/'
+
+    def __init__(self, path: str, size: int=256, format: str='ext4'):
+        """
+        Creates a new file system in a file. Raises if the file system format
+        is not supported, if the file already exists, or if it ends in '/'.
+        """
+
+        if format not in self.KNOWN_FILEFS_FORMATS:
+            raise ValueError(
+                'Format not in: + ' + str(self.KNOWN_FILEFS_FORMATS)
+            )
+        if path.endswith('/'):
+            raise ValueError("Path ends in '/': " + path)
+        if os.path.isfile(path):
+            raise ValueError("File already exists: " + path)
+
+        run(
+            'dd status=none if=/dev/zero'
+            '    of=' + path +
+            '    bs=1M count=' + str(size),
+            shell=True,
+            check=True
+        )
+        run('mkfs.ext4 -qF ' + path, shell=True, check=True)
+        self.path = path
+
+    def copy_to(self, src_path, rel_dst_path):
+        """ Copy to a relative path inside this filesystem file. """
+        self._loop_mount()
+        full_dst_path = self.loop_mount_path + rel_dst_path
+
+        try:
+            os.makedirs(os.path.dirname(full_dst_path), exist_ok=True)
+            shutil.copy(src_path, full_dst_path)
+        finally:
+            self._unmount()
+
+    def copy_from(self, rel_src_path, dst_path):
+        """ Copy from relative path inside this filesystem file. """
+        self._loop_mount()
+        full_src_path = self.loop_mount_path + rel_src_path
+
+        try:
+            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+            shutil.copy(full_src_path, dst_path)
+        finally:
+            self._unmount()
+
+    def _loop_mount(self):
+        """
+        Loop-mounts this file system file and returns the mount path.
+        Always unmount with _unmount() as soon as possible.
+        """
+        loop_mount_path = self.path + '.' + self.LOOP_MOUNT_PATH_SUFFIX
+        os.makedirs(loop_mount_path, exist_ok=True)
+        run(
+            'mount -o loop {fs_file} {mount_path}'.format(
+                fs_file=self.path,
+                mount_path=loop_mount_path
+            ),
+            shell=True,
+            check=True
+        )
+        os.sync()
+        self.loop_mount_path = loop_mount_path
+
+    def _unmount(self):
+        """ Unmounts this loop-mounted file system """
+        os.sync()
+        run(
+            'umount {mount_path}'.format(mount_path=self.loop_mount_path),
+            shell=True,
+            check=True
+        )
+        self.loop_mount_path = None
 
 
 class MicrovmSlot:
@@ -25,8 +112,7 @@ class MicrovmSlot:
 
     `setup()` and `teardown()` handle the lifecycle of these resources.
 
-    Microvm Slot Layout
-    -------------------
+    # Microvm Slot Layout
 
     There is a fixed tree layout for a microvm slot:
 
@@ -56,8 +142,6 @@ class MicrovmSlot:
     MICROVM_SLOT_FSFILES_RELPATH = 'fsfiles/'
     """ Relative path to the root of a slot for filesystem files. """
 
-    KNOWN_FILEFS_FORMATS = {'ext4'}
-
     created_microvm_root_path = False
     """
     Class variable to keep track if the root path was created by an object of
@@ -79,7 +163,7 @@ class MicrovmSlot:
         self.rootfs_file = ''
         """ Assigned once an microvm image populates this slot. """
 
-        self.fsfiles = set()
+        self.fsfiles = {}
         """ A set of file systems for this microvm slot. """
         self.taps = set()
         """ A set of tap devices for this microvm slot. """
@@ -102,35 +186,14 @@ class MicrovmSlot:
         os.makedirs(self.kernel_path)
         os.makedirs(self.fsfiles_path)
 
-    def make_fsfile(self, name: str=None, size: int=256, fmt: str='ext4'):
-        """
-        Creates an new file system in a file. `size` is in MiB. Raises if the
-        file system format is not supported, of if the file already exists.
-        """
-
-        if fmt not in self.KNOWN_FILEFS_FORMATS:
-            raise ValueError(
-                self.say('Format not in: + ' + str(self.KNOWN_FILEFS_FORMATS))
-            )
+    def make_fsfile(self, name: str=None, size: int=256):
+        """ Creates an new file system in a file. `size` is in MiB. """
 
         if name is None:
             name = 'fsfile' + str(len(self.fsfiles) + 1)
 
-        if os.path.isfile(self.fsfiles_path + name):
-            raise ValueError(self.say('File already exists: ' + name))
-
-        path = self.fsfiles_path + name + '.' + fmt
-
-        run(
-            'dd status=none if=/dev/zero'
-            '    of=' + path +
-            '    bs=1M count=' + str(size),
-            shell=True,
-            check=True
-        )
-        run('mkfs.ext4 -qF ' + path, shell=True, check=True)
-
-        self.fsfiles.add(path)
+        path = self.fsfiles_path + name + '.ext4'
+        self.fsfiles[name] = FilesystemFile(path, size=size, format='ext4')
         return path
 
     def make_tap(self, name: str=None):
@@ -175,8 +238,8 @@ class Microvm:
     methods, `spawn()` and `kill()` can be used to start/end the microvm
     process.
 
-    TODO
-    ====
+    # TODO
+
     - Use the Firecracker Open API spec to populate Microvm API resource URLs.
     """
 
@@ -192,7 +255,6 @@ class Microvm:
     microvm_cfg_resource = 'machine-config'
     net_cfg_resource = 'network-interfaces'
     blk_cfg_resource = 'drives'
-    vsock_cfg_resource = 'vsocks'
     boot_cfg_resource = 'boot-source'
     actions_resource = 'actions'
     # TODO: Get the API paths from the Firecracker API definition.
@@ -215,6 +277,23 @@ class Microvm:
         url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
         self.api_url = self.api_usocket_url_prefix + url_encoded_path + '/'
 
+        self.api_session = self._start_api_session()
+
+    def _start_api_session(self):
+        """ Returns a unixsocket-capable http session object. """
+
+        def _is_good_response(response: int):
+            """ Returns `True` for all HTTP 2xx response codes. """
+            if 200 <= response < 300:
+                return True
+            else:
+                return False
+
+        session = requests_unixsocket.Session()
+        session.is_good_response = _is_good_response
+
+        return session
+
     def say(self, message: str):
         return "Microvm " + self.id + ": " + message
 
@@ -227,7 +306,6 @@ class Microvm:
         self.microvm_cfg_url = self.api_url + self.microvm_cfg_resource
         self.net_cfg_url = self.api_url + self.net_cfg_resource
         self.blk_cfg_url = self.api_url + self.blk_cfg_resource
-        self.vsock_cfg_url = self.api_url + self.vsock_cfg_resource
         self.boot_cfg_url = self.api_url + self.boot_cfg_resource
         self.actions_url = self.api_url + self.actions_resource
 
@@ -241,6 +319,63 @@ class Microvm:
         run(start_fc_session_cmd, shell=True, check=True)
 
         return self.api_url
+
+    def basic_config(
+        self,
+        vcpu_count: int=2,
+        mem_size_mib: int=256,
+        net_iface_count: int=1
+    ):
+        """
+        Shortcut for quickly configuring a spawned microvm. Only handles:
+        - CPU and memory.
+        - Network interfaces (supports at most 10).
+        - Kernel image (will load the one in the microvm slot).
+        - Does not start the microvm.
+        """
+
+        if net_iface_count > 10:
+            raise ValueError("Supports at most 10 network interfaces.")
+
+        responses = []
+
+        response = self.api_session.put(
+            self.microvm_cfg_url,
+            json={'vcpu_count': vcpu_count}
+        )
+        responses.append(response)
+
+        response = self.api_session.put(
+            self.microvm_cfg_url,
+            json={'mem_size_mib': mem_size_mib}
+        )
+        responses.append(response)
+
+        for net_iface_index in range(0, net_iface_count):
+            response = self.api_session.put(
+                self.net_cfg_url + '/' + str(net_iface_index),
+                json={
+                    'iface_id': str(net_iface_index),
+                    'host_dev_name': self.slot.make_tap(),
+                    'guest_mac': '06:00:00:00:00:0' + str(net_iface_index),
+                    'state': 'Attached'
+                }
+            )
+            """ Maps the passed host network device into the microVM. """
+            responses.append(response)
+
+        response = self.api_session.put(
+            self.boot_cfg_url,
+            json={
+                'boot_source_id': '1',
+                'source_type': 'LocalImage',
+                'local_image': {'kernel_image_path': self.slot.kernel_file}
+            }
+        )
+        """ Adds a kernel to start booting from. """
+        responses.append(response)
+
+        return responses
 
     def kill(self):
         """
