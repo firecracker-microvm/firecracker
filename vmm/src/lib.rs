@@ -11,7 +11,6 @@ extern crate kvm_sys;
 #[macro_use]
 extern crate logger;
 extern crate net_util;
-extern crate num_cpus;
 extern crate sys_util;
 extern crate x86_64;
 
@@ -495,9 +494,7 @@ impl Vmm {
             // Only allow the number of vcpus to be 1 or an even value
             // This is needed for creating a meaningful CPU topology (already enforced by the
             // API call, but still here to avoid future mistakes)
-            if vcpu_count_value <= 0 || (vcpu_count_value != 1 && vcpu_count_value % 2 == 1)
-                || vcpu_count_value > num_cpus::get() as u8
-            {
+            if vcpu_count_value <= 0 || (vcpu_count_value != 1 && vcpu_count_value % 2 == 1) {
                 return Err(PutMachineConfigurationError::InvalidVcpuCount);
             }
             self.vm_config.vcpu_count = machine_config.vcpu_count;
