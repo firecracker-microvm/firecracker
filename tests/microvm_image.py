@@ -22,13 +22,11 @@ class MicrovmImageS3Fetcher:
     A borg class for fetching Firecracker microvm images from microvm image
     s3 buckets.
 
-    Microvm Image Bucket Layout
-    ===========================
+    # Microvm Image Bucket Layout
 
     A microvm image bucket needs to obey a specific layout, described below.
 
-    Folder Layout
-    -------------
+    ## Folder Layout
 
     ``` tree
     s3://<microvm-image-bucket>/<microvm-image-path>/
@@ -44,8 +42,7 @@ class MicrovmImageS3Fetcher:
         ...
     ```
 
-    Tagging
-    -------
+    ## Tagging
 
     Microvm image folders are tagged with the capabilities of that image:
 
@@ -53,8 +50,7 @@ class MicrovmImageS3Fetcher:
     TagSet = [{"key": "capability:<cap_name>", "value": ""}, ...]
     ```
 
-    Credentials
-    ===========
+    # Credentials
 
     When run on an EC2 instance, `boto3` will check for IMDS credentials if no
     other credentials are found. This mechanism is relied upon for running test
