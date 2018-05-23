@@ -3,7 +3,8 @@ use std::mem;
 use std::rc::Rc;
 use std::result;
 
-use api_server::request::sync::{Error as SyncError, NetworkInterfaceBody, OkStatus as SyncOkStatus};
+use api_server::request::sync::{Error as SyncError, NetworkInterfaceBody,
+                                OkStatus as SyncOkStatus, RateLimiter};
 use net_util::{MacAddr, Tap, TapError};
 
 pub struct NetworkInterfaceConfig {
@@ -18,6 +19,8 @@ pub struct NetworkInterfaceConfig {
     // and if so, we want to report the failure back to the API caller immediately. This is an
     // option, because the inner value will be moved to the actual virtio net device before boot.
     pub tap: Option<Tap>,
+    pub rx_rate_limiter: Option<RateLimiter>,
+    pub tx_rate_limiter: Option<RateLimiter>,
 }
 
 impl NetworkInterfaceConfig {
@@ -28,10 +31,14 @@ impl NetworkInterfaceConfig {
         // of having to move things around.
         let tap = Tap::open_named(body.host_dev_name.as_str())?;
 
+        let rx_rate_limiter = body.rx_rate_limiter.take();
+        let tx_rate_limiter = body.tx_rate_limiter.take();
         Ok(NetworkInterfaceConfig {
             body,
             id,
             tap: Some(tap),
+            rx_rate_limiter,
+            tx_rate_limiter,
         })
     }
 
@@ -99,6 +106,8 @@ mod tests {
                 state: DeviceState::Attached,
                 host_dev_name: String::from("bar"),
                 guest_mac: Some(mac.clone()),
+                rx_rate_limiter: Some(RateLimiter::default()),
+                tx_rate_limiter: Some(RateLimiter::default()),
             };
             assert!(netif_configs.put(netif_body.clone()).is_ok());
             assert_eq!(netif_configs.if_list.len(), 1);
@@ -112,6 +121,8 @@ mod tests {
                 state: DeviceState::Attached,
                 host_dev_name: String::from("foo"),
                 guest_mac: Some(mac.clone()),
+                rx_rate_limiter: None,
+                tx_rate_limiter: None,
             };
             assert!(netif_configs.put(other_netif_body).is_err());
             assert_eq!(netif_configs.if_list.len(), 1);

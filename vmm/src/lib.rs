@@ -566,16 +566,13 @@ impl Vmm {
                 let epoll_config = epoll_context.allocate_virtio_block_tokens();
 
                 let rate_limiter = match drive_config.rate_limiter.as_ref() {
-                    Some(rate_limiter) => {
-                        // TODO: propagate the error, don't blindly unwrap()
-                        RateLimiter::new(
-                            rate_limiter.bandwidth.size,
-                            rate_limiter.bandwidth.refill_time,
-                            rate_limiter.ops.size,
-                            rate_limiter.ops.refill_time,
-                        ).map_err(Error::RateLimiterNew)?
-                    }
-                    None => RateLimiter::default(),
+                    Some(rl) => Some(RateLimiter::new(
+                        rl.bandwidth.size,
+                        rl.bandwidth.refill_time,
+                        rl.ops.size,
+                        rl.ops.refill_time,
+                    ).map_err(Error::RateLimiterNew)?),
+                    None => None,
                 };
                 let block_box = Box::new(devices::virtio::Block::new(
                     root_image,
@@ -611,11 +608,34 @@ impl Vmm {
 
         for cfg in self.network_interface_configs.iter_mut() {
             let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
+
+            // TODO: implement from to reduce code
+            let rx_rate_limiter = match cfg.rx_rate_limiter.as_ref() {
+                Some(rl) => Some(RateLimiter::new(
+                    rl.bandwidth.size,
+                    rl.bandwidth.refill_time,
+                    rl.ops.size,
+                    rl.ops.refill_time,
+                ).map_err(Error::RateLimiterNew)?),
+                None => None,
+            };
+            let tx_rate_limiter = match cfg.tx_rate_limiter.as_ref() {
+                Some(rl) => Some(RateLimiter::new(
+                    rl.bandwidth.size,
+                    rl.bandwidth.refill_time,
+                    rl.ops.size,
+                    rl.ops.refill_time,
+                ).map_err(Error::RateLimiterNew)?),
+                None => None,
+            };
+
             if let Some(tap) = cfg.take_tap() {
                 let net_box = Box::new(devices::virtio::Net::new_with_tap(
                     tap,
                     cfg.guest_mac(),
                     epoll_config,
+                    rx_rate_limiter,
+                    tx_rate_limiter,
                 ).map_err(Error::NetDeviceNew)?);
 
                 device_manager
