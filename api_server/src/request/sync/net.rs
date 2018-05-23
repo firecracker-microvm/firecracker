@@ -2,7 +2,8 @@ use std::result;
 
 use futures::sync::oneshot;
 
-use super::{DeviceState, SyncRequest};
+use super::{DeviceState, RateLimiter, SyncRequest};
+
 use net_util::MacAddr;
 use request::ParsedRequest;
 
@@ -15,6 +16,10 @@ pub struct NetworkInterfaceBody {
     pub host_dev_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_mac: Option<MacAddr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rx_rate_limiter: Option<RateLimiter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_rate_limiter: Option<RateLimiter>,
 }
 
 impl NetworkInterfaceBody {
@@ -45,6 +50,8 @@ mod tests {
             state: DeviceState::Attached,
             host_dev_name: String::from("bar"),
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
         };
 
         assert!(netif.clone().into_parsed_request("bar").is_err());
@@ -67,6 +74,8 @@ mod tests {
             state: DeviceState::Attached,
             host_dev_name: String::from("bar"),
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
+            rx_rate_limiter: Some(RateLimiter::default()),
+            tx_rate_limiter: Some(RateLimiter::default()),
         };
 
         // This is the json encoding of the netif variable.
@@ -74,7 +83,15 @@ mod tests {
             "iface_id": "foo",
             "host_dev_name": "bar",
             "state": "Attached",
-            "guest_mac": "12:34:56:78:9A:bc"
+            "guest_mac": "12:34:56:78:9A:bc",
+            "rx_rate_limiter": {
+                "bandwidth": { "size": 0, "refill_time": 0 },
+                "ops": { "size": 0, "refill_time": 0 }
+            },
+            "tx_rate_limiter": {
+                "bandwidth": { "size": 0, "refill_time": 0 },
+                "ops": { "size": 0, "refill_time": 0 }
+            }
         }"#;
 
         let x = serde_json::from_str(jstr).expect("deserialization failed.");
@@ -84,7 +101,7 @@ mod tests {
         let z = serde_json::from_str(y.as_ref()).expect("deserialization (2) failed.");
         assert_eq!(x, z);
 
-        // Check that guest_mac is truly optional.
+        // Check that guest_mac and rate limiters are truly optional.
         let jstr_no_mac = r#"{
             "iface_id": "foo",
             "host_dev_name": "bar",

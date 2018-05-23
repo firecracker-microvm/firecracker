@@ -1,6 +1,7 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+extern crate fc_util;
 
 use std::cmp;
 #[cfg(not(test))]
@@ -15,6 +16,7 @@ use std::sync::Arc;
 
 use libc::EAGAIN;
 
+use self::fc_util::ratelimiter::{RateLimiter, TokenType};
 use super::{ActivateError, ActivateResult};
 use super::{Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
 use epoll;
@@ -41,8 +43,12 @@ pub const RX_QUEUE_EVENT: DeviceEventT = 1;
 pub const TX_QUEUE_EVENT: DeviceEventT = 2;
 // Device shutdown has been requested.
 pub const KILL_EVENT: DeviceEventT = 3;
+// rx rate limiter budget is now available
+pub const RX_RATE_LIMITER_EVENT: DeviceEventT = 4;
+// tx rate limiter budget is now available
+pub const TX_RATE_LIMITER_EVENT: DeviceEventT = 5;
 // number of DeviceEventT events supported by this implementation
-pub const NET_EVENTS_COUNT: usize = 4;
+pub const NET_EVENTS_COUNT: usize = 6;
 
 #[derive(Debug)]
 pub enum NetError {
@@ -69,7 +75,9 @@ pub enum NetError {
 struct NetEpollHandler {
     mem: GuestMemory,
     rx_queue: Queue,
+    rx_rate_limiter: RateLimiter,
     tx_queue: Queue,
+    tx_rate_limiter: RateLimiter,
     tap: Tap,
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
@@ -97,6 +105,21 @@ impl NetEpollHandler {
     // if a buffer was used, and false if the frame must be deferred until a buffer
     // is made available by the driver.
     fn rx_single_frame(&mut self) -> bool {
+        // if limiter.consume() fails it means there is no more TokenType::Ops
+        // budget and rate limiting is in effect
+        if !self.rx_rate_limiter.consume(1, TokenType::Ops) {
+            return false;
+        }
+        // if limiter.consume() fails it means there is no more TokenType::Bytes
+        // budget and rate limiting is in effect
+        if !self.rx_rate_limiter
+            .consume(self.rx_count as u64, TokenType::Bytes)
+        {
+            // revert the OPS consume()
+            self.rx_rate_limiter.manual_replenish(1, TokenType::Ops);
+            return false;
+        }
+
         let mut next_desc = self.rx_queue.iter(&self.mem).next();
 
         if next_desc.is_none() {
@@ -198,12 +221,30 @@ impl NetEpollHandler {
         }
     }
 
+    fn resume_rx(&mut self) {
+        if self.deferred_rx && self.rx_single_frame() {
+            self.deferred_rx = false;
+            // process_rx() was interrupted possibly before consuming all
+            // packets in the tap, try continuing now
+            self.process_rx();
+        }
+    }
+
     fn process_tx(&mut self) {
         let mut frame = [0u8; MAX_BUFFER_SIZE];
         let mut used_desc_heads = [0u16; QUEUE_SIZE as usize];
         let mut used_count = 0;
+        let mut rate_limited = false;
 
         for avail_desc in self.tx_queue.iter(&self.mem) {
+            // if limiter.consume() fails it means there is no more TokenType::Ops
+            // budget and rate limiting is in effect
+            if !self.tx_rate_limiter.consume(1, TokenType::Ops) {
+                rate_limited = true;
+                // stop processing the queue
+                break;
+            }
+
             let head_index = avail_desc.index;
             let mut next_desc = Some(avail_desc);
             let mut read_count = 0;
@@ -235,6 +276,18 @@ impl NetEpollHandler {
                 }
             }
 
+            // if limiter.consume() fails it means there is no more TokenType::Bytes
+            // budget and rate limiting is in effect
+            if !self.tx_rate_limiter
+                .consume(read_count as u64, TokenType::Bytes)
+            {
+                rate_limited = true;
+                // revert the OPS consume()
+                self.tx_rate_limiter.manual_replenish(1, TokenType::Ops);
+                // stop processing the queue
+                break;
+            }
+
             let write_result = self.tap.write(&frame[..read_count as usize]);
             match write_result {
                 Ok(_) => {}
@@ -246,12 +299,38 @@ impl NetEpollHandler {
             used_desc_heads[used_count] = head_index;
             used_count += 1;
         }
-
-        for &desc_index in &used_desc_heads[..used_count] {
-            self.tx_queue.add_used(&self.mem, desc_index, 0);
+        if rate_limited {
+            // if rate limiting kicked in, queue had advanced one element that we aborted
+            // processing; go back one element so it can be processed next time
+            self.tx_queue.go_to_previous_position();
         }
 
-        self.signal_used_queue();
+        if used_count != 0 {
+            for &desc_index in &used_desc_heads[..used_count] {
+                self.tx_queue.add_used(&self.mem, desc_index, 0);
+            }
+            self.signal_used_queue();
+        }
+    }
+
+    #[cfg(test)]
+    fn get_rx_rate_limiter(&self) -> &RateLimiter {
+        &self.rx_rate_limiter
+    }
+
+    #[cfg(test)]
+    fn get_tx_rate_limiter(&self) -> &RateLimiter {
+        &self.tx_rate_limiter
+    }
+
+    #[cfg(test)]
+    fn set_rx_rate_limiter(&mut self, rx_rate_limiter: RateLimiter) {
+        self.rx_rate_limiter = rx_rate_limiter;
+    }
+
+    #[cfg(test)]
+    fn set_tx_rate_limiter(&mut self, tx_rate_limiter: RateLimiter) {
+        self.tx_rate_limiter = tx_rate_limiter;
     }
 }
 
@@ -259,6 +338,10 @@ impl EpollHandler for NetEpollHandler {
     fn handle_event(&mut self, device_event: DeviceEventT, _: u32) {
         match device_event {
             RX_TAP_EVENT => {
+                // while limiter is blocked, don't process any more incoming
+                if self.rx_rate_limiter.is_blocked() {
+                    return;
+                }
                 // Process a deferred frame first if available. Don't read from tap again
                 // until we manage to receive this deferred frame.
                 if self.deferred_rx {
@@ -275,12 +358,10 @@ impl EpollHandler for NetEpollHandler {
                     error!("net: error reading rx queue EventFd: {:?}", e);
                     // TODO: device should be removed from epoll
                 }
-                // There should be a buffer available now to receive the frame into.
-                if self.deferred_rx && self.rx_single_frame() {
-                    self.deferred_rx = false;
-                    // process_rx() was interrupted possibly before consuming all
-                    // packets in the tap, try continuing now
-                    self.process_rx();
+                // if the limiter is not blocked
+                if !self.rx_rate_limiter.is_blocked() {
+                    // There should be a buffer available now to receive the frame into.
+                    self.resume_rx();
                 }
             }
             TX_QUEUE_EVENT => {
@@ -288,11 +369,36 @@ impl EpollHandler for NetEpollHandler {
                     error!("net: error reading tx queue EventFd: {:?}", e);
                     // TODO: device should be removed from epoll
                 }
-                self.process_tx();
+                // if the limiter is not blocked
+                if !self.tx_rate_limiter.is_blocked() {
+                    self.process_tx();
+                }
             }
             KILL_EVENT => {
                 info!("virtio net device killed")
                 // TODO: device should be removed from epoll
+            }
+            RX_RATE_LIMITER_EVENT => {
+                // on rate limiter event, call the rate limiter handler
+                // and restart processing the queue
+                match self.rx_rate_limiter.event_handler() {
+                    Ok(_) => {
+                        // There might be enough budget now to receive the frame
+                        self.resume_rx();
+                    }
+                    Err(e) => error!("net: error reading rx rate-limiter EventFd: {:?}", e),
+                }
+            }
+            TX_RATE_LIMITER_EVENT => {
+                // on rate limiter event, call the rate limiter handler
+                // and restart processing the queue
+                match self.tx_rate_limiter.event_handler() {
+                    Ok(_) => {
+                        // There might be enough budget now to send the frame
+                        self.process_tx();
+                    }
+                    Err(e) => error!("net: error reading tx rate-limiter EventFd: {:?}", e),
+                }
             }
             _ => panic!("unknown token for virtio net device"),
         }
@@ -304,6 +410,8 @@ pub struct EpollConfig {
     rx_queue_token: u64,
     tx_queue_token: u64,
     kill_token: u64,
+    rx_rate_limiter_token: u64,
+    tx_rate_limiter_token: u64,
     epoll_raw_fd: RawFd,
     sender: mpsc::Sender<Box<EpollHandler>>,
 }
@@ -319,6 +427,8 @@ impl EpollConfig {
             rx_queue_token: first_token + RX_QUEUE_EVENT as u64,
             tx_queue_token: first_token + TX_QUEUE_EVENT as u64,
             kill_token: first_token + KILL_EVENT as u64,
+            rx_rate_limiter_token: first_token + RX_RATE_LIMITER_EVENT as u64,
+            tx_rate_limiter_token: first_token + TX_RATE_LIMITER_EVENT as u64,
             epoll_raw_fd,
             sender,
         }
@@ -335,6 +445,8 @@ pub struct Net {
     // or nothing, if no such address if provided.
     config_space: Vec<u8>,
     epoll_config: EpollConfig,
+    rx_rate_limiter: Option<RateLimiter>,
+    tx_rate_limiter: Option<RateLimiter>,
 }
 
 impl Net {
@@ -342,6 +454,8 @@ impl Net {
         tap: Tap,
         guest_mac: Option<&MacAddr>,
         epoll_config: EpollConfig,
+        rx_rate_limiter: Option<RateLimiter>,
+        tx_rate_limiter: Option<RateLimiter>,
     ) -> Result<Self, NetError> {
         let kill_evt = EventFd::new().map_err(NetError::CreateKillEventFd)?;
 
@@ -380,6 +494,8 @@ impl Net {
             acked_features: 0u64,
             config_space,
             epoll_config,
+            rx_rate_limiter,
+            tx_rate_limiter,
         })
     }
 
@@ -390,13 +506,21 @@ impl Net {
         netmask: Ipv4Addr,
         guest_mac: Option<&MacAddr>,
         epoll_config: EpollConfig,
+        rx_rate_limiter: Option<RateLimiter>,
+        tx_rate_limiter: Option<RateLimiter>,
     ) -> Result<Self, NetError> {
         let tap = Tap::new().map_err(NetError::TapOpen)?;
         tap.set_ip_addr(ip_addr).map_err(NetError::TapSetIp)?;
         tap.set_netmask(netmask).map_err(NetError::TapSetNetmask)?;
         tap.enable().map_err(NetError::TapEnable)?;
 
-        Self::new_with_tap(tap, guest_mac, epoll_config)
+        Self::new_with_tap(
+            tap,
+            guest_mac,
+            epoll_config,
+            rx_rate_limiter,
+            tx_rate_limiter,
+        )
     }
 }
 
@@ -493,7 +617,9 @@ impl VirtioDevice for Net {
                 let handler = NetEpollHandler {
                     mem,
                     rx_queue: queues.remove(0),
+                    rx_rate_limiter: self.rx_rate_limiter.take().unwrap_or_default(),
                     tx_queue: queues.remove(0),
+                    tx_rate_limiter: self.tx_rate_limiter.take().unwrap_or_default(),
                     tap,
                     interrupt_status: status,
                     interrupt_evt,
@@ -508,6 +634,9 @@ impl VirtioDevice for Net {
                 let tap_raw_fd = handler.tap.as_raw_fd();
                 let rx_queue_raw_fd = handler.rx_queue_evt.as_raw_fd();
                 let tx_queue_raw_fd = handler.tx_queue_evt.as_raw_fd();
+
+                let rx_rate_limiter_rawfd = handler.rx_rate_limiter.as_raw_fd();
+                let tx_rate_limiter_rawfd = handler.tx_rate_limiter.as_raw_fd();
 
                 //channel should be open and working
                 self.epoll_config
@@ -545,6 +674,24 @@ impl VirtioDevice for Net {
                     epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token),
                 ).map_err(ActivateError::EpollCtl)?;
 
+                if rx_rate_limiter_rawfd != -1 {
+                    epoll::ctl(
+                        self.epoll_config.epoll_raw_fd,
+                        epoll::EPOLL_CTL_ADD,
+                        rx_rate_limiter_rawfd,
+                        epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_rate_limiter_token),
+                    ).map_err(ActivateError::EpollCtl)?;
+                }
+
+                if tx_rate_limiter_rawfd != -1 {
+                    epoll::ctl(
+                        self.epoll_config.epoll_raw_fd,
+                        epoll::EPOLL_CTL_ADD,
+                        tx_rate_limiter_rawfd,
+                        epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_rate_limiter_token),
+                    ).map_err(ActivateError::EpollCtl)?;
+                }
+
                 return Ok(());
             }
         }
@@ -556,6 +703,8 @@ impl VirtioDevice for Net {
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc::Receiver;
+    use std::thread;
+    use std::time::Duration;
     use std::u32;
 
     use libc;
@@ -582,6 +731,9 @@ mod tests {
                     "255.255.255.0".parse().unwrap(),
                     None,
                     epoll_config,
+                    // rate limiters present but with _very high_ allowed rate
+                    Some(RateLimiter::new(u64::max_value(), 1000, u64::max_value(), 1000).unwrap()),
+                    Some(RateLimiter::new(u64::max_value(), 1000, u64::max_value(), 1000).unwrap()),
                 ).unwrap(),
                 epoll_raw_fd,
                 _receiver,
@@ -684,7 +836,9 @@ mod tests {
         let mut h = NetEpollHandler {
             mem: mem.clone(),
             rx_queue,
+            rx_rate_limiter: RateLimiter::default(),
             tx_queue,
+            tx_rate_limiter: RateLimiter::default(),
             tap: n.tap.take().unwrap(),
             interrupt_status,
             interrupt_evt,
@@ -818,6 +972,288 @@ mod tests {
         {
             // does nothing currently
             h.handle_event(KILL_EVENT, 0);
+        }
+    }
+
+    #[test]
+    fn test_bandwidth_rate_limiter() {
+        let mut dummy = DummyNet::new();
+        let n = dummy.net();
+
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+
+        let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let txq = VirtQueue::new(GuestAddress(0x1000), &mem, 16);
+
+        assert!(rxq.end().0 < txq.start().0);
+
+        let rx_queue = rxq.create_queue();
+        let tx_queue = txq.create_queue();
+        let interrupt_status = Arc::new(AtomicUsize::new(0));
+        let interrupt_evt = EventFd::new().unwrap();
+        let rx_queue_evt = EventFd::new().unwrap();
+        let tx_queue_evt = EventFd::new().unwrap();
+
+        let mut h = NetEpollHandler {
+            mem: mem.clone(),
+            rx_queue,
+            rx_rate_limiter: RateLimiter::default(),
+            tx_queue,
+            tx_rate_limiter: RateLimiter::default(),
+            tap: n.tap.take().unwrap(),
+            interrupt_status,
+            interrupt_evt,
+            rx_buf: [0u8; MAX_BUFFER_SIZE],
+            rx_count: 0,
+            deferred_rx: false,
+            acked_features: n.acked_features,
+            rx_queue_evt,
+            tx_queue_evt,
+        };
+
+        let daddr = 0x2000;
+        assert!(daddr as usize > txq.end().0);
+
+        // Test TX bandwidth rate limiting
+        {
+            // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
+            let mut rl = RateLimiter::new(0x1000, 100, 0, 0).unwrap();
+            // use up the budget
+            assert!(rl.consume(0x1000, TokenType::Bytes));
+
+            // set this tx rate limiter to be used
+            h.set_tx_rate_limiter(rl);
+
+            // try doing TX
+            txq.avail.idx.set(1);
+            txq.avail.ring[0].set(0);
+            txq.dtable[0].set(daddr, 0x1000, 0, 0);
+
+            // following TX procedure should fail because of bandwidth rate limiting
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                // trigger the TX handler
+                h.tx_queue_evt.write(1).unwrap();
+                h.handle_event(TX_QUEUE_EVENT, 0);
+
+                // assert that limiter is blocked
+                assert!(h.get_tx_rate_limiter().is_blocked());
+                // assert that no operation actually completed (limiter blocked it)
+                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                // make sure the data is still queued for processing
+                assert_eq!(txq.used.idx.get(), 0);
+            }
+
+            // wait for 100ms to give the rate-limiter timer a chance to replenish
+            // wait for an extra 50ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(150));
+
+            // following TX procedure should succeed because bandwidth should now be available
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                h.handle_event(TX_RATE_LIMITER_EVENT, 0);
+                // validate the rate_limiter is no longer blocked
+                assert!(!h.get_tx_rate_limiter().is_blocked());
+                // make sure the virtio queue operation completed this time
+                assert_eq!(h.interrupt_evt.read(), Ok(2));
+                // make sure the data queue advanced
+                assert_eq!(txq.used.idx.get(), 1);
+            }
+        }
+
+        // Test RX bandwidth rate limiting
+        {
+            // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
+            let mut rl = RateLimiter::new(0x1000, 100, 0, 0).unwrap();
+            // use up the budget
+            assert!(rl.consume(0x1000, TokenType::Bytes));
+
+            // set this rx rate limiter to be used
+            h.set_rx_rate_limiter(rl);
+
+            // set up RX
+            assert!(!h.deferred_rx);
+            rxq.avail.idx.set(1);
+            rxq.avail.ring[0].set(0);
+            rxq.dtable[0].set(daddr, 0x1000, VIRTQ_DESC_F_WRITE, 0);
+
+            // following RX procedure should fail because of bandwidth rate limiting
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                // trigger the RX handler
+                h.handle_event(RX_TAP_EVENT, 0);
+
+                // assert that limiter is blocked
+                assert!(h.get_rx_rate_limiter().is_blocked());
+                assert!(h.deferred_rx);
+                // assert that no operation actually completed (limiter blocked it)
+                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                // make sure the data is still queued for processing
+                assert_eq!(rxq.used.idx.get(), 0);
+            }
+
+            // wait for 100ms to give the rate-limiter timer a chance to replenish
+            // wait for an extra 50ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(150));
+
+            // following RX procedure should succeed because bandwidth should now be available
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                h.handle_event(RX_RATE_LIMITER_EVENT, 0);
+                // validate the rate_limiter is no longer blocked
+                assert!(!h.get_rx_rate_limiter().is_blocked());
+                // make sure the virtio queue operation completed this time
+                assert_eq!(h.interrupt_evt.read(), Ok(2));
+                // make sure the data queue advanced
+                assert_eq!(rxq.used.idx.get(), 1);
+                // The #cfg(test) enabled version of read_tap always returns 1234 bytes
+                // (or the len of the buffer, whichever is smaller).
+                assert_eq!(rxq.used.ring[0].get().len, 1234);
+            }
+        }
+    }
+
+    #[test]
+    fn test_ops_rate_limiter() {
+        let mut dummy = DummyNet::new();
+        let n = dummy.net();
+
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+
+        let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let txq = VirtQueue::new(GuestAddress(0x1000), &mem, 16);
+
+        assert!(rxq.end().0 < txq.start().0);
+
+        let rx_queue = rxq.create_queue();
+        let tx_queue = txq.create_queue();
+        let interrupt_status = Arc::new(AtomicUsize::new(0));
+        let interrupt_evt = EventFd::new().unwrap();
+        let rx_queue_evt = EventFd::new().unwrap();
+        let tx_queue_evt = EventFd::new().unwrap();
+
+        let mut h = NetEpollHandler {
+            mem: mem.clone(),
+            rx_queue,
+            rx_rate_limiter: RateLimiter::default(),
+            tx_queue,
+            tx_rate_limiter: RateLimiter::default(),
+            tap: n.tap.take().unwrap(),
+            interrupt_status,
+            interrupt_evt,
+            rx_buf: [0u8; MAX_BUFFER_SIZE],
+            rx_count: 0,
+            deferred_rx: false,
+            acked_features: n.acked_features,
+            rx_queue_evt,
+            tx_queue_evt,
+        };
+
+        let daddr = 0x2000;
+        assert!(daddr as usize > txq.end().0);
+
+        // Test TX ops rate limiting
+        {
+            // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
+            let mut rl = RateLimiter::new(0, 0, 1, 100).unwrap();
+            // use up the budget
+            assert!(rl.consume(1, TokenType::Ops));
+
+            // set this tx rate limiter to be used
+            h.set_tx_rate_limiter(rl);
+
+            // try doing TX
+            txq.avail.idx.set(1);
+            txq.avail.ring[0].set(0);
+            txq.dtable[0].set(daddr, 0x1000, 0, 0);
+
+            // following TX procedure should fail because of ops rate limiting
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                // trigger the TX handler
+                h.tx_queue_evt.write(1).unwrap();
+                h.handle_event(TX_QUEUE_EVENT, 0);
+
+                // assert that limiter is blocked
+                assert!(h.get_tx_rate_limiter().is_blocked());
+                // assert that no operation actually completed (limiter blocked it)
+                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                // make sure the data is still queued for processing
+                assert_eq!(txq.used.idx.get(), 0);
+            }
+
+            // wait for 100ms to give the rate-limiter timer a chance to replenish
+            // wait for an extra 50ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(150));
+
+            // following TX procedure should succeed because ops should now be available
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                h.handle_event(TX_RATE_LIMITER_EVENT, 0);
+                // validate the rate_limiter is no longer blocked
+                assert!(!h.get_tx_rate_limiter().is_blocked());
+                // make sure the virtio queue operation completed this time
+                assert_eq!(h.interrupt_evt.read(), Ok(2));
+                // make sure the data queue advanced
+                assert_eq!(txq.used.idx.get(), 1);
+            }
+        }
+
+        // Test RX ops rate limiting
+        {
+            // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
+            let mut rl = RateLimiter::new(0, 0, 1, 100).unwrap();
+            // use up the budget
+            assert!(rl.consume(0x800, TokenType::Ops));
+
+            // set this rx rate limiter to be used
+            h.set_rx_rate_limiter(rl);
+
+            // set up RX
+            assert!(!h.deferred_rx);
+            rxq.avail.idx.set(1);
+            rxq.avail.ring[0].set(0);
+            rxq.dtable[0].set(daddr, 0x1000, VIRTQ_DESC_F_WRITE, 0);
+
+            // following RX procedure should fail because of ops rate limiting
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                // trigger the RX handler
+                h.handle_event(RX_TAP_EVENT, 0);
+
+                // assert that limiter is blocked
+                assert!(h.get_rx_rate_limiter().is_blocked());
+                assert!(h.deferred_rx);
+                // assert that no operation actually completed (limiter blocked it)
+                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                // make sure the data is still queued for processing
+                assert_eq!(rxq.used.idx.get(), 0);
+            }
+
+            // wait for 100ms to give the rate-limiter timer a chance to replenish
+            // wait for an extra 50ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(150));
+
+            // following RX procedure should succeed because ops should now be available
+            {
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                h.handle_event(RX_RATE_LIMITER_EVENT, 0);
+                // make sure the virtio queue operation completed this time
+                assert_eq!(h.interrupt_evt.read(), Ok(2));
+                // make sure the data queue advanced
+                assert_eq!(rxq.used.idx.get(), 1);
+                // The #cfg(test) enabled version of read_tap always returns 1234 bytes
+                // (or the len of the buffer, whichever is smaller).
+                assert_eq!(rxq.used.ring[0].get().len, 1234);
+            }
         }
     }
 }
