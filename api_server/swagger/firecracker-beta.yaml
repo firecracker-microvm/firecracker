@@ -376,7 +376,7 @@ definitions:
         type: integer
         description: Memory size of VM
       ht_enabled:
-        type: bool
+        type: boolean
         description: Flag for enabling/disabling Hyperthreading
 
   NetworkInterface:
@@ -391,6 +391,10 @@ definitions:
       host_dev_name:
         type: string
         description: Host level path for the guest network interface
+      rx_rate_limiter:
+        $ref: "#/definitions/RateLimiter"
+      tx_rate_limiter:
+        $ref: "#/definitions/RateLimiter"
       state:
         $ref: "#/definitions/DeviceState"
 
