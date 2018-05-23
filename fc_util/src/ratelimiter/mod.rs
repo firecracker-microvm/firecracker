@@ -6,6 +6,7 @@ use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::Duration;
 
+#[derive(Debug)]
 pub enum Error {
     SpuriousRateLimiterEvent,
 }

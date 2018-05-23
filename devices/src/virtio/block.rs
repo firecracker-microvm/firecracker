@@ -404,7 +404,7 @@ impl Block {
         mut disk_image: File,
         is_disk_read_only: bool,
         epoll_config: EpollConfig,
-        rate_limiter: RateLimiter,
+        rate_limiter: Option<RateLimiter>,
     ) -> SysResult<Block> {
         let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
         if disk_size % SECTOR_SIZE != 0 {
@@ -428,7 +428,7 @@ impl Block {
             acked_features: 0u64,
             config_space: build_config_space(disk_size),
             epoll_config,
-            rate_limiter: Some(rate_limiter),
+            rate_limiter,
         })
     }
 }
@@ -570,8 +570,7 @@ impl VirtioDevice for Block {
                 interrupt_status: status,
                 interrupt_evt,
                 queue_evt,
-                // safe to .take().unwrap() since activate is only called once
-                rate_limiter: self.rate_limiter.take().unwrap(),
+                rate_limiter: self.rate_limiter.take().unwrap_or_default(),
                 disk_image_id,
             };
             let rate_limiter_rawfd = handler.rate_limiter.as_raw_fd();
@@ -653,7 +652,7 @@ mod tests {
             // rate limiting enabled but with a high operation rate (10 million ops/s)
             let rate_limiter = RateLimiter::new(0, 0, 100000, 10).unwrap();
             DummyBlock {
-                block: Block::new(f, false, epoll_config, rate_limiter).unwrap(),
+                block: Block::new(f, false, epoll_config, Some(rate_limiter)).unwrap(),
                 epoll_raw_fd,
                 _receiver,
             }

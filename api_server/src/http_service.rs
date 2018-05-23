@@ -986,6 +986,8 @@ mod tests {
             state: DeviceState::Attached,
             host_dev_name: String::from("foo"),
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9a:BC").unwrap()),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
         };
 
         match netif.into_parsed_request("bar") {
