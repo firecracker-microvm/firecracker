@@ -31,6 +31,10 @@ mod leaf_0x4 {
 
 // Thermal and Power Management Leaf
 mod leaf_0x6 {
+    pub mod eax {
+        pub const TURBO_BOOST_SHIFT: u32 = 1;
+    }
+
     pub mod ecx {
         pub const EPB_SHIFT: u32 = 3; // "Energy Performance Bias" bit.
     }
@@ -143,6 +147,8 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
                 }
             }
             0x6 => {
+                // Disable Turbo Boost
+                entry.eax &= !(1 << leaf_0x6::eax::TURBO_BOOST_SHIFT);
                 // Clear X86 EPB feature.  No frequency selection in the hypervisor.
                 entry.ecx &= !(1 << leaf_0x6::ecx::EPB_SHIFT);
             }
