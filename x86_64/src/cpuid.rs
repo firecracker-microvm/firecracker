@@ -354,9 +354,9 @@ pub fn filter_cpuid(cpu_id: u8, cpu_count: u8, kvm_cpuid: &mut CpuId) -> Result<
                 // This sets EAX[31:26]
                 entry.eax &= !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE);
                 if cpu_count > 2 {
-                    // we have HT enabled by default, so we will have cpu_count/2 cores in package
-                    entry.eax |=
-                        (((cpu_count >> 1) - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE;
+                    // We don't handle properly the case where we have more than one socket
+                    // Put all cores in the same socket
+                    entry.eax |= ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE;
                 }
             }
             0x6 => {
