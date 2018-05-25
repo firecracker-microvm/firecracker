@@ -19,10 +19,11 @@ pub mod request;
 
 use std::cell::RefCell;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::{Arc, RwLock};
+use std::thread;
 
 use futures::{Future, Stream};
 use hyper::server::Http;
@@ -70,12 +71,13 @@ impl ApiServer {
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
         api_request_sender: mpsc::Sender<Box<ApiRequest>>,
         max_previous_actions: usize,
+        eventfd: Rc<EventFd>,
     ) -> Result<Self> {
         Ok(ApiServer {
             vmm_shared_info,
             api_request_sender: Rc::new(api_request_sender),
             max_previous_actions,
-            efd: Rc::new(EventFd::new().map_err(Error::Eventfd)?),
+            efd: eventfd,
         })
     }
 
@@ -116,8 +118,22 @@ impl ApiServer {
         // interrupted, and other futures will not complete, as the event loop stops working.
         core.run(f)
     }
+}
 
-    pub fn get_event_fd_clone(&self) -> Result<EventFd> {
-        self.efd.try_clone().map_err(Error::Eventfd)
-    }
+pub fn start_api_thread(
+    vmm_shared_info: Arc<RwLock<InstanceInfo>>,
+    to_vmm: mpsc::Sender<Box<ApiRequest>>,
+    max_previous_actions: usize,
+    eventfd: EventFd,
+    bind_path: PathBuf,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        let server = ApiServer::new(
+            vmm_shared_info,
+            to_vmm,
+            max_previous_actions,
+            Rc::new(eventfd),
+        ).unwrap();
+        server.bind_and_run(bind_path).unwrap();
+    })
 }

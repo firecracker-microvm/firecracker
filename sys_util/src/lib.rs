@@ -9,9 +9,9 @@ extern crate memory_model;
 
 #[macro_use]
 pub mod ioctl;
+pub mod eventfd;
 
 mod errno;
-mod eventfd;
 mod guest_address;
 mod guest_memory;
 mod mmap;
