@@ -69,7 +69,7 @@ impl NetworkInterfaceConfigs {
                 return Ok(SyncOkStatus::Updated);
             }
 
-            if device_config.guest_mac() == cfg.guest_mac() {
+            if cfg.guest_mac().is_some() && device_config.guest_mac() == cfg.guest_mac() {
                 return Err(SyncError::GuestMacAddressInUse);
             }
         }
