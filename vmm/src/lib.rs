@@ -197,9 +197,9 @@ impl MaybeHandler {
     }
 }
 
-pub struct EpollEvent {
+pub struct EpollEvent<T: AsRawFd> {
     dispatch_index: u64,
-    event_fd: EventFd,
+    fd: T,
 }
 
 // This should handle epoll related business from now on. A glaring shortcoming of the current
@@ -261,27 +261,30 @@ impl EpollContext {
         Ok(())
     }
 
-    pub fn add_event(&mut self, evfd: EventFd, token: EpollDispatch) -> Result<EpollEvent> {
-        let index = self.dispatch_table.len() as u64;
+    pub fn add_event<T>(&mut self, fd: T, token: EpollDispatch) -> Result<EpollEvent<T>>
+    where
+        T: AsRawFd,
+    {
+        let dispatch_index = self.dispatch_table.len() as u64;
         epoll::ctl(
             self.epoll_raw_fd,
             epoll::EPOLL_CTL_ADD,
-            evfd.as_raw_fd(),
-            epoll::Event::new(epoll::EPOLLIN, index),
+            fd.as_raw_fd(),
+            epoll::Event::new(epoll::EPOLLIN, dispatch_index),
         ).map_err(Error::EpollFd)?;
         self.dispatch_table.push(Some(token));
 
-        Ok(EpollEvent {
-            dispatch_index: index,
-            event_fd: evfd,
-        })
+        Ok(EpollEvent { dispatch_index, fd })
     }
 
-    pub fn remove_event(&mut self, epoll_event: EpollEvent) -> Result<()> {
+    pub fn remove_event<T>(&mut self, epoll_event: EpollEvent<T>) -> Result<()>
+    where
+        T: AsRawFd,
+    {
         epoll::ctl(
             self.epoll_raw_fd,
             epoll::EPOLL_CTL_DEL,
-            epoll_event.event_fd.as_raw_fd(),
+            epoll_event.fd.as_raw_fd(),
             epoll::Event::new(epoll::EPOLLIN, epoll_event.dispatch_index),
         ).map_err(Error::EpollFd)?;
         self.dispatch_table[epoll_event.dispatch_index as usize] = None;
@@ -363,7 +366,7 @@ pub struct Vmm {
     kernel_config: Option<KernelConfig>,
     kill_signaled: Option<Arc<AtomicBool>>,
     vcpu_handles: Option<Vec<thread::JoinHandle<()>>>,
-    exit_evt: Option<EpollEvent>,
+    exit_evt: Option<EpollEvent<EventFd>>,
     vm: Vm,
 
     /// guest VM devices
@@ -378,7 +381,7 @@ pub struct Vmm {
     epoll_context: EpollContext,
 
     /// api resources
-    api_event: EpollEvent,
+    api_event: EpollEvent<EventFd>,
     from_api: Receiver<Box<ApiRequest>>,
 }
 
@@ -956,7 +959,7 @@ impl Vmm {
                         EpollDispatch::Exit => {
                             match self.exit_evt {
                                 Some(ref ev) => {
-                                    ev.event_fd.read().map_err(Error::EventFd)?;
+                                    ev.fd.read().map_err(Error::EventFd)?;
                                 }
                                 None => warn!("leftover exit-evt in epollcontext!"),
                             }
@@ -1000,7 +1003,7 @@ impl Vmm {
                             }
                         }
                         EpollDispatch::ApiRequest => {
-                            self.api_event.event_fd.read().map_err(Error::EventFd)?;
+                            self.api_event.fd.read().map_err(Error::EventFd)?;
                             self.run_api_cmd().unwrap_or_else(|_| {
                                 warn!("got spurious notification from api thread");
                                 ()
@@ -1444,7 +1447,7 @@ mod tests {
         assert_eq!(num_events, 0);
 
         // raise the event
-        assert!(epev.event_fd.write(1).is_ok());
+        assert!(epev.fd.write(1).is_ok());
 
         // epoll should report one event
         let epollret = epoll::wait(ep.epoll_raw_fd, 0, &mut events[..]);
@@ -1477,7 +1480,7 @@ mod tests {
         unsafe { events.set_len(evpoll_events_len) };
 
         // raise the event
-        assert!(epev.event_fd.write(1).is_ok());
+        assert!(epev.fd.write(1).is_ok());
 
         // removing event should work
         assert!(ep.remove_event(epev).is_ok());
@@ -1502,7 +1505,7 @@ mod tests {
         unsafe { events.set_len(evpoll_events_len) };
 
         // raise the event
-        assert!(epev.event_fd.write(1).is_ok());
+        assert!(epev.fd.write(1).is_ok());
 
         // epoll should report one event
         let epollret = epoll::wait(ep.epoll_raw_fd, 0, &mut events[..]);
