@@ -67,7 +67,7 @@ impl Env {
             println!("failed to chage root to {}", self.chroot_dir);
             exit(1);
         }
-        Command::new(&self.chroot_exec_file).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).exec();
+        Command::new(&self.chroot_exec_file).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).uid(10000).gid(10000).exec();
         println!("failed to execute {}", self.chroot_exec_file);
         exit(1);
     }
