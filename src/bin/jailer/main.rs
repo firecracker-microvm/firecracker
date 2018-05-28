@@ -3,6 +3,9 @@ use std::fs::metadata;
 use std::path::Path;
 use std::process::exit;
 
+mod env;
+use env::Env;
+
 fn print_usage() {
     println!("Usage: jailer [OPTION] ID EXEC-FILE\n");
     println!("Example: jailer 73 /usr/bin/firecracker\n");
@@ -65,5 +68,7 @@ fn validate_args(args: &Args) {
 fn main() {
     let args = parse_args();
     validate_args(&args);
+    let env = Env::new(&args.id, &args.exec_file);
+    env.run();
     exit(1);
 }
