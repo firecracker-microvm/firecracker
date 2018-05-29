@@ -14,8 +14,8 @@ use libc;
 
 use errno;
 
-use memory_model::DataInit;
 use memory_model::volatile_memory::*;
+use memory_model::DataInit;
 
 #[derive(Debug)]
 pub enum Error {
