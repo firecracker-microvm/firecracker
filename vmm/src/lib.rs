@@ -24,6 +24,7 @@ mod vstate;
 
 use std::ffi::CString;
 use std::fs::{metadata, File, OpenOptions};
+use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::ptr::null_mut;
 use std::result;
@@ -918,7 +919,13 @@ impl Vmm {
 
         // TODO: try handling of errors/failures without breaking this main loop.
         'poll: loop {
-            let num_events = epoll::wait(epoll_raw_fd, -1, &mut events[..]).map_err(Error::Poll)?;
+            let num_events = match epoll::wait(epoll_raw_fd, -1, &mut events[..]) {
+                Ok(n) => n,
+                Err(e) => match e.kind() {
+                    io::ErrorKind::Interrupted => continue,
+                    _ => return Err(Error::Poll(e)),
+                },
+            };
 
             for i in 0..num_events {
                 let dispatch_idx = events[i].data() as usize;
