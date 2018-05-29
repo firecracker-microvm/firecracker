@@ -506,8 +506,8 @@ mod tests {
     use super::*;
     use fc_util::LriHashMap;
     use futures::sync::oneshot;
-    use hyper::Body;
     use hyper::header::{ContentType, Headers};
+    use hyper::Body;
     use net_util::MacAddr;
     use request::async::AsyncRequest;
     use request::sync::{DeviceState, DriveDescription, DrivePermissions, NetworkInterfaceBody,

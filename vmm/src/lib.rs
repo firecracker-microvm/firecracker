@@ -31,7 +31,6 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 
-use api_server::ApiRequest;
 use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
@@ -41,6 +40,7 @@ use api_server::request::sync::{APILoggerDescription, BootSourceBody, DriveDescr
                                 DriveError, Error as SyncError, GenerateResponse,
                                 NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
                                 PutLoggerOutcome, SyncOutcomeSender, SyncRequest};
+use api_server::ApiRequest;
 use data_model::vm::MachineConfiguration;
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;

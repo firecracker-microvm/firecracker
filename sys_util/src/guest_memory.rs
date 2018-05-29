@@ -9,8 +9,8 @@ use std::result;
 use std::sync::Arc;
 
 use guest_address::GuestAddress;
-use memory_model::DataInit;
 use memory_model::volatile_memory::*;
+use memory_model::DataInit;
 use mmap::{self, MemoryMapping};
 
 #[derive(Debug)]
