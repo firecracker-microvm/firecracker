@@ -40,8 +40,8 @@ use metrics::get_metrics;
 
 use chrono::Local;
 use std::result;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+use std::sync::Arc;
 
 use writers::*;
 

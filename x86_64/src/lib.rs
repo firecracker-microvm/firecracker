@@ -56,8 +56,8 @@ pub mod regs;
 use std::mem;
 use std::result;
 
-use bootparam::E820_RAM;
 use bootparam::boot_params;
+use bootparam::E820_RAM;
 use sys_util::{GuestAddress, GuestMemory};
 
 pub use interrupts::Error as IntError;
