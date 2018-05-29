@@ -6,6 +6,7 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 [dependencies]
 clap = "=2.27.1"
 libc = ">=0.2.39"
+regex = ">=1.0.0"
 
 api_server = { path = "api_server" }
 vmm = { path = "vmm" }
