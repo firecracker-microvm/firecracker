@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::result;
 
 use api_server::request::sync::{Error as SyncError, NetworkInterfaceBody,
-                                OkStatus as SyncOkStatus, RateLimiter};
+                                OkStatus as SyncOkStatus, RateLimiterDescription};
 use net_util::{MacAddr, Tap, TapError};
 
 pub struct NetworkInterfaceConfig {
@@ -19,8 +19,8 @@ pub struct NetworkInterfaceConfig {
     // and if so, we want to report the failure back to the API caller immediately. This is an
     // option, because the inner value will be moved to the actual virtio net device before boot.
     pub tap: Option<Tap>,
-    pub rx_rate_limiter: Option<RateLimiter>,
-    pub tx_rate_limiter: Option<RateLimiter>,
+    pub rx_rate_limiter: Option<RateLimiterDescription>,
+    pub tx_rate_limiter: Option<RateLimiterDescription>,
 }
 
 impl NetworkInterfaceConfig {
@@ -106,8 +106,8 @@ mod tests {
                 state: DeviceState::Attached,
                 host_dev_name: String::from("bar"),
                 guest_mac: Some(mac.clone()),
-                rx_rate_limiter: Some(RateLimiter::default()),
-                tx_rate_limiter: Some(RateLimiter::default()),
+                rx_rate_limiter: Some(RateLimiterDescription::default()),
+                tx_rate_limiter: Some(RateLimiterDescription::default()),
             };
             assert!(netif_configs.put(netif_body.clone()).is_ok());
             assert_eq!(netif_configs.if_list.len(), 1);

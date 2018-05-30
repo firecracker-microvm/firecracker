@@ -4,7 +4,6 @@ extern crate libc;
 extern crate api_server;
 extern crate data_model;
 extern crate devices;
-extern crate fc_util;
 extern crate kernel_loader;
 extern crate kvm;
 extern crate kvm_sys;
@@ -35,10 +34,12 @@ use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
                                                        PutMachineConfigurationOutcome};
-use api_server::request::sync::{APILoggerDescription, BootSourceBody, DriveDescription,
+use api_server::request::sync::{rate_limiter_description_into_implementation,
+                                APILoggerDescription, BootSourceBody, DriveDescription,
                                 DriveError, Error as SyncError, GenerateResponse,
                                 NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
                                 PutLoggerOutcome, SyncOutcomeSender, SyncRequest};
+
 use api_server::ApiRequest;
 use data_model::vm::MachineConfiguration;
 use device_config::*;
@@ -47,7 +48,6 @@ use device_manager::mmio::MMIODeviceManager;
 
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
-use fc_util::ratelimiter::RateLimiter;
 use kvm::*;
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use vm_control::VmResponse;
@@ -565,15 +565,9 @@ impl Vmm {
                     .map_err(Error::RootDiskImage)?;
                 let epoll_config = epoll_context.allocate_virtio_block_tokens();
 
-                let rate_limiter = match drive_config.rate_limiter.as_ref() {
-                    Some(rl) => Some(RateLimiter::new(
-                        rl.bandwidth.size,
-                        rl.bandwidth.refill_time,
-                        rl.ops.size,
-                        rl.ops.refill_time,
-                    ).map_err(Error::RateLimiterNew)?),
-                    None => None,
-                };
+                let rate_limiter = rate_limiter_description_into_implementation(
+                    drive_config.rate_limiter.as_ref(),
+                ).map_err(Error::RateLimiterNew)?;
                 let block_box = Box::new(devices::virtio::Block::new(
                     root_image,
                     drive_config.is_read_only,
@@ -609,25 +603,12 @@ impl Vmm {
         for cfg in self.network_interface_configs.iter_mut() {
             let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
 
-            // TODO: implement from to reduce code
-            let rx_rate_limiter = match cfg.rx_rate_limiter.as_ref() {
-                Some(rl) => Some(RateLimiter::new(
-                    rl.bandwidth.size,
-                    rl.bandwidth.refill_time,
-                    rl.ops.size,
-                    rl.ops.refill_time,
-                ).map_err(Error::RateLimiterNew)?),
-                None => None,
-            };
-            let tx_rate_limiter = match cfg.tx_rate_limiter.as_ref() {
-                Some(rl) => Some(RateLimiter::new(
-                    rl.bandwidth.size,
-                    rl.bandwidth.refill_time,
-                    rl.ops.size,
-                    rl.ops.refill_time,
-                ).map_err(Error::RateLimiterNew)?),
-                None => None,
-            };
+            let rx_rate_limiter = rate_limiter_description_into_implementation(
+                cfg.rx_rate_limiter.as_ref(),
+            ).map_err(Error::RateLimiterNew)?;
+            let tx_rate_limiter = rate_limiter_description_into_implementation(
+                cfg.tx_rate_limiter.as_ref(),
+            ).map_err(Error::RateLimiterNew)?;
 
             if let Some(tap) = cfg.take_tap() {
                 let net_box = Box::new(devices::virtio::Net::new_with_tap(
