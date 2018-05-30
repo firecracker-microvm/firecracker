@@ -24,9 +24,11 @@ mod vstate;
 
 use std::ffi::CString;
 use std::fs::{metadata, File, OpenOptions};
+use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::ptr::null_mut;
 use std::result;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
@@ -50,6 +52,7 @@ use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
 use fc_util::ratelimiter::RateLimiter;
 use kvm::*;
+use kvm_sys::kvm_run;
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use vm_control::VmResponse;
 use vstate::{Vcpu, Vm};
@@ -58,7 +61,14 @@ pub const KERNEL_START_OFFSET: usize = 0x200000;
 pub const CMDLINE_OFFSET: usize = 0x20000;
 pub const CMDLINE_MAX_SIZE: usize = KERNEL_START_OFFSET - CMDLINE_OFFSET;
 pub const DEFAULT_KERNEL_CMDLINE: &str = "console=ttyS0 noapic reboot=k panic=1 pci=off nomodules";
-const VCPU_RTSIG_OFFSET: u8 = 0;
+const VCPU_RTSIG_OFFSET: i32 = 0;
+
+// This is used to allow the signal handler to set the immediate_exit flag on a vCPU's kvm_run
+// struct whenever we send the designated signal to the vCPU thread. It needs to be thread local,
+// because each thread has its own associated kvm_run struct.
+thread_local! {
+    static KVM_RUN_PTR: AtomicPtr<kvm_run> = AtomicPtr::new(null_mut());
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -674,6 +684,24 @@ impl Vmm {
         // safe to unwrap since it's set just above
         let kill_signaled = self.kill_signaled.as_mut().unwrap();
 
+        extern "C" fn handle_signal() {
+            let kvm_run_ptr = KVM_RUN_PTR.with(|x| x.load(Ordering::Relaxed));
+            if kvm_run_ptr != null_mut() {
+                // This is actually safe because we know KVM_RUN_PTR points to a valid memory
+                // location if it's non-null (there can be no intermediate state, because of
+                // the AtomicPtr).
+                unsafe {
+                    (*kvm_run_ptr).immediate_exit = 1;
+                }
+            }
+        }
+
+        unsafe {
+            // async signal safe handler used to kill the vcpu handles.
+            register_signal_handler(VCPU_RTSIG_OFFSET, handle_signal)
+                .expect("failed to register vcpu signal handler");
+        }
+
         let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
 
         for cpu_id in 0..vcpu_count {
@@ -693,18 +721,19 @@ impl Vmm {
             let kernel_config = self.kernel_config.as_mut().unwrap();
             vcpu.configure(vcpu_count, kernel_config.kernel_start_addr, &self.vm)
                 .map_err(Error::VcpuConfigure)?;
+
+            let kvm_run_ptr = vcpu.get_run() as *mut kvm_run as usize;
+
             vcpu_handles.push(thread::Builder::new()
                 .name(format!("fc_vcpu{}", cpu_id))
                 .spawn(move || {
-                    unsafe {
-                        extern "C" fn handle_signal() {}
-                        // async signal safe handler used to kill the vcpu handles.
-                        register_signal_handler(VCPU_RTSIG_OFFSET, handle_signal)
-                            .expect("failed to register vcpu signal handler");
-                    }
+                    // We want to replace the value inside this thread's KVM_RUN_PTR with the
+                    // address of its kvm_run struct.
+                    KVM_RUN_PTR.with(|x| {
+                        x.store(kvm_run_ptr as *mut kvm_run, Ordering::Relaxed);
+                    });
 
                     vcpu_thread_barrier.wait();
-
                     loop {
                         match vcpu.run() {
                             Ok(run) => match run {
@@ -735,7 +764,12 @@ impl Vmm {
                             },
                             Err(e) => match e {
                                 vstate::Error::VcpuRun(ref v) => match v.errno() {
-                                    libc::EAGAIN | libc::EINTR => {}
+                                    libc::EAGAIN => {
+                                        // TODO: we might want to count these
+                                    }
+                                    libc::EINTR => {
+                                        // TODO: we probably want to count these
+                                    }
                                     _ => {
                                         error!("vcpu hit unknown error: {:?}", e);
                                         break;
@@ -885,7 +919,13 @@ impl Vmm {
 
         // TODO: try handling of errors/failures without breaking this main loop.
         'poll: loop {
-            let num_events = epoll::wait(epoll_raw_fd, -1, &mut events[..]).map_err(Error::Poll)?;
+            let num_events = match epoll::wait(epoll_raw_fd, -1, &mut events[..]) {
+                Ok(n) => n,
+                Err(e) => match e.kind() {
+                    io::ErrorKind::Interrupted => continue,
+                    _ => return Err(Error::Poll(e)),
+                },
+            };
 
             for i in 0..num_events {
                 let dispatch_idx = events[i].data() as usize;

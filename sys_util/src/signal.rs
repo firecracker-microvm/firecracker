@@ -2,10 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-use super::{errno_result, Error, Result};
-use libc::{c_int, pthread_kill, pthread_t, signal, EINVAL, SIG_ERR};
+use std::mem;
 use std::os::unix::thread::JoinHandleExt;
+use std::ptr::null_mut;
 use std::thread::JoinHandle;
+
+use libc::{c_int, pthread_kill, pthread_t, sigaction, EINVAL};
+
+use super::{errno_result, Error, Result};
 
 extern "C" {
     fn __libc_current_sigrtmin() -> c_int;
@@ -24,8 +28,8 @@ fn SIGRTMAX() -> c_int {
     unsafe { __libc_current_sigrtmax() }
 }
 
-fn valid_signal_num(num: u8) -> bool {
-    (num as c_int) + SIGRTMIN() <= SIGRTMAX()
+fn valid_signal_num(num: c_int) -> bool {
+    num + SIGRTMIN() <= SIGRTMAX()
 }
 
 /// Registers `handler` as the signal handler of signum `num + SIGRTMIN`.
@@ -34,12 +38,16 @@ fn valid_signal_num(num: u8) -> bool {
 ///
 /// This is considered unsafe because the given handler will be called asynchronously, interrupting
 /// whatever the thread was doing and therefore must only do async-signal-safe operations.
-pub unsafe fn register_signal_handler(num: u8, handler: extern "C" fn() -> ()) -> Result<()> {
+pub unsafe fn register_signal_handler(num: c_int, handler: extern "C" fn() -> ()) -> Result<()> {
     if !valid_signal_num(num) {
         return Err(Error::new(EINVAL));
     }
-    let ret = signal((num as i32) + SIGRTMIN(), handler as *const () as usize);
-    if ret == SIG_ERR {
+
+    let mut sigact: sigaction = mem::zeroed();
+    sigact.sa_sigaction = handler as *const () as usize;
+
+    let ret = sigaction(SIGRTMIN() + num, &sigact, null_mut());
+    if ret < 0 {
         return errno_result();
     }
 
@@ -59,7 +67,7 @@ pub unsafe trait Killable {
     /// Sends the signal `num + SIGRTMIN` to this killable thread.
     ///
     /// The value of `num + SIGRTMIN` must not exceed `SIGRTMAX`.
-    fn kill(&self, num: u8) -> Result<()> {
+    fn kill(&self, num: c_int) -> Result<()> {
         if !valid_signal_num(num) {
             return Err(Error::new(EINVAL));
         }
@@ -100,11 +108,8 @@ mod tests {
     fn test_register_signal_handler() {
         // testing bad value
         unsafe {
-            assert!(register_signal_handler(SIGRTMAX() as u8, handle_signal).is_err());
-            format!(
-                "{:?}",
-                register_signal_handler(SIGRTMAX() as u8, handle_signal)
-            );
+            assert!(register_signal_handler(SIGRTMAX(), handle_signal).is_err());
+            format!("{:?}", register_signal_handler(SIGRTMAX(), handle_signal));
         }
 
         unsafe {
@@ -128,7 +133,7 @@ mod tests {
 
         let killable = thread::spawn(|| loop {});
 
-        let res = killable.kill(SIGRTMAX() as u8);
+        let res = killable.kill(SIGRTMAX());
         assert!(res.is_err());
         format!("{:?}", res);
 
