@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use std::result;
 
-use api_server::request::sync::{DriveDescription, DriveError, RateLimiter};
+use api_server::request::sync::{DriveDescription, DriveError, RateLimiterDescription};
 
 type Result<T> = result::Result<T, DriveError>;
 
@@ -14,7 +14,7 @@ pub struct BlockDeviceConfig {
     pub path_on_host: PathBuf,
     pub is_root_device: bool,
     pub is_read_only: bool,
-    pub rate_limiter: Option<RateLimiter>,
+    pub rate_limiter: Option<RateLimiterDescription>,
 }
 
 // Wrapper for the collection that holds all the Block Devices Configs

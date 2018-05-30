@@ -3,7 +3,7 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Response, StatusCode};
 
-use super::rate_limiter::RateLimiter;
+use super::rate_limiter::RateLimiterDescription;
 use super::{DeviceState, GenerateResponse, SyncRequest};
 use http_service::{empty_response, json_fault_message, json_response};
 use request::ParsedRequest;
@@ -25,7 +25,7 @@ pub struct DriveDescription {
     pub is_root_device: bool,
     pub permissions: DrivePermissions,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rate_limiter: Option<RateLimiter>,
+    pub rate_limiter: Option<RateLimiterDescription>,
 }
 
 impl DriveDescription {

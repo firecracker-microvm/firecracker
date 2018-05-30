@@ -2,7 +2,7 @@ use std::result;
 
 use futures::sync::oneshot;
 
-use super::{DeviceState, RateLimiter, SyncRequest};
+use super::{DeviceState, RateLimiterDescription, SyncRequest};
 
 use net_util::MacAddr;
 use request::ParsedRequest;
@@ -17,9 +17,9 @@ pub struct NetworkInterfaceBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_mac: Option<MacAddr>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rx_rate_limiter: Option<RateLimiter>,
+    pub rx_rate_limiter: Option<RateLimiterDescription>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tx_rate_limiter: Option<RateLimiter>,
+    pub tx_rate_limiter: Option<RateLimiterDescription>,
 }
 
 impl NetworkInterfaceBody {
@@ -74,8 +74,8 @@ mod tests {
             state: DeviceState::Attached,
             host_dev_name: String::from("bar"),
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
-            rx_rate_limiter: Some(RateLimiter::default()),
-            tx_rate_limiter: Some(RateLimiter::default()),
+            rx_rate_limiter: Some(RateLimiterDescription::default()),
+            tx_rate_limiter: Some(RateLimiterDescription::default()),
         };
 
         // This is the json encoding of the netif variable.

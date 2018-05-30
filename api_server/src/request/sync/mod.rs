@@ -19,7 +19,8 @@ pub use self::boot_source::{BootSourceBody, BootSourceType, LocalImage};
 pub use self::drive::{DriveDescription, DriveError, DrivePermissions, PutDriveOutcome};
 pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, PutLoggerOutcome};
 pub use self::net::NetworkInterfaceBody;
-pub use self::rate_limiter::RateLimiter;
+pub use self::rate_limiter::description_into_implementation as rate_limiter_description_into_implementation;
+pub use self::rate_limiter::RateLimiterDescription;
 
 // Unlike async requests, sync request have outcomes which implement this trait. The idea is for
 // each outcome to be a struct which is cheaply and quickly instantiated by the VMM thread, then
