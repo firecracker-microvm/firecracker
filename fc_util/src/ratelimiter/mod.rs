@@ -363,16 +363,16 @@ mod tests {
 
     #[test]
     fn test_token_bucket_reduce() {
-        // token bucket with capacity 1000 and refill time of 1 millisecond
+        // token bucket with capacity 1000 and refill time of 1000 milliseconds
+        // allowing rate of 1 token/ms
         let capacity = 1000;
-        let refill_ms = 1;
-        let refill_duration = Duration::from_millis(refill_ms);
+        let refill_ms = 1000;
         let mut tb = TokenBucket::new(capacity, refill_ms as u64);
 
         assert!(tb.reduce(123));
         assert_eq!(tb.get_current_budget(), capacity - 123);
 
-        thread::sleep(refill_duration);
+        thread::sleep(Duration::from_millis(123));
         assert!(tb.reduce(1));
         assert_eq!(tb.get_current_budget(), capacity - 1);
         assert!(tb.reduce(100));
