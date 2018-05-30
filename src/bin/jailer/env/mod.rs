@@ -6,7 +6,11 @@ use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio, exit};
 
+mod cgroup;
+use self::cgroup::Cgroup;
+
 pub struct Env {
+    cgroup: Cgroup,
     chroot_dir: String,
     chroot_exec_file: String,
 }
@@ -57,10 +61,14 @@ impl Env {
         }
         let mut chroot_exec_file = PathBuf::from("/");
         chroot_exec_file.push(exec_file_name);
-        Env { chroot_dir: chroot_dir.to_str().unwrap().to_string(), chroot_exec_file: chroot_exec_file.to_str().unwrap().to_string(), }
+        let cgroup = Cgroup::new(&id, &exec_file_name);
+        Env { cgroup: cgroup,
+              chroot_dir: chroot_dir.to_str().unwrap().to_string(),
+              chroot_exec_file: chroot_exec_file.to_str().unwrap().to_string(), }
     }
 
     pub fn run(self) {
+        self.cgroup.run();
         let chroot_dir = CString::new(self.chroot_dir.clone()).unwrap();
         let ret = unsafe { libc::chroot(chroot_dir.as_ptr()) };
         if ret < 0 {
