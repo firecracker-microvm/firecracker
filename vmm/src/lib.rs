@@ -141,7 +141,7 @@ impl KvmContext {
         check_cap(&kvm, Cap::Irqchip)?;
         check_cap(&kvm, Cap::Ioeventfd)?;
         check_cap(&kvm, Cap::Irqfd)?;
-        check_cap(&kvm, Cap::ImmediateExit)?;
+        // check_cap(&kvm, Cap::ImmediateExit)?;
         check_cap(&kvm, Cap::SetTssAddr)?;
         check_cap(&kvm, Cap::UserMemory)?;
 
