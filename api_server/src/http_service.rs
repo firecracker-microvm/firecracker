@@ -126,18 +126,26 @@ fn parse_actions_req<'a>(
 
         1 if method == Method::Put => {
             let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
+            trace!("{:?}", LogMetric::MetricPutAsyncActionCount);
             let async_body: AsyncRequestBody =
-                serde_json::from_slice(body.as_ref()).map_err(Error::SerdeJson)?;
-            let parsed_req = async_body
-                .to_parsed_request(unwrapped_id)
-                .map_err(|msg| Error::Generic(StatusCode::BadRequest, msg))?;
+                serde_json::from_slice(body.as_ref()).map_err(|e| {
+                    trace!("{:?}", LogMetric::MetricPutAsyncActionFailures);
+                    Error::SerdeJson(e)
+                })?;
+            let parsed_req = async_body.to_parsed_request(unwrapped_id).map_err(|msg| {
+                trace!("{:?}", LogMetric::MetricPutAsyncActionFailures);
+                Error::Generic(StatusCode::BadRequest, msg)
+            })?;
             action_map
                 .borrow_mut()
                 .insert_unique(
                     String::from(unwrapped_id),
                     ActionMapValue::Pending(async_body),
                 )
-                .map_err(|_| Error::ActionExists)?;
+                .map_err(|_| {
+                    trace!("{:?}", LogMetric::MetricPutAsyncActionFailures);
+                    Error::ActionExists
+                })?;
             Ok(parsed_req)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -155,31 +163,18 @@ fn parse_boot_source_req<'a>(
         0 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
         0 if method == Method::Put => {
-            trace!("{:?}", LogMetric::MetricPutBootSourceRate);
+            trace!("{:?}", LogMetric::MetricPutBootSourceCount);
             Ok(serde_json::from_slice::<request::BootSourceBody>(body)
-                .map_err(Error::SerdeJson)?
+                .map_err(|e| {
+                    trace!("{:?}", LogMetric::MetricPutBootSourceFailures);
+                    Error::SerdeJson(e)
+                })?
                 .into_parsed_request()
-                .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?)
+                .map_err(|s| {
+                    trace!("{:?}", LogMetric::MetricPutBootSourceFailures);
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
         }
-        _ => Err(Error::InvalidPathMethod(path, method)),
-    }
-}
-
-// Turns a GET/PUT /boot-source HTTP request into a ParsedRequest
-fn parse_logger_req<'a>(
-    path_tokens: &Vec<&str>,
-    path: &'a str,
-    method: Method,
-    body: &Chunk,
-) -> Result<'a, ParsedRequest> {
-    match path_tokens[1..].len() {
-        0 if method == Method::Get => Ok(ParsedRequest::Dummy),
-
-        0 if method == Method::Put => Ok(serde_json::from_slice::<request::APILoggerDescription>(
-            body,
-        ).map_err(Error::SerdeJson)?
-            .into_parsed_request()
-            .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -197,10 +192,49 @@ fn parse_drives_req<'a>(
 
         1 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
-        1 if method == Method::Put => Ok(serde_json::from_slice::<request::DriveDescription>(body)
-            .map_err(Error::SerdeJson)?
-            .into_parsed_request(id_from_path.ok_or(Error::InvalidID)?)
-            .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
+        1 if method == Method::Put => {
+            trace!("{:?}", LogMetric::MetricPutDriveCount);
+            Ok(serde_json::from_slice::<request::DriveDescription>(body)
+                .map_err(|e| {
+                    trace!("{:?}", LogMetric::MetricPutDriveFailures);
+                    Error::SerdeJson(e)
+                })?
+                .into_parsed_request(id_from_path.unwrap())
+                .map_err(|s| {
+                    trace!("{:?}", LogMetric::MetricPutDriveFailures);
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
+        }
+        _ => Err(Error::InvalidPathMethod(path, method)),
+    }
+}
+
+// Turns a GET/PUT /logger HTTP request into a ParsedRequest
+fn parse_logger_req<'a>(
+    path_tokens: &Vec<&str>,
+    path: &'a str,
+    method: Method,
+    body: &Chunk,
+) -> Result<'a, ParsedRequest> {
+    match path_tokens[1..].len() {
+        0 if method == Method::Get => Ok(ParsedRequest::Dummy),
+
+        0 if method == Method::Put => {
+            trace!("{:?}", LogMetric::MetricPutLoggerCount);
+
+            Ok(
+                serde_json::from_slice::<request::APILoggerDescription>(body)
+                    .map_err(|e| {
+                        trace!("{:?}", LogMetric::MetricPutLoggerFailures);
+                        Error::SerdeJson(e)
+                    })?
+                    .into_parsed_request()
+                    .map_err(|s| {
+                        trace!("{:?}", LogMetric::MetricPutLoggerFailures);
+                        Error::Generic(StatusCode::BadRequest, s)
+                    })?,
+            )
+        }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -214,6 +248,7 @@ fn parse_machine_config_req<'a>(
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
         0 if method == Method::Get => {
+            trace!("{:?}", LogMetric::MetricGetMachineCfgCount);
             let empty_machine_config = MachineConfiguration {
                 vcpu_count: None,
                 mem_size_mib: None,
@@ -222,13 +257,25 @@ fn parse_machine_config_req<'a>(
             };
             Ok(empty_machine_config
                 .into_parsed_request(method)
-                .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?)
+                .map_err(|s| {
+                    trace!("{:?}", LogMetric::MetricGetMachineCfgFailures);
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
         }
 
-        0 if method == Method::Put => Ok(serde_json::from_slice::<MachineConfiguration>(body)
-            .map_err(Error::SerdeJson)?
-            .into_parsed_request(method)
-            .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?),
+        0 if method == Method::Put => {
+            trace!("{:?}", LogMetric::MetricPutMachineCfgCount);
+            Ok(serde_json::from_slice::<MachineConfiguration>(body)
+                .map_err(|e| {
+                    trace!("{:?}", LogMetric::MetricPutMachineCfgFailures);
+                    Error::SerdeJson(e)
+                })?
+                .into_parsed_request(method)
+                .map_err(|s| {
+                    trace!("{:?}", LogMetric::MetricPutMachineCfgFailures);
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
+        }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -248,11 +295,19 @@ fn parse_netif_req<'a>(
 
         1 if method == Method::Put => {
             let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
+            trace!("{:?}", LogMetric::MetricPutNetworkCount);
+
             Ok(
                 serde_json::from_slice::<request::NetworkInterfaceBody>(body)
-                    .map_err(Error::SerdeJson)?
+                    .map_err(|e| {
+                        trace!("{:?}", LogMetric::MetricPutNetworkFailures);
+                        Error::SerdeJson(e)
+                    })?
                     .into_parsed_request(unwrapped_id)
-                    .map_err(|s| Error::Generic(StatusCode::BadRequest, s))?,
+                    .map_err(|s| {
+                        trace!("{:?}", LogMetric::MetricPutNetworkFailures);
+                        Error::Generic(StatusCode::BadRequest, s)
+                    })?,
             )
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -379,6 +434,7 @@ impl hyper::server::Service for ApiServerHttpService {
         // into the closure that follows.
         let mut action_map = self.action_map.clone();
         let method = req.method().clone();
+        let method_copy = req.method().clone();
         let path = String::from(req.path());
         let shared_info_lock = self.vmm_shared_info.clone();
         let api_request_sender = self.api_request_sender.clone();
@@ -398,38 +454,46 @@ impl hyper::server::Service for ApiServerHttpService {
                     // TODO: remove this when all actions are implemented.
                     Dummy => Either::A(future::ok(json_response(StatusCode::Ok, "I'm a dummy."))),
                     GetInstanceInfo => {
+                        trace!("{:?}", LogMetric::MetricGetInstanceInfoCount);
                         // unwrap() to crash if the other thread poisoned this lock
                         let shared_info = shared_info_lock.read().unwrap();
                         // Serialize it to a JSON string.
                         let body_result = serde_json::to_string(&(*shared_info));
                         match body_result {
                             Ok(body) => Either::A(future::ok(json_response(StatusCode::Ok, body))),
-                            Err(e) => Either::A(future::ok(json_response(
-                                StatusCode::InternalServerError,
-                                json_fault_message(e.to_string()),
-                            ))),
+                            Err(e) => {
+                                trace!("{:?}", LogMetric::MetricGetInstanceInfoFailures);
+                                Either::A(future::ok(json_response(
+                                    StatusCode::InternalServerError,
+                                    json_fault_message(e.to_string()),
+                                )))
+                            }
                         }
                     }
                     GetActions => {
                         // TODO: return a proper response, both here and for other requests which
                         // are in a similar condition right now.
+                        // not yet documented; should I add rate metric?
                         Either::A(future::ok(empty_response(StatusCode::Ok)))
                     }
-                    GetAction(id) => match action_map.borrow().get(&id) {
-                        Some(value) => match *value {
-                            ActionMapValue::Pending(_) => Either::A(future::ok(json_response(
-                                StatusCode::Conflict,
-                                json_fault_message("Action is still pending."),
+                    GetAction(id) => {
+                        trace!("{:?}", LogMetric::MetricGetActionInfoCount);
+                        match action_map.borrow().get(&id) {
+                            Some(value) => match *value {
+                                ActionMapValue::Pending(_) => Either::A(future::ok(json_response(
+                                    StatusCode::Conflict,
+                                    json_fault_message("Action is still pending."),
+                                ))),
+                                ActionMapValue::JsonResponse(ref status, ref body) => Either::A(
+                                    future::ok(json_response(status.clone(), body.clone())),
+                                ),
+                            },
+                            None => Either::A(future::ok(json_response(
+                                StatusCode::NotFound,
+                                json_fault_message("Action not found."),
                             ))),
-                            ActionMapValue::JsonResponse(ref status, ref body) => {
-                                Either::A(future::ok(json_response(status.clone(), body.clone())))
-                            }
-                        },
-                        None => Either::A(future::ok(json_response(
-                            StatusCode::NotFound,
-                            json_fault_message("Action not found."),
-                        ))),
-                    },
+                        }
+                    }
                     Async(id, async_req, outcome_receiver) => {
                         if send_to_vmm(
                             ApiRequest::Async(async_req),
@@ -437,10 +501,15 @@ impl hyper::server::Service for ApiServerHttpService {
                             &vmm_send_event,
                         ).is_err()
                         {
+                            trace!("{:?}", LogMetric::MetricAsyncVMMSendTimeoutCount);
                             // hyper::Error::Cancel would have been more appropriate, but it's no
                             // longer available for some reason.
                             return Either::A(future::err(hyper::Error::Timeout));
                         }
+
+                        let b_str = String::from_utf8_lossy(&b.to_vec()).to_string();
+                        let path_dbg = path.clone();
+                        trace!("Sent {}", describe(false, &method_copy, &path, &b_str));
 
                         // We have to explicitly spawn a future that will handle the outcome of the
                         // async request.
@@ -449,7 +518,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                 .map(move |outcome| {
                                     // Let's see if the action is still in the map (it might have
                                     // been evicted by newer actions, although that's extremely
-                                    // unlikely under in normal circumstances).
+                                    // unlikely under normal circumstances).
                                     let (response_status, json_body) = match action_map
                                         .borrow_mut()
                                         .get_mut(id.as_str())
@@ -460,6 +529,15 @@ impl hyper::server::Service for ApiServerHttpService {
                                             match outcome {
                                                 AsyncOutcome::Ok(timestamp) => {
                                                     async_body.set_timestamp(timestamp);
+                                                    trace!(
+                                                        "Received Success on {}",
+                                                        describe(
+                                                            false,
+                                                            &method_copy,
+                                                            &path_dbg,
+                                                            &b_str
+                                                        )
+                                                    );
                                                     // We use unwrap because the serialize operation
                                                     // should not fail in this case.
                                                     (
@@ -467,13 +545,34 @@ impl hyper::server::Service for ApiServerHttpService {
                                                         serde_json::to_string(&async_body).unwrap(),
                                                     )
                                                 }
-                                                AsyncOutcome::Error(msg) => (
-                                                    StatusCode::BadRequest,
-                                                    json_fault_message(msg),
-                                                ),
+                                                AsyncOutcome::Error(msg) => {
+                                                    trace!(
+                                                        "Received Error on {}",
+                                                        describe(
+                                                            false,
+                                                            &method_copy,
+                                                            &path_dbg,
+                                                            &b_str
+                                                        )
+                                                    );
+                                                    trace!(
+                                                        "{:?}",
+                                                        LogMetric::MetricSyncOutcomeFailures
+                                                    );
+                                                    (
+                                                        StatusCode::BadRequest,
+                                                        json_fault_message(msg),
+                                                    )
+                                                }
                                             }
                                         }
-                                        _ => return,
+                                        _ => {
+                                            trace!(
+                                                "{:?}",
+                                                LogMetric::MetricAsyncMissedActionsCount
+                                            );
+                                            return;
+                                        }
                                     };
                                     // Replace the old value with the already built response.
                                     action_map.borrow_mut().insert(
@@ -481,7 +580,9 @@ impl hyper::server::Service for ApiServerHttpService {
                                         ActionMapValue::JsonResponse(response_status, json_body),
                                     );
                                 })
-                                .map_err(|_| ()),
+                                .map_err(|_| {
+                                    trace!("{:?}", LogMetric::MetricAsyncOutcomeFailures);
+                                }),
                         );
 
                         // This is returned immediately; the previous handle.spawn() just registers
@@ -495,22 +596,67 @@ impl hyper::server::Service for ApiServerHttpService {
                             &vmm_send_event,
                         ).is_err()
                         {
+                            trace!("{:?}", LogMetric::MetricAsyncVMMSendTimeoutCount);
                             return Either::A(future::err(hyper::Error::Timeout));
                         }
+
+                        // metric-logging related variables for being able to log response details
+                        let b_str = String::from_utf8_lossy(&b.to_vec()).to_string();
+                        let b_str_err = String::from_utf8_lossy(&b.to_vec()).to_string();
+                        let path_copy = path.clone();
+                        let path_copy_err = path_copy.clone();
+                        let method_copy_err = method_copy.clone();
+
+                        trace!("Sent {}", describe(true, &method_copy, &path, &b_str));
 
                         // Sync requests don't receive a response until the outcome is returned.
                         // Once more, this just registers a closure to run when the result is
                         // available.
                         Either::B(
                             outcome_receiver
-                                .map(|x| x.generate_response())
-                                .map_err(|_| hyper::Error::Timeout),
+                                .map(move |x| {
+                                    trace!(
+                                        "Received Success on {}",
+                                        describe(true, &method_copy, &path_copy, &b_str)
+                                    );
+                                    x.generate_response()
+                                })
+                                .map_err(move |_| {
+                                    trace!(
+                                        "Received Error on {}",
+                                        describe(
+                                            true,
+                                            &method_copy_err,
+                                            &path_copy_err,
+                                            &b_str_err
+                                        )
+                                    );
+                                    trace!("{:?}", LogMetric::MetricSyncOutcomeFailures);
+                                    hyper::Error::Timeout
+                                }),
                         )
                     }
                 },
                 Err(e) => Either::A(future::ok(e.into())),
             }
         }))
+    }
+}
+
+/// Helper function for metric-logging purposes on API requests
+/// `sync` refers to whether or not the function is synchronous or not (false)
+/// `method` is whether PUT or GET
+/// `path` and `body` represent path of the API request and body, respectively
+fn describe(sync: bool, method: &Method, path: &String, body: &String) -> String {
+    match sync {
+        false => format!(
+            "asynchronous {:?} request {:?} with body {:?}",
+            method, path, body
+        ),
+        true => format!(
+            "synchronous {:?} request {:?} with body {:?}",
+            method, path, body
+        ),
     }
 }
 
@@ -1095,5 +1241,30 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_describe() {
+        let body: String = String::from("{ \"foo\": \"bar\" }");
+        let msj = describe(true, &Method::Get, &String::from("/foo/bar"), &body);
+        assert_eq!(
+            msj,
+            "synchronous Get request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+        );
+        let msj = describe(true, &Method::Put, &String::from("/foo/bar"), &body);
+        assert_eq!(
+            msj,
+            "synchronous Put request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+        );
+        let msj = describe(false, &Method::Get, &String::from("/foo/bar"), &body);
+        assert_eq!(
+            msj,
+            "asynchronous Get request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+        );
+        let msj = describe(false, &Method::Put, &String::from("/foo/bar"), &body);
+        assert_eq!(
+            msj,
+            "asynchronous Put request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+        );
     }
 }
