@@ -64,6 +64,9 @@ const INITIALIZED: usize = 2;
 
 static STATE: AtomicUsize = ATOMIC_USIZE_INIT;
 
+/// Time format
+const TIME_FMT: &str = "%Y-%m-%dT%H:%M:%S.%f";
+
 lazy_static! {
     pub static ref LOGGER: Logger = Logger::new();
 }
@@ -355,7 +358,7 @@ impl Log for Logger {
         if self.enabled(record.metadata()) {
             let mut msg = format!(
                 "{} {}{}{}",
-                Local::now().format("%Y-%m-%dT%H:%M:%S"),
+                Local::now().format(TIME_FMT),
                 self.create_prefix(&record),
                 MSG_SEPARATOR,
                 record.args()
@@ -382,7 +385,7 @@ impl Log for Logger {
                         Ok(t) => {
                             msg = format!(
                                 "{} {}{}{}",
-                                Local::now().format("%Y-%m-%dT%H:%M:%S"),
+                                Local::now().format(TIME_FMT),
                                 self.create_prefix(&record),
                                 MSG_SEPARATOR,
                                 t
@@ -396,7 +399,7 @@ impl Log for Logger {
                             _ => (),
                         },
                     },
-                    None => return,
+                    None => (),
                 }
             }
 
@@ -444,7 +447,7 @@ mod tests {
     use super::*;
     use log::MetadataBuilder;
 
-    use metrics::LogMetric::{MetricGetInstanceInfoFailures, MetricGetInstanceInfoRate};
+    use metrics::LogMetric::{MetricGetInstanceInfoCount, MetricGetInstanceInfoFailures};
     use std::fs::{copy, remove_file, File};
     use std::io::BufRead;
     use std::io::BufReader;
@@ -521,13 +524,13 @@ mod tests {
 
         // testing logging metric
         trace!("{:?}", MetricGetInstanceInfoFailures);
-        trace!("{:?}", MetricGetInstanceInfoRate);
+        trace!("{:?}", MetricGetInstanceInfoCount);
         sleep(Duration::from_secs(3));
         trace!("{:?}", MetricGetInstanceInfoFailures);
-        trace!("{:?}", MetricGetInstanceInfoRate);
+        trace!("{:?}", MetricGetInstanceInfoCount);
         sleep(Duration::from_secs(3));
         trace!("{:?}", MetricGetInstanceInfoFailures);
-        trace!("{:?}", MetricGetInstanceInfoRate);
+        trace!("{:?}", MetricGetInstanceInfoCount);
 
         // leaving this commented so that you can test this RFC
         copy(log_file_str(), "rfc.log").unwrap();
