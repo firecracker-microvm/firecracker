@@ -22,8 +22,6 @@ enum Category {
 enum Unit {
     CountPerSecond,
     Count,
-    #[allow(dead_code)]
-    Seconds,
 }
 
 ///  A metric definition
@@ -83,7 +81,6 @@ impl fmt::Debug for Metric {
                 let diff = SteadyTime::now() - self.last_logged;
                 self.counter as f32 / diff.num_seconds() as f32
             }
-            Unit::Seconds => self.counter as f32,
             Unit::Count => self.counter as f32,
         };
 
@@ -110,18 +107,36 @@ impl fmt::Debug for Metric {
 
 #[derive(Debug, Clone)]
 pub enum LogMetric {
+    MetricGetActionInfoCount,
     MetricGetInstanceInfoFailures,
-    MetricGetInstanceInfoRate,
+    MetricGetInstanceInfoCount,
+    MetricGetMachineCfgFailures,
+    MetricGetMachineCfgCount,
+    MetricPutAsyncActionFailures,
+    MetricPutAsyncActionCount,
     MetricPutBootSourceFailures,
-    MetricPutBootSourceRate,
+    MetricPutBootSourceCount,
+    MetricPutDriveFailures,
+    MetricPutDriveCount,
+    MetricPutLoggerFailures,
+    MetricPutLoggerCount,
+    MetricPutMachineCfgFailures,
+    MetricPutMachineCfgCount,
+    MetricPutNetworkFailures,
+    MetricPutNetworkCount,
+    MetricAsyncMissedActionsCount,
+    MetricAsyncOutcomeFailures,
+    MetricAsyncVMMSendTimeoutCount,
+    MetricSyncOutcomeFailures,
+    MetricSyncVMMSendTimeoutCount,
 }
 
 fn build_metrics() -> HashMap<String, Metric> {
     [
         (
-            format!("{:?}", LogMetric::MetricGetInstanceInfoRate),
+            format!("{:?}", LogMetric::MetricGetActionInfoCount),
             Metric {
-                key: LogMetric::MetricGetInstanceInfoRate,
+                key: LogMetric::MetricGetActionInfoCount,
                 category: Category::Api,
                 unit: Unit::CountPerSecond,
                 counter: 0,
@@ -143,9 +158,9 @@ fn build_metrics() -> HashMap<String, Metric> {
             },
         ),
         (
-            format!("{:?}", LogMetric::MetricPutBootSourceRate),
+            format!("{:?}", LogMetric::MetricGetInstanceInfoCount),
             Metric {
-                key: LogMetric::MetricPutBootSourceRate,
+                key: LogMetric::MetricGetInstanceInfoCount,
                 category: Category::Api,
                 unit: Unit::CountPerSecond,
                 counter: 0,
@@ -155,9 +170,225 @@ fn build_metrics() -> HashMap<String, Metric> {
             },
         ),
         (
+            format!("{:?}", LogMetric::MetricGetMachineCfgFailures),
+            Metric {
+                key: LogMetric::MetricGetMachineCfgFailures,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricGetMachineCfgCount),
+            Metric {
+                key: LogMetric::MetricGetMachineCfgCount,
+                category: Category::Api,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutAsyncActionFailures),
+            Metric {
+                key: LogMetric::MetricPutAsyncActionFailures,
+                category: Category::Api,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutAsyncActionCount),
+            Metric {
+                key: LogMetric::MetricPutAsyncActionCount,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
             format!("{:?}", LogMetric::MetricPutBootSourceFailures),
             Metric {
                 key: LogMetric::MetricPutBootSourceFailures,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutBootSourceCount),
+            Metric {
+                key: LogMetric::MetricPutBootSourceCount,
+                category: Category::Api,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutDriveFailures),
+            Metric {
+                key: LogMetric::MetricPutDriveFailures,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutDriveCount),
+            Metric {
+                key: LogMetric::MetricPutDriveCount,
+                category: Category::Api,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutLoggerFailures),
+            Metric {
+                key: LogMetric::MetricPutLoggerFailures,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutLoggerCount),
+            Metric {
+                key: LogMetric::MetricPutLoggerCount,
+                category: Category::Api,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutMachineCfgFailures),
+            Metric {
+                key: LogMetric::MetricPutMachineCfgFailures,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutMachineCfgCount),
+            Metric {
+                key: LogMetric::MetricPutMachineCfgCount,
+                category: Category::Api,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutNetworkFailures),
+            Metric {
+                key: LogMetric::MetricPutNetworkFailures,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricPutNetworkCount),
+            Metric {
+                key: LogMetric::MetricPutNetworkCount,
+                category: Category::Api,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricAsyncMissedActionsCount),
+            Metric {
+                key: LogMetric::MetricAsyncMissedActionsCount,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricAsyncOutcomeFailures),
+            Metric {
+                key: LogMetric::MetricAsyncOutcomeFailures,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricAsyncVMMSendTimeoutCount),
+            Metric {
+                key: LogMetric::MetricAsyncVMMSendTimeoutCount,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricSyncOutcomeFailures),
+            Metric {
+                key: LogMetric::MetricSyncOutcomeFailures,
+                category: Category::Api,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricSyncVMMSendTimeoutCount),
+            Metric {
+                key: LogMetric::MetricSyncVMMSendTimeoutCount,
                 category: Category::Api,
                 unit: Unit::Count,
                 counter: 0,
