@@ -201,9 +201,9 @@ pub struct EpollEvent {
     event_fd: EventFd,
 }
 
-//This should handle epoll related business from now on. A glaring shortcoming of the current
-//design is the liberal passing around of raw_fds, and duping of file descriptors. This issue
-//will be solved when we also implement device removal.
+// This should handle epoll related business from now on. A glaring shortcoming of the current
+// design is the liberal passing around of raw_fds, and duping of file descriptors. This issue
+// will be solved when we also implement device removal.
 pub struct EpollContext {
     epoll_raw_fd: RawFd,
     stdin_index: u64,

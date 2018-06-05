@@ -32,6 +32,7 @@ mod error;
 pub mod metrics;
 mod writers;
 
+use std::ops::Deref;
 use std::result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 use std::sync::{Mutex, MutexGuard};
@@ -41,7 +42,7 @@ use chrono::Local;
 use error::LoggerError;
 pub use log::Level::*;
 pub use log::*;
-use log::{set_boxed_logger, set_max_level, Log, Metadata, Record};
+use log::{set_logger, set_max_level, Log, Metadata, Record};
 use metrics::get_metrics;
 use writers::*;
 
@@ -62,6 +63,10 @@ const INITIALIZING: usize = 1;
 const INITIALIZED: usize = 2;
 
 static STATE: AtomicUsize = ATOMIC_USIZE_INIT;
+
+lazy_static! {
+    pub static ref LOGGER: Logger = Logger::new();
+}
 
 /// Output sources for the log subsystem.
 ///
@@ -303,7 +308,8 @@ impl Logger {
     ///         .unwrap();
     /// }
     /// ```
-    pub fn init(self, log_path: Option<String>) -> Result<()> {
+
+    pub fn init(&self, log_path: Option<String>) -> Result<()> {
         // if the logger was already initialized, return error
         if STATE.compare_and_swap(UNINITIALIZED, INITIALIZING, Ordering::SeqCst) != UNINITIALIZED {
             return Err(LoggerError::AlreadyInitialized);
@@ -314,9 +320,9 @@ impl Logger {
             match FileLogWriter::new(path) {
                 Ok(t) => {
                     // the mutex shouldn't be poisoned before init; PANIC!
-                    let mut g = self.file_guard();
+                    let mut g = LOGGER.file_guard();
                     *g = Some(t);
-                    self.level_info.set_writer(Destination::File);
+                    LOGGER.level_info.set_writer(Destination::File);
                 }
                 Err(ref e) => {
                     STATE.store(UNINITIALIZED, Ordering::SeqCst);
@@ -327,7 +333,7 @@ impl Logger {
 
         set_max_level(Level::Trace.to_level_filter());
 
-        if let Err(e) = set_boxed_logger(Box::new(self)) {
+        if let Err(e) = set_logger(LOGGER.deref()) {
             STATE.store(UNINITIALIZED, Ordering::SeqCst);
             return Err(LoggerError::NeverInitialized(format!("{}", e)));
         }
@@ -478,11 +484,11 @@ mod tests {
 
     #[test]
     fn test_init() {
-        let mut l = Logger::new();
+        let l = LOGGER.deref();
+
         l.set_include_origin(false, true);
         assert_eq!(l.show_line_numbers(), false);
 
-        let mut l = Logger::new();
         l.set_include_origin(true, true);
         l.set_include_level(true);
         l.set_level(log::Level::Info);
@@ -494,7 +500,6 @@ mod tests {
         info!("info");
         warn!("warning");
 
-        let l = Logger::new();
         assert!(l.init(None).is_err());
 
         info!("info");
@@ -529,11 +534,9 @@ mod tests {
         remove_file(log_file_str()).unwrap();
 
         // exercise the case when there is an error in opening file
-        let l = Logger::new();
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
         assert!(l.init(Some(String::from(""))).is_err());
 
-        let mut l = Logger::new();
         l.set_include_level(true);
         l.set_include_origin(false, false);
         let error_metadata = MetadataBuilder::new().level(Level::Error).build();
@@ -544,7 +547,6 @@ mod tests {
         assert_eq!(l.show_file_path(), false);
         assert_eq!(l.show_line_numbers(), false);
 
-        let mut l = Logger::new();
         l.set_include_level(false);
         l.set_include_origin(true, true);
         let error_metadata = MetadataBuilder::new().level(Level::Info).build();
@@ -563,7 +565,6 @@ mod tests {
             "Some(AlreadyInitialized)"
         );
 
-        let l = Logger::new();
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
         let res = format!("{:?}", l.init(Some(log_file_str())).err().unwrap());
         remove_file(log_file_str()).unwrap();
