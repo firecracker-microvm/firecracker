@@ -1,6 +1,7 @@
-use kvm::CpuId;
-
 use std::result;
+
+use data_model::vm::CPUFeaturesTemplate;
+use kvm::CpuId;
 
 // Basic CPUID Information
 mod leaf_0x1 {
@@ -168,10 +169,6 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     VcpuCountOverflow,
-}
-
-pub enum CPUFeaturesTemplate {
-    T2,
 }
 
 /// This function is used for setting leaf 01H EBX[23-16]

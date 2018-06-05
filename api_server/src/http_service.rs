@@ -218,6 +218,7 @@ fn parse_machine_config_req<'a>(
                 vcpu_count: None,
                 mem_size_mib: None,
                 ht_enabled: None,
+                cpu_template: None,
             };
             Ok(empty_machine_config
                 .into_parsed_request(method)
@@ -516,6 +517,7 @@ impl hyper::server::Service for ApiServerHttpService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use data_model::vm::CPUFeaturesTemplate;
     use fc_util::LriHashMap;
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
@@ -890,7 +892,8 @@ mod tests {
         let json = "{
                 \"vcpu_count\": 42,
                 \"mem_size_mib\": 1025,
-                \"ht_enabled\": true
+                \"ht_enabled\": true,
+                \"cpu_template\": \"T2\"
               }";
         let body: Chunk = Chunk::from(json);
 
@@ -911,6 +914,7 @@ mod tests {
             vcpu_count: Some(42),
             mem_size_mib: Some(1025),
             ht_enabled: Some(true),
+            cpu_template: Some(CPUFeaturesTemplate::T2),
         };
 
         match mcb.into_parsed_request(Method::Put) {

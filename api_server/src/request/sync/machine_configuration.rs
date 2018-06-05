@@ -65,12 +65,16 @@ impl GenerateResponse for MachineConfiguration {
             Some(v) => v.to_string(),
             None => String::from("Uninitialized"),
         };
+        let cpu_template = match self.cpu_template {
+            Some(ref v) => v.to_string(),
+            None => String::from("Uninitialized"),
+        };
 
         json_response(
             StatusCode::Ok,
             format!(
-                "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?},  \"ht_enabled\": {:?} }}",
-                vcpu_count, mem_size, ht_enabled
+                "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?},  \"ht_enabled\": {:?},  \"cpu_template\": {:?} }}",
+                vcpu_count, mem_size, ht_enabled, cpu_template
             ),
         )
     }
@@ -86,7 +90,7 @@ impl IntoParsedRequest for MachineConfiguration {
             )),
             Method::Put => {
                 if self.vcpu_count.is_none() && self.mem_size_mib.is_none()
-                    && self.ht_enabled.is_none()
+                    && self.cpu_template.is_none() && self.ht_enabled.is_none()
                 {
                     return Err(String::from("Empty request."));
                 }
@@ -103,6 +107,7 @@ impl IntoParsedRequest for MachineConfiguration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use data_model::vm::CPUFeaturesTemplate;
 
     #[test]
     fn test_generate_response_put_machine_configuration_error() {
@@ -148,6 +153,7 @@ mod tests {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
             ht_enabled: Some(true),
+            cpu_template: Some(CPUFeaturesTemplate::T2),
         };
         let (sender, receiver) = oneshot::channel();
         assert!(
@@ -162,6 +168,7 @@ mod tests {
             vcpu_count: None,
             mem_size_mib: None,
             ht_enabled: None,
+            cpu_template: None,
         };
         assert!(
             uninitialized
@@ -171,8 +178,14 @@ mod tests {
         );
         assert!(
             uninitialized
+                .clone()
                 .into_parsed_request(Method::Patch)
                 .eq(&Ok(ParsedRequest::Dummy))
         );
+
+        match uninitialized.into_parsed_request(Method::Put) {
+            Ok(_) => assert!(false),
+            Err(e) => assert_eq!(e, String::from("Empty request.")),
+        };
     }
 }

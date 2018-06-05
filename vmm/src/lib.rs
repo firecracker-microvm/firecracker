@@ -522,17 +522,16 @@ impl Vmm {
         }
 
         // Update all the fields that have a new value
-        self.vm_config.vcpu_count = match machine_config.vcpu_count {
-            Some(_) => machine_config.vcpu_count,
-            None => self.vm_config.vcpu_count,
-        };
-
-        self.vm_config.mem_size_mib = match machine_config.mem_size_mib {
-            Some(_) => machine_config.mem_size_mib,
-            None => self.vm_config.mem_size_mib,
-        };
-
+        self.vm_config.vcpu_count = Some(vcpu_count_value);
         self.vm_config.ht_enabled = Some(ht_enabled);
+
+        if machine_config.mem_size_mib.is_some() {
+            self.vm_config.mem_size_mib = machine_config.mem_size_mib;
+        }
+
+        if machine_config.cpu_template.is_some() {
+            self.vm_config.cpu_template = machine_config.cpu_template;
+        }
 
         Ok(())
     }
@@ -729,12 +728,8 @@ impl Vmm {
             let kernel_config = self.kernel_config.as_mut().unwrap();
             // Safe to unwrap the ht_enabled flag because the machine configure has default values
             // for all fields
-            vcpu.configure(
-                vcpu_count,
-                self.vm_config.ht_enabled.unwrap(),
-                kernel_config.kernel_start_addr,
-                &self.vm,
-            ).map_err(Error::VcpuConfigure)?;
+            vcpu.configure(&self.vm_config, kernel_config.kernel_start_addr, &self.vm)
+                .map_err(Error::VcpuConfigure)?;
             vcpu_handles.push(thread::Builder::new()
                 .name(format!("fc_vcpu{}", cpu_id))
                 .spawn(move || {
@@ -1244,6 +1239,7 @@ pub fn start_vmm_thread(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use data_model::vm::CPUFeaturesTemplate;
 
     fn create_vmm_object() -> Vmm {
         let shared_info = Arc::new(RwLock::new(InstanceInfo {
@@ -1270,6 +1266,8 @@ mod tests {
         assert_eq!(vmm.vm_config.mem_size_mib, Some(128));
         // ht_enabled = false
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
+        // no cpu template
+        assert!(vmm.vm_config.cpu_template.is_none());
 
         // 1. Tests with no hyperthreading
         // test put machine configuration for vcpu count with valid value
@@ -1277,6 +1275,7 @@ mod tests {
             vcpu_count: Some(3),
             mem_size_mib: None,
             ht_enabled: None,
+            cpu_template: None,
         };
         assert!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1291,6 +1290,7 @@ mod tests {
             vcpu_count: None,
             mem_size_mib: Some(256),
             ht_enabled: None,
+            cpu_template: None,
         };
         assert!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1306,6 +1306,7 @@ mod tests {
             vcpu_count: Some(0),
             mem_size_mib: None,
             ht_enabled: None,
+            cpu_template: None,
         };
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1320,6 +1321,7 @@ mod tests {
             vcpu_count: Some(1),
             mem_size_mib: Some(0),
             ht_enabled: Some(false),
+            cpu_template: Some(CPUFeaturesTemplate::T2),
         };
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1329,6 +1331,7 @@ mod tests {
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
         assert_eq!(vmm.vm_config.mem_size_mib, Some(256));
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
+        assert!(vmm.vm_config.cpu_template.is_none());
 
         // 2. Test with hyperthreading enabled
         // Test that you can't change the hyperthreading value to false when the vcpu count
@@ -1337,6 +1340,7 @@ mod tests {
             vcpu_count: None,
             mem_size_mib: None,
             ht_enabled: Some(true),
+            cpu_template: None,
         };
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1345,10 +1349,12 @@ mod tests {
         );
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
         // Test that you can change the ht flag when you have a valid vcpu count
+        // Also set the CPU Template since we are here
         let machine_config = MachineConfiguration {
             vcpu_count: Some(2),
             mem_size_mib: None,
             ht_enabled: Some(true),
+            cpu_template: Some(CPUFeaturesTemplate::T2),
         };
         assert!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1356,6 +1362,7 @@ mod tests {
         );
         assert_eq!(vmm.vm_config.vcpu_count, Some(2));
         assert_eq!(vmm.vm_config.ht_enabled, Some(true));
+        assert_eq!(vmm.vm_config.cpu_template, Some(CPUFeaturesTemplate::T2));
     }
 
     #[test]
