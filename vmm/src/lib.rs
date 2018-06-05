@@ -49,6 +49,7 @@ use device_manager::mmio::MMIODeviceManager;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
 use kvm::*;
+use logger::metrics::LogMetric;
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use vm_control::VmResponse;
 use vstate::{Vcpu, Vm};
@@ -748,42 +749,57 @@ impl Vmm {
                             Ok(run) => match run {
                                 VcpuExit::IoIn(addr, data) => {
                                     io_bus.read(addr as u64, data);
+                                    trace!("{:?}", LogMetric::MetricVcpuExitIoInCount);
                                 }
                                 VcpuExit::IoOut(addr, data) => {
                                     io_bus.write(addr as u64, data);
+                                    trace!("{:?}", LogMetric::MetricVcpuExitIoOutCount);
                                 }
                                 VcpuExit::MmioRead(addr, data) => {
                                     mmio_bus.read(addr, data);
+                                    trace!("{:?}", LogMetric::MetricVcpuExitMmioReadCount);
                                 }
                                 VcpuExit::MmioWrite(addr, data) => {
                                     mmio_bus.write(addr, data);
+                                    trace!("{:?}", LogMetric::MetricVcpuExitMmioWriteCount);
                                 }
                                 VcpuExit::Hlt => {
-                                    info!("KVM_EXIT_HLT");
+                                    info!("Received KVM_EXIT_HLT signal");
                                     break;
                                 }
                                 VcpuExit::Shutdown => {
-                                    info!("KVM_EXIT_SHUTDOWN");
+                                    info!("Received KVM_EXIT_SHUTDOWN signal");
+                                    break;
+                                }
+                                // Documentation specifies that below kvm exits are considered errors.
+                                VcpuExit::FailEntry => {
+                                    trace!("{:?}", LogMetric::MetricVcpuFailures);
+                                    error!("Received KVM_EXIT_FAIL_ENTRY signal");
+                                    break;
+                                }
+                                VcpuExit::InternalError => {
+                                    trace!("{:?}", LogMetric::MetricVcpuFailures);
+                                    error!("Received KVM_EXIT_INTERNAL_ERROR signal");
                                     break;
                                 }
                                 r => {
-                                    error!("unexpected exit reason: {:?}", r);
+                                    trace!("{:?}", LogMetric::MetricVcpuFailures);
+                                    // TODO: Are we sure we want to finish running a vcpu upon receiving
+                                    // a vm exit that is not necessarily an error?
+                                    error!("Unexpected exit reason on vcpu run: {:?}", r);
                                     break;
                                 }
                             },
-                            Err(e) => match e {
-                                vstate::Error::VcpuRun(ref v) => match v.errno() {
-                                    libc::EAGAIN | libc::EINTR => {}
-                                    _ => {
-                                        error!("vcpu hit unknown error: {:?}", e);
-                                        break;
-                                    }
-                                },
+                            Err(vstate::Error::VcpuRun(ref e)) => match e.errno() {
+                                // Why do we check for these if we only return EINVAL?
+                                libc::EAGAIN | libc::EINTR => {}
                                 _ => {
-                                    error!("unrecognized error type for vcpu run");
+                                    trace!("{:?}", LogMetric::MetricVcpuFailures);
+                                    error!("Failure during vcpu run: {:?}", e);
                                     break;
                                 }
                             },
+                            _ => (),
                         }
 
                         if kill_signaled.load(Ordering::SeqCst) {
@@ -791,10 +807,11 @@ impl Vmm {
                         }
                     }
 
-                    // TODO: find a way to report vCPU errors to the user,
-                    // for now ignoring this result as there's nothing we can do
-                    // for the failure case.
-                    let _ = vcpu_exit_evt.write(1);
+                    // Nothing we need do for the success case.
+                    if let Err(e) = vcpu_exit_evt.write(1) {
+                        trace!("{:?}", LogMetric::MetricVcpuFailures);
+                        error!("Failed signaling vcpu exit event: {:?}", e);
+                    }
                 })
                 .map_err(Error::VcpuSpawn)?);
         }
@@ -887,10 +904,14 @@ impl Vmm {
                 match handle.kill(VCPU_RTSIG_OFFSET) {
                     Ok(_) => {
                         if let Err(e) = handle.join() {
-                            warn!("failed to join vcpu thread: {:?}", e);
+                            warn!("Failed to join vcpu thread: {:?}", e);
+                            trace!("{:?}", LogMetric::MetricVcpuFailures);
                         }
                     }
-                    Err(e) => warn!("failed to kill vcpu thread: {:?}", e),
+                    Err(e) => {
+                        trace!("{:?}", LogMetric::MetricVcpuFailures);
+                        warn!("Failed to kill vcpu thread: {:?}", e)
+                    }
                 }
             }
         };
@@ -933,7 +954,6 @@ impl Vmm {
                 if let Some(dispatch_type) = self.epoll_context.dispatch_table[dispatch_idx] {
                     match dispatch_type {
                         EpollDispatch::Exit => {
-                            info!("vcpu requested shutdown");
                             match self.exit_evt {
                                 Some(ref ev) => {
                                     ev.event_fd.read().map_err(Error::EventFd)?;
