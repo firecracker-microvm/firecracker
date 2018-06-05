@@ -4,9 +4,9 @@ extern crate x86_64;
 
 use std::result;
 
+use data_model::vm::MachineConfiguration;
 use kvm::*;
 use sys_util::{EventFd, GuestAddress, GuestMemory};
-
 use x86_64::{cpuid, interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
@@ -158,14 +158,21 @@ impl Vcpu {
     /// nr cpus is required for checking populating the kvm_cpuid2 entry for ebx and edx registers
     pub fn configure(
         &mut self,
-        nrcpus: u8,
-        ht_enabled: bool,
+        machine_config: &MachineConfiguration,
         kernel_start_addr: GuestAddress,
         vm: &Vm,
     ) -> Result<()> {
-        cpuid::filter_cpuid(self.id, nrcpus, ht_enabled, &mut self.cpuid)
-            .map_err(|e| Error::CpuId(e))?;
-        cpuid::set_cpuid_template(cpuid::CPUFeaturesTemplate::T2, &mut self.cpuid).unwrap();
+        // the MachineConfiguration has defaults for ht_enabled and vcpu_count hence it is safe to unwrap
+        cpuid::filter_cpuid(
+            self.id,
+            machine_config.vcpu_count.unwrap(),
+            machine_config.ht_enabled.unwrap(),
+            &mut self.cpuid,
+        ).map_err(|e| Error::CpuId(e))?;
+        match machine_config.cpu_template {
+            Some(template) => cpuid::set_cpuid_template(template, &mut self.cpuid).unwrap(),
+            None => (),
+        }
 
         self.fd
             .set_cpuid2(&self.cpuid)
@@ -204,6 +211,7 @@ impl Vcpu {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use data_model::vm::CPUFeaturesTemplate;
 
     #[test]
     fn create_vm() {
@@ -248,7 +256,7 @@ mod tests {
         let mut vcpu = Vcpu::new(0, &mut vm).unwrap();
         assert_eq!(vcpu.get_cpuid(), vm.fd.get_supported_cpuid());
         assert!(cpuid::filter_cpuid(0, 1, true, &mut vcpu.cpuid).is_ok());
-        assert!(cpuid::set_cpuid_template(cpuid::CPUFeaturesTemplate::T2, &mut vcpu.cpuid).is_ok());
+        assert!(cpuid::set_cpuid_template(CPUFeaturesTemplate::T2, &mut vcpu.cpuid).is_ok());
         assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
     }
 
