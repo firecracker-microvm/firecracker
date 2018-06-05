@@ -7,7 +7,8 @@ authors = ["The Chromium OS Authors"]
 byteorder = "=1.2.1"
 libc = ">=0.2.39"
 
-memory_model = { path = "../memory_model"}
+data_model = { path = "../data_model" }
 kvm_sys = { path = "../kvm_sys" }
 kvm = { path = "../kvm" }
+memory_model = { path = "../memory_model"}
 sys_util = { path = "../sys_util" }
