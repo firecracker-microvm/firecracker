@@ -14,8 +14,7 @@ enum Category {
     Performance,
     #[allow(dead_code)]
     UnexpectedEvents,
-    #[allow(dead_code)]
-    KVM,
+    Vcpu,
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +128,11 @@ pub enum LogMetric {
     MetricAsyncVMMSendTimeoutCount,
     MetricSyncOutcomeFailures,
     MetricSyncVMMSendTimeoutCount,
+    MetricVcpuFailures,
+    MetricVcpuExitIoInCount,
+    MetricVcpuExitIoOutCount,
+    MetricVcpuExitMmioReadCount,
+    MetricVcpuExitMmioWriteCount,
 }
 
 fn build_metrics() -> HashMap<String, Metric> {
@@ -393,6 +397,66 @@ fn build_metrics() -> HashMap<String, Metric> {
                 unit: Unit::Count,
                 counter: 0,
                 nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricVcpuFailures),
+            Metric {
+                key: LogMetric::MetricVcpuFailures,
+                category: Category::Vcpu,
+                unit: Unit::Count,
+                counter: 0,
+                nice_unit: "Failures",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricVcpuExitIoInCount),
+            Metric {
+                key: LogMetric::MetricVcpuExitIoInCount,
+                category: Category::Vcpu,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricVcpuExitIoOutCount),
+            Metric {
+                key: LogMetric::MetricVcpuExitIoOutCount,
+                category: Category::Vcpu,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricVcpuExitMmioReadCount),
+            Metric {
+                key: LogMetric::MetricVcpuExitMmioReadCount,
+                category: Category::Vcpu,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
+                last_logged: SteadyTime::now(),
+                source: None,
+            },
+        ),
+        (
+            format!("{:?}", LogMetric::MetricVcpuExitMmioWriteCount),
+            Metric {
+                key: LogMetric::MetricVcpuExitMmioWriteCount,
+                category: Category::Vcpu,
+                unit: Unit::CountPerSecond,
+                counter: 0,
+                nice_unit: "Requests/Sec",
                 last_logged: SteadyTime::now(),
                 source: None,
             },
