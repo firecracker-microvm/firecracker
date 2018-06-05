@@ -365,6 +365,9 @@ pub enum VcpuExit<'a> {
     S390Tsch,
     Epr,
     SystemEvent,
+    S390Stsi,
+    IoapicEoi,
+    Hyperv,
 }
 
 /// A wrapper around creating and using a kvm related VCPU fd
@@ -576,6 +579,10 @@ impl VcpuFd {
         if ret == 0 {
             let run = self.get_run();
             match run.exit_reason {
+                // make sure you treat all possible exit reasons from include/uapi/linux/kvm.h corresponding
+                // when upgrading to a different kernel version
+                KVM_EXIT_UNKNOWN => Ok(VcpuExit::Unknown),
+                KVM_EXIT_EXCEPTION => Ok(VcpuExit::Exception),
                 KVM_EXIT_IO => {
                     let run_start = run as *mut kvm_run as *mut u8;
                     // Safe because the exit_reason (which comes from the kernel) told us which
@@ -597,6 +604,9 @@ impl VcpuFd {
                         _ => Err(Error::new(EINVAL)),
                     }
                 }
+                KVM_EXIT_HYPERCALL => Ok(VcpuExit::Hypercall),
+                KVM_EXIT_DEBUG => Ok(VcpuExit::Debug),
+                KVM_EXIT_HLT => Ok(VcpuExit::Hlt),
                 KVM_EXIT_MMIO => {
                     // Safe because the exit_reason (which comes from the kernel) told us which
                     // union field to use.
@@ -610,11 +620,6 @@ impl VcpuFd {
                         Ok(VcpuExit::MmioRead(addr, data_slice))
                     }
                 }
-                KVM_EXIT_UNKNOWN => Ok(VcpuExit::Unknown),
-                KVM_EXIT_EXCEPTION => Ok(VcpuExit::Exception),
-                KVM_EXIT_HYPERCALL => Ok(VcpuExit::Hypercall),
-                KVM_EXIT_DEBUG => Ok(VcpuExit::Debug),
-                KVM_EXIT_HLT => Ok(VcpuExit::Hlt),
                 KVM_EXIT_IRQ_WINDOW_OPEN => Ok(VcpuExit::IrqWindowOpen),
                 KVM_EXIT_SHUTDOWN => Ok(VcpuExit::Shutdown),
                 KVM_EXIT_FAIL_ENTRY => Ok(VcpuExit::FailEntry),
@@ -633,6 +638,9 @@ impl VcpuFd {
                 KVM_EXIT_S390_TSCH => Ok(VcpuExit::S390Tsch),
                 KVM_EXIT_EPR => Ok(VcpuExit::Epr),
                 KVM_EXIT_SYSTEM_EVENT => Ok(VcpuExit::SystemEvent),
+                KVM_EXIT_S390_STSI => Ok(VcpuExit::S390Stsi),
+                KVM_EXIT_IOAPIC_EOI => Ok(VcpuExit::IoapicEoi),
+                KVM_EXIT_HYPERV => Ok(VcpuExit::Hyperv),
                 r => panic!("unknown kvm exit reason: {}", r),
             }
         } else {
