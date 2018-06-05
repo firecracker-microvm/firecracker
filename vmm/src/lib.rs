@@ -850,6 +850,7 @@ impl Vmm {
 
     /// make sure to check Result of this function and call self.stop() in case of Err
     pub fn start_instance(&mut self) -> Result<()> {
+        trace!("VMM received instance start command");
         self.check_health()?;
 
         // unwrap() to crash if the other thread poisoned this lock
@@ -872,6 +873,7 @@ impl Vmm {
     }
 
     pub fn stop(&mut self) -> Result<()> {
+        trace!("VMM received instance stop command");
         // unwrap() to crash if the other thread poisoned this lock
         let mut shared_info = self.shared_info.write().unwrap();
         shared_info.state = InstanceState::Halting;
