@@ -5,6 +5,7 @@
 use std::collections::VecDeque;
 use std::io;
 
+use logger::metrics::LogMetric;
 use sys_util::{EventFd, Result};
 
 use BusDevice;
@@ -19,6 +20,7 @@ const MCR: u8 = 4;
 const LSR: u8 = 5;
 const MSR: u8 = 6;
 const SCR: u8 = 7;
+
 const DLAB_LOW: u8 = 0;
 const DLAB_HIGH: u8 = 1;
 
@@ -69,7 +71,7 @@ impl Serial {
         Serial {
             interrupt_enable: 0,
             interrupt_identification: DEFAULT_INTERRUPT_IDENTIFICATION,
-            interrupt_evt: interrupt_evt,
+            interrupt_evt,
             line_control: DEFAULT_LINE_CONTROL,
             line_status: DEFAULT_LINE_STATUS,
             modem_control: DEFAULT_MODEM_CONTROL,
@@ -77,7 +79,7 @@ impl Serial {
             scratch: 0,
             baud_divisor: DEFAULT_BAUD_DIVISOR,
             in_buffer: VecDeque::new(),
-            out: out,
+            out,
         }
     }
 
@@ -171,7 +173,9 @@ impl Serial {
                 } else {
                     if let Some(out) = self.out.as_mut() {
                         out.write_all(&[v])?;
+                        trace!("{:?}", LogMetric::MetricDeviceSerialWriteCount);
                         out.flush()?;
+                        trace!("{:?}", LogMetric::MetricDeviceSerialFlushCount);
                     }
                     self.thr_empty()?;
                 }
@@ -187,18 +191,9 @@ impl Serial {
 }
 
 impl BusDevice for Serial {
-    fn write(&mut self, offset: u64, data: &[u8]) {
-        if data.len() != 1 {
-            return;
-        }
-
-        if let Err(e) = self.handle_write(offset as u8, data[0]) {
-            error!("serial failed write: {:?}", e);
-        }
-    }
-
     fn read(&mut self, offset: u64, data: &mut [u8]) {
         if data.len() != 1 {
+            trace!("{:?}", LogMetric::MetricDeviceSerialMissedReads);
             return;
         }
 
@@ -210,6 +205,7 @@ impl BusDevice for Serial {
                 if self.in_buffer.len() <= 1 {
                     self.line_status &= !LSR_DATA_BIT;
                 }
+                trace!("{:?}", LogMetric::MetricDeviceSerialReadCount);
                 self.in_buffer.pop_front().unwrap_or_default()
             }
             IER => self.interrupt_enable,
@@ -225,6 +221,18 @@ impl BusDevice for Serial {
             SCR => self.scratch,
             _ => 0,
         };
+    }
+
+    fn write(&mut self, offset: u64, data: &[u8]) {
+        if data.len() != 1 {
+            trace!("{:?}", LogMetric::MetricDeviceSerialMissedWrites);
+            return;
+        }
+
+        if let Err(e) = self.handle_write(offset as u8, data[0]) {
+            error!("Failed the write to serial: {:?}", e);
+            trace!("{:?}", LogMetric::MetricDeviceSerialFailure);
+        }
     }
 }
 
