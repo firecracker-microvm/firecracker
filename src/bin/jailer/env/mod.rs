@@ -1,6 +1,4 @@
-extern crate libc;
-
-use std::ffi::CString;
+use std::env::set_current_dir;
 use std::fs::{canonicalize, copy, create_dir_all};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
@@ -11,7 +9,7 @@ use self::cgroup::Cgroup;
 
 pub struct Env {
     cgroup: Cgroup,
-    chroot_dir: String,
+    run_dir: String,
     chroot_exec_file: String,
 }
 
@@ -59,23 +57,23 @@ impl Env {
                 exit(1);
             },
         }
-        let mut chroot_exec_file = PathBuf::from("/");
-        chroot_exec_file.push(exec_file_name);
+        let chroot_exec_file = PathBuf::from(&dst_exec_file);
         let cgroup = Cgroup::new(&id, &exec_file_name);
         Env { cgroup: cgroup,
-              chroot_dir: chroot_dir.to_str().unwrap().to_string(),
+              run_dir: run_dir.to_str().unwrap().to_string(),
               chroot_exec_file: chroot_exec_file.to_str().unwrap().to_string(), }
     }
 
     pub fn run(self) {
         self.cgroup.run();
-        let chroot_dir = CString::new(self.chroot_dir.clone()).unwrap();
-        let ret = unsafe { libc::chroot(chroot_dir.as_ptr()) };
-        if ret < 0 {
-            println!("failed to chage root to {}", self.chroot_dir);
-            exit(1);
+        match set_current_dir(&self.run_dir) {
+            Ok(_) => (),
+            Err(_) => {
+                println!("failed to set the current working directory to {}", self.run_dir);
+                exit(1);
+            },
         }
-        Command::new(&self.chroot_exec_file).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).uid(10000).gid(10000).exec();
+        Command::new(&self.chroot_exec_file).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).exec();
         println!("failed to execute {}", self.chroot_exec_file);
         exit(1);
     }
