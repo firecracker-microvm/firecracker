@@ -88,7 +88,7 @@ pub enum Error {
     RootDiskImage(std::io::Error),
     RootBlockDeviceNew(sys_util::Error),
     RegisterBlock(device_manager::mmio::Error),
-    NetDeviceNew(devices::virtio::NetError),
+    NetDeviceNew(devices::virtio::Error),
     RegisterNet(device_manager::mmio::Error),
     NetDeviceUnconfigured,
     DeviceVmRequest(sys_util::Error),
