@@ -1,8 +1,8 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-extern crate fc_util;
-
+use epoll;
+use libc::EAGAIN;
 use std::cmp;
 #[cfg(not(test))]
 use std::io::Read;
@@ -10,16 +10,13 @@ use std::io::{self, Write};
 use std::mem;
 use std::net::Ipv4Addr;
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 
-use libc::EAGAIN;
-
-use self::fc_util::ratelimiter::{RateLimiter, TokenType};
-use super::{ActivateError, ActivateResult};
-use super::{Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
-use epoll;
+use super::{ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
+use fc_util::ratelimiter::{RateLimiter, TokenType};
 use net_sys;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use sys_util::{Error as SysError, EventFd, GuestMemory};
@@ -36,22 +33,22 @@ const NUM_QUEUES: usize = 2;
 const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE; NUM_QUEUES];
 
 // A frame is available for reading from the tap device to receive in the guest.
-pub const RX_TAP_EVENT: DeviceEventT = 0;
+const RX_TAP_EVENT: DeviceEventT = 0;
 // The guest has made a buffer available to receive a frame into.
-pub const RX_QUEUE_EVENT: DeviceEventT = 1;
+const RX_QUEUE_EVENT: DeviceEventT = 1;
 // The transmit queue has a frame that is ready to send from the guest.
-pub const TX_QUEUE_EVENT: DeviceEventT = 2;
+const TX_QUEUE_EVENT: DeviceEventT = 2;
 // Device shutdown has been requested.
-pub const KILL_EVENT: DeviceEventT = 3;
-// rx rate limiter budget is now available
-pub const RX_RATE_LIMITER_EVENT: DeviceEventT = 4;
-// tx rate limiter budget is now available
-pub const TX_RATE_LIMITER_EVENT: DeviceEventT = 5;
-// number of DeviceEventT events supported by this implementation
+const KILL_EVENT: DeviceEventT = 3;
+// rx rate limiter budget is now available.
+const RX_RATE_LIMITER_EVENT: DeviceEventT = 4;
+// tx rate limiter budget is now available.
+const TX_RATE_LIMITER_EVENT: DeviceEventT = 5;
+// Number of DeviceEventT events supported by this implementation.
 pub const NET_EVENTS_COUNT: usize = 6;
 
 #[derive(Debug)]
-pub enum NetError {
+pub enum Error {
     /// Creating kill eventfd failed.
     CreateKillEventFd(SysError),
     /// Cloning kill eventfd failed.
@@ -68,9 +65,9 @@ pub enum NetError {
     TapSetVnetHdrSize(TapError),
     /// Enabling tap interface failed.
     TapEnable(TapError),
-    /// Error while polling for events.
-    PollError(SysError),
 }
+
+pub type Result<T> = result::Result<T, Error>;
 
 struct NetEpollHandler {
     mem: GuestMemory,
@@ -96,8 +93,8 @@ impl NetEpollHandler {
     fn signal_used_queue(&self) {
         self.interrupt_status
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
-        if self.interrupt_evt.write(1).is_err() {
-            error!("Write failed on eventfd");
+        if let Err(e) = self.interrupt_evt.write(1) {
+            error!("Failed to signal used queue: {:?}", e);
         }
     }
 
@@ -105,13 +102,13 @@ impl NetEpollHandler {
     // if a buffer was used, and false if the frame must be deferred until a buffer
     // is made available by the driver.
     fn rx_single_frame(&mut self) -> bool {
-        // if limiter.consume() fails it means there is no more TokenType::Ops
-        // budget and rate limiting is in effect
+        // If limiter.consume() fails it means there is no more TokenType::Ops
+        // budget and rate limiting is in effect.
         if !self.rx_rate_limiter.consume(1, TokenType::Ops) {
             return false;
         }
-        // if limiter.consume() fails it means there is no more TokenType::Bytes
-        // budget and rate limiting is in effect
+        // If limiter.consume() fails it means there is no more TokenType::Bytes
+        // budget and rate limiting is in effect.
         if !self.rx_rate_limiter
             .consume(self.rx_count as u64, TokenType::Bytes)
         {
@@ -146,7 +143,7 @@ impl NetEpollHandler {
                             write_count += sz;
                         }
                         Err(e) => {
-                            warn!("net: rx: failed to write slice: {:?}", e);
+                            error!("Failed to write slice: {:?}", e);
                             break;
                         }
                     };
@@ -157,10 +154,7 @@ impl NetEpollHandler {
                     next_desc = desc.next_descriptor();
                 }
                 None => {
-                    warn!(
-                        "net: rx: buffer is too small to hold frame of size {}",
-                        self.rx_count
-                    );
+                    warn!("Receiving buffer is too small to hold frame of current size");
                     break;
                 }
             }
@@ -176,24 +170,6 @@ impl NetEpollHandler {
         write_count >= self.rx_count
     }
 
-    #[cfg(not(test))]
-    fn read_tap(&mut self) -> io::Result<usize> {
-        self.tap.read(&mut self.rx_buf)
-    }
-
-    #[cfg(test)]
-    fn read_tap(&mut self) -> io::Result<usize> {
-        use std::cmp::min;
-
-        let count = min(1234, self.rx_buf.len());
-
-        for i in 0..count {
-            self.rx_buf[i] = 5;
-        }
-
-        Ok(count)
-    }
-
     fn process_rx(&mut self) {
         // Read as many frames as possible.
         loop {
@@ -206,14 +182,14 @@ impl NetEpollHandler {
                     }
                 }
                 Err(e) => {
-                    // The tap device is nonblocking, so any error aside from EAGAIN is
+                    // The tap device is non-blocking, so any error aside from EAGAIN is
                     // unexpected.
                     if let Some(err) = e.raw_os_error() {
                         if err != EAGAIN {
-                            error!("net: rx: failed to read tap: {:?}", e);
+                            error!("Failed to read tap: {:?}", e);
                         }
                     } else {
-                        error!("net: rx: failed to read tap: {:?}", e);
+                        error!("Failed to read tap: {:?}", e);
                     }
                     break;
                 }
@@ -225,7 +201,7 @@ impl NetEpollHandler {
         if self.deferred_rx && self.rx_single_frame() {
             self.deferred_rx = false;
             // process_rx() was interrupted possibly before consuming all
-            // packets in the tap, try continuing now
+            // packets in the tap; try continuing now.
             self.process_rx();
         }
     }
@@ -237,11 +213,11 @@ impl NetEpollHandler {
         let mut rate_limited = false;
 
         for avail_desc in self.tx_queue.iter(&self.mem) {
-            // if limiter.consume() fails it means there is no more TokenType::Ops
-            // budget and rate limiting is in effect
+            // If limiter.consume() fails it means there is no more TokenType::Ops
+            // budget and rate limiting is in effect.
             if !self.tx_rate_limiter.consume(1, TokenType::Ops) {
                 rate_limited = true;
-                // stop processing the queue
+                // Stop processing the queue.
                 break;
             }
 
@@ -264,7 +240,7 @@ impl NetEpollHandler {
                                 read_count += sz;
                             }
                             Err(e) => {
-                                warn!("net: tx: failed to read slice: {:?}", e);
+                                error!("Failed to read slice: {:?}", e);
                                 break;
                             }
                         }
@@ -276,8 +252,8 @@ impl NetEpollHandler {
                 }
             }
 
-            // if limiter.consume() fails it means there is no more TokenType::Bytes
-            // budget and rate limiting is in effect
+            // If limiter.consume() fails it means there is no more TokenType::Bytes
+            // budget and rate limiting is in effect.
             if !self.tx_rate_limiter
                 .consume(read_count as u64, TokenType::Bytes)
             {
@@ -292,7 +268,7 @@ impl NetEpollHandler {
             match write_result {
                 Ok(_) => {}
                 Err(e) => {
-                    warn!("net: tx: error failed to write to tap: {:?}", e);
+                    error!("Failed to write to tap: {:?}", e);
                 }
             };
 
@@ -300,8 +276,8 @@ impl NetEpollHandler {
             used_count += 1;
         }
         if rate_limited {
-            // if rate limiting kicked in, queue had advanced one element that we aborted
-            // processing; go back one element so it can be processed next time
+            // If rate limiting kicked in, queue had advanced one element that we aborted
+            // processing; go back one element so it can be processed next time.
             self.tx_queue.go_to_previous_position();
         }
 
@@ -332,13 +308,31 @@ impl NetEpollHandler {
     fn set_tx_rate_limiter(&mut self, tx_rate_limiter: RateLimiter) {
         self.tx_rate_limiter = tx_rate_limiter;
     }
+
+    #[cfg(not(test))]
+    fn read_tap(&mut self) -> io::Result<usize> {
+        self.tap.read(&mut self.rx_buf)
+    }
+
+    #[cfg(test)]
+    fn read_tap(&mut self) -> io::Result<usize> {
+        use std::cmp::min;
+
+        let count = min(1234, self.rx_buf.len());
+
+        for i in 0..count {
+            self.rx_buf[i] = 5;
+        }
+
+        Ok(count)
+    }
 }
 
 impl EpollHandler for NetEpollHandler {
     fn handle_event(&mut self, device_event: DeviceEventT, _: u32) {
         match device_event {
             RX_TAP_EVENT => {
-                // while limiter is blocked, don't process any more incoming
+                // While limiter is blocked, don't process any more incoming.
                 if self.rx_rate_limiter.is_blocked() {
                     return;
                 }
@@ -355,10 +349,10 @@ impl EpollHandler for NetEpollHandler {
             }
             RX_QUEUE_EVENT => {
                 if let Err(e) = self.rx_queue_evt.read() {
-                    error!("net: error reading rx queue EventFd: {:?}", e);
-                    // TODO: device should be removed from epoll
+                    error!("Failed to get rx queue event: {:?}", e);
+                    // Shouldn't we return here?
                 }
-                // if the limiter is not blocked
+                // If the limiter is not blocked, resume the receiving of bytes.
                 if !self.rx_rate_limiter.is_blocked() {
                     // There should be a buffer available now to receive the frame into.
                     self.resume_rx();
@@ -366,10 +360,10 @@ impl EpollHandler for NetEpollHandler {
             }
             TX_QUEUE_EVENT => {
                 if let Err(e) = self.tx_queue_evt.read() {
-                    error!("net: error reading tx queue EventFd: {:?}", e);
-                    // TODO: device should be removed from epoll
+                    error!("Failed to get tx queue event: {:?}", e);
+                    // Shouldn't we return here?
                 }
-                // if the limiter is not blocked
+                // If the limiter is not blocked, continue transmitting bytes.
                 if !self.tx_rate_limiter.is_blocked() {
                     self.process_tx();
                 }
@@ -379,11 +373,11 @@ impl EpollHandler for NetEpollHandler {
                 // TODO: device should be removed from epoll
             }
             RX_RATE_LIMITER_EVENT => {
-                // on rate limiter event, call the rate limiter handler
-                // and restart processing the queue
+                // Upon rate limiter event, call the rate limiter handler
+                // and restart processing the queue.
                 match self.rx_rate_limiter.event_handler() {
                     Ok(_) => {
-                        // There might be enough budget now to receive the frame
+                        // There might be enough budget now to receive the frame.
                         self.resume_rx();
                     }
                     Err(e) => error!("net: error reading rx rate-limiter EventFd: {:?}", e),
@@ -394,13 +388,13 @@ impl EpollHandler for NetEpollHandler {
                 // and restart processing the queue
                 match self.tx_rate_limiter.event_handler() {
                     Ok(_) => {
-                        // There might be enough budget now to send the frame
+                        // There might be enough budget now to send the frame.
                         self.process_tx();
                     }
                     Err(e) => error!("net: error reading tx rate-limiter EventFd: {:?}", e),
                 }
             }
-            _ => panic!("unknown token for virtio net device"),
+            _ => panic!("Unknown event type was received."),
         }
     }
 }
@@ -450,23 +444,24 @@ pub struct Net {
 }
 
 impl Net {
+    /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
         tap: Tap,
         guest_mac: Option<&MacAddr>,
         epoll_config: EpollConfig,
         rx_rate_limiter: Option<RateLimiter>,
         tx_rate_limiter: Option<RateLimiter>,
-    ) -> Result<Self, NetError> {
-        let kill_evt = EventFd::new().map_err(NetError::CreateKillEventFd)?;
+    ) -> Result<Self> {
+        let kill_evt = EventFd::new().map_err(Error::CreateKillEventFd)?;
 
         // Set offload flags to match the virtio features below.
         tap.set_offload(
             net_sys::TUN_F_CSUM | net_sys::TUN_F_UFO | net_sys::TUN_F_TSO4 | net_sys::TUN_F_TSO6,
-        ).map_err(NetError::TapSetOffload)?;
+        ).map_err(Error::TapSetOffload)?;
 
         let vnet_hdr_size = mem::size_of::<virtio_net_hdr_v1>() as i32;
         tap.set_vnet_hdr_size(vnet_hdr_size)
-            .map_err(NetError::TapSetVnetHdrSize)?;
+            .map_err(Error::TapSetVnetHdrSize)?;
 
         let mut avail_features =
             1 << VIRTIO_NET_F_GUEST_CSUM | 1 << VIRTIO_NET_F_CSUM | 1 << VIRTIO_NET_F_GUEST_TSO4
@@ -487,7 +482,7 @@ impl Net {
         }
 
         Ok(Net {
-            workers_kill_evt: Some(kill_evt.try_clone().map_err(NetError::CloneKillEventFd)?),
+            workers_kill_evt: Some(kill_evt.try_clone().map_err(Error::CloneKillEventFd)?),
             kill_evt,
             tap: Some(tap),
             avail_features,
@@ -508,11 +503,11 @@ impl Net {
         epoll_config: EpollConfig,
         rx_rate_limiter: Option<RateLimiter>,
         tx_rate_limiter: Option<RateLimiter>,
-    ) -> Result<Self, NetError> {
-        let tap = Tap::new().map_err(NetError::TapOpen)?;
-        tap.set_ip_addr(ip_addr).map_err(NetError::TapSetIp)?;
-        tap.set_netmask(netmask).map_err(NetError::TapSetNetmask)?;
-        tap.enable().map_err(NetError::TapEnable)?;
+    ) -> Result<Self> {
+        let tap = Tap::new().map_err(Error::TapOpen)?;
+        tap.set_ip_addr(ip_addr).map_err(Error::TapSetIp)?;
+        tap.set_netmask(netmask).map_err(Error::TapSetNetmask)?;
+        tap.enable().map_err(Error::TapEnable)?;
 
         Self::new_with_tap(
             tap,
@@ -528,8 +523,9 @@ impl Drop for Net {
     fn drop(&mut self) {
         // Only kill the child if it claimed its eventfd.
         if self.workers_kill_evt.is_none() {
-            // Ignore the result because there is nothing we can do about it.
-            let _ = self.kill_evt.write(1);
+            if let Err(e) = self.kill_evt.write(1) {
+                warn!("Failed to trigger kill event: {:?}", e);
+            }
         }
     }
 }
@@ -548,7 +544,7 @@ impl VirtioDevice for Net {
             0 => self.avail_features as u32,
             1 => (self.avail_features >> 32) as u32,
             _ => {
-                warn!("net: virtio net got request for features page: {}", page);
+                warn!("Received request for unknown features page: {}", page);
                 0u32
             }
         }
@@ -559,10 +555,7 @@ impl VirtioDevice for Net {
             0 => value as u64,
             1 => (value as u64) << 32,
             _ => {
-                warn!(
-                    "net: virtio net device cannot ack unknown feature page: {}",
-                    page
-                );
+                warn!("Cannot acknowledge unknown features page: {}", page);
                 0u64
             }
         };
@@ -570,8 +563,7 @@ impl VirtioDevice for Net {
         // Check if the guest is ACK'ing a feature that we didn't claim to have.
         let unrequested_features = v & !self.avail_features;
         if unrequested_features != 0 {
-            warn!("net: virtio net got unknown feature ack: {:x}", v);
-
+            warn!("Received acknowledge request for unknown feature: {:x}", v);
             // Don't count these features as acked.
             v &= !unrequested_features;
         }
@@ -584,6 +576,7 @@ impl VirtioDevice for Net {
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
         let config_len = self.config_space.len() as u64;
         if offset >= config_len {
+            error!("Failed to read config space");
             return;
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
@@ -603,7 +596,7 @@ impl VirtioDevice for Net {
     ) -> ActivateResult {
         if queues.len() != NUM_QUEUES || queue_evts.len() != NUM_QUEUES {
             error!(
-                "virtio-net expected {} queues, got {}",
+                "Cannot perform activate. Expected {} queue(s), got {}",
                 NUM_QUEUES,
                 queues.len()
             );
@@ -642,7 +635,7 @@ impl VirtioDevice for Net {
                 self.epoll_config
                     .sender
                     .send(Box::new(handler))
-                    .expect("Failed to send through channel");
+                    .expect("Failed to send through the channel");
 
                 //TODO: barrier needed here maybe?
 
