@@ -49,7 +49,7 @@ pub use log::Level::*;
 pub use log::*;
 use log::{set_logger, set_max_level, Log, Metadata, Record};
 use metrics::get_metrics;
-pub use metrics2::METRICS;
+pub use metrics2::{Metric, METRICS};
 use writers::*;
 
 /// Types used by the Logger.
