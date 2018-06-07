@@ -54,7 +54,7 @@ use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
 use kvm::*;
 use logger::metrics::LogMetric;
-use logger::LOGGER;
+use logger::{Metric, LOGGER, METRICS};
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use vm_control::VmResponse;
 use vstate::{Vcpu, Vm};
@@ -1025,6 +1025,7 @@ impl Vmm {
                             }
                         }
                         EpollDispatch::DeviceHandler(device_idx, device_token) => {
+                            METRICS.vmm.device_events.inc();
                             match self.epoll_context.get_device_handler(device_idx) {
                                 Ok(handler) => {
                                     handler.handle_event(device_token, events[i].events().bits())
