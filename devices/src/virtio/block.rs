@@ -1,11 +1,6 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-extern crate fc_util;
-
-use self::fc_util::ratelimiter::{RateLimiter, TokenType};
-use super::{ActivateError, ActivateResult};
-use super::{DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING};
 use epoll;
 use std::cmp;
 use std::fs::File;
@@ -16,6 +11,11 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
+
+use super::{ActivateError, ActivateResult, DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK,
+            VIRTIO_MMIO_INT_VRING};
+use fc_util::ratelimiter::{RateLimiter, TokenType};
+use logger::metrics::LogMetric;
 use sys_util::Result as SysResult;
 use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};
 use virtio_sys::virtio_blk::*;
@@ -28,27 +28,18 @@ const QUEUE_SIZE: u16 = 256;
 const NUM_QUEUES: usize = 1;
 const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
 
-// new descriptors are pending on the virtio queue
-pub const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
-// device shutdown has been requested
-pub const KILL_EVENT: DeviceEventT = 1;
-// rate limiter budget is now available
-pub const RATE_LIMITER_EVENT: DeviceEventT = 2;
-// number of DeviceEventT events supported by this implementation
+// New descriptors are pending on the virtio queue.
+const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
+// Device shutdown has been requested.
+const KILL_EVENT: DeviceEventT = 1;
+// Rate limiter budget is now available.
+const RATE_LIMITER_EVENT: DeviceEventT = 2;
+// Number of DeviceEventT events supported by this implementation.
 pub const BLOCK_EVENTS_COUNT: usize = 3;
 
-#[derive(Debug, PartialEq)]
-enum RequestType {
-    In,
-    Out,
-    Flush,
-    GetDeviceID,
-    Unsupported(u32),
-}
-
 #[derive(Debug)]
-enum ParseError {
-    /// Guest gave us bad memory addresses
+enum Error {
+    /// Guest gave us bad memory addresses.
     GuestMemory(GuestMemoryError),
     /// Guest gave us offsets that would have overflowed a usize.
     CheckedOffset(GuestAddress, usize),
@@ -60,49 +51,8 @@ enum ParseError {
     DescriptorChainTooShort,
     /// Guest gave us a descriptor that was too short to use.
     DescriptorLengthTooSmall,
-    /// Getting a block's metadata fails for any reason
+    /// Getting a block's metadata fails for any reason.
     GetFileMetadata,
-}
-
-fn request_type(
-    mem: &GuestMemory,
-    desc_addr: GuestAddress,
-) -> result::Result<RequestType, ParseError> {
-    let type_ = mem.read_obj_from_addr(desc_addr)
-        .map_err(ParseError::GuestMemory)?;
-    match type_ {
-        VIRTIO_BLK_T_IN => Ok(RequestType::In),
-        VIRTIO_BLK_T_OUT => Ok(RequestType::Out),
-        VIRTIO_BLK_T_FLUSH => Ok(RequestType::Flush),
-        VIRTIO_BLK_T_GET_ID => Ok(RequestType::GetDeviceID),
-        t => Ok(RequestType::Unsupported(t)),
-    }
-}
-
-fn sector(mem: &GuestMemory, desc_addr: GuestAddress) -> result::Result<u64, ParseError> {
-    const SECTOR_OFFSET: usize = 8;
-    let addr = match mem.checked_offset(desc_addr, SECTOR_OFFSET) {
-        Some(v) => v,
-        None => return Err(ParseError::CheckedOffset(desc_addr, SECTOR_OFFSET)),
-    };
-
-    mem.read_obj_from_addr(addr)
-        .map_err(ParseError::GuestMemory)
-}
-
-fn build_device_id(disk_image: &File) -> result::Result<String, ParseError> {
-    let blk_metadata = match disk_image.metadata() {
-        Err(_) => return Err(ParseError::GetFileMetadata),
-        Ok(m) => m,
-    };
-    // this is how kvmtool does it
-    let device_id = format!(
-        "{}{}{}",
-        blk_metadata.st_dev(),
-        blk_metadata.st_rdev(),
-        blk_metadata.st_ino()
-    ).to_owned();
-    Ok(device_id)
 }
 
 #[derive(Debug)]
@@ -126,6 +76,52 @@ impl ExecuteError {
     }
 }
 
+#[derive(Debug, PartialEq)]
+enum RequestType {
+    In,
+    Out,
+    Flush,
+    GetDeviceID,
+    Unsupported(u32),
+}
+
+fn request_type(mem: &GuestMemory, desc_addr: GuestAddress) -> result::Result<RequestType, Error> {
+    let type_ = mem.read_obj_from_addr(desc_addr)
+        .map_err(Error::GuestMemory)?;
+    match type_ {
+        VIRTIO_BLK_T_IN => Ok(RequestType::In),
+        VIRTIO_BLK_T_OUT => Ok(RequestType::Out),
+        VIRTIO_BLK_T_FLUSH => Ok(RequestType::Flush),
+        VIRTIO_BLK_T_GET_ID => Ok(RequestType::GetDeviceID),
+        t => Ok(RequestType::Unsupported(t)),
+    }
+}
+
+fn sector(mem: &GuestMemory, desc_addr: GuestAddress) -> result::Result<u64, Error> {
+    const SECTOR_OFFSET: usize = 8;
+    let addr = match mem.checked_offset(desc_addr, SECTOR_OFFSET) {
+        Some(v) => v,
+        None => return Err(Error::CheckedOffset(desc_addr, SECTOR_OFFSET)),
+    };
+
+    mem.read_obj_from_addr(addr).map_err(Error::GuestMemory)
+}
+
+fn build_device_id(disk_image: &File) -> result::Result<String, Error> {
+    let blk_metadata = match disk_image.metadata() {
+        Err(_) => return Err(Error::GetFileMetadata),
+        Ok(m) => m,
+    };
+    // This is how kvmtool does it.
+    let device_id = format!(
+        "{}{}{}",
+        blk_metadata.st_dev(),
+        blk_metadata.st_rdev(),
+        blk_metadata.st_ino()
+    ).to_owned();
+    Ok(device_id)
+}
+
 struct Request {
     request_type: RequestType,
     sector: u64,
@@ -135,44 +131,41 @@ struct Request {
 }
 
 impl Request {
-    fn parse(
-        avail_desc: &DescriptorChain,
-        mem: &GuestMemory,
-    ) -> result::Result<Request, ParseError> {
+    fn parse(avail_desc: &DescriptorChain, mem: &GuestMemory) -> result::Result<Request, Error> {
         // The head contains the request type which MUST be readable.
         if avail_desc.is_write_only() {
-            return Err(ParseError::UnexpectedWriteOnlyDescriptor);
+            return Err(Error::UnexpectedWriteOnlyDescriptor);
         }
 
-        let req_type = request_type(&mem, avail_desc.addr)?;
+        let request_type = request_type(&mem, avail_desc.addr)?;
         let sector = sector(&mem, avail_desc.addr)?;
         let data_desc = avail_desc
             .next_descriptor()
-            .ok_or(ParseError::DescriptorChainTooShort)?;
+            .ok_or(Error::DescriptorChainTooShort)?;
         let status_desc = data_desc
             .next_descriptor()
-            .ok_or(ParseError::DescriptorChainTooShort)?;
+            .ok_or(Error::DescriptorChainTooShort)?;
 
-        if data_desc.is_write_only() && req_type == RequestType::Out {
-            return Err(ParseError::UnexpectedWriteOnlyDescriptor);
+        if data_desc.is_write_only() && request_type == RequestType::Out {
+            return Err(Error::UnexpectedWriteOnlyDescriptor);
         }
 
-        if !data_desc.is_write_only() && req_type == RequestType::In {
-            return Err(ParseError::UnexpectedReadOnlyDescriptor);
+        if !data_desc.is_write_only() && request_type == RequestType::In {
+            return Err(Error::UnexpectedReadOnlyDescriptor);
         }
 
-        // The status MUST always be writable
+        // The status MUST always be writable.
         if !status_desc.is_write_only() {
-            return Err(ParseError::UnexpectedReadOnlyDescriptor);
+            return Err(Error::UnexpectedReadOnlyDescriptor);
         }
 
         if status_desc.len < 1 {
-            return Err(ParseError::DescriptorLengthTooSmall);
+            return Err(Error::DescriptorLengthTooSmall);
         }
 
         Ok(Request {
-            request_type: req_type,
-            sector: sector,
+            request_type,
+            sector,
             data_addr: data_desc.addr,
             data_len: data_desc.len,
             status_addr: status_desc.addr,
@@ -191,13 +184,23 @@ impl Request {
             RequestType::In => {
                 mem.read_to_memory(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Read)?;
+                // TODO This should add self.data_len.
+                trace!("{:?}", LogMetric::MetricDeviceBlockReadCount);
                 return Ok(self.data_len);
             }
             RequestType::Out => {
                 mem.write_from_memory(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Write)?;
+                // TODO This should add self.data_len.
+                trace!("{:?}", LogMetric::MetricDeviceBlockWriteCount);
             }
-            RequestType::Flush => disk.flush().map_err(ExecuteError::Flush)?,
+            RequestType::Flush => match disk.flush() {
+                Ok(_) => {
+                    trace!("{:?}", LogMetric::MetricDeviceBlockFlushCount);
+                    return Ok(0);
+                }
+                Err(e) => return Err(ExecuteError::Flush(e)),
+            },
             RequestType::GetDeviceID => {
                 mem.write_slice_at_addr(&disk_id.as_slice(), self.data_addr)
                     .map_err(ExecuteError::Write)?;
@@ -230,26 +233,26 @@ impl BlockEpollHandler {
             let len;
             match Request::parse(&avail_desc, &self.mem) {
                 Ok(request) => {
-                    // if limiter.consume() fails it means there is no more TokenType::Ops
-                    // budget and rate limiting is in effect
+                    // If limiter.consume() fails it means there is no more TokenType::Ops
+                    // budget and rate limiting is in effect.
                     if !self.rate_limiter.consume(1, TokenType::Ops) {
                         rate_limited = true;
                         // stop processing the queue
                         break;
                     }
-                    // if this request is of data transfer type
+                    // Exercise the rate limiter only if this request is of data transfer type.
                     if request.request_type == RequestType::In
                         || request.request_type == RequestType::Out
                     {
-                        // if limiter.consume() fails it means there is no more TokenType::Bytes
-                        // budget and rate limiting is in effect
+                        // If limiter.consume() fails it means there is no more TokenType::Bytes
+                        // budget and rate limiting is in effect.
                         if !self.rate_limiter
                             .consume(request.data_len as u64, TokenType::Bytes)
                         {
                             rate_limited = true;
-                            // revert the OPS consume()
+                            // Revert the OPS consume().
                             self.rate_limiter.manual_replenish(1, TokenType::Ops);
-                            // stop processing the queue
+                            // Stop processing the queue.
                             break;
                         }
                     }
@@ -261,8 +264,9 @@ impl BlockEpollHandler {
                                 VIRTIO_BLK_S_OK
                             }
                             Err(e) => {
-                                error!("failed executing disk request: {:?}", e);
-                                len = 1; // 1 byte for the status
+                                error!("Failed to execute request: {:?}", e);
+                                trace!("{:?}", LogMetric::MetricDeviceBlockExecuteFailures);
+                                len = 1; // We need at least 1 byte for the status.
                                 e.status()
                             }
                         };
@@ -273,7 +277,8 @@ impl BlockEpollHandler {
                         .unwrap();
                 }
                 Err(e) => {
-                    error!("failed processing available descriptor chain: {:?}", e);
+                    error!("Failed to parse available descriptor chain: {:?}", e);
+                    trace!("{:?}", LogMetric::MetricDeviceBlockExecuteFailures);
                     len = 0;
                 }
             }
@@ -281,8 +286,8 @@ impl BlockEpollHandler {
             used_count += 1;
         }
         if rate_limited {
-            // if rate limiting kicked in, queue had advanced one element that we aborted
-            // processing; go back one element so it can be processed next time
+            // If rate limiting kicked in, queue had advanced one element that we aborted
+            // processing; go back one element so it can be processed next time.
             queue.go_to_previous_position();
         }
 
@@ -295,8 +300,10 @@ impl BlockEpollHandler {
     fn signal_used_queue(&self) {
         self.interrupt_status
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
-        // The write() is safe because the underlying syscall is properly engineered.
-        self.interrupt_evt.write(1).unwrap();
+        if let Err(e) = self.interrupt_evt.write(1) {
+            error!("Failed to signal used queue: {:?}", e);
+            trace!("{:?}", LogMetric::MetricDeviceBlockEventFailures);
+        }
     }
 
     #[cfg(test)]
@@ -319,12 +326,14 @@ impl EpollHandler for BlockEpollHandler {
     fn handle_event(&mut self, device_event: DeviceEventT, _: u32) {
         match device_event {
             QUEUE_AVAIL_EVENT => {
+                trace!("{:?}", LogMetric::MetricDeviceBlockQueueEventCount);
                 if let Err(e) = self.queue_evt.read() {
-                    error!("failed reading queue EventFd: {:?}", e);
+                    error!("Failed to get queue event: {:?}", e);
+                    trace!("{:?}", LogMetric::MetricDeviceBlockEventFailures);
                     return;
                 }
 
-                // while limiter is blocked, don't process any more requests
+                // While limiter is blocked, don't process any more requests.
                 if self.rate_limiter.is_blocked() {
                     return;
                 }
@@ -334,17 +343,18 @@ impl EpollHandler for BlockEpollHandler {
                 }
             }
             KILL_EVENT => {
-                //TODO: change this when implementing device removal
-                info!("block device killed")
+                //TODO: Change this when implementing device removal and add metric for it.
+                info!("Received kill signal.")
             }
             RATE_LIMITER_EVENT => {
-                // on rate limiter event, call the rate limiter handler
-                // and restart processing the queue
+                trace!("{:?}", LogMetric::MetricDeviceBlockRateLimiterEventCount);
+                // Upon rate limiter event, call the rate limiter handler
+                // and restart processing the queue.
                 if self.rate_limiter.event_handler().is_ok() && self.process_queue(0) {
                     self.signal_used_queue();
                 }
             }
-            _ => panic!("unknown token for block device"),
+            _ => panic!("Unknown event type was received."),
         }
     }
 }
@@ -436,8 +446,11 @@ impl Block {
 impl Drop for Block {
     fn drop(&mut self) {
         if let Some(kill_evt) = self.kill_evt.take() {
-            // Ignore the result because there is nothing we can do about it.
-            let _ = kill_evt.write(1);
+            if let Err(e) = kill_evt.write(1) {
+                // Momentarily, this is not an error as no hot plugging is available yet.
+                warn!("Failed to trigger kill event: {:?}", e);
+                trace!("{:?}", LogMetric::MetricDeviceBlockEventFailures);
+            }
         }
     }
 }
@@ -458,10 +471,7 @@ impl VirtioDevice for Block {
             // Get the upper 32-bits of the features bitfield.
             1 => (self.avail_features >> 32) as u32,
             _ => {
-                warn!(
-                    "block: virtio-block got request for features page: {}",
-                    page
-                );
+                warn!("Received request for unknown features page.");
                 0u32
             }
         }
@@ -472,10 +482,7 @@ impl VirtioDevice for Block {
             0 => value as u64,
             1 => (value as u64) << 32,
             _ => {
-                warn!(
-                    "block: virtio-block device cannot ack unknown feature page: {}",
-                    page
-                );
+                warn!("Cannot acknowledge unknown features page.");
                 0u64
             }
         };
@@ -483,7 +490,7 @@ impl VirtioDevice for Block {
         // Check if the guest is ACK'ing a feature that we didn't claim to have.
         let unrequested_features = v & !self.avail_features;
         if unrequested_features != 0 {
-            warn!("block: virtio-block got unknown feature ack: {:x}", v);
+            warn!("Received acknowledge request for unknown feature.");
 
             // Don't count these features as acked.
             v &= !unrequested_features;
@@ -494,6 +501,8 @@ impl VirtioDevice for Block {
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
         let config_len = self.config_space.len() as u64;
         if offset >= config_len {
+            error!("Failed to read config space");
+            trace!("{:?}", LogMetric::MetricDeviceBlockCfgFailures);
             return;
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
@@ -507,7 +516,8 @@ impl VirtioDevice for Block {
         let data_len = data.len() as u64;
         let config_len = self.config_space.len() as u64;
         if offset + data_len > config_len {
-            warn!("block: failed to write config space");
+            error!("Failed to write config space");
+            trace!("{:?}", LogMetric::MetricDeviceBlockCfgFailures);
             return;
         }
         let (_, right) = self.config_space.split_at_mut(offset as usize);
@@ -524,15 +534,18 @@ impl VirtioDevice for Block {
     ) -> ActivateResult {
         if queues.len() != NUM_QUEUES || queue_evts.len() != NUM_QUEUES {
             error!(
-                "virtio-block expected {} queue, got {}",
+                "Cannot perform activate. Expected {} queue(s), got {}",
                 NUM_QUEUES,
                 queues.len()
             );
+            trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
             return Err(ActivateError::BadActivate);
         }
 
         let kill_evt = EventFd::new().map_err(|e| {
-            error!("failed creating kill EventFd: {:?}", e);
+            error!("Failed to create kill event: {:?}", e);
+            trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
+            trace!("{:?}", LogMetric::MetricDeviceBlockEventFailures);
             ActivateError::BadActivate
         })?;
 
@@ -541,25 +554,23 @@ impl VirtioDevice for Block {
 
         if let Some(disk_image) = self.disk_image.take() {
             let queue_evt = queue_evts.remove(0);
-
             let queue_evt_raw_fd = queue_evt.as_raw_fd();
 
+            let mut default_disk_image_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
             let disk_image_id = match build_device_id(&disk_image) {
-                // in case of error we put in an empty one
                 Err(_) => {
-                    warn!("could not generate device id");
-                    Vec::new()
+                    warn!("Could not generate device id. We'll use a default.");
+                    default_disk_image_id
                 }
                 Ok(m) => {
-                    // the kernel only knows to read a maximum of VIRTIO_BLK_ID_BYTES
-                    // this will also zero out any leftover bytes
-                    let mut buf = vec![0; VIRTIO_BLK_ID_BYTES as usize];
+                    // The kernel only knows to read a maximum of VIRTIO_BLK_ID_BYTES.
+                    // This will also zero out any leftover bytes.
                     let disk_id = m.as_bytes();
                     let bytes_to_copy = cmp::min(disk_id.len(), VIRTIO_BLK_ID_BYTES as usize);
                     for i in 0..bytes_to_copy {
-                        buf[i] = disk_id[i];
+                        default_disk_image_id[i] = disk_id[i];
                     }
-                    buf
+                    default_disk_image_id
                 }
             };
 
@@ -575,11 +586,11 @@ impl VirtioDevice for Block {
             };
             let rate_limiter_rawfd = handler.rate_limiter.as_raw_fd();
 
-            //the channel should be open at this point
+            // The channel should be open at this point.
             self.epoll_config
                 .sender
                 .send(Box::new(handler))
-                .expect("Failed to send through the cannel");
+                .expect("Failed to send through the channel");
 
             //TODO: barrier needed here by any chance?
             epoll::ctl(
@@ -587,14 +598,20 @@ impl VirtioDevice for Block {
                 epoll::EPOLL_CTL_ADD,
                 queue_evt_raw_fd,
                 epoll::Event::new(epoll::EPOLLIN, self.epoll_config.q_avail_token),
-            ).map_err(ActivateError::EpollCtl)?;
+            ).map_err(|e| {
+                trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
+                ActivateError::EpollCtl(e)
+            })?;
 
             epoll::ctl(
                 self.epoll_config.epoll_raw_fd,
                 epoll::EPOLL_CTL_ADD,
                 kill_evt_raw_fd,
                 epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token),
-            ).map_err(ActivateError::EpollCtl)?;
+            ).map_err(|e| {
+                trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
+                ActivateError::EpollCtl(e)
+            })?;
 
             if rate_limiter_rawfd != -1 {
                 epoll::ctl(
@@ -602,12 +619,15 @@ impl VirtioDevice for Block {
                     epoll::EPOLL_CTL_ADD,
                     rate_limiter_rawfd,
                     epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rate_limiter_token),
-                ).map_err(ActivateError::EpollCtl)?;
+                ).map_err(|e| {
+                    trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
+                    ActivateError::EpollCtl(e)
+                })?;
             }
 
             return Ok(());
         }
-
+        trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
         Err(ActivateError::BadActivate)
     }
 }
@@ -649,7 +669,7 @@ mod tests {
                 .unwrap();
             f.set_len(0x1000).unwrap();
 
-            // rate limiting enabled but with a high operation rate (10 million ops/s)
+            // Rate limiting is enabled but with a high operation rate (10 million ops/s).
             let rate_limiter = RateLimiter::new(0, 0, 100000, 10).unwrap();
             DummyBlock {
                 block: Block::new(f, false, epoll_config, Some(rate_limiter)).unwrap(),
@@ -741,7 +761,7 @@ mod tests {
             m.write_obj_at_addr::<u64>(114, GuestAddress(0x1000 + 8))
                 .unwrap();
             assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
-                Err(ParseError::UnexpectedWriteOnlyDescriptor) => true,
+                Err(Error::UnexpectedWriteOnlyDescriptor) => true,
                 _ => false,
             });
         }
@@ -751,7 +771,7 @@ mod tests {
             // chain too short; no data_desc
             vq.dtable[0].flags.set(0);
             assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
-                Err(ParseError::DescriptorChainTooShort) => true,
+                Err(Error::DescriptorChainTooShort) => true,
                 _ => false,
             });
         }
@@ -762,7 +782,7 @@ mod tests {
             vq.dtable[0].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].set(0x2000, 0x1000, 0, 2);
             assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
-                Err(ParseError::DescriptorChainTooShort) => true,
+                Err(Error::DescriptorChainTooShort) => true,
                 _ => false,
             });
         }
@@ -775,7 +795,7 @@ mod tests {
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
             vq.dtable[2].set(0x3000, 0, 0, 0);
             assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
-                Err(ParseError::UnexpectedWriteOnlyDescriptor) => true,
+                Err(Error::UnexpectedWriteOnlyDescriptor) => true,
                 _ => false,
             });
         }
@@ -787,7 +807,7 @@ mod tests {
                 .unwrap();
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
-                Err(ParseError::UnexpectedReadOnlyDescriptor) => true,
+                Err(Error::UnexpectedReadOnlyDescriptor) => true,
                 _ => false,
             });
         }
@@ -799,7 +819,7 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
             assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
-                Err(ParseError::UnexpectedReadOnlyDescriptor) => true,
+                Err(Error::UnexpectedReadOnlyDescriptor) => true,
                 _ => false,
             });
         }
@@ -809,7 +829,7 @@ mod tests {
             // status desc too small
             vq.dtable[2].flags.set(VIRTQ_DESC_F_WRITE);
             assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
-                Err(ParseError::DescriptorLengthTooSmall) => true,
+                Err(Error::DescriptorLengthTooSmall) => true,
                 _ => false,
             });
         }

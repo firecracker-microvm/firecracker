@@ -5,6 +5,7 @@
 //! Emulates virtual and hardware devices.
 extern crate byteorder;
 extern crate epoll;
+extern crate fc_util;
 extern crate libc;
 #[macro_use]
 extern crate logger;
