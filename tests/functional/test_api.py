@@ -147,6 +147,37 @@ def test_api_put_update_pre_boot(test_microvm_any):
     """ Valid updates to the network `host_dev_name` are allowed. """
     assert(test_microvm.api_session.is_good_response(response.status_code))
 
+def test_api_put_machine_config(test_microvm_any):
+    """Tests various scenarios for PUT on /machine_config that cannot be covered by the unit tests"""
+
+    """ Test invalid vcpu count < 0 """
+    test_microvm = test_microvm_any
+    response = test_microvm.api_session.put(
+        test_microvm.microvm_cfg_url,
+        json = {'vcpu_count': '-2'}
+    )
+    assert response.status_code == 400
+
+    """ Test invalid mem_size_mib < 0 """
+    response = test_microvm.api_session.put(
+        test_microvm.microvm_cfg_url,
+        json = {'mem_size_mib': '-2'}
+    )
+    assert response.status_code == 400
+
+    """ Test invalid type for ht_enabled flag """
+    response = test_microvm.api_session.put(
+        test_microvm.microvm_cfg_url,
+        json = {'ht_enabled': 'random_string'}
+    )
+    assert response.status_code == 400
+
+    """ Test invalid CPU template """
+    response = test_microvm.api_session.put(
+        test_microvm.microvm_cfg_url,
+        json = {'cpu_template': 'random_string'}
+    )
+    assert response.status_code == 400
 
 def test_api_put_update_post_boot(test_microvm_any):
     """ Tests that PUT updates are rejected after the microvm boots. """
