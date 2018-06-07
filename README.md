@@ -36,7 +36,7 @@ spawn a RESTful API endpoint when started. The API endpoint can be used to:
 
 - One-process virtual machine manager (one Firecracker per microVM).
 - RESTful API running on a unix socket. The API supported by the current version
-  can be found at `api/swagger/firecracker-beta.yaml`.
+  can be found at `api_server/swagger/firecracker-beta.yaml`.
 - Emulated keyboard (i8042) and serial console (UART). The microVM serial
   console input and output are connected to those of the Firecracker process
   (this allows direct console access to the guest OS).
