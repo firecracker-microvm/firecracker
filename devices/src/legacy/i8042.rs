@@ -1,7 +1,7 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
+use logger::metrics::LogMetric;
 use sys_util::{EventFd, Result};
 
 use BusDevice;
@@ -29,14 +29,21 @@ impl BusDevice for I8042Device {
     fn read(&mut self, offset: u64, data: &mut [u8]) {
         if data.len() == 1 && offset == 0 {
             data[0] = 0x0;
+            trace!("{:?}", LogMetric::MetricDeviceI8042ReadCount);
+        } else {
+            trace!("{:?}", LogMetric::MetricDeviceI8042MissedReads);
         }
     }
 
     fn write(&mut self, offset: u64, data: &[u8]) {
         if data.len() == 1 && data[0] == RESET_CMD && offset == 0 {
             if let Err(e) = self.reset_evt.write(1) {
-                error!("failed to trigger i8042 reset event: {:?}", e);
+                error!("Failed to trigger i8042 reset event: {:?}", e);
+                trace!("{:?}", LogMetric::MetricDeviceI8042Failures);
             }
+            trace!("{:?}", LogMetric::MetricDeviceI8042ResetCount);
+        } else {
+            trace!("{:?}", LogMetric::MetricDeviceI8042MissedWrites);
         }
     }
 }
