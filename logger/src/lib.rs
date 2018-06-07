@@ -349,6 +349,34 @@ impl Logger {
         STATE.store(INITIALIZED, Ordering::SeqCst);
         Ok(())
     }
+
+    // In a future PR we'll update the way things are written to the selected destination to avoid
+    // the creation and allocation of unnecessary intermediate Strings. The log_helper method takes
+    // care of the common logic involved in both writing regular log messages, and dumping metrics.
+    fn log_helper(&self, mut msg: String) {
+        // We have the awkward IF's for now because we can't use just "<enum_variant> as usize
+        // on the left side of a match arm for some reason.
+        match self.level_info.writer() {
+            x if x == Destination::File as usize => {
+                let mut g = self.file_guard();
+                // the unwrap() is safe because writer == Destination::File
+                let fw = g.as_mut().unwrap();
+                msg = format!("{}\n", msg);
+                if let Err(e) = fw.write(&msg) {
+                    eprintln!("logger: Could not write to log file {}", e);
+                }
+                let _ = fw.flush();
+            }
+            x if x == Destination::Stderr as usize => {
+                eprintln!("{}", msg);
+            }
+            x if x == Destination::Stdout as usize => {
+                println!("{}", msg);
+            }
+            // major program logic error
+            _ => panic!("Invalid logger.level_info.writer!"),
+        }
+    }
 }
 
 /// Implements trait log from the externally used log crate
@@ -408,28 +436,7 @@ impl Log for Logger {
                 }
             }
 
-            // We have the awkward IF's for now because we can't use just "<enum_variant> as usize
-            // on the left side of a match arm for some reason.
-            match self.level_info.writer() {
-                x if x == Destination::File as usize => {
-                    let mut g = self.file_guard();
-                    // the unwrap() is safe because writer == Destination::File
-                    let fw = g.as_mut().unwrap();
-                    msg = format!("{}\n", msg);
-                    if let Err(e) = fw.write(&msg) {
-                        eprintln!("logger: Could not write to log file {}", e);
-                    }
-                    let _ = fw.flush();
-                }
-                x if x == Destination::Stderr as usize => {
-                    eprintln!("{}", msg);
-                }
-                x if x == Destination::Stdout as usize => {
-                    println!("{}", msg);
-                }
-                // major program logic error
-                _ => panic!("Invalid logger.level_info.writer!"),
-            }
+            self.log_helper(msg);
         }
     }
 
