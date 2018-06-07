@@ -49,6 +49,7 @@ pub use log::Level::*;
 pub use log::*;
 use log::{set_logger, set_max_level, Log, Metadata, Record};
 use metrics::get_metrics;
+pub use metrics2::METRICS;
 use writers::*;
 
 /// Types used by the Logger.
@@ -375,6 +376,15 @@ impl Logger {
             }
             // major program logic error
             _ => panic!("Invalid logger.level_info.writer!"),
+        }
+    }
+
+    pub fn log_metrics(&self) {
+        match serde_json::to_string(METRICS.deref()) {
+            Ok(msg) => self.log_helper(msg),
+            Err(_) => {
+                warn!("Failed to serialize METRICS.");
+            }
         }
     }
 }
