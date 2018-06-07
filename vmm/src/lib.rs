@@ -1,5 +1,6 @@
 extern crate epoll;
 extern crate libc;
+extern crate timerfd;
 
 extern crate api_server;
 extern crate data_model;
@@ -28,6 +29,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
+use std::time;
+
+use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
@@ -50,6 +54,7 @@ use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
 use kvm::*;
 use logger::metrics::LogMetric;
+use logger::LOGGER;
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use vm_control::VmResponse;
 use vstate::{Vcpu, Vm};
@@ -60,6 +65,9 @@ pub const CMDLINE_MAX_SIZE: usize = KERNEL_START_OFFSET - CMDLINE_OFFSET;
 pub const DEFAULT_KERNEL_CMDLINE: &str =
     "noapic reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
 const VCPU_RTSIG_OFFSET: u8 = 0;
+
+// TODO: Maybe configure this parameter via the API.
+const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
 #[derive(Debug)]
 pub enum Error {
@@ -97,6 +105,7 @@ pub enum Error {
     KvmApiVersion(i32),
     KvmCap(kvm::Cap),
     GeneralFailure,
+    TimerFd(std::io::Error),
 }
 
 impl std::convert::From<kernel_loader::Error> for Error {
@@ -181,6 +190,7 @@ pub enum EpollDispatch {
     Stdin,
     DeviceHandler(usize, DeviceEventT),
     ApiRequest,
+    WriteMetrics,
 }
 
 struct MaybeHandler {
@@ -383,6 +393,8 @@ pub struct Vmm {
     /// api resources
     api_event: EpollEvent<EventFd>,
     from_api: Receiver<Box<ApiRequest>>,
+
+    write_metrics_event: EpollEvent<TimerFd>,
 }
 
 impl Vmm {
@@ -396,6 +408,15 @@ impl Vmm {
         let api_event = epoll_context
             .add_event(api_event_fd, EpollDispatch::ApiRequest)
             .expect("cannot add API eventfd to epoll");
+
+        let write_metrics_event = epoll_context
+            .add_event(
+                // non-blocking & close on exec
+                TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?,
+                EpollDispatch::WriteMetrics,
+            )
+            .expect("Cannot add write metrics TimerFd to epoll");
+
         let block_device_configs = BlockDeviceConfigs::new();
         let kvm = KvmContext::new()?;
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
@@ -418,6 +439,7 @@ impl Vmm {
             epoll_context,
             api_event,
             from_api,
+            write_metrics_event,
         })
     }
 
@@ -889,6 +911,16 @@ impl Vmm {
         // unwrap() to crash if the other thread poisoned this lock
         self.shared_info.write().unwrap().state = InstanceState::Running;
 
+        // Arm the log write timer.
+        // TODO: the timer does not stop on InstanceStop.
+        let timer_state = TimerState::Periodic {
+            current: time::Duration::from_secs(WRITE_METRICS_PERIOD_SECONDS),
+            interval: time::Duration::from_secs(WRITE_METRICS_PERIOD_SECONDS),
+        };
+        self.write_metrics_event
+            .fd
+            .set_state(timer_state, SetTimeFlags::Default);
+
         Ok(())
     }
 
@@ -1008,6 +1040,14 @@ impl Vmm {
                                 warn!("got spurious notification from api thread");
                                 ()
                             });
+                        }
+                        EpollDispatch::WriteMetrics => {
+                            self.write_metrics_event.fd.read();
+
+                            // Please note that, since LOGGER has no output file configured yet,
+                            // it will write to stdout, so metric logging will interfere with
+                            // console output.
+                            LOGGER.log_metrics();
                         }
                     }
                 }
