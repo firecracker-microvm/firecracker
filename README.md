@@ -24,8 +24,13 @@ and handles resource rate limiting for microVMs.
 Firecracker consists of a single micro Virtual Machine Manager binary that will
 spawn a RESTful API endpoint when started. The API endpoint can be used to:
 
-- Add one or more vCPUs to the microVM.
-- Add memory to the microVM.
+- Configure the microvm by:
+  - Change the number of vCPUs (the default is 1)
+  - Change the memory size (the default is 128 MiB)
+  - Set a CPU template (the only available template is T2 for now)
+  - Enable/Disable hyperthreading (by default hyperthreading is disabled).
+    The host needs to be modified before starting Firecracker as this flag
+    only changes the topology inside the microvm.
 - Add one or more network interfaces to the microVM.
 - Add one or more read/write disks (file-backed block devices) to the microVM.
 - Configure the logging system (i.e. path on host for log file, log level, etc).
@@ -128,7 +133,7 @@ Simply issue the `InstanceStart` action to the `/actions` API resource.
    instances.
 1. Firecracker uses default values for the following parameters:
     1. Kernel Command Line:
-       `console=ttyS0 noapic reboot=k panic=1 pci=off nomodules`. This can be
+       `noapic reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0`. This can be
        changed via the `/boot-source`.
     1. Number of vCPUs: 1. Default Memory Size: 128 MiB.
     1. Unix domain socket: `/tmp/firecracker.socket`.
