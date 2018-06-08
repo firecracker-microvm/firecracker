@@ -4,14 +4,14 @@ use fc_util::ratelimiter::RateLimiter;
 
 // This struct represents the strongly typed equivalent of the json body for TokenBucket
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct TokenBucket {
+pub struct TokenBucketDescription {
     pub size: u64,
     pub refill_time: u64,
 }
 
-impl Default for TokenBucket {
+impl Default for TokenBucketDescription {
     fn default() -> Self {
-        TokenBucket {
+        TokenBucketDescription {
             size: 0,
             refill_time: 0,
         }
@@ -21,8 +21,8 @@ impl Default for TokenBucket {
 // This struct represents the strongly typed equivalent of the json body for RateLimiter
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RateLimiterDescription {
-    pub bandwidth: TokenBucket,
-    pub ops: TokenBucket,
+    pub bandwidth: TokenBucketDescription,
+    pub ops: TokenBucketDescription,
 }
 
 // TryFrom trait is sadly marked unstable, so make our own
@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn test_token_bucket_derives() {
-        let tb = TokenBucket {
+        let tb = TokenBucketDescription {
             size: 0,
             refill_time: 0,
         };
