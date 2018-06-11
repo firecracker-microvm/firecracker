@@ -32,11 +32,11 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate time;
 
-mod error;
-pub mod metrics;
-mod metrics2;
+pub mod error;
+mod metrics;
 mod writers;
 
+use std::error::Error;
 use std::ops::Deref;
 use std::result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
@@ -48,8 +48,7 @@ use error::LoggerError;
 pub use log::Level::*;
 pub use log::*;
 use log::{set_logger, set_max_level, Log, Metadata, Record};
-use metrics::get_metrics;
-pub use metrics2::{Metric, METRICS};
+pub use metrics::{Metric, METRICS};
 use writers::*;
 
 /// Types used by the Logger.
@@ -379,12 +378,22 @@ impl Logger {
         }
     }
 
-    pub fn log_metrics(&self) {
-        match serde_json::to_string(METRICS.deref()) {
-            Ok(msg) => self.log_helper(msg),
-            Err(_) => {
-                warn!("Failed to serialize METRICS.");
+    pub fn log_metrics(&self) -> Result<()> {
+        // Log metrics only if the logger has been initialized.
+        if STATE.load(Ordering::Relaxed) == INITIALIZED {
+            match serde_json::to_string(METRICS.deref()) {
+                Ok(msg) => {
+                    self.log_helper(msg);
+                    Ok(())
+                }
+                Err(e) => {
+                    return Err(LoggerError::LogMetricFailure(e.description().to_string()));
+                }
             }
+        } else {
+            return Err(LoggerError::LogMetricFailure(
+                "Failed to log metrics. Logger was not initialized.".to_string(),
+            ));
         }
     }
 }
@@ -399,52 +408,13 @@ impl Log for Logger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            let mut msg = format!(
+            let msg = format!(
                 "{} {}{}{}",
                 Local::now().format(TIME_FMT),
                 self.create_prefix(&record),
                 MSG_SEPARATOR,
                 record.args()
             );
-
-            if record.level().eq(&log::Level::Trace) {
-                let mut guard = match get_metrics().lock() {
-                    Ok(g) => g,
-                    Err(e) => {
-                        eprintln!(
-                            "{}",
-                            LoggerError::MutexLockFailure(format!(
-                                "Getting lock on metrics mutex failed. Error: {:?}",
-                                e
-                            ))
-                        );
-                        return;
-                    }
-                };
-                let metric_key = String::from(format!("{}", (record.args())));
-                let mut metric = guard.get_mut(&metric_key);
-                match metric {
-                    Some(ref mut m) => match m.log_metric() {
-                        Ok(t) => {
-                            msg = format!(
-                                "{} {}{}{}",
-                                Local::now().format(TIME_FMT),
-                                self.create_prefix(&record),
-                                MSG_SEPARATOR,
-                                t
-                            )
-                        }
-                        Err(e) => match e {
-                            LoggerError::LogMetricFailure => {
-                                panic!("Logging metrics encountered illogical events")
-                            }
-                            LoggerError::LogMetricRateLimit => return,
-                            _ => (),
-                        },
-                    },
-                    None => (),
-                }
-            }
 
             self.log_helper(msg);
         }
@@ -469,12 +439,9 @@ mod tests {
     use super::*;
     use log::MetadataBuilder;
 
-    use metrics::LogMetric::{MetricGetInstanceInfoCount, MetricGetInstanceInfoFailures};
     use std::fs::{remove_file, File};
     use std::io::BufRead;
     use std::io::BufReader;
-    use std::thread::sleep;
-    use std::time::Duration;
 
     fn log_file_str() -> String {
         String::from("tmp.log")
@@ -543,16 +510,6 @@ mod tests {
                 ("[ERROR", "lib.rs", "error"),
             ],
         );
-
-        // testing logging metric
-        trace!("{:?}", MetricGetInstanceInfoFailures);
-        trace!("{:?}", MetricGetInstanceInfoCount);
-        sleep(Duration::from_secs(3));
-        trace!("{:?}", MetricGetInstanceInfoFailures);
-        trace!("{:?}", MetricGetInstanceInfoCount);
-        sleep(Duration::from_secs(3));
-        trace!("{:?}", MetricGetInstanceInfoFailures);
-        trace!("{:?}", MetricGetInstanceInfoCount);
 
         remove_file(log_file_str()).unwrap();
 

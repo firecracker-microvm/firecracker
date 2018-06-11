@@ -29,7 +29,9 @@ fn main() {
         error!("Panic occurred: {:?}", info);
 
         // Log the metrics before aborting.
-        LOGGER.log_metrics();
+        if let Err(e) = LOGGER.log_metrics() {
+            error!("Failed to log metrics on abort. {}:?", e);
+        }
     }));
 
     let cmd_arguments = App::new("firecracker")
