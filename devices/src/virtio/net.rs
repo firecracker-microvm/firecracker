@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use super::{ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
 use fc_util::ratelimiter::{RateLimiter, TokenType};
-use logger::metrics::LogMetric;
+use logger::{Metric, METRICS};
 use net_sys;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use sys_util::{Error as SysError, EventFd, GuestMemory};
@@ -96,7 +96,7 @@ impl NetEpollHandler {
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
         if let Err(e) = self.interrupt_evt.write(1) {
             error!("Failed to signal used queue: {:?}", e);
-            trace!("{:?}", LogMetric::MetricDeviceNetEventFailures);
+            METRICS.net.event_fails.inc();
         }
     }
 
@@ -146,7 +146,7 @@ impl NetEpollHandler {
                         }
                         Err(e) => {
                             error!("Failed to write slice: {:?}", e);
-                            trace!("{:?}", LogMetric::MetricDeviceNetReceiveFailures);
+                            METRICS.net.rx_fails.inc();
                             break;
                         }
                     };
@@ -158,7 +158,7 @@ impl NetEpollHandler {
                 }
                 None => {
                     warn!("Receiving buffer is too small to hold frame of current size");
-                    trace!("{:?}", LogMetric::MetricDeviceNetReceiveFailures);
+                    METRICS.net.rx_fails.inc();
                     break;
                 }
             }
@@ -171,10 +171,13 @@ impl NetEpollHandler {
         // reduce latency.
         self.signal_used_queue();
 
-        // I should add write_count.
-        trace!("{:?}", LogMetric::MetricDeviceNetReceiveCount);
-
-        write_count >= self.rx_count
+        if write_count >= self.rx_count {
+            METRICS.net.rx_bytes_count.add(write_count);
+            METRICS.net.rx_packets_count.inc();
+            return true;
+        } else {
+            return false;
+        }
     }
 
     fn process_rx(&mut self) {
@@ -194,11 +197,11 @@ impl NetEpollHandler {
                     if let Some(err) = e.raw_os_error() {
                         if err != EAGAIN {
                             error!("Failed to read tap: {:?}", e);
-                            trace!("{:?}", LogMetric::MetricDeviceNetReceiveFailures);
+                            METRICS.net.rx_fails.inc();
                         }
                     } else {
                         error!("Failed to read tap: {:?}", e);
-                        trace!("{:?}", LogMetric::MetricDeviceNetReceiveFailures);
+                        METRICS.net.rx_fails.inc();
                     }
                     break;
                 }
@@ -250,7 +253,7 @@ impl NetEpollHandler {
                             }
                             Err(e) => {
                                 error!("Failed to read slice: {:?}", e);
-                                trace!("{:?}", LogMetric::MetricDeviceNetTransmitFailures);
+                                METRICS.net.tx_fails.inc();
                                 break;
                             }
                         }
@@ -277,12 +280,12 @@ impl NetEpollHandler {
             let write_result = self.tap.write(&frame[..read_count as usize]);
             match write_result {
                 Ok(_) => {
-                    // I should add read_count here.
-                    trace!("{:?}", LogMetric::MetricDeviceNetTransmitCount);
+                    METRICS.net.tx_bytes_count.add(read_count);
+                    METRICS.net.tx_packets_count.inc();
                 }
                 Err(e) => {
                     error!("Failed to write to tap: {:?}", e);
-                    trace!("{:?}", LogMetric::MetricDeviceNetTransmitFailures);
+                    METRICS.net.tx_fails.inc();
                 }
             };
 
@@ -346,7 +349,7 @@ impl EpollHandler for NetEpollHandler {
     fn handle_event(&mut self, device_event: DeviceEventT, _: u32) {
         match device_event {
             RX_TAP_EVENT => {
-                trace!("{:?}", LogMetric::MetricDeviceNetReceiveTapEventCount);
+                METRICS.net.rx_tap_event_count.inc();
 
                 // While limiter is blocked, don't process any more incoming.
                 if self.rx_rate_limiter.is_blocked() {
@@ -364,10 +367,10 @@ impl EpollHandler for NetEpollHandler {
                 self.process_rx();
             }
             RX_QUEUE_EVENT => {
-                trace!("{:?}", LogMetric::MetricDeviceNetReceiveQueueEventCount);
+                METRICS.net.rx_queue_event_count.inc();
                 if let Err(e) = self.rx_queue_evt.read() {
                     error!("Failed to get rx queue event: {:?}", e);
-                    trace!("{:?}", LogMetric::MetricDeviceNetEventFailures);
+                    METRICS.net.event_fails.inc();
                     // Shouldn't we return here?
                 }
                 // If the limiter is not blocked, resume the receiving of bytes.
@@ -377,11 +380,11 @@ impl EpollHandler for NetEpollHandler {
                 }
             }
             TX_QUEUE_EVENT => {
-                trace!("{:?}", LogMetric::MetricDeviceNetTransmitQueueEventCount);
+                METRICS.net.tx_queue_event_count.inc();
                 if let Err(e) = self.tx_queue_evt.read() {
                     error!("Failed to get tx queue event: {:?}", e);
                     // Shouldn't we return here?
-                    trace!("{:?}", LogMetric::MetricDeviceNetEventFailures);
+                    METRICS.net.event_fails.inc();
                 }
                 // If the limiter is not blocked, continue transmitting bytes.
                 if !self.tx_rate_limiter.is_blocked() {
@@ -393,10 +396,7 @@ impl EpollHandler for NetEpollHandler {
                 // TODO: device should be removed from epoll
             }
             RX_RATE_LIMITER_EVENT => {
-                trace!(
-                    "{:?}",
-                    LogMetric::MetricDeviceNetReceiveEventRateLimiterCount
-                );
+                METRICS.net.rx_event_rate_limiter_count.inc();
                 // Upon rate limiter event, call the rate limiter handler
                 // and restart processing the queue.
                 match self.rx_rate_limiter.event_handler() {
@@ -405,16 +405,13 @@ impl EpollHandler for NetEpollHandler {
                         self.resume_rx();
                     }
                     Err(e) => {
-                        trace!("{:?}", LogMetric::MetricDeviceNetEventFailures);
+                        METRICS.net.event_fails.inc();
                         error!("Failed to get rx rate-limiter event: {:?}", e)
                     }
                 }
             }
             TX_RATE_LIMITER_EVENT => {
-                trace!(
-                    "{:?}",
-                    LogMetric::MetricDeviceNetTransmitEventRateLimiterCount
-                );
+                METRICS.net.tx_rate_limiter_event_count.inc();
                 // Upon rate limiter event, call the rate limiter handler
                 // and restart processing the queue.
                 match self.tx_rate_limiter.event_handler() {
@@ -423,7 +420,7 @@ impl EpollHandler for NetEpollHandler {
                         self.process_tx();
                     }
                     Err(e) => {
-                        trace!("{:?}", LogMetric::MetricDeviceNetEventFailures);
+                        METRICS.net.event_fails.inc();
                         error!("Failed to get tx rate-limiter event: {:?}", e)
                     }
                 }
@@ -559,7 +556,7 @@ impl Drop for Net {
         if self.workers_kill_evt.is_none() {
             if let Err(e) = self.kill_evt.write(1) {
                 warn!("Failed to trigger kill event: {:?}", e);
-                trace!("{:?}", LogMetric::MetricDeviceNetEventFailures);
+                METRICS.net.event_fails.inc();
             }
         }
     }
@@ -612,7 +609,8 @@ impl VirtioDevice for Net {
         let config_len = self.config_space.len() as u64;
         if offset >= config_len {
             error!("Failed to read config space");
-            trace!("{:?}", LogMetric::MetricDeviceNetCfgFailures);
+            METRICS.net.cfg_fails.inc();
+
             return;
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
@@ -636,7 +634,8 @@ impl VirtioDevice for Net {
                 NUM_QUEUES,
                 queues.len()
             );
-            trace!("{:?}", LogMetric::MetricDeviceNetActivateFailures);
+            METRICS.net.activate_fails.inc();
+
             return Err(ActivateError::BadActivate);
         }
 
@@ -682,7 +681,7 @@ impl VirtioDevice for Net {
                     tap_raw_fd,
                     epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_tap_token),
                 ).map_err(|e| {
-                    trace!("{:?}", LogMetric::MetricDeviceNetActivateFailures);
+                    METRICS.net.activate_fails.inc();
                     ActivateError::EpollCtl(e)
                 })?;
 
@@ -692,7 +691,7 @@ impl VirtioDevice for Net {
                     rx_queue_raw_fd,
                     epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_queue_token),
                 ).map_err(|e| {
-                    trace!("{:?}", LogMetric::MetricDeviceNetActivateFailures);
+                    METRICS.net.activate_fails.inc();
                     ActivateError::EpollCtl(e)
                 })?;
 
@@ -702,7 +701,7 @@ impl VirtioDevice for Net {
                     tx_queue_raw_fd,
                     epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_queue_token),
                 ).map_err(|e| {
-                    trace!("{:?}", LogMetric::MetricDeviceNetActivateFailures);
+                    METRICS.net.activate_fails.inc();
                     ActivateError::EpollCtl(e)
                 })?;
 
@@ -712,7 +711,7 @@ impl VirtioDevice for Net {
                     kill_raw_fd,
                     epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token),
                 ).map_err(|e| {
-                    trace!("{:?}", LogMetric::MetricDeviceNetActivateFailures);
+                    METRICS.net.activate_fails.inc();
                     ActivateError::EpollCtl(e)
                 })?;
 
@@ -737,7 +736,7 @@ impl VirtioDevice for Net {
                 return Ok(());
             }
         }
-        trace!("{:?}", LogMetric::MetricDeviceNetActivateFailures);
+        METRICS.net.activate_fails.inc();
         Err(ActivateError::BadActivate)
     }
 }

@@ -15,7 +15,7 @@ use std::sync::Arc;
 use super::{ActivateError, ActivateResult, DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK,
             VIRTIO_MMIO_INT_VRING};
 use fc_util::ratelimiter::{RateLimiter, TokenType};
-use logger::metrics::LogMetric;
+use logger::{Metric, METRICS};
 use sys_util::Result as SysResult;
 use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};
 use virtio_sys::virtio_blk::*;
@@ -184,19 +184,17 @@ impl Request {
             RequestType::In => {
                 mem.read_to_memory(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Read)?;
-                // TODO This should add self.data_len.
-                trace!("{:?}", LogMetric::MetricDeviceBlockReadCount);
+                METRICS.block.read_count.add(self.data_len as usize);
                 return Ok(self.data_len);
             }
             RequestType::Out => {
                 mem.write_from_memory(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Write)?;
-                // TODO This should add self.data_len.
-                trace!("{:?}", LogMetric::MetricDeviceBlockWriteCount);
+                METRICS.block.write_count.add(self.data_len as usize);
             }
             RequestType::Flush => match disk.flush() {
                 Ok(_) => {
-                    trace!("{:?}", LogMetric::MetricDeviceBlockFlushCount);
+                    METRICS.block.flush_count.inc();
                     return Ok(0);
                 }
                 Err(e) => return Err(ExecuteError::Flush(e)),
@@ -265,7 +263,7 @@ impl BlockEpollHandler {
                             }
                             Err(e) => {
                                 error!("Failed to execute request: {:?}", e);
-                                trace!("{:?}", LogMetric::MetricDeviceBlockExecuteFailures);
+                                METRICS.block.invalid_reqs_count.inc();
                                 len = 1; // We need at least 1 byte for the status.
                                 e.status()
                             }
@@ -278,7 +276,7 @@ impl BlockEpollHandler {
                 }
                 Err(e) => {
                     error!("Failed to parse available descriptor chain: {:?}", e);
-                    trace!("{:?}", LogMetric::MetricDeviceBlockExecuteFailures);
+                    METRICS.block.execute_fails.inc();
                     len = 0;
                 }
             }
@@ -302,7 +300,7 @@ impl BlockEpollHandler {
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
         if let Err(e) = self.interrupt_evt.write(1) {
             error!("Failed to signal used queue: {:?}", e);
-            trace!("{:?}", LogMetric::MetricDeviceBlockEventFailures);
+            METRICS.block.event_fails.inc();
         }
     }
 
@@ -326,10 +324,10 @@ impl EpollHandler for BlockEpollHandler {
     fn handle_event(&mut self, device_event: DeviceEventT, _: u32) {
         match device_event {
             QUEUE_AVAIL_EVENT => {
-                trace!("{:?}", LogMetric::MetricDeviceBlockQueueEventCount);
+                METRICS.block.queue_event_count.inc();
                 if let Err(e) = self.queue_evt.read() {
                     error!("Failed to get queue event: {:?}", e);
-                    trace!("{:?}", LogMetric::MetricDeviceBlockEventFailures);
+                    METRICS.block.event_fails.inc();
                     return;
                 }
 
@@ -347,7 +345,7 @@ impl EpollHandler for BlockEpollHandler {
                 info!("Received kill signal.")
             }
             RATE_LIMITER_EVENT => {
-                trace!("{:?}", LogMetric::MetricDeviceBlockRateLimiterEventCount);
+                METRICS.block.rate_limiter_event_count.inc();
                 // Upon rate limiter event, call the rate limiter handler
                 // and restart processing the queue.
                 if self.rate_limiter.event_handler().is_ok() && self.process_queue(0) {
@@ -449,7 +447,7 @@ impl Drop for Block {
             if let Err(e) = kill_evt.write(1) {
                 // Momentarily, this is not an error as no hot plugging is available yet.
                 warn!("Failed to trigger kill event: {:?}", e);
-                trace!("{:?}", LogMetric::MetricDeviceBlockEventFailures);
+                METRICS.block.event_fails.inc();
             }
         }
     }
@@ -502,7 +500,7 @@ impl VirtioDevice for Block {
         let config_len = self.config_space.len() as u64;
         if offset >= config_len {
             error!("Failed to read config space");
-            trace!("{:?}", LogMetric::MetricDeviceBlockCfgFailures);
+            METRICS.block.cfg_fails.inc();
             return;
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
@@ -517,7 +515,7 @@ impl VirtioDevice for Block {
         let config_len = self.config_space.len() as u64;
         if offset + data_len > config_len {
             error!("Failed to write config space");
-            trace!("{:?}", LogMetric::MetricDeviceBlockCfgFailures);
+            METRICS.block.cfg_fails.inc();
             return;
         }
         let (_, right) = self.config_space.split_at_mut(offset as usize);
@@ -538,14 +536,14 @@ impl VirtioDevice for Block {
                 NUM_QUEUES,
                 queues.len()
             );
-            trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
+            METRICS.block.activate_fails.inc();
             return Err(ActivateError::BadActivate);
         }
 
         let kill_evt = EventFd::new().map_err(|e| {
             error!("Failed to create kill event: {:?}", e);
-            trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
-            trace!("{:?}", LogMetric::MetricDeviceBlockEventFailures);
+            METRICS.block.activate_fails.inc();
+            METRICS.block.event_fails.inc();
             ActivateError::BadActivate
         })?;
 
@@ -599,7 +597,7 @@ impl VirtioDevice for Block {
                 queue_evt_raw_fd,
                 epoll::Event::new(epoll::EPOLLIN, self.epoll_config.q_avail_token),
             ).map_err(|e| {
-                trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
+                METRICS.block.activate_fails.inc();
                 ActivateError::EpollCtl(e)
             })?;
 
@@ -609,7 +607,7 @@ impl VirtioDevice for Block {
                 kill_evt_raw_fd,
                 epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token),
             ).map_err(|e| {
-                trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
+                METRICS.block.activate_fails.inc();
                 ActivateError::EpollCtl(e)
             })?;
 
@@ -620,14 +618,14 @@ impl VirtioDevice for Block {
                     rate_limiter_rawfd,
                     epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rate_limiter_token),
                 ).map_err(|e| {
-                    trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
+                    METRICS.block.activate_fails.inc();
                     ActivateError::EpollCtl(e)
                 })?;
             }
 
             return Ok(());
         }
-        trace!("{:?}", LogMetric::MetricDeviceBlockActivateFailures);
+        METRICS.block.activate_fails.inc();
         Err(ActivateError::BadActivate)
     }
 }
