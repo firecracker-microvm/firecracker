@@ -1,6 +1,6 @@
+use cpuid::cpu_leaf::*;
+use cpuid::str_to_u32;
 use kvm_sys::kvm_cpuid_entry2;
-
-use self::super::*;
 
 pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
     for entry in entries.iter_mut() {
