@@ -170,7 +170,7 @@ impl Vcpu {
             &mut self.cpuid,
         ).map_err(|e| Error::CpuId(e))?;
         match machine_config.cpu_template {
-            Some(template) => cpuid::set_cpuid_template(template, &mut self.cpuid).unwrap(),
+            Some(template) => cpuid::set_cpuid_template(template, &mut self.cpuid),
             None => (),
         }
 
@@ -256,7 +256,7 @@ mod tests {
         let mut vcpu = Vcpu::new(0, &mut vm).unwrap();
         assert_eq!(vcpu.get_cpuid(), vm.fd.get_supported_cpuid());
         assert!(cpuid::filter_cpuid(0, 1, true, &mut vcpu.cpuid).is_ok());
-        assert!(cpuid::set_cpuid_template(CPUFeaturesTemplate::T2, &mut vcpu.cpuid).is_ok());
+        cpuid::set_cpuid_template(CPUFeaturesTemplate::T2, &mut vcpu.cpuid);
         assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
     }
 
