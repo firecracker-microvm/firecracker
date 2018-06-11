@@ -1,10 +1,10 @@
 swagger: "2.0"
 info:
-  title: Firecracker v0.3 API
-  description: Firecraker v0.3 - RESTful public-facing API.
+  title: Firecracker v0.4 API
+  description: Firecraker v0.4 - RESTful public-facing API.
                The API is accessible through HTTP calls on specific URLs carrying JSON modeled data.
                The transport medium is a Unix Domain Socket.
-  version: 0.3.0
+  version: 0.4.0
   termsOfService: ""
   contact:
     email: "compute-capsule@amazon.com"
@@ -171,7 +171,8 @@ paths:
     get:
       summary: Get the machine configuration of the VM.
       description: Get the machine configuration of the VM. When called before the PUT operation, it will return
-                   the default values for the vCPU count (=1), memory size (=128 MiB) and Hyperthreading is disabled.
+                   the default values for the vCPU count (=1), memory size (=128 MiB), Hyperthreading is disabled and
+                   there is no CPU Template.
       responses:
         200:
           description: OK
@@ -261,6 +262,14 @@ definitions:
       boot_args:
         type: string
         description: Kernel boot arguments
+
+  CPUTemplate:
+    type: string
+    description:
+      The CPU Template defines a set of flags to be disabled from the microvm so that
+      the features exposed to the guest are the same as in the selected instance type.
+    enum:
+      - T2
 
   DeviceState:
     type: string
@@ -366,8 +375,8 @@ definitions:
     type: object
     description: Machine Configuration descriptor by which you can specify the number
                  of vCPU of one machine with vcpu_count, the memory size in MiB with
-                 mem_size_mib and whether Hyperthreading is enabled/disabled with
-                 ht_enabled
+                 mem_size_mib, the CPU template with cpu_template and whether Hyperthreading
+                 is enabled/disabled with ht_enabled
     properties:
       vcpu_count:
         type: integer
@@ -378,6 +387,8 @@ definitions:
       ht_enabled:
         type: boolean
         description: Flag for enabling/disabling Hyperthreading
+      cpu_template:
+        $ref: "#/definitions/CPUTemplate"
 
   NetworkInterface:
     type: object
