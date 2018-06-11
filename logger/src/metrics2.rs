@@ -100,6 +100,11 @@ pub struct ApiMetrics {}
 pub struct VcpuMetrics {
     pub eagain: SharedMetric,
     pub eintr: SharedMetric,
+    pub exit_io_in: SharedMetric,
+    pub exit_io_out: SharedMetric,
+    pub exit_mmio_read: SharedMetric,
+    pub exit_mmio_write: SharedMetric,
+    pub failures: SharedMetric,
 }
 
 #[derive(Default, Serialize)]

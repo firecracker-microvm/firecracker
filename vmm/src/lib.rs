@@ -53,7 +53,6 @@ use device_manager::mmio::MMIODeviceManager;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
 use kvm::*;
-use logger::metrics::LogMetric;
 use logger::{Metric, LOGGER, METRICS};
 use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
 use vm_control::VmResponse;
@@ -774,19 +773,19 @@ impl Vmm {
                             Ok(run) => match run {
                                 VcpuExit::IoIn(addr, data) => {
                                     io_bus.read(addr as u64, data);
-                                    trace!("{:?}", LogMetric::MetricVcpuExitIoInCount);
+                                    METRICS.vcpu.exit_io_in.inc();
                                 }
                                 VcpuExit::IoOut(addr, data) => {
                                     io_bus.write(addr as u64, data);
-                                    trace!("{:?}", LogMetric::MetricVcpuExitIoOutCount);
+                                    METRICS.vcpu.exit_io_out.inc();
                                 }
                                 VcpuExit::MmioRead(addr, data) => {
                                     mmio_bus.read(addr, data);
-                                    trace!("{:?}", LogMetric::MetricVcpuExitMmioReadCount);
+                                    METRICS.vcpu.exit_mmio_read.inc();
                                 }
                                 VcpuExit::MmioWrite(addr, data) => {
                                     mmio_bus.write(addr, data);
-                                    trace!("{:?}", LogMetric::MetricVcpuExitMmioWriteCount);
+                                    METRICS.vcpu.exit_mmio_write.inc();
                                 }
                                 VcpuExit::Hlt => {
                                     info!("Received KVM_EXIT_HLT signal");
@@ -798,17 +797,17 @@ impl Vmm {
                                 }
                                 // Documentation specifies that below kvm exits are considered errors.
                                 VcpuExit::FailEntry => {
-                                    trace!("{:?}", LogMetric::MetricVcpuFailures);
+                                    METRICS.vcpu.failures.inc();
                                     error!("Received KVM_EXIT_FAIL_ENTRY signal");
                                     break;
                                 }
                                 VcpuExit::InternalError => {
-                                    trace!("{:?}", LogMetric::MetricVcpuFailures);
+                                    METRICS.vcpu.failures.inc();
                                     error!("Received KVM_EXIT_INTERNAL_ERROR signal");
                                     break;
                                 }
                                 r => {
-                                    trace!("{:?}", LogMetric::MetricVcpuFailures);
+                                    METRICS.vcpu.failures.inc();
                                     // TODO: Are we sure we want to finish running a vcpu upon receiving
                                     // a vm exit that is not necessarily an error?
                                     error!("Unexpected exit reason on vcpu run: {:?}", r);
@@ -819,7 +818,7 @@ impl Vmm {
                                 // Why do we check for these if we only return EINVAL?
                                 libc::EAGAIN | libc::EINTR => {}
                                 _ => {
-                                    trace!("{:?}", LogMetric::MetricVcpuFailures);
+                                    METRICS.vcpu.failures.inc();
                                     error!("Failure during vcpu run: {:?}", e);
                                     break;
                                 }
@@ -834,7 +833,7 @@ impl Vmm {
 
                     // Nothing we need do for the success case.
                     if let Err(e) = vcpu_exit_evt.write(1) {
-                        trace!("{:?}", LogMetric::MetricVcpuFailures);
+                        METRICS.vcpu.failures.inc();
                         error!("Failed signaling vcpu exit event: {:?}", e);
                     }
                 })
@@ -940,11 +939,11 @@ impl Vmm {
                     Ok(_) => {
                         if let Err(e) = handle.join() {
                             warn!("Failed to join vcpu thread: {:?}", e);
-                            trace!("{:?}", LogMetric::MetricVcpuFailures);
+                            METRICS.vcpu.failures.inc();
                         }
                     }
                     Err(e) => {
-                        trace!("{:?}", LogMetric::MetricVcpuFailures);
+                        METRICS.vcpu.failures.inc();
                         warn!("Failed to kill vcpu thread: {:?}", e)
                     }
                 }
