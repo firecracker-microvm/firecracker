@@ -70,41 +70,42 @@ const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
 #[derive(Debug)]
 pub enum Error {
+    ApiChannel,
     ConfigureSystem(x86_64::Error),
+    CreateLegacyDevice(device_manager::legacy::Error),
+    DriveError(DriveError),
+    DeviceVmRequest(sys_util::Error),
     EpollFd(std::io::Error),
     EventFd(sys_util::Error),
+    GeneralFailure,
     GuestMemory(sys_util::GuestMemoryError),
+    InvalidKernelPath,
     Kernel(std::io::Error),
     KernelCmdLine(kernel_cmdline::Error),
     KernelLoader(kernel_loader::Error),
-    InvalidKernelPath,
-    MissingKernelConfig,
     Kvm(sys_util::Error),
+    KvmApiVersion(i32),
+    KvmCap(kvm::Cap),
+    LegacyIOBus(device_manager::legacy::Error),
+    LogMetrics(logger::error::LoggerError),
+    MissingKernelConfig,
+    NetDeviceNew(devices::virtio::Error),
+    NetDeviceUnconfigured,
     Poll(std::io::Error),
+    RootBlockDeviceNew(sys_util::Error),
+    RootDiskImage(std::io::Error),
+    RateLimiterNew(std::io::Error),
+    RegisterBlock(device_manager::mmio::Error),
+    RegisterNet(device_manager::mmio::Error),
     Serial(sys_util::Error),
     StdinHandle(sys_util::Error),
     Terminal(sys_util::Error),
+    TimerFd(std::io::Error),
     Vcpu(vstate::Error),
     VcpuConfigure(vstate::Error),
     VcpuSpawn(std::io::Error),
     Vm(vstate::Error),
     VmSetup(vstate::Error),
-    CreateLegacyDevice(device_manager::legacy::Error),
-    LegacyIOBus(device_manager::legacy::Error),
-    RateLimiterNew(std::io::Error),
-    RootDiskImage(std::io::Error),
-    RootBlockDeviceNew(sys_util::Error),
-    RegisterBlock(device_manager::mmio::Error),
-    NetDeviceNew(devices::virtio::Error),
-    RegisterNet(device_manager::mmio::Error),
-    NetDeviceUnconfigured,
-    DeviceVmRequest(sys_util::Error),
-    DriveError(DriveError),
-    ApiChannel,
-    KvmApiVersion(i32),
-    KvmCap(kvm::Cap),
-    GeneralFailure,
-    TimerFd(std::io::Error),
 }
 
 impl std::convert::From<kernel_loader::Error> for Error {
@@ -1047,7 +1048,9 @@ impl Vmm {
                             // Please note that, since LOGGER has no output file configured yet,
                             // it will write to stdout, so metric logging will interfere with
                             // console output.
-                            LOGGER.log_metrics();
+                            if let Err(e) = LOGGER.log_metrics() {
+                                error!("Failed to log metrics: {}", e);
+                            }
                         }
                     }
                 }

@@ -19,7 +19,7 @@ pub enum LoggerError {
     /// Error obtaining lock on mutex.
     MutexLockFailure(String),
     /// Error in the logging of the metrics.
-    LogMetricFailure,
+    LogMetricFailure(String),
     /// Signals not logging a metric due to rate limiting.
     LogMetricRateLimit,
 }
@@ -41,9 +41,7 @@ impl fmt::Display for LoggerError {
                 format!("Failed to flush log file. Error: {}", e.description())
             }
             LoggerError::MutexLockFailure(ref e) => format!("{}", e),
-            LoggerError::LogMetricFailure => {
-                format!("{}", "Failure in the logging of the metrics.")
-            }
+            LoggerError::LogMetricFailure(ref e) => format!("{}", e),
             LoggerError::LogMetricRateLimit => format!("{}", "Metric will not yet be logged."),
         };
         write!(f, "{}", printable)
@@ -119,9 +117,17 @@ mod tests {
             "Mutex lock"
         );
 
-        assert!(format!("{:?}", LoggerError::LogMetricFailure).contains("LogMetricFailure"));
+        assert!(
+            format!(
+                "{:?}",
+                LoggerError::LogMetricFailure("Failure in the logging of the metrics.".to_string())
+            ).contains("LogMetricFailure")
+        );
         assert_eq!(
-            format!("{}", LoggerError::LogMetricFailure),
+            format!(
+                "{}",
+                LoggerError::LogMetricFailure("Failure in the logging of the metrics.".to_string())
+            ),
             "Failure in the logging of the metrics."
         );
 
