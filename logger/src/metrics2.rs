@@ -93,8 +93,44 @@ impl Serialize for SharedMetric {
 // are interested in. Whenever the name of a field differs from its ideal textual representation
 // in the serialized form, we can use the #[serde(rename = "name")] attribute to, well, rename it.
 
+// Metrics related to the internal api server
 #[derive(Default, Serialize)]
-pub struct ApiMetrics {}
+pub struct ApiServerMetrics {
+    pub async_missed_actions_count: SharedMetric,
+    pub async_outcome_fails: SharedMetric,
+    pub async_vmm_send_timeout_count: SharedMetric,
+    pub instance_info_fails: SharedMetric,
+    pub sync_outcome_fails: SharedMetric,
+    pub sync_vmm_send_timeout_count: SharedMetric,
+}
+
+// Metrics on GET Api Requests
+#[derive(Default, Serialize)]
+pub struct GetRequestsMetrics {
+    pub action_info_count: SharedMetric,
+    pub actions_count: SharedMetric,
+    pub actions_fails: SharedMetric,
+    pub instance_info_count: SharedMetric,
+    pub machine_cfg_count: SharedMetric,
+    pub machine_cfg_fails: SharedMetric,
+}
+
+// Metrics on PUT Api Requests
+#[derive(Default, Serialize)]
+pub struct PutRequestsMetrics {
+    pub actions_count: SharedMetric,
+    pub actions_fails: SharedMetric,
+    pub boot_source_count: SharedMetric,
+    pub boot_source_fails: SharedMetric,
+    pub drive_fails: SharedMetric,
+    pub drive_count: SharedMetric,
+    pub logger_count: SharedMetric,
+    pub logger_fails: SharedMetric,
+    pub machine_cfg_count: SharedMetric,
+    pub machine_cfg_fails: SharedMetric,
+    pub network_count: SharedMetric,
+    pub network_fails: SharedMetric,
+}
 
 #[derive(Default, Serialize)]
 pub struct BlockDeviceMetrics {
@@ -177,10 +213,12 @@ impl Serialize for SerializeToUtcTimestampMs {
 #[derive(Default, Serialize)]
 pub struct FirecrackerMetrics {
     utc_timestamp_ms: SerializeToUtcTimestampMs,
-    pub api: ApiMetrics,
+    pub api_server: ApiServerMetrics,
     pub block: BlockDeviceMetrics,
+    pub get_api_requests: GetRequestsMetrics,
     pub i8042: I8042DeviceMetrics,
     pub net: NetDeviceMetrics,
+    pub put_api_requests: PutRequestsMetrics,
     pub vcpu: VcpuMetrics,
     pub vmm: VmmMetrics,
     pub uart: SerialDeviceMetrics,
