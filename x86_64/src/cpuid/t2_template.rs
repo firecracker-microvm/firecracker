@@ -30,14 +30,15 @@ pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
                 entry.eax |= 2 as u32;
 
                 // Disable Features
-                entry.ebx &= !(1 << leaf_0x1::ecx::DTES64_SHIFT);
-                entry.ebx &= !(1 << leaf_0x1::ecx::MONITOR_SHIFT);
-                entry.ebx &= !(1 << leaf_0x1::ecx::DS_CPL_SHIFT);
-                entry.ebx &= !(1 << leaf_0x1::ecx::TM2_SHIFT);
-                entry.ebx &= !(1 << leaf_0x1::ecx::CNXT_ID);
-                entry.ebx &= !(1 << leaf_0x1::ecx::XTPR_UPDATE_SHIFT);
-                entry.ebx &= !(1 << leaf_0x1::ecx::PDCM_SHIFT);
-                entry.ebx &= !(1 << leaf_0x1::ecx::OSXSAVE_SHIFT);
+                entry.ecx &= !(1 << leaf_0x1::ecx::DTES64_SHIFT);
+                entry.ecx &= !(1 << leaf_0x1::ecx::MONITOR_SHIFT);
+                entry.ecx &= !(1 << leaf_0x1::ecx::DS_CPL_SHIFT);
+                entry.ecx &= !(1 << leaf_0x1::ecx::TM2_SHIFT);
+                entry.ecx &= !(1 << leaf_0x1::ecx::CNXT_ID);
+                entry.ecx &= !(1 << leaf_0x1::ecx::SDBG_SHIFT);
+                entry.ecx &= !(1 << leaf_0x1::ecx::XTPR_UPDATE_SHIFT);
+                entry.ecx &= !(1 << leaf_0x1::ecx::PDCM_SHIFT);
+                entry.ecx &= !(1 << leaf_0x1::ecx::OSXSAVE_SHIFT);
 
                 entry.edx &= !(1 << leaf_0x1::edx::PSN_SHIFT);
                 entry.edx &= !(1 << leaf_0x1::edx::DS_SHIFT);
