@@ -111,6 +111,16 @@ pub struct BlockDeviceMetrics {
 }
 
 #[derive(Default, Serialize)]
+pub struct I8042DeviceMetrics {
+    pub error_count: SharedMetric,
+    pub missed_read_count: SharedMetric,
+    pub missed_write_count: SharedMetric,
+    pub read_count: SharedMetric,
+    pub reset_count: SharedMetric,
+    pub write_count: SharedMetric,
+}
+
+#[derive(Default, Serialize)]
 pub struct NetDeviceMetrics {
     pub activate_fails: SharedMetric,
     pub cfg_fails: SharedMetric,
@@ -126,6 +136,16 @@ pub struct NetDeviceMetrics {
     pub tx_rate_limiter_event_count: SharedMetric,
     pub tx_fails: SharedMetric,
     pub tx_queue_event_count: SharedMetric,
+}
+
+#[derive(Default, Serialize)]
+pub struct SerialDeviceMetrics {
+    pub error_count: SharedMetric,
+    pub flush_count: SharedMetric,
+    pub missed_read_count: SharedMetric,
+    pub missed_write_count: SharedMetric,
+    pub read_count: SharedMetric,
+    pub write_count: SharedMetric,
 }
 
 #[derive(Default, Serialize)]
@@ -159,9 +179,11 @@ pub struct FirecrackerMetrics {
     utc_timestamp_ms: SerializeToUtcTimestampMs,
     pub api: ApiMetrics,
     pub block: BlockDeviceMetrics,
+    pub i8042: I8042DeviceMetrics,
     pub net: NetDeviceMetrics,
     pub vcpu: VcpuMetrics,
     pub vmm: VmmMetrics,
+    pub uart: SerialDeviceMetrics,
 }
 
 // The global variable used to increase the value of various metrics.

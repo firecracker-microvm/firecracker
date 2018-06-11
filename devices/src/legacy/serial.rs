@@ -5,7 +5,7 @@
 use std::collections::VecDeque;
 use std::io;
 
-use logger::metrics::LogMetric;
+use logger::{Metric, METRICS};
 use sys_util::{EventFd, Result};
 
 use BusDevice;
@@ -173,9 +173,9 @@ impl Serial {
                 } else {
                     if let Some(out) = self.out.as_mut() {
                         out.write_all(&[v])?;
-                        trace!("{:?}", LogMetric::MetricDeviceSerialWriteCount);
+                        METRICS.uart.write_count.inc();
                         out.flush()?;
-                        trace!("{:?}", LogMetric::MetricDeviceSerialFlushCount);
+                        METRICS.uart.flush_count.inc();
                     }
                     self.thr_empty()?;
                 }
@@ -193,7 +193,7 @@ impl Serial {
 impl BusDevice for Serial {
     fn read(&mut self, offset: u64, data: &mut [u8]) {
         if data.len() != 1 {
-            trace!("{:?}", LogMetric::MetricDeviceSerialMissedReads);
+            METRICS.uart.missed_read_count.inc();
             return;
         }
 
@@ -205,7 +205,7 @@ impl BusDevice for Serial {
                 if self.in_buffer.len() <= 1 {
                     self.line_status &= !LSR_DATA_BIT;
                 }
-                trace!("{:?}", LogMetric::MetricDeviceSerialReadCount);
+                METRICS.uart.read_count.inc();
                 self.in_buffer.pop_front().unwrap_or_default()
             }
             IER => self.interrupt_enable,
@@ -225,13 +225,13 @@ impl BusDevice for Serial {
 
     fn write(&mut self, offset: u64, data: &[u8]) {
         if data.len() != 1 {
-            trace!("{:?}", LogMetric::MetricDeviceSerialMissedWrites);
+            METRICS.uart.missed_write_count.inc();
             return;
         }
 
         if let Err(e) = self.handle_write(offset as u8, data[0]) {
             error!("Failed the write to serial: {:?}", e);
-            trace!("{:?}", LogMetric::MetricDeviceSerialFailure);
+            METRICS.uart.error_count.inc();
         }
     }
 }
