@@ -269,6 +269,7 @@ definitions:
       The CPU Template defines a set of flags to be disabled from the microvm so that
       the features exposed to the guest are the same as in the selected instance type.
     enum:
+      - C3
       - T2
 
   DeviceState:

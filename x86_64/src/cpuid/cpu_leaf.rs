@@ -33,11 +33,13 @@ pub mod leaf_0x1 {
         pub const CNXT_ID: u32 = 10;
         // SDBG (cpu supports IA32_DEBUG_INTERFACE MSR for silicon debug)
         pub const SDBG_SHIFT: u32 = 11;
+        pub const FMA_SHIFT: u32 = 12;
         // XTPR_UPDATE = xTPR Update Control
         pub const XTPR_UPDATE_SHIFT: u32 = 14;
         // PDCM = Perfmon and Debug Capability
         pub const PDCM_SHIFT: u32 = 15;
         // 18 = DCA Direct Cache Access (prefetch data from a memory mapped device)
+        pub const MOVBE_SHIFT: u32 = 22;
         pub const TSC_DEADLINE_TIMER_SHIFT: u32 = 24;
         pub const OSXSAVE_SHIFT: u32 = 27;
         // Cpu is running on a hypervisor.
@@ -82,15 +84,16 @@ pub mod leaf_0x7 {
         pub mod ebx {
             // 1 = TSC_ADJUST
             pub const SGX_SHIFT: u32 = 2;
-            // 3 = BMI
+            pub const BMI1_SHIFT: u32 = 3;
             pub const HLE_SHIFT: u32 = 4;
-            // 5 = AVX2
+            pub const AVX2_SHIFT: u32 = 5;
             // FPU Data Pointer updated only on x87 exceptions if 1.
             pub const FPDP_SHIFT: u32 = 6;
             // 7 = SMEP (Supervisor-Mode Execution Prevention if 1)
-            // 8 = BMI2
+            pub const BMI2_SHIFT: u32 = 8;
             // 9 = Enhanced REP MOVSB/STOSB if 1
             // 10 = INVPCID
+            pub const INVPCID_SHIFT: u32 = 10;
             pub const RTM_SHIFT: u32 = 11;
             // Intel® Resource Director Technology (Intel® RDT) Monitoring
             pub const RDT_M_SHIFT: u32 = 12;
@@ -135,6 +138,7 @@ pub mod leaf_0x7 {
 pub mod leaf_0x80000001 {
     pub mod ecx {
         pub const PREFETCH_SHIFT: u32 = 8; // 3DNow! PREFETCH/PREFETCHW instructions
+        pub const LZCNT_SHIFT: u32 = 5; // advanced bit manipulation
     }
 
     pub mod edx {

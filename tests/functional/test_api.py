@@ -5,7 +5,6 @@ Tests that ensure the correctness of the Firecracker API.
 
 - Add many more API tests!
 """
-
 import shutil
 import time
 
@@ -124,16 +123,25 @@ def test_api_put_update_pre_boot(test_microvm_any):
     )
     """ Valid updates to `path_on_host` and `permissions` are allowed. """
     assert(test_microvm.api_session.is_good_response(response.status_code))
-
+    microvm_config_json = {'vcpu_count': 4, 'ht_enabled': True, 'mem_size_mib': 256, 'cpu_template': 'C3'}
     response = test_microvm.api_session.put(
         test_microvm.microvm_cfg_url,
-        json={'vcpu_count': 4}
+        json=microvm_config_json
     )
     """
-    Valid updates to the vcpu count in the machine configuration are allowed.
+    Valid updates to all fields in the machine configuration are allowed.
     The machine configuration has a default value, so all PUTs are updates.
     """
-    assert(test_microvm.api_session.is_good_response(response.status_code))
+    assert(response.status_code == 204)
+
+    response = test_microvm.api_session.get(
+        test_microvm.microvm_cfg_url,
+    )
+    response_json = response.json()
+    assert (response_json['vcpu_count'] == str(microvm_config_json['vcpu_count']))
+    assert (response_json['ht_enabled'] == str(microvm_config_json['ht_enabled']).lower())
+    assert (response_json['mem_size_mib'] == str(microvm_config_json['mem_size_mib']))
+    assert (response_json['cpu_template'] == str(microvm_config_json['cpu_template']))
 
     response = test_microvm.api_session.put(
         test_microvm.net_cfg_url + '/1',

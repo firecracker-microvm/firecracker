@@ -256,7 +256,11 @@ mod tests {
         let mut vcpu = Vcpu::new(0, &mut vm).unwrap();
         assert_eq!(vcpu.get_cpuid(), vm.fd.get_supported_cpuid());
         assert!(cpuid::filter_cpuid(0, 1, true, &mut vcpu.cpuid).is_ok());
+        // Test using the T2 template
         cpuid::set_cpuid_template(CPUFeaturesTemplate::T2, &mut vcpu.cpuid);
+        assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
+        // Test using the C3 template
+        cpuid::set_cpuid_template(CPUFeaturesTemplate::C3, &mut vcpu.cpuid);
         assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
     }
 
