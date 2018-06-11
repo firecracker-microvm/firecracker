@@ -191,7 +191,7 @@ fn str_to_u32(string: &str) -> u32 {
         | (str_bytes[3] as u32);
 }
 
-pub fn set_cpuid_template(template: CPUFeaturesTemplate, kvm_cpuid: &mut CpuId) -> Result<()> {
+pub fn set_cpuid_template(template: CPUFeaturesTemplate, kvm_cpuid: &mut CpuId) {
     let entries = kvm_cpuid.mut_entries_slice();
     match template {
         CPUFeaturesTemplate::T2 => {
@@ -285,8 +285,6 @@ pub fn set_cpuid_template(template: CPUFeaturesTemplate, kvm_cpuid: &mut CpuId) 
                     _ => (),
                 }
             }
-
-            Ok(())
         }
     }
 }
@@ -470,7 +468,7 @@ mod tests {
             _ => assert!(false),
         };
 
-        assert!(set_cpuid_template(CPUFeaturesTemplate::T2, &mut kvm_cpuid).is_ok());
+        set_cpuid_template(CPUFeaturesTemplate::T2, &mut kvm_cpuid);
 
         let entries = kvm_cpuid.mut_entries_slice();
         // TODO: This should be tested as part of the CI; only check that the function result is ok
