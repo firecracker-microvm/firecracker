@@ -31,7 +31,8 @@ pub mod leaf_0x1 {
         pub const TM2_SHIFT: u32 = 8;
         // CNXT_ID = L1 Context ID (L1 data cache can be set to adaptive/shared mode)
         pub const CNXT_ID: u32 = 10;
-        // 11 = SDBG (cpu supports IA32_DEBUG_INTERFACE MSR for silicon debug)
+        // SDBG (cpu supports IA32_DEBUG_INTERFACE MSR for silicon debug)
+        pub const SDBG_SHIFT: u32 = 11;
         // XTPR_UPDATE = xTPR Update Control
         pub const XTPR_UPDATE_SHIFT: u32 = 14;
         // PDCM = Perfmon and Debug Capability
