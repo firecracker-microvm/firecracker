@@ -5,6 +5,8 @@ use data_model::vm::CPUFeaturesTemplate;
 use kvm::CpuId;
 
 mod cpu_leaf;
+
+mod c3_template;
 mod t2_template;
 
 // constants for setting the fields of kvm_cpuid2 structures
@@ -45,9 +47,8 @@ fn str_to_u32(string: &str) -> u32 {
 pub fn set_cpuid_template(template: CPUFeaturesTemplate, kvm_cpuid: &mut CpuId) {
     let entries = kvm_cpuid.mut_entries_slice();
     match template {
-        CPUFeaturesTemplate::T2 => {
-            t2_template::set_cpuid_entries(entries);
-        }
+        CPUFeaturesTemplate::T2 => t2_template::set_cpuid_entries(entries),
+        CPUFeaturesTemplate::C3 => c3_template::set_cpuid_entries(entries),
     }
 }
 

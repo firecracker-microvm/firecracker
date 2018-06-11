@@ -25,12 +25,14 @@ impl Default for MachineConfiguration {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum CPUFeaturesTemplate {
+    C3,
     T2,
 }
 
 impl fmt::Display for CPUFeaturesTemplate {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            CPUFeaturesTemplate::C3 => write!(f, "C3"),
             CPUFeaturesTemplate::T2 => write!(f, "T2"),
         }
     }
