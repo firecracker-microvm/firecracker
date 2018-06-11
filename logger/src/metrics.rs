@@ -1,860 +1,282 @@
-use error::LoggerError;
-use std::collections::HashMap;
-use std::fmt;
-use std::result;
-use std::sync::Mutex;
-use time::{Duration, SteadyTime};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-type Result<T> = result::Result<T, LoggerError>;
+use chrono;
+use serde::{Serialize, Serializer};
 
-#[derive(Debug, Clone)]
-enum Category {
-    Api,
-    #[allow(dead_code)]
-    Performance,
-    #[allow(dead_code)]
-    UnexpectedEvents,
-    Vcpu,
-    Device,
+// The main design goals of this metrics system are:
+// - Use lockless operations, preferably ones that don't require anything other than
+// simple reads/writes being atomic.
+// - Exploit interior mutability and atomics being Sync to allow all methods (including the ones
+// which are effectively mutable) to be callable on a global non-mut static.
+// - Rely on Serde to provide the actual serialization for logging the metrics.
+// - Since all metrics start at 0, we implement the Default trait via derive for all of them,
+// to avoid having to initialize everything by hand.
+
+// Moreover, the value of a metric is currently NOT reset to 0 each time it's being logged. There
+// are a number of advantages to this approach, including:
+// - We don't have to introduce an additional write (to reset the value) from the thread which
+// does to actual logging, so less synchronization effort is required.
+// - We don't have to worry at all that much about losing some data if logging fails for a while
+// (this could be a concern, I guess).
+//
+// If if turns out this approach is not really what we want, it's pretty easy to resort to something
+// else, while working behind the same interface.
+
+// This trait helps with writing less code. It has to be in scope (via an use directive) in order
+// for its methods to be available to call on structs that implement it.
+pub trait Metric {
+    fn add(&self, value: usize);
+    fn inc(&self) {
+        self.add(1);
+    }
+    fn count(&self) -> usize;
 }
 
-#[derive(Debug, Clone)]
-enum Unit {
-    CountPerSecond,
-    Count,
-}
+// A simple metric is one meant to be incremented from a single thread, so it can use simple
+// loads + stores. Loads are currently Relaxed everywhere, because we don't do anything besides
+// logging the retrieved value (their outcome os not used to modify some memory location in a
+// potentially inconsistent manner). There's no way currently to make sure a SimpleMetric is only
+// incremented by a single thread, this has to be enforced via judicious use (although, every
+// non-vCPU related metric is associated with a particular thread, so it shouldn't be that easy
+// to misuse SimpleMetric fields).
+#[derive(Default)]
+pub struct SimpleMetric(AtomicUsize);
 
-///  A metric definition
-#[derive(Clone)]
-pub struct Metric {
-    /// Name of the key, forced to be unique as it is a value of an enum.
-    key: LogMetric,
-    /// The category of the metric (e.g. "API").
-    category: Category,
-    /// Unit of measurement
-    unit: Unit,
-    /// Increases every time a metric is called, resets to 0 whenever metric is written to file.
-    counter: usize,
-    /// Should provide a nice description for the unit as this goes to the log file.
-    nice_unit: &'static str,
-    /// Keep a timestamp for when the metric was flushed to disk.
-    last_logged: SteadyTime,
-    /// While logging metrics, the user can specify some crate specific stuff here.
-    source: Option<String>,
-}
+impl Metric for SimpleMetric {
+    fn add(&self, value: usize) {
+        let ref count = self.0;
+        count.store(count.load(Ordering::Relaxed) + value, Ordering::Relaxed);
+    }
 
-impl Metric {
-    // maybe an additional string parameter for crate specific info??
-    // 2 outcomes
-    // 1. Ok is returned only when the metric has been written to the file together with the message
-    // 2. rate limiting related error when the metric should not be yet written to the file
-    pub fn log_metric(&mut self) -> Result<String> {
-        self.counter = self.counter + 1;
-
-        // we will log stuff from one min plus, but for unit testing this
-        // and not wait a lifetime, I will put 2 sec for now
-        // let one_min = Duration::from_secs(60);
-        let one_min = Duration::seconds(2);
-        let diff = SteadyTime::now() - self.last_logged;
-        if diff > one_min {
-            let res = Ok(format!("{:?}", self));
-            self.last_logged = SteadyTime::now();
-            self.counter = 0;
-            return res;
-        }
-        Err(LoggerError::LogMetricRateLimit)
+    fn count(&self) -> usize {
+        self.0.load(Ordering::Relaxed)
     }
 }
 
+impl Serialize for SimpleMetric {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // There's no serializer.serialize_usize() for some reason :(
+        serializer.serialize_u64(self.0.load(Ordering::Relaxed) as u64)
+    }
+}
+
+// A shared metric is one which is expected to be incremented from more than one thread, so more
+// synchronization is necessary. It's currently used for vCPU metrics. An alternative here would be
+// to have one instance of every metric for each thread (like a per-thread SimpleMetric), and to
+// aggregate them when logging. However this probably overkill unless we have a lot of vCPUs
+// incrementing metrics very often. Still, it's there if we ever need it :-s
+#[derive(Default)]
+pub struct SharedMetric(AtomicUsize);
+
+impl Metric for SharedMetric {
+    // While the order specified for this operation is still Relaxed, the actual instruction will
+    // be an asm "LOCK; something" and thus atomic across multiple threads, simply because of the
+    // fetch_and_add (as opposed to "store(load() + 1)") implementation for atomics.
+    // TODO: would a stronger ordering make a difference here?
+    fn add(&self, value: usize) {
+        self.0.fetch_add(value, Ordering::Relaxed);
+    }
+
+    fn count(&self) -> usize {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+impl Serialize for SharedMetric {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // There's no serializer.serialize_usize() for some reason :(
+        serializer.serialize_u64(self.0.load(Ordering::Relaxed) as u64)
+    }
+}
+
+// The following structs are used to define a certain organization for the set of metrics we
+// are interested in. Whenever the name of a field differs from its ideal textual representation
+// in the serialized form, we can use the #[serde(rename = "name")] attribute to, well, rename it.
+
+// Metrics related to the internal api server
+#[derive(Default, Serialize)]
+pub struct ApiServerMetrics {
+    pub async_missed_actions_count: SharedMetric,
+    pub async_outcome_fails: SharedMetric,
+    pub async_vmm_send_timeout_count: SharedMetric,
+    pub instance_info_fails: SharedMetric,
+    pub sync_outcome_fails: SharedMetric,
+    pub sync_vmm_send_timeout_count: SharedMetric,
+}
+
+// Metrics on GET Api Requests
+#[derive(Default, Serialize)]
+pub struct GetRequestsMetrics {
+    pub action_info_count: SharedMetric,
+    pub actions_count: SharedMetric,
+    pub actions_fails: SharedMetric,
+    pub instance_info_count: SharedMetric,
+    pub machine_cfg_count: SharedMetric,
+    pub machine_cfg_fails: SharedMetric,
+}
+
+// Metrics on PUT Api Requests
+#[derive(Default, Serialize)]
+pub struct PutRequestsMetrics {
+    pub actions_count: SharedMetric,
+    pub actions_fails: SharedMetric,
+    pub boot_source_count: SharedMetric,
+    pub boot_source_fails: SharedMetric,
+    pub drive_fails: SharedMetric,
+    pub drive_count: SharedMetric,
+    pub logger_count: SharedMetric,
+    pub logger_fails: SharedMetric,
+    pub machine_cfg_count: SharedMetric,
+    pub machine_cfg_fails: SharedMetric,
+    pub network_count: SharedMetric,
+    pub network_fails: SharedMetric,
+}
+
+#[derive(Default, Serialize)]
+pub struct BlockDeviceMetrics {
+    pub activate_fails: SharedMetric,
+    pub cfg_fails: SharedMetric,
+    pub event_fails: SharedMetric,
+    pub execute_fails: SharedMetric,
+    pub invalid_reqs_count: SharedMetric,
+    pub flush_count: SharedMetric,
+    pub queue_event_count: SharedMetric,
+    pub rate_limiter_event_count: SharedMetric,
+    pub read_count: SharedMetric,
+    pub write_count: SharedMetric,
+}
+
+#[derive(Default, Serialize)]
+pub struct I8042DeviceMetrics {
+    pub error_count: SharedMetric,
+    pub missed_read_count: SharedMetric,
+    pub missed_write_count: SharedMetric,
+    pub read_count: SharedMetric,
+    pub reset_count: SharedMetric,
+    pub write_count: SharedMetric,
+}
+
+#[derive(Default, Serialize)]
+pub struct NetDeviceMetrics {
+    pub activate_fails: SharedMetric,
+    pub cfg_fails: SharedMetric,
+    pub event_fails: SharedMetric,
+    pub rx_bytes_count: SharedMetric,
+    pub rx_packets_count: SharedMetric,
+    pub rx_event_rate_limiter_count: SharedMetric,
+    pub rx_fails: SharedMetric,
+    pub rx_queue_event_count: SharedMetric,
+    pub rx_tap_event_count: SharedMetric,
+    pub tx_bytes_count: SharedMetric,
+    pub tx_packets_count: SharedMetric,
+    pub tx_rate_limiter_event_count: SharedMetric,
+    pub tx_fails: SharedMetric,
+    pub tx_queue_event_count: SharedMetric,
+}
+
+#[derive(Default, Serialize)]
+pub struct SerialDeviceMetrics {
+    pub error_count: SharedMetric,
+    pub flush_count: SharedMetric,
+    pub missed_read_count: SharedMetric,
+    pub missed_write_count: SharedMetric,
+    pub read_count: SharedMetric,
+    pub write_count: SharedMetric,
+}
+
+#[derive(Default, Serialize)]
+pub struct VcpuMetrics {
+    pub eagain: SharedMetric,
+    pub eintr: SharedMetric,
+    pub exit_io_in: SharedMetric,
+    pub exit_io_out: SharedMetric,
+    pub exit_mmio_read: SharedMetric,
+    pub exit_mmio_write: SharedMetric,
+    pub failures: SharedMetric,
+}
+
+#[derive(Default, Serialize)]
+pub struct VmmMetrics {
+    pub device_events: SharedMetric,
+}
+
+// The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
+#[derive(Default)]
+struct SerializeToUtcTimestampMs;
+
+impl Serialize for SerializeToUtcTimestampMs {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_i64(chrono::Utc::now().timestamp_millis())
+    }
+}
+
+#[derive(Default, Serialize)]
+pub struct FirecrackerMetrics {
+    utc_timestamp_ms: SerializeToUtcTimestampMs,
+    pub api_server: ApiServerMetrics,
+    pub block: BlockDeviceMetrics,
+    pub get_api_requests: GetRequestsMetrics,
+    pub i8042: I8042DeviceMetrics,
+    pub net: NetDeviceMetrics,
+    pub put_api_requests: PutRequestsMetrics,
+    pub vcpu: VcpuMetrics,
+    pub vmm: VmmMetrics,
+    pub uart: SerialDeviceMetrics,
+}
+
+// The global variable used to increase the value of various metrics.
 lazy_static! {
-    pub static ref GLOBAL_METRICS: Mutex<HashMap<String, Metric>> = Mutex::new(build_metrics());
+    pub static ref METRICS: FirecrackerMetrics = FirecrackerMetrics::default();
 }
 
-pub fn get_metrics() -> &'static GLOBAL_METRICS {
-    &GLOBAL_METRICS
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl fmt::Debug for Metric {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let counter = match self.unit {
-            Unit::CountPerSecond => {
-                let diff = SteadyTime::now() - self.last_logged;
-                self.counter as f32 / diff.num_seconds() as f32
-            }
-            Unit::Count => self.counter as f32,
-        };
+    use std::sync::Arc;
+    use std::thread;
 
-        match self.unit {
-            Unit::CountPerSecond => write!(
-                f,
-                "{:?} Metric: {} returned {:.3} {}",
-                self.category,
-                format!("{:?}", self.key),
-                counter,
-                self.nice_unit,
-            ),
-            _ => write!(
-                f,
-                "{:?} Metric: {} returned {:.0} {}",
-                self.category,
-                format!("{:?}", self.key),
-                counter,
-                self.nice_unit,
-            ),
+    #[test]
+    fn test_metric() {
+        let m1 = SimpleMetric::default();
+
+        m1.inc();
+        m1.inc();
+        m1.add(5);
+        m1.inc();
+
+        assert_eq!(m1.count(), 8);
+
+        let m2 = Arc::new(SharedMetric::default());
+
+        // We're going to create a number of threads that will attempt to increase this metric
+        // in parallel. If everything goes fine we still can't be sure the synchronization works,
+        // but it something fails, then we definitely have a problem :-s
+
+        const NUM_THREADS_TO_SPAWN: usize = 4;
+        const NUM_INCREMENTS_PER_THREAD: usize = 100000;
+        const M2_INITIAL_COUNT: usize = 123;
+
+        m2.add(M2_INITIAL_COUNT);
+
+        let mut v = Vec::with_capacity(NUM_THREADS_TO_SPAWN);
+
+        for _ in 0..NUM_THREADS_TO_SPAWN {
+            let r = m2.clone();
+            v.push(thread::spawn(move || {
+                for _ in 0..NUM_INCREMENTS_PER_THREAD {
+                    r.inc();
+                }
+            }));
         }
+
+        for handle in v {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(
+            m2.count(),
+            M2_INITIAL_COUNT + NUM_THREADS_TO_SPAWN * NUM_INCREMENTS_PER_THREAD
+        );
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum LogMetric {
-    MetricGetActionInfoCount,
-    MetricGetInstanceInfoFailures,
-    MetricGetInstanceInfoCount,
-    MetricGetMachineCfgFailures,
-    MetricGetMachineCfgCount,
-    MetricPutAsyncActionFailures,
-    MetricPutAsyncActionCount,
-    MetricPutBootSourceFailures,
-    MetricPutBootSourceCount,
-    MetricPutDriveFailures,
-    MetricPutDriveCount,
-    MetricPutLoggerFailures,
-    MetricPutLoggerCount,
-    MetricPutMachineCfgFailures,
-    MetricPutMachineCfgCount,
-    MetricPutNetworkFailures,
-    MetricPutNetworkCount,
-    MetricAsyncMissedActionsCount,
-    MetricAsyncOutcomeFailures,
-    MetricAsyncVMMSendTimeoutCount,
-    MetricSyncOutcomeFailures,
-    MetricSyncVMMSendTimeoutCount,
-    MetricDeviceBlockActivateFailures,
-    MetricDeviceBlockCfgFailures,
-    MetricDeviceBlockEventFailures,
-    MetricDeviceBlockExecuteFailures,
-    MetricDeviceBlockFlushCount,
-    MetricDeviceBlockQueueEventCount,
-    MetricDeviceBlockRateLimiterEventCount,
-    MetricDeviceBlockReadCount,
-    MetricDeviceBlockWriteCount,
-    MetricDeviceNetActivateFailures,
-    MetricDeviceNetCfgFailures,
-    MetricDeviceNetEventFailures,
-    MetricDeviceNetReceiveCount,
-    MetricDeviceNetReceiveEventRateLimiterCount,
-    MetricDeviceNetReceiveFailures,
-    MetricDeviceNetReceiveQueueEventCount,
-    MetricDeviceNetReceiveTapEventCount,
-    MetricDeviceNetTransmitCount,
-    MetricDeviceNetTransmitEventRateLimiterCount,
-    MetricDeviceNetTransmitFailures,
-    MetricDeviceNetTransmitQueueEventCount,
-    MetricDeviceI8042Failures,
-    MetricDeviceI8042MissedReads,
-    MetricDeviceI8042MissedWrites,
-    MetricDeviceI8042ReadCount,
-    MetricDeviceI8042ResetCount,
-    MetricDeviceSerialFailure,
-    MetricDeviceSerialFlushCount,
-    MetricDeviceSerialMissedReads,
-    MetricDeviceSerialMissedWrites,
-    MetricDeviceSerialReadCount,
-    MetricDeviceSerialWriteCount,
-    MetricVcpuFailures,
-    MetricVcpuExitIoInCount,
-    MetricVcpuExitIoOutCount,
-    MetricVcpuExitMmioReadCount,
-    MetricVcpuExitMmioWriteCount,
-}
-
-fn build_metrics() -> HashMap<String, Metric> {
-    [
-        (
-            format!("{:?}", LogMetric::MetricGetActionInfoCount),
-            Metric {
-                key: LogMetric::MetricGetActionInfoCount,
-                category: Category::Api,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricGetInstanceInfoFailures),
-            Metric {
-                key: LogMetric::MetricGetInstanceInfoFailures,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricGetInstanceInfoCount),
-            Metric {
-                key: LogMetric::MetricGetInstanceInfoCount,
-                category: Category::Api,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricGetMachineCfgFailures),
-            Metric {
-                key: LogMetric::MetricGetMachineCfgFailures,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricGetMachineCfgCount),
-            Metric {
-                key: LogMetric::MetricGetMachineCfgCount,
-                category: Category::Api,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutAsyncActionFailures),
-            Metric {
-                key: LogMetric::MetricPutAsyncActionFailures,
-                category: Category::Api,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutAsyncActionCount),
-            Metric {
-                key: LogMetric::MetricPutAsyncActionCount,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutBootSourceFailures),
-            Metric {
-                key: LogMetric::MetricPutBootSourceFailures,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutBootSourceCount),
-            Metric {
-                key: LogMetric::MetricPutBootSourceCount,
-                category: Category::Api,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutDriveFailures),
-            Metric {
-                key: LogMetric::MetricPutDriveFailures,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutDriveCount),
-            Metric {
-                key: LogMetric::MetricPutDriveCount,
-                category: Category::Api,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutLoggerFailures),
-            Metric {
-                key: LogMetric::MetricPutLoggerFailures,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutLoggerCount),
-            Metric {
-                key: LogMetric::MetricPutLoggerCount,
-                category: Category::Api,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutMachineCfgFailures),
-            Metric {
-                key: LogMetric::MetricPutMachineCfgFailures,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutMachineCfgCount),
-            Metric {
-                key: LogMetric::MetricPutMachineCfgCount,
-                category: Category::Api,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutNetworkFailures),
-            Metric {
-                key: LogMetric::MetricPutNetworkFailures,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricPutNetworkCount),
-            Metric {
-                key: LogMetric::MetricPutNetworkCount,
-                category: Category::Api,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricAsyncMissedActionsCount),
-            Metric {
-                key: LogMetric::MetricAsyncMissedActionsCount,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricAsyncOutcomeFailures),
-            Metric {
-                key: LogMetric::MetricAsyncOutcomeFailures,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricAsyncVMMSendTimeoutCount),
-            Metric {
-                key: LogMetric::MetricAsyncVMMSendTimeoutCount,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricSyncOutcomeFailures),
-            Metric {
-                key: LogMetric::MetricSyncOutcomeFailures,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricSyncVMMSendTimeoutCount),
-            Metric {
-                key: LogMetric::MetricSyncVMMSendTimeoutCount,
-                category: Category::Api,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceBlockActivateFailures),
-            Metric {
-                key: LogMetric::MetricDeviceBlockActivateFailures,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceBlockCfgFailures),
-            Metric {
-                key: LogMetric::MetricDeviceBlockCfgFailures,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceBlockEventFailures),
-            Metric {
-                key: LogMetric::MetricDeviceBlockEventFailures,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceBlockExecuteFailures),
-            Metric {
-                key: LogMetric::MetricDeviceBlockExecuteFailures,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceBlockFlushCount),
-            Metric {
-                key: LogMetric::MetricDeviceBlockFlushCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceBlockQueueEventCount),
-            Metric {
-                key: LogMetric::MetricDeviceBlockQueueEventCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceBlockRateLimiterEventCount),
-            Metric {
-                key: LogMetric::MetricDeviceBlockRateLimiterEventCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceBlockReadCount),
-            Metric {
-                key: LogMetric::MetricDeviceBlockReadCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceBlockWriteCount),
-            Metric {
-                key: LogMetric::MetricDeviceBlockWriteCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceNetActivateFailures),
-            Metric {
-                key: LogMetric::MetricDeviceNetActivateFailures,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceNetCfgFailures),
-            Metric {
-                key: LogMetric::MetricDeviceNetCfgFailures,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceNetEventFailures),
-            Metric {
-                key: LogMetric::MetricDeviceNetEventFailures,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceNetReceiveQueueEventCount),
-            Metric {
-                key: LogMetric::MetricDeviceNetReceiveQueueEventCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceNetReceiveTapEventCount),
-            Metric {
-                key: LogMetric::MetricDeviceNetReceiveTapEventCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceNetTransmitQueueEventCount),
-            Metric {
-                key: LogMetric::MetricDeviceNetTransmitQueueEventCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceNetTransmitFailures),
-            Metric {
-                key: LogMetric::MetricDeviceNetTransmitFailures,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceNetTransmitCount),
-            Metric {
-                key: LogMetric::MetricDeviceNetTransmitCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceNetReceiveFailures),
-            Metric {
-                key: LogMetric::MetricDeviceNetReceiveFailures,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceNetReceiveCount),
-            Metric {
-                key: LogMetric::MetricDeviceNetReceiveCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceI8042Failures),
-            Metric {
-                key: LogMetric::MetricDeviceI8042Failures,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceI8042MissedReads),
-            Metric {
-                key: LogMetric::MetricDeviceI8042MissedReads,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceI8042MissedWrites),
-            Metric {
-                key: LogMetric::MetricDeviceI8042MissedWrites,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceI8042ReadCount),
-            Metric {
-                key: LogMetric::MetricDeviceI8042ReadCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceI8042ResetCount),
-            Metric {
-                key: LogMetric::MetricDeviceI8042ResetCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceSerialFailure),
-            Metric {
-                key: LogMetric::MetricDeviceSerialFailure,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceSerialFlushCount),
-            Metric {
-                key: LogMetric::MetricDeviceSerialFlushCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceSerialMissedReads),
-            Metric {
-                key: LogMetric::MetricDeviceSerialMissedReads,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceSerialMissedWrites),
-            Metric {
-                key: LogMetric::MetricDeviceSerialMissedWrites,
-                category: Category::Device,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceSerialReadCount),
-            Metric {
-                key: LogMetric::MetricDeviceSerialReadCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricDeviceSerialWriteCount),
-            Metric {
-                key: LogMetric::MetricDeviceSerialWriteCount,
-                category: Category::Device,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricVcpuFailures),
-            Metric {
-                key: LogMetric::MetricVcpuFailures,
-                category: Category::Vcpu,
-                unit: Unit::Count,
-                counter: 0,
-                nice_unit: "Failures",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricVcpuExitIoInCount),
-            Metric {
-                key: LogMetric::MetricVcpuExitIoInCount,
-                category: Category::Vcpu,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricVcpuExitIoOutCount),
-            Metric {
-                key: LogMetric::MetricVcpuExitIoOutCount,
-                category: Category::Vcpu,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricVcpuExitMmioReadCount),
-            Metric {
-                key: LogMetric::MetricVcpuExitMmioReadCount,
-                category: Category::Vcpu,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-        (
-            format!("{:?}", LogMetric::MetricVcpuExitMmioWriteCount),
-            Metric {
-                key: LogMetric::MetricVcpuExitMmioWriteCount,
-                category: Category::Vcpu,
-                unit: Unit::CountPerSecond,
-                counter: 0,
-                nice_unit: "Requests/Sec",
-                last_logged: SteadyTime::now(),
-                source: None,
-            },
-        ),
-    ].iter()
-        .cloned()
-        .collect()
 }
