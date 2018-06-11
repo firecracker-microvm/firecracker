@@ -2,20 +2,36 @@
 extern crate clap;
 
 extern crate api_server;
+#[macro_use]
+extern crate logger;
 extern crate vmm;
 
 use clap::{App, Arg};
+use std::panic;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::ApiServer;
+use logger::LOGGER;
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const MAX_STORED_ASYNC_REQS: usize = 100;
 
 fn main() {
+    // Start firecracker by setting up a panic hook, which will be called before
+    // terminating as we're building with panic = "abort".
+    // It's worth noting that the abort is caused by sending a SIG_ABORT signal to the process.
+    panic::set_hook(Box::new(move |info| {
+        // We're currently using the closure parameter, which is a &PanicInfo, for printing the origin of the panic,
+        // including the payload passed to panic! and the source code location from which the panic originated.
+        error!("Panic occurred: {:?}", info);
+
+        // Log the metrics before aborting.
+        LOGGER.log_metrics();
+    }));
+
     let cmd_arguments = App::new("firecracker")
         .version(crate_version!())
         .author(crate_authors!())
