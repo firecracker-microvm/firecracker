@@ -14,7 +14,7 @@ use tokio_core::reactor::Handle;
 
 use super::{ActionMap, ActionMapValue};
 use data_model::vm::MachineConfiguration;
-use logger::metrics::LogMetric;
+use logger::{Metric, METRICS};
 use request::instance_info::InstanceInfo;
 use request::{self, ApiRequest, AsyncOutcome, AsyncRequestBody, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
@@ -120,20 +120,27 @@ fn parse_actions_req<'a>(
         0 if method == Method::Get => Ok(ParsedRequest::GetActions),
 
         1 if method == Method::Get => {
-            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
+            METRICS.get_api_requests.actions_count.inc();
+            let unwrapped_id = id_from_path.ok_or_else(|| {
+                METRICS.get_api_requests.actions_fails.inc();
+                (Error::InvalidID)
+            })?;
             Ok(ParsedRequest::GetAction(String::from(unwrapped_id)))
         }
 
         1 if method == Method::Put => {
-            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
-            trace!("{:?}", LogMetric::MetricPutAsyncActionCount);
+            let unwrapped_id = id_from_path.ok_or_else(|| {
+                METRICS.put_api_requests.actions_fails.inc();
+                Error::InvalidID
+            })?;
+            METRICS.put_api_requests.actions_count.inc();
             let async_body: AsyncRequestBody =
                 serde_json::from_slice(body.as_ref()).map_err(|e| {
-                    trace!("{:?}", LogMetric::MetricPutAsyncActionFailures);
+                    METRICS.put_api_requests.actions_fails.inc();
                     Error::SerdeJson(e)
                 })?;
             let parsed_req = async_body.to_parsed_request(unwrapped_id).map_err(|msg| {
-                trace!("{:?}", LogMetric::MetricPutAsyncActionFailures);
+                METRICS.put_api_requests.actions_fails.inc();
                 Error::Generic(StatusCode::BadRequest, msg)
             })?;
             action_map
@@ -143,7 +150,7 @@ fn parse_actions_req<'a>(
                     ActionMapValue::Pending(async_body),
                 )
                 .map_err(|_| {
-                    trace!("{:?}", LogMetric::MetricPutAsyncActionFailures);
+                    METRICS.put_api_requests.actions_fails.inc();
                     Error::ActionExists
                 })?;
             Ok(parsed_req)
@@ -163,15 +170,15 @@ fn parse_boot_source_req<'a>(
         0 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
         0 if method == Method::Put => {
-            trace!("{:?}", LogMetric::MetricPutBootSourceCount);
+            METRICS.put_api_requests.boot_source_count.inc();
             Ok(serde_json::from_slice::<request::BootSourceBody>(body)
                 .map_err(|e| {
-                    trace!("{:?}", LogMetric::MetricPutBootSourceFailures);
+                    METRICS.put_api_requests.boot_source_fails.inc();
                     Error::SerdeJson(e)
                 })?
                 .into_parsed_request()
                 .map_err(|s| {
-                    trace!("{:?}", LogMetric::MetricPutBootSourceFailures);
+                    METRICS.put_api_requests.boot_source_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
                 })?)
         }
@@ -193,15 +200,16 @@ fn parse_drives_req<'a>(
         1 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
         1 if method == Method::Put => {
-            trace!("{:?}", LogMetric::MetricPutDriveCount);
+            METRICS.put_api_requests.drive_count.inc();
+
             Ok(serde_json::from_slice::<request::DriveDescription>(body)
                 .map_err(|e| {
-                    trace!("{:?}", LogMetric::MetricPutDriveFailures);
+                    METRICS.put_api_requests.drive_fails.inc();
                     Error::SerdeJson(e)
                 })?
                 .into_parsed_request(id_from_path.unwrap())
                 .map_err(|s| {
-                    trace!("{:?}", LogMetric::MetricPutDriveFailures);
+                    METRICS.put_api_requests.drive_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
                 })?)
         }
@@ -220,17 +228,16 @@ fn parse_logger_req<'a>(
         0 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
         0 if method == Method::Put => {
-            trace!("{:?}", LogMetric::MetricPutLoggerCount);
-
+            METRICS.put_api_requests.logger_count.inc();
             Ok(
                 serde_json::from_slice::<request::APILoggerDescription>(body)
                     .map_err(|e| {
-                        trace!("{:?}", LogMetric::MetricPutLoggerFailures);
+                        METRICS.put_api_requests.logger_fails.inc();
                         Error::SerdeJson(e)
                     })?
                     .into_parsed_request()
                     .map_err(|s| {
-                        trace!("{:?}", LogMetric::MetricPutLoggerFailures);
+                        METRICS.put_api_requests.logger_fails.inc();
                         Error::Generic(StatusCode::BadRequest, s)
                     })?,
             )
@@ -248,7 +255,7 @@ fn parse_machine_config_req<'a>(
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
         0 if method == Method::Get => {
-            trace!("{:?}", LogMetric::MetricGetMachineCfgCount);
+            METRICS.get_api_requests.machine_cfg_count.inc();
             let empty_machine_config = MachineConfiguration {
                 vcpu_count: None,
                 mem_size_mib: None,
@@ -258,21 +265,21 @@ fn parse_machine_config_req<'a>(
             Ok(empty_machine_config
                 .into_parsed_request(method)
                 .map_err(|s| {
-                    trace!("{:?}", LogMetric::MetricGetMachineCfgFailures);
+                    METRICS.get_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
                 })?)
         }
 
         0 if method == Method::Put => {
-            trace!("{:?}", LogMetric::MetricPutMachineCfgCount);
+            METRICS.put_api_requests.machine_cfg_count.inc();
             Ok(serde_json::from_slice::<MachineConfiguration>(body)
                 .map_err(|e| {
-                    trace!("{:?}", LogMetric::MetricPutMachineCfgFailures);
+                    METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::SerdeJson(e)
                 })?
                 .into_parsed_request(method)
                 .map_err(|s| {
-                    trace!("{:?}", LogMetric::MetricPutMachineCfgFailures);
+                    METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
                 })?)
         }
@@ -295,17 +302,17 @@ fn parse_netif_req<'a>(
 
         1 if method == Method::Put => {
             let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
-            trace!("{:?}", LogMetric::MetricPutNetworkCount);
+            METRICS.put_api_requests.network_count.inc();
 
             Ok(
                 serde_json::from_slice::<request::NetworkInterfaceBody>(body)
                     .map_err(|e| {
-                        trace!("{:?}", LogMetric::MetricPutNetworkFailures);
+                        METRICS.put_api_requests.network_fails.inc();
                         Error::SerdeJson(e)
                     })?
                     .into_parsed_request(unwrapped_id)
                     .map_err(|s| {
-                        trace!("{:?}", LogMetric::MetricPutNetworkFailures);
+                        METRICS.put_api_requests.network_fails.inc();
                         Error::Generic(StatusCode::BadRequest, s)
                     })?,
             )
@@ -454,7 +461,8 @@ impl hyper::server::Service for ApiServerHttpService {
                     // TODO: remove this when all actions are implemented.
                     Dummy => Either::A(future::ok(json_response(StatusCode::Ok, "I'm a dummy."))),
                     GetInstanceInfo => {
-                        trace!("{:?}", LogMetric::MetricGetInstanceInfoCount);
+                        METRICS.get_api_requests.instance_info_count.inc();
+
                         // unwrap() to crash if the other thread poisoned this lock
                         let shared_info = shared_info_lock.read().unwrap();
                         // Serialize it to a JSON string.
@@ -462,7 +470,8 @@ impl hyper::server::Service for ApiServerHttpService {
                         match body_result {
                             Ok(body) => Either::A(future::ok(json_response(StatusCode::Ok, body))),
                             Err(e) => {
-                                trace!("{:?}", LogMetric::MetricGetInstanceInfoFailures);
+                                // This is an api server metrics as the shared info is obtained internally.
+                                METRICS.api_server.instance_info_fails.inc();
                                 Either::A(future::ok(json_response(
                                     StatusCode::InternalServerError,
                                     json_fault_message(e.to_string()),
@@ -477,7 +486,7 @@ impl hyper::server::Service for ApiServerHttpService {
                         Either::A(future::ok(empty_response(StatusCode::Ok)))
                     }
                     GetAction(id) => {
-                        trace!("{:?}", LogMetric::MetricGetActionInfoCount);
+                        METRICS.get_api_requests.action_info_count.inc();
                         match action_map.borrow().get(&id) {
                             Some(value) => match *value {
                                 ActionMapValue::Pending(_) => Either::A(future::ok(json_response(
@@ -501,7 +510,7 @@ impl hyper::server::Service for ApiServerHttpService {
                             &vmm_send_event,
                         ).is_err()
                         {
-                            trace!("{:?}", LogMetric::MetricAsyncVMMSendTimeoutCount);
+                            METRICS.api_server.async_vmm_send_timeout_count.inc();
                             // hyper::Error::Cancel would have been more appropriate, but it's no
                             // longer available for some reason.
                             return Either::A(future::err(hyper::Error::Timeout));
@@ -555,10 +564,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                                             &b_str
                                                         )
                                                     );
-                                                    trace!(
-                                                        "{:?}",
-                                                        LogMetric::MetricSyncOutcomeFailures
-                                                    );
+                                                    METRICS.api_server.async_outcome_fails.inc();
                                                     (
                                                         StatusCode::BadRequest,
                                                         json_fault_message(msg),
@@ -567,10 +573,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                             }
                                         }
                                         _ => {
-                                            trace!(
-                                                "{:?}",
-                                                LogMetric::MetricAsyncMissedActionsCount
-                                            );
+                                            METRICS.api_server.async_missed_actions_count.inc();
                                             return;
                                         }
                                     };
@@ -581,7 +584,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                     );
                                 })
                                 .map_err(|_| {
-                                    trace!("{:?}", LogMetric::MetricAsyncOutcomeFailures);
+                                    METRICS.api_server.async_outcome_fails.inc();
                                 }),
                         );
 
@@ -596,7 +599,7 @@ impl hyper::server::Service for ApiServerHttpService {
                             &vmm_send_event,
                         ).is_err()
                         {
-                            trace!("{:?}", LogMetric::MetricAsyncVMMSendTimeoutCount);
+                            METRICS.api_server.sync_vmm_send_timeout_count.inc();
                             return Either::A(future::err(hyper::Error::Timeout));
                         }
 
@@ -631,7 +634,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                             &b_str_err
                                         )
                                     );
-                                    trace!("{:?}", LogMetric::MetricSyncOutcomeFailures);
+                                    METRICS.api_server.sync_outcome_fails.inc();
                                     hyper::Error::Timeout
                                 }),
                         )
