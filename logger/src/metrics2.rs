@@ -97,6 +97,38 @@ impl Serialize for SharedMetric {
 pub struct ApiMetrics {}
 
 #[derive(Default, Serialize)]
+pub struct BlockDeviceMetrics {
+    pub activate_fails: SharedMetric,
+    pub cfg_fails: SharedMetric,
+    pub event_fails: SharedMetric,
+    pub execute_fails: SharedMetric,
+    pub invalid_reqs_count: SharedMetric,
+    pub flush_count: SharedMetric,
+    pub queue_event_count: SharedMetric,
+    pub rate_limiter_event_count: SharedMetric,
+    pub read_count: SharedMetric,
+    pub write_count: SharedMetric,
+}
+
+#[derive(Default, Serialize)]
+pub struct NetDeviceMetrics {
+    pub activate_fails: SharedMetric,
+    pub cfg_fails: SharedMetric,
+    pub event_fails: SharedMetric,
+    pub rx_bytes_count: SharedMetric,
+    pub rx_packets_count: SharedMetric,
+    pub rx_event_rate_limiter_count: SharedMetric,
+    pub rx_fails: SharedMetric,
+    pub rx_queue_event_count: SharedMetric,
+    pub rx_tap_event_count: SharedMetric,
+    pub tx_bytes_count: SharedMetric,
+    pub tx_packets_count: SharedMetric,
+    pub tx_rate_limiter_event_count: SharedMetric,
+    pub tx_fails: SharedMetric,
+    pub tx_queue_event_count: SharedMetric,
+}
+
+#[derive(Default, Serialize)]
 pub struct VcpuMetrics {
     pub eagain: SharedMetric,
     pub eintr: SharedMetric,
@@ -126,6 +158,8 @@ impl Serialize for SerializeToUtcTimestampMs {
 pub struct FirecrackerMetrics {
     utc_timestamp_ms: SerializeToUtcTimestampMs,
     pub api: ApiMetrics,
+    pub block: BlockDeviceMetrics,
+    pub net: NetDeviceMetrics,
     pub vcpu: VcpuMetrics,
     pub vmm: VmmMetrics,
 }
