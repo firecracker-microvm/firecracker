@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use chrono;
 use serde::{Serialize, Serializer};
 
+const SYSCALL_MAX: usize = 350;
+
 // The main design goals of this metrics system are:
 // - Use lockless operations, preferably ones that don't require anything other than
 // simple reads/writes being atomic.
@@ -187,6 +189,25 @@ pub struct NetDeviceMetrics {
     pub tx_queue_event_count: SharedMetric,
 }
 
+#[derive(Serialize)]
+pub struct SeccompMetrics {
+    pub num_faults: SharedMetric,
+    pub bad_syscalls: Vec<SharedMetric>,
+}
+
+impl Default for SeccompMetrics {
+    fn default() -> SeccompMetrics {
+        let mut def_syscalls = vec![];
+        for _syscall in 0..SYSCALL_MAX {
+            def_syscalls.push(SharedMetric::default());
+        }
+        SeccompMetrics {
+            num_faults: SharedMetric::default(),
+            bad_syscalls: def_syscalls,
+        }
+    }
+}
+
 #[derive(Default, Serialize)]
 pub struct SerialDeviceMetrics {
     pub error_count: SharedMetric,
@@ -232,6 +253,7 @@ pub struct FirecrackerMetrics {
     pub i8042: I8042DeviceMetrics,
     pub net: NetDeviceMetrics,
     pub put_api_requests: PutRequestsMetrics,
+    pub seccomp: SeccompMetrics,
     pub vcpu: VcpuMetrics,
     pub vmm: VmmMetrics,
     pub uart: SerialDeviceMetrics,
