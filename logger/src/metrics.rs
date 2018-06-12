@@ -244,6 +244,7 @@ lazy_static! {
 
 #[cfg(test)]
 mod tests {
+    extern crate serde_json;
     use super::*;
 
     use std::sync::Arc;
@@ -291,5 +292,11 @@ mod tests {
             m2.count(),
             M2_INITIAL_COUNT + NUM_THREADS_TO_SPAWN * NUM_INCREMENTS_PER_THREAD
         );
+    }
+
+    #[test]
+    fn test_serialize() {
+        let s = serde_json::to_string(&FirecrackerMetrics::default());
+        assert!(s.is_ok());
     }
 }
