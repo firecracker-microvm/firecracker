@@ -5,6 +5,7 @@ extern crate api_server;
 extern crate data_model;
 #[macro_use]
 extern crate logger;
+extern crate seccomp_sys;
 extern crate vmm;
 
 use clap::{App, Arg};
@@ -21,6 +22,9 @@ const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const MAX_STORED_ASYNC_REQS: usize = 100;
 
 fn main() {
+    // If the signal handler can't be set, it's OK to panic.
+    seccomp_sys::setup_sigsys_handler().unwrap();
+
     // Start firecracker by setting up a panic hook, which will be called before
     // terminating as we're building with panic = "abort".
     // It's worth noting that the abort is caused by sending a SIG_ABORT signal to the process.
@@ -105,6 +109,7 @@ mod tests {
                     assert!(false);
                 }
             }
+
             fs::remove_file(DEFAULT_API_SOCK_PATH).expect("failure in removing socket file");
         }
     }
