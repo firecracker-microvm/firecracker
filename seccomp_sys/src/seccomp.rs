@@ -2,6 +2,11 @@
 
 extern crate libc;
 
+extern crate logger;
+extern crate sys_util;
+
+use self::logger::{Metric, METRICS};
+
 /// BPF instruction structure definition.
 /// See /usr/include/linux/filter.h .
 #[repr(C)]
@@ -180,9 +185,27 @@ pub fn setup_seccomp() -> Result<(), i32> {
     Ok(())
 }
 
+extern "C" fn sigsys_handler(
+    num: libc::c_int,
+    info: *mut libc::siginfo_t,
+    _unused: *mut libc::c_void,
+) {
+    if num != libc::SIGSYS {
+        return;
+    }
+    let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) as usize };
+    METRICS.seccomp.num_faults.inc();
+    METRICS.seccomp.bad_syscalls[syscall].inc();
+}
+
+pub fn setup_sigsys_handler() -> Result<(), sys_util::Error> {
+    return unsafe { sys_util::register_signal_handler_sigaction(libc::SIGSYS, sigsys_handler) };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process;
 
     #[test]
     fn test_bpf_functions() {
@@ -251,5 +274,20 @@ mod tests {
             }];
             assert_eq!(ret, instructions);
         }
+    }
+
+    #[test]
+    fn test_signal_handler() {
+        assert!(setup_sigsys_handler().is_ok());
+        assert!(setup_seccomp().is_ok());
+
+        // Calls the blacklisted SYS_getpid
+        let _pid = process::id();
+
+        // The signal handler should let the program continue
+        assert!(true);
+
+        // The reason this test doesn't check the failure metrics as well is that the signal handler
+        // doesn't work right with kcov - possibly because the process is being pinned to 1 core.
     }
 }
