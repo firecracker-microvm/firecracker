@@ -59,6 +59,7 @@ const ALLOWED_SYSCALLS: &[i64] = &[
     libc::SYS_brk,
     libc::SYS_rt_sigaction,
     libc::SYS_rt_sigprocmask,
+    libc::SYS_rt_sigreturn,
     libc::SYS_ioctl,
     libc::SYS_readv,
     libc::SYS_writev,
@@ -79,12 +80,21 @@ const ALLOWED_SYSCALLS: &[i64] = &[
     libc::SYS_futex,
     libc::SYS_sched_getaffinity,
     libc::SYS_set_tid_address,
+    libc::SYS_exit_group,
     libc::SYS_epoll_ctl,
     libc::SYS_epoll_pwait,
+    libc::SYS_timerfd_create,
     libc::SYS_eventfd2,
     libc::SYS_epoll_create1,
     libc::SYS_getrandom,
 ];
+
+/// The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
+/// expressed as an `(u)int*`.
+/// Offset `6` for an `i32` field means that the needed information is located at `6 * sizeof(i32)`.
+/// See /usr/include/linux/signal.h for the C struct definition.
+/// See https://github.com/rust-lang/libc/issues/716 for why the offset is different in Rust.
+pub const SI_OFF_SYSCALL: isize = 6;
 
 /// Builds a "jump" BPF instruction.
 #[allow(non_snake_case)]
