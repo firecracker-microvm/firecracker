@@ -175,10 +175,6 @@ impl Logger {
         self.show_line_numbers.load(Ordering::Relaxed)
     }
 
-    fn has_file(&self) -> bool {
-        self.level_info.writer() == Destination::File as usize
-    }
-
     /// Enables or disables including the level in the log message's tag portion.
     ///
     /// # Example
@@ -365,6 +361,7 @@ impl Logger {
                 if let Err(e) = fw.write(&msg) {
                     eprintln!("logger: Could not write to log file {}", e);
                 }
+
                 let _ = fw.flush();
             }
             x if x == Destination::Stderr as usize => {
@@ -420,18 +417,8 @@ impl Log for Logger {
         }
     }
 
-    fn flush(&self) {
-        if !self.has_file() {
-            // everything else flushes by itself
-            return;
-        }
-
-        // The unwrap should be safe because has_file() is true.
-        if let Err(e) = self.file_guard().as_mut().unwrap().flush() {
-            // TODO: prevent unbounded output :-s
-            eprintln!("logger: Could not flush log content to disk {}", e);
-        }
-    }
+    // This is currently not used.
+    fn flush(&self) {}
 }
 
 #[cfg(test)]
@@ -475,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn test_init() {
+    fn test_init_with_file() {
         let l = LOGGER.deref();
 
         l.set_include_origin(false, true);
@@ -488,6 +475,7 @@ mod tests {
         assert_eq!(l.show_file_path(), true);
         assert_eq!(l.show_level(), true);
 
+        assert!(l.log_metrics().is_err());
         assert!(l.init(Some(log_file_str())).is_ok());
         info!("info");
         warn!("warning");
@@ -510,6 +498,8 @@ mod tests {
                 ("[ERROR", "lib.rs", "error"),
             ],
         );
+
+        assert!(l.log_metrics().is_ok());
 
         remove_file(log_file_str()).unwrap();
 
