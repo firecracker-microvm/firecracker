@@ -66,7 +66,11 @@ impl Serialize for SimpleMetric {
 // aggregate them when logging. However this probably overkill unless we have a lot of vCPUs
 // incrementing metrics very often. Still, it's there if we ever need it :-s
 #[derive(Default)]
-pub struct SharedMetric(AtomicUsize);
+// We will be keeping two values for each metric for being able to reset
+// counters on each metric.
+// 1st member - current value being updated
+// 2nd member - old value that gets the current value whenever metrics is flushed to disk
+pub struct SharedMetric(AtomicUsize, AtomicUsize);
 
 impl Metric for SharedMetric {
     // While the order specified for this operation is still Relaxed, the actual instruction will
@@ -83,9 +87,18 @@ impl Metric for SharedMetric {
 }
 
 impl Serialize for SharedMetric {
+    /// Reset counters of each metrics. Here we suppose that Serialize's goal is to help with the
+    /// flushing of metrics.
+    /// !!! Any print of the metrics will also reset them. Use with caution !!!
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         // There's no serializer.serialize_usize() for some reason :(
-        serializer.serialize_u64(self.0.load(Ordering::Relaxed) as u64)
+        let snapshot = self.0.load(Ordering::Relaxed);
+        let res = serializer.serialize_u64(snapshot as u64 - self.1.load(Ordering::Relaxed) as u64);
+
+        if res.is_ok() {
+            self.1.store(snapshot, Ordering::Relaxed);
+        }
+        res
     }
 }
 
