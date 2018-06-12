@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 use super::{errno_result, Error, Result};
-use libc::{c_int, pthread_kill, pthread_t, signal, EINVAL, SIG_ERR};
+use libc::{c_int, c_void, pthread_kill, pthread_t, sigaction, siginfo_t, signal, EINVAL,
+           SA_SIGINFO, SIGHUP, SIGSYS, SIG_ERR};
+use std::mem;
 use std::os::unix::thread::JoinHandleExt;
 use std::thread::JoinHandle;
 
@@ -24,7 +26,7 @@ fn SIGRTMAX() -> c_int {
     unsafe { __libc_current_sigrtmax() }
 }
 
-fn valid_signal_num(num: u8) -> bool {
+fn valid_rt_signal_num(num: u8) -> bool {
     (num as c_int) + SIGRTMIN() <= SIGRTMAX()
 }
 
@@ -35,7 +37,7 @@ fn valid_signal_num(num: u8) -> bool {
 /// This is considered unsafe because the given handler will be called asynchronously, interrupting
 /// whatever the thread was doing and therefore must only do async-signal-safe operations.
 pub unsafe fn register_signal_handler(num: u8, handler: extern "C" fn() -> ()) -> Result<()> {
-    if !valid_signal_num(num) {
+    if !valid_rt_signal_num(num) {
         return Err(Error::new(EINVAL));
     }
     let ret = signal((num as i32) + SIGRTMIN(), handler as *const () as usize);
@@ -44,6 +46,32 @@ pub unsafe fn register_signal_handler(num: u8, handler: extern "C" fn() -> ()) -
     }
 
     Ok(())
+}
+
+fn valid_signal_num(num: c_int) -> bool {
+    SIGHUP <= num && num <= SIGSYS
+}
+
+/// Registers `handler` as the signal handler of signum `num`.
+///
+/// Uses `sigaction` to register the handler.
+///
+/// This is considered unsafe because the given handler will be called asynchronously, interrupting
+/// whatever the thread was doing and therefore must only do async-signal-safe operations.
+pub unsafe fn register_signal_handler_sigaction(
+    num: i32,
+    handler: extern "C" fn(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) -> (),
+) -> Result<()> {
+    if !valid_signal_num(num) {
+        return Err(Error::new(EINVAL));
+    }
+    let mut act: sigaction = mem::zeroed();
+    act.sa_sigaction = handler as *const () as usize;
+    act.sa_flags = SA_SIGINFO;
+    match sigaction(num, &act, ::std::ptr::null_mut()) {
+        0 => Ok(()),
+        _ => errno_result(),
+    }
 }
 
 /// Trait for threads that can be signalled via `pthread_kill`.
@@ -60,7 +88,7 @@ pub unsafe trait Killable {
     ///
     /// The value of `num + SIGRTMIN` must not exceed `SIGRTMAX`.
     fn kill(&self, num: u8) -> Result<()> {
-        if !valid_signal_num(num) {
+        if !valid_rt_signal_num(num) {
             return Err(Error::new(EINVAL));
         }
 
@@ -85,14 +113,22 @@ unsafe impl<T> Killable for JoinHandle<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libc;
     use std::thread;
     use std::time::Duration;
 
     static mut SIGNAL_HANDLER_CALLED: bool = false;
+    static mut SIGNAL_CAUGHT: c_int = -1;
 
     extern "C" fn handle_signal() {
         unsafe {
             SIGNAL_HANDLER_CALLED = true;
+        }
+    }
+
+    extern "C" fn handle_signal_sigaction(num: c_int, _: *mut siginfo_t, _: *mut c_void) {
+        unsafe {
+            SIGNAL_CAUGHT = num;
         }
     }
 
@@ -109,6 +145,15 @@ mod tests {
 
         unsafe {
             assert!(register_signal_handler(0, handle_signal).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_register_signal_handler_sigaction() {
+        unsafe {
+            assert!(
+                register_signal_handler_sigaction(libc::SIGSYS, handle_signal_sigaction).is_ok()
+            );
         }
     }
 
