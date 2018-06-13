@@ -470,7 +470,7 @@ mod tests {
     use log::MetadataBuilder;
 
     use metrics::LogMetric::{MetricGetInstanceInfoCount, MetricGetInstanceInfoFailures};
-    use std::fs::{copy, remove_file, File};
+    use std::fs::{remove_file, File};
     use std::io::BufRead;
     use std::io::BufReader;
     use std::thread::sleep;
@@ -554,8 +554,6 @@ mod tests {
         trace!("{:?}", MetricGetInstanceInfoFailures);
         trace!("{:?}", MetricGetInstanceInfoCount);
 
-        // leaving this commented so that you can test this RFC
-        copy(log_file_str(), "rfc.log").unwrap();
         remove_file(log_file_str()).unwrap();
 
         // exercise the case when there is an error in opening file
