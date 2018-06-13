@@ -150,7 +150,7 @@ paths:
 
   /logger:
       put:
-        summary: Initializes the logging system by specifying a log path on the host.
+        summary: Initializes the logger by specifying two named pipes (i.e. for the logs and metrics output).
         operationId: putLogger
         parameters:
         - name: body
@@ -364,11 +364,14 @@ definitions:
   Logger:
     type: object
     description:
-      Describes the configuration option for the logger intitialization.
+      Describes the configuration option for the logging capability.
     properties:
-      path:
+      log_fifo:
         type: string
-        description: The path on the host for the log file.
+        description: The named pipe for the human readable log output.
+      metrics_fifo:
+              type: string
+              description: The named pipe where the JSON-formatted metrics will be flushed.
       level:
         type: string
         description: Set the level.
