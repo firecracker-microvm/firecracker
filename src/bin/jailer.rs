@@ -53,5 +53,5 @@ fn main() -> jailer::Result<()> {
         cmd_arguments.value_of("gid").unwrap(),
     )?;
 
-    Ok(())
+    jailer::run(args)
 }
