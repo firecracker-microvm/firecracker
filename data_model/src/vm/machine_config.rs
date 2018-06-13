@@ -9,7 +9,7 @@ pub struct MachineConfiguration {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ht_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cpu_template: Option<CPUFeaturesTemplate>,
+    pub cpu_template: Option<CpuFeaturesTemplate>,
 }
 
 impl Default for MachineConfiguration {
@@ -24,16 +24,16 @@ impl Default for MachineConfiguration {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-pub enum CPUFeaturesTemplate {
+pub enum CpuFeaturesTemplate {
     C3,
     T2,
 }
 
-impl fmt::Display for CPUFeaturesTemplate {
+impl fmt::Display for CpuFeaturesTemplate {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CPUFeaturesTemplate::C3 => write!(f, "C3"),
-            CPUFeaturesTemplate::T2 => write!(f, "T2"),
+            CpuFeaturesTemplate::C3 => write!(f, "C3"),
+            CpuFeaturesTemplate::T2 => write!(f, "T2"),
         }
     }
 }
