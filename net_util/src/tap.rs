@@ -63,13 +63,19 @@ impl Tap {
     pub fn open_named(if_name: &str) -> Result<Tap> {
         let terminated_if_name = build_terminated_if_name(if_name)?;
 
-        // Open calls are safe because we give a constant nul-terminated
-        // string and verify the result.
-        let fd = unsafe {
-            libc::open(
-                b"/dev/net/tun\0".as_ptr() as *const c_char,
-                libc::O_RDWR | libc::O_NONBLOCK | libc::O_CLOEXEC,
-            )
+        let fd = if ::data_model::FIRECRACKER_IS_JAILED.load(::std::sync::atomic::Ordering::Relaxed)
+        {
+            // This is the /dev/net/tun fd inherited from the jailer.
+            ::jailer::DEV_NET_TUN_FD
+        } else {
+            unsafe {
+                // Open calls are safe because we give a constant nul-terminated
+                // string and verify the result.
+                libc::open(
+                    b"/dev/net/tun\0".as_ptr() as *const c_char,
+                    libc::O_RDWR | libc::O_NONBLOCK | libc::O_CLOEXEC,
+                )
+            }
         };
         if fd < 0 {
             return Err(Error::OpenTun(IoError::last_os_error()));
