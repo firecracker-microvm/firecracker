@@ -1,38 +1,19 @@
-#[macro_use(crate_version, crate_authors)]
-extern crate clap;
-
 extern crate api_server;
 extern crate vmm;
 
-use clap::{App, Arg};
-use std::path::PathBuf;
+use std::env::current_dir;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::ApiServer;
 
-const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
+const API_SOCK_PATH: &str = "api.sock";
 const MAX_STORED_ASYNC_REQS: usize = 100;
 
 fn main() {
-    let cmd_arguments = App::new("firecracker")
-        .version(crate_version!())
-        .author(crate_authors!())
-        .about("Launch a microvm.")
-        .arg(
-            Arg::with_name("api_sock")
-                .long("api-sock")
-                .help("Path to unix domain socket used by the API")
-                .default_value(DEFAULT_API_SOCK_PATH)
-                .takes_value(true),
-        )
-        .get_matches();
-
-    let bind_path = cmd_arguments
-        .value_of("api_sock")
-        .map(|s| PathBuf::from(s))
-        .unwrap();
+    let mut bind_path = current_dir().unwrap();
+    bind_path.push(API_SOCK_PATH);
 
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,
@@ -58,7 +39,7 @@ mod tests {
     #[test]
     fn test_main() {
         // test will be run iff the socket file does not already exist
-        if !Path::new(DEFAULT_API_SOCK_PATH).exists() {
+        if !Path::new(API_SOCK_PATH).exists() {
             thread::spawn(|| {
                 main();
             });
@@ -67,17 +48,17 @@ mod tests {
             let mut iter_count = 0;
             loop {
                 thread::sleep(Duration::from_secs(1));
-                if Path::new(DEFAULT_API_SOCK_PATH).exists() {
+                if Path::new(API_SOCK_PATH).exists() {
                     break;
                 }
                 iter_count += 1;
                 if iter_count > MAX_WAIT_ITERS {
-                    fs::remove_file(DEFAULT_API_SOCK_PATH)
+                    fs::remove_file(API_SOCK_PATH)
                         .expect("failure in removing socket file");
                     assert!(false);
                 }
             }
-            fs::remove_file(DEFAULT_API_SOCK_PATH).expect("failure in removing socket file");
+            fs::remove_file(API_SOCK_PATH).expect("failure in removing socket file");
         }
     }
 }
