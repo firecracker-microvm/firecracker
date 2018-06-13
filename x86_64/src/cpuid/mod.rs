@@ -1,7 +1,7 @@
 use std::result;
 
 use cpuid::cpu_leaf::*;
-use data_model::vm::CPUFeaturesTemplate;
+use data_model::vm::CpuFeaturesTemplate;
 use kvm::CpuId;
 
 mod cpu_leaf;
@@ -44,11 +44,11 @@ fn str_to_u32(string: &str) -> u32 {
         | (str_bytes[3] as u32);
 }
 
-pub fn set_cpuid_template(template: CPUFeaturesTemplate, kvm_cpuid: &mut CpuId) {
+pub fn set_cpuid_template(template: CpuFeaturesTemplate, kvm_cpuid: &mut CpuId) {
     let entries = kvm_cpuid.mut_entries_slice();
     match template {
-        CPUFeaturesTemplate::T2 => t2_template::set_cpuid_entries(entries),
-        CPUFeaturesTemplate::C3 => c3_template::set_cpuid_entries(entries),
+        CpuFeaturesTemplate::T2 => t2_template::set_cpuid_entries(entries),
+        CpuFeaturesTemplate::C3 => c3_template::set_cpuid_entries(entries),
     }
 }
 
@@ -231,7 +231,7 @@ mod tests {
             _ => assert!(false),
         };
 
-        set_cpuid_template(CPUFeaturesTemplate::T2, &mut kvm_cpuid);
+        set_cpuid_template(CpuFeaturesTemplate::T2, &mut kvm_cpuid);
 
         let entries = kvm_cpuid.mut_entries_slice();
         // TODO: This should be tested as part of the CI; only check that the function result is ok

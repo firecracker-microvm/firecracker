@@ -663,7 +663,7 @@ fn describe(sync: bool, method: &Method, path: &String, body: &String) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data_model::vm::CPUFeaturesTemplate;
+    use data_model::vm::CpuFeaturesTemplate;
     use fc_util::LriHashMap;
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
@@ -1060,7 +1060,7 @@ mod tests {
             vcpu_count: Some(42),
             mem_size_mib: Some(1025),
             ht_enabled: Some(true),
-            cpu_template: Some(CPUFeaturesTemplate::T2),
+            cpu_template: Some(CpuFeaturesTemplate::T2),
         };
 
         match mcb.into_parsed_request(Method::Put) {
