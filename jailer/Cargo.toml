@@ -1,0 +1,4 @@
+[package]
+name = "jailer"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
