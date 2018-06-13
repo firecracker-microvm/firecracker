@@ -1,12 +1,20 @@
+extern crate libc;
+
 use std::ffi::OsStr;
 use std::fs::{canonicalize, metadata};
 use std::io;
 use std::path::PathBuf;
 use std::result;
 
+mod env;
+
 #[derive(Debug)]
 pub enum Error {
     Canonicalize(PathBuf, io::Error),
+    Chroot(i32),
+    Copy(PathBuf, PathBuf, io::Error),
+    CreateDir(PathBuf, io::Error),
+    Exec(io::Error),
     FileName(PathBuf),
     Gid(String),
     Metadata(PathBuf, io::Error),
