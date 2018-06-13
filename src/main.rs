@@ -2,6 +2,7 @@
 extern crate clap;
 
 extern crate api_server;
+extern crate data_model;
 #[macro_use]
 extern crate logger;
 extern crate vmm;
@@ -45,12 +46,21 @@ fn main() {
                 .default_value(DEFAULT_API_SOCK_PATH)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("jailed")
+                .long("jailed")
+                .help("Let Firecracker know it's running inside a jail."),
+        )
         .get_matches();
 
     let bind_path = cmd_arguments
         .value_of("api_sock")
         .map(|s| PathBuf::from(s))
         .unwrap();
+
+    if cmd_arguments.is_present("jailed") {
+        data_model::FIRECRACKER_IS_JAILED.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,
