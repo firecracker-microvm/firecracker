@@ -1,4 +1,5 @@
 extern crate libc;
+extern crate regex;
 
 use std::ffi::OsStr;
 use std::fs::{canonicalize, metadata};
@@ -6,20 +7,28 @@ use std::io;
 use std::path::PathBuf;
 use std::result;
 
+mod cgroup;
 mod env;
 
 #[derive(Debug)]
 pub enum Error {
     Canonicalize(PathBuf, io::Error),
+    CgroupLineNotFound(String),
+    CgroupLineNotUnique(String),
     Chroot(i32),
     Copy(PathBuf, PathBuf, io::Error),
     CreateDir(PathBuf, io::Error),
     Exec(io::Error),
+    FileCreate(PathBuf, io::Error),
     FileName(PathBuf),
+    FileOpen(PathBuf, io::Error),
     Gid(String),
     Metadata(PathBuf, io::Error),
     NotAFile(PathBuf),
+    ReadLine(PathBuf, io::Error),
+    RegEx(regex::Error),
     Uid(String),
+    Write(PathBuf, io::Error),
 }
 
 pub type Result<T> = result::Result<T, Error>;
