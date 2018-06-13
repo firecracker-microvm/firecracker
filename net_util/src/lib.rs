@@ -8,8 +8,11 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate libc;
-extern crate net_sys;
 extern crate serde;
+
+extern crate data_model;
+extern crate jailer;
+extern crate net_sys;
 extern crate sys_util;
 
 mod mac;
