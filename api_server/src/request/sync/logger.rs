@@ -18,7 +18,8 @@ pub enum APILoggerLevel {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct APILoggerDescription {
-    pub path: String,
+    pub log_fifo: String,
+    pub metrics_fifo: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub level: Option<APILoggerLevel>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,7 +110,8 @@ mod tests {
     #[test]
     fn test_into_parsed_request() {
         let desc = APILoggerDescription {
-            path: String::from(""),
+            log_fifo: String::from("log"),
+            metrics_fifo: String::from("metrics"),
             level: None,
             show_level: None,
             show_log_origin: None,

@@ -20,7 +20,7 @@ pub fn init_logger(api_logger: APILoggerDescription) -> Result<()> {
         LOGGER.set_include_level(val);
     }
 
-    if let Err(ref e) = LOGGER.init(Some(api_logger.path)) {
+    if let Err(ref e) = LOGGER.init(Some(api_logger.log_fifo), Some(api_logger.metrics_fifo)) {
         return Err(APILoggerError::InitializationFailure(e.to_string()));
     } else {
         Ok(())
@@ -46,6 +46,7 @@ mod tests {
     use api_server::request::sync::{APILoggerDescription, APILoggerLevel};
     use std::fs::{self, File};
     use std::io::{BufRead, BufReader};
+    use std::path::Path;
 
     fn validate_logs(
         log_path: &str,
@@ -67,17 +68,25 @@ mod tests {
 
     #[test]
     fn test_init_logger_from_api() {
+        let log_filename = "tmp.log";
+        let metrics_filename = "metrics.log";
+
         let desc = APILoggerDescription {
-            path: String::from(""),
+            log_fifo: String::from(log_filename),
+            metrics_fifo: String::from(metrics_filename),
             level: None,
             show_level: None,
             show_log_origin: None,
         };
         assert!(init_logger(desc).is_err());
 
-        let filename = "tmp.log";
+        File::create(&Path::new(&log_filename)).expect("Failed to create temporary log file.");
+
+        File::create(&Path::new(&metrics_filename)).expect("Failed to create temporary log file.");
+
         let desc = APILoggerDescription {
-            path: String::from(filename),
+            log_fifo: String::from(log_filename),
+            metrics_fifo: String::from(metrics_filename),
             level: Some(APILoggerLevel::Warning),
             show_level: Some(true),
             show_log_origin: Some(true),
@@ -85,7 +94,8 @@ mod tests {
         let res = init_logger(desc).is_ok();
 
         if !res {
-            let _x = fs::remove_file(filename);
+            let _x = fs::remove_file(log_filename);
+            let _x = fs::remove_file(metrics_filename);
         }
 
         assert!(res);
@@ -96,13 +106,14 @@ mod tests {
 
         // info should not be outputted
         let res = validate_logs(
-            filename,
+            log_filename,
             &[
                 ("[WARN", "logger_config.rs", "warn"),
                 ("[ERROR", "logger_config.rs", "error"),
             ],
         );
-        let _x = fs::remove_file(filename);
+        let _x = fs::remove_file(log_filename);
+        let _x = fs::remove_file(metrics_filename);
         assert!(res);
     }
 
