@@ -263,7 +263,7 @@ definitions:
         type: string
         description: Kernel boot arguments
 
-  CPUTemplate:
+  CpuTemplate:
     type: string
     description:
       The CPU Template defines a set of flags to be disabled from the microvm so that
@@ -389,7 +389,7 @@ definitions:
         type: boolean
         description: Flag for enabling/disabling Hyperthreading
       cpu_template:
-        $ref: "#/definitions/CPUTemplate"
+        $ref: "#/definitions/CpuTemplate"
 
   NetworkInterface:
     type: object

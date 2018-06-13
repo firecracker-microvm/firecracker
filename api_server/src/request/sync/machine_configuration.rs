@@ -107,7 +107,7 @@ impl IntoParsedRequest for MachineConfiguration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data_model::vm::CPUFeaturesTemplate;
+    use data_model::vm::CpuFeaturesTemplate;
 
     #[test]
     fn test_generate_response_put_machine_configuration_error() {
@@ -153,7 +153,7 @@ mod tests {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
             ht_enabled: Some(true),
-            cpu_template: Some(CPUFeaturesTemplate::T2),
+            cpu_template: Some(CpuFeaturesTemplate::T2),
         };
         let (sender, receiver) = oneshot::channel();
         assert!(

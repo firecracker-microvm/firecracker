@@ -1306,7 +1306,7 @@ pub fn start_vmm_thread(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data_model::vm::CPUFeaturesTemplate;
+    use data_model::vm::CpuFeaturesTemplate;
 
     fn create_vmm_object() -> Vmm {
         let shared_info = Arc::new(RwLock::new(InstanceInfo {
@@ -1388,7 +1388,7 @@ mod tests {
             vcpu_count: Some(1),
             mem_size_mib: Some(0),
             ht_enabled: Some(false),
-            cpu_template: Some(CPUFeaturesTemplate::T2),
+            cpu_template: Some(CpuFeaturesTemplate::T2),
         };
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1421,7 +1421,7 @@ mod tests {
             vcpu_count: Some(2),
             mem_size_mib: None,
             ht_enabled: Some(true),
-            cpu_template: Some(CPUFeaturesTemplate::T2),
+            cpu_template: Some(CpuFeaturesTemplate::T2),
         };
         assert!(
             vmm.put_virtual_machine_configuration(machine_config)
@@ -1429,7 +1429,7 @@ mod tests {
         );
         assert_eq!(vmm.vm_config.vcpu_count, Some(2));
         assert_eq!(vmm.vm_config.ht_enabled, Some(true));
-        assert_eq!(vmm.vm_config.cpu_template, Some(CPUFeaturesTemplate::T2));
+        assert_eq!(vmm.vm_config.cpu_template, Some(CpuFeaturesTemplate::T2));
     }
 
     #[test]
