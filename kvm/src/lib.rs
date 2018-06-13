@@ -4,9 +4,11 @@
 
 //! A safe wrapper around the kernel's KVM interface.
 
+extern crate byteorder;
 extern crate libc;
 
-extern crate byteorder;
+extern crate data_model;
+extern crate jailer;
 extern crate kvm_sys;
 extern crate sys_util;
 
@@ -42,12 +44,19 @@ pub struct Kvm {
 impl Kvm {
     /// Opens `/dev/kvm/` and returns a Kvm object on success.
     pub fn new() -> Result<Kvm> {
-        // Open calls are safe because we give a constant nul-terminated string and verify the
-        // result.
-        let ret = unsafe { open("/dev/kvm\0".as_ptr() as *const c_char, O_RDWR) };
+        let ret = if data_model::FIRECRACKER_IS_JAILED.load(std::sync::atomic::Ordering::Relaxed) {
+            // /dev/kvm fd inherited from the jailer.
+            jailer::KVM_FD
+        } else {
+            // Open calls are safe because we give a constant nul-terminated string and verify the
+            // result.
+            unsafe { open("/dev/kvm\0".as_ptr() as *const c_char, O_RDWR) }
+        };
+
         if ret < 0 {
             return errno_result();
         }
+
         // Safe because we verify that ret is valid and we own the fd.
         Ok(Kvm {
             kvm: unsafe { File::from_raw_fd(ret) },
