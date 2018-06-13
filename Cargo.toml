@@ -7,6 +7,7 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 clap = "=2.27.1"
 
 api_server = { path = "api_server" }
+jailer = { path = "jailer" }
 logger = { path = "logger"}
 vmm = { path = "vmm" }
 
