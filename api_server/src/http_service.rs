@@ -1082,7 +1082,8 @@ mod tests {
         let path = "/foo";
         let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
         let json = "{
-                \"path\": \"tmp\",
+                \"log_fifo\": \"tmp1\",
+                \"metrics_fifo\": \"tmp2\",
                 \"level\": \"Info\",
                 \"show_level\": true,
                 \"show_log_origin\": true

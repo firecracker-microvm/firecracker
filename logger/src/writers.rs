@@ -1,32 +1,34 @@
-use error::LoggerError;
-use std::fs::File;
+use libc::O_NONBLOCK;
+use std::fs::{File, OpenOptions};
 use std::io::{LineWriter, Write};
-use std::path::Path;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::PathBuf;
 use std::result;
 use std::sync::{Mutex, MutexGuard};
 
-pub type Result<T> = result::Result<T, LoggerError>;
+use error::LoggerError;
 
-/// Structure `FileLogWriter` used for writing to a file in a thread-safe way.
+type Result<T> = result::Result<T, LoggerError>;
+
+/// Structure `PipeLogWriter` used for writing to a file in a thread-safe way.
 #[derive(Debug)]
-pub struct FileLogWriter {
+pub struct PipeLogWriter {
     line_writer: Mutex<LineWriter<File>>,
 }
 
-impl FileLogWriter {
-    pub fn new(log_path: &String) -> Result<FileLogWriter> {
-        let p_file = Path::new(&log_path);
-        if Path::new(log_path).exists() {
-            eprintln!(
-                "Log file {} already exists. Overwriting its contents...",
-                log_path
-            );
-        }
-        match File::create(&p_file) {
-            Ok(t) => Ok(FileLogWriter {
+impl PipeLogWriter {
+    pub fn new(fifo_path: &String) -> Result<PipeLogWriter> {
+        let fifo = PathBuf::from(fifo_path);
+        match OpenOptions::new()
+            .custom_flags(O_NONBLOCK)
+            .read(true)
+            .write(true)
+            .open(&fifo)
+        {
+            Ok(t) => Ok(PipeLogWriter {
                 line_writer: Mutex::new(LineWriter::new(t)),
             }),
-            Err(e) => return Err(LoggerError::CreateLogFile(e)),
+            Err(e) => return Err(LoggerError::OpenFIFO(e)),
         }
     }
 
@@ -34,14 +36,7 @@ impl FileLogWriter {
         let mut line_writer = self.get_line_writer()?;
         line_writer
             .write_all(msg.as_bytes())
-            .map_err(|e| LoggerError::FileLogWrite(e))
-    }
-
-    pub fn flush(&self) -> Result<()> {
-        let mut line_writer = self.get_line_writer()?;
-        line_writer
-            .flush()
-            .map_err(|e| LoggerError::FileLogFlush(e))
+            .map_err(|e| LoggerError::LogWrite(e))
     }
 
     fn get_line_writer(&self) -> Result<(MutexGuard<LineWriter<File>>)> {
@@ -53,37 +48,28 @@ impl FileLogWriter {
 
 #[cfg(test)]
 mod tests {
+    extern crate tempfile;
+
     use super::*;
-    use std::fs::remove_file;
 
     #[test]
     fn test_new() {
-        let mut file: String = "./inexistent/tmp.log".to_string();
-        assert!(FileLogWriter::new(&file).is_err());
-        format!("{:?}", FileLogWriter::new(&file));
-        file = "tmp_writers_new.log".to_string();
-        let res = FileLogWriter::new(&file);
-        format!("{:?}", res);
-        remove_file(file).unwrap();
+        let log_file_temp = tempfile::NamedTempFile::new()
+            .expect("Failed to create temporary output logging file.");
+        let good_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
+        let res = PipeLogWriter::new(&good_file);
         assert!(res.is_ok())
     }
 
     #[test]
     fn test_write() {
-        let file: String = "tmp_writers_write.log".to_string();
-        let fw = FileLogWriter::new(&file).unwrap();
+        let log_file_temp = tempfile::NamedTempFile::new()
+            .expect("Failed to create temporary output logging file.");
+        let file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
+
+        let fw = PipeLogWriter::new(&file).unwrap();
         let msg = String::from("some message");
         let res = fw.write(&msg);
-        remove_file(file).unwrap();
-        assert!(res.is_ok())
-    }
-
-    #[test]
-    fn test_flush() {
-        let file: String = "tmp_writers_flush.log".to_string();
-        let fw = FileLogWriter::new(&file).unwrap();
-        let res = fw.flush();
-        remove_file(file).unwrap();
         assert!(res.is_ok())
     }
 }

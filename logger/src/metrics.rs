@@ -172,6 +172,14 @@ pub struct I8042DeviceMetrics {
 }
 
 #[derive(Default, Serialize)]
+pub struct LoggerSystemMetrics {
+    pub missed_metrics_count: SharedMetric,
+    pub metrics_fails: SharedMetric,
+    pub missed_log_count: SharedMetric,
+    pub log_fails: SharedMetric,
+}
+
+#[derive(Default, Serialize)]
 pub struct NetDeviceMetrics {
     pub activate_fails: SharedMetric,
     pub cfg_fails: SharedMetric,
@@ -251,6 +259,7 @@ pub struct FirecrackerMetrics {
     pub block: BlockDeviceMetrics,
     pub get_api_requests: GetRequestsMetrics,
     pub i8042: I8042DeviceMetrics,
+    pub logger: LoggerSystemMetrics,
     pub net: NetDeviceMetrics,
     pub put_api_requests: PutRequestsMetrics,
     pub seccomp: SeccompMetrics,
