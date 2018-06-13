@@ -3,10 +3,13 @@
 // found in the LICENSE file.
 
 extern crate byteorder;
+extern crate libc;
+
 extern crate data_model;
 extern crate kvm;
 extern crate kvm_sys;
-extern crate libc;
+#[macro_use]
+extern crate logger;
 extern crate memory_model;
 extern crate sys_util;
 

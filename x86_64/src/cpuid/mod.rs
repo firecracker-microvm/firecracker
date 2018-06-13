@@ -143,6 +143,12 @@ pub fn filter_cpuid(
                     0 => {
                         // Thread Level Topology; index = 0
                         if cpu_count == 1 {
+                            if entry.eax == 1 && entry.ebx == 2 {
+                                error!("Hyperthreading is enabled on the host. When starting Firecracker \
+                                        with a single vCPU, hyperthreading will be disabled by default. \
+                                        Disable hyperthreading on the host before running Firecracker again.");
+                                panic!("Cannot start Firecracker microvm.");
+                            }
                             // No APIC ID at the next level, set EAX to 0
                             entry.eax = 0;
                             // Set the numbers of logical processors to 1
@@ -155,9 +161,19 @@ pub fn filter_cpuid(
                                 // When HT is enabled, there are 2 logical cores at this level
                                 // To get the next level APIC ID, shift right with 1 because we have
                                 // maximum 2 hyperthreads per core that can be represented with 1 bit
+                                if entry.eax == 0 && entry.ebx == 1 {
+                                    warn!("Hyperthreading is disabled on the host. When hyperthreading is \
+                                            enabled only at the software level, the guest CPU topology will \
+                                            report full cores as hyperthreads.");
+                                }
                                 entry.eax = 1;
                                 entry.ebx = 2;
                             } else {
+                                if entry.eax == 1 && entry.ebx == 2 {
+                                    error!("Hyperthreading is enabled on the host. Cannot disable \
+                                            hyperthreading at the software level for security reasons.");
+                                    panic!("Cannot start Firecracker microvm.");
+                                }
                                 // When HT is disabled, there is 1 logical core at this level
                                 // No bits used from the APIC id at the thread level
                                 entry.eax = 0;
@@ -209,7 +225,6 @@ pub fn filter_cpuid(
 mod tests {
     use super::*;
     use kvm::{Kvm, MAX_KVM_CPUID_ENTRIES};
-    use kvm_sys::kvm_cpuid_entry2;
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
@@ -226,50 +241,49 @@ mod tests {
     fn test_cpuid() {
         let kvm = Kvm::new().unwrap();
         let mut kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
-        match filter_cpuid(0, 1, true, &mut kvm_cpuid) {
+        match filter_cpuid(0, 2, true, &mut kvm_cpuid) {
             Ok(_) => (),
             _ => assert!(false),
         };
 
         set_cpuid_template(CpuFeaturesTemplate::T2, &mut kvm_cpuid);
-
-        let entries = kvm_cpuid.mut_entries_slice();
-        // TODO: This should be tested as part of the CI; only check that the function result is ok
-        // after moving this to the CI
-        // Test the extended topology
-        // See https://www.scss.tcd.ie/~jones/CS4021/processor-identification-cpuid-instruction-note.pdf
-        let leaf11_index0 = kvm_cpuid_entry2 {
-            function: 11,
-            index: 0,
-            flags: 1,
-            eax: 0,
-            ebx: 1, // nr of hyperthreads/core
-            ecx: leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT, // ECX[15:8] = 2 (Core Level)
-            edx: 0,                                                            // EDX = APIC ID = 0
-            padding: [0, 0, 0],
-        };
-        assert!(entries.contains(&leaf11_index0));
-        let leaf11_index1 = kvm_cpuid_entry2 {
-            function: 11,
-            index: 1,
-            flags: 1,
-            eax: LEAFBH_INDEX1_APICID_SHIFT,
-            ebx: 0,
-            ecx: 1, // ECX[15:8] = 0 (Invalid Level) & ECX[7:0] = 1 (Level Number)
-            edx: 0, // EDX = APIC ID = 0
-            padding: [0, 0, 0],
-        };
-        assert!(entries.contains(&leaf11_index1));
-        let leaf11_index2 = kvm_cpuid_entry2 {
-            function: 11,
-            index: 2,
-            flags: 1,
-            eax: 0,
-            ebx: 0, // nr of hyperthreads/core
-            ecx: 2, // ECX[15:8] = 0 (Invalid Level) & ECX[7:0] = 2 (Level Number)
-            edx: 0, // EDX = APIC ID = 0
-            padding: [0, 0, 0],
-        };
-        assert!(entries.contains(&leaf11_index2));
     }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    #[should_panic]
+    fn test_invalid_ht_value_single_cpu() {
+        let kvm = Kvm::new().unwrap();
+        let mut kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
+
+        // Artificially disable hyperthreading on host to see if get a panic when cpu count = 1
+        for entry in kvm_cpuid.mut_entries_slice().iter_mut() {
+            if entry.function == 0xB && entry.index == 0 {
+                entry.eax = 1;
+                entry.ebx = 2;
+            }
+        }
+
+        // ht_enabled is ignored when cpu count is 1 because we disabled it by default
+        filter_cpuid(0, 2, false, &mut kvm_cpuid).unwrap();
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    #[should_panic]
+    fn test_invalid_ht_value_multiple_cpus() {
+        let kvm = Kvm::new().unwrap();
+        let mut kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
+
+        // Artificially disable hyperthreading to see if get a panic when ht_enabled = true
+        for entry in kvm_cpuid.mut_entries_slice().iter_mut() {
+            if entry.function == 0xB && entry.index == 0 {
+                entry.eax = 1;
+                entry.ebx = 2;
+            }
+        }
+
+        filter_cpuid(0, 2, false, &mut kvm_cpuid).unwrap();
+    }
+
 }
