@@ -10,12 +10,12 @@ pub enum LoggerError {
     NeverInitialized(String),
     /// The logger does not allow reinitialization.
     AlreadyInitialized,
-    /// Creating log file fails.
-    CreateLogFile(std::io::Error),
-    /// Writing to log file fails.
-    FileLogWrite(std::io::Error),
+    /// Opening named pipe fails.
+    OpenFIFO(std::io::Error),
+    /// Writing to named pipe fails.
+    LogWrite(std::io::Error),
     /// Flushing to disk fails.
-    FileLogFlush(std::io::Error),
+    LogFlush(std::io::Error),
     /// Error obtaining lock on mutex.
     MutexLockFailure(String),
     /// Error in the logging of the metrics.
@@ -31,14 +31,14 @@ impl fmt::Display for LoggerError {
             LoggerError::AlreadyInitialized => {
                 format!("{}", "Reinitialization of logger not allowed.")
             }
-            LoggerError::CreateLogFile(ref e) => {
-                format!("Failed to create log file. Error: {}", e.description())
+            LoggerError::OpenFIFO(ref e) => {
+                format!("Failed to open pipe. Error: {}", e.description())
             }
-            LoggerError::FileLogWrite(ref e) => {
-                format!("Failed to write to log file. Error: {}", e.description())
+            LoggerError::LogWrite(ref e) => {
+                format!("Failed to write logs. Error: {}", e.description())
             }
-            LoggerError::FileLogFlush(ref e) => {
-                format!("Failed to flush log file. Error: {}", e.description())
+            LoggerError::LogFlush(ref e) => {
+                format!("Failed to flush logs. Error: {}", e.description())
             }
             LoggerError::MutexLockFailure(ref e) => format!("{}", e),
             LoggerError::LogMetricFailure(ref e) => format!("{}", e),
@@ -78,29 +78,29 @@ mod tests {
         assert!(
             format!(
                 "{:?}",
-                LoggerError::FileLogWrite(std::io::Error::new(ErrorKind::Interrupted, "write"))
-            ).contains("FileLogWrite")
+                LoggerError::LogWrite(std::io::Error::new(ErrorKind::Interrupted, "write"))
+            ).contains("LogWrite")
         );
         assert_eq!(
             format!(
                 "{}",
-                LoggerError::FileLogWrite(std::io::Error::new(ErrorKind::Interrupted, "write"))
+                LoggerError::LogWrite(std::io::Error::new(ErrorKind::Interrupted, "write"))
             ),
-            "Failed to write to log file. Error: write"
+            "Failed to write logs. Error: write"
         );
 
         assert!(
             format!(
                 "{:?}",
-                LoggerError::FileLogFlush(std::io::Error::new(ErrorKind::Interrupted, "flush"))
-            ).contains("FileLogFlush")
+                LoggerError::LogFlush(std::io::Error::new(ErrorKind::Interrupted, "flush"))
+            ).contains("LogFlush")
         );
         assert_eq!(
             format!(
                 "{}",
-                LoggerError::FileLogFlush(std::io::Error::new(ErrorKind::Interrupted, "flush"))
+                LoggerError::LogFlush(std::io::Error::new(ErrorKind::Interrupted, "flush"))
             ),
-            "Failed to flush log file. Error: flush"
+            "Failed to flush logs. Error: flush"
         );
 
         assert!(
@@ -126,9 +126,9 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                LoggerError::LogMetricFailure("Failure in the logging of the metrics.".to_string())
+                LoggerError::LogMetricFailure("Failed to log metrics.".to_string())
             ),
-            "Failure in the logging of the metrics."
+            "Failed to log metrics."
         );
 
         assert!(format!("{:?}", LoggerError::LogMetricRateLimit).contains("LogMetricRateLimit"));
