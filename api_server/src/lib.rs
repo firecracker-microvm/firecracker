@@ -9,6 +9,7 @@ extern crate tokio_uds;
 
 extern crate data_model;
 extern crate fc_util;
+extern crate jailer;
 #[macro_use]
 extern crate logger;
 extern crate net_util;
@@ -19,6 +20,7 @@ pub mod request;
 
 use std::cell::RefCell;
 use std::io;
+use std::os::unix::io::FromRawFd;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::mpsc;
@@ -83,7 +85,19 @@ impl ApiServer {
     pub fn bind_and_run<P: AsRef<Path>>(&self, uds_path: P) -> Result<()> {
         let mut core = Core::new().map_err(Error::Io)?;
         let handle = Rc::new(core.handle());
-        let listener = UnixListener::bind(uds_path, &handle).map_err(Error::Io)?;
+
+        let listener = if data_model::FIRECRACKER_IS_JAILED
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            // This is a UnixListener of the tokio_uds variety. Using fd inherited from the jailer.
+            UnixListener::from_listener(
+                unsafe { std::os::unix::net::UnixListener::from_raw_fd(jailer::LISTENER_FD) },
+                &handle,
+            ).map_err(Error::Io)?
+        } else {
+            UnixListener::bind(uds_path, &handle).map_err(Error::Io)?
+        };
+
         let http: Http<hyper::Chunk> = Http::new();
 
         let action_map = Rc::new(RefCell::new(LriHashMap::<String, ActionMapValue>::new(
