@@ -6,3 +6,5 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 [dependencies]
 libc = ">=0.2.39"
 regex = ">=1.0.0"
+
+sys_util = { path = "../sys_util" }
