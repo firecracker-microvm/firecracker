@@ -6,11 +6,13 @@ use std::process::{Command, Stdio};
 
 use libc;
 
+use super::cgroup::Cgroup;
 use super::{Error, JailerArgs, Result};
 
 const CHROOT_DIR_BASE: &str = "/srv/jailer";
 
 pub struct Env {
+    cgroup: Cgroup,
     chroot_dir: PathBuf,
     chroot_exec_file: PathBuf,
     uid: u32,
@@ -20,6 +22,7 @@ pub struct Env {
 impl Env {
     pub fn new(args: JailerArgs) -> Result<Self> {
         let exec_file_name = args.exec_file_name()?;
+        let cgroup = Cgroup::new(args.id, exec_file_name)?;
 
         let mut chroot_dir = PathBuf::from(CHROOT_DIR_BASE);
         chroot_dir.push(exec_file_name);
@@ -43,6 +46,7 @@ impl Env {
         chroot_exec_file.push(exec_file_name);
 
         Ok(Env {
+            cgroup,
             chroot_dir,
             chroot_exec_file,
             uid: args.uid,
@@ -55,6 +59,8 @@ impl Env {
     }
 
     pub fn run(self) -> Result<()> {
+        self.cgroup.attach_pid()?;
+
         // Turn self.chroot_dir into a CString. The expect should not fail, since Linux paths
         // only contain valid Unicode chars (do they?), and do not contain null bytes (do they?).
         let chroot_dir = CString::new(
