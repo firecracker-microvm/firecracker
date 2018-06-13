@@ -892,6 +892,18 @@ mod tests {
         }
 
         // Error cases
+        // Test the case where action already exists.
+        assert!(
+            parse_actions_req(
+                &path_tokens,
+                &path,
+                Method::Put,
+                &id_from_path,
+                &body,
+                &mut action_map
+            ).is_err()
+        );
+
         assert!(
             parse_actions_req(
                 &path_tokens,
@@ -1033,6 +1045,81 @@ mod tests {
                 &body
             ).is_err()
         );
+
+        // Test case where id from path is different.
+        assert!(
+            parse_drives_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Some("barr"),
+                &body
+            ).is_err()
+        );
+
+        // Deserializing to a DriveDescription should fail when mandatory fields are missing.
+        let json = "{
+                \"drive_id\": \"bar\",
+                \"path_on_host\": \"/foo/bar\",
+                \"statee\": \"Attached\",
+                \"is_root_device\": true,
+                \"permissions\": \"ro\"
+              }";
+        let body: Chunk = Chunk::from(json);
+        assert!(
+            parse_drives_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Some("bar"),
+                &body
+            ).is_err()
+        );
+    }
+
+    #[test]
+    fn test_parse_logger_source_req() {
+        let path = "/foo";
+        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+        let json = "{
+                \"path\": \"tmp\",
+                \"level\": \"Info\",
+                \"show_level\": true,
+                \"show_log_origin\": true
+              }";
+        let body: Chunk = Chunk::from(json);
+
+        // GET
+        match parse_logger_req(&path_tokens, &path, Method::Get, &body) {
+            Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
+            _ => assert!(false),
+        }
+
+        // PUT
+        let logger_body = serde_json::from_slice::<request::APILoggerDescription>(&body)
+            .expect("deserialization failed");
+        match parse_logger_req(&path_tokens, &path, Method::Put, &body) {
+            Ok(pr) => {
+                let (sender, receiver) = oneshot::channel();
+                assert!(pr.eq(&ParsedRequest::Sync(
+                    SyncRequest::PutLogger(logger_body, sender),
+                    receiver,
+                )));
+            }
+            _ => assert!(false),
+        }
+
+        // Error cases
+        assert!(parse_logger_req(&path_tokens, &path, Method::Put, &Chunk::from("foo")).is_err());
+
+        assert!(
+            parse_logger_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Chunk::from("foo")
+            ).is_err()
+        );
     }
 
     #[test]
@@ -1155,6 +1242,16 @@ mod tests {
         }
 
         // Error cases
+        assert!(
+            parse_netif_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Some("barr"),
+                &body
+            ).is_err()
+        );
+
         assert!(
             parse_netif_req(
                 &"/foo/bar"[1..].split_terminator('/').collect(),
