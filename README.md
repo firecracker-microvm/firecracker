@@ -22,7 +22,10 @@ and handles resource rate limiting for microVMs.
 ## What's Included
 
 Firecracker consists of a single micro Virtual Machine Manager binary that will
-spawn a RESTful API endpoint when started. The API endpoint can be used to:
+spawn a RESTful API endpoint when started. The API supported by the current version
+can be found at `api_server/swagger/firecracker-beta.yaml`.
+
+The **API endpoint** can be used to:
 
 - Configure the microvm by:
   - Change the number of vCPUs (the default is 1)
@@ -31,25 +34,19 @@ spawn a RESTful API endpoint when started. The API endpoint can be used to:
   - Enable/Disable hyperthreading (by default hyperthreading is disabled).
     The host needs to be modified before starting Firecracker as this flag
     only changes the topology inside the microvm.
-- Add one or more network interfaces to the microVM.
+- Add one or more network interfaces to the microVM. Firecracker is mapping
+  an existing host file as a VirtIO block device into the microVM.
 - Add one or more read/write disks (file-backed block devices) to the microVM.
 - Configure the logging system (i.e. path on host for log file, log level, etc).
-- Start the microVM using a given kernel image and root file system.
+- Configure rate limiters for VirtiIO devices which can limit the bandwidth, ops/s
+  or both.
+- Start the microVM using a given kernel image, root file system and boot arguments.
 - Stop the microVM.
 
-## Capabilities
-
-- One-process virtual machine manager (one Firecracker per microVM).
-- RESTful API running on a unix socket. The API supported by the current version
-  can be found at `api_server/swagger/firecracker-beta.yaml`.
+**Additional capabilities**:
 - Emulated keyboard (i8042) and serial console (UART). The microVM serial
   console input and output are connected to those of the Firecracker process
   (this allows direct console access to the guest OS).
-- The capability of mapping an existing host tun-tap device as a virtIO/net
-  device into the microVM.
-- The capability of mapping an existing host file as a virtIO/block device into
-  the microVM.
-- Logging capabilities.
 - Default demand fault paging & CPU oversubscription.
 
 ## Performance
@@ -77,6 +74,8 @@ spawn a RESTful API endpoint when started. The API endpoint can be used to:
 ### Get or Build the Firecracker Binary
 
 You can grab the latest Firecracker binary from the release S3 bucket.
+You can request access to the S3 bucket by opening an issue with the label
+"Support: Access Request".
 
 If you want to build it from source, you'll need add the Rust `musl` toolchain:
 
@@ -84,6 +83,7 @@ If you want to build it from source, you'll need add the Rust `musl` toolchain:
 rustup target add x86_64-unknown-linux-musl
 cargo build --release
 ```
+The binary is located under target/x86_64-unknown-linux-musl/release/firecracker.
 
 ### Secure a Host with KVM Access
 
@@ -98,10 +98,30 @@ all users, with: `sudo chmod a+rw /dev/kvm`.
 
 Execute the Firecracker binary, whose single argument is the API unix socket
 name.
+```bash
+./firecracker --api-sock /tmp/dummy.socket
+```
+
+If the api socket is not specified at startup, Firecracker will create
+/tmp/firecracker.socket.
 
 ### Configure the MicroVM
 
-MicroVM vCPU and Memory are configured via the `machine-config/` API resource.
+The MicroVM is configured via the `machine-config/` API resource.  
+Example with cURL:
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+     -X PUT "http://localhost/machine-config" \
+     -H "accept: application/json" \
+     -H "Content-Type: application/json" \
+     -d "{
+            \"vcpu_count\": 6,
+            \"mem_size_mib\": 3906,
+            \"cpu_template\": \"T2\",
+            \"ht_enabled\": true,
+        }"
+```
+
 
 ### Provision Network / Storage Resources
 
@@ -110,7 +130,22 @@ passed by name. Ensure Firecracker will have the required permissions to open
 these resources.
 
 For example, if using a TUN/TAP device, you will need to create it beforehand,
-and then call the `/network-interfaces` API resource with its name.
+and then call the `/network-interfaces` API resource with its name:
+```bash
+sudo ip tuntap add name vmtap33 mode tap
+sudo ifconfig vmtap33 192.168.241.1/24 up
+
+curl --unix-socket /tmp/firecracker.socket -i \
+     -X PUT "http://localhost/network-interfaces/1" \
+     -H "accept: application/json" \
+     -H "Content-Type: application/json" \
+     -d "{
+            \"iface_id\": \"1\",
+            \"host_dev_name\": \"vmtap33\",
+            \"guest_mac\": \"06:00:00:00:00:01\",
+            \"state\": \"Attached\"
+        }"
+```
 
 ### Select the Guest Kernel and RootFS
 
@@ -124,6 +159,28 @@ To run a guest OS within a Firecracker microVMs, you will need have:
 ### Power-On the MicroVM
 
 Simply issue the `InstanceStart` action to the `/actions` API resource.
+This is an asynchronous API request. You can check the response with a get
+on the same path.
+```bash
+# Start the Firecracker MicroVM
+curl --unix-socket /tmp/firecracker.socket -i \
+     -X PUT "http://localhost/actions/start" \
+     -H  "accept: application/json" \
+     -H  "Content-Type: application/json" \
+     -d "{
+            \"action_id\": \"start\",
+            \"action_type\": \"InstanceStart\"
+         }"
+
+# Wait some time for the MicroVM to boot
+sleep 0.5
+
+# Get the response of starting the MicroVM
+curl --unix-socket /tmp/firecracker.socket -i \
+     -X GET "http://localhost/actions/start" \
+     -H "accept: application/json"
+
+```
 
 ### Notes
 
@@ -131,11 +188,15 @@ Simply issue the `InstanceStart` action to the `/actions` API resource.
    not added as a read-write block device to multiple Firecracker instances. A
    file can be safely added as a read-only block device to multiple Firecracker
    instances.
+1. Firecracker is started without the serial console for performance reasons.
+   You can use the following boot_args if you need the serial console:
+   `console=ttyS0 noapic reboot=k panic=1 pci=off nomodules`  
 1. Firecracker uses default values for the following parameters:
     1. Kernel Command Line:
        `noapic reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0`. This can be
        changed via the `/boot-source`.
-    1. Number of vCPUs: 1. Default Memory Size: 128 MiB.
+    1. Number of vCPUs: 1. Default Memory Size: 128 MiB. Hyperthreading is 
+       disabled. CPU Template: None.
     1. Unix domain socket: `/tmp/firecracker.socket`.
 1. Firecracker links the microVM serial console output to its stdout, and its
    stdin to the microVM serial console input. Therefore, you can interact with
@@ -155,3 +216,4 @@ For a full example, you can take a look at the `test_api_happy_start` test in
 [tests/functional/test_api.py](tests/functional/test_api.py), and at the
 `basic_config` method of the `Microvm` class in
 [tests/microvm.py](tests/microvm.py).
+
