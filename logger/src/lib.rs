@@ -400,7 +400,7 @@ impl Logger {
 impl Log for Logger {
     // test whether a log level is enabled for the current module
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() as usize <= self.level_info.code() || metadata.level() == Level::Trace
+        metadata.level() as usize <= self.level_info.code()
     }
 
     fn log(&self, record: &Record) {

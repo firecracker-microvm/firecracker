@@ -518,7 +518,7 @@ impl hyper::server::Service for ApiServerHttpService {
 
                         let b_str = String::from_utf8_lossy(&b.to_vec()).to_string();
                         let path_dbg = path.clone();
-                        trace!("Sent {}", describe(false, &method_copy, &path, &b_str));
+                        info!("Sent {}", describe(false, &method_copy, &path, &b_str));
 
                         // We have to explicitly spawn a future that will handle the outcome of the
                         // async request.
@@ -538,7 +538,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                             match outcome {
                                                 AsyncOutcome::Ok(timestamp) => {
                                                     async_body.set_timestamp(timestamp);
-                                                    trace!(
+                                                    info!(
                                                         "Received Success on {}",
                                                         describe(
                                                             false,
@@ -555,7 +555,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                                     )
                                                 }
                                                 AsyncOutcome::Error(msg) => {
-                                                    trace!(
+                                                    info!(
                                                         "Received Error on {}",
                                                         describe(
                                                             false,
@@ -610,7 +610,7 @@ impl hyper::server::Service for ApiServerHttpService {
                         let path_copy_err = path_copy.clone();
                         let method_copy_err = method_copy.clone();
 
-                        trace!("Sent {}", describe(true, &method_copy, &path, &b_str));
+                        info!("Sent {}", describe(true, &method_copy, &path, &b_str));
 
                         // Sync requests don't receive a response until the outcome is returned.
                         // Once more, this just registers a closure to run when the result is
@@ -618,14 +618,14 @@ impl hyper::server::Service for ApiServerHttpService {
                         Either::B(
                             outcome_receiver
                                 .map(move |x| {
-                                    trace!(
+                                    info!(
                                         "Received Success on {}",
                                         describe(true, &method_copy, &path_copy, &b_str)
                                     );
                                     x.generate_response()
                                 })
                                 .map_err(move |_| {
-                                    trace!(
+                                    info!(
                                         "Received Error on {}",
                                         describe(
                                             true,
