@@ -2,12 +2,21 @@
 extern crate clap;
 
 extern crate jailer;
+extern crate seccomp_sys;
 
 use clap::{App, Arg};
+use std::env;
 
 use jailer::JailerArgs;
 
+const SECCOMP_ENVVAR: &str = "USE_SECCOMP";
+
 fn main() -> jailer::Result<()> {
+    if is_seccomp_enabled() {
+        // If the seccomp filters installation fails, it's OK to panic.
+        seccomp_sys::setup_seccomp().unwrap();
+    }
+
     // Initially, the uid and gid params had default values, but it turns out that it's quite
     // easy to shoot yourself in the foot by not setting proper permissions when preparing the
     // contents of the jail, so I think their values should be provided explicitly.
@@ -54,4 +63,11 @@ fn main() -> jailer::Result<()> {
     )?;
 
     jailer::run(args)
+}
+
+fn is_seccomp_enabled() -> bool {
+    match env::var(SECCOMP_ENVVAR) {
+        Ok(val) => val == "1",
+        Err(_) => false,
+    }
 }
