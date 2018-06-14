@@ -23,7 +23,7 @@ and handles resource rate limiting for microVMs.
 
 Firecracker consists of a single micro Virtual Machine Manager binary that will
 spawn a RESTful API endpoint when started. The API supported by the current version
-can be found at `api_server/swagger/firecracker-beta.yaml`.
+can be found at `api_server/swagger/firecracker.yaml`.
 
 The **API endpoint** can be used to:
 
