@@ -281,10 +281,10 @@ mod tests {
         assert!(setup_sigsys_handler().is_ok());
         assert!(setup_seccomp().is_ok());
 
-        // Calls the blacklisted SYS_getpid
+        // Calls the blacklisted SYS_getpid.
         let _pid = process::id();
 
-        // The signal handler should let the program continue
+        // The signal handler should let the program continue.
         assert!(true);
 
         // The reason this test doesn't check the failure metrics as well is that the signal handler

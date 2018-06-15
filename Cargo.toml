@@ -10,7 +10,7 @@ api_server = { path = "api_server" }
 data_model = { path = "data_model" }
 jailer = { path = "jailer" }
 logger = { path = "logger"}
-seccomp_sys = { path = "seccomp_sys" }
+seccomp = { path = "seccomp" }
 vmm = { path = "vmm" }
 
 [profile.dev]
