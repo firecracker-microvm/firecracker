@@ -40,6 +40,7 @@ pub enum Error {
     NotAFile(PathBuf),
     NotAFolder(PathBuf),
     NotAlphanumeric(String),
+    NumaNode(String),
     OpenDevKvm(sys_util::Error),
     OpenDevNetTun(sys_util::Error),
     ReadLine(PathBuf, io::Error),
@@ -57,6 +58,7 @@ pub type Result<T> = result::Result<T, Error>;
 
 pub struct JailerArgs<'a> {
     id: &'a str,
+    numa_node: u32,
     exec_file_path: PathBuf,
     chroot_base_dir: PathBuf,
     uid: u32,
@@ -66,6 +68,7 @@ pub struct JailerArgs<'a> {
 impl<'a> JailerArgs<'a> {
     pub fn new(
         id: &'a str,
+        node: &str,
         exec_file: &str,
         chroot_base: &str,
         uid: &str,
@@ -77,6 +80,9 @@ impl<'a> JailerArgs<'a> {
                 return Err(Error::NotAlphanumeric(id.to_string()));
             }
         }
+
+        let numa_node = node.parse::<u32>()
+            .map_err(|_| Error::NumaNode(String::from(node)))?;
 
         let exec_file_path =
             canonicalize(exec_file).map_err(|e| Error::Canonicalize(PathBuf::from(exec_file), e))?;
@@ -105,6 +111,7 @@ impl<'a> JailerArgs<'a> {
 
         Ok(JailerArgs {
             id,
+            numa_node,
             exec_file_path,
             chroot_base_dir,
             uid,
