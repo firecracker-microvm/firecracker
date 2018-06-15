@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use regex::Regex;
@@ -17,8 +17,25 @@ pub struct Cgroup {
     tasks_files: Vec<PathBuf>,
 }
 
+// This is called writeln_special because we have to use this rather convoluted way of writing
+// to avoid getting all sorts of weird errors. I would be nice to know why that happens.
+fn writeln_special<T, V>(file_path: T, value: V) -> Result<()>
+where
+    T: AsRef<Path>,
+    V: ::std::fmt::Display,
+{
+    // Open does not work here, or so it seemed at one point :-s
+    let mut f = File::create(file_path.as_ref())
+        .map_err(|e| Error::FileCreate(PathBuf::from(file_path.as_ref()), e))?;
+
+    // For some reason, using writeln!(f, "{}", pid) doesn't work :(
+    let mut bytes = format!("{}\n", value).into_bytes();
+    f.write_all(bytes.as_mut())
+        .map_err(|e| Error::Write(PathBuf::from(file_path.as_ref()), e))
+}
+
 impl Cgroup {
-    pub fn new(id: &str, exec_file_name: &OsStr) -> Result<Self> {
+    pub fn new(id: &str, numa_node: u32, exec_file_name: &OsStr) -> Result<Self> {
         let f =
             File::open(PROC_MOUNTS).map_err(|e| Error::FileOpen(PathBuf::from(PROC_MOUNTS), e))?;
 
@@ -65,13 +82,20 @@ impl Cgroup {
         // We now both create the cgroup subfolders, and fill the tasks_files vector.
         let mut tasks_files = Vec::with_capacity(keys_len);
 
-        for (_controller, mut path_buf) in found_controllers.drain() {
+        for (controller, mut path_buf) in found_controllers.drain() {
             path_buf.push(exec_file_name);
             path_buf.push(id);
 
             // Create the folders first. The cpuset.cpus and cpuset.mems files really do appear to
             // be inherited AND populated automatically :-s
             fs::create_dir_all(&path_buf).map_err(|e| Error::CreateDir(path_buf.clone(), e))?;
+
+            if controller == "cpuset" {
+                // Enforce NUMA node restriction.
+                path_buf.push("cpuset.mems");
+                writeln_special(&path_buf, numa_node)?;
+                path_buf.pop();
+            }
 
             // And now add "tasks" to get the path of the corresponding tasks file.
             path_buf.push("tasks");
@@ -87,15 +111,9 @@ impl Cgroup {
     // This writes the pid of the current process to each tasks file. These are special files that,
     // when written to, will assign the process associated with the pid to the respective cgroup.
     pub fn attach_pid(&self) -> Result<()> {
+        let pid = process::id();
         for tasks_file in &self.tasks_files {
-            // Open does not work here, or so it seemed at one point :-s
-            let mut f =
-                File::create(tasks_file).map_err(|e| Error::FileCreate(tasks_file.clone(), e))?;
-
-            // For some reason, using write!("{}\n", pid) doesn't work :( I wonder why ...
-            let mut bytes = format!("{}\n", process::id()).into_bytes();
-            f.write_all(bytes.as_mut())
-                .map_err(|e| Error::Write(tasks_file.clone(), e))?;
+            writeln_special(tasks_file, pid)?;
         }
         Ok(())
     }

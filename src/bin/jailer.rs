@@ -20,10 +20,17 @@ fn main() -> jailer::Result<()> {
     // Initially, the uid and gid params had default values, but it turns out that it's quite
     // easy to shoot yourself in the foot by not setting proper permissions when preparing the
     // contents of the jail, so I think their values should be provided explicitly.
-    let cmd_arguments = App::new("firejailer")
+    let cmd_arguments = App::new("jailer")
         .version(crate_version!())
         .author(crate_authors!())
         .about("Jail a microVM.")
+        .arg(
+            Arg::with_name("numa_node")
+                .long("node")
+                .help("NUMA node to assign this microVM to.")
+                .required(true)
+                .takes_value(true),
+        )
         .arg(
             Arg::with_name("id")
                 .long("id")
@@ -65,6 +72,7 @@ fn main() -> jailer::Result<()> {
     // All arguments are either mandatory, or have default values, so the unwraps should not fail.
     let args = JailerArgs::new(
         cmd_arguments.value_of("id").unwrap(),
+        cmd_arguments.value_of("numa_node").unwrap(),
         cmd_arguments.value_of("exec_file").unwrap(),
         cmd_arguments.value_of("chroot_base").unwrap(),
         cmd_arguments.value_of("uid").unwrap(),

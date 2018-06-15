@@ -20,7 +20,7 @@ pub struct Env {
 impl Env {
     pub fn new(args: JailerArgs) -> Result<Self> {
         let exec_file_name = args.exec_file_name()?;
-        let cgroup = Cgroup::new(args.id, exec_file_name)?;
+        let cgroup = Cgroup::new(args.id, args.numa_node, exec_file_name)?;
 
         let mut chroot_dir = PathBuf::from(&args.chroot_base_dir);
 
