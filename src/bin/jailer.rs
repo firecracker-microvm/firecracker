@@ -34,7 +34,7 @@ fn main() -> jailer::Result<()> {
         .arg(
             Arg::with_name("exec_file")
                 .long("exec-file")
-                .help("File path to exec into")
+                .help("File path to exec into.")
                 .required(true)
                 .takes_value(true),
         )
@@ -52,12 +52,21 @@ fn main() -> jailer::Result<()> {
                 .required(true)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("chroot_base")
+                .long("chroot-base-dir")
+                .help("The base folder where chroot jails are located.")
+                .required(false)
+                .default_value("/srv/jailer")
+                .takes_value(true),
+        )
         .get_matches();
 
     // All arguments are either mandatory, or have default values, so the unwraps should not fail.
     let args = JailerArgs::new(
         cmd_arguments.value_of("id").unwrap(),
         cmd_arguments.value_of("exec_file").unwrap(),
+        cmd_arguments.value_of("chroot_base").unwrap(),
         cmd_arguments.value_of("uid").unwrap(),
         cmd_arguments.value_of("gid").unwrap(),
     )?;

@@ -37,6 +37,7 @@ pub enum Error {
     Gid(String),
     Metadata(PathBuf, io::Error),
     NotAFile(PathBuf),
+    NotAFolder(PathBuf),
     OpenDevKvm(sys_util::Error),
     OpenDevNetTun(sys_util::Error),
     ReadLine(PathBuf, io::Error),
@@ -55,12 +56,19 @@ pub type Result<T> = result::Result<T, Error>;
 pub struct JailerArgs<'a> {
     id: &'a str,
     exec_file_path: PathBuf,
+    chroot_base_dir: PathBuf,
     uid: u32,
     gid: u32,
 }
 
 impl<'a> JailerArgs<'a> {
-    pub fn new(id: &'a str, exec_file: &'a str, uid: &str, gid: &str) -> Result<Self> {
+    pub fn new(
+        id: &'a str,
+        exec_file: &str,
+        chroot_base: &str,
+        uid: &str,
+        gid: &str,
+    ) -> Result<Self> {
         let exec_file_path =
             canonicalize(exec_file).map_err(|e| Error::Canonicalize(PathBuf::from(exec_file), e))?;
 
@@ -71,6 +79,16 @@ impl<'a> JailerArgs<'a> {
             return Err(Error::NotAFile(exec_file_path));
         }
 
+        let chroot_base_dir = canonicalize(chroot_base)
+            .map_err(|e| Error::Canonicalize(PathBuf::from(chroot_base), e))?;
+
+        if !metadata(&chroot_base_dir)
+            .map_err(|e| Error::Metadata(exec_file_path.clone(), e))?
+            .is_dir()
+        {
+            return Err(Error::NotAFolder(chroot_base_dir));
+        }
+
         let uid = uid.parse::<u32>()
             .map_err(|_| Error::Uid(String::from(uid)))?;
         let gid = gid.parse::<u32>()
@@ -79,6 +97,7 @@ impl<'a> JailerArgs<'a> {
         Ok(JailerArgs {
             id,
             exec_file_path,
+            chroot_base_dir,
             uid,
             gid,
         })
@@ -93,15 +112,14 @@ impl<'a> JailerArgs<'a> {
 
 pub fn run(args: JailerArgs) -> Result<()> {
     // We open /dev/kvm, /dev/tun, and create the listening socket. These file descriptors will be
-    // passed on to Firecracker post exec, and used as file descriptors 3, 4, and 5, respectively.
+    // passed on to Firecracker post exec, and used via knowing their values in advance.
 
     // TODO: use dup2 to make sure we're actually getting 3, 4, and 5?
 
     // TODO: can a malicious guest that takes over firecracker use its access to the KVM fd to
-    // starve  the host of resources? (cgroups should take care of that, but do they currently?)
+    // starve the host of resources? (cgroups should take care of that, but do they currently?)
 
-    // Safe because we use a constant nul-terminated string and verify the result. We should
-    // get our fd = 3 here.
+    // Safe because we use a constant null-terminated string and verify the result.
     let ret = unsafe { libc::open("/dev/kvm\0".as_ptr() as *const libc::c_char, libc::O_RDWR) };
     if ret < 0 {
         return Err(Error::OpenDevKvm(sys_util::Error::last()));
@@ -111,8 +129,7 @@ pub fn run(args: JailerArgs) -> Result<()> {
     }
 
     // TODO: is RDWR required for /dev/tun (most likely)?
-    // Safe because we use a constant nul-terminated string and verify the result. We should
-    // get our fd = 4 here.
+    // Safe because we use a constant null-terminated string and verify the result.
     let ret = unsafe {
         libc::open(
             "/dev/net/tun\0".as_ptr() as *const libc::c_char,
@@ -128,7 +145,6 @@ pub fn run(args: JailerArgs) -> Result<()> {
 
     let env = Env::new(args)?;
 
-    // We should get our fd = 5 here.
     let listener = UnixListener::bind(env.chroot_dir().join(SOCKET_FILE_NAME))
         .map_err(|e| Error::UnixListener(e))?;
 
