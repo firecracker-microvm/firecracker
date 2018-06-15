@@ -25,8 +25,8 @@ const SOCKET_FILE_NAME: &str = "api.socket";
 #[derive(Debug)]
 pub enum Error {
     Canonicalize(PathBuf, io::Error),
-    CgroupLineNotFound(String),
-    CgroupLineNotUnique(String),
+    CgroupLineNotFound(&'static str, &'static str),
+    CgroupLineNotUnique(&'static str, &'static str),
     Chroot(i32),
     Copy(PathBuf, PathBuf, io::Error),
     CreateDir(PathBuf, io::Error),
