@@ -84,7 +84,7 @@ fn main() -> jailer::Result<()> {
 
 fn is_seccomp_enabled() -> bool {
     match env::var(SECCOMP_ENVVAR) {
-        Ok(val) => val == "1",
+        Ok(_) => true,
         Err(_) => false,
     }
 }
