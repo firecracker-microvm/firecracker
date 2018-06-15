@@ -154,7 +154,8 @@ pub fn run(args: JailerArgs) -> Result<()> {
 
     let env = Env::new(args)?;
 
-    let listener = UnixListener::bind(env.chroot_dir().join(SOCKET_FILE_NAME))
+    // The unwrap should not fail, since the end of chroot_dir looks like ..../<id>/root
+    let listener = UnixListener::bind(env.chroot_dir().parent().unwrap().join(SOCKET_FILE_NAME))
         .map_err(|e| Error::UnixListener(e))?;
 
     let listener_fd = listener.as_raw_fd();
