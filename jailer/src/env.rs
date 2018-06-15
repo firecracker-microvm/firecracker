@@ -30,6 +30,10 @@ impl Env {
         chroot_dir.push("root");
 
         // Create the jail folder.
+        // TODO: the final part of chroot_dir ("<id>/root") should not exist, if the id is never
+        // reused. Is this a reasonable assumption? Should we check for this and return an error?
+        // If we choose to do that here, we should extend the same extra functionality to the Cgroup
+        // module, where we also create a folder hierarchy which depends on the id.
         fs::create_dir_all(&chroot_dir).map_err(|e| Error::CreateDir(chroot_dir.clone(), e))?;
 
         // We do a quick push here to get the global path of the executable inside the chroot,
