@@ -47,6 +47,16 @@ The **API endpoint** can be used to:
 - Emulated keyboard (i8042) and serial console (UART). The microVM serial
   console input and output are connected to those of the Firecracker process
   (this allows direct console access to the guest OS).
+- Metrics currently logged every 60s to the configured log-file.
+  Categories:
+  - API requests related metrics
+  - VCPUs related metrics
+  - Device emulation related metrics:
+    - The serial console (UART)
+    - Keyboard (i8042)
+    - Block
+    - Network
+  - Seccomp filtering related metrics
 - Default demand fault paging & CPU oversubscription.
 
 ## Performance
@@ -105,6 +115,8 @@ name.
 If the api socket is not specified at startup, Firecracker will create
 /tmp/firecracker.socket.
 
+Firecracker can be started in a jail as described in `docs/jailer.md`.
+
 ### Configure the MicroVM
 
 The MicroVM is configured via the `machine-config/` API resource.  
@@ -129,12 +141,37 @@ Firecracker expects network interfaces and drives to be created beforehand and
 passed by name. Ensure Firecracker will have the required permissions to open
 these resources.
 
-For example, if using a TUN/TAP device, you will need to create it beforehand,
-and then call the `/network-interfaces` API resource with its name:
+Both network and block support IO rate limiting. This is done by using the `rate_limiter`
+optional field(s) in the device setup API call.
+
+Limits are defined by configuring each of the `bandwidth` and `ops` token buckets.
+A token bucket is defined by configurable `size` and `refill_time` (milliseconds).
+
+The bucket _refill-rate_ is derived from `size` and `refill_time`, and it is the constant
+rate at which the tokens replenish.
+Consumption from the token bucket is unbounded in speed which allows for bursts
+bound in size by the amount of tokens available.
+Once the token bucket is empty, consumption speed is bound by the _refill_rate_.
+
+A token bucket with either `size == 0` or `refill_time == 0` will be inactive/unlimited.
+Tokens are `bytes` for _bandwidth limiting_ and `operations` for _ops/s limiting_, and
+time is specified in milliseconds.
+
+For example, if using a TUN/TAP device, you will need to create it beforehand:
+
 ```bash
 sudo ip tuntap add name vmtap33 mode tap
 sudo ifconfig vmtap33 192.168.241.1/24 up
-
+```
+And then call the `/network-interfaces` API resource with its name and desired properties:
+ - Interface ID is `1`
+ - Host device is `vmtap33`
+ - Guest mac is `06:00:00:00:00:01`
+ - RX _Bandwith_ rate limit is `100 MBps` and _Ops/s_ rate is unlimited
+   - (`100 MBps` example token bucket `size = 100.000.000 bytes` and `refill_time = 1000 milliseconds` )
+ - No TX rate limiting of any kind
+ - State is `attached`
+```bash
 curl --unix-socket /tmp/firecracker.socket -i \
      -X PUT "http://localhost/network-interfaces/1" \
      -H "accept: application/json" \
@@ -143,6 +180,10 @@ curl --unix-socket /tmp/firecracker.socket -i \
             \"iface_id\": \"1\",
             \"host_dev_name\": \"vmtap33\",
             \"guest_mac\": \"06:00:00:00:00:01\",
+            \"rx_rate_limiter\": {
+              \"bandwidth\": { \"size\": 100000000, \"refill_time\": 1000 },
+              \"ops\": { \"size\": 0, \"refill_time\": 0 }
+            },
             \"state\": \"Attached\"
         }"
 ```
