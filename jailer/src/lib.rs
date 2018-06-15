@@ -38,6 +38,7 @@ pub enum Error {
     Metadata(PathBuf, io::Error),
     NotAFile(PathBuf),
     NotAFolder(PathBuf),
+    NotAlphanumeric(String),
     OpenDevKvm(sys_util::Error),
     OpenDevNetTun(sys_util::Error),
     ReadLine(PathBuf, io::Error),
@@ -69,6 +70,13 @@ impl<'a> JailerArgs<'a> {
         uid: &str,
         gid: &str,
     ) -> Result<Self> {
+        // Maybe it's a good idea to restrict the id to alphanumeric strings.
+        for c in id.chars() {
+            if !c.is_alphanumeric() {
+                return Err(Error::NotAlphanumeric(id.to_string()));
+            }
+        }
+
         let exec_file_path =
             canonicalize(exec_file).map_err(|e| Error::Canonicalize(PathBuf::from(exec_file), e))?;
 
