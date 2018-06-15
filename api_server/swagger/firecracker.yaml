@@ -25,7 +25,7 @@ produces:
 paths:
   /:
     get:
-      summary: Return general information about an instance.
+      summary: Returns general information about an instance.
       operationId: describeInstance
       responses:
         200:
@@ -38,7 +38,7 @@ paths:
             $ref: "#/definitions/Error"
   /actions/{action_id}:
     get:
-      summary: Return detailed information about an action.
+      summary: Returns detailed information about an action.
       operationId: describeInstanceAction
       parameters:
       - name: action_id
@@ -87,9 +87,11 @@ paths:
 
   /boot-source:
     put:
-      summary: Creates new boot source. If boot source already exists,
-               updates its state based on new input. Will fail if update is not possible.
-               The only supported boot source is LocalImage.
+      summary: Creates or updates the boot source.
+      description:
+        Creates new boot source if one does not already exist, otherwise updates it.
+        Will fail if update is not possible.
+        Note that the only currently supported boot source is LocalImage.
       operationId: putGuestBootSource
       parameters:
       - name: body
@@ -114,9 +116,11 @@ paths:
 
   /drives/{drive_id}:
     put:
-      summary: Creates new drive with ID specified by drive_id path parameter.
-               If a drive with the specified ID already exists, updates its state based on new input.
-               Will fail if update is not possible.
+      summary: Creates or updates a drive.
+      description:
+        Creates new drive with ID specified by drive_id path parameter.
+        If a drive with the specified ID already exists, updates its state based on new input.
+        Will fail if update is not possible.
       operationId: putGuestDriveByID
       parameters:
       - name: drive_id
@@ -169,10 +173,11 @@ paths:
 
   /machine-config:
     get:
-      summary: Get the machine configuration of the VM.
-      description: Get the machine configuration of the VM. When called before the PUT operation, it will return
-                   the default values for the vCPU count (=1), memory size (=128 MiB), Hyperthreading is disabled and
-                   there is no CPU Template.
+      summary: Gets the machine configuration of the VM.
+      description:
+        Gets the machine configuration of the VM. When called before the PUT operation, it
+        will return the default values for the vCPU count (=1), memory size (=128 MiB).
+        By default Hyperthreading is disabled and there is no CPU Template.
       responses:
         200:
           description: OK
@@ -184,11 +189,13 @@ paths:
             $ref: "#/definitions/Error"
 
     put:
-      summary: Updates the Virtual Machine Configuration with the specified input.
-               The Machine Configuration has default values for the vCPU count (=1) and the memory size (=256 MiB).
-               When Hyperthreading is enabled, the vCPU count has to be either 1 or an even number.
-               is disabled, there are no restrictions regarding the vCPU count.
-               If one of the parameters does not have a correct value, the update fails and no fields are updated.
+      summary: Updates the Machine Configuration of the VM.
+      description:
+        Updates the Virtual Machine Configuration with the specified input.
+        Firecracker starts with default values for vCPU count (=1) and memory size (=128 MiB).
+        With Hyperthreading enabled, the vCPU count is restricted to be 1 or an even number,
+        otherwise there are no restrictions regarding the vCPU count.
+        If any of the parameters has an incorrect value, the whole update fails.
       operationId: putMachineConfiguration
       parameters:
       - name: body
@@ -212,9 +219,10 @@ paths:
 
   /network-interfaces/{iface_id}:
     put:
-      summary: Creates new network interface with ID specified by iface_id path parameter.
-               If network interface with specified ID already exists,
-               updates its state based on new input. Will fail if update is not possible.
+      summary: Creates a network interface.
+      description:
+        Creates new network interface with ID specified by iface_id path parameter.
+        Updating existing interfaces is currently not allowed.
       operationId: putGuestNetworkInterfaceByID
       parameters:
       - name: iface_id
@@ -231,8 +239,6 @@ paths:
       responses:
         201:
           description: Network interface created
-        204:
-          description: Network interface updated
         400:
           description: Network interface cannot be created due to bad input
           schema:
@@ -246,8 +252,8 @@ definitions:
   BootSource:
     type: object
     description:
-      Boot source descriptor. The only supported boot source type is the Local Image. Network Boot and Drive Boot will
-      be added in future releases.
+      Boot source descriptor. The only supported boot source type is the Local Image.
+      Network Boot and Drive Boot will be added in future releases.
     properties:
       boot_source_id:
         type: string
@@ -313,7 +319,9 @@ definitions:
 
   InstanceActionInfo:
     type: object
-    description: Variant wrapper containing the real action
+    description:
+      Variant wrapper containing the real action.
+      The timestamp field is read-only, trying to update/change it with an API call will fail.
     required:
       - action_id
     properties:
@@ -327,15 +335,15 @@ definitions:
         enum:
           - InstanceStart
           - InstanceHalt
-      # Timestamp generated by FC - output only
       timestamp:
         type: string
 
   InstanceInfo:
     properties:
       state:
-        description: The current detailed state of the Firecracker instance.
-                     This value is read-only for the control-plane.
+        description:
+          The current detailed state of the Firecracker instance.
+          This value is read-only for the control-plane.
         type: string
         enum:
           - Uninitialized
@@ -346,7 +354,7 @@ definitions:
 
   LocalImage:
     type: object
-    description: |
+    description:
       Locations for local kernel image.
     properties:
       kernel_image_path:
@@ -374,10 +382,9 @@ definitions:
 
   MachineConfiguration:
     type: object
-    description: Machine Configuration descriptor by which you can specify the number
-                 of vCPU of one machine with vcpu_count, the memory size in MiB with
-                 mem_size_mib, the CPU template with cpu_template and whether Hyperthreading
-                 is enabled/disabled with ht_enabled
+    description:
+      Describes the number of vCPUs, memory size, Hyperthreading capabilities and
+      the CPU template.
     properties:
       vcpu_count:
         type: integer
@@ -393,6 +400,8 @@ definitions:
 
   NetworkInterface:
     type: object
+    description:
+      Defines a network interface.
     required:
       - iface_id
     properties:
