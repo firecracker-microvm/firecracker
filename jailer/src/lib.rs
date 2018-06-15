@@ -34,6 +34,7 @@ pub enum Error {
     FileCreate(PathBuf, io::Error),
     FileName(PathBuf),
     FileOpen(PathBuf, io::Error),
+    GetOldFdFlags(sys_util::Error),
     Gid(String),
     Metadata(PathBuf, io::Error),
     NotAFile(PathBuf),
@@ -161,14 +162,18 @@ pub fn run(args: JailerArgs) -> Result<()> {
         return Err(Error::UnexpectedListenerFd(listener_fd));
     }
 
-    // It turns out Rust is so safe, it opens everything with CLOSE_ON_EXEC.
+    // It turns out Rust is so safe, it opens everything with FD_CLOEXEC, which we have to unset.
 
-    // TODO: So as of today (20180612), FD_CLOEXEC is the only file descriptor flag, so setting
-    // flags to 0 should clear that and only that. Maybe at some point it would make sense to
-    // get the flags first, clear FD_CLOEXEC, and set the resulting flags.
+    // This is safe because we know fd and the cmd are valid.
+    let mut fd_flags = unsafe { libc::fcntl(listener_fd, libc::F_GETFD, 0) };
+    if fd_flags < 0 {
+        return Err(Error::GetOldFdFlags(sys_util::Error::last()));
+    }
 
-    // This is safe because we know the fd is valid.
-    if unsafe { libc::fcntl(listener_fd, libc::F_SETFD, 0) } < 0 {
+    fd_flags &= !libc::FD_CLOEXEC;
+
+    // This is safe because we know the fd, the cmd, and the last arg are valid.
+    if unsafe { libc::fcntl(listener_fd, libc::F_SETFD, fd_flags) } < 0 {
         return Err(Error::UnsetCloexec(sys_util::Error::last()));
     }
 
