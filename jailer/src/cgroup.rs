@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -32,6 +32,28 @@ where
     let mut bytes = format!("{}\n", value).into_bytes();
     f.write_all(bytes.as_mut())
         .map_err(|e| Error::Write(PathBuf::from(file_path.as_ref()), e))
+}
+
+fn inherit_from_parent(path: &mut PathBuf, what: &'static str) -> Result<()> {
+    // This unwrap() is safe because path_buf is guaranteed to have a parent.
+    let mut parent_what = PathBuf::from(path.parent().unwrap());
+    parent_what.push(what);
+
+    let f = OpenOptions::new()
+        .read(true)
+        .open(&parent_what)
+        .map_err(|e| Error::FileOpen(parent_what.clone(), e))?;
+
+    let mut line = String::new();
+    BufReader::new(f)
+        .read_line(&mut line)
+        .map_err(|e| Error::ReadLine(parent_what.clone(), e))?;
+
+    path.push(what);
+    writeln_special(&path, &line)?;
+    path.pop();
+
+    Ok(())
 }
 
 impl Cgroup {
@@ -84,10 +106,17 @@ impl Cgroup {
 
         for (controller, mut path_buf) in found_controllers.drain() {
             path_buf.push(exec_file_name);
+
+            // TODO: fix this racy thing.
+            if controller == "cpuset" && !path_buf.exists() {
+                fs::create_dir_all(&path_buf).map_err(|e| Error::CreateDir(path_buf.clone(), e))?;
+
+                inherit_from_parent(&mut path_buf, "cpuset.mems")?;
+                inherit_from_parent(&mut path_buf, "cpuset.cpus")?;
+            }
+
             path_buf.push(id);
 
-            // Create the folders first. The cpuset.cpus and cpuset.mems files really do appear to
-            // be inherited AND populated automatically :-s
             fs::create_dir_all(&path_buf).map_err(|e| Error::CreateDir(path_buf.clone(), e))?;
 
             if controller == "cpuset" {
@@ -95,6 +124,9 @@ impl Cgroup {
                 path_buf.push("cpuset.mems");
                 writeln_special(&path_buf, numa_node)?;
                 path_buf.pop();
+
+                // Inherit cpuset
+                inherit_from_parent(&mut path_buf, "cpuset.cpus")?;
             }
 
             // And now add "tasks" to get the path of the corresponding tasks file.
