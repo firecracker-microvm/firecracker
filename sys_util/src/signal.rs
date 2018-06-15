@@ -28,6 +28,7 @@ fn SIGRTMAX() -> c_int {
     unsafe { __libc_current_sigrtmax() }
 }
 
+/// Verifies that a realtime signal number is valid (enclosed within the OS's limits).
 fn valid_rt_signal_num(num: u8) -> bool {
     (num as c_int) + SIGRTMIN() <= SIGRTMAX()
 }
