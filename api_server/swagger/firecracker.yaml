@@ -412,6 +412,9 @@ definitions:
 
   RateLimiter:
     type: object
+    description:
+      Defines an IO rate limiter with independent bytes/s and ops/s limits.
+      Limits are defined by configuring each of the _bandwidth_ and _ops_ token buckets.
     properties:
       bandwidth:
         $ref: "#/definitions/TokenBucket"
@@ -422,6 +425,13 @@ definitions:
 
   TokenBucket:
     type: object
+    description:
+      Defines a token bucket with a fixed size/capacity and refill_time.
+      The refill-rate is derived from size and refill_time, and it is the constant
+      rate at which the tokens replenish.
+      Consumption from the token bucket is unbounded in speed which allows for bursts
+      bound in size by the amount of tokens available.
+      Once the token bucket is empty, consumption speed is bound by the refill_rate.
     properties:
       size:
         type: integer
