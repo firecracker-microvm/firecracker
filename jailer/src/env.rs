@@ -9,8 +9,6 @@ use libc;
 use super::cgroup::Cgroup;
 use super::{Error, JailerArgs, Result};
 
-const CHROOT_DIR_BASE: &str = "/srv/jailer";
-
 pub struct Env {
     cgroup: Cgroup,
     chroot_dir: PathBuf,
@@ -24,7 +22,8 @@ impl Env {
         let exec_file_name = args.exec_file_name()?;
         let cgroup = Cgroup::new(args.id, exec_file_name)?;
 
-        let mut chroot_dir = PathBuf::from(CHROOT_DIR_BASE);
+        let mut chroot_dir = PathBuf::from(&args.chroot_base_dir);
+
         chroot_dir.push(exec_file_name);
         chroot_dir.push(args.id);
         chroot_dir.push("root");
