@@ -181,8 +181,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
             \"host_dev_name\": \"vmtap33\",
             \"guest_mac\": \"06:00:00:00:00:01\",
             \"rx_rate_limiter\": {
-              \"bandwidth\": { \"size\": 100000000, \"refill_time\": 1000 },
-              \"ops\": { \"size\": 0, \"refill_time\": 0 }
+              \"bandwidth\": { \"size\": 100000000, \"refill_time\": 1000 }
             },
             \"state\": \"Attached\"
         }"

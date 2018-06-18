@@ -12,10 +12,10 @@ import pytest
 
 
 @pytest.mark.timeout(240)
-def test_api_happy_start(test_microvm_any):
+def test_api_happy_start(test_microvm_with_api):
     """ Tests a regular microvm API start sequence. """
 
-    test_microvm = test_microvm_any
+    test_microvm = test_microvm_with_api
     api_responses = test_microvm.basic_config(net_iface_count=2)
     """
     Sets up the microVM with 2 vCPUs, 256 MiB of RAM, and 2 network ifaces.
@@ -40,10 +40,10 @@ def test_api_happy_start(test_microvm_any):
     assert(test_microvm.api_session.is_good_response(response.status_code))
 
 
-def test_api_put_update_pre_boot(test_microvm_any):
+def test_api_put_update_pre_boot(test_microvm_with_api):
     """ Tests that PUT updates are allowed before the microvm boots. """
 
-    test_microvm = test_microvm_any
+    test_microvm = test_microvm_with_api
 
     api_responses = test_microvm.basic_config()
     """
@@ -155,11 +155,12 @@ def test_api_put_update_pre_boot(test_microvm_any):
     """ Valid updates to the network `host_dev_name` are allowed. """
     assert(test_microvm.api_session.is_good_response(response.status_code))
 
-def test_api_put_machine_config(test_microvm_any):
+
+def test_api_put_machine_config(test_microvm_with_api):
     """Tests various scenarios for PUT on /machine_config that cannot be covered by the unit tests"""
 
     """ Test invalid vcpu count < 0 """
-    test_microvm = test_microvm_any
+    test_microvm = test_microvm_with_api
     response = test_microvm.api_session.put(
         test_microvm.microvm_cfg_url,
         json = {'vcpu_count': '-2'}
@@ -187,10 +188,11 @@ def test_api_put_machine_config(test_microvm_any):
     )
     assert response.status_code == 400
 
-def test_api_put_update_post_boot(test_microvm_any):
+
+def test_api_put_update_post_boot(test_microvm_with_api):
     """ Tests that PUT updates are rejected after the microvm boots. """
 
-    test_microvm = test_microvm_any
+    test_microvm = test_microvm_with_api
 
     api_responses = test_microvm.basic_config()
     """
@@ -288,4 +290,161 @@ def _test_default_block_devices(test_microvm):
             'state': 'Attached'
         }
     )
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+
+def test_rate_limiters_api_config(test_microvm_with_api):
+    test_microvm = test_microvm_with_api
+
+    """ Test DRIVE rate limiting API """
+    """ Test drive with bw rate-limiting """
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url + '/bw',
+        json={
+            'drive_id': 'bw',
+            'path_on_host': test_microvm.slot.make_fsfile(),
+            'is_root_device': False,
+            'permissions': 'rw',
+            'rate_limiter': {
+                'bandwidth': {
+                    'size': 1000000,
+                    'refill_time': 100
+                }
+            },
+            'state': 'Attached'
+        }
+    )
+    """ Verify the request succeeded """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    """ Test drive with ops rate-limiting """
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url + '/ops',
+        json={
+            'drive_id': 'ops',
+            'path_on_host': test_microvm.slot.make_fsfile(),
+            'is_root_device': False,
+            'permissions': 'rw',
+            'rate_limiter': {
+                'ops': {
+                    'size': 1,
+                    'refill_time': 100
+                }
+            },
+            'state': 'Attached'
+        }
+    )
+    """ Verify the request succeeded """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    """ Test drive with bw and ops rate-limiting """
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url + '/bwops',
+        json={
+            'drive_id': 'bwops',
+            'path_on_host': test_microvm.slot.make_fsfile(),
+            'is_root_device': False,
+            'permissions': 'rw',
+            'rate_limiter': {
+                'bandwidth': {
+                    'size': 1000000,
+                    'refill_time': 100
+                },
+                'ops': {
+                    'size': 1,
+                    'refill_time': 100
+                }
+            },
+            'state': 'Attached'
+        }
+    )
+    """ Verify the request succeeded """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    """ Test drive with 'empty' rate-limiting (same as not specifying the field) """
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url + '/nada',
+        json={
+            'drive_id': 'nada',
+            'path_on_host': test_microvm.slot.make_fsfile(),
+            'is_root_device': False,
+            'permissions': 'rw',
+            'rate_limiter': {
+            },
+            'state': 'Attached'
+        }
+    )
+    """ Verify the request succeeded """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    """ Test NET rate limiting API """
+    """ Test network with tx bw rate-limiting """
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url + '/1',
+        json={
+            'iface_id': '1',
+            'host_dev_name': test_microvm.slot.make_tap(),
+            'guest_mac': '06:00:00:00:00:01',
+            'tx_rate_limiter': {
+                'bandwidth': {
+                    'size': 1000000,
+                    'refill_time': 100
+                }
+            },
+            'state': 'Attached'
+        }
+    )
+    """ Verify the request succeeded """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    """ Test network with rx bw rate-limiting """
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url + '/2',
+        json={
+            'iface_id': '2',
+            'host_dev_name': test_microvm.slot.make_tap(),
+            'guest_mac': '06:00:00:00:00:02',
+            'rx_rate_limiter': {
+                'bandwidth': {
+                    'size': 1000000,
+                    'refill_time': 100
+                }
+            },
+            'state': 'Attached'
+        }
+    )
+    """ Verify the request succeeded """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    """ Test network with tx and rx bw and ops rate-limiting """
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url + '/3',
+        json={
+            'iface_id': '3',
+            'host_dev_name': test_microvm.slot.make_tap(),
+            'guest_mac': '06:00:00:00:00:03',
+            'rx_rate_limiter': {
+                'bandwidth': {
+                    'size': 1000000,
+                    'refill_time': 100
+                },
+                'ops': {
+                    'size': 1,
+                    'refill_time': 100
+                }
+            },
+            'tx_rate_limiter': {
+                'bandwidth': {
+                    'size': 1000000,
+                    'refill_time': 100
+                },
+                'ops': {
+                    'size': 1,
+                    'refill_time': 100
+                }
+            },
+            'state': 'Attached'
+        }
+    )
+    """ Verify the request succeeded """
     assert(test_microvm.api_session.is_good_response(response.status_code))
