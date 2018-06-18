@@ -1,3 +1,5 @@
+#[macro_use(crate_version, crate_authors)]
+extern crate clap;
 extern crate libc;
 extern crate regex;
 
@@ -6,13 +8,15 @@ extern crate sys_util;
 mod cgroup;
 mod env;
 
-use std::ffi::{CString, NulError, OsStr, OsString};
-use std::fs::{canonicalize, create_dir_all, metadata};
+use std::ffi::{CString, NulError, OsString};
+use std::fs::create_dir_all;
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::result;
+
+use clap::{App, Arg, ArgMatches};
 
 use env::Env;
 
@@ -39,8 +43,8 @@ pub enum Error {
     FileOpen(PathBuf, io::Error),
     GetOldFdFlags(sys_util::Error),
     Gid(String),
-    InvalidCharId(),
-    InvalidLengthId(),
+    InvalidCharId,
+    InvalidLengthId,
     Metadata(PathBuf, io::Error),
     NotAFile(PathBuf),
     NotAFolder(PathBuf),
@@ -60,91 +64,97 @@ pub enum Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
-pub struct JailerArgs<'a> {
-    id: &'a str,
-    numa_node: u32,
-    exec_file_path: PathBuf,
-    chroot_base_dir: PathBuf,
-    uid: u32,
-    gid: u32,
+pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
+    // Initially, the uid and gid params had default values, but it turns out that it's quite
+    // easy to shoot yourself in the foot by not setting proper permissions when preparing the
+    // contents of the jail, so I think their values should be provided explicitly.
+    App::new("jailer")
+        .version(crate_version!())
+        .author(crate_authors!())
+        .about("Jail a microVM.")
+        .arg(
+            Arg::with_name("numa_node")
+                .long("node")
+                .help("NUMA node to assign this microVM to.")
+                .required(true)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("id")
+                .long("id")
+                .help("Jail ID")
+                .required(true)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("exec_file")
+                .long("exec-file")
+                .help("File path to exec into.")
+                .required(true)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("uid")
+                .long("uid")
+                .help("Chroot uid")
+                .required(true)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("gid")
+                .long("gid")
+                .help("Chroot gid")
+                .required(true)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("chroot_base")
+                .long("chroot-base-dir")
+                .help("The base folder where chroot jails are located.")
+                .required(false)
+                .default_value("/srv/jailer")
+                .takes_value(true),
+        )
 }
 
-impl<'a> JailerArgs<'a> {
-    pub fn new(
-        id: &'a str,
-        node: &str,
-        exec_file: &str,
-        chroot_base: &str,
-        uid: &str,
-        gid: &str,
-    ) -> Result<Self> {
-        // Check that id has only alphanumeric chars and hyphens in it.
-        check_id(id)?;
+fn open_dev_kvm() -> Result<i32> {
+    // Safe because we use a constant null-terminated string and verify the result.
+    let ret = unsafe { libc::open("/dev/kvm\0".as_ptr() as *const libc::c_char, libc::O_RDWR) };
 
-        let numa_node = node
-            .parse::<u32>()
-            .map_err(|_| Error::NumaNode(String::from(node)))?;
-
-        let exec_file_path =
-            canonicalize(exec_file).map_err(|e| Error::Canonicalize(PathBuf::from(exec_file), e))?;
-
-        if !metadata(&exec_file_path)
-            .map_err(|e| Error::Metadata(exec_file_path.clone(), e))?
-            .is_file()
-        {
-            return Err(Error::NotAFile(exec_file_path));
-        }
-
-        let chroot_base_dir = canonicalize(chroot_base)
-            .map_err(|e| Error::Canonicalize(PathBuf::from(chroot_base), e))?;
-
-        if !metadata(&chroot_base_dir)
-            .map_err(|e| Error::Metadata(exec_file_path.clone(), e))?
-            .is_dir()
-        {
-            return Err(Error::NotAFolder(chroot_base_dir));
-        }
-
-        let uid = uid
-            .parse::<u32>()
-            .map_err(|_| Error::Uid(String::from(uid)))?;
-        let gid = gid
-            .parse::<u32>()
-            .map_err(|_| Error::Gid(String::from(gid)))?;
-
-        Ok(JailerArgs {
-            id,
-            numa_node,
-            exec_file_path,
-            chroot_base_dir,
-            uid,
-            gid,
-        })
+    if ret < 0 {
+        return Err(Error::OpenDevKvm(sys_util::Error::last()));
     }
 
-    pub fn exec_file_name(&self) -> Result<&OsStr> {
-        self.exec_file_path
-            .file_name()
-            .ok_or_else(|| Error::FileName(self.exec_file_path.clone()))
+    if ret != KVM_FD {
+        return Err(Error::UnexpectedKvmFd(ret));
     }
+
+    Ok(ret)
 }
 
-pub fn run(args: JailerArgs) -> Result<()> {
-    // We open /dev/kvm, /dev/tun, and create the listening socket. These file descriptors will be
+pub fn run(args: ArgMatches) -> Result<()> {
+    // We open /dev/kvm and create the listening socket. These file descriptors will be
     // passed on to Firecracker post exec, and used via knowing their values in advance.
-
-    // TODO: use dup2 to make sure we're actually getting 3 and 4?
 
     // TODO: can a malicious guest that takes over firecracker use its access to the KVM fd to
     // starve the host of resources? (cgroups should take care of that, but do they currently?)
 
-    // Safe because we use a constant null-terminated string and verify the result.
-    let ret = unsafe { libc::open("/dev/kvm\0".as_ptr() as *const libc::c_char, libc::O_RDWR) };
-    if ret < 0 {
-        return Err(Error::OpenDevKvm(sys_util::Error::last()));
-    }
-    if ret != KVM_FD {
-        return Err(Error::UnexpectedKvmFd(ret));
+    if let Err(e) = open_dev_kvm() {
+        if let Error::UnexpectedKvmFd(ret) = e {
+            // The problem here might be that the customer did not close every fd > 2 before
+            // invoking the jailer (and did not open files with the O_CLOEXEC flag to begin with).
+            // Before failing, let's close all non stdio fds up to and including ret, and then try
+            // one more time.
+            for i in 3..=ret {
+                // Safe becase we're passing a valid paramter.
+                unsafe { libc::close(i) };
+            }
+
+            // Maybe now we can get the desired fd number.
+            open_dev_kvm()?;
+        } else {
+            return Err(e);
+        }
     }
 
     let env = Env::new(args)?;
@@ -167,21 +177,18 @@ pub fn run(args: JailerArgs) -> Result<()> {
     // S_IWUSR -> write permission, owner
     // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
     // more clarity.
-    let ret = unsafe {
+    if unsafe {
         libc::mknod(
             dev_net_tun_path.as_ptr(),
             libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR,
             libc::makedev(10, 200),
         )
-    };
-
-    if ret < 0 {
+    } < 0
+    {
         return Err(Error::MknodDevNetTun(sys_util::Error::last()));
     }
 
-    let ret = unsafe { libc::chown(dev_net_tun_path.as_ptr(), env.uid(), env.gid()) };
-
-    if ret < 0 {
+    if unsafe { libc::chown(dev_net_tun_path.as_ptr(), env.uid(), env.gid()) } < 0 {
         return Err(Error::ChangeDevNetTunOwner(sys_util::Error::last()));
     }
 
@@ -215,43 +222,11 @@ pub fn run(args: JailerArgs) -> Result<()> {
 /// Turns a PathBuf into a CString (c style string).
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
-pub fn into_cstring(path: PathBuf) -> Result<CString> {
+fn into_cstring(path: PathBuf) -> Result<CString> {
     let path_str = path
         .clone()
         .into_os_string()
         .into_string()
         .map_err(|e| Error::OsStringParsing(path, e))?;
     CString::new(path_str.clone()).map_err(|e| Error::CStringParsing(path_str, e))
-}
-
-// Function will only allow alphanumeric characters and hyphens.
-// Also a MAX_ID_LENGTH restriction is applied.
-fn check_id(input: &str) -> Result<()> {
-    let no_hyphens = str::replace(input, "-", "");
-    for c in no_hyphens.chars() {
-        if !c.is_alphanumeric() {
-            return Err(Error::InvalidCharId());
-        }
-    }
-    if input.len() > MAX_ID_LENGTH {
-        return Err(Error::InvalidLengthId());
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_check_id() {
-        assert!(check_id("12-3aa").is_ok());
-        assert!(check_id("12:3aa").is_err());
-        assert!(check_id("①").is_err());
-        let mut long_str = "".to_string();
-        for _n in 1..=MAX_ID_LENGTH + 1 {
-            long_str.push('a');
-        }
-        assert!(check_id(long_str.as_str()).is_err());
-    }
 }
