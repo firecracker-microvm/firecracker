@@ -85,12 +85,8 @@ mod tests {
             "state": "Attached",
             "guest_mac": "12:34:56:78:9A:bc",
             "rx_rate_limiter": {
-                "bandwidth": { "size": 0, "refill_time": 0 },
-                "ops": { "size": 0, "refill_time": 0 }
             },
             "tx_rate_limiter": {
-                "bandwidth": { "size": 0, "refill_time": 0 },
-                "ops": { "size": 0, "refill_time": 0 }
             }
         }"#;
 

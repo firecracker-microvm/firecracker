@@ -21,19 +21,24 @@ impl Default for TokenBucketDescription {
 // This struct represents the strongly typed equivalent of the json body for RateLimiter
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RateLimiterDescription {
-    pub bandwidth: TokenBucketDescription,
-    pub ops: TokenBucketDescription,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bandwidth: Option<TokenBucketDescription>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ops: Option<TokenBucketDescription>,
 }
 
 // TryFrom trait is sadly marked unstable, so make our own
 impl RateLimiterDescription {
     fn into_implementation(&self) -> io::Result<RateLimiter> {
-        RateLimiter::new(
-            self.bandwidth.size,
-            self.bandwidth.refill_time,
-            self.ops.size,
-            self.ops.refill_time,
-        )
+        let bw = match self.bandwidth.as_ref() {
+            Some(bwtbd) => bwtbd.clone(),
+            None => TokenBucketDescription::default(),
+        };
+        let ops = match self.ops.as_ref() {
+            Some(opstbd) => opstbd.clone(),
+            None => TokenBucketDescription::default(),
+        };
+        RateLimiter::new(bw.size, bw.refill_time, ops.size, ops.refill_time)
     }
 }
 
@@ -62,12 +67,17 @@ mod tests {
     }
 
     #[test]
+    fn test_token_bucket_default() {
+        let tb = TokenBucketDescription::default();
+        assert_eq!(tb.size, 0);
+        assert_eq!(tb.refill_time, 0);
+    }
+
+    #[test]
     fn test_rate_limiter_default() {
         let l = RateLimiterDescription::default();
-        assert_eq!(l.bandwidth.size, 0);
-        assert_eq!(l.bandwidth.refill_time, 0);
-        assert_eq!(l.ops.size, 0);
-        assert_eq!(l.ops.refill_time, 0);
+        assert!(l.bandwidth.is_none());
+        assert!(l.ops.is_none());
     }
 
     #[test]
