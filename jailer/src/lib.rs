@@ -29,6 +29,7 @@ const MAX_ID_LENGTH: usize = 64;
 #[derive(Debug)]
 pub enum Error {
     Canonicalize(PathBuf, io::Error),
+    CgroupInheritFromParent(PathBuf, &'static str),
     CgroupLineNotFound(&'static str, &'static str),
     CgroupLineNotUnique(&'static str, &'static str),
     ChangeDevNetTunOwner(sys_util::Error),
@@ -47,6 +48,7 @@ pub enum Error {
     InvalidCharId,
     InvalidLengthId,
     Metadata(PathBuf, io::Error),
+    MissingParent(PathBuf),
     NotAFile(PathBuf),
     NotAFolder(PathBuf),
     NotAlphanumeric(String),
@@ -54,6 +56,7 @@ pub enum Error {
     OpenDevKvm(sys_util::Error),
     MknodDevNetTun(sys_util::Error),
     ReadLine(PathBuf, io::Error),
+    ReadToString(PathBuf, io::Error),
     RegEx(regex::Error),
     Uid(String),
     UnexpectedKvmFd(i32),
