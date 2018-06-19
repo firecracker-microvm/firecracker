@@ -353,7 +353,7 @@ class Microvm:
         )
         responses.append(response)
 
-        for net_iface_index in range(0, net_iface_count):
+        for net_iface_index in range(1, net_iface_count + 1):
             response = self.api_session.put(
                 self.net_cfg_url + '/' + str(net_iface_index),
                 json={
