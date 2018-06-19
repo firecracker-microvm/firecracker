@@ -100,10 +100,10 @@ impl NetEpollHandler {
         }
     }
 
-    // Copies a single frame from `self.rx_buf` into the guest. Returns true
-    // if a buffer was used, and false if the frame must be deferred until a buffer
-    // is made available by the driver.
-    fn rx_single_frame(&mut self) -> bool {
+    // Attempts to copy a single frame into the guest if there is enough
+    // rate limiting budget.
+    // Returns true on successful frame delivery.
+    fn rate_limited_rx_single_frame(&mut self) -> bool {
         // If limiter.consume() fails it means there is no more TokenType::Ops
         // budget and rate limiting is in effect.
         if !self.rx_rate_limiter.consume(1, TokenType::Ops) {
@@ -119,6 +119,24 @@ impl NetEpollHandler {
             return false;
         }
 
+        // Attempt frame delivery.
+        let success = self.rx_single_frame();
+
+        // Undo the tokens consumption if guest delivery failed.
+        if !success {
+            // revert the OPS consume()
+            self.rx_rate_limiter.manual_replenish(1, TokenType::Ops);
+            // revert the BYTES consume()
+            self.rx_rate_limiter
+                .manual_replenish(self.rx_count as u64, TokenType::Bytes);
+        }
+        return success;
+    }
+
+    // Copies a single frame from `self.rx_buf` into the guest. Returns true
+    // if a buffer was used, and false if the frame must be deferred until a buffer
+    // is made available by the driver.
+    fn rx_single_frame(&mut self) -> bool {
         let mut next_desc = self.rx_queue.iter(&self.mem).next();
 
         if next_desc.is_none() {
@@ -186,7 +204,7 @@ impl NetEpollHandler {
             match self.read_tap() {
                 Ok(count) => {
                     self.rx_count = count;
-                    if !self.rx_single_frame() {
+                    if !self.rate_limited_rx_single_frame() {
                         self.deferred_rx = true;
                         break;
                     }
@@ -210,7 +228,7 @@ impl NetEpollHandler {
     }
 
     fn resume_rx(&mut self) {
-        if self.deferred_rx && self.rx_single_frame() {
+        if self.deferred_rx && self.rate_limited_rx_single_frame() {
             self.deferred_rx = false;
             // process_rx() was interrupted possibly before consuming all
             // packets in the tap; try continuing now.
@@ -358,7 +376,7 @@ impl EpollHandler for NetEpollHandler {
                 // Process a deferred frame first if available. Don't read from tap again
                 // until we manage to receive this deferred frame.
                 if self.deferred_rx {
-                    if self.rx_single_frame() {
+                    if self.rate_limited_rx_single_frame() {
                         self.deferred_rx = false;
                     } else {
                         return;
