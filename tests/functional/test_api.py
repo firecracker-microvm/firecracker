@@ -143,16 +143,65 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     assert (response_json['mem_size_mib'] == str(microvm_config_json['mem_size_mib']))
     assert (response_json['cpu_template'] == str(microvm_config_json['cpu_template']))
 
+    second_if_name = 'second_tap'
     response = test_microvm.api_session.put(
-        test_microvm.net_cfg_url + '/1',
+        test_microvm.net_cfg_url + '/2',
         json={
-            'iface_id': '1',
-            'host_dev_name': test_microvm.slot.make_tap(name='newtap'),
+            'iface_id': '2',
+            'host_dev_name': test_microvm.slot.make_tap(name=second_if_name),
+            'guest_mac': '07:00:00:00:00:01',
+            'state': 'Attached'
+        }
+    )
+    """ Adding new network interfaces is allowed. """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url + '/2',
+        json={
+            'iface_id': '2',
+            'host_dev_name': second_if_name,
             'guest_mac': '06:00:00:00:00:01',
             'state': 'Attached'
         }
     )
-    """ Valid updates to the network `host_dev_name` are allowed. """
+    """ Updates to a network interface with an unavailable MAC are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url + '/2',
+        json={
+            'iface_id': '2',
+            'host_dev_name': second_if_name,
+            'guest_mac': '08:00:00:00:00:01',
+            'state': 'Attached'
+        }
+    )
+    """ Updates to a network interface with an available MAC are allowed. """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url + '/1',
+        json={
+            'iface_id': '1',
+            'host_dev_name': second_if_name,
+            'guest_mac': '06:00:00:00:00:01',
+            'state': 'Attached'
+        }
+    )
+    """ Updates to a network interface with an unavailable name are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url + '/1',
+        json={
+            'iface_id': '1',
+            'host_dev_name': test_microvm.slot.make_tap(),
+            'guest_mac': '06:00:00:00:00:01',
+            'state': 'Attached'
+        }
+    )
+    """ Updates to a network interface with an available name are allowed. """
     assert(test_microvm.api_session.is_good_response(response.status_code))
 
 
