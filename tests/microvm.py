@@ -324,6 +324,7 @@ class Microvm:
         self,
         vcpu_count: int=2,
         mem_size_mib: int=256,
+        ht_enabled: bool=True,
         net_iface_count: int=1
     ):
         """
@@ -339,15 +340,14 @@ class Microvm:
 
         responses = []
 
+        """
+        Running Firecracker microvms with hyperthreading disabled when the host has hyperthreading
+        generates a panic. Until we change the host AMI to disable hyperthreading, we need to set
+        ht_enabled=true for Firecracker to start.
+        """
         response = self.api_session.put(
             self.microvm_cfg_url,
-            json={'vcpu_count': vcpu_count}
-        )
-        responses.append(response)
-
-        response = self.api_session.put(
-            self.microvm_cfg_url,
-            json={'mem_size_mib': mem_size_mib}
+            json={'vcpu_count': vcpu_count, 'mem_size_mib': mem_size_mib, 'ht_enabled': ht_enabled}
         )
         responses.append(response)
 

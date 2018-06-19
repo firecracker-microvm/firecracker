@@ -10,5 +10,6 @@ libc = ">=0.2.39"
 data_model = { path = "../data_model" }
 kvm_sys = { path = "../kvm_sys" }
 kvm = { path = "../kvm" }
+logger = { path = "../logger" }
 memory_model = { path = "../memory_model"}
 sys_util = { path = "../sys_util" }
