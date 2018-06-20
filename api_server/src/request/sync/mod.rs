@@ -74,6 +74,7 @@ impl fmt::Debug for SyncRequest {
 // TODO: we should move toward having both the ok status and various possible sync request errors
 // in this file, because there are many common sync outcomes.
 
+#[derive(PartialEq)]
 pub enum OkStatus {
     Created,
     Updated,

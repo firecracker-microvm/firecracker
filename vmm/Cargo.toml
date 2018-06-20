@@ -20,3 +20,6 @@ net_util = { path = "../net_util"}
 sys_util = { path = "../sys_util" }
 x86_64 = { path = "../x86_64" }
 
+[dev-dependencies]
+tempfile = ">=3.0.2"
+
