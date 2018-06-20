@@ -1308,8 +1308,14 @@ pub fn start_vmm_thread(
 
 #[cfg(test)]
 mod tests {
+    extern crate tempfile;
+
+    use std::fs::File;
+
     use super::*;
+    use api_server::request::sync::DeviceState;
     use data_model::vm::CpuFeaturesTemplate;
+    use net_util::MacAddr;
 
     fn create_vmm_object() -> Vmm {
         let shared_info = Arc::new(RwLock::new(InstanceInfo {
@@ -1323,6 +1329,82 @@ mod tests {
             from_api,
         ).expect("Cannot Create VMM");
         return vmm;
+    }
+
+    #[test]
+    fn test_put_block_device() {
+        let mut vmm = create_vmm_object();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        // test that creating a new block device returns the correct output
+        let root_block_device = BlockDeviceConfig {
+            drive_id: String::from("root"),
+            path_on_host: file.path().to_path_buf(),
+            is_root_device: true,
+            is_read_only: false,
+            rate_limiter: None,
+        };
+        match vmm.put_block_device(root_block_device.clone()) {
+            Ok(outcome) => assert!(outcome == PutDriveOutcome::Created),
+            Err(_) => assert!(false),
+        };
+        assert!(
+            vmm.block_device_configs
+                .config_list
+                .contains(&root_block_device)
+        );
+
+        // test that updating an existing block device returns the correct output
+        let root_block_device = BlockDeviceConfig {
+            drive_id: String::from("root"),
+            path_on_host: file.path().to_path_buf(),
+            is_root_device: true,
+            is_read_only: true,
+            rate_limiter: None,
+        };
+        match vmm.put_block_device(root_block_device.clone()) {
+            Ok(outcome) => assert!(outcome == PutDriveOutcome::Updated),
+            Err(_) => assert!(false),
+        };
+        assert!(
+            vmm.block_device_configs
+                .config_list
+                .contains(&root_block_device)
+        );
+    }
+
+    #[test]
+    fn test_put_net_device() {
+        let mut vmm = create_vmm_object();
+
+        // test create network interface
+        let network_interface = NetworkInterfaceBody {
+            iface_id: String::from("netif"),
+            state: DeviceState::Attached,
+            host_dev_name: String::from("hostname"),
+            guest_mac: None,
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+        };
+        match vmm.put_net_device(network_interface) {
+            Ok(outcome) => assert!(outcome == SyncOkStatus::Created),
+            Err(_) => assert!(false),
+        }
+
+        if let Ok(mac) = MacAddr::parse_str("01:23:45:67:89:0A") {
+            // test update network interface
+            let network_interface = NetworkInterfaceBody {
+                iface_id: String::from("netif"),
+                state: DeviceState::Attached,
+                host_dev_name: String::from("hostname2"),
+                guest_mac: Some(mac),
+                rx_rate_limiter: None,
+                tx_rate_limiter: None,
+            };
+            match vmm.put_net_device(network_interface) {
+                Ok(outcome) => assert!(outcome == SyncOkStatus::Updated),
+                Err(_) => assert!(false),
+            }
+        }
     }
 
     #[test]

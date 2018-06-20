@@ -34,7 +34,7 @@ impl DriveDescription {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum DriveError {
     RootBlockDeviceAlreadyAdded,
     InvalidBlockDevicePath,
@@ -76,6 +76,7 @@ impl GenerateResponse for DriveError {
     }
 }
 
+#[derive(PartialEq)]
 pub enum PutDriveOutcome {
     Created,
     Updated,
