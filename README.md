@@ -37,7 +37,10 @@ The **API endpoint** can be used to:
 - Add one or more network interfaces to the microVM. Firecracker is mapping
   an existing host file as a VirtIO block device into the microVM.
 - Add one or more read/write disks (file-backed block devices) to the microVM.
-- Configure the logging system (i.e. path on host for log file, log level, etc).
+- Configure the logging system by:
+    - Specifying two named pipes (one for human readable logs and one for the metrics).
+    - Enabling or disabling printing the log level, line and file of where the log originated.
+    - Setting the maximum level for triggering logs.
 - Configure rate limiters for VirtiIO devices which can limit the bandwidth, ops/s
   or both.
 - Start the microVM using a given kernel image, root file system and boot arguments.
@@ -47,7 +50,7 @@ The **API endpoint** can be used to:
 - Emulated keyboard (i8042) and serial console (UART). The microVM serial
   console input and output are connected to those of the Firecracker process
   (this allows direct console access to the guest OS).
-- Metrics currently logged every 60s to the configured log-file.
+- Metrics currently logged every 60s to a one-purpose only named pipe.
   Categories:
   - API requests related metrics
   - VCPUs related metrics
