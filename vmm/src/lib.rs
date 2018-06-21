@@ -10,7 +10,7 @@ extern crate kvm;
 extern crate kvm_sys;
 #[macro_use]
 extern crate logger;
-extern crate net_util;
+//extern crate net_util;
 extern crate sys_util;
 extern crate x86_64;
 
@@ -35,17 +35,15 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
-use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
-use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
-                                                       PutMachineConfigurationOutcome};
-use api_server::request::sync::{rate_limiter_description_into_implementation,
-                                APILoggerDescription, BootSourceBody, DriveDescription,
-                                DriveError, Error as SyncError, GenerateResponse,
-                                NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
-                                PutLoggerOutcome, SyncOutcomeSender, SyncRequest};
-
+use api_server::request::sync::{Error as SyncError, GenerateResponse, OkStatus as SyncOkStatus,
+                                SyncOutcomeSender, SyncRequest};
 use api_server::ApiRequest;
-use data_model::vm::MachineConfiguration;
+use data_model::device_config::{rate_limiter_description_into_implementation, DriveConfig,
+                                DriveError, NetworkInterfaceConfig, PutDriveOutcome};
+use data_model::vm::boot_source::{BootSource, BootSourceError, PutBootSourceOutcome};
+use data_model::vm::{LoggerDescription, PutLoggerOutcome};
+use data_model::vm::{MachineConfiguration, MachineConfigurationError,
+                     PutMachineConfigurationOutcome};
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -449,11 +447,11 @@ impl Vmm {
     /// Updating before the VM has started is not allowed.
     pub fn put_block_device(
         &mut self,
-        block_device_config: BlockDeviceConfig,
+        block_device_config: DriveConfig,
     ) -> result::Result<PutDriveOutcome, DriveError> {
         // if the id of the drive already exists in the list, the operation is update
         if self.block_device_configs
-            .contains_drive_id(block_device_config.drive_id.clone())
+            .contains_drive_id(block_device_config.get_id())
         {
             return self.update_block_device(&block_device_config);
         } else {
@@ -466,7 +464,7 @@ impl Vmm {
 
     fn update_block_device(
         &mut self,
-        block_device_config: &BlockDeviceConfig,
+        block_device_config: &DriveConfig,
     ) -> result::Result<PutDriveOutcome, DriveError> {
         if self.mmio_device_manager.is_some() {
             self.live_update_block_device(block_device_config)
@@ -479,17 +477,17 @@ impl Vmm {
 
     fn live_update_block_device(
         &mut self,
-        block_device_config: &BlockDeviceConfig,
+        block_device_config: &DriveConfig,
     ) -> result::Result<PutDriveOutcome, DriveError> {
         // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
         // called before the guest boots, and this function is called after boot.
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
 
         for drive_config in self.block_device_configs.config_list.iter() {
-            if drive_config.drive_id == block_device_config.drive_id {
-                match device_manager.get_address(&drive_config.drive_id) {
+            if drive_config.get_id() == block_device_config.get_id() {
+                match device_manager.get_address(drive_config.get_id()) {
                     Some(&address) => {
-                        let metadata = metadata(&block_device_config.path_on_host)
+                        let metadata = metadata(block_device_config.get_path_on_host())
                             .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
                         let new_size = metadata.len();
                         if new_size % virtio::block::SECTOR_SIZE != 0 {
@@ -516,18 +514,18 @@ impl Vmm {
     pub fn put_virtual_machine_configuration(
         &mut self,
         machine_config: MachineConfiguration,
-    ) -> std::result::Result<(), PutMachineConfigurationError> {
+    ) -> std::result::Result<(), MachineConfigurationError> {
         if let Some(vcpu_count_value) = machine_config.vcpu_count {
-            // Check that the vcpu_count value is >=1
+            // Check that the vcpu_count value is >=1.
             if vcpu_count_value <= 0 {
-                return Err(PutMachineConfigurationError::InvalidVcpuCount);
+                return Err(MachineConfigurationError::InvalidVcpuCount);
             }
         }
 
         if let Some(mem_size_mib_value) = machine_config.mem_size_mib {
             // TODO: add other memory checks
             if mem_size_mib_value <= 0 {
-                return Err(PutMachineConfigurationError::InvalidMemorySize);
+                return Err(MachineConfigurationError::InvalidMemorySize);
             }
         }
 
@@ -541,10 +539,10 @@ impl Vmm {
             None => self.vm_config.vcpu_count.unwrap(),
         };
 
-        // if hyperthreading is enabled or is to be enabled in this call
-        // only allow vcpu count to be 1 or even
+        // If hyperthreading is enabled or is to be enabled in this call
+        // only allow vcpu count to be 1 or even.
         if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
-            return Err(PutMachineConfigurationError::InvalidVcpuCount);
+            return Err(MachineConfigurationError::InvalidVcpuCount);
         }
 
         // Update all the fields that have a new value
@@ -586,17 +584,18 @@ impl Vmm {
                 // adding root blk device from file
                 let root_image = OpenOptions::new()
                     .read(true)
-                    .write(!drive_config.is_read_only)
-                    .open(&drive_config.path_on_host)
+                    .write(!drive_config.is_read_only())
+                    .open(drive_config.get_path_on_host())
                     .map_err(Error::RootDiskImage)?;
                 let epoll_config = epoll_context.allocate_virtio_block_tokens();
 
                 let rate_limiter = rate_limiter_description_into_implementation(
-                    drive_config.rate_limiter.as_ref(),
+                    drive_config.get_rate_limiter(),
                 ).map_err(Error::RateLimiterNew)?;
+
                 let block_box = Box::new(devices::virtio::Block::new(
                     root_image,
-                    drive_config.is_read_only,
+                    drive_config.is_read_only(),
                     epoll_config,
                     rate_limiter,
                 ).map_err(Error::RootBlockDeviceNew)?);
@@ -604,7 +603,7 @@ impl Vmm {
                     .register_device(
                         block_box,
                         &mut kernel_config.cmdline,
-                        Some(drive_config.drive_id.clone()),
+                        Some(drive_config.get_id().to_string()),
                     )
                     .map_err(Error::RegisterBlock)?;
             }
@@ -615,7 +614,7 @@ impl Vmm {
 
     pub fn put_net_device(
         &mut self,
-        body: NetworkInterfaceBody,
+        body: NetworkInterfaceConfig,
     ) -> result::Result<SyncOkStatus, SyncError> {
         self.network_interface_configs.put(body)
     }
@@ -630,10 +629,10 @@ impl Vmm {
             let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
 
             let rx_rate_limiter = rate_limiter_description_into_implementation(
-                cfg.rx_rate_limiter.as_ref(),
+                cfg.get_rx_rate_limiter(),
             ).map_err(Error::RateLimiterNew)?;
             let tx_rate_limiter = rate_limiter_description_into_implementation(
-                cfg.tx_rate_limiter.as_ref(),
+                cfg.get_tx_rate_limiter(),
             ).map_err(Error::RateLimiterNew)?;
 
             if let Some(tap) = cfg.take_tap() {
@@ -1105,8 +1104,8 @@ impl Vmm {
         }
     }
 
-    fn handle_put_drive(&mut self, drive_description: DriveDescription, sender: SyncOutcomeSender) {
-        match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
+    fn handle_put_drive(&mut self, drive_description: DriveConfig, sender: SyncOutcomeSender) {
+        match self.put_block_device(drive_description) {
             Ok(ret) => sender
                 .send(Box::new(ret))
                 .map_err(|_| ())
@@ -1120,7 +1119,7 @@ impl Vmm {
 
     fn handle_put_logger(
         &mut self,
-        logger_description: APILoggerDescription,
+        logger_description: LoggerDescription,
         sender: SyncOutcomeSender,
     ) {
         if self.is_instance_running() {
@@ -1143,11 +1142,7 @@ impl Vmm {
         }
     }
 
-    fn handle_put_boot_source(
-        &mut self,
-        boot_source_body: BootSourceBody,
-        sender: SyncOutcomeSender,
-    ) {
+    fn handle_put_boot_source(&mut self, boot_source_body: BootSource, sender: SyncOutcomeSender) {
         if self.is_instance_running() {
             sender
                 .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
@@ -1157,14 +1152,14 @@ impl Vmm {
         }
 
         // check that the kernel path exists and it is valid
-        let box_response: Box<GenerateResponse + Send> = match boot_source_body.local_image {
-            Some(image) => match File::open(image.kernel_image_path) {
+        let box_response: Box<GenerateResponse + Send> = match boot_source_body.get_kernel_image() {
+            Some(image) => match File::open(image) {
                 Ok(kernel_file) => {
                     let mut cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
                     match cmdline.insert_str(
                         boot_source_body
-                            .boot_args
-                            .unwrap_or(String::from(DEFAULT_KERNEL_CMDLINE)),
+                            .get_boot_args()
+                            .unwrap_or(&String::from(DEFAULT_KERNEL_CMDLINE)),
                     ) {
                         Ok(_) => {
                             let kernel_config = KernelConfig {
@@ -1181,12 +1176,12 @@ impl Vmm {
                             self.configure_kernel(kernel_config);
                             Box::new(outcome)
                         }
-                        Err(_) => Box::new(PutBootSourceConfigError::InvalidKernelCommandLine),
+                        Err(_) => Box::new(BootSourceError::InvalidKernelCommandLine),
                     }
                 }
-                Err(_e) => Box::new(PutBootSourceConfigError::InvalidKernelPath),
+                Err(_e) => Box::new(BootSourceError::InvalidKernelPath),
             },
-            None => Box::new(PutBootSourceConfigError::InvalidKernelPath),
+            None => Box::new(BootSourceError::InvalidKernelPath),
         };
         sender
             .send(box_response)
@@ -1227,7 +1222,7 @@ impl Vmm {
 
     fn handle_put_network_interface(
         &mut self,
-        netif_body: NetworkInterfaceBody,
+        netif_body: NetworkInterfaceConfig,
         sender: SyncOutcomeSender,
     ) {
         if self.is_instance_running() {
@@ -1380,7 +1375,7 @@ mod tests {
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
                 .unwrap_err(),
-            PutMachineConfigurationError::InvalidVcpuCount
+            MachineConfigurationError::InvalidVcpuCount
         );
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
 
@@ -1395,7 +1390,7 @@ mod tests {
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
                 .unwrap_err(),
-            PutMachineConfigurationError::InvalidMemorySize
+            MachineConfigurationError::InvalidMemorySize
         );
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
         assert_eq!(vmm.vm_config.mem_size_mib, Some(256));
@@ -1414,7 +1409,7 @@ mod tests {
         assert_eq!(
             vmm.put_virtual_machine_configuration(machine_config)
                 .unwrap_err(),
-            PutMachineConfigurationError::InvalidVcpuCount
+            MachineConfigurationError::InvalidVcpuCount
         );
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
         // Test that you can change the ht flag when you have a valid vcpu count

@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use super::{ActivateError, ActivateResult, DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK,
             VIRTIO_MMIO_INT_VRING};
-use fc_util::ratelimiter::{RateLimiter, TokenType};
+use fc_util::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
 use sys_util::Result as SysResult;
 use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};

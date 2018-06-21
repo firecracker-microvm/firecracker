@@ -2,7 +2,7 @@
 extern crate clap;
 
 extern crate api_server;
-extern crate data_model;
+extern crate jailer;
 #[macro_use]
 extern crate logger;
 extern crate seccomp_sys;
@@ -63,7 +63,7 @@ fn main() {
         .unwrap();
 
     if cmd_arguments.is_present("jailed") {
-        data_model::FIRECRACKER_IS_JAILED.store(true, std::sync::atomic::Ordering::Relaxed);
+        jailer::FIRECRACKER_IS_JAILED.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     let shared_info = Arc::new(RwLock::new(InstanceInfo {

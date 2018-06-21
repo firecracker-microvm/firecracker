@@ -13,6 +13,7 @@ use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::result;
+use std::sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT};
 
 use env::Env;
 
@@ -21,6 +22,9 @@ pub const DEV_NET_TUN_FD: i32 = 4;
 pub const LISTENER_FD: i32 = 5;
 
 const SOCKET_FILE_NAME: &str = "api.socket";
+
+// ATOMIC_BOOL_INIT = false
+pub static FIRECRACKER_IS_JAILED: AtomicBool = ATOMIC_BOOL_INIT;
 
 #[derive(Debug)]
 pub enum Error {

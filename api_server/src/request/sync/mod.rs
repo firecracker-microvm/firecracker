@@ -1,9 +1,11 @@
-use std::fmt;
 use std::result;
 
 use futures::sync::oneshot;
 use hyper::{self, StatusCode};
 
+use data_model::device_config::{DriveConfig, NetworkInterfaceConfig};
+use data_model::vm::boot_source::BootSource;
+use data_model::vm::LoggerDescription;
 use data_model::vm::MachineConfiguration;
 use http_service::{empty_response, json_fault_message, json_response};
 use net_util::TapError;
@@ -11,16 +13,8 @@ use net_util::TapError;
 pub mod boot_source;
 mod drive;
 mod logger;
-pub mod machine_configuration;
+mod machine_configuration;
 mod net;
-mod rate_limiter;
-
-pub use self::boot_source::{BootSourceBody, BootSourceType, LocalImage};
-pub use self::drive::{DriveDescription, DriveError, DrivePermissions, PutDriveOutcome};
-pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, PutLoggerOutcome};
-pub use self::net::NetworkInterfaceBody;
-pub use self::rate_limiter::description_into_implementation as rate_limiter_description_into_implementation;
-pub use self::rate_limiter::RateLimiterDescription;
 
 // Unlike async requests, sync request have outcomes which implement this trait. The idea is for
 // each outcome to be a struct which is cheaply and quickly instantiated by the VMM thread, then
@@ -48,32 +42,19 @@ where
 pub type SyncOutcomeSender = oneshot::Sender<Box<GenerateResponse + Send>>;
 pub type SyncOutcomeReceiver = oneshot::Receiver<Box<GenerateResponse + Send>>;
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub enum DeviceState {
-    Attached,
-}
-
 // This enum contains messages for the VMM which represent sync requests. They each contain various
 // bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
 pub enum SyncRequest {
     GetMachineConfiguration(SyncOutcomeSender),
-    PutBootSource(BootSourceBody, SyncOutcomeSender),
-    PutDrive(DriveDescription, SyncOutcomeSender),
-    PutLogger(APILoggerDescription, SyncOutcomeSender),
+    PutBootSource(BootSource, SyncOutcomeSender),
+    PutDrive(DriveConfig, SyncOutcomeSender),
+    PutLogger(LoggerDescription, SyncOutcomeSender),
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
-    PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
-}
-
-// TODO: do we still need this?
-impl fmt::Debug for SyncRequest {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "SyncRequest")
-    }
+    PutNetworkInterface(NetworkInterfaceConfig, SyncOutcomeSender),
 }
 
 // TODO: we should move toward having both the ok status and various possible sync request errors
 // in this file, because there are many common sync outcomes.
-
 pub enum OkStatus {
     Created,
     Updated,
@@ -92,7 +73,6 @@ impl GenerateResponse for OkStatus {
 // Potential errors associated with sync requests.
 #[derive(Debug)]
 pub enum Error {
-    GuestCIDAlreadyInUse,
     GuestMacAddressInUse,
     OpenTap(TapError),
     UpdateNotAllowedPostBoot,
@@ -103,17 +83,13 @@ impl GenerateResponse for Error {
     fn generate_response(&self) -> hyper::Response {
         use self::Error::*;
         match *self {
-            GuestCIDAlreadyInUse => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("The specified guest CID is already in use."),
-            ),
             GuestMacAddressInUse => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The specified guest MAC address is already in use."),
             ),
-            OpenTap(_) => json_response(
+            OpenTap(ref e) => json_response(
                 StatusCode::BadRequest,
-                json_fault_message("Could not open TAP device."),
+                json_fault_message(format!("Could not open TAP device. {:?}", e)),
             ),
             UpdateNotAllowedPostBoot => json_response(
                 StatusCode::Forbidden,
@@ -126,8 +102,6 @@ impl GenerateResponse for Error {
         }
     }
 }
-
-pub type Result<T> = result::Result<T, Error>;
 
 #[cfg(test)]
 mod tests {
@@ -175,17 +149,29 @@ mod tests {
 
     #[test]
     fn test_generate_response_error() {
-        let mut ret = Error::GuestCIDAlreadyInUse.generate_response();
+        let ret = Error::GuestMacAddressInUse.generate_response();
+        assert_eq!(
+            format!("{:?}", Error::GuestMacAddressInUse),
+            "GuestMacAddressInUse"
+        );
         assert_eq!(ret.status(), StatusCode::BadRequest);
 
-        ret = Error::GuestMacAddressInUse.generate_response();
-        assert_eq!(ret.status(), StatusCode::BadRequest);
-
-        ret = Error::OpenTap(TapError::OpenTun(std::io::Error::from_raw_os_error(22)))
+        let ret = Error::OpenTap(TapError::OpenTun(std::io::Error::from_raw_os_error(22)))
             .generate_response();
+        assert!(
+            format!(
+                "{:?}",
+                Error::OpenTap(TapError::OpenTun(std::io::Error::from_raw_os_error(22)))
+            ).contains("OpenTap(OpenTun(Os { code: 22"),
+            "OpenTap"
+        );
         assert_eq!(ret.status(), StatusCode::BadRequest);
 
-        ret = Error::UpdateNotImplemented.generate_response();
+        let ret = Error::UpdateNotImplemented.generate_response();
+        assert_eq!(
+            format!("{:?}", Error::UpdateNotImplemented),
+            "UpdateNotImplemented"
+        );
         assert_eq!(ret.status(), StatusCode::InternalServerError);
     }
 }

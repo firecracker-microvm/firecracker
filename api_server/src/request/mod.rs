@@ -5,8 +5,7 @@ use std::result;
 
 pub use self::async::{AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest,
                       AsyncRequestBody};
-pub use self::sync::{APILoggerDescription, BootSourceBody, DriveDescription, NetworkInterfaceBody,
-                     SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest};
+pub use self::sync::{SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest};
 use hyper::Method;
 
 pub mod instance_info;
@@ -23,12 +22,15 @@ pub enum ParsedRequest {
 
 // This enum represents a message which is passed to the VMM to request the execution
 // of a certain action.
-#[derive(Debug)]
 pub enum ApiRequest {
     Async(AsyncRequest),
     Sync(SyncRequest),
 }
 
 pub trait IntoParsedRequest {
-    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String>;
+    fn into_parsed_request(
+        self,
+        method: Method,
+        id_from_path: Option<&str>,
+    ) -> result::Result<ParsedRequest, String>;
 }

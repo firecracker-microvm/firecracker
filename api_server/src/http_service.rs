@@ -7,16 +7,18 @@ use std::sync::{Arc, RwLock};
 
 use futures::future::{self, Either};
 use futures::{Future, Stream};
-
 use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 use tokio_core::reactor::Handle;
 
 use super::{ActionMap, ActionMapValue};
+use data_model::device_config::{DriveConfig, NetworkInterfaceConfig};
+use data_model::vm::boot_source::BootSource;
+use data_model::vm::LoggerDescription;
 use data_model::vm::MachineConfiguration;
 use logger::{Metric, METRICS};
 use request::instance_info::InstanceInfo;
-use request::{self, ApiRequest, AsyncOutcome, AsyncRequestBody, IntoParsedRequest, ParsedRequest};
+use request::{ApiRequest, AsyncOutcome, AsyncRequestBody, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
 
 fn build_response_base<B: Into<hyper::Body>>(
@@ -171,12 +173,12 @@ fn parse_boot_source_req<'a>(
 
         0 if method == Method::Put => {
             METRICS.put_api_requests.boot_source_count.inc();
-            Ok(serde_json::from_slice::<request::BootSourceBody>(body)
+            Ok(serde_json::from_slice::<BootSource>(body)
                 .map_err(|e| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::SerdeJson(e)
                 })?
-                .into_parsed_request()
+                .into_parsed_request(Method::Put, None)
                 .map_err(|s| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -202,12 +204,14 @@ fn parse_drives_req<'a>(
         1 if method == Method::Put => {
             METRICS.put_api_requests.drive_count.inc();
 
-            Ok(serde_json::from_slice::<request::DriveDescription>(body)
+            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
+
+            Ok(serde_json::from_slice::<DriveConfig>(body)
                 .map_err(|e| {
                     METRICS.put_api_requests.drive_fails.inc();
                     Error::SerdeJson(e)
                 })?
-                .into_parsed_request(id_from_path.unwrap())
+                .into_parsed_request(method, Some(unwrapped_id))
                 .map_err(|s| {
                     METRICS.put_api_requests.drive_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -229,18 +233,16 @@ fn parse_logger_req<'a>(
 
         0 if method == Method::Put => {
             METRICS.put_api_requests.logger_count.inc();
-            Ok(
-                serde_json::from_slice::<request::APILoggerDescription>(body)
-                    .map_err(|e| {
-                        METRICS.put_api_requests.logger_fails.inc();
-                        Error::SerdeJson(e)
-                    })?
-                    .into_parsed_request()
-                    .map_err(|s| {
-                        METRICS.put_api_requests.logger_fails.inc();
-                        Error::Generic(StatusCode::BadRequest, s)
-                    })?,
-            )
+            Ok(serde_json::from_slice::<LoggerDescription>(body)
+                .map_err(|e| {
+                    METRICS.put_api_requests.logger_fails.inc();
+                    Error::SerdeJson(e)
+                })?
+                .into_parsed_request(method, None)
+                .map_err(|s| {
+                    METRICS.put_api_requests.logger_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -263,7 +265,7 @@ fn parse_machine_config_req<'a>(
                 cpu_template: None,
             };
             Ok(empty_machine_config
-                .into_parsed_request(method)
+                .into_parsed_request(method, None)
                 .map_err(|s| {
                     METRICS.get_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -277,7 +279,7 @@ fn parse_machine_config_req<'a>(
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::SerdeJson(e)
                 })?
-                .into_parsed_request(method)
+                .into_parsed_request(method, None)
                 .map_err(|s| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -304,18 +306,16 @@ fn parse_netif_req<'a>(
             let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
             METRICS.put_api_requests.network_count.inc();
 
-            Ok(
-                serde_json::from_slice::<request::NetworkInterfaceBody>(body)
-                    .map_err(|e| {
-                        METRICS.put_api_requests.network_fails.inc();
-                        Error::SerdeJson(e)
-                    })?
-                    .into_parsed_request(unwrapped_id)
-                    .map_err(|s| {
-                        METRICS.put_api_requests.network_fails.inc();
-                        Error::Generic(StatusCode::BadRequest, s)
-                    })?,
-            )
+            Ok(serde_json::from_slice::<NetworkInterfaceConfig>(body)
+                .map_err(|e| {
+                    METRICS.put_api_requests.network_fails.inc();
+                    Error::SerdeJson(e)
+                })?
+                .into_parsed_request(method, Some(unwrapped_id))
+                .map_err(|s| {
+                    METRICS.put_api_requests.network_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -671,10 +671,9 @@ mod tests {
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
-    use net_util::MacAddr;
     use request::async::AsyncRequest;
-    use request::sync::{DeviceState, DriveDescription, DrivePermissions, NetworkInterfaceBody,
-                        SyncRequest};
+    use request::sync::SyncRequest;
+    use std::result;
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret = body.fold(Vec::new(), |mut acc, chunk| {
@@ -934,9 +933,9 @@ mod tests {
 
         // PUT
         // Falling back to json deserialization for constructing the "correct" request because not
-        // all of BootSourceBody's members are accessible. Rather than making them all public just
+        // all of BootSource's members are accessible. Rather than making them all public just
         // for the purpose of unit tests, it's preferable to trust the deserialization.
-        let res_bsb = serde_json::from_slice::<request::BootSourceBody>(&body);
+        let res_bsb = serde_json::from_slice::<BootSource>(&body);
         match res_bsb {
             Ok(boot_source_body) => {
                 match parse_boot_source_req(&path_tokens, &path, Method::Put, &body) {
@@ -1000,16 +999,11 @@ mod tests {
         }
 
         // PUT
-        let drive_desc = DriveDescription {
-            drive_id: String::from("bar"),
-            path_on_host: String::from("/foo/bar"),
-            state: DeviceState::Attached,
-            is_root_device: true,
-            permissions: DrivePermissions::ro,
-            rate_limiter: None,
-        };
+        let result: result::Result<DriveConfig, serde_json::Error> = serde_json::from_str(json);
+        assert!(result.is_ok());
+        let drive_desc = result.unwrap();
 
-        match drive_desc.into_parsed_request("bar") {
+        match drive_desc.into_parsed_request(Method::Put, Some("bar")) {
             Ok(pr) => match parse_drives_req(
                 &"/foo/bar"[1..].split_terminator('/').collect(),
                 &"/foo/bar",
@@ -1066,7 +1060,7 @@ mod tests {
             cpu_template: Some(CpuFeaturesTemplate::T2),
         };
 
-        match mcb.into_parsed_request(Method::Put) {
+        match mcb.into_parsed_request(Method::Put, None) {
             Ok(pr) => match parse_machine_config_req(&path_tokens, &path, Method::Put, &body) {
                 Ok(pr_mcb) => assert!(pr.eq(&pr_mcb)),
                 _ => assert!(false),
@@ -1130,16 +1124,14 @@ mod tests {
         }
 
         // PUT
-        let netif = NetworkInterfaceBody {
-            iface_id: String::from("bar"),
-            state: DeviceState::Attached,
-            host_dev_name: String::from("foo"),
-            guest_mac: Some(MacAddr::parse_str("12:34:56:78:9a:BC").unwrap()),
-            rx_rate_limiter: None,
-            tx_rate_limiter: None,
-        };
+        let result: result::Result<NetworkInterfaceConfig, serde_json::Error> =
+            serde_json::from_str(json);
+        assert!(result.is_ok());
 
-        match netif.into_parsed_request("bar") {
+        match result
+            .unwrap()
+            .into_parsed_request(Method::Put, Some("bar"))
+        {
             Ok(pr) => match parse_netif_req(
                 &"/foo/bar"[1..].split_terminator('/').collect(),
                 &"/foo/bar",

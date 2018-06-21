@@ -86,9 +86,7 @@ impl ApiServer {
         let mut core = Core::new().map_err(Error::Io)?;
         let handle = Rc::new(core.handle());
 
-        let listener = if data_model::FIRECRACKER_IS_JAILED
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
+        let listener = if jailer::FIRECRACKER_IS_JAILED.load(std::sync::atomic::Ordering::Relaxed) {
             // This is a UnixListener of the tokio_uds variety. Using fd inherited from the jailer.
             UnixListener::from_listener(
                 unsafe { std::os::unix::net::UnixListener::from_raw_fd(jailer::LISTENER_FD) },
@@ -133,5 +131,36 @@ impl ApiServer {
 
     pub fn get_event_fd_clone(&self) -> Result<EventFd> {
         self.efd.try_clone().map_err(Error::Eventfd)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use request::instance_info::InstanceState;
+    use std::sync::mpsc::channel;
+
+    #[test]
+    fn test_debug_traits_enums() {
+        assert!(
+            format!("{:?}", Error::Io(std::io::Error::from_raw_os_error(22)))
+                .contains("Io(Os { code: 22")
+        );
+        assert_eq!(
+            format!("{:?}", Error::Eventfd(sys_util::Error::new(0))),
+            "Eventfd(Error(0))"
+        );
+    }
+
+    #[test]
+    fn test_api_server_init() {
+        let (to_vmm, _from_api) = channel();
+
+        let shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state: InstanceState::Uninitialized,
+        }));
+        let server = ApiServer::new(shared_info.clone(), to_vmm, 0);
+        assert!(server.is_ok());
+        assert!(server.unwrap().get_event_fd_clone().is_ok());
     }
 }

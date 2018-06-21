@@ -1,11 +1,12 @@
 use std::result;
 
-use api_server::request::sync::{APILoggerDescription, APILoggerError, APILoggerLevel};
+use data_model::vm::{LoggerDescription, LoggerError, LoggerLevel};
 use logger::{Level, LOGGER};
 
-type Result<T> = result::Result<T, APILoggerError>;
+type Result<T> = result::Result<T, LoggerError>;
 
-pub fn init_logger(api_logger: APILoggerDescription) -> Result<()> {
+pub fn init_logger(api_logger: LoggerDescription) -> Result<()> {
+    //there are 3 things we need to get out: the level, whether to show it and whether to show the origin of the log
     let level = from_api_level(api_logger.level);
 
     if let Some(val) = level {
@@ -21,19 +22,19 @@ pub fn init_logger(api_logger: APILoggerDescription) -> Result<()> {
     }
 
     if let Err(ref e) = LOGGER.init(Some(api_logger.path)) {
-        return Err(APILoggerError::InitializationFailure(e.to_string()));
+        return Err(LoggerError::InitializationFailure(e.to_string()));
     } else {
         Ok(())
     }
 }
 
-fn from_api_level(api_level: Option<APILoggerLevel>) -> Option<Level> {
+fn from_api_level(api_level: Option<LoggerLevel>) -> Option<Level> {
     if let Some(val) = api_level {
         match val {
-            APILoggerLevel::Error => Some(Level::Error),
-            APILoggerLevel::Warning => Some(Level::Warn),
-            APILoggerLevel::Info => Some(Level::Info),
-            APILoggerLevel::Debug => Some(Level::Debug),
+            LoggerLevel::Error => Some(Level::Error),
+            LoggerLevel::Warning => Some(Level::Warn),
+            LoggerLevel::Info => Some(Level::Info),
+            LoggerLevel::Debug => Some(Level::Debug),
         }
     } else {
         None
@@ -43,7 +44,6 @@ fn from_api_level(api_level: Option<APILoggerLevel>) -> Option<Level> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use api_server::request::sync::{APILoggerDescription, APILoggerLevel};
     use std::fs::{self, File};
     use std::io::{BufRead, BufReader};
 
@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn test_init_logger_from_api() {
-        let desc = APILoggerDescription {
+        let desc = LoggerDescription {
             path: String::from(""),
             level: None,
             show_level: None,
@@ -76,9 +76,9 @@ mod tests {
         assert!(init_logger(desc).is_err());
 
         let filename = "tmp.log";
-        let desc = APILoggerDescription {
+        let desc = LoggerDescription {
             path: String::from(filename),
-            level: Some(APILoggerLevel::Warning),
+            level: Some(LoggerLevel::Warning),
             show_level: Some(true),
             show_log_origin: Some(true),
         };
@@ -108,21 +108,12 @@ mod tests {
 
     #[test]
     fn test_from_api_level() {
+        assert_eq!(from_api_level(Some(LoggerLevel::Error)), Some(Level::Error));
         assert_eq!(
-            from_api_level(Some(APILoggerLevel::Error)),
-            Some(Level::Error)
-        );
-        assert_eq!(
-            from_api_level(Some(APILoggerLevel::Warning)),
+            from_api_level(Some(LoggerLevel::Warning)),
             Some(Level::Warn)
         );
-        assert_eq!(
-            from_api_level(Some(APILoggerLevel::Info)),
-            Some(Level::Info)
-        );
-        assert_eq!(
-            from_api_level(Some(APILoggerLevel::Debug)),
-            Some(Level::Debug)
-        );
+        assert_eq!(from_api_level(Some(LoggerLevel::Info)), Some(Level::Info));
+        assert_eq!(from_api_level(Some(LoggerLevel::Debug)), Some(Level::Debug));
     }
 }

@@ -155,6 +155,7 @@ def test_api_put_update_pre_boot(test_microvm_any):
     """ Valid updates to the network `host_dev_name` are allowed. """
     assert(test_microvm.api_session.is_good_response(response.status_code))
 
+
 def test_api_put_machine_config(test_microvm_any):
     """Tests various scenarios for PUT on /machine_config that cannot be covered by the unit tests"""
 
@@ -186,6 +187,7 @@ def test_api_put_machine_config(test_microvm_any):
         json = {'cpu_template': 'random_string'}
     )
     assert response.status_code == 400
+
 
 def test_api_put_update_post_boot(test_microvm_any):
     """ Tests that PUT updates are rejected after the microvm boots. """
@@ -289,3 +291,57 @@ def _test_default_block_devices(test_microvm):
         }
     )
     assert(test_microvm.api_session.is_good_response(response.status_code))
+
+
+def test_api_id_mismatches(test_microvm_any):
+    """ Tests that the requests requiring an ID in their path is the same with the one from the body. """
+    test_microvm = test_microvm_any
+
+    # testing with same id first for net
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url + '/1',
+        json={
+            'iface_id': '1',
+            'host_dev_name': test_microvm.slot.make_tap(name='mismatch_tap1'),
+            'guest_mac': '06:00:00:00:00:01',
+            'state': 'Attached'
+        }
+    )
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url + '/2',
+        json={
+            'iface_id': '3',
+            'host_dev_name': test_microvm.slot.make_tap(name='mismatch_tap2'),
+            'guest_mac': '06:00:00:00:00:01',
+            'state': 'Attached'
+        }
+    )
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    # testing with same id for drive
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url + '/1',
+        json={
+            'drive_id': '1',
+            'path_on_host': test_microvm.slot.make_fsfile(name='mismatch_drive_1'),
+            'is_root_device': False,
+            'permissions': 'rw',
+            'state': 'Attached'
+        }
+    )
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    # testing with different id for drive
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url + '/2',
+        json={
+            'drive_id': '3',
+            'path_on_host': test_microvm.slot.make_fsfile(name='mismatch_drive_2'),
+            'is_root_device': False,
+            'permissions': 'rw',
+            'state': 'Attached'
+        }
+    )
+    assert(not test_microvm.api_session.is_good_response(response.status_code))

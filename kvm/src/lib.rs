@@ -44,7 +44,7 @@ pub struct Kvm {
 impl Kvm {
     /// Opens `/dev/kvm/` and returns a Kvm object on success.
     pub fn new() -> Result<Kvm> {
-        let ret = if data_model::FIRECRACKER_IS_JAILED.load(std::sync::atomic::Ordering::Relaxed) {
+        let ret = if jailer::FIRECRACKER_IS_JAILED.load(std::sync::atomic::Ordering::Relaxed) {
             // /dev/kvm fd inherited from the jailer.
             jailer::KVM_FD
         } else {

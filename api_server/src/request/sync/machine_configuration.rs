@@ -3,41 +3,28 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
 
-use data_model::vm::MachineConfiguration;
+use data_model::vm::{MachineConfiguration, MachineConfigurationError,
+                     PutMachineConfigurationOutcome};
 use http_service::{empty_response, json_fault_message, json_response};
 use request::sync::GenerateResponse;
 use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 
-#[derive(Debug, PartialEq)]
-pub enum PutMachineConfigurationError {
-    InvalidVcpuCount,
-    InvalidMemorySize,
-}
-
-impl GenerateResponse for PutMachineConfigurationError {
+impl GenerateResponse for MachineConfigurationError {
     fn generate_response(&self) -> Response {
-        use self::PutMachineConfigurationError::*;
-
         match self {
-            InvalidVcpuCount => json_response(
+            MachineConfigurationError::InvalidVcpuCount => json_response(
                 StatusCode::BadRequest,
                 json_fault_message(
                     "The vCPU number is invalid! The vCPU number can only \
                      be 1 or an even number when hyperthreading is enabled.",
                 ),
             ),
-            InvalidMemorySize => json_response(
+            MachineConfigurationError::InvalidMemorySize => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The memory size (MiB) is invalid."),
             ),
         }
     }
-}
-
-pub enum PutMachineConfigurationOutcome {
-    Created,
-    Updated,
-    Error(PutMachineConfigurationError),
 }
 
 impl GenerateResponse for PutMachineConfigurationOutcome {
@@ -81,7 +68,11 @@ impl GenerateResponse for MachineConfiguration {
 }
 
 impl IntoParsedRequest for MachineConfiguration {
-    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
+    fn into_parsed_request(
+        self,
+        method: Method,
+        _id_from_path: Option<&str>,
+    ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         match method {
             Method::Get => Ok(ParsedRequest::Sync(
@@ -112,13 +103,13 @@ mod tests {
     #[test]
     fn test_generate_response_put_machine_configuration_error() {
         assert_eq!(
-            PutMachineConfigurationError::InvalidVcpuCount
+            MachineConfigurationError::InvalidVcpuCount
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
         );
         assert_eq!(
-            PutMachineConfigurationError::InvalidMemorySize
+            MachineConfigurationError::InvalidMemorySize
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
@@ -140,7 +131,7 @@ mod tests {
             StatusCode::NoContent
         );
         assert_eq!(
-            PutMachineConfigurationOutcome::Error(PutMachineConfigurationError::InvalidVcpuCount)
+            PutMachineConfigurationOutcome::Error(MachineConfigurationError::InvalidVcpuCount)
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
@@ -158,7 +149,7 @@ mod tests {
         let (sender, receiver) = oneshot::channel();
         assert!(
             body.clone()
-                .into_parsed_request(Method::Put)
+                .into_parsed_request(Method::Put, None)
                 .eq(&Ok(ParsedRequest::Sync(
                     SyncRequest::PutMachineConfiguration(body, sender),
                     receiver
@@ -173,17 +164,17 @@ mod tests {
         assert!(
             uninitialized
                 .clone()
-                .into_parsed_request(Method::Get)
+                .into_parsed_request(Method::Get, None)
                 .is_ok()
         );
         assert!(
             uninitialized
                 .clone()
-                .into_parsed_request(Method::Patch)
+                .into_parsed_request(Method::Patch, None)
                 .eq(&Ok(ParsedRequest::Dummy))
         );
 
-        match uninitialized.into_parsed_request(Method::Put) {
+        match uninitialized.into_parsed_request(Method::Put, None) {
             Ok(_) => assert!(false),
             Err(e) => assert_eq!(e, String::from("Empty request.")),
         };

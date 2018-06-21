@@ -1,4 +1,9 @@
-pub mod machine_config;
+pub mod boot_source;
+mod logger;
+mod machine_configuration;
 
-pub use vm::machine_config::CpuFeaturesTemplate;
-pub use vm::machine_config::MachineConfiguration;
+pub use vm::boot_source::{BootSource, BootSourceError};
+pub use vm::logger::{LoggerDescription, LoggerError, LoggerLevel, PutLoggerOutcome};
+pub use vm::machine_configuration::CpuFeaturesTemplate;
+pub use vm::machine_configuration::{MachineConfiguration, MachineConfigurationError,
+                                    PutMachineConfigurationOutcome};

@@ -16,7 +16,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 
 use super::{ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
-use fc_util::ratelimiter::{RateLimiter, TokenType};
+use fc_util::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
 use net_sys;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};

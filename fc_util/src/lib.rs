@@ -2,6 +2,7 @@
 extern crate logger;
 
 mod lri_hash_map;
-pub mod ratelimiter;
+mod ratelimiter;
 
 pub use lri_hash_map::LriHashMap;
+pub use ratelimiter::{RateLimiter, TokenType};
