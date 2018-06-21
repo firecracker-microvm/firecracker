@@ -5,7 +5,7 @@ The jailer is invoked in this manner:
 jailer --id <id> --node <numa_node> --exec-file <exec_file> --uid <uid> --gid <gid> [--chroot-base-dir <chroot_base>]
 ```
 
-* **id** is the unique VM identification string, which has to be alphanumeric for now.
+* **id** is the unique VM identification string (i.e the UUID) and needs to follow one of the three UUID formats (simple, hyphenated or urn). See [RFC4122: A Universally Unique IDentifier (UUID) URN Namespace](https://tools.ietf.org/html/rfc4122).
 
 * **numa_node** represents the NUMA node the process gets assigned to. More details are available below.
 
@@ -42,28 +42,28 @@ After starting, the Jailer goes through the following operations:
 
 ## EXAMPLE RUN AND NOTES
 
-Let’s assume Firecracker is available as `/usr/bin/firecracker`, and the jailer can be found at `/usr/bin/jailer`. We pick the **unique id 0abbcf2**, and we choose to run on **NUMA node 0**, using **uid 123**, and **gid 100**. For this example, we are content with the default `/srv/jailer` **chroot base dir**.
+Let’s assume Firecracker is available as `/usr/bin/firecracker`, and the jailer can be found at `/usr/bin/jailer`. We pick the **unique id 551e7604-e35c-42b3-b825-416853441234**, and we choose to run on **NUMA node 0**, using **uid 123**, and **gid 100**. For this example, we are content with the default `/srv/jailer` **chroot base dir**.
 
-We start by running ```/usr/bin/jailer --id 0abbcf2 --node 0 --exec-file /usr/bin/firecracker --uid 123 --gid 100```.
+We start by running ```/usr/bin/jailer --id 551e7604-e35c-42b3-b825-416853441234 --node 0 --exec-file /usr/bin/firecracker --uid 123 --gid 100```.
 
 After opening the file descriptors mentioned in the previous section, the jailer will create the following resources (and all their prerequisites, such as the path which contains them):
 
-* `/srv/jailer/firecracker/0abbcf2/api.socket` (created via `bind`)
-* `/srv/jailer/firecracker/0abbcf2/root/firecracker` (copied from `/usr/bin/firecracker`)
+* `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/api.socket` (created via `bind`)
+* `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root/firecracker` (copied from `/usr/bin/firecracker`)
 
 Let’s also assume the **cpu**, **cpuset**, and **pids** cgroups are mounted at `/sys/fs/cgroup/cpu`, `/sys/fs/cgroup/cpuset`, and `/sys/fs/cgroup/pids`, respectively. The jailer will create the following subfolders (which will inherit settings from the parent cgroup):
 
-* `/sys/fs/cgroup/cpu/firecracker/0abbcf2`
-* `/sys/fs/cgroup/cpuset/firecracker/0abbcf2`
-* `/sys/fs/cgroup/pids/firecracker/0abbcf2`.
+* `/sys/fs/cgroup/cpu/firecracker/551e7604-e35c-42b3-b825-416853441234`
+* `/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234`
+* `/sys/fs/cgroup/pids/firecracker/551e7604-e35c-42b3-b825-416853441234`.
 
 It’s worth noting that, whenever a folder already exists, nothing will be done, and we move on to the next directory that needs to be created. This should only happen for the common **firecracker** subfolder (but, as for creating the chroot path before, we do not issue an error if folders directly associated with the supposedly unique **id** already exist).
 
-The jailer then writes the current pid to `/sys/fs/cgroup/cpu/firecracker/0abbcf2/tasks`, `/sys/fs/cgroup/cpuset/firecracker/0abbcf2/tasks`, and `/sys/fs/cgroup/pids/firecracker/0abbcf2/tasks`. It also writes ```0``` to `/sys/fs/cgroup/cpuset/firecracker/0abbcf2/cpuset.mems`.
+The jailer then writes the current pid to `/sys/fs/cgroup/cpu/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`, `/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`, and `/sys/fs/cgroup/pids/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`. It also writes ```0``` to `/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234/cpuset.mems`.
 
-Finally, the jailer chroots into `/srv/jailer/firecracker/0abbcf2/root`, switches the **uid** to ```123```, and **gid** to ```100```, and execs `/firecracker —jailed`.
+Finally, the jailer chroots into `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root`, switches the **uid** to ```123```, and **gid** to ```100```, and execs `/firecracker —jailed`.
 
-We can now use the socket at `/srv/jailer/firecracker/0abbcf2/api.socket` to interact with the VM. 
+We can now use the socket at `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/api.socket` to interact with the VM.
 
 ### Observations
 
