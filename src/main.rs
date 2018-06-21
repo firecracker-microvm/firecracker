@@ -23,7 +23,7 @@ const MAX_STORED_ASYNC_REQS: usize = 100;
 
 fn main() {
     // If the signal handler can't be set, it's OK to panic.
-    seccomp::setup_sigsys_handler().unwrap();
+    seccomp::setup_sigsys_handler().expect("Failed to register signal handler");
 
     // Start firecracker by setting up a panic hook, which will be called before
     // terminating as we're building with panic = "abort".
