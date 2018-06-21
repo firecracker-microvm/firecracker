@@ -5,6 +5,7 @@ extern crate sys_util;
 
 mod cgroup;
 mod env;
+mod uuid;
 
 use std::ffi::OsStr;
 use std::fs::{canonicalize, metadata};
@@ -15,6 +16,7 @@ use std::path::PathBuf;
 use std::result;
 
 use env::Env;
+use uuid::validate;
 
 pub const KVM_FD: i32 = 3;
 pub const DEV_NET_TUN_FD: i32 = 4;
@@ -51,6 +53,7 @@ pub enum Error {
     UnexpectedListenerFd(i32),
     UnixListener(io::Error),
     UnsetCloexec(sys_util::Error),
+    ValidateUUID(uuid::UUIDError),
     Write(PathBuf, io::Error),
 }
 
@@ -74,12 +77,8 @@ impl<'a> JailerArgs<'a> {
         uid: &str,
         gid: &str,
     ) -> Result<Self> {
-        // Maybe it's a good idea to restrict the id to alphanumeric strings.
-        for c in id.chars() {
-            if !c.is_alphanumeric() {
-                return Err(Error::NotAlphanumeric(id.to_string()));
-            }
-        }
+        // Check that id meets the style of an UUID's.
+        validate(id).map_err(Error::ValidateUUID)?;
 
         let numa_node = node.parse::<u32>()
             .map_err(|_| Error::NumaNode(String::from(node)))?;
