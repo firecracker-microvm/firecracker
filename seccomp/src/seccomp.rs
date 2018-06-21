@@ -199,7 +199,13 @@ extern "C" fn sigsys_handler(
 }
 
 pub fn setup_sigsys_handler() -> Result<(), sys_util::Error> {
-    return unsafe { sys_util::register_signal_handler_sigaction(libc::SIGSYS, sigsys_handler) };
+    return unsafe {
+        sys_util::register_signal_handler(
+            libc::SIGSYS,
+            sys_util::SignalHandler::Siginfo(sigsys_handler),
+            false,
+        )
+    };
 }
 
 #[cfg(test)]
