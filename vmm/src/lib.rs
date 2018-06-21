@@ -21,6 +21,8 @@ pub mod kernel_cmdline;
 mod vm_control;
 mod vstate;
 
+use libc::{c_void, siginfo_t};
+
 use std::ffi::CString;
 use std::fs::{metadata, File, OpenOptions};
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -62,9 +64,8 @@ use vstate::{Vcpu, Vm};
 pub const KERNEL_START_OFFSET: usize = 0x200000;
 pub const CMDLINE_OFFSET: usize = 0x20000;
 pub const CMDLINE_MAX_SIZE: usize = KERNEL_START_OFFSET - CMDLINE_OFFSET;
-pub const DEFAULT_KERNEL_CMDLINE: &str =
-    "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
-const VCPU_RTSIG_OFFSET: u8 = 0;
+pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
+const VCPU_RTSIG_OFFSET: i32 = 0;
 
 // TODO: Maybe configure this parameter via the API.
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
@@ -762,10 +763,13 @@ impl Vmm {
                 .name(format!("fc_vcpu{}", cpu_id))
                 .spawn(move || {
                     unsafe {
-                        extern "C" fn handle_signal() {}
+                        extern "C" fn handle_signal(_: i32, _: *mut siginfo_t, _: *mut c_void) {}
                         // async signal safe handler used to kill the vcpu handles.
-                        register_signal_handler(VCPU_RTSIG_OFFSET, handle_signal)
-                            .expect("failed to register vcpu signal handler");
+                        register_signal_handler(
+                            VCPU_RTSIG_OFFSET,
+                            sys_util::SignalHandler::Siginfo(handle_signal),
+                            true,
+                        ).expect("Failed to register vcpu signal handler");
                     }
 
                     vcpu_thread_barrier.wait();
