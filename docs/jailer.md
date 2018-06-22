@@ -21,6 +21,8 @@ jailer --id <id> --node <numa_node> --exec-file <exec_file> --uid <uid> --gid <g
 
 After starting, the Jailer goes through the following operations:
 
+* If the `USE_SECCOMP` environment variable is set, sets up a list of seccomp filters, whitelisting the minimum set of system calls that Firecracker requires to function.
+
 * Validate **all provided paths** and the **VM id**.
 
 * Open `/dev/kvm` as *RW*, `/dev/net/tun` as *RW non-blocking*, and bind a Unix domain socket listener to `<chroot_base>/<exec_file_name>/<id>/api.socket`. **exec_file_name** is the last path component of **exec_file** (for example, that would be “firecracker” for `/usr/bin/firecracker`). All three file descriptors remain open across exec-ing into the target binary, which would be otherwise unable to open/create the associated files.
@@ -69,6 +71,7 @@ We can now use the socket at `/srv/jailer/firecracker/0abbcf2/api.socket` to int
 * It’s up to the user to load balance VM placement among multiple NUMA nodes (if present), using the ```--node``` command line argument.
 * The user must also manage any further fine tuning of resource partitioning via cgroups (most likely the ones created by the jailer), or any other means.
 * It’s up to the user to handle cleanup after running the jailer. One way to do this involves registering handlers with the cgroup **notify_on_release** mechanism, while being wary about potential race conditions (the instance crashing before the subscription process is complete, for example).
+* Seccomp filtering is currently disabled by default and needs to be enabled by setting the `USE_SECCOMP` environment variable due to a bug in the Linux kernel. Enabling it might cause slowness as a result of an increased number of page faults.
 
 ## Caveats
 
