@@ -40,7 +40,9 @@ fn get_max_addressable_lprocessors(cpu_count: u8) -> result::Result<u8, Error> {
 // Converts a 4 letters string to u32; if the string has more than 4 letters, only the first 4 are returned
 fn str_to_u32(string: &str) -> u32 {
     let str_bytes = string.as_bytes();
-    return (str_bytes[0] as u32) << 24 | (str_bytes[1] as u32) << 16 | (str_bytes[2] as u32) << 8
+    return (str_bytes[0] as u32) << 24
+        | (str_bytes[1] as u32) << 16
+        | (str_bytes[2] as u32) << 8
         | (str_bytes[3] as u32);
 }
 

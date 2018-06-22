@@ -673,8 +673,9 @@ mod tests {
     use hyper::Body;
     use net_util::MacAddr;
     use request::async::AsyncRequest;
-    use request::sync::{DeviceState, DriveDescription, DrivePermissions, NetworkInterfaceBody,
-                        SyncRequest};
+    use request::sync::{
+        DeviceState, DriveDescription, DrivePermissions, NetworkInterfaceBody, SyncRequest,
+    };
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret = body.fold(Vec::new(), |mut acc, chunk| {

@@ -13,7 +13,8 @@ macro_rules! ioctl_ioc_nr {
     ($name:ident, $dir:expr, $ty:expr, $nr:expr, $size:expr) => {
         #[allow(non_snake_case)]
         pub fn $name() -> ::std::os::raw::c_ulong {
-            (($dir << $crate::ioctl::_IOC_DIRSHIFT) | ($ty << $crate::ioctl::_IOC_TYPESHIFT)
+            (($dir << $crate::ioctl::_IOC_DIRSHIFT)
+                | ($ty << $crate::ioctl::_IOC_TYPESHIFT)
                 | ($nr << $crate::ioctl::_IOC_NRSHIFT)
                 | ($size << $crate::ioctl::_IOC_SIZESHIFT)) as ::std::os::raw::c_ulong
         }

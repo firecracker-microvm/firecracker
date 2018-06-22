@@ -494,10 +494,13 @@ impl Net {
         tap.set_vnet_hdr_size(vnet_hdr_size)
             .map_err(Error::TapSetVnetHdrSize)?;
 
-        let mut avail_features =
-            1 << VIRTIO_NET_F_GUEST_CSUM | 1 << VIRTIO_NET_F_CSUM | 1 << VIRTIO_NET_F_GUEST_TSO4
-                | 1 << VIRTIO_NET_F_GUEST_UFO | 1 << VIRTIO_NET_F_HOST_TSO4
-                | 1 << VIRTIO_NET_F_HOST_UFO | 1 << VIRTIO_F_VERSION_1;
+        let mut avail_features = 1 << VIRTIO_NET_F_GUEST_CSUM
+            | 1 << VIRTIO_NET_F_CSUM
+            | 1 << VIRTIO_NET_F_GUEST_TSO4
+            | 1 << VIRTIO_NET_F_GUEST_UFO
+            | 1 << VIRTIO_NET_F_HOST_TSO4
+            | 1 << VIRTIO_NET_F_HOST_UFO
+            | 1 << VIRTIO_F_VERSION_1;
 
         let mut config_space;
         if let Some(mac) = guest_mac {
@@ -824,9 +827,12 @@ mod tests {
         assert_eq!(n.device_type(), TYPE_NET);
         assert_eq!(n.queue_max_sizes(), QUEUE_SIZES);
 
-        let features = 1 << VIRTIO_NET_F_GUEST_CSUM | 1 << VIRTIO_NET_F_CSUM
-            | 1 << VIRTIO_NET_F_GUEST_TSO4 | 1 << VIRTIO_NET_F_GUEST_UFO
-            | 1 << VIRTIO_NET_F_HOST_TSO4 | 1 << VIRTIO_NET_F_HOST_UFO
+        let features = 1 << VIRTIO_NET_F_GUEST_CSUM
+            | 1 << VIRTIO_NET_F_CSUM
+            | 1 << VIRTIO_NET_F_GUEST_TSO4
+            | 1 << VIRTIO_NET_F_GUEST_UFO
+            | 1 << VIRTIO_NET_F_HOST_TSO4
+            | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1;
 
         assert_eq!(n.features(0), features as u32);
