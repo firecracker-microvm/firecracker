@@ -36,13 +36,14 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
-use api_server::request::sync::machine_configuration::{PutMachineConfigurationError,
-                                                       PutMachineConfigurationOutcome};
-use api_server::request::sync::{rate_limiter_description_into_implementation,
-                                APILoggerDescription, BootSourceBody, DriveDescription,
-                                DriveError, Error as SyncError, GenerateResponse,
-                                NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
-                                PutLoggerOutcome, SyncOutcomeSender, SyncRequest};
+use api_server::request::sync::machine_configuration::{
+    PutMachineConfigurationError, PutMachineConfigurationOutcome,
+};
+use api_server::request::sync::{
+    rate_limiter_description_into_implementation, APILoggerDescription, BootSourceBody,
+    DriveDescription, DriveError, Error as SyncError, GenerateResponse, NetworkInterfaceBody,
+    OkStatus as SyncOkStatus, PutDriveOutcome, PutLoggerOutcome, SyncOutcomeSender, SyncRequest,
+};
 
 use api_server::ApiRequest;
 use data_model::vm::MachineConfiguration;

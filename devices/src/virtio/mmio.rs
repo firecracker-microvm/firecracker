@@ -182,26 +182,25 @@ impl BusDevice for MmioDevice {
     fn read(&mut self, offset: u64, data: &mut [u8]) {
         match offset {
             0x00...0xff if data.len() == 4 => {
-                let v =
-                    match offset {
-                        0x0 => MMIO_MAGIC_VALUE,
-                        0x04 => MMIO_VERSION,
-                        0x08 => self.device.device_type(),
-                        0x0c => VENDOR_ID, // vendor id
-                        0x10 => {
-                            self.device.features(self.features_select)
-                                | if self.features_select == 1 { 0x1 } else { 0x0 }
-                        }
-                        0x34 => self.with_queue(0, |q| q.get_max_size() as u32),
-                        0x44 => self.with_queue(0, |q| q.ready as u32),
-                        0x60 => self.interrupt_status.load(Ordering::SeqCst) as u32,
-                        0x70 => self.driver_status,
-                        0xfc => self.config_generation,
-                        _ => {
-                            warn!("unknown virtio mmio register read: 0x{:x}", offset);
-                            return;
-                        }
-                    };
+                let v = match offset {
+                    0x0 => MMIO_MAGIC_VALUE,
+                    0x04 => MMIO_VERSION,
+                    0x08 => self.device.device_type(),
+                    0x0c => VENDOR_ID, // vendor id
+                    0x10 => {
+                        self.device.features(self.features_select)
+                            | if self.features_select == 1 { 0x1 } else { 0x0 }
+                    }
+                    0x34 => self.with_queue(0, |q| q.get_max_size() as u32),
+                    0x44 => self.with_queue(0, |q| q.ready as u32),
+                    0x60 => self.interrupt_status.load(Ordering::SeqCst) as u32,
+                    0x70 => self.driver_status,
+                    0xfc => self.config_generation,
+                    _ => {
+                        warn!("unknown virtio mmio register read: 0x{:x}", offset);
+                        return;
+                    }
+                };
                 LittleEndian::write_u32(data, v);
             }
             0x100...0xfff => self.device.read_config(offset - 0x100, data),

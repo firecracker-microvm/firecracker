@@ -89,8 +89,10 @@ impl IntoParsedRequest for MachineConfiguration {
                 receiver,
             )),
             Method::Put => {
-                if self.vcpu_count.is_none() && self.mem_size_mib.is_none()
-                    && self.cpu_template.is_none() && self.ht_enabled.is_none()
+                if self.vcpu_count.is_none()
+                    && self.mem_size_mib.is_none()
+                    && self.cpu_template.is_none()
+                    && self.ht_enabled.is_none()
                 {
                     return Err(String::from("Empty request."));
                 }

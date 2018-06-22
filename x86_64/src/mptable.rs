@@ -75,9 +75,12 @@ fn mpf_intel_compute_checksum(v: &mpf_intel) -> u8 {
 }
 
 fn compute_mp_size(num_cpus: u8) -> usize {
-    mem::size_of::<mpf_intel>() + mem::size_of::<mpc_table>()
-        + mem::size_of::<mpc_cpu>() * (num_cpus as usize) + mem::size_of::<mpc_ioapic>()
-        + mem::size_of::<mpc_bus>() + mem::size_of::<mpc_intsrc>() * 16
+    mem::size_of::<mpf_intel>()
+        + mem::size_of::<mpc_table>()
+        + mem::size_of::<mpc_cpu>() * (num_cpus as usize)
+        + mem::size_of::<mpc_ioapic>()
+        + mem::size_of::<mpc_bus>()
+        + mem::size_of::<mpc_intsrc>() * 16
         + mem::size_of::<mpc_lintsrc>() * 2
 }
 
