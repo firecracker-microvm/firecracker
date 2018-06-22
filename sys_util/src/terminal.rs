@@ -6,8 +6,10 @@ use std::io::StdinLock;
 use std::mem::zeroed;
 use std::os::unix::io::RawFd;
 
-use libc::{c_int, fcntl, isatty, read, tcgetattr, tcsetattr, termios, ECHO, F_GETFL, F_SETFL,
-           ICANON, ISIG, O_NONBLOCK, STDIN_FILENO, TCSANOW};
+use libc::{
+    c_int, fcntl, isatty, read, tcgetattr, tcsetattr, termios, ECHO, F_GETFL, F_SETFL, ICANON,
+    ISIG, O_NONBLOCK, STDIN_FILENO, TCSANOW,
+};
 
 use {errno_result, Result};
 

@@ -23,8 +23,9 @@ use libc::{open, EINVAL, ENOSPC, O_RDWR};
 use kvm_sys::*;
 
 use sys_util::{errno_result, Error, EventFd, MemoryMapping, Result};
-use sys_util::{ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref,
-               ioctl_with_val};
+use sys_util::{
+    ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref, ioctl_with_val,
+};
 
 pub use cap::*;
 

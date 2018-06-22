@@ -3,8 +3,10 @@
 // found in the LICENSE file.
 
 use super::{errno_result, Error, Result};
-use libc::{c_int, c_void, pthread_kill, pthread_t, sigaction, siginfo_t, signal, EINVAL,
-           SA_SIGINFO, SIGHUP, SIGSYS, SIG_ERR};
+use libc::{
+    c_int, c_void, pthread_kill, pthread_t, sigaction, siginfo_t, signal, EINVAL, SA_SIGINFO,
+    SIGHUP, SIGSYS, SIG_ERR,
+};
 use std::mem;
 use std::os::unix::thread::JoinHandleExt;
 use std::thread::JoinHandle;
