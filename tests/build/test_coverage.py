@@ -38,7 +38,7 @@ def test_coverage(testsession_tmp_path):
         'pnet'
     )
     run(
-        'cargo kcov --all '
+        'CARGO_INCREMENTAL=0  cargo kcov --all '
         '    --output ' + testsession_tmp_path +
         '    -- --exclude-pattern=' + exclude_pattern + ' --verify ',
         shell=True,
@@ -50,4 +50,9 @@ def test_coverage(testsession_tmp_path):
     with open(testsession_tmp_path + COVERAGE_FILE) as cov_output:
         coverage = float(re.findall(COVERAGE_REGEX, cov_output.read())[0])
     print("Coverage is: " + str(coverage))
+    run(
+        'cargo clean',
+        shell=True,
+        check=True
+    )
     assert(coverage >= COVERAGE_TARGET_PCT)

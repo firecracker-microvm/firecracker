@@ -16,7 +16,13 @@ import pytest
 def test_unittests():
     """ Runs all unit tests from all Rust crates in the repo. """
     run(
-       'RUST_BACKTRACE=1 cargo test --all --no-fail-fast',
+       'CARGO_INCREMENTAL=0 RUST_BACKTRACE=1 cargo test --all --no-fail-fast',
        shell=True,
        check=True
+    )
+
+    run(
+        'cargo clean',
+        shell=True,
+        check=True
     )
