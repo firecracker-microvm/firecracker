@@ -154,7 +154,7 @@ class MicrovmSlot:
     ):
         self.id = id
         self.microvm_root_path = microvm_root_path
-        self.path = microvm_root_path + self.MICROVM_SLOT_DIR_PREFIX + id + '/'
+        self.path = microvm_root_path + self.MICROVM_SLOT_DIR_PREFIX + self.id + '/'
         self.kernel_path = self.path + self.MICROVM_SLOT_KERNEL_RELPATH
         self.fsfiles_path = self.path + self.MICROVM_SLOT_FSFILES_RELPATH
 
