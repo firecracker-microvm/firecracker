@@ -8,8 +8,9 @@ with a s3 bucket containing structured microvm images.
   into a quality-improving positive feedback loop.
 """
 
-import re
 import os
+import re
+from shutil import copyfile
 from typing import List
 
 import boto3
@@ -94,7 +95,7 @@ class MicrovmImageS3Fetcher:
 
     def get_microvm_image(
         self,
-        microvm_image_path,
+        microvm_image_name,
         microvm_slot: MicrovmSlot
     ):
         """
@@ -103,7 +104,7 @@ class MicrovmImageS3Fetcher:
         resources into the microvm slot.
         """
 
-        for resource_key in self.microvm_images[microvm_image_path]:
+        for resource_key in self.microvm_images[microvm_image_name]:
             if resource_key in [
                 self.MICROVM_IMAGE_KERNEL_RELPATH,
                 self.MICROVM_IMAGE_BLOCKDEV_RELPATH
@@ -111,25 +112,48 @@ class MicrovmImageS3Fetcher:
                 # Kernel and blockdev dirs already exist in microvm_slot.
                 continue
 
-            source_rel_path = microvm_image_path + '/' + resource_key
-            source_path = self.microvm_images_path + source_rel_path
-            dest_path = microvm_slot.path + resource_key
+            slot_dest_path = microvm_slot.path + resource_key
 
             if resource_key.endswith('/'):
                 # Create a new microvm_slot dir if one is encountered.
-                os.mkdir(dest_path)
+                os.mkdir(slot_dest_path)
                 continue
 
-            self.s3.download_file(
-                self.microvm_images_bucket,
-                source_path,
-                dest_path)
+            # Relative path of a microvm resource within a microvm directory.
+            resource_rel_path = (
+                self.microvm_images_path +
+                microvm_image_name + '/' +
+                resource_key
+            )
+
+            # Local path of a microvm resource. Used for downloading resources
+            # only once.
+            resource_local_path = (
+                microvm_slot.microvm_root_path +
+                resource_rel_path
+            )
+
+            if not os.path.exists(resource_local_path):
+                """
+                Locally create / download an s3 resource the first time we
+                encounter it.
+                """
+                os.makedirs(
+                    os.path.dirname(resource_local_path),
+                    exist_ok=True
+                )
+                self.s3.download_file(
+                    self.microvm_images_bucket,
+                    resource_rel_path,
+                    resource_local_path)
+
+            copyfile(resource_local_path, slot_dest_path)
 
             if resource_key.endswith(self.MICROVM_IMAGE_KERNEL_FILE_SUFFIX):
-                microvm_slot.kernel_file = dest_path
+                microvm_slot.kernel_file = slot_dest_path
 
             if resource_key.endswith(self.MICROVM_IMAGE_ROOTFS_FILE_SUFFIX):
-                microvm_slot.rootfs_file = dest_path
+                microvm_slot.rootfs_file = slot_dest_path
 
     def list_microvm_images(self, capability_filter: List[str]=['*']):
         """
