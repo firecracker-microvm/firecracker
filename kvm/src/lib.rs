@@ -250,8 +250,10 @@ impl VmFd {
     /// Note that this call can only succeed after a call to `Vm::create_irq_chip`.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn create_pit2(&self) -> Result<()> {
-        //TODO: do we need to enable KVM_PIT_SPEAKER_DUMMY?
-        let pit_config = kvm_pit_config::default();
+        let mut pit_config = kvm_pit_config::default();
+        // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
+        // (i.e. KVM_SPEAKER_BASE_ADDRESS) does not trigger an exit to user space.
+        pit_config.flags = KVM_PIT_SPEAKER_DUMMY;
         // Safe because we know that our file is a VM fd, we know the kernel will only read the
         // correct amount of memory from our pointer, and we verify the return result.
         let ret = unsafe { ioctl_with_ref(self, KVM_CREATE_PIT2(), &pit_config) };
