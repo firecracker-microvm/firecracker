@@ -112,9 +112,9 @@ impl GenerateResponse for Error {
                 StatusCode::BadRequest,
                 json_fault_message("The specified guest MAC address is already in use."),
             ),
-            OpenTap(_) => json_response(
+            OpenTap(ref e) => json_response(
                 StatusCode::BadRequest,
-                json_fault_message("Could not open TAP device."),
+                json_fault_message(format!("Could not open TAP device. {:?}", e)),
             ),
             UpdateNotAllowedPostBoot => json_response(
                 StatusCode::Forbidden,
