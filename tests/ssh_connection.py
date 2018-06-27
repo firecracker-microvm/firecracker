@@ -33,9 +33,9 @@ class SSHConnection:
         )
 
     def execute_command(self, cmd_string):
-        """Executes the command passed as a string in the ssh context"""
+        """ Executes the command passed as a string in the ssh context. """
         return self.ssh_client.exec_command(cmd_string)
 
     def close(self):
-        """Closes the SSH connection"""
+        """ Closes the SSH connection. """
         self.ssh_client.close()

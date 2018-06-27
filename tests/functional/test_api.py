@@ -123,7 +123,12 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     )
     """ Valid updates to `path_on_host` and `permissions` are allowed. """
     assert(test_microvm.api_session.is_good_response(response.status_code))
-    microvm_config_json = {'vcpu_count': 4, 'ht_enabled': True, 'mem_size_mib': 256, 'cpu_template': 'C3'}
+    microvm_config_json = {
+        'vcpu_count': 4,
+        'ht_enabled': True,
+        'mem_size_mib': 256,
+        'cpu_template': 'C3'
+    }
     response = test_microvm.api_session.put(
         test_microvm.microvm_cfg_url,
         json=microvm_config_json
@@ -138,10 +143,18 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         test_microvm.microvm_cfg_url,
     )
     response_json = response.json()
-    assert (response_json['vcpu_count'] == str(microvm_config_json['vcpu_count']))
-    assert (response_json['ht_enabled'] == str(microvm_config_json['ht_enabled']).lower())
-    assert (response_json['mem_size_mib'] == str(microvm_config_json['mem_size_mib']))
-    assert (response_json['cpu_template'] == str(microvm_config_json['cpu_template']))
+
+    vcpu_count = str(microvm_config_json['vcpu_count'])
+    assert(response_json['vcpu_count'] == vcpu_count)
+
+    ht_enabled = str(microvm_config_json['ht_enabled']).lower()
+    assert(response_json['ht_enabled'] == ht_enabled)
+
+    mem_size_mib = str(microvm_config_json['mem_size_mib'])
+    assert(response_json['mem_size_mib'] == mem_size_mib)
+
+    cpu_template = str(microvm_config_json['cpu_template'])
+    assert(response_json['cpu_template'] == cpu_template)
 
     second_if_name = 'second_tap'
     response = test_microvm.api_session.put(
@@ -165,7 +178,9 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
             'state': 'Attached'
         }
     )
-    """ Updates to a network interface with an unavailable MAC are not allowed. """
+    """
+    Updates to a network interface with an unavailable MAC are not allowed.
+    """
     assert(not test_microvm.api_session.is_good_response(response.status_code))
 
     response = test_microvm.api_session.put(
@@ -189,7 +204,9 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
             'state': 'Attached'
         }
     )
-    """ Updates to a network interface with an unavailable name are not allowed. """
+    """
+    Updates to a network interface with an unavailable name are not allowed.
+    """
     assert(not test_microvm.api_session.is_good_response(response.status_code))
 
     response = test_microvm.api_session.put(
@@ -206,34 +223,37 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 
 
 def test_api_put_machine_config(test_microvm_with_api):
-    """Tests various scenarios for PUT on /machine_config that cannot be covered by the unit tests"""
+    """
+    Tests various scenarios for PUT on /machine_config that cannot be covered
+    by the unit tests
+    """
 
     """ Test invalid vcpu count < 0 """
     test_microvm = test_microvm_with_api
     response = test_microvm.api_session.put(
         test_microvm.microvm_cfg_url,
-        json = {'vcpu_count': '-2'}
+        json={'vcpu_count': '-2'}
     )
     assert response.status_code == 400
 
     """ Test invalid mem_size_mib < 0 """
     response = test_microvm.api_session.put(
         test_microvm.microvm_cfg_url,
-        json = {'mem_size_mib': '-2'}
+        json={'mem_size_mib': '-2'}
     )
     assert response.status_code == 400
 
     """ Test invalid type for ht_enabled flag """
     response = test_microvm.api_session.put(
         test_microvm.microvm_cfg_url,
-        json = {'ht_enabled': 'random_string'}
+        json={'ht_enabled': 'random_string'}
     )
     assert response.status_code == 400
 
     """ Test invalid CPU template """
     response = test_microvm.api_session.put(
         test_microvm.microvm_cfg_url,
-        json = {'cpu_template': 'random_string'}
+        json={'cpu_template': 'random_string'}
     )
     assert response.status_code == 400
 
@@ -410,7 +430,9 @@ def test_rate_limiters_api_config(test_microvm_with_api):
     """ Verify the request succeeded """
     assert(test_microvm.api_session.is_good_response(response.status_code))
 
-    """ Test drive with 'empty' rate-limiting (same as not specifying the field) """
+    """
+    Test drive with 'empty' rate-limiting (same as not specifying the field)
+    """
     response = test_microvm.api_session.put(
         test_microvm.blk_cfg_url + '/nada',
         json={
@@ -509,7 +531,7 @@ def test_api_unknown_fields(test_microvm_with_api):
     """ path -> pth """
     response = test_microvm.api_session.put(
         test_microvm.logger_url,
-        json = {
+        json={
             'pth': 'firecracker.log',
             'level': 'Info',
             'show_level': True,
@@ -522,10 +544,12 @@ def test_api_unknown_fields(test_microvm_with_api):
     """ source_type -> source-type """
     response = test_microvm.api_session.put(
         test_microvm.boot_cfg_url,
-        json = {
+        json={
             'boot_source_id': 'alinux_kernel',
             'source-type': 'LocalImage',
-            'local_image': { 'kernel-image_path': test_microvm.slot.kernel_file },
+            'local_image': {
+                'kernel-image_path': test_microvm.slot.kernel_file
+            },
         }
     )
     assert response.status_code == 400
@@ -534,10 +558,12 @@ def test_api_unknown_fields(test_microvm_with_api):
     """ kernel_image_path ->  kernel-image_path """
     response = test_microvm.api_session.put(
         test_microvm.boot_cfg_url,
-        json = {
+        json={
             'boot_source_id': 'alinux_kernel',
             'source_type': 'LocalImage',
-            'local_image': { 'kernel-image_path': test_microvm.slot.kernel_file },
+            'local_image': {
+                'kernel-image_path': test_microvm.slot.kernel_file
+            },
         }
     )
     assert response.status_code == 400
@@ -546,7 +572,7 @@ def test_api_unknown_fields(test_microvm_with_api):
     """ drive_id -> drive-id """
     response = test_microvm.api_session.put(
         test_microvm.blk_cfg_url,
-        json = {
+        json={
             'drive-id': 'root',
             'path_on_host': test_microvm.slot.rootfs_file,
             'is_root_device': True,
@@ -560,7 +586,7 @@ def test_api_unknown_fields(test_microvm_with_api):
     """ vcpu_count -> vcpu-count """
     response = test_microvm.api_session.put(
         test_microvm.microvm_cfg_url,
-        json = { 'vcpu-count': 4, 'mem_size_mib': 256 }
+        json={'vcpu-count': 4, 'mem_size_mib': 256}
     )
     assert response.status_code == 400
 
@@ -568,7 +594,7 @@ def test_api_unknown_fields(test_microvm_with_api):
     """ iface_id -> iface-id """
     response = test_microvm.api_session.put(
         test_microvm.net_cfg_url,
-        json = {
+        json={
             'iface-id': 1,
             'host_dev_name': 'vmtap33',
             'guest_mac': '06:00:00:00:00:01',
@@ -581,13 +607,13 @@ def test_api_unknown_fields(test_microvm_with_api):
     """ size -> siz """
     response = test_microvm.api_session.put(
         test_microvm.net_cfg_url,
-        json = {
+        json={
             'iface_id': 1,
             'host_dev_name': 'vmtap33',
             'guest_mac': '06:00:00:00:00:01',
             'state': 'Attached',
             'rx_rate_limiter': {
-                'bandwidth': { 'siz': 1000000, 'refill_time': 1000 }
+                'bandwidth': {'siz': 1000000, 'refill_time': 1000}
             }
         }
     )
@@ -597,13 +623,13 @@ def test_api_unknown_fields(test_microvm_with_api):
     """ ops -> op """
     response = test_microvm.api_session.put(
         test_microvm.net_cfg_url,
-        json = {
+        json={
             'iface_id': 1,
             'host_dev_name': 'vmtap33',
             'guest_mac': '06:00:00:00:00:01',
             'state': 'Attached',
             'rx_rate_limiter': {
-                'op': { 'size': 1000000, 'refill_time': 1000 }
+                'op': {'size': 1000000, 'refill_time': 1000}
             }
         }
     )
@@ -613,7 +639,7 @@ def test_api_unknown_fields(test_microvm_with_api):
     """ action_id -> action-id """
     response = test_microvm.api_session.put(
         test_microvm.actions_url,
-        json = {
+        json={
             'action_di': 'start',
             'action_type': 'InstanceStart',
         }
@@ -624,7 +650,7 @@ def test_api_unknown_fields(test_microvm_with_api):
     """ device_resource_id -> device_resource_di """
     response = test_microvm.api_session.put(
         test_microvm.actions_url,
-        json = {
+        json={
             'action_id': 'start3',
             'action_type': 'InstanceStart',
             'instance_device_detach_action': {
