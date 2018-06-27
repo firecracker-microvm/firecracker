@@ -66,6 +66,9 @@ class MicrovmImageS3Fetcher:
     MICROVM_IMAGE_KERNEL_FILE_SUFFIX = r'vmlinux.bin'
     MICROVM_IMAGE_ROOTFS_FILE_SUFFIX = r'rootfs.ext4'
     MICROVM_IMAGE_SSH_KEY_SUFFIX = r'.id_rsa'
+
+    ENV_LOCAL_IMAGES_PATH_VAR = 'OPT_LOCAL_IMAGES_PATH'
+
     CAPABILITY_KEY_PREFIX = 'capability:'
 
     __shared_state = {}
@@ -120,19 +123,25 @@ class MicrovmImageS3Fetcher:
                 os.mkdir(slot_dest_path)
                 continue
 
-            # Relative path of a microvm resource within a microvm directory.
             resource_rel_path = (
                 self.microvm_images_path +
                 microvm_image_name + '/' +
                 resource_key
             )
+            # Relative path of a microvm resource within a microvm directory.
 
+            if self.ENV_LOCAL_IMAGES_PATH_VAR in os.environ:
+                # There's a user-managed local microvm image directory.
+                resource_root_path = (
+                    os.environ.get(self.ENV_LOCAL_IMAGES_PATH_VAR)
+                )
+            else:
+                # Use a root path in the temporary test session directory.
+                resource_root_path = microvm_slot.microvm_root_path
+
+            resource_local_path = resource_root_path + resource_rel_path
             # Local path of a microvm resource. Used for downloading resources
             # only once.
-            resource_local_path = (
-                microvm_slot.microvm_root_path +
-                resource_rel_path
-            )
 
             if not os.path.exists(resource_local_path):
                 """
