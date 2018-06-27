@@ -68,7 +68,8 @@ declare -a GLOBAL_SYMBOLS
 
 main() {
     parse_options "$@"
-    # Exports `$OPT_*` per-option variables, and `$NON_OPTION_ARGUMENTS` 
+    # Exports `$OPT_*` per-option variables, and `$NON_OPTION_ARGUMENTS`
+
     set -- $NON_OPTION_ARGUMENTS
     # `"$@"` is now everything after `'--'` from the initial options.
 
@@ -101,6 +102,88 @@ main() {
     # successfully or not at all.
 
     return $testrun_result
+}
+
+parse_options() {
+    ensure \
+        getopt -uQ \
+            -o hi:p:qr \
+            -l help,local-images-path:,pkg-manager:,quiet,use-existing-rust \
+        -- "$@"
+    # Check if we can read the options into an easy to parse string ...
+    declare opt="$(
+        getopt -u \
+            -o hi:p:qr \
+            -l help,local-images-path:,pkg-manager:,quiet,use-existing-rust \
+        -- $@
+    )"
+    # ... and actually parse them.
+
+    set -- $opt
+    # Sets $opt as the options string.
+    
+    while true; do
+        case "$1" in
+            -h | --help)
+                export OPT_HELP=1
+                record_global_symbol OPT_HELP
+                shift
+                ;;
+            -q | --quiet)
+                export OPT_QUIET=1
+                record_global_symbol OPT_QUIET
+                shift
+                ;;
+            -i | --local-images-path)
+                export OPT_LOCAL_IMAGES_PATH=$2
+                record_global_symbol OPT_LOCAL_IMAGES_PATH
+                shift 2
+                ;;
+            -r | --use-existing-rust)
+                export OPT_USE_EXISTING_RUST=1
+                record_global_symbol OPT_USE_EXISTING_RUST
+                shift
+                ;;
+            -p | --pkg-manager)
+                for pkg_manager in "${SUPPORTED_PKG_MANAGERS[@]}"; do
+                    if [ "$2" == "$pkg_manager" ]; then
+                        export OPT_PKG_MANAGER=$pkg_manager
+                        record_global_symbol OPT_PKG_MANAGER
+                    fi
+                done
+
+                if [ ! $OPT_PKG_MANAGER ]; then
+                    err "[-p | --pkg-manager]: $2 is an invalid choice."
+                fi
+
+                shift 2
+                ;;
+            --)
+                shift
+                break
+                # Everything after `'--'` is now the new option string.
+                ;;
+            *)
+                err "Invalid options. Try running with -h or --help."
+                ;;
+        esac
+    done
+
+    export NON_OPTION_ARGUMENTS="$@"
+    record_global_symbol NON_OPTION_ARGUMENTS
+    # At this point, `"S@"` is everything originally after `'--'`, or nothing.
+}
+
+print_help() {
+    declare usage="usage: ./testrun.sh "
+    usage+="[-h|--help] | "
+    usage+="[ "
+        usage+="[-q|--quiet] [-r|--use-existing-rust] "
+        usage+="[-i|--local-images-path <path>] "
+        usage+="[-p [yum|apt-get] | --pkg-manager [yum|apt-get]] "
+        usage+="[-- <pytest argument>...] "
+    usage+="]"
+    echo $usage
 }
 
 ensure_context() {
@@ -147,68 +230,6 @@ ensure_platform() {
     fi
 }
 
-parse_options() {
-    ensure getopt -uQ -o hqp: -l help,quiet,pkg-manager: -- "$@"
-    # Check if we can read the options into an easy to parse string ...
-    declare opt="$(getopt -u -o hqp: -l help,quiet,pkg-manager: -- $@)"
-    # ... and actually parse them.
-    set -- $opt
-    # Sets $opt as the options string.
-    
-    while true; do
-        case "$1" in
-            -h | --help)
-                export OPT_HELP=1
-                record_global_symbol OPT_HELP
-                shift
-                ;;
-            -q | --quiet)
-                export OPT_QUIET=1
-                record_global_symbol OPT_QUIET
-                shift
-                ;;
-            -p | --pkg-manager)
-                # Removes the quotation marks around the option.
-
-                for pkg_manager in "${SUPPORTED_PKG_MANAGERS[@]}"; do
-                    if [ "$2" == "$pkg_manager" ]; then
-                        export OPT_PKG_MANAGER=$pkg_manager
-                        record_global_symbol OPT_PKG_MANAGER
-                    fi
-                done
-
-                if [ ! $OPT_PKG_MANAGER ]; then
-                    err "[-p | --pkg-manager]: $2 is an invalid choice."
-                fi
-
-                shift 2
-                ;;
-            --)
-                shift
-                break
-                # Everything after `'--'` is now the new option string.
-                ;;
-            *)
-                err "Invalid options. Try running with -h or --help."
-                ;;
-        esac
-    done
-
-    export NON_OPTION_ARGUMENTS="$@"
-    record_global_symbol NON_OPTION_ARGUMENTS
-    # At this point, `"S@"` is everything originally after `'--'`, or nothing.
-}
-
-print_help() {
-    declare usage="usage: ./testrun.sh "
-    usage+="[-h|--help] | "
-    usage+="[ "
-        usage+="[-q|--quiet] [-p [yum|apt-get] | --pkg-manager [yum|apt-get]] "
-        usage+="[-- <pytest argument>...] "
-    usage+="]"
-    echo $usage
-}
-
 setup() {
     say "Setup: Starting testrun setup."
 
@@ -224,8 +245,10 @@ setup() {
     create_python3_venv
     install_python3_deps
 
-    create_rust_tmpenv
-    install_rust_and_deps
+    if [ ! $OPT_USE_EXISTING_RUST ]; then
+        create_rust_tmpenv
+        install_rust_and_deps
+    fi
 
     ensure_gcc_static
 
