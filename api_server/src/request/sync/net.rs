@@ -10,6 +10,7 @@ use request::ParsedRequest;
 // This struct represents the strongly typed equivalent of the json body from net iface
 // related requests.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkInterfaceBody {
     pub iface_id: String,
     pub state: DeviceState,

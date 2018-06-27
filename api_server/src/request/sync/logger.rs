@@ -16,6 +16,7 @@ pub enum APILoggerLevel {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct APILoggerDescription {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]

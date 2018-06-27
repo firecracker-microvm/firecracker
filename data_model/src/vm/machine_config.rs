@@ -1,6 +1,7 @@
 use std::fmt;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MachineConfiguration {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vcpu_count: Option<u8>,

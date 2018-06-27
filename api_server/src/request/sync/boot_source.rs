@@ -13,11 +13,13 @@ pub enum BootSourceType {
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct LocalImage {
     pub kernel_image_path: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BootSourceBody {
     boot_source_id: String,
     source_type: BootSourceType,

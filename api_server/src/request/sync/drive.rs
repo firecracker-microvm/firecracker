@@ -18,6 +18,7 @@ pub enum DrivePermissions {
 // This struct represents the strongly typed equivalent of the json body from drive
 // related requests.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct DriveDescription {
     pub drive_id: String,
     pub path_on_host: String,
