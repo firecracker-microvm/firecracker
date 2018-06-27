@@ -7,9 +7,9 @@ from ssh_connection import SSHConnection
 
 def check_cpu_topology(test_microvm, expected_cpu_topology):
     """
-    Different topologies can be tested the same way once the microvm is started.
-    This is a wrapper function for calling lscpu and checking if the command
-    returns the expected cpu topology.
+    Different topologies can be tested the same way once the microvm is
+    started. This is a wrapper function for calling lscpu and checking if the
+    command returns the expected cpu topology.
     """
 
     ssh_connection = SSHConnection(test_microvm.slot.ssh_config)
@@ -70,7 +70,7 @@ def test_2vcpu_ht_disabled(test_microvm_with_ssh):
     assert(test_microvm.api_session.is_good_response(response.status_code))
 
     # Configure the tap device and add the network interface
-    tap_name=test_microvm.slot.make_tap(ip="192.168.241.1/30")
+    tap_name = test_microvm.slot.make_tap(ip="192.168.241.1/30")
     # We have to make sure that the microvm will be in the same
     # subnet as the tap device. The IP of the microvm is computed from the
     # mac address. To set the IP of the microvm to 192.168.241.2, we
