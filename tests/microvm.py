@@ -123,6 +123,7 @@ class MicrovmSlot:
             ....
         fsfiles/
             <fsfile_n>
+            <ssh_key_n>
             ...
     ```
 
@@ -162,6 +163,11 @@ class MicrovmSlot:
         """ Assigned once an microvm image populates this slot. """
         self.rootfs_file = ''
         """ Assigned once an microvm image populates this slot. """
+        self.ssh_config = {'username': 'root'}
+        """The ssh config dictionary is populated with information about how
+        to connect to microvm that has ssh capability. The path of the private
+        key is populated by microvms with ssh capabilities and the hostname
+        is set from the MAC address used to configure the VM."""
 
         self.fsfiles = {}
         """ A set of file systems for this microvm slot. """
@@ -196,7 +202,7 @@ class MicrovmSlot:
         self.fsfiles[name] = FilesystemFile(path, size=size, format='ext4')
         return path
 
-    def make_tap(self, name: str=None):
+    def make_tap(self, name: str=None, ip: str=None):
         """ Creates a new tap device, and brings it up. """
 
         if name is None:
@@ -206,7 +212,8 @@ class MicrovmSlot:
             raise ValueError(self.say("Tap already exists: " + name))
 
         run('ip tuntap add mode tap name ' + name, shell=True, check=True)
-        run('ip link set ' + name + ' up', shell=True, check=True)
+        if ip:
+            run("ifconfig {} {} up".format(name, ip), shell=True, check=True)
 
         self.taps.add(name)
         return name
@@ -325,6 +332,7 @@ class Microvm:
     def basic_config(
         self,
         vcpu_count: int=2,
+        ht_enable: bool=False,
         mem_size_mib: int=256,
         net_iface_count: int=1
     ):
@@ -343,13 +351,11 @@ class Microvm:
 
         response = self.api_session.put(
             self.microvm_cfg_url,
-            json={'vcpu_count': vcpu_count}
-        )
-        responses.append(response)
-
-        response = self.api_session.put(
-            self.microvm_cfg_url,
-            json={'mem_size_mib': mem_size_mib}
+            json={
+                'vcpu_count': vcpu_count,
+                'ht_enabled': ht_enable,
+                'mem_size_mib': mem_size_mib
+            }
         )
         responses.append(response)
 
