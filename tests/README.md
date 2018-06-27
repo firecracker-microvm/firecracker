@@ -1,6 +1,6 @@
 # Firecracker Integration Tests
 
-The test herein are meant to uphold the security, quality, and performance
+The tests herein are meant to uphold the security, quality, and performance
 contracts of Firecracker.
 
 ## Running
@@ -11,17 +11,35 @@ To run all tests:
 ./testrun.sh
 ```
 
+This will download test microvm images from the default test resource s3 bucket,
+and run all available tests.
+
 To run tests from specific directories and/or files:
 
 ``` sh
-./testrun.sh [-- <dir_or_file_path>...]
+./testrun.sh -- <test_dir_or_file_path>...
 ```
 
-The `pytest` test runner is used. Any parameters passed to `testrun.sh` are
-passed to the `pytest` command. `testrun.sh` is used to automate fetching of
-test dependencies (useful for continuos integration), and to sandbox test runs
-(useful for development environments). If you are not interested in these
-capabilities, use pytest directly:
+To run all tests using a local directory for microvm images (as opposed to
+downloading them from the s3 bucket):
+
+``` sh
+./testrun.sh --local-images-path <microvm_images_path>
+```
+
+In the example above, if `<microvm_images_path>` needs to mirror the structure
+of the [s3 test resource bucket](#adding-microvm-images). However, if
+`<microvm_images_path>` does not exist, it will be created, and the resources
+from the s3 testing bucket will be downloaded there. This means that to run
+with a local directory for microvm images, you can simply run twice with the
+same path passed to `--local-images-path`.
+
+The testing system is built around [pytest](https://docs.pytest.org/en/latest/).
+Any parameters passed to `testrun.sh` are passed to the `pytest` command.
+`testrun.sh` is used to automate fetching of test dependencies (useful for
+continuos integration), and to sandbox test runs (useful for development
+environments). If you are not interested in these capabilities, use pytest
+directly:
 
 ``` sh
 python3 -m pytest [<pytest argument>...]
@@ -172,29 +190,45 @@ cd <firecracker repo>/tests
 
 ## FAQ
 
-`Q1:` I have a shell script that runs my tests and I don't want to rewrite it.
-`A1:` Insofar as it makes sense, you should write it as a python test function.
-      However, you can always call the script from a shim python test function.
-      You can also add it as a microvm image resource in the s3 bucket (and it
-      will be made available under `microvm.slot.path`) or copy it over to a
-      guest filesystem as part of your test.
+`Q1:`
+*I have a shell script that runs my tests and I don't want to rewrite it.*  
+`A1:`
+Insofar as it makes sense, you should write it as a python test function.
+However, you can always call the script from a shim python test function. You
+can also add it as a microvm image resource in the s3 bucket (and it will be
+made available under `microvm.slot.path`) or copy it over to a guest filesystem
+as part of your test.
 
-`Q2:` I want to add more tests that I don't want to commit to the Firecracker
-      repository.
-`A2:` Before a testrun or test session, just add your test directory under
-      `tests/`. `pytest` will discover all tests in this tree.
+`Q2:`
+*I want to add more tests that I don't want to commit to the Firecracker
+repository.*  
+`A2:`
+Before a testrun or test session, just add your test directory under `tests/`.
+`pytest` will discover all tests in this tree.
 
-`Q3:` I want to have my own test fixtures, and not commit them in the repo.
-`A3:` Add a `conftest.py` file in your test directory, and place your fixtures
-      there. `pytest` will bring them into scope for all your tests.
+`Q3:`
+*I want to have my own test fixtures, and not commit them in the repo.*  
+`A3:`
+Add a `conftest.py` file in your test directory, and place your fixtures there.
+`pytest` will bring them into scope for all your tests.
 
-`Q4:` I want to use more microvm test images, but I don't want to add them to
-      the common s3 bucket.
-`A4:` Create a new test directory as per `A2`. Then, another fixture file as
-      per `A3`. Within that, follow the same pattern as in `conftest.py` to
-      insatiate a `MicrovmImageFetcher` object using your own s3 bucket.
-      Finally create a fixture similar to the `test_microvm_*` fixtures in
-      in `conftest.py`, and use that fixture in your tests.
+`Q4:`
+*I want to use more/other microvm test images, but I don't want to add them to
+the common s3 bucket.*  
+`A4:`
+There are two options to achieve this:
+
+1. Pass the `-i` / `--local-images-path` option to `testrun.sh`. This will use
+   local versions of the images found in the common s3 bucket.
+2. Leverage pytest to build a self-contained set of tests that use your own test
+   bucket.
+   - Create the s3 test bucket.
+   - Create a new test directory as per `A2`, and a fixture file as per `A3`.
+   - Within the new fixture, instantiate a `MicrovmImageS3Fetcher` for your s3
+     bucket.
+   - Using that `MicrovmImageS3Fetcher` object, create a fixture
+     similar to the `test_microvm_*` fixtures in in `conftest.py`, and pass that
+     as an argument to your tests.
 
 ## Implementation Goals
 
