@@ -4,6 +4,7 @@ use fc_util::ratelimiter::RateLimiter;
 
 // This struct represents the strongly typed equivalent of the json body for TokenBucket
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct TokenBucketDescription {
     pub size: u64,
     pub refill_time: u64,
@@ -20,6 +21,7 @@ impl Default for TokenBucketDescription {
 
 // This struct represents the strongly typed equivalent of the json body for RateLimiter
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RateLimiterDescription {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bandwidth: Option<TokenBucketDescription>,
