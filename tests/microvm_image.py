@@ -166,10 +166,10 @@ class MicrovmImageS3Fetcher:
                 microvm_slot.rootfs_file = slot_dest_path
 
             if resource_key.endswith(self.MICROVM_IMAGE_SSH_KEY_SUFFIX):
-                # Add the key path to the config dictionary and set permissions.
+                # Add the key path to the config dictionary and set
+                # permissions.
                 microvm_slot.ssh_config['ssh_key_path'] = slot_dest_path
                 os.chmod(slot_dest_path, 400)
-
 
     def list_microvm_images(self, capability_filter: List[str]=['*']):
         """
