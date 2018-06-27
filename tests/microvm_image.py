@@ -65,6 +65,7 @@ class MicrovmImageS3Fetcher:
     MICROVM_IMAGE_BLOCKDEV_RELPATH = 'fsfiles/'
     MICROVM_IMAGE_KERNEL_FILE_SUFFIX = r'vmlinux.bin'
     MICROVM_IMAGE_ROOTFS_FILE_SUFFIX = r'rootfs.ext4'
+    MICROVM_IMAGE_SSH_KEY_SUFFIX = r'.id_rsa'
     CAPABILITY_KEY_PREFIX = 'capability:'
 
     __shared_state = {}
@@ -154,6 +155,12 @@ class MicrovmImageS3Fetcher:
 
             if resource_key.endswith(self.MICROVM_IMAGE_ROOTFS_FILE_SUFFIX):
                 microvm_slot.rootfs_file = slot_dest_path
+
+            if resource_key.endswith(self.MICROVM_IMAGE_SSH_KEY_SUFFIX):
+                # Add the key path to the config dictionary and set permissions.
+                microvm_slot.ssh_config['ssh_key_path'] = slot_dest_path
+                os.chmod(slot_dest_path, 400)
+
 
     def list_microvm_images(self, capability_filter: List[str]=['*']):
         """
