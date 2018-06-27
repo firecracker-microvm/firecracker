@@ -32,6 +32,7 @@ pub enum DeviceType {
 
 // Represents the associated json block from the async request body.
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct InstanceDeviceDetachAction {
     device_type: DeviceType,
     device_resource_id: String,
@@ -50,6 +51,7 @@ pub enum AsyncActionType {
 // The model of the json body from an async request. We use Serde to transform each associated
 // json body into this.
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AsyncRequestBody {
     action_id: String,
     action_type: AsyncActionType,
