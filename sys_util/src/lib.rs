@@ -17,7 +17,6 @@ mod guest_memory;
 mod mmap;
 mod signal;
 mod struct_util;
-mod tempdir;
 mod terminal;
 
 pub use errno::{errno_result, Error, Result};
@@ -28,7 +27,6 @@ pub use ioctl::*;
 pub use mmap::*;
 pub use signal::*;
 pub use struct_util::*;
-pub use tempdir::*;
 pub use terminal::*;
 
 pub use guest_memory::Error as GuestMemoryError;

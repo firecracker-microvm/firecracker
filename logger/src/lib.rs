@@ -471,6 +471,7 @@ impl Log for Logger {
 mod tests {
     extern crate tempfile;
 
+    use self::tempfile::NamedTempFile;
     use super::*;
     use log::MetadataBuilder;
 
@@ -521,10 +522,10 @@ mod tests {
 
         assert!(l.log_metrics().is_err());
 
-        let log_file_temp = tempfile::NamedTempFile::new()
-            .expect("Failed to create temporary output logging file.");
-        let metrics_file_temp = tempfile::NamedTempFile::new()
-            .expect("Failed to create temporary metrics logging file.");
+        let log_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary output logging file.");
+        let metrics_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary metrics logging file.");
         let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
         let metrics_file = String::from(metrics_file_temp.path().to_path_buf().to_str().unwrap());
 

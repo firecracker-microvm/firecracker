@@ -17,3 +17,4 @@ virtio_sys = { path = "../virtio_sys" }
 
 [dev-dependencies]
 memory_model = { path = "../memory_model"}
+tempfile = ">=3.0.2"

@@ -634,15 +634,16 @@ impl VirtioDevice for Block {
 
 #[cfg(test)]
 mod tests {
+    extern crate tempfile;
+
+    use self::tempfile::tempfile;
+    use super::*;
+
     use libc;
-    use std::fs::OpenOptions;
-    use std::path::PathBuf;
     use std::sync::mpsc::Receiver;
     use std::thread;
     use std::time::Duration;
-    use sys_util::TempDir;
 
-    use super::*;
     use virtio::queue::tests::*;
 
     struct DummyBlock {
@@ -658,15 +659,7 @@ mod tests {
 
             let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
 
-            let tempdir = TempDir::new("/tmp/block_test").unwrap();
-            let mut path = PathBuf::from(tempdir.as_path().unwrap());
-            path.push("disk_image");
-            let f = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open(&path)
-                .unwrap();
+            let f: File = tempfile().unwrap();
             f.set_len(0x1000).unwrap();
 
             // Rate limiting is enabled but with a high operation rate (10 million ops/s).
