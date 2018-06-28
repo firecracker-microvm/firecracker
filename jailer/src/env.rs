@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use libc;
 
 use super::cgroup::Cgroup;
-use super::{Error, JailerArgs, Result};
+use super::{into_cstring, Error, JailerArgs, Result};
 
 pub struct Env {
     cgroup: Cgroup,
@@ -61,17 +61,18 @@ impl Env {
         self.chroot_dir.as_path()
     }
 
+    pub fn gid(&self) -> u32 {
+        self.gid
+    }
+
+    pub fn uid(&self) -> u32 {
+        self.uid
+    }
+
     pub fn run(self) -> Result<()> {
         self.cgroup.attach_pid()?;
 
-        // Turn self.chroot_dir into a CString. The expect should not fail, since Linux paths
-        // only contain valid Unicode chars (do they?), and do not contain null bytes (do they?).
-        let chroot_dir = CString::new(
-            self.chroot_dir
-                .into_os_string()
-                .into_string()
-                .expect("Could not convert chroot_dir to String."),
-        ).expect("Could not convert chroot_dir String to CString.");
+        let chroot_dir: CString = into_cstring(self.chroot_dir)?;
         let ret = unsafe { libc::chroot(chroot_dir.as_ptr()) };
         if ret < 0 {
             return Err(Error::Chroot(ret));
