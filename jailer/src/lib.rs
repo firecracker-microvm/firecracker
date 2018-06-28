@@ -7,8 +7,8 @@ mod cgroup;
 mod env;
 mod uuid;
 
-use std::ffi::OsStr;
-use std::fs::{canonicalize, metadata};
+use std::ffi::{CString, NulError, OsStr, OsString};
+use std::fs::{canonicalize, create_dir_all, metadata};
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixListener;
@@ -19,8 +19,7 @@ use env::Env;
 use uuid::validate;
 
 pub const KVM_FD: i32 = 3;
-pub const DEV_NET_TUN_FD: i32 = 4;
-pub const LISTENER_FD: i32 = 5;
+pub const LISTENER_FD: i32 = 4;
 
 const SOCKET_FILE_NAME: &str = "api.socket";
 
@@ -29,9 +28,12 @@ pub enum Error {
     Canonicalize(PathBuf, io::Error),
     CgroupLineNotFound(&'static str, &'static str),
     CgroupLineNotUnique(&'static str, &'static str),
+    ChangeDevNetTunOwner(sys_util::Error),
     Chroot(i32),
     Copy(PathBuf, PathBuf, io::Error),
     CreateDir(PathBuf, io::Error),
+    OsStringParsing(PathBuf, OsString),
+    CStringParsing(String, NulError),
     Exec(io::Error),
     FileCreate(PathBuf, io::Error),
     FileName(PathBuf),
@@ -44,12 +46,11 @@ pub enum Error {
     NotAlphanumeric(String),
     NumaNode(String),
     OpenDevKvm(sys_util::Error),
-    OpenDevNetTun(sys_util::Error),
+    MknodDevNetTun(sys_util::Error),
     ReadLine(PathBuf, io::Error),
     RegEx(regex::Error),
     Uid(String),
     UnexpectedKvmFd(i32),
-    UnexpectedDevNetTunFd(i32),
     UnexpectedListenerFd(i32),
     UnixListener(io::Error),
     UnsetCloexec(sys_util::Error),
@@ -129,7 +130,7 @@ pub fn run(args: JailerArgs) -> Result<()> {
     // We open /dev/kvm, /dev/tun, and create the listening socket. These file descriptors will be
     // passed on to Firecracker post exec, and used via knowing their values in advance.
 
-    // TODO: use dup2 to make sure we're actually getting 3, 4, and 5?
+    // TODO: use dup2 to make sure we're actually getting 3 and 4?
 
     // TODO: can a malicious guest that takes over firecracker use its access to the KVM fd to
     // starve the host of resources? (cgroups should take care of that, but do they currently?)
@@ -143,22 +144,43 @@ pub fn run(args: JailerArgs) -> Result<()> {
         return Err(Error::UnexpectedKvmFd(ret));
     }
 
-    // TODO: is RDWR required for /dev/tun (most likely)?
-    // Safe because we use a constant null-terminated string and verify the result.
+    let env = Env::new(args)?;
+
+    // Here we are creating the /dev/net/tun device inside the jailer.
+    // Following commands can be translated into bash like this:
+    // $: mkdir -p $chroot_dir/dev/net
+    // $: dev_net_tun_path={$chroot_dir}/"tun"
+    // $: mknod $dev_net_tun_path c 10 200
+    // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the minor
+    // and major for the /dev/net/tun device.
+    let mut chroot_dir = PathBuf::from(env.chroot_dir());
+    chroot_dir.push("dev/net");
+    create_dir_all(&chroot_dir).map_err(|e| Error::CreateDir(chroot_dir.clone(), e))?;
+
+    let dev_net_tun_path: CString = into_cstring(chroot_dir.join("tun"))?;
+    // As per sysstat.h:
+    // S_IFCHR -> character special device
+    // S_IRUSR -> read permission, owner
+    // S_IWUSR -> write permission, owner
+    // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
+    // more clarity.
     let ret = unsafe {
-        libc::open(
-            "/dev/net/tun\0".as_ptr() as *const libc::c_char,
-            libc::O_RDWR | libc::O_NONBLOCK,
+        libc::mknod(
+            dev_net_tun_path.as_ptr(),
+            libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR,
+            libc::makedev(10, 200),
         )
     };
+
     if ret < 0 {
-        return Err(Error::OpenDevNetTun(sys_util::Error::last()));
-    }
-    if ret != DEV_NET_TUN_FD {
-        return Err(Error::UnexpectedDevNetTunFd(ret));
+        return Err(Error::MknodDevNetTun(sys_util::Error::last()));
     }
 
-    let env = Env::new(args)?;
+    let ret = unsafe { libc::chown(dev_net_tun_path.as_ptr(), env.uid(), env.gid()) };
+
+    if ret < 0 {
+        return Err(Error::ChangeDevNetTunOwner(sys_util::Error::last()));
+    }
 
     // The unwrap should not fail, since the end of chroot_dir looks like ..../<id>/root
     let listener = UnixListener::bind(env.chroot_dir().parent().unwrap().join(SOCKET_FILE_NAME))
@@ -185,4 +207,15 @@ pub fn run(args: JailerArgs) -> Result<()> {
     }
 
     env.run()
+}
+
+/// Turns a PathBuf into a CString (c style string).
+/// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
+/// and do not contain null bytes (do they?).
+pub fn into_cstring(path: PathBuf) -> Result<CString> {
+    let path_str = path.clone()
+        .into_os_string()
+        .into_string()
+        .map_err(|e| Error::OsStringParsing(path, e))?;
+    CString::new(path_str.clone()).map_err(|e| Error::CStringParsing(path_str, e))
 }
