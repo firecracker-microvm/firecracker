@@ -346,12 +346,14 @@ impl Drop for MemoryMapping {
 
 #[cfg(test)]
 mod tests {
-    use super::super::TempDir;
+    extern crate tempfile;
+
+    use self::tempfile::tempfile;
     use super::*;
     use memory_model::{VolatileMemory, VolatileMemoryError};
-    use std::fs::{remove_file, File, OpenOptions};
+    use std::fs::File;
     use std::mem;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     #[test]
     fn basic_map() {
@@ -447,8 +449,7 @@ mod tests {
                 .is_ok()
         );
 
-        let empty_file = "/tmp/nothing";
-        let mut f = File::create(Path::new(empty_file)).unwrap();
+        let mut f = tempfile().unwrap();
         assert!(
             mem_map
                 .read_to_memory(1, &mut f, mem::size_of::<u32>())
@@ -458,7 +459,6 @@ mod tests {
             "{:?}",
             mem_map.read_to_memory(1, &mut f, mem::size_of::<u32>())
         );
-        remove_file(empty_file).unwrap();
 
         assert_eq!(mem_map.read_obj::<u32>(1).unwrap(), 0);
 
@@ -482,19 +482,11 @@ mod tests {
 
     #[test]
     fn mapped_file_read() {
-        let tempdir = TempDir::new("/tmp/mmap_test").unwrap();
-        let mut path = PathBuf::from(tempdir.as_path().unwrap());
-        path.push("from_fd");
-        let mut file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(path)
-            .unwrap();
+        let mut f = tempfile().unwrap();
         let sample_buf = &[1, 2, 3, 4, 5];
-        assert!(file.write_all(sample_buf).is_ok());
+        assert!(f.write_all(sample_buf).is_ok());
 
-        let mem_map = MemoryMapping::from_fd(&file, sample_buf.len()).unwrap();
+        let mem_map = MemoryMapping::from_fd(&f, sample_buf.len()).unwrap();
         let buf = &mut [0u8; 16];
         assert_eq!(mem_map.read_slice(buf, 0).unwrap(), sample_buf.len());
         assert_eq!(buf[0..sample_buf.len()], sample_buf[..]);
