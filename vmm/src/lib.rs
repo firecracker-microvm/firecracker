@@ -1312,7 +1312,9 @@ mod tests {
 
     use std::fs::File;
 
+    use self::tempfile::NamedTempFile;
     use super::*;
+
     use api_server::request::sync::DeviceState;
     use data_model::vm::CpuFeaturesTemplate;
     use net_util::MacAddr;
@@ -1334,11 +1336,11 @@ mod tests {
     #[test]
     fn test_put_block_device() {
         let mut vmm = create_vmm_object();
-        let file = tempfile::NamedTempFile::new().unwrap();
+        let f = NamedTempFile::new().unwrap();
         // test that creating a new block device returns the correct output
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
-            path_on_host: file.path().to_path_buf(),
+            path_on_host: f.path().to_path_buf(),
             is_root_device: true,
             is_read_only: false,
             rate_limiter: None,
@@ -1356,7 +1358,7 @@ mod tests {
         // test that updating an existing block device returns the correct output
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
-            path_on_host: file.path().to_path_buf(),
+            path_on_host: f.path().to_path_buf(),
             is_root_device: true,
             is_read_only: true,
             rate_limiter: None,

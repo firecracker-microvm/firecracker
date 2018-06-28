@@ -50,12 +50,13 @@ impl PipeLogWriter {
 mod tests {
     extern crate tempfile;
 
+    use self::tempfile::NamedTempFile;
     use super::*;
 
     #[test]
     fn test_new() {
-        let log_file_temp = tempfile::NamedTempFile::new()
-            .expect("Failed to create temporary output logging file.");
+        let log_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary output logging file.");
         let good_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
         let res = PipeLogWriter::new(&good_file);
         assert!(res.is_ok())
@@ -63,8 +64,8 @@ mod tests {
 
     #[test]
     fn test_write() {
-        let log_file_temp = tempfile::NamedTempFile::new()
-            .expect("Failed to create temporary output logging file.");
+        let log_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary output logging file.");
         let file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
 
         let fw = PipeLogWriter::new(&file).unwrap();
