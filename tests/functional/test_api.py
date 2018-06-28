@@ -448,3 +448,141 @@ def test_rate_limiters_api_config(test_microvm_with_api):
     )
     """ Verify the request succeeded """
     assert(test_microvm.api_session.is_good_response(response.status_code))
+
+
+@pytest.mark.timeout(100)
+def test_api_unknown_fields(test_microvm_with_api):
+    """ Tests that requests with unknown fields result in error 400 """
+
+    test_microvm = test_microvm_with_api
+
+    """ Test invalid field for APILoggerDescription """
+    """ path -> pth """
+    response = test_microvm.api_session.put(
+        test_microvm.logger_url,
+        json = {
+            'pth': 'firecracker.log',
+            'level': 'Info',
+            'show_level': True,
+            'show_log_origin': True
+        }
+    )
+    assert response.status_code == 400
+
+    """ Test invalid field for BootSourceBody """
+    """ source_type -> source-type """
+    response = test_microvm.api_session.put(
+        test_microvm.boot_cfg_url,
+        json = {
+            'boot_source_id': 'alinux_kernel',
+            'source-type': 'LocalImage',
+            'local_image': { 'kernel-image_path': test_microvm.slot.kernel_file },
+        }
+    )
+    assert response.status_code == 400
+
+    """ Test invalid field for LocalImage """
+    """ kernel_image_path ->  kernel-image_path """
+    response = test_microvm.api_session.put(
+        test_microvm.boot_cfg_url,
+        json = {
+            'boot_source_id': 'alinux_kernel',
+            'source_type': 'LocalImage',
+            'local_image': { 'kernel-image_path': test_microvm.slot.kernel_file },
+        }
+    )
+    assert response.status_code == 400
+
+    """ Test invalid field for DriveDescription """
+    """ drive_id -> drive-id """
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url,
+        json = {
+            'drive-id': 'root',
+            'path_on_host': test_microvm.slot.rootfs_file,
+            'is_root_device': True,
+            'permissions': 'rw',
+            'state': 'Attached'
+        }
+    )
+    assert response.status_code == 400
+
+    """ Test invalid field for MachineConfiguration """
+    """ vcpu_count -> vcpu-count """
+    response = test_microvm.api_session.put(
+        test_microvm.microvm_cfg_url,
+        json = { 'vcpu-count': 4, 'mem_size_mib': 256 }
+    )
+    assert response.status_code == 400
+
+    """ Test invalid field for NetworkInterfaceBody """
+    """ iface_id -> iface-id """
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url,
+        json = {
+            'iface-id': 1,
+            'host_dev_name': 'vmtap33',
+            'guest_mac': '06:00:00:00:00:01',
+            'state': 'Attached'
+        }
+    )
+    assert response.status_code == 400
+
+    """ Test invalid field for TokenBucketDescription """
+    """ size -> siz """
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url,
+        json = {
+            'iface_id': 1,
+            'host_dev_name': 'vmtap33',
+            'guest_mac': '06:00:00:00:00:01',
+            'state': 'Attached',
+            'rx_rate_limiter': {
+                'bandwidth': { 'siz': 1000000, 'refill_time': 1000 }
+            }
+        }
+    )
+    assert response.status_code == 400
+
+    """ Test invalid field for RateLimiterDescription """
+    """ ops -> op """
+    response = test_microvm.api_session.put(
+        test_microvm.net_cfg_url,
+        json = {
+            'iface_id': 1,
+            'host_dev_name': 'vmtap33',
+            'guest_mac': '06:00:00:00:00:01',
+            'state': 'Attached',
+            'rx_rate_limiter': {
+                'op': { 'size': 1000000, 'refill_time': 1000 }
+            }
+        }
+    )
+    assert response.status_code == 400
+
+    """ Test invalid field for AsyncRequestBody """
+    """ action_id -> action-id """
+    response = test_microvm.api_session.put(
+        test_microvm.actions_url,
+        json = {
+            'action_di': 'start',
+            'action_type': 'InstanceStart',
+        }
+    )
+    assert response.status_code == 400
+
+    """ Test invalid field for InstanceDeviceDetachAction """
+    """ device_resource_id -> device_resource_di """
+    response = test_microvm.api_session.put(
+        test_microvm.actions_url,
+        json = {
+            'action_id': 'start3',
+            'action_type': 'InstanceStart',
+            'instance_device_detach_action': {
+                'device_type': 'Drive',
+                'device_resource_di': 1,
+                'force': True
+            }
+        }
+    )
+    assert response.status_code == 400
