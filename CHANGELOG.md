@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.6.0]
+
+### Added
+
+* Firecracker uses two different named pipes to record human readable logs and metrics, respectively.
+
+### Changed
+
+* Seccomp filtering can be enabled via setting the `USE_SECCOMP` environment variable.
+* It is possible to supply only a partial specification when attaching a rate limiter (i.e. just the bandwidth or ops parameter).
+* Errors related to guest network interfaces are now more detailed.
+
+### Fixed
+* Fixed a bug that was causing Firecracker to panic whenever a PUT request was sent on an existing network interface.
+* The id parameter of the jailer is required to be an RFC 4122-compliant UUID.
+* Fixed an issue which caused the network RX rate limiter to be more restrictive than intended.
+* API requests which contain unknown fields will generate an error.
+* Fixed an issue related to high CPU utilization caused by improper KVM PIT configuration.
+* It is now possible to create more than one network tun/tap interface inside a jailed Firecracker.
+
 ## [0.5.0]
 
 ### Added
