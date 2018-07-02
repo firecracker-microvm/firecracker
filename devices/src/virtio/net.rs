@@ -80,6 +80,8 @@ struct NetEpollHandler {
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
     rx_buf: [u8; MAX_BUFFER_SIZE],
+    tx_frame: [u8; MAX_BUFFER_SIZE],
+    tx_used_desc_heads: [u16; QUEUE_SIZE as usize],
     rx_count: usize,
     deferred_rx: bool,
     // TODO(smbarber): http://crbug.com/753630
@@ -237,8 +239,6 @@ impl NetEpollHandler {
     }
 
     fn process_tx(&mut self) {
-        let mut frame = [0u8; MAX_BUFFER_SIZE];
-        let mut used_desc_heads = [0u16; QUEUE_SIZE as usize];
         let mut used_count = 0;
         let mut rate_limited = false;
 
@@ -262,9 +262,9 @@ impl NetEpollHandler {
                         if desc.is_write_only() {
                             break;
                         }
-                        let limit = cmp::min(read_count + desc.len as usize, frame.len());
+                        let limit = cmp::min(read_count + desc.len as usize, self.tx_frame.len());
                         let read_result = self.mem
-                            .read_slice_at_addr(&mut frame[read_count..limit as usize], desc.addr);
+                            .read_slice_at_addr(&mut self.tx_frame[read_count..limit as usize], desc.addr);
                         match read_result {
                             Ok(sz) => {
                                 read_count += sz;
@@ -295,7 +295,7 @@ impl NetEpollHandler {
                 break;
             }
 
-            let write_result = self.tap.write(&frame[..read_count as usize]);
+            let write_result = self.tap.write(&self.tx_frame[..read_count as usize]);
             match write_result {
                 Ok(_) => {
                     METRICS.net.tx_bytes_count.add(read_count);
@@ -307,7 +307,7 @@ impl NetEpollHandler {
                 }
             };
 
-            used_desc_heads[used_count] = head_index;
+            self.tx_used_desc_heads[used_count] = head_index;
             used_count += 1;
         }
         if rate_limited {
@@ -317,7 +317,7 @@ impl NetEpollHandler {
         }
 
         if used_count != 0 {
-            for &desc_index in &used_desc_heads[..used_count] {
+            for &desc_index in &self.tx_used_desc_heads[..used_count] {
                 self.tx_queue.add_used(&self.mem, desc_index, 0);
             }
             self.signal_used_queue();
@@ -674,6 +674,8 @@ impl VirtioDevice for Net {
                     interrupt_status: status,
                     interrupt_evt,
                     rx_buf: [0u8; MAX_BUFFER_SIZE],
+                    tx_frame: [0u8; MAX_BUFFER_SIZE],
+                    tx_used_desc_heads: [0u16; QUEUE_SIZE as usize],
                     rx_count: 0,
                     deferred_rx: false,
                     acked_features: self.acked_features,
@@ -914,6 +916,8 @@ mod tests {
             interrupt_status,
             interrupt_evt,
             rx_buf: [0u8; MAX_BUFFER_SIZE],
+            tx_frame: [0u8; MAX_BUFFER_SIZE],
+            tx_used_desc_heads: [0u16; QUEUE_SIZE as usize],
             rx_count: 0,
             deferred_rx: false,
             acked_features: n.acked_features,
@@ -1075,6 +1079,8 @@ mod tests {
             interrupt_status,
             interrupt_evt,
             rx_buf: [0u8; MAX_BUFFER_SIZE],
+            tx_frame: [0u8; MAX_BUFFER_SIZE],
+            tx_used_desc_heads: [0u16; QUEUE_SIZE as usize],
             rx_count: 0,
             deferred_rx: false,
             acked_features: n.acked_features,
@@ -1217,6 +1223,8 @@ mod tests {
             interrupt_status,
             interrupt_evt,
             rx_buf: [0u8; MAX_BUFFER_SIZE],
+            tx_frame: [0u8; MAX_BUFFER_SIZE],
+            tx_used_desc_heads: [0u16; QUEUE_SIZE as usize],
             rx_count: 0,
             deferred_rx: false,
             acked_features: n.acked_features,
