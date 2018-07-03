@@ -2,11 +2,12 @@ use std::io;
 
 use fc_util::ratelimiter::RateLimiter;
 
-// This struct represents the strongly typed equivalent of the json body for TokenBucket
+// This struct represents the strongly typed equivalent of the json body for TokenBucket.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TokenBucketDescription {
     pub size: u64,
+    pub one_time_burst: Option<u64>,
     pub refill_time: u64,
 }
 
@@ -14,12 +15,13 @@ impl Default for TokenBucketDescription {
     fn default() -> Self {
         TokenBucketDescription {
             size: 0,
+            one_time_burst: None,
             refill_time: 0,
         }
     }
 }
 
-// This struct represents the strongly typed equivalent of the json body for RateLimiter
+// This struct represents the strongly typed equivalent of the json body for RateLimiter.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RateLimiterDescription {
@@ -29,7 +31,7 @@ pub struct RateLimiterDescription {
     pub ops: Option<TokenBucketDescription>,
 }
 
-// TryFrom trait is sadly marked unstable, so make our own
+// TryFrom trait is sadly marked unstable, so make our own.
 impl RateLimiterDescription {
     fn into_implementation(&self) -> io::Result<RateLimiter> {
         let bw = match self.bandwidth.as_ref() {
@@ -40,7 +42,19 @@ impl RateLimiterDescription {
             Some(opstbd) => opstbd.clone(),
             None => TokenBucketDescription::default(),
         };
-        RateLimiter::new(bw.size, bw.refill_time, ops.size, ops.refill_time)
+
+        let bw_one_time_burst = bw.one_time_burst.unwrap_or(0);
+
+        let ops_one_time_burst = ops.one_time_burst.unwrap_or(0);
+
+        RateLimiter::new(
+            bw.size,
+            bw_one_time_burst,
+            bw.refill_time,
+            ops.size,
+            ops_one_time_burst,
+            ops.refill_time,
+        )
     }
 }
 
@@ -56,15 +70,13 @@ pub fn description_into_implementation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json;
 
     #[test]
     fn test_token_bucket_derives() {
-        let tb = TokenBucketDescription {
-            size: 0,
-            refill_time: 0,
-        };
+        let tb = TokenBucketDescription::default();
         let tbc = tb.clone();
-        // test clone and partial eq
+        // Test `clone` and `partial eq`.
         assert_eq!(tb, tbc);
     }
 
@@ -72,6 +84,7 @@ mod tests {
     fn test_token_bucket_default() {
         let tb = TokenBucketDescription::default();
         assert_eq!(tb.size, 0);
+        assert!(tb.one_time_burst.is_none());
         assert_eq!(tb.refill_time, 0);
     }
 
@@ -84,8 +97,24 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_into_impl() {
+        let res = description_into_implementation(Some(&RateLimiterDescription::default()));
+        assert!(res.unwrap().is_some());
+        let res = description_into_implementation(None);
+        assert!(res.unwrap().is_none());
         RateLimiterDescription::default()
             .into_implementation()
             .unwrap();
+    }
+
+    #[test]
+    fn test_rate_limiter_deserialization() {
+        let jstr = r#"{
+                "bandwidth": { "size": 0, "one_time_burst": 0,  "refill_time": 0 },
+                "ops": { "size": 0, "one_time_burst": 0, "refill_time": 0 }
+            }"#;
+
+        let x: RateLimiterDescription =
+            serde_json::from_str(jstr).expect("deserialization failed.");
+        assert!(x.into_implementation().is_ok());
     }
 }

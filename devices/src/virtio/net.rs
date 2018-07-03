@@ -794,8 +794,14 @@ mod tests {
                     None,
                     epoll_config,
                     // rate limiters present but with _very high_ allowed rate
-                    Some(RateLimiter::new(u64::max_value(), 1000, u64::max_value(), 1000).unwrap()),
-                    Some(RateLimiter::new(u64::max_value(), 1000, u64::max_value(), 1000).unwrap()),
+                    Some(
+                        RateLimiter::new(u64::max_value(), 0, 1000, u64::max_value(), 0, 1000)
+                            .unwrap(),
+                    ),
+                    Some(
+                        RateLimiter::new(u64::max_value(), 0, 1000, u64::max_value(), 0, 1000)
+                            .unwrap(),
+                    ),
                 ).unwrap(),
                 epoll_raw_fd,
                 _receiver,
@@ -1082,7 +1088,7 @@ mod tests {
         // Test TX bandwidth rate limiting
         {
             // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
-            let mut rl = RateLimiter::new(0x1000, 100, 0, 0).unwrap();
+            let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0).unwrap();
             // use up the budget
             assert!(rl.consume(0x1000, TokenType::Bytes));
 
@@ -1131,7 +1137,7 @@ mod tests {
         // Test RX bandwidth rate limiting
         {
             // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
-            let mut rl = RateLimiter::new(0x1000, 100, 0, 0).unwrap();
+            let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0).unwrap();
             // use up the budget
             assert!(rl.consume(0x1000, TokenType::Bytes));
 
@@ -1224,7 +1230,7 @@ mod tests {
         // Test TX ops rate limiting
         {
             // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, 0, 1, 100).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
             // use up the budget
             assert!(rl.consume(1, TokenType::Ops));
 
@@ -1273,7 +1279,7 @@ mod tests {
         // Test RX ops rate limiting
         {
             // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, 0, 1, 100).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
             // use up the budget
             assert!(rl.consume(0x800, TokenType::Ops));
 
