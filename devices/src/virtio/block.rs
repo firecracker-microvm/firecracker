@@ -663,7 +663,7 @@ mod tests {
             f.set_len(0x1000).unwrap();
 
             // Rate limiting is enabled but with a high operation rate (10 million ops/s).
-            let rate_limiter = RateLimiter::new(0, 0, 100000, 10).unwrap();
+            let rate_limiter = RateLimiter::new(0, 0, 0, 100000, 0, 10).unwrap();
             DummyBlock {
                 block: Block::new(f, false, epoll_config, Some(rate_limiter)).unwrap(),
                 epoll_raw_fd,
@@ -1158,7 +1158,7 @@ mod tests {
         // test the bandwidth rate limiter
         {
             // create bandwidth rate limiter that allows only 80 bytes/s with bucket size of 8 bytes
-            let mut rl = RateLimiter::new(8, 100, 0, 0).unwrap();
+            let mut rl = RateLimiter::new(8, 0, 100, 0, 0, 0).unwrap();
             // use up the budget
             assert!(rl.consume(8, TokenType::Bytes));
 
@@ -1217,7 +1217,7 @@ mod tests {
         // test the ops/s rate limiter
         {
             // create ops rate limiter that allows only 10 ops/s with bucket size of 1 ops
-            let mut rl = RateLimiter::new(0, 0, 1, 100).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
             // use up the budget
             assert!(rl.consume(1, TokenType::Ops));
 

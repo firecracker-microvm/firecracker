@@ -8,10 +8,10 @@ use std::time::Duration;
 
 #[derive(Debug)]
 pub enum Error {
-    SpuriousRateLimiterEvent,
+    SpuriousRateLimiterEvent(&'static str),
 }
 
-// interval at which the refill timer will run when limiter is at capacity
+// Interval at which the refill timer will run when limiter is at capacity.
 const REFILL_TIMER_INTERVAL_MS: u64 = 100;
 
 const NANOSEC_IN_ONE_MILLISEC: u64 = 1_000_000;
@@ -29,14 +29,15 @@ fn gcd(x: u64, y: u64) -> u64 {
 }
 
 struct TokenBucket {
-    // bucket defining traits
+    // Bucket defining traits.
     total_capacity: u64,
+    one_time_burst: u64,
 
-    // internal state
+    // Internal state descriptors.
     budget: u64,
     last_update: u64,
 
-    // fields used for pre-processing optimizations
+    // Fields used for pre-processing optimizations.
     processed_capacity: u64,
     processed_refill_time: u64,
 }
@@ -46,33 +47,33 @@ impl TokenBucket {
     ///  @total_capacity: the total capacity of the token bucket
     ///  @complete_refill_time_ms: number of milliseconds for the token bucket to
     ///                            go from zero tokens to total capacity.
-    pub fn new(total_capacity: u64, complete_refill_time_ms: u64) -> Self {
-        // each 'time_delta' nanoseconds the bucket should refill with:
-        //     count_tokens = (time_delta * total_capacity) / (complete_refill_time_ms * 1_000_000)
+    fn new(total_capacity: u64, one_time_burst: u64, complete_refill_time_ms: u64) -> Self {
+        // Formula for computing current refill amount:
+        // refill_token_count = (delta_time * total_capacity) / (complete_refill_time_ms * 1_000_000)
+        // In order to avoid overflows, simplify the fractions by computing greatest common divisor.
 
-        // pre-process some fields to make the formula work with smaller numbers:
-
-        // get the greatest common factor between total_capacity and complete_refill_time_ms
+        // Get the greatest common factor between `total_capacity` and `complete_refill_time_ms`.
         let common_factor = gcd(total_capacity, complete_refill_time_ms);
-        // will be exact division since common_factor is a factor of total_capacity
+        // The division will be exact since `common_factor` is a factor of `total_capacity`.
         let mut processed_capacity: u64 = total_capacity / common_factor;
-        // will be exact division since common_factor is a factor of complete_refill_time_ms
+        // The division will be exact since `common_factor` is a factor of `complete_refill_time_ms`.
         let mut processed_refill_time: u64 = complete_refill_time_ms / common_factor;
 
-        // get the gcd between processed_capacity and NANOSEC_IN_ONE_MILLISEC
+        // Get the gcd between `processed_capacity` and `NANOSEC_IN_ONE_MILLISEC`
+        // which is 1_000_000 (see formula from above).
         let common_factor = gcd(processed_capacity, NANOSEC_IN_ONE_MILLISEC);
-        // process/reduce the capacity factor even further
+        // Reduce the capacity factor even further.
         processed_capacity /= common_factor;
-        // processed_refill_time was ms; turn to nanoseconds and reduce by common_factor
+        // `processed_refill_time` was ms; turn to nanoseconds and reduce by `common_factor`.
         processed_refill_time *= NANOSEC_IN_ONE_MILLISEC / common_factor;
 
         TokenBucket {
             total_capacity,
-            // start off full
+            one_time_burst,
+            // Start off full.
             budget: total_capacity,
-            // last updated is now
+            // Last updated is now.
             last_update: time::precise_time_ns(),
-            // preprocessed capacity and refill time to make them smaller while keeping the ratio
             processed_capacity,
             processed_refill_time,
         }
@@ -80,11 +81,32 @@ impl TokenBucket {
 
     // TODO (Issue #259): handle cases where a single request is larger than the full capacity
     // for such cases we need to support partial fulfilment of requests
-    fn reduce(&mut self, tokens: u64) -> bool {
+    fn reduce(&mut self, mut tokens: u64) -> bool {
+        // First things first: consume the one-time-burst budget.
+        if self.one_time_burst > 0 {
+            // We still have burst budget for *all* tokens requests.
+            if self.one_time_burst >= tokens {
+                self.one_time_burst -= tokens;
+                self.last_update = time::precise_time_ns();
+                // No need to continue to the refill process, we still have burst budget to consume from.
+                return true;
+            } else {
+                // We still have burst budget for *some* of the tokens requests.
+                // The tokens left unfulfilled will be consumed from current `self.budget`.
+                tokens -= self.one_time_burst;
+                self.one_time_burst = 0;
+            }
+        }
+
+        // Compute time passed since last refill/update.
         let now = time::precise_time_ns();
         let time_delta = now - self.last_update;
-
         self.last_update = now;
+
+        // At each 'time_delta' nanoseconds the bucket should refill with:
+        // refill_amount = (time_delta * total_capacity) / (complete_refill_time_ms * 1_000_000)
+        // `processed_capacity` and `processed_refill_time` are the result of simplifying above
+        // fraction formula with their greatest-common-factor.
         self.budget += (time_delta * self.processed_capacity) / self.processed_refill_time;
 
         if self.budget >= self.total_capacity {
@@ -104,22 +126,28 @@ impl TokenBucket {
                     return true;
                 }
             }
-            // if not enough tokens consume() fails, return false
+            // If not enough tokens consume() fails, return false.
             return false;
         }
 
-        // use up tokens
         self.budget -= tokens;
-        // consume() succeeded
         true
     }
 
     /// Adds tokens to bucket
     fn replenish(&mut self, tokens: u64) {
-        self.budget = super::std::cmp::min(self.budget + tokens, self.total_capacity);
+        // This means we are still during the burst interval.
+        // Of course there is a very small chance  that the last reduce() also used up burst
+        // budget which should now be replenished, but for performance and code-complexity
+        // reasons we're just gonna let that slide since it's practically inconsequential.
+        if self.one_time_burst > 0 {
+            self.one_time_burst += tokens;
+        } else {
+            self.budget = super::std::cmp::min(self.budget + tokens, self.total_capacity);
+        }
     }
 
-    /// Resets the token bucket: budget set to max capacity and last-updated set to now
+    /// Resets the token bucket: budget set to max capacity and last-updated set to now.
     #[cfg(test)]
     fn reset(&mut self) {
         self.budget = self.total_capacity;
@@ -150,6 +178,11 @@ impl TokenBucket {
     pub fn get_processed_refill_time(&self) -> u64 {
         self.processed_refill_time
     }
+
+    #[cfg(test)]
+    pub fn get_one_time_burst(&self) -> u64 {
+        self.one_time_burst
+    }
 }
 
 pub enum TokenType {
@@ -170,44 +203,48 @@ pub struct RateLimiter {
     bytes_token_bucket: Option<TokenBucket>,
     ops_token_bucket: Option<TokenBucket>,
     timer_fd: Option<TimerFd>,
-    // internal flag to quickly determine timer state
+    // Internal flag that quickly determines timer state.
     timer_active: bool,
-    // cache the target state of the timer to avoid computing it over and over
+    // Cache the target state of the timer to avoid computing it over and over.
     timer_future_state: TimerState,
 }
 
 impl RateLimiter {
     /// Creates a new Rate Limiter that can limit on both bytes/s and ops/s.
     /// If either bytes/ops capacity or refill_time are 0, the limiter is 'disabled'
-    /// on that respective token type
+    /// on that respective token type.
     pub fn new(
         bytes_total_capacity: u64,
+        bytes_one_time_burst: u64,
         bytes_complete_refill_time_ms: u64,
         ops_total_capacity: u64,
+        ops_one_time_burst: u64,
         ops_complete_refill_time_ms: u64,
     ) -> io::Result<Self> {
-        // if either bytes token bucket capacity or refill time is 0, disable limiting on bytes/s
+        // If either bytes token bucket capacity or refill time is 0, disable limiting on bytes/s.
         let bytes_token_bucket = if bytes_total_capacity != 0 && bytes_complete_refill_time_ms != 0
         {
             Some(TokenBucket::new(
                 bytes_total_capacity,
+                bytes_one_time_burst,
                 bytes_complete_refill_time_ms,
             ))
         } else {
             None
         };
 
-        // if either ops token bucket capacity or refill time is 0, disable limiting on ops/s
+        // If either ops token bucket capacity or refill time is 0, disable limiting on ops/s.
         let ops_token_bucket = if ops_total_capacity != 0 && ops_complete_refill_time_ms != 0 {
             Some(TokenBucket::new(
                 ops_total_capacity,
+                ops_one_time_burst,
                 ops_complete_refill_time_ms,
             ))
         } else {
             None
         };
 
-        // if limiting is disabled on all token types, don't even create a timer fd
+        // If limiting is disabled on all token types, don't even create a timer fd.
         let timer_fd = if bytes_token_bucket.is_some() || ops_token_bucket.is_some() {
             // create TimerFd using monotonic clock, as nonblocking FD and set close-on-exec
             Some(TimerFd::new_custom(ClockId::Monotonic, true, true)?)
@@ -220,33 +257,33 @@ impl RateLimiter {
             ops_token_bucket,
             timer_fd,
             timer_active: false,
-            // cache this instead of building it each time
+            // Cache this instead of building it each time.
             timer_future_state: TimerState::Oneshot(Duration::from_millis(
                 REFILL_TIMER_INTERVAL_MS,
             )),
         })
     }
 
-    /// Attempts to consume tokens and returns whether that is possible
+    /// Attempts to consume tokens and returns whether that is possible.
     pub fn consume(&mut self, tokens: u64, token_type: TokenType) -> bool {
-        // identify the required token bucket
+        // Identify the required token bucket.
         let token_bucket = match token_type {
             TokenType::Bytes => self.bytes_token_bucket.as_mut(),
             TokenType::Ops => self.ops_token_bucket.as_mut(),
         };
-        // try to consume from the token bucket
+        // Try to consume from the token bucket.
         let success = match token_bucket {
             Some(bucket) => bucket.reduce(tokens),
-            // if bucket is not present rate limiting is disabled on token type,
+            // If bucket is not present rate limiting is disabled on token type,
             // consume() will always succeed.
             None => true,
         };
-        // when we report budget is over, there will be no further calls here,
+        // When we report budget is over, there will be no further calls here,
         // register a timer to replenish the bucket and resume processing;
-        // make sure there is only one running timer for this limiter
+        // make sure there is only one running timer for this limiter.
         if !success && !self.timer_active {
-            // register the timer; don't care about its previous state
-            // safe to unwrap: timer is definitely Some() since we have a bucket
+            // Register the timer; don't care about its previous state
+            // safe to unwrap: timer is definitely Some() since we have a bucket.
             self.timer_fd
                 .as_mut()
                 .unwrap()
@@ -256,14 +293,14 @@ impl RateLimiter {
         success
     }
 
-    /// Adds tokens to their respective bucket
+    /// Adds tokens to their respective bucket.
     pub fn manual_replenish(&mut self, tokens: u64, token_type: TokenType) {
-        // identify the required token bucket
+        // Identify the required token bucket.
         let token_bucket = match token_type {
             TokenType::Bytes => self.bytes_token_bucket.as_mut(),
             TokenType::Ops => self.ops_token_bucket.as_mut(),
         };
-        // add tokens to the token bucket
+        // Add tokens to the token bucket.
         if let Some(bucket) = token_bucket {
             bucket.replenish(tokens);
         }
@@ -281,22 +318,20 @@ impl RateLimiter {
     pub fn event_handler(&mut self) -> Result<(), Error> {
         match self.timer_fd.as_mut() {
             Some(timer_fd) => {
-                // read the timer_fd and report error if there was no event
+                // Read the timer_fd and report error if there was no event.
                 match timer_fd.read() {
-                    0 => {
-                        error!("Rate limiter event handler called in the absence of a timer event");
-                        Err(Error::SpuriousRateLimiterEvent)
-                    }
+                    0 => Err(Error::SpuriousRateLimiterEvent(
+                        "Rate limiter event handler called without a present timer",
+                    )),
                     _ => {
                         self.timer_active = false;
                         Ok(())
                     }
                 }
             }
-            None => {
-                error!("Rate limiter event handler called without a present timer");
-                Err(Error::SpuriousRateLimiterEvent)
-            }
+            None => Err(Error::SpuriousRateLimiterEvent(
+                "Rate limiter event handler called without a present timer",
+            )),
         }
     }
 
@@ -312,7 +347,6 @@ impl RateLimiter {
 impl AsRawFd for RateLimiter {
     /// Provides a FD which needs to be monitored for POLLIN events;
     /// this object's .event_handler() must be called on such events.
-    ///
     /// Will return a negative value if rate limiter is disabled.
     fn as_raw_fd(&self) -> RawFd {
         match self.timer_fd.as_ref() {
@@ -324,8 +358,8 @@ impl AsRawFd for RateLimiter {
 
 impl Default for RateLimiter {
     fn default() -> Self {
-        // safe to unwrap since this will not attempt to create timer_fd
-        RateLimiter::new(0, 0, 0, 0).unwrap()
+        // Safe to unwrap since this will not attempt to create timer_fd.
+        RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap()
     }
 }
 
@@ -338,7 +372,7 @@ mod tests {
     #[test]
     fn test_token_bucket_create() {
         let before = time::precise_time_ns();
-        let tb = TokenBucket::new(1000, 1000);
+        let tb = TokenBucket::new(1000, 0, 1000);
         assert_eq!(tb.get_capacity(), 1000);
         assert_eq!(tb.get_current_budget(), 1000);
         assert!(tb.get_last_update() >= before);
@@ -349,12 +383,12 @@ mod tests {
 
     #[test]
     fn test_token_bucket_preprocess() {
-        let tb = TokenBucket::new(1000, 1000);
+        let tb = TokenBucket::new(1000, 0, 1000);
         assert_eq!(tb.get_processed_capacity(), 1);
         assert_eq!(tb.get_processed_refill_time(), NANOSEC_IN_ONE_MILLISEC);
 
         let thousand = 1000;
-        let tb = TokenBucket::new(3 * 7 * 11 * 19 * thousand, 7 * 11 * 13 * 17);
+        let tb = TokenBucket::new(3 * 7 * 11 * 19 * thousand, 0, 7 * 11 * 13 * 17);
         assert_eq!(tb.get_processed_capacity(), 3 * 19);
         assert_eq!(
             tb.get_processed_refill_time(),
@@ -365,10 +399,10 @@ mod tests {
     #[test]
     fn test_token_bucket_reduce() {
         // token bucket with capacity 1000 and refill time of 1000 milliseconds
-        // allowing rate of 1 token/ms
+        // allowing rate of 1 token/ms.
         let capacity = 1000;
         let refill_ms = 1000;
-        let mut tb = TokenBucket::new(capacity, refill_ms as u64);
+        let mut tb = TokenBucket::new(capacity, 0, refill_ms as u64);
 
         assert!(tb.reduce(123));
         assert_eq!(tb.get_current_budget(), capacity - 123);
@@ -380,9 +414,12 @@ mod tests {
         assert!(!tb.reduce(capacity));
 
         // token bucket with capacity 1000 and refill time of 1000 milliseconds
-        let mut tb = TokenBucket::new(1000, 1000);
+        let mut tb = TokenBucket::new(1000, 1100, 1000);
         // safely assuming the thread can run these 3 commands in less than 500ms
+        assert!(tb.reduce(1000));
+        assert_eq!(tb.get_one_time_burst(), 100);
         assert!(tb.reduce(500));
+        assert_eq!(tb.get_one_time_burst(), 0);
         assert!(tb.reduce(500));
         assert!(!tb.reduce(500));
         thread::sleep(Duration::from_millis(500));
@@ -407,6 +444,11 @@ mod tests {
         assert!(l.consume(u64::max_value(), TokenType::Bytes));
         // calling the handler without there having been an event should error
         assert!(l.event_handler().is_err());
+        assert_eq!(
+            format!("{:?}", l.event_handler().err().unwrap()),
+            "SpuriousRateLimiterEvent(\
+            \"Rate limiter event handler called without a present timer\")"
+        );
         // raw FD for this disabled rate-limiter should be -1
         assert_eq!(l.as_raw_fd(), -1);
     }
@@ -414,7 +456,7 @@ mod tests {
     #[test]
     fn test_rate_limiter_manual_replenish() {
         // rate limiter with limit of 1000 bytes/s and 1000 ops/s
-        let mut l = RateLimiter::new(1000, 1000, 1000, 1000).unwrap();
+        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000).unwrap();
 
         // consume 123 bytes
         assert!(l.consume(123, TokenType::Bytes));
@@ -435,7 +477,7 @@ mod tests {
     #[test]
     fn test_rate_limiter_bandwidth() {
         // rate limiter with limit of 1000 bytes/s
-        let mut l = RateLimiter::new(1000, 1000, 0, 0).unwrap();
+        let mut l = RateLimiter::new(1000, 0, 1000, 0, 0, 0).unwrap();
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
@@ -468,7 +510,7 @@ mod tests {
     #[test]
     fn test_rate_limiter_ops() {
         // rate limiter with limit of 1000 ops/s
-        let mut l = RateLimiter::new(0, 0, 1000, 1000).unwrap();
+        let mut l = RateLimiter::new(0, 0, 0, 1000, 0, 1000).unwrap();
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
@@ -501,7 +543,7 @@ mod tests {
     #[test]
     fn test_rate_limiter_full() {
         // rate limiter with limit of 1000 bytes/s and 1000 ops/s
-        let mut l = RateLimiter::new(1000, 1000, 1000, 1000).unwrap();
+        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000).unwrap();
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
