@@ -16,7 +16,6 @@ import os
 import shutil
 from subprocess import run
 import urllib
-import uuid
 
 import requests_unixsocket
 
@@ -55,7 +54,7 @@ class FilesystemFile:
     def copy_to(self, src_path, rel_dst_path):
         """ Copy to a relative path inside this filesystem file. """
         self._loop_mount()
-        full_dst_path = self.loop_mount_path + rel_dst_path
+        full_dst_path = os.path.join(self.loop_mount_path, rel_dst_path)
 
         try:
             os.makedirs(os.path.dirname(full_dst_path), exist_ok=True)
@@ -66,7 +65,7 @@ class FilesystemFile:
     def copy_from(self, rel_src_path, dst_path):
         """ Copy from relative path inside this filesystem file. """
         self._loop_mount()
-        full_src_path = self.loop_mount_path + rel_src_path
+        full_src_path = os.path.join(self.loop_mount_path, rel_src_path)
 
         try:
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
@@ -155,14 +154,18 @@ class MicrovmSlot:
     ):
         self.id = id
         self.microvm_root_path = microvm_root_path
-        self.path = (
-            microvm_root_path +
-            self.MICROVM_SLOT_DIR_PREFIX +
-            self.id +
-            '/'
+        self.path = os.path.join(
+            microvm_root_path,
+            self.MICROVM_SLOT_DIR_PREFIX + self.id
         )
-        self.kernel_path = self.path + self.MICROVM_SLOT_KERNEL_RELPATH
-        self.fsfiles_path = self.path + self.MICROVM_SLOT_FSFILES_RELPATH
+        self.kernel_path = os.path.join(
+            self.path,
+            self.MICROVM_SLOT_KERNEL_RELPATH
+        )
+        self.fsfiles_path = os.path.join(
+            self.path,
+            self.MICROVM_SLOT_FSFILES_RELPATH
+        )
 
         self.kernel_file = ''
         """ Assigned once an microvm image populates this slot. """
@@ -203,7 +206,7 @@ class MicrovmSlot:
         if name is None:
             name = 'fsfile' + str(len(self.fsfiles) + 1)
 
-        path = self.fsfiles_path + name + '.ext4'
+        path = os.path.join(self.fsfiles_path, name + '.ext4')
         self.fsfiles[name] = FilesystemFile(path, size=size, format='ext4')
         return path
 
@@ -286,7 +289,10 @@ class Microvm:
 
         self.session_name = self.fc_binary_name + '-' + self.id
 
-        api_usocket_full_name = self.slot.path + self.api_usocket_name
+        api_usocket_full_name = os.path.join(
+            self.slot.path,
+            self.api_usocket_name
+        )
         url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
         self.api_url = self.api_usocket_url_prefix + url_encoded_path + '/'
 
@@ -327,8 +333,8 @@ class Microvm:
 
         start_fc_session_cmd = self.fc_start_cmd.format(
             session=self.session_name,
-            fc_binary=self.fc_binary_path + self.fc_binary_name,
-            fc_usock=self.slot.path + self.api_usocket_name
+            fc_binary=os.path.join(self.fc_binary_path, self.fc_binary_name),
+            fc_usock=os.path.join(self.slot.path, self.api_usocket_name)
         )
         run(start_fc_session_cmd, shell=True, check=True)
 
@@ -403,7 +409,11 @@ class Microvm:
 
     def ensure_firecracker_binary(self):
         """ If no firecracker binary exists in the repo, build it. """
-        if not os.path.isfile(self.FC_BINARY_PATH + self.FC_BINARY_NAME):
+        firecracker_path = os.path.join(
+            self.fc_binary_path,
+            self.fc_binary_name
+        )
+        if not os.path.isfile(firecracker_path):
             run(
                 'cargo build --quiet --release >/dev/null 2>&1',
                 shell=True,

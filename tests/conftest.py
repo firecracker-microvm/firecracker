@@ -123,7 +123,7 @@ def test_session_root_path():
     created_test_session_root_path = False
 
     try:
-        test_session_root_path = os.environ[ENV_TMPDIR_VAR] + '/'
+        test_session_root_path = os.environ[ENV_TMPDIR_VAR]
     except:
         test_session_root_path = DEFAULT_ROOT_TESTSESSION_PATH
 
@@ -140,9 +140,7 @@ def test_session_root_path():
 @pytest.fixture
 def testsession_tmp_path(test_session_root_path):
     """ Yields a random temporary directory. Destroyed on teardown. """
-    test_session_tmp_path = (
-        tempfile.mkdtemp(prefix=test_session_root_path) + '/'
-    )
+    test_session_tmp_path = tempfile.mkdtemp(prefix=test_session_root_path)
     yield test_session_tmp_path
     shutil.rmtree(test_session_tmp_path)
 
@@ -167,7 +165,9 @@ def microvm(microvm_slot):
     microvm.spawn()
 
     while True:
-        if os.path.exists(microvm.slot.path + microvm.api_usocket_name):
+        if os.path.exists(
+                os.path.join(microvm.slot.path, microvm.api_usocket_name)
+        ):
             break
         else:
             time.sleep(0.001)
