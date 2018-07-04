@@ -116,16 +116,19 @@ class MicrovmImageS3Fetcher:
                 # Kernel and blockdev dirs already exist in microvm_slot.
                 continue
 
-            slot_dest_path = microvm_slot.path + resource_key
+            slot_dest_path = os.path.join(microvm_slot.path, resource_key)
 
             if resource_key.endswith('/'):
                 # Create a new microvm_slot dir if one is encountered.
                 os.mkdir(slot_dest_path)
                 continue
 
-            resource_rel_path = (
-                self.microvm_images_path +
-                microvm_image_name + '/' +
+            image_rel_path = os.path.join(
+                self.microvm_images_path,
+                microvm_image_name
+            )
+            resource_rel_path = os.path.join(
+                image_rel_path,
                 resource_key
             )
             # Relative path of a microvm resource within a microvm directory.
@@ -139,10 +142,12 @@ class MicrovmImageS3Fetcher:
                 # Use a root path in the temporary test session directory.
                 resource_root_path = microvm_slot.microvm_root_path
 
-            resource_local_path = resource_root_path + resource_rel_path
+            resource_local_path = os.path.join(
+                resource_root_path,
+                resource_rel_path
+            )
             # Local path of a microvm resource. Used for downloading resources
             # only once.
-
             if not os.path.exists(resource_local_path):
                 """
                 Locally create / download an s3 resource the first time we

@@ -8,6 +8,7 @@ Tests pertaining to line/branch test coverage for the Firecracker code base.
 """
 
 
+import os
 import re
 from subprocess import run
 
@@ -46,8 +47,8 @@ def test_coverage(testsession_tmp_path):
     )
     # By default, `cargo kcov` passes `--exclude-pattern=$CARGO_HOME --verify`
     # to kcov. To pass others arguments, we need to include the defaults.
-
-    with open(testsession_tmp_path + COVERAGE_FILE) as cov_output:
+    coverage_file = os.path.join(testsession_tmp_path, COVERAGE_FILE)
+    with open(coverage_file) as cov_output:
         coverage = float(re.findall(COVERAGE_REGEX, cov_output.read())[0])
     print("Coverage is: " + str(coverage))
     run(
