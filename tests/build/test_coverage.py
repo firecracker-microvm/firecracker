@@ -14,9 +14,13 @@ from subprocess import run
 
 import pytest
 
+from host_tools.cargo_build import CARGO_BUILD_REL_PATH
+
+CARGO_KCOV_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "kcov")
+
 
 @pytest.mark.timeout(240)
-def test_coverage(testsession_tmp_path):
+def test_coverage(test_session_root_path, testsession_tmp_path):
     """
     Test line coverage with kcov. The result is extracted from the index.json
     created by kcov after a coverag run.
@@ -38,22 +42,18 @@ def test_coverage(testsession_tmp_path):
         'lib/x86_64-linux-gnu/,'
         'pnet'
     )
-    run(
-        'CARGO_INCREMENTAL=0  cargo kcov --all '
-        '    --output ' + testsession_tmp_path +
-        '    -- --exclude-pattern=' + exclude_pattern + ' --verify ',
-        shell=True,
-        check=True
+
+    cmd = "CARGO_TARGET_DIR={} cargo kcov --all --output {} -- \
+        --exclude-pattern={} --verify".format(
+        os.path.join(test_session_root_path, CARGO_KCOV_REL_PATH),
+        testsession_tmp_path,
+        exclude_pattern
     )
+    run(cmd, shell=True, check=True)
     # By default, `cargo kcov` passes `--exclude-pattern=$CARGO_HOME --verify`
     # to kcov. To pass others arguments, we need to include the defaults.
     coverage_file = os.path.join(testsession_tmp_path, COVERAGE_FILE)
     with open(coverage_file) as cov_output:
         coverage = float(re.findall(COVERAGE_REGEX, cov_output.read())[0])
     print("Coverage is: " + str(coverage))
-    run(
-        'cargo clean',
-        shell=True,
-        check=True
-    )
     assert(coverage >= COVERAGE_TARGET_PCT)

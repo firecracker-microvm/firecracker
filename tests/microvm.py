@@ -18,6 +18,8 @@ from subprocess import run
 import urllib
 
 import requests_unixsocket
+from host_tools.cargo_build import cargo_build, CARGO_RELEASE_REL_PATH,\
+    RELEASE_BINARIES_REL_PATH
 
 
 class FilesystemFile:
@@ -258,7 +260,6 @@ class Microvm:
     - Use the Firecracker Open API spec to populate Microvm API resource URLs.
     """
 
-    FC_BINARY_PATH = '../target/x86_64-unknown-linux-musl/release/'
     FC_BINARY_NAME = 'firecracker'
 
     fc_start_cmd = 'screen -dmS {session} {fc_binary} --api-sock {fc_usock}'
@@ -279,12 +280,18 @@ class Microvm:
         self,
         microvm_slot: MicrovmSlot,
         id: str="firecracker_microvm",
-        fc_binary_path=FC_BINARY_PATH,
+        fc_binary_rel_path=os.path.join(
+            CARGO_RELEASE_REL_PATH,
+            RELEASE_BINARIES_REL_PATH
+        ),
         fc_binary_name=FC_BINARY_NAME
     ):
         self.slot = microvm_slot
         self.id = id
-        self.fc_binary_path = fc_binary_path
+        self.fc_binary_path = os.path.join(
+            microvm_slot.microvm_root_path,
+            fc_binary_rel_path
+        )
         self.fc_binary_name = fc_binary_name
 
         self.session_name = self.fc_binary_name + '-' + self.id
@@ -408,14 +415,15 @@ class Microvm:
         )
 
     def ensure_firecracker_binary(self):
-        """ If no firecracker binary exists in the repo, build it. """
-        firecracker_path = os.path.join(
-            self.fc_binary_path,
-            self.fc_binary_name
-        )
-        if not os.path.isfile(firecracker_path):
-            run(
-                'cargo build --quiet --release >/dev/null 2>&1',
-                shell=True,
-                check=True
+        """ If no firecracker binary exists in the binaries path, build it. """
+        binary_path=os.path.join(self.fc_binary_path, self.fc_binary_name)
+        if not os.path.isfile(binary_path):
+            build_path = os.path.join(
+                self.slot.microvm_root_path,
+                CARGO_RELEASE_REL_PATH
+            )
+            cargo_build(
+                build_path,
+                flags="--release",
+                extra_args=">/dev/null 2>&1"
             )

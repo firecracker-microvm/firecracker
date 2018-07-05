@@ -113,11 +113,11 @@ if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True, scope='session')
 def test_session_root_path():
     """
     Ensures and yields the testrun root directory. If created here, it is also
-    destroyed during teardown.
+    destroyed during teardown. The root directory is created per test session.
     """
 
     created_test_session_root_path = False

@@ -7,22 +7,21 @@ Runs unit tests at integration time.
   is fixed
 """
 
+import os
 from subprocess import run
 
 import pytest
 
+from host_tools.cargo_build import CARGO_BUILD_REL_PATH
+
+CARGO_UNITTEST_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "test")
 
 @pytest.mark.timeout(240)
-def test_unittests():
+def test_unittests(test_session_root_path):
     """ Runs all unit tests from all Rust crates in the repo. """
-    run(
-       'CARGO_INCREMENTAL=0 RUST_BACKTRACE=1 cargo test --all --no-fail-fast',
-       shell=True,
-       check=True
+    cmd = "CARGO_TARGET_DIR={} RUST_BACKTRACE=1 " \
+          "cargo test --all --no-fail-fast".format(
+        os.path.join(test_session_root_path, CARGO_UNITTEST_REL_PATH),
     )
+    run(cmd, shell=True, check=True)
 
-    run(
-        'cargo clean',
-        shell=True,
-        check=True
-    )
