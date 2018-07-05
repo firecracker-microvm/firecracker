@@ -1,29 +1,43 @@
 """ Tests that the seccomp filters don't let blacklisted syscalls through. """
 
-from shutil import rmtree
+import os
+import shutil
 from subprocess import run
-from os import getcwd, makedirs, path, remove
 
 import pytest
 
+from host_tools.cargo_build import cargo_build, RELEASE_BINARIES_REL_PATH, \
+    CARGO_RELEASE_REL_PATH
 
-@pytest.fixture(scope="module")
-def tmp_jailer():
-    JAILER_SRCDIR = path.normpath(
-        path.join(getcwd(), '../src/bin/demo_jailer/')
-    )
+
+@pytest.fixture
+def tmp_jailer(test_session_root_path):
     """ Source directory for a new binary that ingests the `seccomp` crate. """
+    jailer_srcdir = os.path.normpath(
+        os.path.join(os.getcwd(), '../src/bin/demo_jailer/')
+    )
 
-    JAILER_BIN = path.normpath(
-        path.join(
-            getcwd(),
-            '../target/x86_64-unknown-linux-musl/release/demo_jailer'
+    """
+    The release binary path is created inside the testsession path as follows:
+    firecracker_binaries/release/x86_64-unknown-linux-musl/release/
+    """
+    release_binaries_path = os.path.join(
+        CARGO_RELEASE_REL_PATH,
+        RELEASE_BINARIES_REL_PATH
+    )
+    release_binaries_path = os.path.join(
+        test_session_root_path,
+        release_binaries_path
+    )
+    jailer_bin_path = os.path.normpath(
+        os.path.join(
+            release_binaries_path,
+            'demo_jailer'
         )
     )
-    """ Name of the mini jailer binary. """
 
-    makedirs(JAILER_SRCDIR)
-    with open(path.join(JAILER_SRCDIR, 'main.rs'), 'w') as jailer_src:
+    os.makedirs(jailer_srcdir)
+    with open(os.path.join(jailer_srcdir, 'main.rs'), 'w') as jailer_src:
         jailer_src.write("""
             extern crate seccomp;
             use std::env::args;
@@ -36,30 +50,33 @@ def tmp_jailer():
                 Command::new(exec_file).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).exec();
             }
             """)
-    yield JAILER_BIN
+    yield jailer_bin_path
 
-    rmtree(JAILER_SRCDIR)
-    remove(JAILER_BIN)
+    shutil.rmtree(jailer_srcdir)
+    os.remove(jailer_bin_path)
 
 
-@pytest.mark.timeout(60)
-def test_seccomp_ls(tmp_jailer):
+def test_seccomp_ls(test_session_root_path, tmp_jailer):
     """
     Asserts that the seccomp filters defined in Firecracker's `seccomp` crate
     deny a blacklisted syscall.
     """
 
-    JAILED_BIN = '/bin/ls'
     """
     Path to the `ls` binary, which attempts to execute `SYS_access`,
     blacklisted for Firecracker.
     """
+    ls_command_path = '/bin/ls'
+    build_path = os.path.join(
+        test_session_root_path,
+        CARGO_RELEASE_REL_PATH
+    )
+    cargo_build(build_path, flags="--release --bin", extra_args="demo_jailer")
 
-    run(['cargo', 'build', '--release', '--bin', 'demo_jailer'])
-    assert(path.exists(tmp_jailer))
+    assert(os.path.exists(tmp_jailer))
     """ Compile the mini jailer. """
 
-    outcome = run([tmp_jailer, JAILED_BIN])
+    outcome = run([tmp_jailer, ls_command_path])
     assert(outcome.returncode != 0)
     """
     The seccomp filters should send SIGSYS (31) to the binary. `ls` doesn't

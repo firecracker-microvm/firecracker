@@ -1,23 +1,26 @@
 """ Tests if both the debug and the release builds pass. """
 
-from subprocess import run
+import os
 
 import pytest
 
+from host_tools.cargo_build import cargo_build, CARGO_BUILD_REL_PATH,\
+    CARGO_RELEASE_REL_PATH
+CARGO_DEBUG_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "debug")
 
-def build(flags=''):
-    run(
-        'cargo build ' + flags,
-        shell=True,
-        check=True
+@pytest.mark.timeout(240)
+def test_build_debug(test_session_root_path):
+    build_path = os.path.join(
+        test_session_root_path,
+        CARGO_DEBUG_REL_PATH
     )
+    cargo_build(build_path)
 
 
 @pytest.mark.timeout(240)
-def test_build_debug():
-    build()
-
-
-@pytest.mark.timeout(240)
-def test_build_release():
-    build('--release')
+def test_build_release(test_session_root_path):
+    build_path = os.path.join(
+        test_session_root_path,
+        CARGO_RELEASE_REL_PATH
+    )
+    cargo_build(build_path, '--release')
