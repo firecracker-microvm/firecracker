@@ -213,3 +213,22 @@ class UniqueIPv4Generator:
                 next_available_ip += 1
             self.next_valid_subnet_id += self.subnet_max_ip_count
             return ip_list
+
+
+def mac_from_ip(ip_address):
+    """
+    The function creates a MAC address using the provided IP as follows:
+    - the first 2 bytes are fixed to 06:00
+    - the next 4 bytes are the IP address
+    Example of function call:
+    mac_from_ip("192.168.241.2") -> 06:00:C0:A8:F1:02
+    C0 = 192, A8 = 168, F1 = 241 and  02 = 2
+    :param ip_address: IP address as string
+    :return: MAC address from IP
+    """
+    mac_as_list = ["06", "00"]
+    mac_as_list.extend(
+        list(map(lambda val: '{0:02x}'.format(int(val)), ip_address.split('.')))
+    )
+
+    return "{}:{}:{}:{}:{}:{}".format(*mac_as_list)
