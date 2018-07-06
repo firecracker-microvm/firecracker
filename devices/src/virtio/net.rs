@@ -93,7 +93,8 @@ impl TxVirtio {
 struct RxVirtio {
     queue_evt: EventFd,
     rate_limiter: RateLimiter,
-    deffered_frame: bool,
+    deferred_frame: bool,
+    deferred_irqs: bool,
     queue: Queue,
     bytes_read: usize,
     frame_buf: [u8; MAX_BUFFER_SIZE],
@@ -104,7 +105,8 @@ impl RxVirtio {
         RxVirtio {
             queue_evt,
             rate_limiter,
-            deffered_frame: false,
+            deferred_frame: false,
+            deferred_irqs: false,
             queue,
             bytes_read: 0,
             frame_buf: [0u8; MAX_BUFFER_SIZE],
@@ -223,9 +225,8 @@ impl NetEpollHandler {
             .queue
             .add_used(&self.mem, head_index, write_count as u32);
 
-        // Interrupt the guest immediately for received frames to
-        // reduce latency.
-        self.signal_used_queue();
+        // Mark that we have at least one pending packet and we need to interrupt the guest.
+        self.rx.deferred_irqs = true;
 
         if write_count >= self.rx.bytes_read {
             METRICS.net.rx_bytes_count.add(write_count);
@@ -243,7 +244,7 @@ impl NetEpollHandler {
                 Ok(count) => {
                     self.rx.bytes_read = count;
                     if !self.rate_limited_rx_single_frame() {
-                        self.rx.deffered_frame = true;
+                        self.rx.deferred_frame = true;
                         break;
                     }
                 }
@@ -263,14 +264,23 @@ impl NetEpollHandler {
                 }
             }
         }
+        if self.rx.deferred_irqs {
+            self.rx.deferred_irqs = false;
+            self.signal_used_queue();
+        }
     }
 
     fn resume_rx(&mut self) {
-        if self.rx.deffered_frame && self.rate_limited_rx_single_frame() {
-            self.rx.deffered_frame = false;
-            // process_rx() was interrupted possibly before consuming all
-            // packets in the tap; try continuing now.
-            self.process_rx();
+        if self.rx.deferred_frame {
+            if self.rate_limited_rx_single_frame() {
+                self.rx.deferred_frame = false;
+                // process_rx() was interrupted possibly before consuming all
+                // packets in the tap; try continuing now.
+                self.process_rx();
+            } else if self.rx.deferred_irqs {
+                self.rx.deferred_irqs = false;
+                self.signal_used_queue();
+            }
         }
     }
 
@@ -365,6 +375,16 @@ impl NetEpollHandler {
     }
 
     #[cfg(test)]
+    fn rx_single_frame_no_irq_coalescing(&mut self) -> bool {
+        let ret = self.rx_single_frame();
+        if self.rx.deferred_irqs {
+            self.rx.deferred_irqs = false;
+            self.signal_used_queue();
+        }
+        ret
+    }
+
+    #[cfg(test)]
     fn get_rx_rate_limiter(&self) -> &RateLimiter {
         &self.rx.rate_limiter
     }
@@ -415,10 +435,14 @@ impl EpollHandler for NetEpollHandler {
                 }
                 // Process a deferred frame first if available. Don't read from tap again
                 // until we manage to receive this deferred frame.
-                if self.rx.deffered_frame {
+                if self.rx.deferred_frame {
                     if self.rate_limited_rx_single_frame() {
-                        self.rx.deffered_frame = false;
+                        self.rx.deferred_frame = false;
                     } else {
+                        if self.rx.deferred_irqs {
+                            self.rx.deferred_irqs = false;
+                            self.signal_used_queue();
+                        }
                         return;
                     }
                 }
@@ -974,14 +998,14 @@ mod tests {
                 rxq.avail.ring[0].set(0);
                 rxq.avail.idx.set(1);
                 rxq.dtable[0].set(daddr, 0x1000, 0, 0);
-                assert!(!h.rx_single_frame());
+                assert!(!h.rx_single_frame_no_irq_coalescing());
                 assert_eq!(rxq.used.idx.get(), 1);
 
                 // resetting values
                 rxq.used.idx.set(0);
                 h.rx.queue = rxq.create_queue();
                 h.interrupt_evt.write(1).unwrap();
-                // The prev rx_single_frame() call should have written one more.
+                // The prev rx_single_frame_no_irq_coalescing() call should have written one more.
                 assert_eq!(h.interrupt_evt.read(), Ok(2));
             }
 
@@ -989,7 +1013,7 @@ mod tests {
                 // We make the prev desc write_only (with no other flag) to get a chain which is
                 // writable, but too short.
                 rxq.dtable[0].flags.set(VIRTQ_DESC_F_WRITE);
-                assert!(!h.rx_single_frame());
+                assert!(!h.rx_single_frame_no_irq_coalescing());
                 assert_eq!(rxq.used.idx.get(), 1);
 
                 rxq.used.idx.set(0);
@@ -1019,7 +1043,7 @@ mod tests {
         {
             // testing RX_TAP_EVENT
 
-            assert!(!h.rx.deffered_frame);
+            assert!(!h.rx.deferred_frame);
 
             // this should work just fine
             rxq.avail.idx.set(1);
@@ -1028,13 +1052,13 @@ mod tests {
 
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(RX_TAP_EVENT, 0);
-            assert!(h.rx.deffered_frame);
+            assert!(h.rx.deferred_frame);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
             // The #cfg(test) enabled version of read_tap always returns 1234 bytes (or the len of
             // the buffer, whichever is smaller).
             assert_eq!(rxq.used.ring[0].get().len, 1234);
 
-            // Since deffered_frame is now true, activating the same event again will trigger
+            // Since deferred_frame is now true, activating the same event again will trigger
             // a different execution path.
 
             // reset some parts of the queue first
@@ -1044,7 +1068,7 @@ mod tests {
             // this should also be successful
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(RX_TAP_EVENT, 0);
-            assert!(h.rx.deffered_frame);
+            assert!(h.rx.deferred_frame);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
 
             // ... but the following shouldn't, because we emulate receiving much more data than
@@ -1056,7 +1080,7 @@ mod tests {
 
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(RX_TAP_EVENT, 0);
-            assert!(h.rx.deffered_frame);
+            assert!(h.rx.deferred_frame);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
 
             // A mismatch shows the reception was unsuccessful.
@@ -1176,7 +1200,7 @@ mod tests {
             h.set_rx_rate_limiter(rl);
 
             // set up RX
-            assert!(!h.rx.deffered_frame);
+            assert!(!h.rx.deferred_frame);
             rxq.avail.idx.set(1);
             rxq.avail.ring[0].set(0);
             rxq.dtable[0].set(daddr, 0x1000, VIRTQ_DESC_F_WRITE, 0);
@@ -1190,7 +1214,7 @@ mod tests {
 
                 // assert that limiter is blocked
                 assert!(h.get_rx_rate_limiter().is_blocked());
-                assert!(h.rx.deffered_frame);
+                assert!(h.rx.deferred_frame);
                 // assert that no operation actually completed (limiter blocked it)
                 assert_eq!(h.interrupt_evt.read(), Ok(1));
                 // make sure the data is still queued for processing
@@ -1311,7 +1335,7 @@ mod tests {
             h.set_rx_rate_limiter(rl);
 
             // set up RX
-            assert!(!h.rx.deffered_frame);
+            assert!(!h.rx.deferred_frame);
             rxq.avail.idx.set(1);
             rxq.avail.ring[0].set(0);
             rxq.dtable[0].set(daddr, 0x1000, VIRTQ_DESC_F_WRITE, 0);
@@ -1325,7 +1349,7 @@ mod tests {
 
                 // assert that limiter is blocked
                 assert!(h.get_rx_rate_limiter().is_blocked());
-                assert!(h.rx.deffered_frame);
+                assert!(h.rx.deferred_frame);
                 // assert that no operation actually completed (limiter blocked it)
                 assert_eq!(h.interrupt_evt.read(), Ok(1));
                 // make sure the data is still queued for processing
