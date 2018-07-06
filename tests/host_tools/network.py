@@ -5,6 +5,8 @@ import threading
 import paramiko
 from paramiko import SSHClient
 
+NETMASK = 30
+
 
 class SSHConnection:
     """
@@ -64,7 +66,7 @@ class UniqueIPv4Generator:
     __instance = None
 
     @staticmethod
-    def get_instance(netmask_len: int):
+    def get_instance(netmask_len: int=NETMASK):
         """
         This class should be instantiated once per test session with a netmask
         length. All the microvms will have to use the same netmask length for
