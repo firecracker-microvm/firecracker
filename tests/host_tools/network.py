@@ -4,6 +4,7 @@ import threading
 
 import paramiko
 from paramiko import SSHClient
+from retry.api import retry_call
 
 NETMASK = 30
 
@@ -25,16 +26,21 @@ class SSHConnection:
     This translates in a ssh connection as follows:
     ssh -i ssh_key_path username@hostname
     """
-
     def __init__(self, ssh_config):
         self.ssh_client = SSHClient()
         self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         assert (os.path.exists(ssh_config['ssh_key_path']))
-        self.ssh_client.connect(
-            ssh_config['hostname'],
-            look_for_keys=False,
-            username=ssh_config['username'],
-            key_filename=ssh_config['ssh_key_path']
+        retry_call(
+            self.ssh_client.connect,
+            fargs=[ssh_config['hostname']],
+            fkwargs={
+                "look_for_keys": False,
+                "username": ssh_config['username'],
+                "key_filename": ssh_config['ssh_key_path']
+            },
+            exceptions=paramiko.ssh_exception.NoValidConnectionsError,
+            tries=5,
+            delay=5
         )
 
     def execute_command(self, cmd_string):
