@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-from ssh_connection import SSHConnection
+from host_tools.network import SSHConnection
 
 
 def check_cpu_topology(test_microvm, expected_cpu_topology):
