@@ -83,14 +83,16 @@ be run on every microvm image in the bucket, each as a separate test case.
   by the MicrovmImageFetcher, but not by the fixture template.
 """
 
+import threading
 import os
+import shutil
 import time
 import tempfile
-import shutil
 import uuid
 
 import pytest
 
+from host_tools.network import UniqueIPv4Generator
 from microvm_image import MicrovmImageS3Fetcher
 from microvm import MicrovmSlot, Microvm
 
@@ -107,6 +109,7 @@ temporary directories created by the test session.
 DEFAULT_ROOT_TESTSESSION_PATH = '/tmp/firecracker_test_session/'
 """ If ENV_TMPDIR_VAR is not set, this path will be used. """
 
+IP4_GENERATOR_CREATE_LOCK = threading.Lock()
 
 if os.geteuid() != 0:
     """ Some tests create system-level resources, so we should run as root. """
@@ -176,6 +179,14 @@ def microvm(microvm_slot):
     yield microvm
 
     microvm.kill()
+
+
+@pytest.fixture
+def network_config():
+    """ Yields a UniqueIPv4Generator. """
+    with IP4_GENERATOR_CREATE_LOCK:
+        ipv4_generator = UniqueIPv4Generator.get_instance()
+    yield ipv4_generator
 
 
 @pytest.fixture

@@ -3,6 +3,8 @@ import time
 import pytest
 
 from host_tools.network import SSHConnection
+from host_tools.network import mac_from_ip
+from host_tools.network import NETMASK
 
 
 def check_cpu_topology(test_microvm, expected_cpu_topology):
@@ -31,8 +33,73 @@ def check_cpu_topology(test_microvm, expected_cpu_topology):
     ssh_connection.close()
 
 
-@pytest.mark.timeout(500)
-def test_2vcpu_ht_disabled(test_microvm_with_ssh):
+def test_1vcpu(test_microvm_with_ssh, network_config):
+    test_microvm = test_microvm_with_ssh
+
+    api_responses = test_microvm.basic_config(
+        vcpu_count=1,
+        net_iface_count=0
+    )
+    """
+    Sets up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
+    a root file system with the rw permission. The network interfaces is
+    added after we get an unique MAC and IP.
+    """
+    for response in api_responses:
+        assert (
+            test_microvm.api_session.is_good_response(response.status_code))
+
+    # For this test we need two IPs, one for the host and one for the guest
+    (host_ip, guest_ip) = network_config.get_next_available_ips(2)
+    # Configure the tap device and add the network interface
+    tap_name = test_microvm.slot.make_tap(ip="{}/{}".format(host_ip, NETMASK))
+    """
+    We have to make sure that the microvm will be in the same
+    subnet as the tap device. The IP of the microvm is computed from the
+    mac address. To set the IP of the microvm to 192.168.241.2, we
+    need to set the mac to XX:XX:C0:A8:F1:02, where the first 2 bytes
+    are ignored and the next 4 bytes form the IP
+    """
+    iface_id = "1"
+    response = test_microvm.api_session.put(
+        "{}/{}".format(test_microvm.net_cfg_url, iface_id),
+        json={
+            "iface_id": iface_id,
+            "host_dev_name": tap_name,
+            "guest_mac": mac_from_ip(guest_ip),
+            "state": "Attached"
+        }
+    )
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    # we can now update the ssh_config dictionary with the IP of the VM
+    test_microvm.slot.ssh_config['hostname'] = guest_ip
+
+    # Start the microvm.
+    response = test_microvm.api_session.put(
+        test_microvm.actions_url + '/1',
+        json={'action_id': '1', 'action_type': 'InstanceStart'}
+    )
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    # Wait for the microvm to start.
+    time.sleep(1)
+    # Check that the Instance Start was successful
+    response = test_microvm.api_session.get(test_microvm.actions_url + '/1')
+    assert (test_microvm.api_session.is_good_response(response.status_code))
+
+    expected_cpu_topology = {
+        "CPU(s)": "1",
+        "On-line CPU(s) list": "0",
+        "Thread(s) per core": "1",
+        "Core(s) per socket": "1",
+        "Socket(s)": "1",
+        "NUMA node(s)": "1"
+    }
+    check_cpu_topology(test_microvm, expected_cpu_topology)
+
+
+def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     test_microvm = test_microvm_with_ssh
 
     api_responses = test_microvm.basic_config(
@@ -49,27 +116,31 @@ def test_2vcpu_ht_disabled(test_microvm_with_ssh):
         assert (
             test_microvm.api_session.is_good_response(response.status_code))
 
+    # For this test we need two IPs, one for the host and one for the guest
+    (host_ip, guest_ip) = network_config.get_next_available_ips(2)
     # Configure the tap device and add the network interface
-    tap_name = test_microvm.slot.make_tap(ip="192.168.241.1/30")
-    # We have to make sure that the microvm will be in the same
-    # subnet as the tap device. The IP of the microvm is computed from the
-    # mac address. To set the IP of the microvm to 192.168.241.2, we
-    # need to set the mac to XX:XX:C0:A8:F1:02, where the first 2 bytes
-    # are ignored and the next 4 bytes form the IP
+    tap_name = test_microvm.slot.make_tap(ip="{}/{}".format(host_ip, NETMASK))
+    """
+    We have to make sure that the microvm will be in the same
+    subnet as the tap device. The IP of the microvm is computed from the
+    mac address. To set the IP of the microvm to 192.168.241.2, we
+    need to set the mac to XX:XX:C0:A8:F1:02, where the first 2 bytes
+    are ignored and the next 4 bytes form the IP
+    """
     iface_id = "1"
     response = test_microvm.api_session.put(
         "{}/{}".format(test_microvm.net_cfg_url, iface_id),
         json={
             "iface_id": iface_id,
             "host_dev_name": tap_name,
-            "guest_mac": "06:00:C0:A8:F1:02",
+            "guest_mac": mac_from_ip(guest_ip),
             "state": "Attached"
         }
     )
-    assert (test_microvm.api_session.is_good_response(response.status_code))
+    assert(test_microvm.api_session.is_good_response(response.status_code))
 
     # we can now update the ssh_config dictionary with the IP of the VM
-    test_microvm.slot.ssh_config['hostname'] = "192.168.241.2"
+    test_microvm.slot.ssh_config['hostname'] = guest_ip
 
     # Start the microvm.
     response = test_microvm.api_session.put(
