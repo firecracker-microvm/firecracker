@@ -9,7 +9,7 @@ mod cgroup;
 mod env;
 
 use std::ffi::{CString, NulError, OsString};
-use std::fs::create_dir_all;
+use std::fs;
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixListener;
@@ -36,11 +36,12 @@ pub enum Error {
     Copy(PathBuf, PathBuf, io::Error),
     CreateDir(PathBuf, io::Error),
     OsStringParsing(PathBuf, OsString),
-    CStringParsing(String, NulError),
+    CStringParsing(NulError),
     Exec(io::Error),
     FileCreate(PathBuf, io::Error),
     FileName(PathBuf),
     FileOpen(PathBuf, io::Error),
+    FromBytesWithNul(&'static [u8]),
     GetOldFdFlags(sys_util::Error),
     Gid(String),
     InvalidCharId,
@@ -159,38 +160,9 @@ pub fn run(args: ArgMatches) -> Result<()> {
 
     let env = Env::new(args)?;
 
-    // Here we are creating the /dev/net/tun device inside the jailer.
-    // Following commands can be translated into bash like this:
-    // $: mkdir -p $chroot_dir/dev/net
-    // $: dev_net_tun_path={$chroot_dir}/"tun"
-    // $: mknod $dev_net_tun_path c 10 200
-    // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the minor
-    // and major for the /dev/net/tun device.
-    let mut chroot_dir = PathBuf::from(env.chroot_dir());
-    chroot_dir.push("dev/net");
-    create_dir_all(&chroot_dir).map_err(|e| Error::CreateDir(chroot_dir.clone(), e))?;
-
-    let dev_net_tun_path: CString = into_cstring(chroot_dir.join("tun"))?;
-    // As per sysstat.h:
-    // S_IFCHR -> character special device
-    // S_IRUSR -> read permission, owner
-    // S_IWUSR -> write permission, owner
-    // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
-    // more clarity.
-    if unsafe {
-        libc::mknod(
-            dev_net_tun_path.as_ptr(),
-            libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR,
-            libc::makedev(10, 200),
-        )
-    } < 0
-    {
-        return Err(Error::MknodDevNetTun(sys_util::Error::last()));
-    }
-
-    if unsafe { libc::chown(dev_net_tun_path.as_ptr(), env.uid(), env.gid()) } < 0 {
-        return Err(Error::ChangeDevNetTunOwner(sys_util::Error::last()));
-    }
+    // Ensure the folder exists.
+    fs::create_dir_all(env.chroot_dir())
+        .map_err(|e| Error::CreateDir(env.chroot_dir().to_owned(), e))?;
 
     // The unwrap should not fail, since the end of chroot_dir looks like ..../<id>/root
     let listener = UnixListener::bind(env.chroot_dir().parent().unwrap().join(SOCKET_FILE_NAME))
@@ -222,11 +194,11 @@ pub fn run(args: ArgMatches) -> Result<()> {
 /// Turns a PathBuf into a CString (c style string).
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
-fn into_cstring(path: PathBuf) -> Result<CString> {
+fn to_cstring(path: &PathBuf) -> Result<CString> {
     let path_str = path
         .clone()
         .into_os_string()
         .into_string()
-        .map_err(|e| Error::OsStringParsing(path, e))?;
-    CString::new(path_str.clone()).map_err(|e| Error::CStringParsing(path_str, e))
+        .map_err(|e| Error::OsStringParsing(path.clone(), e))?;
+    CString::new(path_str).map_err(Error::CStringParsing)
 }

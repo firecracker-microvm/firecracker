@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs::{self, canonicalize};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -8,8 +8,11 @@ use clap::ArgMatches;
 use libc;
 
 use cgroup::Cgroup;
+use sys_util;
 use MAX_ID_LENGTH;
-use {into_cstring, Error, Result};
+use {to_cstring, Error, Result};
+
+const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
 
 pub struct Env {
     id: String,
@@ -103,13 +106,20 @@ impl Env {
     }
 
     pub fn run(mut self) -> Result<()> {
-        // Create the jail folder.
+        // We need to create the equivalent of /dev/net inside the jail.
+        self.chroot_dir.push("dev/net");
+
+        // Create the folder tree.
         // TODO: the final part of chroot_dir ("<id>/root") should not exist, if the id is never
         // reused. Is this a reasonable assumption? Should we check for this and return an error?
         // If we choose to do that here, we should extend the same extra functionality to the Cgroup
         // module, where we also create a folder hierarchy which depends on the id.
         fs::create_dir_all(&self.chroot_dir)
             .map_err(|e| Error::CreateDir(self.chroot_dir.clone(), e))?;
+
+        // Pop dev/net.
+        self.chroot_dir.pop();
+        self.chroot_dir.pop();
 
         let exec_file_name = self
             .exec_file_path
@@ -137,10 +147,43 @@ impl Env {
         let cgroup = Cgroup::new(self.id.as_str(), self.numa_node, exec_file_name)?;
         cgroup.attach_pid()?;
 
-        let chroot_dir: CString = into_cstring(self.chroot_dir)?;
+        let chroot_dir: CString = to_cstring(&self.chroot_dir)?;
         let ret = unsafe { libc::chroot(chroot_dir.as_ptr()) };
         if ret < 0 {
             return Err(Error::Chroot(ret));
+        }
+
+        // Here we are creating the /dev/net/tun device inside the jailer.
+        // Following commands can be translated into bash like this:
+        // $: mkdir -p $chroot_dir/dev/net
+        // $: dev_net_tun_path={$chroot_dir}/"tun"
+        // $: mknod $dev_net_tun_path c 10 200
+        // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the minor
+        // and major for the /dev/net/tun device.
+
+        let dev_net_tun_path = CStr::from_bytes_with_nul(DEV_NET_TUN_WITH_NUL)
+            .map_err(|_| Error::FromBytesWithNul(DEV_NET_TUN_WITH_NUL))?;
+
+        // As per sysstat.h:
+        // S_IFCHR -> character special device
+        // S_IRUSR -> read permission, owner
+        // S_IWUSR -> write permission, owner
+        // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
+        // more clarity.
+
+        if unsafe {
+            libc::mknod(
+                dev_net_tun_path.as_ptr(),
+                libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR,
+                libc::makedev(10, 200),
+            )
+        } < 0
+        {
+            return Err(Error::MknodDevNetTun(sys_util::Error::last()));
+        }
+
+        if unsafe { libc::chown(dev_net_tun_path.as_ptr(), self.uid(), self.gid()) } < 0 {
+            return Err(Error::ChangeDevNetTunOwner(sys_util::Error::last()));
         }
 
         Err(Error::Exec(
@@ -149,8 +192,8 @@ impl Env {
                 .stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
-                .uid(self.uid)
-                .gid(self.gid)
+                .uid(self.uid())
+                .gid(self.gid())
                 .exec(),
         ))
     }
