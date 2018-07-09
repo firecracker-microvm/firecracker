@@ -63,7 +63,7 @@ pub const KERNEL_START_OFFSET: usize = 0x200000;
 pub const CMDLINE_OFFSET: usize = 0x20000;
 pub const CMDLINE_MAX_SIZE: usize = KERNEL_START_OFFSET - CMDLINE_OFFSET;
 pub const DEFAULT_KERNEL_CMDLINE: &str =
-    "noapic reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
+    "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
 const VCPU_RTSIG_OFFSET: u8 = 0;
 
 // TODO: Maybe configure this parameter via the API.
