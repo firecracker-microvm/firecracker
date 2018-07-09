@@ -18,8 +18,10 @@ from subprocess import run
 import urllib
 
 import requests_unixsocket
+
 from host_tools.cargo_build import cargo_build, CARGO_RELEASE_REL_PATH,\
     RELEASE_BINARIES_REL_PATH
+from host_tools.network import mac_from_ip, NETMASK
 
 
 class FilesystemFile:
@@ -436,6 +438,43 @@ class Microvm:
         assert (
             self.api_session.is_good_response(response.status_code)
         )
+
+    def basic_network_config(self, network_config):
+        """
+        Creates a tap device on the host and a network interface on the guest.
+        Uses network_config to generate 2 IPs: one for the tap device
+        and one for the microvm. Adds the hostname of the microvm to the
+        ssh_config dictionary.
+        :param network_config: UniqueIPv4Generator instance
+        """
+        # For the cpu tests we need two IPs, one for the host and one for
+        # the guest
+        (host_ip, guest_ip) = network_config.get_next_available_ips(2)
+
+        # Configure the tap device and add the network interface
+        tap_name = self.slot.make_tap(
+            ip="{}/{}".format(host_ip, NETMASK))
+
+        # We have to make sure that the microvm will be in the same
+        # subnet as the tap device. The IP of the microvm is computed from the
+        # mac address. To set the IP of the microvm to 192.168.241.2, we
+        # need to set the mac to XX:XX:C0:A8:F1:02, where the first 2 bytes
+        # are ignored and the next 4 bytes from the IP.
+        iface_id = "1"
+        response = self.api_session.put(
+            "{}/{}".format(self.net_cfg_url, iface_id),
+            json={
+                "iface_id": iface_id,
+                "host_dev_name": tap_name,
+                "guest_mac": mac_from_ip(guest_ip),
+                "state": "Attached"
+            }
+        )
+        assert (
+            self.api_session.is_good_response(response.status_code))
+
+        # we can now update the ssh_config dictionary with the IP of the VM.
+        self.slot.ssh_config['hostname'] = guest_ip
 
     def kill(self):
         """
