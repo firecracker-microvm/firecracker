@@ -11,7 +11,6 @@ def check_cpu_topology(test_microvm, expected_cpu_topology):
     started. This is a wrapper function for calling lscpu and checking if the
     command returns the expected cpu topology.
     """
-
     ssh_connection = SSHConnection(test_microvm.slot.ssh_config)
 
     # Execute the lscpu command to check the guest topology
@@ -36,38 +35,19 @@ def check_cpu_topology(test_microvm, expected_cpu_topology):
 def test_2vcpu_ht_disabled(test_microvm_with_ssh):
     test_microvm = test_microvm_with_ssh
 
-    # Set number of vcpu = 2 and ht_enabled=false
-    response = test_microvm.api_session.put(
-        test_microvm.microvm_cfg_url,
-        json={
-            'vcpu_count': 2,
-            'ht_enabled': False,
-        }
+    api_responses = test_microvm.basic_config(
+        vcpu_count=2,
+        ht_enable=False,
+        net_iface_count=0
     )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
-
-    # Add the root filesystem
-    response = test_microvm.api_session.put(
-        test_microvm.blk_cfg_url + '/rootfs',
-        json={
-            'drive_id': 'rootfs',
-            'path_on_host': test_microvm.slot.rootfs_file,
-            'is_root_device': True,
-            'permissions': 'rw',
-            'state': 'Attached'
-        }
-    )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
-
-    response = test_microvm.api_session.put(
-        test_microvm.boot_cfg_url,
-        json={
-            'boot_source_id': '1',
-            'source_type': 'LocalImage',
-            'local_image': {'kernel_image_path': test_microvm.slot.kernel_file}
-        }
-    )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
+    """
+    Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 0 network ifaces and
+    a root file system with the rw permission. The network interfaces is
+    added after we get an unique MAC and IP.
+    """
+    for response in api_responses:
+        assert (
+            test_microvm.api_session.is_good_response(response.status_code))
 
     # Configure the tap device and add the network interface
     tap_name = test_microvm.slot.make_tap(ip="192.168.241.1/30")
@@ -77,7 +57,7 @@ def test_2vcpu_ht_disabled(test_microvm_with_ssh):
     # need to set the mac to XX:XX:C0:A8:F1:02, where the first 2 bytes
     # are ignored and the next 4 bytes form the IP
     iface_id = "1"
-    test_microvm.api_session.put(
+    response = test_microvm.api_session.put(
         "{}/{}".format(test_microvm.net_cfg_url, iface_id),
         json={
             "iface_id": iface_id,
@@ -86,6 +66,7 @@ def test_2vcpu_ht_disabled(test_microvm_with_ssh):
             "state": "Attached"
         }
     )
+    assert (test_microvm.api_session.is_good_response(response.status_code))
 
     # we can now update the ssh_config dictionary with the IP of the VM
     test_microvm.slot.ssh_config['hostname'] = "192.168.241.2"
