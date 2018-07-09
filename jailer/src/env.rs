@@ -1,4 +1,4 @@
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::fs::{self, canonicalize};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -8,9 +8,10 @@ use clap::ArgMatches;
 use libc;
 
 use cgroup::Cgroup;
+use chroot::chroot;
 use sys_util;
 use MAX_ID_LENGTH;
-use {to_cstring, Error, Result};
+use {Error, Result};
 
 const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
 
@@ -147,11 +148,7 @@ impl Env {
         let cgroup = Cgroup::new(self.id.as_str(), self.numa_node, exec_file_name)?;
         cgroup.attach_pid()?;
 
-        let chroot_dir: CString = to_cstring(&self.chroot_dir)?;
-        let ret = unsafe { libc::chroot(chroot_dir.as_ptr()) };
-        if ret < 0 {
-            return Err(Error::Chroot(ret));
-        }
+        chroot(self.chroot_dir())?;
 
         // Here we are creating the /dev/net/tun device inside the jailer.
         // Following commands can be translated into bash like this:
