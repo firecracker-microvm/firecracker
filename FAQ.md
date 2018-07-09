@@ -25,7 +25,7 @@ If you have no output in the console, most likely you will have to update the
 kernel command line. By default, Firecracker starts with the serial console
 disabled for boot time performance reasons. Example of a kernel valid command
 line that enables the serial console:
-`console=ttyS0 noapic reboot=k panic=1 pci=off nomodules`, which goes in the
+`console=ttyS0 reboot=k panic=1 pci=off nomodules`, which goes in the
 `boot_args` field of the `/boot-source` Firecracker API resource.
 
 `Q3:`
