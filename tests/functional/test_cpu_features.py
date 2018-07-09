@@ -49,18 +49,7 @@ def test_1vcpu(test_microvm_with_ssh, network_config):
 
     test_microvm.basic_network_config(network_config)
 
-    # Start the microvm.
-    response = test_microvm.api_session.put(
-        test_microvm.actions_url + '/1',
-        json={'action_id': '1', 'action_type': 'InstanceStart'}
-    )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
-
-    # Wait for the microvm to start.
-    time.sleep(1)
-    # Check that the Instance Start was successful
-    response = test_microvm.api_session.get(test_microvm.actions_url + '/1')
-    assert (test_microvm.api_session.is_good_response(response.status_code))
+    test_microvm.start()
 
     expected_cpu_topology = {
         "CPU(s)": "1",
@@ -92,18 +81,7 @@ def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
 
     test_microvm.basic_network_config(network_config)
 
-    # Start the microvm.
-    response = test_microvm.api_session.put(
-        test_microvm.actions_url + '/1',
-        json={'action_id': '1', 'action_type': 'InstanceStart'}
-    )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
-
-    # Wait for the microvm to start.
-    time.sleep(1)
-    # Check that the Instance Start was successful
-    response = test_microvm.api_session.get(test_microvm.actions_url + '/1')
-    assert (test_microvm.api_session.is_good_response(response.status_code))
+    test_microvm.start()
 
     expected_cpu_topology = {
         "CPU(s)": "2",
