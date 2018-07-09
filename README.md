@@ -245,10 +245,10 @@ curl --unix-socket /tmp/firecracker.socket -i \
    instances.
 1. Firecracker is started without the serial console for performance reasons.
    You can use the following boot_args if you need the serial console:
-   `console=ttyS0 noapic reboot=k panic=1 pci=off nomodules`  
+   `console=ttyS0 reboot=k panic=1 pci=off nomodules`  
 1. Firecracker uses default values for the following parameters:
     1. Kernel Command Line:
-       `noapic reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0`. This can be
+       `reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0`. This can be
        changed via the `/boot-source`.
     1. Number of vCPUs: 1. Default Memory Size: 128 MiB. Hyperthreading is
        disabled. CPU Template: None.
