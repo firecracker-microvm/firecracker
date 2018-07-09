@@ -1,5 +1,6 @@
 use std::ffi::CStr;
-use std::fs::{self, canonicalize};
+use std::fs::{self, canonicalize, File};
+use std::os::unix::io::IntoRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -22,6 +23,7 @@ pub struct Env {
     exec_file_path: PathBuf,
     uid: u32,
     gid: u32,
+    netns: Option<String>,
 }
 
 // Function will only allow alphanumeric characters and hyphens.
@@ -84,6 +86,11 @@ impl Env {
             .parse::<u32>()
             .map_err(|_| Error::Gid(String::from(gid_str)))?;
 
+        let netns = match args.value_of("netns") {
+            Some(s) => Some(String::from(s)),
+            None => None,
+        };
+
         Ok(Env {
             id: id.to_string(),
             numa_node,
@@ -91,6 +98,7 @@ impl Env {
             exec_file_path,
             uid,
             gid,
+            netns,
         })
     }
 
@@ -144,10 +152,32 @@ impl Env {
         // Pop exec_file_name.
         self.chroot_dir.pop();
 
+        // Join the specified network namespace, if applicable.
+        if let Some(ref path) = self.netns {
+            // This will take ownership of the raw fd.
+            // TODO: for some reason, if we use as_raw_fd here instead, the resulting fd cannot
+            // be used with setns, because we get an EBADFD error. I wonder why?
+            let netns_fd = File::open(path)
+                .map_err(|e| Error::FileOpen(PathBuf::from(path), e))?
+                .into_raw_fd();
+
+            // Safe because we are passing valid parameters.
+            if unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) } < 0 {
+                return Err(Error::SetNetNs(sys_util::Error::last()));
+            }
+
+            // Since we have ownership here, we also have to close the fd after joining the
+            // namespace. Safe because we are passing valid parameters.
+            if unsafe { libc::close(netns_fd) } < 0 {
+                return Err(Error::CloseNetNsFd(sys_util::Error::last()));
+            }
+        }
+
         // We have to setup cgroups at this point, because we can't do it anymore after chrooting.
         let cgroup = Cgroup::new(self.id.as_str(), self.numa_node, exec_file_name)?;
         cgroup.attach_pid()?;
 
+        // Jail self.
         chroot(self.chroot_dir())?;
 
         // Here we are creating the /dev/net/tun device inside the jailer.
@@ -208,10 +238,11 @@ mod tests {
         uid: &str,
         gid: &str,
         chroot_base: &str,
+        netns: Option<&str>,
     ) -> ArgMatches<'a> {
         let app = clap_app();
 
-        let arg_vec = vec![
+        let mut arg_vec = vec![
             "jailer",
             "--node",
             node,
@@ -227,6 +258,11 @@ mod tests {
             chroot_base,
         ];
 
+        if let Some(s) = netns {
+            arg_vec.push("--netns");
+            arg_vec.push(s);
+        }
+
         app.get_matches_from_safe(arg_vec).unwrap()
     }
 
@@ -238,10 +274,18 @@ mod tests {
         let uid = "1001";
         let gid = "1002";
         let chroot_base = "/";
+        let netns = "zzzns";
 
         // This should be fine.
-        let good_env = Env::new(make_args(node, id, exec_file, uid, gid, chroot_base))
-            .expect("This new environment should be created successfully.");
+        let good_env = Env::new(make_args(
+            node,
+            id,
+            exec_file,
+            uid,
+            gid,
+            chroot_base,
+            Some(netns),
+        )).expect("This new environment should be created successfully.");
 
         let mut chroot_dir = PathBuf::from(chroot_base);
         chroot_dir.push(Path::new(exec_file).file_name().unwrap());
@@ -251,9 +295,10 @@ mod tests {
         assert_eq!(good_env.chroot_dir(), chroot_dir);
         assert_eq!(format!("{}", good_env.gid()), gid);
         assert_eq!(format!("{}", good_env.uid()), uid);
+        assert_eq!(good_env.netns, Some(netns.to_string()));
 
         // Not fine - invalid node.
-        assert!(Env::new(make_args("zzz", id, exec_file, uid, gid, chroot_base)).is_err());
+        assert!(Env::new(make_args("zzz", id, exec_file, uid, gid, chroot_base, None)).is_err());
 
         // Not fine - invalid id.
         assert!(
@@ -263,7 +308,8 @@ mod tests {
                 exec_file,
                 uid,
                 gid,
-                chroot_base
+                chroot_base,
+                None
             )).is_err()
         );
 
@@ -275,18 +321,39 @@ mod tests {
                 "/this!/file!/should!/not!/exist!/",
                 uid,
                 gid,
-                chroot_base
+                chroot_base,
+                None
             )).is_err()
         );
 
         // Not fine - invalid uid.
-        assert!(Env::new(make_args(node, id, exec_file, "zzz", gid, chroot_base)).is_err());
+        assert!(
+            Env::new(make_args(
+                node,
+                id,
+                exec_file,
+                "zzz",
+                gid,
+                chroot_base,
+                None
+            )).is_err()
+        );
 
         // Not fine - invalid gid.
-        assert!(Env::new(make_args(node, id, exec_file, uid, "zzz", chroot_base)).is_err());
+        assert!(
+            Env::new(make_args(
+                node,
+                id,
+                exec_file,
+                uid,
+                "zzz",
+                chroot_base,
+                None
+            )).is_err()
+        );
 
         // The chroot-base-dir param is not validated by Env::new, but rather in run, when we
-        // actually attempt to create the folder structure.
+        // actually attempt to create the folder structure (the same goes for netns).
     }
 
     #[test]
