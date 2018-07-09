@@ -24,18 +24,7 @@ def test_api_happy_start(test_microvm_with_api):
     for response in api_responses:
         assert(test_microvm.api_session.is_good_response(response.status_code))
 
-    response = test_microvm.api_session.put(
-        test_microvm.actions_url + '/1',
-        json={'action_id': '1', 'action_type': 'InstanceStart'}
-    )
-    """ Issues a power-on command to the microvm. """
-    assert(test_microvm.api_session.is_good_response(response.status_code))
-
-    time.sleep(1)
-    response = test_microvm.api_session.get(
-        test_microvm.actions_url + '/1'
-    )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
+    test_microvm.start()
 
 
 def test_api_put_update_pre_boot(test_microvm_with_api):
@@ -269,11 +258,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
     for response in api_responses:
         assert(test_microvm.api_session.is_good_response(response.status_code))
 
-    response = test_microvm.api_session.put(
-        test_microvm.actions_url + '/1',
-        json={'action_id': '1', 'action_type': 'InstanceStart'}
-    )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
+    test_microvm.start()
 
     response = test_microvm.api_session.put(
         test_microvm.boot_cfg_url,
