@@ -6,6 +6,7 @@ extern crate regex;
 extern crate sys_util;
 
 mod cgroup;
+mod chroot;
 mod env;
 
 use std::ffi::{CString, NulError, OsString};
@@ -13,7 +14,7 @@ use std::fs;
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::result;
 
 use clap::{App, Arg, ArgMatches};
@@ -33,7 +34,7 @@ pub enum Error {
     CgroupLineNotFound(&'static str, &'static str),
     CgroupLineNotUnique(&'static str, &'static str),
     ChangeDevNetTunOwner(sys_util::Error),
-    Chroot(i32),
+    Chroot(sys_util::Error),
     Copy(PathBuf, PathBuf, io::Error),
     CreateDir(PathBuf, io::Error),
     OsStringParsing(PathBuf, OsString),
@@ -49,18 +50,26 @@ pub enum Error {
     InvalidLengthId,
     Metadata(PathBuf, io::Error),
     MissingParent(PathBuf),
+    MkdirOldRoot(sys_util::Error),
+    MknodDevNetTun(sys_util::Error),
+    MountBind(sys_util::Error),
+    MountPropagationPrivate(sys_util::Error),
     NotAFile(PathBuf),
     NotAFolder(PathBuf),
     NotAlphanumeric(String),
     NumaNode(String),
     OpenDevKvm(sys_util::Error),
-    MknodDevNetTun(sys_util::Error),
+    PivotRoot(sys_util::Error),
     ReadLine(PathBuf, io::Error),
     ReadToString(PathBuf, io::Error),
     RegEx(regex::Error),
+    RmOldRootDir(sys_util::Error),
+    SetCurrentDir(io::Error),
     Uid(String),
+    UmountOldRoot(sys_util::Error),
     UnexpectedKvmFd(i32),
     UnexpectedListenerFd(i32),
+    UnshareNewNs(sys_util::Error),
     UnixListener(io::Error),
     UnsetCloexec(sys_util::Error),
     Write(PathBuf, io::Error),
@@ -194,14 +203,15 @@ pub fn run(args: ArgMatches) -> Result<()> {
     env.run()
 }
 
-/// Turns a PathBuf into a CString (c style string).
+/// Turns an AsRef<Path> into a CString (c style string).
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
-fn to_cstring(path: &PathBuf) -> Result<CString> {
+fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
     let path_str = path
-        .clone()
+        .as_ref()
+        .to_path_buf()
         .into_os_string()
         .into_string()
-        .map_err(|e| Error::OsStringParsing(path.clone(), e))?;
+        .map_err(|e| Error::OsStringParsing(path.as_ref().to_path_buf(), e))?;
     CString::new(path_str).map_err(Error::CStringParsing)
 }
