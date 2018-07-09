@@ -18,13 +18,11 @@ def test_api_happy_start(test_microvm_with_api):
     test_microvm = test_microvm_with_api
     api_responses = test_microvm.basic_config(net_iface_count=2)
     """
-    Sets up the microVM with 2 vCPUs, 256 MiB of RAM, and 2 network ifaces.
+    Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 2 network ifaces and
+    a root file system with the rw permission.
     """
     for response in api_responses:
         assert(test_microvm.api_session.is_good_response(response.status_code))
-
-    _test_default_block_devices(test_microvm)
-    """ Sets up 2 block devices for the microVM: `rootfs` and `scratch`. """
 
     response = test_microvm.api_session.put(
         test_microvm.actions_url + '/1',
@@ -47,13 +45,13 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 
     api_responses = test_microvm.basic_config()
     """
-    Sets up the microVM with 2 vCPUs, 256 MiB of RAM, and 1 network iface.
+    Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface and
+    a root file system with the rw permission.
     """
     for response in api_responses:
         assert(test_microvm.api_session.is_good_response(response.status_code))
 
-    _test_default_block_devices(test_microvm)
-    """ Sets up 2 block devices for the microVM: `rootfs` and `scratch`. """
+    test_microvm.put_default_scratch_device()
 
     response = test_microvm.api_session.put(
         test_microvm.boot_cfg_url,
@@ -265,13 +263,11 @@ def test_api_put_update_post_boot(test_microvm_with_api):
 
     api_responses = test_microvm.basic_config()
     """
-    Sets up the microVM with 2 vCPUs, 256 MiB of RAM, and 1 network iface.
+    Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface and
+    a root file system with the rw permission.
     """
     for response in api_responses:
         assert(test_microvm.api_session.is_good_response(response.status_code))
-
-    _test_default_block_devices(test_microvm)
-    """ Sets up 2 block devices for the microVM: `rootfs` and `scratch`. """
 
     response = test_microvm.api_session.put(
         test_microvm.actions_url + '/1',
@@ -289,24 +285,6 @@ def test_api_put_update_post_boot(test_microvm_with_api):
     )
     """ Valid updates to `kernel_image_path` are not allowed after boot. """
     assert(not test_microvm.api_session.is_good_response(response.status_code))
-
-    """
-    TODO
-    Uncomment this block after the block device update is implemented
-    properly. Until then, the PUT triggers a rescan.
-    """
-    # response = uhttp.put(
-    #     test_microvm.blk_cfg_url + '/scratch',
-    #     json={
-    #         'drive_id': 'scratch',
-    #         'path_on_host': test_microvm.slot.make_fsfile(name='scratch'),
-    #         'is_root_device': False,
-    #         'permissions': 'ro',
-    #         'state': 'Attached'
-    #     }
-    # )
-    # """ Block device updates are not allowed via PUT after boot."""
-    # assert(not uhttp.is_good_response(response.status_code))
 
     response = test_microvm.api_session.put(
         test_microvm.microvm_cfg_url,
@@ -329,37 +307,10 @@ def test_api_put_update_post_boot(test_microvm_with_api):
     """ Network interface update is not allowed after boot."""
     assert(not test_microvm.api_session.is_good_response(response.status_code))
 
-
-def _test_default_block_devices(test_microvm):
     """
-    Sets up 2 block devices for the microVM:
-    - `rootfs`, `ro`, from the MicrovmSlot rootfs image, and
-    - `scratch`, `rw`, a newly created FilesystemFile.
+    TODO: Right now, PUT on block device triggers a rescan. After we properly
+    implement the rescan, we have to also check that PUT on /drives fails.
     """
-
-    response = test_microvm.api_session.put(
-        test_microvm.blk_cfg_url + '/rootfs',
-        json={
-            'drive_id': 'rootfs',
-            'path_on_host': test_microvm.slot.rootfs_file,
-            'is_root_device': True,
-            'permissions': 'ro',
-            'state': 'Attached'
-        }
-    )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
-
-    response = test_microvm.api_session.put(
-        test_microvm.blk_cfg_url + '/scratch',
-        json={
-            'drive_id': 'scratch',
-            'path_on_host': test_microvm.slot.make_fsfile(name='scratch'),
-            'is_root_device': False,
-            'permissions': 'rw',
-            'state': 'Attached'
-        }
-    )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
 
 
 def test_rate_limiters_api_config(test_microvm_with_api):
