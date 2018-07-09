@@ -1,3 +1,5 @@
+extern crate clap;
+
 extern crate jailer;
 extern crate seccomp;
 

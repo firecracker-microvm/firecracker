@@ -35,6 +35,7 @@ pub enum Error {
     CgroupLineNotUnique(&'static str, &'static str),
     ChangeDevNetTunOwner(sys_util::Error),
     Chroot(sys_util::Error),
+    CloseNetNsFd(sys_util::Error),
     Copy(PathBuf, PathBuf, io::Error),
     CreateDir(PathBuf, io::Error),
     OsStringParsing(PathBuf, OsString),
@@ -65,6 +66,7 @@ pub enum Error {
     RegEx(regex::Error),
     RmOldRootDir(sys_util::Error),
     SetCurrentDir(io::Error),
+    SetNetNs(sys_util::Error),
     Uid(String),
     UmountOldRoot(sys_util::Error),
     UnexpectedKvmFd(i32),
@@ -126,6 +128,13 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .help("The base folder where chroot jails are located.")
                 .required(false)
                 .default_value("/srv/jailer")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("netns")
+                .long("netns")
+                .help("Path to the network namespace this microVM should join.")
+                .required(false)
                 .takes_value(true),
         )
 }
