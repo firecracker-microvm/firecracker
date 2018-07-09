@@ -359,6 +359,7 @@ class Microvm:
         - CPU and memory.
         - Network interfaces (supports at most 10).
         - Kernel image (will load the one in the microvm slot).
+        - Root File System (will use the one in the microvm slot).
         - Does not start the microvm.
         """
 
@@ -401,7 +402,40 @@ class Microvm:
         """ Adds a kernel to start booting from. """
         responses.append(response)
 
+        response = self.api_session.put(
+            self.blk_cfg_url + '/rootfs',
+            json={
+                'drive_id': 'rootfs',
+                'path_on_host': self.slot.rootfs_file,
+                'is_root_device': True,
+                'permissions': 'rw',
+                'state': 'Attached'
+            }
+        )
+        """ Adds the root file system with rw permissions. """
+        responses.append(response)
+
         return responses
+
+    def put_default_scratch_device(self):
+        """
+        Sets up a scratch rw block device for the microVM from a newly created
+        FilesystemFile.
+        """
+
+        response = self.api_session.put(
+            self.blk_cfg_url + '/scratch',
+            json={
+                'drive_id': 'scratch',
+                'path_on_host': self.slot.make_fsfile(name='scratch'),
+                'is_root_device': False,
+                'permissions': 'rw',
+                'state': 'Attached'
+            }
+        )
+        assert (
+            self.api_session.is_good_response(response.status_code)
+        )
 
     def kill(self):
         """
