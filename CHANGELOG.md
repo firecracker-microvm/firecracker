@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.7.0] - 2018-07-12
+### Added
+
+- Rate limiting functionality allows specifying an initial one time
+  burst size.
+
 ## [0.6.0]
 
 ### Added
