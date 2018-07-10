@@ -16,13 +16,11 @@ def test_api_happy_start(test_microvm_with_api):
     """ Tests a regular microvm API start sequence. """
 
     test_microvm = test_microvm_with_api
-    api_responses = test_microvm.basic_config(net_iface_count=2)
+    test_microvm.basic_config(net_iface_count=2)
     """
     Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 2 network ifaces and
     a root file system with the rw permission.
     """
-    for response in api_responses:
-        assert(test_microvm.api_session.is_good_response(response.status_code))
 
     test_microvm.start()
 
@@ -32,13 +30,11 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 
     test_microvm = test_microvm_with_api
 
-    api_responses = test_microvm.basic_config()
+    test_microvm.basic_config()
     """
     Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface and
     a root file system with the rw permission.
     """
-    for response in api_responses:
-        assert(test_microvm.api_session.is_good_response(response.status_code))
 
     test_microvm.put_default_scratch_device()
 
@@ -250,13 +246,11 @@ def test_api_put_update_post_boot(test_microvm_with_api):
 
     test_microvm = test_microvm_with_api
 
-    api_responses = test_microvm.basic_config()
+    test_microvm.basic_config()
     """
     Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface and
     a root file system with the rw permission.
     """
-    for response in api_responses:
-        assert(test_microvm.api_session.is_good_response(response.status_code))
 
     test_microvm.start()
 
