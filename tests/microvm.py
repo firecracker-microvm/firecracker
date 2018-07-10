@@ -364,12 +364,12 @@ class Microvm:
         - Kernel image (will load the one in the microvm slot).
         - Root File System (will use the one in the microvm slot).
         - Does not start the microvm.
+        The function checks the response status code and asserts that
+        the response is between 200 and 300.
         """
 
         if net_iface_count > 10:
             raise ValueError("Supports at most 10 network interfaces.")
-
-        responses = []
 
         response = self.api_session.put(
             self.microvm_cfg_url,
@@ -379,7 +379,7 @@ class Microvm:
                 'mem_size_mib': mem_size_mib
             }
         )
-        responses.append(response)
+        assert(self.api_session.is_good_response(response.status_code))
 
         for net_iface_index in range(1, net_iface_count + 1):
             response = self.api_session.put(
@@ -392,7 +392,7 @@ class Microvm:
                 }
             )
             """ Maps the passed host network device into the microVM. """
-            responses.append(response)
+            assert(self.api_session.is_good_response(response.status_code))
 
         response = self.api_session.put(
             self.boot_cfg_url,
@@ -403,7 +403,7 @@ class Microvm:
             }
         )
         """ Adds a kernel to start booting from. """
-        responses.append(response)
+        assert(self.api_session.is_good_response(response.status_code))
 
         response = self.api_session.put(
             self.blk_cfg_url + '/rootfs',
@@ -416,9 +416,7 @@ class Microvm:
             }
         )
         """ Adds the root file system with rw permissions. """
-        responses.append(response)
-
-        return responses
+        assert(self.api_session.is_good_response(response.status_code))
 
     def put_default_scratch_device(self):
         """
@@ -436,9 +434,7 @@ class Microvm:
                 'state': 'Attached'
             }
         )
-        assert (
-            self.api_session.is_good_response(response.status_code)
-        )
+        assert(self.api_session.is_good_response(response.status_code))
 
     def basic_network_config(self, network_config):
         """
@@ -471,8 +467,7 @@ class Microvm:
                 "state": "Attached"
             }
         )
-        assert (
-            self.api_session.is_good_response(response.status_code))
+        assert (self.api_session.is_good_response(response.status_code))
 
         # we can now update the ssh_config dictionary with the IP of the VM.
         self.slot.ssh_config['hostname'] = guest_ip

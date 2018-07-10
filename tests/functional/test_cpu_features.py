@@ -34,19 +34,12 @@ def check_cpu_topology(test_microvm, expected_cpu_topology):
 def test_1vcpu(test_microvm_with_ssh, network_config):
     test_microvm = test_microvm_with_ssh
 
-    api_responses = test_microvm.basic_config(
-        vcpu_count=1,
-        net_iface_count=0
-    )
+    test_microvm.basic_config(vcpu_count=1, net_iface_count=0)
     """
     Sets up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
     a root file system with the rw permission. The network interfaces is
     added after we get an unique MAC and IP.
     """
-    for response in api_responses:
-        assert (
-            test_microvm.api_session.is_good_response(response.status_code))
-
     test_microvm.basic_network_config(network_config)
 
     test_microvm.start()
@@ -65,19 +58,12 @@ def test_1vcpu(test_microvm_with_ssh, network_config):
 def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     test_microvm = test_microvm_with_ssh
 
-    api_responses = test_microvm.basic_config(
-        vcpu_count=2,
-        ht_enable=False,
-        net_iface_count=0
-    )
+    test_microvm.basic_config(vcpu_count=2, ht_enable=False, net_iface_count=0)
     """
     Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 0 network ifaces and
     a root file system with the rw permission. The network interfaces is
     added after we get an unique MAC and IP.
     """
-    for response in api_responses:
-        assert (
-            test_microvm.api_session.is_good_response(response.status_code))
 
     test_microvm.basic_network_config(network_config)
 
