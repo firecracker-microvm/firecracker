@@ -6,7 +6,9 @@ import pytest
 
 from host_tools.cargo_build import cargo_build, CARGO_BUILD_REL_PATH,\
     CARGO_RELEASE_REL_PATH
+
 CARGO_DEBUG_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "debug")
+
 
 @pytest.mark.timeout(240)
 def test_build_debug(test_session_root_path):

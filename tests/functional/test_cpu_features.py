@@ -1,7 +1,3 @@
-import time
-
-import pytest
-
 from host_tools.network import SSHConnection
 
 

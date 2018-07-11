@@ -6,7 +6,6 @@ Tests that ensure the correctness of the Firecracker API.
 - Add many more API tests!
 """
 import shutil
-import time
 
 import pytest
 
