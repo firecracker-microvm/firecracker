@@ -4,12 +4,12 @@
 
 Firecracker is a new virtualization technology that enables customers to deploy
 lightweight *micro* Virtual Machines or microVMs. Firecracker microVMs combine
-the security and workload isolation properties of traditional VMs with the speed
-and resource efficiency enabled by containers. MicroVMs can initiate user-space
-code execution in less than 150ms, have a footprint of less than 32 MiB of
-memory, and provide a secure, trusted environment for multi-tenant services.
-Customers can create microVMs with any combination of vCPU and memory to match
-their application requirements.
+the security and workload isolation properties of traditional VMs with the
+speed and resource efficiency enabled by containers. MicroVMs can initiate
+user-space code execution in less than 150ms, have a footprint of less than
+32 MiB of memory, and provide a secure, trusted environment for multi-tenant
+services. Customers can create microVMs with any combination of vCPU and memory
+to match  their application requirements.
 
 MicroVMs are created and managed by the Firecracker process, which implements a
 virtual machine manager based on Linux's Kernel-based Virtual Machine (KVM), the
@@ -38,11 +38,11 @@ The **API endpoint** can be used to:
   an existing host file as a VirtIO/block device into the microVM.
 - Add one or more read/write disks (file-backed block devices) to the microVM.
 - Configure the logging system by:
-  - Specifying two named pipes (one for human readable logs and one for the
-    metrics).
-  - Enabling or disabling printing the log level, line and file of where the log
-    originated.
-  - Setting the maximum level for triggering logs.
+    - Specifying two named pipes (one for human readable logs and one for the
+      metrics).
+    - Enabling or disabling printing the log level, line and file of the log
+      origin.
+    - Setting the maximum level for triggering logs.
 - Configure rate limiters for VirtIO devices which can limit the bandwidth,
   ops/s or both.
 - Start the microVM using a given kernel image, root file system and boot
@@ -76,7 +76,7 @@ The **API endpoint** can be used to:
   thread running VirtIO/net emulation consumed another 75% of a host core.
 - A `dd` storage test (writing large chunks of data to a file-backed block
   device stored in a RAM-disk, single-core) ran at 1 **GB/s**. The test fully
-  saturated 1 CPU core within also microVM, while the Firecracker thread running
+  saturated 1 CPU core within the microVM, while the Firecracker thread running
   VirtIO/block emulation consumed another 50% of a host core.
 - At least **2000** Firecracker microVMs have been started on a single host
   (each with 1 vCPu core, and one TUN/TAP device), and have been stable under
@@ -154,14 +154,18 @@ Both network and block support IO rate limiting. This is done by using the
 `rate_limiter` optional field(s) in the device setup API call.
 
 Limits are defined by configuring each of the `bandwidth` and `ops` token
-buckets. A token bucket is defined by configurable `size` and `refill_time`
-(milliseconds).
+buckets. A token bucket is defined by configurable `size`, `one_time_burst`
+and `refill_time` (milliseconds).
 
 The bucket _refill-rate_ is derived from `size` and `refill_time`, and it is the
-constant rate at which the tokens replenish. Consumption from the token bucket
-is unbounded in speed which allows for bursts bound in size by the amount of
-tokens available. Once the token bucket is empty, consumption speed is bound by
-the _refill_rate_.
+constant rate at which the tokens replenish. An initial burst size
+(`one_time_burst`) can also be specified and it represents the budget that
+can be consumed once with an unlimited rate.
+
+It is worth mentioning that the refill process only starts taking place after
+the initial burst size is completely consumed. Also, bursts are unbounded in
+speed but bounded in size. Once the token bucket is empty, consumption speed
+is bound by the _refill_rate_.
 
 A token bucket with either `size == 0` or `refill_time == 0` will be
 inactive/unlimited. Tokens are `bytes` for _bandwidth limiting_ and `operations`
@@ -177,16 +181,15 @@ sudo ifconfig vmtap33 192.168.241.1/24 up
 And then call the `/network-interfaces` API resource with its name and desired
 properties:
 
-- Interface ID is `1`
-- Host device is `vmtap33`
-- Guest mac is `06:00:00:00:00:01`
-- RX _Bandwidth_ rate limit is `100 MBps` and _Ops/s_ rate is unlimited
-  (`100 MBps` example token bucket `size = 100.000.000 bytes` and
-  `refill_time = 1000 milliseconds`)
-- No TX rate limiting of any kind
-- State is `attached`
-
-``` bash
+ - Interface ID is `1`
+ - Host device is `vmtap33`
+ - Guest mac is `06:00:00:00:00:01`
+ - RX _Bandwith_ rate limit is `100 MBps` and _Ops/s_ rate is unlimited
+   - `100 MBps` example token bucket with an initial burst size of `2 Gbytes`
+    and refill time of `1000 milliseconds`
+ - No TX rate limiting of any kind
+ - State is `attached`
+```bash
 curl --unix-socket /tmp/firecracker.socket -i \
      -X PUT "http://localhost/network-interfaces/1" \
      -H "accept: application/json" \
@@ -196,7 +199,10 @@ curl --unix-socket /tmp/firecracker.socket -i \
             \"host_dev_name\": \"vmtap33\",
             \"guest_mac\": \"06:00:00:00:00:01\",
             \"rx_rate_limiter\": {
-              \"bandwidth\": { \"size\": 100000000, \"refill_time\": 1000 }
+              \"bandwidth\": { \"size\": 104857600,
+                                \"one_time_burst\": 2147483648,
+                                \"refill_time\": 1000
+                             }
             },
             \"state\": \"Attached\"
         }"
