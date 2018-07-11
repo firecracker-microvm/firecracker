@@ -6,8 +6,6 @@ import paramiko
 from paramiko import SSHClient
 from retry.api import retry_call
 
-NETMASK = 30
-
 
 class SSHConnection:
     """
@@ -57,10 +55,6 @@ class SSHConnection:
         self.ssh_client.close()
 
 
-class NetmaskError(Exception):
-    pass
-
-
 class NoMoreIPsError(Exception):
     pass
 
@@ -77,43 +71,31 @@ class UniqueIPv4Generator:
     __instance = None
 
     @staticmethod
-    def get_instance(netmask_len: int=NETMASK):
+    def get_instance():
         """
-        This class should be instantiated once per test session with a netmask
-        length. All the microvms will have to use the same netmask length for
+        This class should be instantiated once per test session. All the
+        microvms will have to use the same netmask length for
         the generator to work.
 
         This class will only generate IP addresses from the ranges
         192.168.0.0 - 192.168.255.255 and 172.16.0.0 - 172.31.255.255 which
-        are the private IPs subnetworks.
+        are the private IPs sub-networks.
 
-        For a network mask of 29 bits, the UniqueIPv4Generator can generate up
-        to 8192 sub-networks, each with 6 valid IPs from the
-        192.168.0.0 - 192.168.255.255 range and 131072 sub-networks from the
+        For a network mask of 30 bits, the UniqueIPv4Generator can generate up
+        to 16320 sub-networks, each with 2 valid IPs from the
+        192.168.0.0 - 192.168.255.255 range and 244800 sub-networks from the
         172.16.0.0 - 172.31.255.255 range.
-        range.
-
-        :param netmask_len: Length of the netmask as integer. The minimum
-                            value is 16 and the maximum is 30.
         """
         if not UniqueIPv4Generator.__instance:
-            return UniqueIPv4Generator(netmask_len)
+            return UniqueIPv4Generator()
         else:
-            previous_max_ip_count = \
-                UniqueIPv4Generator.__instance.subnet_max_ip_count
-            new_max_ip_count = 1 << 32 - netmask_len
-            if new_max_ip_count != previous_max_ip_count:
-                raise NetmaskError(
-                    "Netmask value does not have the same value as in the "
-                    "previous invoke "
-                )
             return UniqueIPv4Generator.__instance
 
     @staticmethod
     def __ip_to_int(ip: str):
         return int.from_bytes(socket.inet_aton(ip), "big")
 
-    def __init__(self, netmask_len):
+    def __init__(self):
         """
         The init function should not be called directly. Use get_instance
         instead.
@@ -123,12 +105,9 @@ class UniqueIPv4Generator:
 
         # For the IPv4 address range 192.168.0.0 - 192.168.255.255, the mask
         # length is 16 bits. This means that the netmask_len used to
-        # initialize the class can't be smaller that 16.
-        if netmask_len < 16 or netmask_len > 30:
-            raise NetmaskError(
-                "Network mask length should be between 16 and 30!"
-            )
-
+        # initialize the class can't be smaller that 16. For now we stick to
+        # the default mask length = 30.
+        self.NETMASK_LEN = 30
         self.ip_range = [
             ("192.168.0.0", "192.168.255.255"),
             ("172.16.0.0", "172.31.255.255")
@@ -149,7 +128,7 @@ class UniqueIPv4Generator:
         # The subnet_len contains the number of valid IPs in a subnet and it is
         # used to increment the next_valid_subnet_id once a request for a
         # subnet is issued.
-        self.subnet_max_ip_count = (1 << 32 - netmask_len)
+        self.subnet_max_ip_count = (1 << 32 - self.NETMASK_LEN)
 
         self.lock = threading.Lock()
 
@@ -176,6 +155,9 @@ class UniqueIPv4Generator:
                 unassigned.
                 """
                 raise NoMoreIPsError
+
+    def get_netmask_len(self):
+        return self.NETMASK_LEN
 
     def get_next_available_subnet_range(self):
         """
