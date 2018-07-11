@@ -22,7 +22,7 @@ import requests_unixsocket
 
 from host_tools.cargo_build import cargo_build, CARGO_RELEASE_REL_PATH,\
     RELEASE_BINARIES_REL_PATH
-from host_tools.network import mac_from_ip, NETMASK
+from host_tools.network import mac_from_ip
 
 
 class FilesystemFile:
@@ -450,7 +450,7 @@ class Microvm:
 
         # Configure the tap device and add the network interface
         tap_name = self.slot.make_tap(
-            ip="{}/{}".format(host_ip, NETMASK))
+            ip="{}/{}".format(host_ip, network_config.get_netmask_len()))
 
         # We have to make sure that the microvm will be in the same
         # subnet as the tap device. The IP of the microvm is computed from the
