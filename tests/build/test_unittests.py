@@ -14,7 +14,9 @@ import pytest
 
 from host_tools.cargo_build import CARGO_BUILD_REL_PATH
 
+
 CARGO_UNITTEST_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "test")
+
 
 @pytest.mark.timeout(240)
 def test_unittests(test_session_root_path):
