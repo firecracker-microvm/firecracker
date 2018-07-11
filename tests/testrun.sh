@@ -65,6 +65,10 @@ declare -ra PYTHON_SSH_YUM_DEPS=(python3-devel)
 declare -ra GCC_STATIC_YUM_DEPS=(glibc-static)
 # Some tests will build static binaries for use in systems without user space.
 
+declare -ra EPEL_TOOLS_YUM_DEPS=(iperf3)
+declare -ra EPEL_TOOLS_APT_GET_DEPS=(iperf3)
+# Miscellaneous dependencies for integration testing purposes.
+
 declare -a GLOBAL_SYMBOLS
 
 main() {
@@ -253,6 +257,8 @@ setup() {
 
     ensure_gcc_static
 
+    install_epel_deps
+
     say "Setup: Successfully set up testrun."
 }
 
@@ -390,6 +396,16 @@ ensure_gcc_static() {
         say "Setup: Installed gcc static build deps."
     fi
     # It looks like on Debian and Ubuntu gcc -static is included by default.
+}
+
+install_epel_deps() {
+     if [ $PKG_MANAGER == "yum" ]; then
+        ensure yum-config-manager --enable epel
+        declare deps="${EPEL_TOOLS_YUM_DEPS[@]}"
+    elif [ $PKG_MANAGER == "apt-get" ]; then
+        declare deps="${EPEL_TOOLS_APT_GET_DEPS[@]}"
+    fi
+    ensure $PKG_MANAGER install -q -y $deps >/dev/null 2>&1
 }
 
 teardown() {
