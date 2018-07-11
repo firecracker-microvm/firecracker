@@ -6,6 +6,7 @@ The jailer is invoked in this manner:
 
 ``` bash
 jailer --id <id> --node <numa_node> --exec-file <exec_file> --uid <uid> --gid <gid> [--chroot-base-dir <chroot_base>]
+[--netns <netns>] [--daemonize]
 ```
 
 - `id` is the unique VM identification string (i.e the UUID) and needs to follow
@@ -21,6 +22,10 @@ jailer --id <id> --node <numa_node> --exec-file <exec_file> --uid <uid> --gid <g
   target binary.
 - **chroot_base** represents the base folder where chroot jails are built. The
   default is `/srv/jailer`.
+- `netns` represents the path to a network namespace handle. If present, the jailer
+will use this to join the associated network namespace.
+- When present, the `--daemonize` flag causes the jailer to cal **setsid()** and
+redirect all three standard I/O file descriptors to `/dev/null`. 
 
 ## Jailer Operation
 
@@ -50,9 +55,16 @@ After starting, the Jailer goes through the following operations:
   to detect where each of the three controllers can be found (multiple
   controllers may share the same path). For each identified location (referred
   to as `<cgroup_base>`), the jailer creates the
-  `<cgroup_base>/<exec_file_name>/<id>` subfolder, and writes the current pid to `<cgroup_base>/<exec_file_name>/<id>/tasks`. Also, the value of `numa_node` is
+  `<cgroup_base>/<exec_file_name>/<id>` subfolder, and writes the current pid to 
+  `<cgroup_base>/<exec_file_name>/<id>/tasks`. Also, the value of `numa_node` is
   written to the appropriate `cpuset.mems` file.
-- Chroot into `chroot_dir`.
+- Call **unshare()** into a new mount namespace, use **pivot_root()** to switch the
+old system root mount point with a new one base in `chroot_dir`, switch the current
+working directory to the new root, unmount the old root mount point, and call
+**chroot** into the current directory.
+- If `--netns <netns>` is present, attempt to join the specified network namespace.
+- If `--daemonize` is specified, call **setsid()** and redirect `STDIN`, `STDOUT`,
+and `STDERR` to `/dev/null`.
 - Drop privileges via setting the provided `uid` and `gid`.
 - Exec into `<exec_file_name> --jailed`. The `--jailed` command line argument to
   the target binary is then interpreted by Firecracker, that realizes it’s
@@ -70,6 +82,7 @@ We start by running
 
 ``` bash
 /usr/bin/jailer --id 551e7604-e35c-42b3-b825-416853441234 --node 0 --exec-file /usr/bin/firecracker --uid 123 --gid 100
+--netns /var/run/netns/my_netns --daemonize
 ```
 
 After opening the file descriptors mentioned in the previous section, the jailer
@@ -80,6 +93,8 @@ path which contains them):
   (created via `bind`)
 - `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root/firecracker`
   (copied from `/usr/bin/firecracker`)
+  
+We are going to refer to `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root` as `<chroot_dir>`.
 
 Let’s also assume the **cpu**, **cpuset**, and **pids** cgroups are mounted at
 `/sys/fs/cgroup/cpu`, `/sys/fs/cgroup/cpuset`, and `/sys/fs/cgroup/pids`,
@@ -94,21 +109,40 @@ It’s worth noting that, whenever a folder already exists, nothing will be done
 and we move on to the next directory that needs to be created. This should only
 happen for the common **firecracker** subfolder (but, as for creating the chroot
 path before, we do not issue an error if folders directly associated with the
-supposedly unique **id** already exist).
+supposedly unique **id** already exist). 
 
-The jailer then writes the current pid to `/sys/fs/cgroup/cpu/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`, `/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`,
-and `/sys/fs/cgroup/pids/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`.
-It also writes `0` to
+The jailer then writes the current pid to `/sys/fs/cgroup/cpu/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`,
+`/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`, and 
+`/sys/fs/cgroup/pids/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`. It also writes `0` to
 `/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234/cpuset.mems`.
 
-Finally, the jailer chroots into
-`/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root`, switches
-the **uid** to ```123```, and **gid** to ```100```, and execs
-`/firecracker —jailed`.
+Since the `--netns` parameter is specified in our example, the jailer opens `/var/run/netns/my_netns` to get a file 
+descriptor **fd**, uses **setns(fd, CLONE_NEWNET)** to join the associated network namespace, and then closes **fd**.
 
-We can now use the socket at
-`/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/api.socket` to
-interact with the VM.
+The --daemonize flag is also present, so the jailers opens `/dev/null` as **RW** and keeps the associate file descriptor
+as **dev_null_fd** (we do this before going inside the jail), to be used later.
+
+Build the chroot jail. First, the jailer uses **unshare()** to enter a new mount namespace, and changes the propagation
+of all mount points in the new namespace to private using **mount(NULL, “/”, NULL, MS_PRIVATE | MS_REC, NULL)**, as a
+prerequisite to **pivot_root()**. Another required operation is to bind mount **<chroot_dir>** on top of itself using 
+**mount(<chroot_dir>, <chroot_dir>, NULL, MS_BIND, NULL)**. At this point, the jailer creates the folder
+**<chroot_dir>/old_root**, changes the current directory to **<chroot_dir>**, and calls 
+**syscall(SYS_pivot_root, “.”, “old_root”)**. The final steps of building the jail are unmounting **old_root** using
+**umount2(“old_root”, MNT_DETACH)**, deleting **old_root** with **rmdir**, and finally calling **chroot(“.”)** for 
+good measure. From now, the process is jailed in **<chroot_dir**.
+
+Create the special file `/dev/net/tun`, using **mknod(“/dev/net/tun”, S_IFCHR | S_IRUSR | S_IWUSR, makedev(10, 200))**,
+and then call **chown(“/dev/net/tun”, 123, 100)**, so Firecracker can use it after dropping privileges. This is required
+to use multiple TAP interfaces when running jailed.
+
+Since the `--daemonize` flag is present, call **setsid()** to join a new session, a new process group, and to detach
+from the controlling terminal. Then, redirect standard file descriptors to `/dev/null` by calling
+**dup2(dev_null_fd, STDIN)**, **dup2(dev_null_fd, STDOUT)**, and **dup2(dev_null_fd, STDERR)**. Close **dev_null_fd**,
+because it is no longer necessary.
+
+Finally, the jailer switches the **uid** to ```123```, and **gid** to ```100```, and execs
+`./firecracker --jailed`. We can now use the socket at `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/api.socket`
+to interact with the VM.
 
 ### Observations
 
@@ -129,6 +163,17 @@ interact with the VM.
   setting the `USE_SECCOMP` environment variable due to a bug in the Linux
   kernel. Enabling it might cause slowness as a result of an increased number of
   page faults.
+- For extra resilience, the jailer expects to be spawned by the user in a new PID namespace, most likely via a
+combination of **clone()** with the **CLONE_NEWPID** flag and **exec()**. A process must be created in a new PID
+namespace in order to become a pseudo-init process, and the other option is to use a **clone()** in the jailer,
+which seems unnecessary.
+- When running with **--daemonize**, the jailer will fail to start if it's a process group leader, because **setsid()**
+returns an error in this case. Spawning the jailer via **clone()** and **exec()** also ensures it cannot be a 
+process group leader.
+- We run the jailer as the **root** user; it actually requires a more restricted set of capabilities, but that's to be
+determined as features stabilize.
+- The jailer can only log messages to stdout/err for now, which is why the logic associated with **--daemonize**
+runs towards the end, instead of the very beginning. We are working on adding better logging capabilities. 
 
 ## Caveats
 
