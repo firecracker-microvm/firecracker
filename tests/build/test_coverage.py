@@ -16,6 +16,7 @@ import pytest
 
 from host_tools.cargo_build import CARGO_BUILD_REL_PATH
 
+
 CARGO_KCOV_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "kcov")
 
 
