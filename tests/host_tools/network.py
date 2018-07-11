@@ -30,6 +30,10 @@ class SSHConnection:
         self.ssh_client = SSHClient()
         self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         assert (os.path.exists(ssh_config['ssh_key_path']))
+        # Retry to connect to the host as long as the delay between calls
+        # is less than 30 seconds. Sleep 1, 2, 4, 8, ... seconds between
+        # attempts. These parameters might need additional tweaking when we
+        # add tests with 1000 Firecracker microvm.
         retry_call(
             self.ssh_client.connect,
             fargs=[ssh_config['hostname']],
@@ -39,8 +43,9 @@ class SSHConnection:
                 "key_filename": ssh_config['ssh_key_path']
             },
             exceptions=paramiko.ssh_exception.NoValidConnectionsError,
-            tries=5,
-            delay=5
+            delay=1,
+            backoff=2,
+            max_delay=32
         )
 
     def execute_command(self, cmd_string):
