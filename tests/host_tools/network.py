@@ -21,7 +21,7 @@ class SSHConnection:
     * username
     * ssh_key_path
 
-    This translates in a ssh connection as follows:
+    This translates into an SSH connection as follows:
     ssh -i ssh_key_path username@hostname
     """
     def __init__(self, ssh_config):
