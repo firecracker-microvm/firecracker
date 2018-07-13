@@ -11,7 +11,6 @@ use x86_64::{cpuid, interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
 //x86_64 specific values
-const KERNEL_64BIT_ENTRY_OFFSET: usize = 0x200;
 const BOOT_STACK_POINTER: usize = 0x8000;
 
 #[derive(Debug)]
@@ -181,12 +180,9 @@ impl Vcpu {
         regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
         // Safe to unwrap because this method is called after the VM is configured
         let vm_memory = vm.get_memory().unwrap();
-        let kernel_end = vm_memory
-            .checked_offset(kernel_start_addr, KERNEL_64BIT_ENTRY_OFFSET)
-            .ok_or(Error::KernelOffsetPastEnd)?;
         regs::setup_regs(
             &self.fd,
-            (kernel_end).offset() as u64,
+            kernel_start_addr.offset() as u64,
             BOOT_STACK_POINTER as u64,
             x86_64::ZERO_PAGE_OFFSET as u64,
         ).map_err(Error::REGSConfiguration)?;
