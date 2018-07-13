@@ -3,7 +3,8 @@
 // The 'zero page', a.k.a linux kernel bootparams.
 pub const ZERO_PAGE_START: usize = 0x7000;
 // Initial stack for the boot CPU.
-pub const BOOT_STACK_POINTER: usize = 0x8000;
+pub const BOOT_STACK_START: usize = 0x8000;
+pub const BOOT_STACK_POINTER: usize = 0x8ff0;
 // Initial pagetables.
 pub const PML4_START: usize = 0x9000;
 pub const PDPTE_START: usize = 0xa000;
