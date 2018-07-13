@@ -871,7 +871,6 @@ impl Vmm {
 
         x86_64::configure_system(
             vm_memory,
-            kernel_config.kernel_start_addr,
             kernel_config.cmdline_addr,
             cmdline_cstring.to_bytes().len() + 1,
             self.vm_config.vcpu_count.ok_or(Error::GeneralFailure)?,
