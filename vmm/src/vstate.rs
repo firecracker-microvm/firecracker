@@ -10,8 +10,6 @@ use sys_util::{EventFd, GuestAddress, GuestMemory};
 use x86_64::{cpuid, interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
-//x86_64 specific values
-const BOOT_STACK_POINTER: usize = 0x8000;
 
 #[derive(Debug)]
 pub enum Error {
@@ -183,8 +181,8 @@ impl Vcpu {
         regs::setup_regs(
             &self.fd,
             kernel_start_addr.offset() as u64,
-            BOOT_STACK_POINTER as u64,
-            x86_64::ZERO_PAGE_OFFSET as u64,
+            x86_64::layout::BOOT_STACK_POINTER as u64,
+            x86_64::layout::ZERO_PAGE_START as u64,
         ).map_err(Error::REGSConfiguration)?;
         regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
         regs::setup_sregs(vm_memory, &self.fd).map_err(Error::SREGSConfiguration)?;

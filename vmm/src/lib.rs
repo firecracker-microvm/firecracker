@@ -61,8 +61,6 @@ use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Kill
 use vm_control::VmResponse;
 use vstate::{Vcpu, Vm};
 
-pub const CMDLINE_OFFSET: usize = 0x20000;
-pub const CMDLINE_MAX_SIZE: usize = 0x10000;
 pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
 const VCPU_RTSIG_OFFSET: i32 = 0;
 
@@ -1156,7 +1154,8 @@ impl Vmm {
         let box_response: Box<GenerateResponse + Send> = match boot_source_body.local_image {
             Some(image) => match File::open(image.kernel_image_path) {
                 Ok(kernel_file) => {
-                    let mut cmdline = kernel_cmdline::Cmdline::new(CMDLINE_MAX_SIZE);
+                    let mut cmdline =
+                        kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE);
                     match cmdline.insert_str(
                         boot_source_body
                             .boot_args
@@ -1166,7 +1165,7 @@ impl Vmm {
                             let kernel_config = KernelConfig {
                                 kernel_file,
                                 cmdline,
-                                cmdline_addr: GuestAddress(CMDLINE_OFFSET),
+                                cmdline_addr: GuestAddress(x86_64::layout::CMDLINE_START),
                             };
                             // if the kernel was already configured, we have an update operation
                             let outcome = match self.kernel_config {

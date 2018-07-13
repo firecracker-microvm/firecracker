@@ -6,3 +6,4 @@ version = "0.1.0"
 libc = ">=0.2.39"
 
 sys_util = { path = "../sys_util" }
+x86_64 = { path = "../x86_64" }
