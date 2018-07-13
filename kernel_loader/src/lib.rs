@@ -22,6 +22,7 @@ pub enum Error {
     CommandLineCopy,
     CommandLineOverflow,
     InvalidElfMagicNumber,
+    InvalidEntryAddress,
     InvalidProgramHeaderSize,
     InvalidProgramHeaderOffset,
     InvalidProgramHeaderAddress,
@@ -39,13 +40,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// # Arguments
 ///
 /// * `guest_mem` - The guest memory region the kernel is written to.
-/// * `kernel_start` - The offset into `guest_mem` at which to load the kernel.
 /// * `kernel_image` - Input vmlinux image.
-pub fn load_kernel<F>(
-    guest_mem: &GuestMemory,
-    kernel_start: GuestAddress,
-    kernel_image: &mut F,
-) -> Result<()>
+///
+/// Returns the entry address of the kernel.
+pub fn load_kernel<F>(guest_mem: &GuestMemory, kernel_image: &mut F) -> Result<GuestAddress>
 where
     F: Read + Seek,
 {
@@ -76,6 +74,9 @@ where
         // If the program header is backwards, bail.
         return Err(Error::InvalidProgramHeaderOffset);
     }
+    if (ehdr.e_entry as usize) < 0x100000 {
+        return Err(Error::InvalidEntryAddress);
+    }
 
     kernel_image
         .seek(SeekFrom::Start(ehdr.e_phoff))
@@ -96,15 +97,17 @@ where
             .seek(SeekFrom::Start(phdr.p_offset))
             .map_err(|_| Error::SeekKernelStart)?;
 
-        let mem_offset = kernel_start
-            .checked_add(phdr.p_paddr as usize)
-            .ok_or(Error::InvalidProgramHeaderAddress)?;
+        let mem_offset = GuestAddress(phdr.p_paddr as usize);
+        if mem_offset.offset() < 0x100000 {
+            return Err(Error::InvalidProgramHeaderAddress);
+        }
+
         guest_mem
             .read_to_memory(mem_offset, kernel_image, phdr.p_filesz as usize)
             .map_err(|_| Error::ReadKernelImage)?;
     }
 
-    Ok(())
+    Ok(GuestAddress(ehdr.e_entry as usize))
 }
 
 /// Writes the command line string to the given memory slice.
@@ -144,7 +147,7 @@ mod test {
     use std::io::Cursor;
     use sys_util::{GuestAddress, GuestMemory};
 
-    const MEM_SIZE: usize = 0x8000;
+    const MEM_SIZE: usize = 0x180000;
 
     fn create_guest_mem() -> GuestMemory {
         GuestMemory::new(&vec![(GuestAddress(0x0), MEM_SIZE)]).unwrap()
@@ -202,23 +205,21 @@ mod test {
     #[test]
     fn load_elf() {
         let gm = create_guest_mem();
-        let kernel_addr = GuestAddress(0x0);
         let image = make_elf_bin();
         assert_eq!(
-            Ok(()),
-            load_kernel(&gm, kernel_addr, &mut Cursor::new(&image))
+            Ok(GuestAddress(0x100000)),
+            load_kernel(&gm, &mut Cursor::new(&image))
         );
     }
 
     #[test]
     fn bad_magic() {
         let gm = create_guest_mem();
-        let kernel_addr = GuestAddress(0x0);
         let mut bad_image = make_elf_bin();
         bad_image[0x1] = 0x33;
         assert_eq!(
             Err(Error::InvalidElfMagicNumber),
-            load_kernel(&gm, kernel_addr, &mut Cursor::new(&bad_image))
+            load_kernel(&gm, &mut Cursor::new(&bad_image))
         );
     }
 
@@ -226,12 +227,11 @@ mod test {
     fn bad_endian() {
         // Only little endian is supported
         let gm = create_guest_mem();
-        let kernel_addr = GuestAddress(0x0);
         let mut bad_image = make_elf_bin();
         bad_image[0x5] = 2;
         assert_eq!(
             Err(Error::BigEndianElfOnLittle),
-            load_kernel(&gm, kernel_addr, &mut Cursor::new(&bad_image))
+            load_kernel(&gm, &mut Cursor::new(&bad_image))
         );
     }
 
@@ -239,12 +239,11 @@ mod test {
     fn bad_phoff() {
         // program header has to be past the end of the elf header
         let gm = create_guest_mem();
-        let kernel_addr = GuestAddress(0x0);
         let mut bad_image = make_elf_bin();
         bad_image[0x20] = 0x10;
         assert_eq!(
             Err(Error::InvalidProgramHeaderOffset),
-            load_kernel(&gm, kernel_addr, &mut Cursor::new(&bad_image))
+            load_kernel(&gm, &mut Cursor::new(&bad_image))
         );
     }
 }
