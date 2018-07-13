@@ -117,24 +117,24 @@ pub fn get_32bit_gap_start() -> usize {
 /// # Arguments
 ///
 /// * `guest_mem` - The memory to be used by the guest.
-/// * `kernel_addr` - Address in `guest_mem` where the kernel was loaded.
 /// * `cmdline_addr` - Address in `guest_mem` where the kernel command line was loaded.
 /// * `cmdline_size` - Size of the kernel command line in bytes including the null terminator.
 /// * `num_cpus` - Number of virtual CPUs the guest will have.
 pub fn configure_system(
     guest_mem: &GuestMemory,
-    kernel_addr: GuestAddress,
     cmdline_addr: GuestAddress,
     cmdline_size: usize,
     num_cpus: u8,
 ) -> Result<()> {
     const EBDA_START: u64 = 0x0009fc00;
+    const HIMEM_START: usize = 0x100000;
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
     const KERNEL_HDR_MAGIC: u32 = 0x53726448;
     const KERNEL_LOADER_OTHER: u8 = 0xff;
     const KERNEL_MIN_ALIGNMENT_BYTES: u32 = 0x1000000; // Must be non-zero.
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
     let end_32bit_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
+    let himem_start = GuestAddress(HIMEM_START);
 
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(guest_mem, num_cpus).map_err(Error::MpTableSetup)?;
@@ -154,15 +154,15 @@ pub fn configure_system(
     if mem_end < end_32bit_gap_start {
         add_e820_entry(
             &mut params,
-            kernel_addr.offset() as u64,
-            mem_end.offset_from(kernel_addr) as u64,
+            himem_start.offset() as u64,
+            mem_end.offset_from(himem_start) as u64,
             E820_RAM,
         )?;
     } else {
         add_e820_entry(
             &mut params,
-            kernel_addr.offset() as u64,
-            end_32bit_gap_start.offset_from(kernel_addr) as u64,
+            himem_start.offset() as u64,
+            end_32bit_gap_start.offset_from(himem_start) as u64,
             E820_RAM,
         )?;
         if mem_end > first_addr_past_32bits {
