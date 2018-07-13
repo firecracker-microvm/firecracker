@@ -13,6 +13,8 @@ use sys_util::{GuestAddress, GuestMemory};
 
 use mpspec::*;
 
+use layout;
+
 #[derive(Debug)]
 pub enum Error {
     /// There was too little guest memory to store the entire MP table.
@@ -57,7 +59,6 @@ const APIC_VERSION: u8 = 0x14;
 const CPU_STEPPING: u32 = 0x600;
 const CPU_FEATURE_APIC: u32 = 0x200;
 const CPU_FEATURE_FPU: u32 = 0x001;
-const MPTABLE_START: usize = 0x400 * 639; // Last 1k of Linux's 640k base RAM.
 
 fn compute_checksum<T: Copy>(v: &T) -> u8 {
     // Safe because we are only reading the bytes within the size of the `T` reference `v`.
@@ -87,7 +88,7 @@ fn compute_mp_size(num_cpus: u8) -> usize {
 /// Performs setup of the MP table for the given `num_cpus`.
 pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
     // Used to keep track of the next base pointer into the MP table.
-    let mut base_mp = GuestAddress(MPTABLE_START);
+    let mut base_mp = GuestAddress(layout::MPTABLE_START);
 
     let mp_size = compute_mp_size(num_cpus);
 
@@ -254,8 +255,10 @@ mod tests {
     #[test]
     fn bounds_check() {
         let num_cpus = 4;
-        let mem =
-            GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))]).unwrap();
+        let mem = GuestMemory::new(&[(
+            GuestAddress(layout::MPTABLE_START),
+            compute_mp_size(num_cpus),
+        )]).unwrap();
 
         setup_mptable(&mem, num_cpus).unwrap();
     }
@@ -263,8 +266,10 @@ mod tests {
     #[test]
     fn bounds_check_fails() {
         let num_cpus = 4;
-        let mem = GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus) - 1)])
-            .unwrap();
+        let mem = GuestMemory::new(&[(
+            GuestAddress(layout::MPTABLE_START),
+            compute_mp_size(num_cpus) - 1,
+        )]).unwrap();
 
         assert!(setup_mptable(&mem, num_cpus).is_err());
     }
@@ -272,12 +277,15 @@ mod tests {
     #[test]
     fn mpf_intel_checksum() {
         let num_cpus = 1;
-        let mem =
-            GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))]).unwrap();
+        let mem = GuestMemory::new(&[(
+            GuestAddress(layout::MPTABLE_START),
+            compute_mp_size(num_cpus),
+        )]).unwrap();
 
         setup_mptable(&mem, num_cpus).unwrap();
 
-        let mpf_intel = mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+        let mpf_intel = mem.read_obj_from_addr(GuestAddress(layout::MPTABLE_START))
+            .unwrap();
 
         assert_eq!(mpf_intel_compute_checksum(&mpf_intel), mpf_intel.checksum);
     }
@@ -285,12 +293,15 @@ mod tests {
     #[test]
     fn mpc_table_checksum() {
         let num_cpus = 4;
-        let mem =
-            GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))]).unwrap();
+        let mem = GuestMemory::new(&[(
+            GuestAddress(layout::MPTABLE_START),
+            compute_mp_size(num_cpus),
+        )]).unwrap();
 
         setup_mptable(&mem, num_cpus).unwrap();
 
-        let mpf_intel: mpf_intel = mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+        let mpf_intel: mpf_intel = mem.read_obj_from_addr(GuestAddress(layout::MPTABLE_START))
+            .unwrap();
         let mpc_offset = GuestAddress(mpf_intel.physptr as usize);
         let mpc_table: mpc_table = mem.read_obj_from_addr(mpc_offset).unwrap();
 
@@ -316,13 +327,16 @@ mod tests {
     #[test]
     fn cpu_entry_count() {
         const MAX_CPUS: u8 = 0xff;
-        let mem =
-            GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(MAX_CPUS))]).unwrap();
+        let mem = GuestMemory::new(&[(
+            GuestAddress(layout::MPTABLE_START),
+            compute_mp_size(MAX_CPUS),
+        )]).unwrap();
 
         for i in 0..MAX_CPUS {
             setup_mptable(&mem, i).unwrap();
 
-            let mpf_intel: mpf_intel = mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+            let mpf_intel: mpf_intel = mem.read_obj_from_addr(GuestAddress(layout::MPTABLE_START))
+                .unwrap();
             let mpc_offset = GuestAddress(mpf_intel.physptr as usize);
             let mpc_table: mpc_table = mem.read_obj_from_addr(mpc_offset).unwrap();
             let mpc_end = mpc_offset.checked_add(mpc_table.length as usize).unwrap();
