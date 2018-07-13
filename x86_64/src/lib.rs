@@ -51,6 +51,7 @@ unsafe impl memory_model::DataInit for mpspec::mpf_intel {}
 pub mod cpuid;
 mod gdt;
 pub mod interrupts;
+pub mod layout;
 mod mptable;
 pub mod regs;
 
@@ -80,7 +81,6 @@ pub type Result<T> = result::Result<T, Error>;
 
 const MEM_32BIT_GAP_SIZE: usize = (768 << 20);
 const FIRST_ADDR_PAST_32BITS: usize = (1 << 32);
-pub const ZERO_PAGE_OFFSET: usize = 0x7000;
 
 /// Returns a Vec of the valid memory addresses.
 /// These should be used to configure the GuestMemory structure for the platfrom.
@@ -126,15 +126,13 @@ pub fn configure_system(
     cmdline_size: usize,
     num_cpus: u8,
 ) -> Result<()> {
-    const EBDA_START: u64 = 0x0009fc00;
-    const HIMEM_START: usize = 0x100000;
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
     const KERNEL_HDR_MAGIC: u32 = 0x53726448;
     const KERNEL_LOADER_OTHER: u8 = 0xff;
     const KERNEL_MIN_ALIGNMENT_BYTES: u32 = 0x1000000; // Must be non-zero.
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
     let end_32bit_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
-    let himem_start = GuestAddress(HIMEM_START);
+    let himem_start = GuestAddress(layout::HIMEM_START);
 
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(guest_mem, num_cpus).map_err(Error::MpTableSetup)?;
@@ -148,7 +146,7 @@ pub fn configure_system(
     params.hdr.cmdline_size = cmdline_size as u32;
     params.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
 
-    add_e820_entry(&mut params, 0, EBDA_START, E820_RAM)?;
+    add_e820_entry(&mut params, 0, layout::EBDA_START, E820_RAM)?;
 
     let mem_end = guest_mem.end_addr();
     if mem_end < end_32bit_gap_start {
@@ -175,7 +173,7 @@ pub fn configure_system(
         }
     }
 
-    let zero_page_addr = GuestAddress(ZERO_PAGE_OFFSET);
+    let zero_page_addr = GuestAddress(layout::ZERO_PAGE_START);
     guest_mem
         .checked_offset(zero_page_addr, mem::size_of::<boot_params>())
         .ok_or(Error::ZeroPagePastRamEnd)?;

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 extern crate sys_util;
+extern crate x86_64;
 
 use std::ffi::CStr;
 use std::io::{Read, Seek, SeekFrom};
@@ -74,7 +75,7 @@ where
         // If the program header is backwards, bail.
         return Err(Error::InvalidProgramHeaderOffset);
     }
-    if (ehdr.e_entry as usize) < 0x100000 {
+    if (ehdr.e_entry as usize) < x86_64::layout::HIMEM_START {
         return Err(Error::InvalidEntryAddress);
     }
 
@@ -98,7 +99,7 @@ where
             .map_err(|_| Error::SeekKernelStart)?;
 
         let mem_offset = GuestAddress(phdr.p_paddr as usize);
-        if mem_offset.offset() < 0x100000 {
+        if mem_offset.offset() < x86_64::layout::HIMEM_START {
             return Err(Error::InvalidProgramHeaderAddress);
         }
 

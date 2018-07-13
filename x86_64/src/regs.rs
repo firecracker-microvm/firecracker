@@ -11,6 +11,7 @@ use kvm_sys::kvm_msr_entry;
 use kvm_sys::kvm_msrs;
 use kvm_sys::kvm_regs;
 use kvm_sys::kvm_sregs;
+use layout;
 use sys_util;
 use sys_util::{GuestAddress, GuestMemory};
 
@@ -233,8 +234,8 @@ fn configure_segments_and_sregs(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Res
 
 fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
     // Puts PML4 right after zero page but aligned to 4k.
-    let boot_pml4_addr = GuestAddress(0x9000);
-    let boot_pdpte_addr = GuestAddress(0xa000);
+    let boot_pml4_addr = GuestAddress(layout::PML4_START);
+    let boot_pdpte_addr = GuestAddress(layout::PDPTE_START);
 
     mem.write_obj_at_addr(boot_pdpte_addr.offset() as u64 | 0x03, boot_pml4_addr)
         .map_err(|_| Error::WritePML4Address)?;
@@ -308,10 +309,10 @@ mod tests {
         let gm = create_guest_mem();
         setup_page_tables(&gm, &mut sregs).unwrap();
 
-        assert_eq!(0xa003, read_u64(&gm, 0x9000));
-        assert_eq!(0x83, read_u64(&gm, 0xa000));
+        assert_eq!(0xa003, read_u64(&gm, layout::PML4_START));
+        assert_eq!(0x83, read_u64(&gm, layout::PDPTE_START));
 
-        assert_eq!(0x9000, sregs.cr3);
+        assert_eq!(layout::PML4_START as u64, sregs.cr3);
         assert_eq!(X86_CR4_PAE, sregs.cr4);
         assert_eq!(X86_CR0_PG, sregs.cr0);
     }
