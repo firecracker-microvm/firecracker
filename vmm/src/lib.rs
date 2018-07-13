@@ -61,7 +61,6 @@ use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Kill
 use vm_control::VmResponse;
 use vstate::{Vcpu, Vm};
 
-pub const KERNEL_START_OFFSET: usize = 0x200000;
 pub const CMDLINE_OFFSET: usize = 0x20000;
 pub const CMDLINE_MAX_SIZE: usize = 0x10000;
 pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
@@ -363,7 +362,6 @@ impl Drop for EpollContext {
 pub struct KernelConfig {
     pub cmdline: kernel_cmdline::Cmdline,
     pub kernel_file: File,
-    pub kernel_start_addr: GuestAddress,
     pub cmdline_addr: GuestAddress,
 }
 
@@ -723,7 +721,7 @@ impl Vmm {
         Ok(())
     }
 
-    pub fn start_vcpus(&mut self) -> Result<()> {
+    pub fn start_vcpus(&mut self, entry_addr: GuestAddress) -> Result<()> {
         // safe to unwrap because vm_config has a default value for vcpu_count
         let vcpu_count = self.vm_config.vcpu_count.unwrap();
         self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
@@ -753,11 +751,9 @@ impl Vmm {
 
             let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(Error::Vcpu)?;
 
-            // Safe to unwrap() because the value was just checked.
-            let kernel_config = self.kernel_config.as_mut().unwrap();
             // Safe to unwrap the ht_enabled flag because the machine configure has default values
             // for all fields
-            vcpu.configure(&self.vm_config, kernel_config.kernel_start_addr, &self.vm)
+            vcpu.configure(&self.vm_config, entry_addr, &self.vm)
                 .map_err(Error::VcpuConfigure)?;
             vcpu_handles.push(thread::Builder::new()
                 .name(format!("fc_vcpu{}", cpu_id))
@@ -851,7 +847,7 @@ impl Vmm {
         Ok(())
     }
 
-    pub fn load_kernel(&mut self) -> Result<()> {
+    pub fn load_kernel(&mut self) -> Result<GuestAddress> {
         // This is the easy way out of consuming the value of the kernel_cmdline.
         // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
         // safe to unwrap since we've already validated that the kernel_config has a value
@@ -862,11 +858,7 @@ impl Vmm {
 
         // Safe to unwrap because the VM memory was initialized before in vm.memory_init()
         let vm_memory = self.vm.get_memory().unwrap();
-        kernel_loader::load_kernel(
-            vm_memory,
-            kernel_config.kernel_start_addr,
-            &mut kernel_config.kernel_file,
-        )?;
+        let entry_addr = kernel_loader::load_kernel(vm_memory, &mut kernel_config.kernel_file)?;
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)?;
 
         x86_64::configure_system(
@@ -875,7 +867,7 @@ impl Vmm {
             cmdline_cstring.to_bytes().len() + 1,
             self.vm_config.vcpu_count.ok_or(Error::GeneralFailure)?,
         )?;
-        Ok(())
+        Ok(entry_addr)
     }
 
     pub fn register_events(&mut self) -> Result<()> {
@@ -907,10 +899,10 @@ impl Vmm {
         self.init_devices()?;
         self.init_microvm()?;
 
-        self.load_kernel()?;
+        let entry_addr = self.load_kernel()?;
 
         self.register_events()?;
-        self.start_vcpus()?;
+        self.start_vcpus(entry_addr)?;
 
         // unwrap() to crash if the other thread poisoned this lock
         self.shared_info.write().unwrap().state = InstanceState::Running;
@@ -1174,7 +1166,6 @@ impl Vmm {
                             let kernel_config = KernelConfig {
                                 kernel_file,
                                 cmdline,
-                                kernel_start_addr: GuestAddress(KERNEL_START_OFFSET),
                                 cmdline_addr: GuestAddress(CMDLINE_OFFSET),
                             };
                             // if the kernel was already configured, we have an update operation
