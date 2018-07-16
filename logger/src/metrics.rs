@@ -152,6 +152,13 @@ pub struct PutRequestsMetrics {
     pub network_fails: SharedMetric,
 }
 
+// Metrics on PATCH Api Requests
+#[derive(Default, Serialize)]
+pub struct PatchRequestsMetrics {
+    pub drive_fails: SharedMetric,
+    pub drive_count: SharedMetric,
+}
+
 #[derive(Default, Serialize)]
 pub struct BlockDeviceMetrics {
     pub activate_fails: SharedMetric,
@@ -162,6 +169,8 @@ pub struct BlockDeviceMetrics {
     pub flush_count: SharedMetric,
     pub queue_event_count: SharedMetric,
     pub rate_limiter_event_count: SharedMetric,
+    pub update_count: SharedMetric,
+    pub update_fails: SharedMetric,
     pub read_count: SharedMetric,
     pub write_count: SharedMetric,
 }
@@ -266,6 +275,7 @@ pub struct FirecrackerMetrics {
     pub i8042: I8042DeviceMetrics,
     pub logger: LoggerSystemMetrics,
     pub net: NetDeviceMetrics,
+    pub patch_api_requests: PatchRequestsMetrics,
     pub put_api_requests: PutRequestsMetrics,
     pub seccomp: SeccompMetrics,
     pub vcpu: VcpuMetrics,
