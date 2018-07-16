@@ -14,13 +14,14 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::vec::Vec;
 
 use super::{ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
 use fc_util::ratelimiter::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
 use net_sys;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
-use sys_util::{Error as SysError, EventFd, GuestMemory};
+use sys_util::{Error as SysError, EventFd, GuestAddress, GuestMemory};
 use virtio_sys::virtio_config::*;
 use virtio_sys::virtio_net::*;
 use {DeviceEventT, EpollHandler};
@@ -74,16 +75,19 @@ struct TxVirtio {
     queue_evt: EventFd,
     rate_limiter: RateLimiter,
     queue: Queue,
+    iovec: Vec<(GuestAddress, usize)>,
     used_desc_heads: [u16; QUEUE_SIZE as usize],
     frame_buf: [u8; MAX_BUFFER_SIZE],
 }
 
 impl TxVirtio {
     fn new(queue: Queue, queue_evt: EventFd, rate_limiter: RateLimiter) -> Self {
+        let tx_queue_max_size = queue.get_max_size() as usize;
         TxVirtio {
             queue_evt,
             rate_limiter,
             queue,
+            iovec: Vec::with_capacity(tx_queue_max_size),
             used_desc_heads: [0u16; QUEUE_SIZE as usize],
             frame_buf: [0u8; MAX_BUFFER_SIZE],
         }
@@ -298,32 +302,18 @@ impl NetEpollHandler {
             }
 
             let head_index = avail_desc.index;
-            let mut next_desc = Some(avail_desc);
             let mut read_count = 0;
+            let mut next_desc = Some(avail_desc);
 
-            // Copy buffer from across multiple descriptors.
+            self.tx.iovec.clear();
             loop {
                 match next_desc {
                     Some(desc) => {
                         if desc.is_write_only() {
                             break;
                         }
-                        let limit =
-                            cmp::min(read_count + desc.len as usize, self.tx.frame_buf.len());
-                        let read_result = self.mem.read_slice_at_addr(
-                            &mut self.tx.frame_buf[read_count..limit as usize],
-                            desc.addr,
-                        );
-                        match read_result {
-                            Ok(sz) => {
-                                read_count += sz;
-                            }
-                            Err(e) => {
-                                error!("Failed to read slice: {:?}", e);
-                                METRICS.net.tx_fails.inc();
-                                break;
-                            }
-                        }
+                        self.tx.iovec.push((desc.addr, desc.len as usize));
+                        read_count += desc.len as usize;
                         next_desc = desc.next_descriptor();
                     }
                     None => {
@@ -343,6 +333,29 @@ impl NetEpollHandler {
                 self.tx.rate_limiter.manual_replenish(1, TokenType::Ops);
                 // stop processing the queue
                 break;
+            }
+
+            read_count = 0;
+            // Copy buffer from across multiple descriptors.
+            // TODO(performance - Issue #420): change this to use `writev()` instead of `write()`
+            // and get rid of the intermediate buffer.
+            for (desc_addr, desc_len) in self.tx.iovec.drain(..) {
+                let limit = cmp::min((read_count + desc_len) as usize, self.tx.frame_buf.len());
+
+                let read_result = self.mem.read_slice_at_addr(
+                    &mut self.tx.frame_buf[read_count..limit as usize],
+                    desc_addr,
+                );
+                match read_result {
+                    Ok(sz) => {
+                        read_count += sz;
+                    }
+                    Err(e) => {
+                        error!("Failed to read slice: {:?}", e);
+                        METRICS.net.tx_fails.inc();
+                        break;
+                    }
+                }
             }
 
             let write_result = self.tap.write(&self.tx.frame_buf[..read_count as usize]);
