@@ -70,26 +70,59 @@ pub enum Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
+struct TxVirtio {
+    queue_evt: EventFd,
+    rate_limiter: RateLimiter,
+    queue: Queue,
+    used_desc_heads: [u16; QUEUE_SIZE as usize],
+    frame_buf: [u8; MAX_BUFFER_SIZE],
+}
+
+impl TxVirtio {
+    fn new(queue: Queue, queue_evt: EventFd, rate_limiter: RateLimiter) -> Self {
+        TxVirtio {
+            queue_evt,
+            rate_limiter,
+            queue,
+            used_desc_heads: [0u16; QUEUE_SIZE as usize],
+            frame_buf: [0u8; MAX_BUFFER_SIZE],
+        }
+    }
+}
+
+struct RxVirtio {
+    queue_evt: EventFd,
+    rate_limiter: RateLimiter,
+    deffered_frame: bool,
+    queue: Queue,
+    bytes_read: usize,
+    frame_buf: [u8; MAX_BUFFER_SIZE],
+}
+
+impl RxVirtio {
+    fn new(queue: Queue, queue_evt: EventFd, rate_limiter: RateLimiter) -> Self {
+        RxVirtio {
+            queue_evt,
+            rate_limiter,
+            deffered_frame: false,
+            queue,
+            bytes_read: 0,
+            frame_buf: [0u8; MAX_BUFFER_SIZE],
+        }
+    }
+}
+
 struct NetEpollHandler {
-    mem: GuestMemory,
-    rx_queue: Queue,
-    rx_rate_limiter: RateLimiter,
-    tx_queue: Queue,
-    tx_rate_limiter: RateLimiter,
+    rx: RxVirtio,
     tap: Tap,
+    mem: GuestMemory,
+    tx: TxVirtio,
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
-    rx_buf: [u8; MAX_BUFFER_SIZE],
-    tx_frame: [u8; MAX_BUFFER_SIZE],
-    tx_used_desc_heads: [u16; QUEUE_SIZE as usize],
-    rx_count: usize,
-    deferred_rx: bool,
     // TODO(smbarber): http://crbug.com/753630
     // Remove once MRG_RXBUF is supported and this variable is actually used.
     #[allow(dead_code)]
     acked_features: u64,
-    rx_queue_evt: EventFd,
-    tx_queue_evt: EventFd,
 }
 
 impl NetEpollHandler {
@@ -108,16 +141,17 @@ impl NetEpollHandler {
     fn rate_limited_rx_single_frame(&mut self) -> bool {
         // If limiter.consume() fails it means there is no more TokenType::Ops
         // budget and rate limiting is in effect.
-        if !self.rx_rate_limiter.consume(1, TokenType::Ops) {
+        if !self.rx.rate_limiter.consume(1, TokenType::Ops) {
             return false;
         }
         // If limiter.consume() fails it means there is no more TokenType::Bytes
         // budget and rate limiting is in effect.
-        if !self.rx_rate_limiter
-            .consume(self.rx_count as u64, TokenType::Bytes)
+        if !self.rx
+            .rate_limiter
+            .consume(self.rx.bytes_read as u64, TokenType::Bytes)
         {
             // revert the OPS consume()
-            self.rx_rate_limiter.manual_replenish(1, TokenType::Ops);
+            self.rx.rate_limiter.manual_replenish(1, TokenType::Ops);
             return false;
         }
 
@@ -127,19 +161,20 @@ impl NetEpollHandler {
         // Undo the tokens consumption if guest delivery failed.
         if !success {
             // revert the OPS consume()
-            self.rx_rate_limiter.manual_replenish(1, TokenType::Ops);
+            self.rx.rate_limiter.manual_replenish(1, TokenType::Ops);
             // revert the BYTES consume()
-            self.rx_rate_limiter
-                .manual_replenish(self.rx_count as u64, TokenType::Bytes);
+            self.rx
+                .rate_limiter
+                .manual_replenish(self.rx.bytes_read as u64, TokenType::Bytes);
         }
         return success;
     }
 
-    // Copies a single frame from `self.rx_buf` into the guest. Returns true
+    // Copies a single frame from `self.rx.frame_buf` into the guest. Returns true
     // if a buffer was used, and false if the frame must be deferred until a buffer
     // is made available by the driver.
     fn rx_single_frame(&mut self) -> bool {
-        let mut next_desc = self.rx_queue.iter(&self.mem).next();
+        let mut next_desc = self.rx.queue.iter(&self.mem).next();
 
         if next_desc.is_none() {
             return false;
@@ -156,8 +191,8 @@ impl NetEpollHandler {
                     if !desc.is_write_only() {
                         break;
                     }
-                    let limit = cmp::min(write_count + desc.len as usize, self.rx_count);
-                    let source_slice = &self.rx_buf[write_count..limit];
+                    let limit = cmp::min(write_count + desc.len as usize, self.rx.bytes_read);
+                    let source_slice = &self.rx.frame_buf[write_count..limit];
                     let write_result = self.mem.write_slice_at_addr(source_slice, desc.addr);
 
                     match write_result {
@@ -171,7 +206,7 @@ impl NetEpollHandler {
                         }
                     };
 
-                    if write_count >= self.rx_count {
+                    if write_count >= self.rx.bytes_read {
                         break;
                     }
                     next_desc = desc.next_descriptor();
@@ -184,14 +219,15 @@ impl NetEpollHandler {
             }
         }
 
-        self.rx_queue
+        self.rx
+            .queue
             .add_used(&self.mem, head_index, write_count as u32);
 
         // Interrupt the guest immediately for received frames to
         // reduce latency.
         self.signal_used_queue();
 
-        if write_count >= self.rx_count {
+        if write_count >= self.rx.bytes_read {
             METRICS.net.rx_bytes_count.add(write_count);
             METRICS.net.rx_packets_count.inc();
             return true;
@@ -205,9 +241,9 @@ impl NetEpollHandler {
         loop {
             match self.read_tap() {
                 Ok(count) => {
-                    self.rx_count = count;
+                    self.rx.bytes_read = count;
                     if !self.rate_limited_rx_single_frame() {
-                        self.deferred_rx = true;
+                        self.rx.deffered_frame = true;
                         break;
                     }
                 }
@@ -230,8 +266,8 @@ impl NetEpollHandler {
     }
 
     fn resume_rx(&mut self) {
-        if self.deferred_rx && self.rate_limited_rx_single_frame() {
-            self.deferred_rx = false;
+        if self.rx.deffered_frame && self.rate_limited_rx_single_frame() {
+            self.rx.deffered_frame = false;
             // process_rx() was interrupted possibly before consuming all
             // packets in the tap; try continuing now.
             self.process_rx();
@@ -239,13 +275,13 @@ impl NetEpollHandler {
     }
 
     fn process_tx(&mut self) {
-        let mut used_count = 0;
         let mut rate_limited = false;
+        let mut used_count = 0;
 
-        for avail_desc in self.tx_queue.iter(&self.mem) {
+        for avail_desc in self.tx.queue.iter(&self.mem) {
             // If limiter.consume() fails it means there is no more TokenType::Ops
             // budget and rate limiting is in effect.
-            if !self.tx_rate_limiter.consume(1, TokenType::Ops) {
+            if !self.tx.rate_limiter.consume(1, TokenType::Ops) {
                 rate_limited = true;
                 // Stop processing the queue.
                 break;
@@ -262,9 +298,12 @@ impl NetEpollHandler {
                         if desc.is_write_only() {
                             break;
                         }
-                        let limit = cmp::min(read_count + desc.len as usize, self.tx_frame.len());
-                        let read_result = self.mem
-                            .read_slice_at_addr(&mut self.tx_frame[read_count..limit as usize], desc.addr);
+                        let limit =
+                            cmp::min(read_count + desc.len as usize, self.tx.frame_buf.len());
+                        let read_result = self.mem.read_slice_at_addr(
+                            &mut self.tx.frame_buf[read_count..limit as usize],
+                            desc.addr,
+                        );
                         match read_result {
                             Ok(sz) => {
                                 read_count += sz;
@@ -285,17 +324,18 @@ impl NetEpollHandler {
 
             // If limiter.consume() fails it means there is no more TokenType::Bytes
             // budget and rate limiting is in effect.
-            if !self.tx_rate_limiter
+            if !self.tx
+                .rate_limiter
                 .consume(read_count as u64, TokenType::Bytes)
             {
                 rate_limited = true;
                 // revert the OPS consume()
-                self.tx_rate_limiter.manual_replenish(1, TokenType::Ops);
+                self.tx.rate_limiter.manual_replenish(1, TokenType::Ops);
                 // stop processing the queue
                 break;
             }
 
-            let write_result = self.tap.write(&self.tx_frame[..read_count as usize]);
+            let write_result = self.tap.write(&self.tx.frame_buf[..read_count as usize]);
             match write_result {
                 Ok(_) => {
                     METRICS.net.tx_bytes_count.add(read_count);
@@ -307,18 +347,18 @@ impl NetEpollHandler {
                 }
             };
 
-            self.tx_used_desc_heads[used_count] = head_index;
+            self.tx.used_desc_heads[used_count] = head_index;
             used_count += 1;
         }
         if rate_limited {
             // If rate limiting kicked in, queue had advanced one element that we aborted
             // processing; go back one element so it can be processed next time.
-            self.tx_queue.go_to_previous_position();
+            self.tx.queue.go_to_previous_position();
         }
 
         if used_count != 0 {
-            for &desc_index in &self.tx_used_desc_heads[..used_count] {
-                self.tx_queue.add_used(&self.mem, desc_index, 0);
+            for &desc_index in &self.tx.used_desc_heads[..used_count] {
+                self.tx.queue.add_used(&self.mem, desc_index, 0);
             }
             self.signal_used_queue();
         }
@@ -326,37 +366,37 @@ impl NetEpollHandler {
 
     #[cfg(test)]
     fn get_rx_rate_limiter(&self) -> &RateLimiter {
-        &self.rx_rate_limiter
+        &self.rx.rate_limiter
     }
 
     #[cfg(test)]
     fn get_tx_rate_limiter(&self) -> &RateLimiter {
-        &self.tx_rate_limiter
+        &self.tx.rate_limiter
     }
 
     #[cfg(test)]
     fn set_rx_rate_limiter(&mut self, rx_rate_limiter: RateLimiter) {
-        self.rx_rate_limiter = rx_rate_limiter;
+        self.rx.rate_limiter = rx_rate_limiter;
     }
 
     #[cfg(test)]
     fn set_tx_rate_limiter(&mut self, tx_rate_limiter: RateLimiter) {
-        self.tx_rate_limiter = tx_rate_limiter;
+        self.tx.rate_limiter = tx_rate_limiter;
     }
 
     #[cfg(not(test))]
     fn read_tap(&mut self) -> io::Result<usize> {
-        self.tap.read(&mut self.rx_buf)
+        self.tap.read(&mut self.rx.frame_buf)
     }
 
     #[cfg(test)]
     fn read_tap(&mut self) -> io::Result<usize> {
         use std::cmp::min;
 
-        let count = min(1234, self.rx_buf.len());
+        let count = min(1234, self.rx.frame_buf.len());
 
         for i in 0..count {
-            self.rx_buf[i] = 5;
+            self.rx.frame_buf[i] = 5;
         }
 
         Ok(count)
@@ -370,14 +410,14 @@ impl EpollHandler for NetEpollHandler {
                 METRICS.net.rx_tap_event_count.inc();
 
                 // While limiter is blocked, don't process any more incoming.
-                if self.rx_rate_limiter.is_blocked() {
+                if self.rx.rate_limiter.is_blocked() {
                     return;
                 }
                 // Process a deferred frame first if available. Don't read from tap again
                 // until we manage to receive this deferred frame.
-                if self.deferred_rx {
+                if self.rx.deffered_frame {
                     if self.rate_limited_rx_single_frame() {
-                        self.deferred_rx = false;
+                        self.rx.deffered_frame = false;
                     } else {
                         return;
                     }
@@ -386,26 +426,26 @@ impl EpollHandler for NetEpollHandler {
             }
             RX_QUEUE_EVENT => {
                 METRICS.net.rx_queue_event_count.inc();
-                if let Err(e) = self.rx_queue_evt.read() {
+                if let Err(e) = self.rx.queue_evt.read() {
                     error!("Failed to get rx queue event: {:?}", e);
                     METRICS.net.event_fails.inc();
                     // Shouldn't we return here?
                 }
                 // If the limiter is not blocked, resume the receiving of bytes.
-                if !self.rx_rate_limiter.is_blocked() {
+                if !self.rx.rate_limiter.is_blocked() {
                     // There should be a buffer available now to receive the frame into.
                     self.resume_rx();
                 }
             }
             TX_QUEUE_EVENT => {
                 METRICS.net.tx_queue_event_count.inc();
-                if let Err(e) = self.tx_queue_evt.read() {
+                if let Err(e) = self.tx.queue_evt.read() {
                     error!("Failed to get tx queue event: {:?}", e);
                     // Shouldn't we return here?
                     METRICS.net.event_fails.inc();
                 }
                 // If the limiter is not blocked, continue transmitting bytes.
-                if !self.tx_rate_limiter.is_blocked() {
+                if !self.tx.rate_limiter.is_blocked() {
                     self.process_tx();
                 }
             }
@@ -417,7 +457,7 @@ impl EpollHandler for NetEpollHandler {
                 METRICS.net.rx_event_rate_limiter_count.inc();
                 // Upon rate limiter event, call the rate limiter handler
                 // and restart processing the queue.
-                match self.rx_rate_limiter.event_handler() {
+                match self.rx.rate_limiter.event_handler() {
                     Ok(_) => {
                         // There might be enough budget now to receive the frame.
                         self.resume_rx();
@@ -432,7 +472,7 @@ impl EpollHandler for NetEpollHandler {
                 METRICS.net.tx_rate_limiter_event_count.inc();
                 // Upon rate limiter event, call the rate limiter handler
                 // and restart processing the queue.
-                match self.tx_rate_limiter.event_handler() {
+                match self.tx.rate_limiter.event_handler() {
                     Ok(_) => {
                         // There might be enough budget now to send the frame.
                         self.process_tx();
@@ -664,31 +704,34 @@ impl VirtioDevice for Net {
             if let Some(kill_evt) = self.workers_kill_evt.take() {
                 let kill_raw_fd = kill_evt.as_raw_fd();
 
+                let rx_queue = queues.remove(0);
+                let tx_queue = queues.remove(0);
+                let rx_queue_evt = queue_evts.remove(0);
+                let tx_queue_evt = queue_evts.remove(0);
                 let handler = NetEpollHandler {
-                    mem,
-                    rx_queue: queues.remove(0),
-                    rx_rate_limiter: self.rx_rate_limiter.take().unwrap_or_default(),
-                    tx_queue: queues.remove(0),
-                    tx_rate_limiter: self.tx_rate_limiter.take().unwrap_or_default(),
+                    rx: RxVirtio::new(
+                        rx_queue,
+                        rx_queue_evt,
+                        self.rx_rate_limiter.take().unwrap_or_default(),
+                    ),
                     tap,
+                    mem,
+                    tx: TxVirtio::new(
+                        tx_queue,
+                        tx_queue_evt,
+                        self.tx_rate_limiter.take().unwrap_or_default(),
+                    ),
                     interrupt_status: status,
                     interrupt_evt,
-                    rx_buf: [0u8; MAX_BUFFER_SIZE],
-                    tx_frame: [0u8; MAX_BUFFER_SIZE],
-                    tx_used_desc_heads: [0u16; QUEUE_SIZE as usize],
-                    rx_count: 0,
-                    deferred_rx: false,
                     acked_features: self.acked_features,
-                    rx_queue_evt: queue_evts.remove(0),
-                    tx_queue_evt: queue_evts.remove(0),
                 };
 
                 let tap_raw_fd = handler.tap.as_raw_fd();
-                let rx_queue_raw_fd = handler.rx_queue_evt.as_raw_fd();
-                let tx_queue_raw_fd = handler.tx_queue_evt.as_raw_fd();
+                let rx_queue_raw_fd = handler.rx.queue_evt.as_raw_fd();
+                let tx_queue_raw_fd = handler.tx.queue_evt.as_raw_fd();
 
-                let rx_rate_limiter_rawfd = handler.rx_rate_limiter.as_raw_fd();
-                let tx_rate_limiter_rawfd = handler.tx_rate_limiter.as_raw_fd();
+                let rx_rate_limiter_rawfd = handler.rx.rate_limiter.as_raw_fd();
+                let tx_rate_limiter_rawfd = handler.tx.rate_limiter.as_raw_fd();
 
                 //channel should be open and working
                 self.epoll_config
@@ -907,22 +950,13 @@ mod tests {
         let tx_queue_evt = EventFd::new().unwrap();
 
         let mut h = NetEpollHandler {
-            mem: mem.clone(),
-            rx_queue,
-            rx_rate_limiter: RateLimiter::default(),
-            tx_queue,
-            tx_rate_limiter: RateLimiter::default(),
+            rx: RxVirtio::new(rx_queue, rx_queue_evt, RateLimiter::default()),
             tap: n.tap.take().unwrap(),
+            mem: mem.clone(),
+            tx: TxVirtio::new(tx_queue, tx_queue_evt, RateLimiter::default()),
             interrupt_status,
             interrupt_evt,
-            rx_buf: [0u8; MAX_BUFFER_SIZE],
-            tx_frame: [0u8; MAX_BUFFER_SIZE],
-            tx_used_desc_heads: [0u16; QUEUE_SIZE as usize],
-            rx_count: 0,
-            deferred_rx: false,
             acked_features: n.acked_features,
-            rx_queue_evt,
-            tx_queue_evt,
         };
 
         let daddr = 0x2000;
@@ -930,10 +964,10 @@ mod tests {
 
         // Some corner cases for rx_single_frame().
         {
-            assert_eq!(h.rx_count, 0);
+            assert_eq!(h.rx.bytes_read, 0);
 
             // Let's imagine we received some data.
-            h.rx_count = MAX_BUFFER_SIZE;
+            h.rx.bytes_read = MAX_BUFFER_SIZE;
 
             {
                 // a read only descriptor
@@ -945,7 +979,7 @@ mod tests {
 
                 // resetting values
                 rxq.used.idx.set(0);
-                h.rx_queue = rxq.create_queue();
+                h.rx.queue = rxq.create_queue();
                 h.interrupt_evt.write(1).unwrap();
                 // The prev rx_single_frame() call should have written one more.
                 assert_eq!(h.interrupt_evt.read(), Ok(2));
@@ -959,13 +993,13 @@ mod tests {
                 assert_eq!(rxq.used.idx.get(), 1);
 
                 rxq.used.idx.set(0);
-                h.rx_queue = rxq.create_queue();
+                h.rx.queue = rxq.create_queue();
                 h.interrupt_evt.write(1).unwrap();
                 assert_eq!(h.interrupt_evt.read(), Ok(2));
             }
 
             // set rx_count back to 0
-            h.rx_count = 0;
+            h.rx.bytes_read = 0;
         }
 
         // Now let's move on to the actual device events.
@@ -976,7 +1010,7 @@ mod tests {
             txq.avail.ring[0].set(0);
             txq.dtable[0].set(daddr, 0x1000, 0, 0);
 
-            h.tx_queue_evt.write(1).unwrap();
+            h.tx.queue_evt.write(1).unwrap();
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(TX_QUEUE_EVENT, 0);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
@@ -985,7 +1019,7 @@ mod tests {
         {
             // testing RX_TAP_EVENT
 
-            assert!(!h.deferred_rx);
+            assert!(!h.rx.deffered_frame);
 
             // this should work just fine
             rxq.avail.idx.set(1);
@@ -994,42 +1028,42 @@ mod tests {
 
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(RX_TAP_EVENT, 0);
-            assert!(h.deferred_rx);
+            assert!(h.rx.deffered_frame);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
             // The #cfg(test) enabled version of read_tap always returns 1234 bytes (or the len of
             // the buffer, whichever is smaller).
             assert_eq!(rxq.used.ring[0].get().len, 1234);
 
-            // Since deferred_rx is now true, activating the same event again will trigger
+            // Since deffered_frame is now true, activating the same event again will trigger
             // a different execution path.
 
             // reset some parts of the queue first
-            h.rx_queue = rxq.create_queue();
+            h.rx.queue = rxq.create_queue();
             rxq.used.idx.set(0);
 
             // this should also be successful
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(RX_TAP_EVENT, 0);
-            assert!(h.deferred_rx);
+            assert!(h.rx.deffered_frame);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
 
             // ... but the following shouldn't, because we emulate receiving much more data than
             // we can fit inside a single descriptor
 
-            h.rx_count = MAX_BUFFER_SIZE;
-            h.rx_queue = rxq.create_queue();
+            h.rx.bytes_read = MAX_BUFFER_SIZE;
+            h.rx.queue = rxq.create_queue();
             rxq.used.idx.set(0);
 
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(RX_TAP_EVENT, 0);
-            assert!(h.deferred_rx);
+            assert!(h.rx.deffered_frame);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
 
             // A mismatch shows the reception was unsuccessful.
-            assert_ne!(rxq.used.ring[0].get().len as usize, h.rx_count);
+            assert_ne!(rxq.used.ring[0].get().len as usize, h.rx.bytes_read);
 
             // We set this back to a manageable size, for the following test.
-            h.rx_count = 1234;
+            h.rx.bytes_read = 1234;
         }
 
         {
@@ -1038,7 +1072,7 @@ mod tests {
             rxq.avail.ring[1].set(1);
             rxq.dtable[1].set(daddr + 0x1000, 0x1000, VIRTQ_DESC_F_WRITE, 0);
 
-            h.rx_queue_evt.write(1).unwrap();
+            h.rx.queue_evt.write(1).unwrap();
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(RX_QUEUE_EVENT, 0);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
@@ -1070,22 +1104,13 @@ mod tests {
         let tx_queue_evt = EventFd::new().unwrap();
 
         let mut h = NetEpollHandler {
-            mem: mem.clone(),
-            rx_queue,
-            rx_rate_limiter: RateLimiter::default(),
-            tx_queue,
-            tx_rate_limiter: RateLimiter::default(),
+            rx: RxVirtio::new(rx_queue, rx_queue_evt, RateLimiter::default()),
             tap: n.tap.take().unwrap(),
+            mem: mem.clone(),
+            tx: TxVirtio::new(tx_queue, tx_queue_evt, RateLimiter::default()),
             interrupt_status,
             interrupt_evt,
-            rx_buf: [0u8; MAX_BUFFER_SIZE],
-            tx_frame: [0u8; MAX_BUFFER_SIZE],
-            tx_used_desc_heads: [0u16; QUEUE_SIZE as usize],
-            rx_count: 0,
-            deferred_rx: false,
             acked_features: n.acked_features,
-            rx_queue_evt,
-            tx_queue_evt,
         };
 
         let daddr = 0x2000;
@@ -1111,7 +1136,7 @@ mod tests {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the TX handler
-                h.tx_queue_evt.write(1).unwrap();
+                h.tx.queue_evt.write(1).unwrap();
                 h.handle_event(TX_QUEUE_EVENT, 0);
 
                 // assert that limiter is blocked
@@ -1151,7 +1176,7 @@ mod tests {
             h.set_rx_rate_limiter(rl);
 
             // set up RX
-            assert!(!h.deferred_rx);
+            assert!(!h.rx.deffered_frame);
             rxq.avail.idx.set(1);
             rxq.avail.ring[0].set(0);
             rxq.dtable[0].set(daddr, 0x1000, VIRTQ_DESC_F_WRITE, 0);
@@ -1165,7 +1190,7 @@ mod tests {
 
                 // assert that limiter is blocked
                 assert!(h.get_rx_rate_limiter().is_blocked());
-                assert!(h.deferred_rx);
+                assert!(h.rx.deffered_frame);
                 // assert that no operation actually completed (limiter blocked it)
                 assert_eq!(h.interrupt_evt.read(), Ok(1));
                 // make sure the data is still queued for processing
@@ -1214,22 +1239,13 @@ mod tests {
         let tx_queue_evt = EventFd::new().unwrap();
 
         let mut h = NetEpollHandler {
-            mem: mem.clone(),
-            rx_queue,
-            rx_rate_limiter: RateLimiter::default(),
-            tx_queue,
-            tx_rate_limiter: RateLimiter::default(),
+            rx: RxVirtio::new(rx_queue, rx_queue_evt, RateLimiter::default()),
             tap: n.tap.take().unwrap(),
+            mem: mem.clone(),
+            tx: TxVirtio::new(tx_queue, tx_queue_evt, RateLimiter::default()),
             interrupt_status,
             interrupt_evt,
-            rx_buf: [0u8; MAX_BUFFER_SIZE],
-            tx_frame: [0u8; MAX_BUFFER_SIZE],
-            tx_used_desc_heads: [0u16; QUEUE_SIZE as usize],
-            rx_count: 0,
-            deferred_rx: false,
             acked_features: n.acked_features,
-            rx_queue_evt,
-            tx_queue_evt,
         };
 
         let daddr = 0x2000;
@@ -1255,7 +1271,7 @@ mod tests {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the TX handler
-                h.tx_queue_evt.write(1).unwrap();
+                h.tx.queue_evt.write(1).unwrap();
                 h.handle_event(TX_QUEUE_EVENT, 0);
 
                 // assert that limiter is blocked
@@ -1295,7 +1311,7 @@ mod tests {
             h.set_rx_rate_limiter(rl);
 
             // set up RX
-            assert!(!h.deferred_rx);
+            assert!(!h.rx.deffered_frame);
             rxq.avail.idx.set(1);
             rxq.avail.ring[0].set(0);
             rxq.dtable[0].set(daddr, 0x1000, VIRTQ_DESC_F_WRITE, 0);
@@ -1309,7 +1325,7 @@ mod tests {
 
                 // assert that limiter is blocked
                 assert!(h.get_rx_rate_limiter().is_blocked());
-                assert!(h.deferred_rx);
+                assert!(h.rx.deffered_frame);
                 // assert that no operation actually completed (limiter blocked it)
                 assert_eq!(h.interrupt_evt.read(), Ok(1));
                 // make sure the data is still queued for processing
