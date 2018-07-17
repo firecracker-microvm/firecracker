@@ -108,10 +108,8 @@ impl<'a> DescriptorChain<'a> {
     fn is_valid(&self) -> bool {
         if self.mem
             .checked_offset(self.addr, self.len as usize)
-            .is_none()
+            .is_none() || (self.has_next() && self.next >= self.queue_size)
         {
-            false
-        } else if self.has_next() && self.next >= self.queue_size {
             false
         } else {
             true
@@ -237,7 +235,7 @@ impl Queue {
     /// Constructs an empty virtio queue with the given `max_size`.
     pub fn new(max_size: u16) -> Queue {
         Queue {
-            max_size: max_size,
+            max_size,
             size: 0,
             ready: false,
             desc_table: GuestAddress(0),

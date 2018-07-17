@@ -184,17 +184,17 @@ pub struct NetDeviceMetrics {
     pub activate_fails: SharedMetric,
     pub cfg_fails: SharedMetric,
     pub event_fails: SharedMetric,
+    pub rx_queue_event_count: SharedMetric,
+    pub rx_event_rate_limiter_count: SharedMetric,
+    pub rx_tap_event_count: SharedMetric,
     pub rx_bytes_count: SharedMetric,
     pub rx_packets_count: SharedMetric,
-    pub rx_event_rate_limiter_count: SharedMetric,
     pub rx_fails: SharedMetric,
-    pub rx_queue_event_count: SharedMetric,
-    pub rx_tap_event_count: SharedMetric,
+    pub tx_queue_event_count: SharedMetric,
+    pub tx_rate_limiter_event_count: SharedMetric,
     pub tx_bytes_count: SharedMetric,
     pub tx_packets_count: SharedMetric,
-    pub tx_rate_limiter_event_count: SharedMetric,
     pub tx_fails: SharedMetric,
-    pub tx_queue_event_count: SharedMetric,
 }
 
 #[derive(Serialize)]
