@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(
             format!("{:?}", l.event_handler().err().unwrap()),
             "SpuriousRateLimiterEvent(\
-            \"Rate limiter event handler called without a present timer\")"
+             \"Rate limiter event handler called without a present timer\")"
         );
         // raw FD for this disabled rate-limiter should be -1
         assert_eq!(l.as_raw_fd(), -1);
