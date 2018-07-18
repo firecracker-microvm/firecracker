@@ -170,6 +170,35 @@ paths:
           description: Internal server error.
           schema:
             $ref: "#/definitions/Error"
+    patch:
+      summary: Updates the properties of a drive.
+      description:
+        Updates the properties of the drive with the ID specified by drive_id path parameter.
+        Will fail if update is not possible.
+      operationId: patchGuestDriveByID
+      parameters:
+      - name: drive_id
+        in: path
+        description: The id of the guest drive
+        required: true
+        type: string
+      - name: body
+        in: body
+        description: Guest drive properties
+        required: true
+        schema:
+          $ref: "#/definitions/Drive"
+      responses:
+        204:
+          description: Drive updated
+        400:
+          description: Drive cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
 
   /logger:
       put:
