@@ -556,11 +556,12 @@ def test_api_unknown_fields(test_microvm_with_api):
     test_microvm = test_microvm_with_api
 
     """ Test invalid field for APILoggerDescription """
-    """ path -> pth """
+    """ log_fifo -> log_fif """
     response = test_microvm.api_session.put(
         test_microvm.logger_url,
         json={
-            'pth': 'firecracker.log',
+            'log_fif': 'firecracker.log',
+            'metrics_fifo': 'metrics.log',
             'level': 'Info',
             'show_level': True,
             'show_log_origin': True
@@ -688,6 +689,238 @@ def test_api_unknown_fields(test_microvm_with_api):
         }
     )
     assert response.status_code == 400
+
+
+def test_api_patch_pre_boot(test_microvm_with_api):
+    """ Tests PATCH updates before the microvm boots. """
+
+    test_microvm = test_microvm_with_api
+
+    test_microvm.basic_config(log_enable=True)
+    """
+    Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface, a
+    root file system with the rw permission and logging enabled.
+    """
+
+    test_microvm.put_default_scratch_device()
+
+    response = test_microvm.api_session.patch(
+        test_microvm.boot_cfg_url,
+        json={
+            'boot_source_id': '1',
+            'local_image': {'kernel_image_path': 'other_file'}
+        }
+    )
+    """ Partial updates to the boot source are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.microvm_cfg_url,
+        json={'vcpu_count': 4}
+    )
+    """
+    Partial updates to the machine configuration are not allowed.
+    """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.net_cfg_url + '/1',
+        json={
+            'iface_id': '1',
+            'guest_mac': '06:00:00:00:00:02'
+        }
+    )
+    """ Partial updates to network interfaces are not allowed."""
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.logger_url,
+        json={
+            'level': 'Debug'
+        }
+    )
+    """ Partial updates to the logger configuration are not allowed."""
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfz',
+            'is_read_only': True
+        }
+    )
+    """ Partial updates with an invalid ID are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfs',
+            'path_on_host': 'foo.bar'
+        }
+    )
+    """ Updates to `path_on_host` with an invalid path are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfs',
+            'path_on_host': test_microvm.slot.make_fsfile(name='otherroot')
+        }
+    )
+    """ Updates to `path_on_host` with a valid path are allowed. """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfs',
+            'is_read_only': True
+        }
+    )
+    """ Updates to `is_read_only` with a valid value are allowed. """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/scratch',
+        json={
+            'drive_id': 'scratch',
+            'is_root_device': True
+        }
+    )
+    """
+    Updates to `is_root_device` that would result in 2 root block devices
+    are not allowed.
+    """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfs',
+            'is_root_device': False
+        }
+    )
+    """ Updates to `is_root_device` with a valid value are allowed. """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+
+def test_api_patch_post_boot(test_microvm_with_api):
+    """ Tests PATCH updates after the microvm boots. """
+
+    test_microvm = test_microvm_with_api
+
+    test_microvm.basic_config(log_enable=True)
+    """
+    Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface, a
+    root file system with the rw permission and logging enabled.
+    """
+
+    test_microvm.put_default_scratch_device()
+
+    test_microvm.start()
+
+    response = test_microvm.api_session.patch(
+        test_microvm.boot_cfg_url,
+        json={
+            'boot_source_id': '1',
+            'local_image': {'kernel_image_path': 'other_file'}
+        }
+    )
+    """ Partial updates to the boot source are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.microvm_cfg_url,
+        json={'vcpu_count': 4}
+    )
+    """
+    Partial updates to the machine configuration are not allowed.
+    """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.net_cfg_url + '/1',
+        json={
+            'iface_id': '1',
+            'guest_mac': '06:00:00:00:00:02'
+        }
+    )
+    """ Partial updates to network interfaces are not allowed."""
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.logger_url,
+        json={
+            'level': 'Debug'
+        }
+    )
+    """ Partial updates to the logger configuration are not allowed."""
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfz',
+            'is_read_only': True
+        }
+    )
+    """ Partial updates with an invalid ID are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfs',
+            'is_read_only': True
+        }
+    )
+    """ Updates to `is_read_only` with a valid value are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/scratch',
+        json={
+            'drive_id': 'scratch',
+            'is_root_device': True
+        }
+    )
+    """
+    Updates to `is_root_device` that would result in 2 root block devices
+    are not allowed.
+    """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfs',
+            'is_root_device': False
+        }
+    )
+    """ Updates to `is_root_device` with a valid value are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfs',
+            'path_on_host': 'foo.bar'
+        }
+    )
+    """ Updates to `path_on_host` with an invalid path are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/scratch',
+        json={
+            'drive_id': 'scratch',
+            'path_on_host': test_microvm.slot.make_fsfile(name='otherscratch', size=512)
+        }
+    )
+    """ Updates to `path_on_host` with a valid path are allowed. """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
 
 
 def test_api_actions(test_microvm_with_api):
