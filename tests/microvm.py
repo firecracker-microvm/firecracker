@@ -204,6 +204,8 @@ class MicrovmSlot:
         """ A set of file systems for this microvm slot. """
         self.taps = set()
         """ A set of tap devices for this microvm slot. """
+        self.fifos = set()
+        """ A set of named pipes for this microvm slot. """
 
     def say(self, message: str):
         return "Microvm slot " + self.id + ": " + message
@@ -265,6 +267,20 @@ class MicrovmSlot:
 
         self.taps.add(name)
         return name
+
+    def make_fifo(self, name: str=None):
+        """ Creates a new named pipe. """
+
+        if name is None:
+            name = 'fifo'  + str(len(self.fifos) + 1)
+
+        path = os.path.join(self.path, name)
+        if os.path.exists(path):
+            raise ValueError(self.say("Named pipe already exists: " + path))
+
+        run('mkfifo ' + path, shell=True, check=True)
+        self.fifos.add(path)
+        return path
 
     def teardown(self):
         """
@@ -394,6 +410,9 @@ class Microvm:
         mem_size_mib: int=256,
         net_iface_count: int=1,
         add_root_device: bool=True,
+        log_enable: bool=False,
+        log_fifo: str='firecracker.pipe',
+        metrics_fifo: str='metrics.pipe'
     ):
         """
         Shortcut for quickly configuring a spawned microvm. Only handles:
@@ -401,6 +420,7 @@ class Microvm:
         - Network interfaces (supports at most 10).
         - Kernel image (will load the one in the microvm slot).
         - Root File System (will use the one in the microvm slot).
+        - Logger and metrics named pipes.
         - Does not start the microvm.
         The function checks the response status code and asserts that
         the response is between 200 and 300.
@@ -408,6 +428,9 @@ class Microvm:
 
         if net_iface_count > 10:
             raise ValueError("Supports at most 10 network interfaces.")
+
+        if log_enable:
+            self.basic_logger_config(log_fifo=log_fifo, metrics_fifo=metrics_fifo)
 
         response = self.api_session.put(
             self.microvm_cfg_url,
@@ -508,6 +531,24 @@ class Microvm:
 
         # we can now update the ssh_config dictionary with the IP of the VM.
         self.slot.ssh_config['hostname'] = guest_ip
+
+    def basic_logger_config(
+            self,
+            log_fifo: str='firecracker.pipe',
+            metrics_fifo: str='metrics.pipe'
+    ):
+        """ Configures logging. """
+        response = self.api_session.put(
+            self.logger_url,
+            json={
+                'log_fifo': self.slot.make_fifo(log_fifo),
+                'metrics_fifo': self.slot.make_fifo(metrics_fifo),
+                'level': 'Info',
+                'show_level': True,
+                'show_log_origin': True
+            }
+        )
+        assert(self.api_session.is_good_response(response.status_code))
 
     def start(self):
         """
