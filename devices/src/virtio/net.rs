@@ -380,10 +380,12 @@ impl NetEpollHandler {
         }
 
         if used_count != 0 {
+            // TODO(performance - Issue #425): find a way around RUST mutability enforcements to
+            // allow calling queue.add_used() inside the loop. This would lead to better distribution
+            // of descriptor usage between the firecracker thread and the guest tx thread.
             for &desc_index in &self.tx.used_desc_heads[..used_count] {
                 self.tx.queue.add_used(&self.mem, desc_index, 0);
             }
-            self.signal_used_queue();
         }
     }
 
@@ -1048,9 +1050,9 @@ mod tests {
             txq.dtable[0].set(daddr, 0x1000, 0, 0);
 
             h.tx.queue_evt.write(1).unwrap();
-            h.interrupt_evt.write(1).unwrap();
             h.handle_event(TX_QUEUE_EVENT, 0);
-            assert_eq!(h.interrupt_evt.read(), Ok(2));
+            // Make sure the data queue advanced.
+            assert_eq!(txq.used.idx.get(), 1);
         }
 
         {
@@ -1170,16 +1172,12 @@ mod tests {
 
             // following TX procedure should fail because of bandwidth rate limiting
             {
-                // leave at least one event here so that reading it later won't block
-                h.interrupt_evt.write(1).unwrap();
                 // trigger the TX handler
                 h.tx.queue_evt.write(1).unwrap();
                 h.handle_event(TX_QUEUE_EVENT, 0);
 
                 // assert that limiter is blocked
                 assert!(h.get_tx_rate_limiter().is_blocked());
-                // assert that no operation actually completed (limiter blocked it)
-                assert_eq!(h.interrupt_evt.read(), Ok(1));
                 // make sure the data is still queued for processing
                 assert_eq!(txq.used.idx.get(), 0);
             }
@@ -1190,13 +1188,9 @@ mod tests {
 
             // following TX procedure should succeed because bandwidth should now be available
             {
-                // leave at least one event here so that reading it later won't block
-                h.interrupt_evt.write(1).unwrap();
                 h.handle_event(TX_RATE_LIMITER_EVENT, 0);
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_tx_rate_limiter().is_blocked());
-                // make sure the virtio queue operation completed this time
-                assert_eq!(h.interrupt_evt.read(), Ok(2));
                 // make sure the data queue advanced
                 assert_eq!(txq.used.idx.get(), 1);
             }
@@ -1305,16 +1299,12 @@ mod tests {
 
             // following TX procedure should fail because of ops rate limiting
             {
-                // leave at least one event here so that reading it later won't block
-                h.interrupt_evt.write(1).unwrap();
                 // trigger the TX handler
                 h.tx.queue_evt.write(1).unwrap();
                 h.handle_event(TX_QUEUE_EVENT, 0);
 
                 // assert that limiter is blocked
                 assert!(h.get_tx_rate_limiter().is_blocked());
-                // assert that no operation actually completed (limiter blocked it)
-                assert_eq!(h.interrupt_evt.read(), Ok(1));
                 // make sure the data is still queued for processing
                 assert_eq!(txq.used.idx.get(), 0);
             }
@@ -1325,13 +1315,9 @@ mod tests {
 
             // following TX procedure should succeed because ops should now be available
             {
-                // leave at least one event here so that reading it later won't block
-                h.interrupt_evt.write(1).unwrap();
                 h.handle_event(TX_RATE_LIMITER_EVENT, 0);
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_tx_rate_limiter().is_blocked());
-                // make sure the virtio queue operation completed this time
-                assert_eq!(h.interrupt_evt.read(), Ok(2));
                 // make sure the data queue advanced
                 assert_eq!(txq.used.idx.get(), 1);
             }
