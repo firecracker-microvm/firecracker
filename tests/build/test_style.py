@@ -6,7 +6,7 @@ Tests ensuring codebase style compliance.
 - Add checks for non-rust code in the codebase.
 """
 
-from subprocess import run
+from subprocess import run, PIPE
 
 import pytest
 
@@ -37,5 +37,14 @@ def test_style():
     """ Fails if there's misbehaving Rust style in this repo. """
     install_rustfmt_if_needed()
 
-    run('cargo fmt --all -- --write-mode=diff', shell=True, check=True)
-    """ Exits with an error if the style is bad. """
+    process = run(
+        'cargo fmt --all -- --write-mode=diff',
+        shell=True,
+        check=True,
+        stdout=PIPE
+    )
+    assert("Diff in" not in process.stdout.decode("utf-8"))
+    """
+    Check that the output is empty.
+    rustfmt prepends a 'Diff in...'  to the output reported.
+    """
