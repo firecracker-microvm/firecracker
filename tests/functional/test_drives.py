@@ -71,7 +71,7 @@ def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
             'is_read_only': True
         }
     )
-    """ Adds the root file system with rw permissions. """
+    """ Adds the file system with ro permissions. """
     assert(test_microvm.api_session.is_good_response(response.status_code))
 
     test_microvm.start()
@@ -182,6 +182,50 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
     assert_dict[keys_array[0]] = "rw"
     assert_dict[keys_array[1]] = "/dev/vda"
     check_drives(test_microvm, assert_dict, keys_array)
+
+
+def test_patch_drive(test_microvm_with_ssh, network_config):
+    """
+    Tests that replacing the backing filesystem file after guest boot works
+    properly and that the changes are picked up by the guest.
+    """
+    test_microvm = test_microvm_with_ssh
+
+    test_microvm.basic_config(net_iface_count=0)
+    """
+    Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 0 network ifaces and
+    a root file system with the rw permission.
+    """
+
+    test_microvm.basic_network_config(network_config)
+    test_microvm.put_default_scratch_device()
+
+    test_microvm.start()
+
+    response = test_microvm.api_session.patch(
+        test_microvm.blk_cfg_url + '/scratch',
+        json={
+            'drive_id': 'scratch',
+            'path_on_host': test_microvm.slot.make_fsfile(name='otherscratch', size=512)
+        }
+    )
+    """ Updates to `path_on_host` with a valid path are allowed. """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    ssh_connection = SSHConnection(test_microvm.slot.ssh_config)
+
+    blksize_cmd = "lsblk -b /dev/vdb --output SIZE"
+    size_bytes_str = "536870912" # 512MB
+    _, stdout, stderr = ssh_connection.execute_command(blksize_cmd)
+    """
+    The `lsblk` command should output 2 lines to STDOUT: "SIZE" and the size of
+    the device, in bytes.
+    """
+    assert (stderr.read().decode("utf-8") == '')
+    stdout.readline() # skip "SIZE"
+    assert(stdout.readline().strip() == size_bytes_str)
+
+    ssh_connection.close()
 
 
 def _check_scratch_size(ssh_connection, size):
