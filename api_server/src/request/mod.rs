@@ -1,6 +1,7 @@
 pub mod async;
 pub mod sync;
 
+use serde_json::Value;
 use std::result;
 
 pub use self::async::{
@@ -19,6 +20,8 @@ pub enum ParsedRequest {
     GetInstanceInfo,
     GetActions,
     GetAction(String),
+    GetMMDS,
+    PutMMDS(Value),
     // the first String is the id
     Async(String, AsyncRequest, AsyncOutcomeReceiver),
     Sync(SyncRequest, SyncOutcomeReceiver),

@@ -121,6 +121,10 @@ mod tests {
                 (&ParsedRequest::GetAction(ref id), &ParsedRequest::GetAction(ref other_id)) => {
                     id == other_id
                 }
+                (&ParsedRequest::GetMMDS, &ParsedRequest::GetMMDS) => true,
+                (&ParsedRequest::PutMMDS(ref val), &ParsedRequest::PutMMDS(ref other_val)) => {
+                    val == other_val
+                }
                 _ => false,
             }
         }
