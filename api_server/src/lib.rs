@@ -24,13 +24,14 @@ use std::os::unix::io::FromRawFd;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::mpsc;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use futures::{Future, Stream};
 use hyper::server::Http;
 use tokio_core::reactor::Core;
 use tokio_uds::UnixListener;
 
+use data_model::mmds::MMDS;
 use fc_util::LriHashMap;
 use http_service::ApiServerHttpService;
 use request::instance_info::InstanceInfo;
@@ -59,6 +60,8 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct ApiServer {
+    // MMDS info directly accessible from the API thread.
+    mmds_info: Arc<Mutex<MMDS>>,
     // VMM instance info directly accessible from the API thread.
     vmm_shared_info: Arc<RwLock<InstanceInfo>>,
     // Sender which allows passing messages to the VMM.
@@ -69,11 +72,13 @@ pub struct ApiServer {
 
 impl ApiServer {
     pub fn new(
+        mmds_info: Arc<Mutex<MMDS>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
         api_request_sender: mpsc::Sender<Box<ApiRequest>>,
         max_previous_actions: usize,
     ) -> Result<Self> {
         Ok(ApiServer {
+            mmds_info,
             vmm_shared_info,
             api_request_sender: Rc::new(api_request_sender),
             max_previous_actions,
@@ -110,6 +115,7 @@ impl ApiServer {
                 // For the sake of clarity: when we use self.efd.clone(), the intent is to
                 // clone the wrapping Rc, not the EventFd itself.
                 let service = ApiServerHttpService::new(
+                    self.mmds_info.clone(),
                     self.vmm_shared_info.clone(),
                     self.api_request_sender.clone(),
                     self.efd.clone(),

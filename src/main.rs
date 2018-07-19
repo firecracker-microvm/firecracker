@@ -12,10 +12,11 @@ use clap::{App, Arg};
 use std::panic;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::ApiServer;
+use data_model::mmds::MMDS;
 use logger::LOGGER;
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
@@ -69,8 +70,14 @@ fn main() {
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,
     }));
+    let mmds_info = Arc::new(Mutex::new(MMDS::default()));
     let (to_vmm, from_api) = channel();
-    let server = ApiServer::new(shared_info.clone(), to_vmm, MAX_STORED_ASYNC_REQS).unwrap();
+    let server = ApiServer::new(
+        mmds_info,
+        shared_info.clone(),
+        to_vmm,
+        MAX_STORED_ASYNC_REQS,
+    ).unwrap();
 
     let api_event_fd = server
         .get_event_fd_clone()

@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::result;
 use std::str;
 use std::sync::mpsc;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use futures::future::{self, Either};
 use futures::{Future, Stream};
@@ -13,6 +13,7 @@ use serde_json;
 use tokio_core::reactor::Handle;
 
 use super::{ActionMap, ActionMapValue};
+use data_model::mmds::MMDS;
 use data_model::vm::MachineConfiguration;
 use logger::{Metric, METRICS};
 use request::instance_info::InstanceInfo;
@@ -181,6 +182,27 @@ fn parse_boot_source_req<'a>(
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
                 })?)
+        }
+        _ => Err(Error::InvalidPathMethod(path, method)),
+    }
+}
+
+// Turns HTTP requests on /mmds into a ParsedRequest
+// This is a rather dummy method with the purpose of keeping the same code structure as before.
+// We will need to refactor this as some point.
+fn parse_mmds_request<'a>(
+    path_tokens: &Vec<&str>,
+    path: &'a str,
+    method: Method,
+    body: &Chunk,
+) -> Result<'a, ParsedRequest> {
+    match path_tokens[1..].len() {
+        0 if method == Method::Get => Ok(ParsedRequest::GetMMDS),
+        0 if method == Method::Put => {
+            match serde_json::from_slice(&body) {
+                Ok(val) => return Ok(ParsedRequest::PutMMDS(val)),
+                Err(e) => return Err(Error::SerdeJson(e)),
+            };
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -378,6 +400,7 @@ fn parse_request<'a>(
         "logger" => parse_logger_req(&path_tokens, path, method, body),
         "machine-config" => parse_machine_config_req(&path_tokens, path, method, body),
         "network-interfaces" => parse_netif_req(&path_tokens, path, method, &id_from_path, body),
+        "mmds" => parse_mmds_request(&path_tokens, path, method, body),
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -396,6 +419,8 @@ fn send_to_vmm(
 // In hyper, a struct that implements the Service trait is created to handle each incoming
 // request. This is the one for our ApiServer.
 pub struct ApiServerHttpService {
+    // MMDS info directly accessible from this API thread.
+    mmds_info: Arc<Mutex<MMDS>>,
     // VMM instance info directly accessible from this API thread.
     vmm_shared_info: Arc<RwLock<InstanceInfo>>,
     // This allows sending messages to the VMM thread. It makes sense to use a Rc for the sender
@@ -412,6 +437,7 @@ pub struct ApiServerHttpService {
 
 impl ApiServerHttpService {
     pub fn new(
+        mmds_info: Arc<Mutex<MMDS>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
         api_request_sender: Rc<mpsc::Sender<Box<ApiRequest>>>,
         vmm_send_event: Rc<EventFd>,
@@ -419,6 +445,7 @@ impl ApiServerHttpService {
         handle: Rc<Handle>,
     ) -> Self {
         ApiServerHttpService {
+            mmds_info,
             vmm_shared_info,
             api_request_sender,
             vmm_send_event,
@@ -440,6 +467,7 @@ impl hyper::server::Service for ApiServerHttpService {
         // We do all this cloning to be able too move everything we need
         // into the closure that follows.
         let mut action_map = self.action_map.clone();
+        let mmds_info = self.mmds_info.clone();
         let method = req.method().clone();
         let method_copy = req.method().clone();
         let path = String::from(req.path());
@@ -503,6 +531,18 @@ impl hyper::server::Service for ApiServerHttpService {
                             ))),
                         }
                     }
+                    PutMMDS(json_value) => {
+                        let status_code = match mmds_info.lock().unwrap().is_initialized() {
+                            true => StatusCode::NoContent,
+                            false => StatusCode::Created,
+                        };
+                        mmds_info.lock().unwrap().put_data(json_value);
+                        Either::A(future::ok(empty_response(status_code)))
+                    }
+                    GetMMDS => Either::A(future::ok(json_response(
+                        StatusCode::Ok,
+                        mmds_info.lock().unwrap().get_data_str(),
+                    ))),
                     Async(id, async_req, outcome_receiver) => {
                         if send_to_vmm(
                             ApiRequest::Async(async_req),
@@ -1282,6 +1322,48 @@ mod tests {
                 &body
             ).is_err()
         );
+    }
+
+    #[test]
+    fn test_parse_mmds_request() {
+        let path = "/mmds";
+        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+        let empty_json = "{}";
+        let body = Chunk::from(empty_json);
+
+        // Test for GET request
+        match parse_mmds_request(&path_tokens, path, Method::Get, &body) {
+            Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::GetMMDS)),
+            Err(_) => assert!(false),
+        };
+
+        let dummy_json = "{\
+                \"latest\": {\
+                    \"meta-data\": {\
+                        \"iam\": \"dummy\"\
+                    },\
+                    \"user-data\": 1522850095\
+                }
+            }";
+
+        // Test for PUT request
+        let body = Chunk::from(dummy_json);
+        match parse_mmds_request(&path_tokens, path, Method::Put, &body) {
+            Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::PutMMDS(
+                serde_json::from_slice(&body).unwrap()
+            ))),
+            Err(_) => assert!(false),
+        };
+
+        // Test for invalid json on PUT
+        let invalid_json = "\"latest\": {}}";
+        let body = Chunk::from(invalid_json);
+        assert!(parse_mmds_request(&path_tokens, path, Method::Put, &body).is_err());
+
+        // Test for invalid path
+        let path = "/mmds/something";
+        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+        assert!(parse_mmds_request(&path_tokens, path, Method::Get, &body).is_err());
     }
 
     #[test]
