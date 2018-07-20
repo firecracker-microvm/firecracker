@@ -27,7 +27,7 @@ def test_coverage(test_session_root_path, testsession_tmp_path):
     created by kcov after a coverag run.
     """
 
-    COVERAGE_TARGET_PCT = 70
+    COVERAGE_TARGET_PCT = 64.5
     # TODO: Put the coverage in s3 and update it automatically.
 
     COVERAGE_FILE = 'index.json'
@@ -43,12 +43,14 @@ def test_coverage(test_session_root_path, testsession_tmp_path):
         'lib/x86_64-linux-gnu/,'
         'pnet'
     )
+    exclude_region = '\'mod tests {\''
 
     cmd = "CARGO_TARGET_DIR={} cargo kcov --all --output {} -- \
-        --exclude-pattern={} --verify".format(
+        --exclude-pattern={} --exclude-region={} --verify".format(
         os.path.join(test_session_root_path, CARGO_KCOV_REL_PATH),
         testsession_tmp_path,
-        exclude_pattern
+        exclude_pattern,
+        exclude_region
     )
     run(cmd, shell=True, check=True)
     # By default, `cargo kcov` passes `--exclude-pattern=$CARGO_HOME --verify`
