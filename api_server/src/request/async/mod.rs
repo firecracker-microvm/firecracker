@@ -104,35 +104,6 @@ mod tests {
         }
     }
 
-    impl PartialEq for ParsedRequest {
-        fn eq(&self, other: &ParsedRequest) -> bool {
-            match (self, other) {
-                (
-                    &ParsedRequest::Async(ref id, ref request, _),
-                    &ParsedRequest::Async(ref other_id, ref other_request, _),
-                ) => id == other_id && request == other_request,
-                (
-                    &ParsedRequest::Sync(ref sync_req, _),
-                    &ParsedRequest::Sync(ref other_sync_req, _),
-                ) => sync_req == other_sync_req,
-                (&ParsedRequest::Dummy, &ParsedRequest::Dummy) => true,
-                (&ParsedRequest::GetInstanceInfo, &ParsedRequest::GetInstanceInfo) => true,
-                (&ParsedRequest::GetActions, &ParsedRequest::GetActions) => true,
-                (&ParsedRequest::GetAction(ref id), &ParsedRequest::GetAction(ref other_id)) => {
-                    id == other_id
-                }
-                (&ParsedRequest::GetMMDS, &ParsedRequest::GetMMDS) => true,
-                (&ParsedRequest::PutMMDS(ref val), &ParsedRequest::PutMMDS(ref other_val)) => {
-                    val == other_val
-                }
-                (&ParsedRequest::PatchMMDS(ref val), &ParsedRequest::PatchMMDS(ref other_val)) => {
-                    val == other_val
-                }
-                _ => false,
-            }
-        }
-    }
-
     #[test]
     fn test_to_parsed_request() {
         let jsons = vec![
