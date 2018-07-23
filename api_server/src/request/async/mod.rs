@@ -125,6 +125,9 @@ mod tests {
                 (&ParsedRequest::PutMMDS(ref val), &ParsedRequest::PutMMDS(ref other_val)) => {
                     val == other_val
                 }
+                (&ParsedRequest::PatchMMDS(ref val), &ParsedRequest::PatchMMDS(ref other_val)) => {
+                    val == other_val
+                }
                 _ => false,
             }
         }
