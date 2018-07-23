@@ -21,6 +21,7 @@ pub enum ParsedRequest {
     GetActions,
     GetAction(String),
     GetMMDS,
+    PatchMMDS(Value),
     PutMMDS(Value),
     // the first String is the id
     Async(String, AsyncRequest, AsyncOutcomeReceiver),

@@ -204,6 +204,10 @@ fn parse_mmds_request<'a>(
                 Err(e) => return Err(Error::SerdeJson(e)),
             };
         }
+        0 if method == Method::Patch => match serde_json::from_slice(&body) {
+            Ok(val) => return Ok(ParsedRequest::PatchMMDS(val)),
+            Err(e) => return Err(Error::SerdeJson(e)),
+        },
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -528,6 +532,19 @@ impl hyper::server::Service for ApiServerHttpService {
                             None => Either::A(future::ok(json_response(
                                 StatusCode::NotFound,
                                 json_fault_message("Action not found."),
+                            ))),
+                        }
+                    }
+                    PatchMMDS(json_value) => {
+                        let mut mmds = mmds_info.lock().unwrap();
+                        match mmds.is_initialized() {
+                            true => {
+                                mmds.patch_data(json_value);
+                                Either::A(future::ok(empty_response(StatusCode::NoContent)))
+                            }
+                            false => Either::A(future::ok(json_response(
+                                StatusCode::NotFound,
+                                json_fault_message("The MMDS resource does not exist."),
                             ))),
                         }
                     }
@@ -1350,6 +1367,16 @@ mod tests {
         let body = Chunk::from(dummy_json);
         match parse_mmds_request(&path_tokens, path, Method::Put, &body) {
             Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::PutMMDS(
+                serde_json::from_slice(&body).unwrap()
+            ))),
+            Err(_) => assert!(false),
+        };
+
+        // Test for PATCH request
+        let patch_json = "{\"user-data\": 15}";
+        let body = Chunk::from(patch_json);
+        match parse_mmds_request(&path_tokens, path, Method::Patch, &body) {
+            Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::PatchMMDS(
                 serde_json::from_slice(&body).unwrap()
             ))),
             Err(_) => assert!(false),

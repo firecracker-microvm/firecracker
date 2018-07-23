@@ -1,6 +1,7 @@
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate json_patch;
 extern crate serde_json;
 
 pub mod mmds;
