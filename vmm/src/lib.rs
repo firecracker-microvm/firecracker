@@ -445,7 +445,7 @@ impl Vmm {
     }
 
     /// Only call this function as part of the API.
-    /// If the drive_id does not exit, a new Block Device Config is added to the list.
+    /// If the drive_id does not exist, a new Block Device Config is added to the list.
     /// Else, if the VM is running, the block device will be updated.
     /// Updating before the VM has started is not allowed.
     pub fn put_block_device(
@@ -527,23 +527,22 @@ impl Vmm {
         Ok(())
     }
 
-    /// Attach all block devices from the BlockDevicesConfig
-    /// If there is no root block device, no other devices are attached.The root device should be
-    /// the first to be attached as a way to make sure it ends up on /dev/vda
-    /// This function is to be called only from boot_source
+    /// Attach all block devices from the BlockDevicesConfig.
+    /// If there is no root block device, no other devices are attached.
     fn attach_block_devices(&mut self, device_manager: &mut MMIODeviceManager) -> Result<()> {
         // If there's no root device, do not attach any other devices
         let block_dev = &self.block_device_configs;
-        let kernel_config = match self.kernel_config.as_mut() {
-            Some(x) => x,
-            None => return Err(Error::MissingKernelConfig),
-        };
+        // We rely on check_health function for making sure kernel_config is not None.
+        let kernel_config = self.kernel_config.as_mut().unwrap();
 
         if block_dev.has_root_block_device() {
-            // this is a simple solution to add a block as a root device; should be improved
-            kernel_config.cmdline.insert_str(" root=/dev/vda")?;
-            if block_dev.has_read_only_root() {
-                kernel_config.cmdline.insert_str(" ro")?;
+            // If no PARTUUID was specified for the root device, try with the /dev/vda.
+            if !block_dev.has_partuuid_root() {
+                kernel_config.cmdline.insert_str(" root=/dev/vda")?;
+
+                if block_dev.has_read_only_root() {
+                    kernel_config.cmdline.insert_str(" ro")?;
+                }
             }
 
             let epoll_context = &mut self.epoll_context;
@@ -554,6 +553,17 @@ impl Vmm {
                     .write(!drive_config.is_read_only)
                     .open(&drive_config.path_on_host)
                     .map_err(Error::RootDiskImage)?;
+
+                if drive_config.is_root_device && drive_config.partuuid.is_some() {
+                    kernel_config.cmdline.insert_str(format!(
+                        " root=PARTUUID={}",
+                        drive_config.get_partuuid().unwrap()
+                    ))?;
+                    if drive_config.is_read_only {
+                        kernel_config.cmdline.insert_str(" ro")?;
+                    }
+                }
+
                 let epoll_config = epoll_context.allocate_virtio_block_tokens();
 
                 let rate_limiter = rate_limiter_description_into_implementation(
@@ -630,10 +640,8 @@ impl Vmm {
     }
 
     fn attach_net_devices(&mut self, device_manager: &mut MMIODeviceManager) -> Result<()> {
-        let kernel_config = match self.kernel_config.as_mut() {
-            Some(x) => x,
-            None => return Err(Error::MissingKernelConfig),
-        };
+        // We rely on check_health function for making sure kernel_config is not None.
+        let kernel_config = self.kernel_config.as_mut().unwrap();
 
         for cfg in self.network_interface_configs.iter_mut() {
             let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
@@ -1079,7 +1087,7 @@ impl Vmm {
                 Ok(_) => AsyncOutcome::Ok(0),
                 Err(e) => {
                     let _ = self.stop();
-                    AsyncOutcome::Error(format!("cannot boot kernel: {:?}", e))
+                    AsyncOutcome::Error(format!("Cannot start microvm: {:?}", e))
                 }
             },
         };
@@ -1364,6 +1372,7 @@ mod tests {
             drive_id: String::from("root"),
             path_on_host: f.path().to_path_buf(),
             is_root_device: true,
+            partuuid: None,
             is_read_only: false,
             rate_limiter: None,
         };
@@ -1382,6 +1391,7 @@ mod tests {
             drive_id: String::from("root"),
             path_on_host: f.path().to_path_buf(),
             is_root_device: true,
+            partuuid: None,
             is_read_only: true,
             rate_limiter: None,
         };
