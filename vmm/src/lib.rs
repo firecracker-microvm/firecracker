@@ -16,14 +16,11 @@ extern crate sys_util;
 extern crate x86_64;
 
 mod api_logger_config;
-pub mod device_config;
-pub mod device_manager;
+mod device_config;
+mod device_manager;
 pub mod kernel_cmdline;
 mod vm_control;
 mod vstate;
-
-use libc::{c_void, siginfo_t};
-use serde_json::Value;
 
 use std::ffi::CString;
 use std::fs::{metadata, File, OpenOptions};
@@ -35,6 +32,8 @@ use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 use std::time;
 
+use libc::{c_void, siginfo_t};
+use serde_json::Value;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use api_server::request::actions::ActionBody;
@@ -49,13 +48,11 @@ use api_server::request::sync::{
     DriveDescription, DriveError, Error as SyncError, GenerateResponse, NetworkInterfaceBody,
     OkStatus as SyncOkStatus, PutDriveOutcome, PutLoggerOutcome, SyncOutcomeSender, SyncRequest,
 };
-
 use api_server::ApiRequest;
 use data_model::vm::MachineConfiguration;
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
-
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
 use kvm::*;
@@ -64,10 +61,8 @@ use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Kill
 use vm_control::VmResponse;
 use vstate::{Vcpu, Vm};
 
-pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
+const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
 const VCPU_RTSIG_OFFSET: i32 = 0;
-
-// TODO: Maybe configure this parameter via the API.
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
 #[derive(Debug)]
@@ -130,6 +125,8 @@ impl std::convert::From<kernel_cmdline::Error> for Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
+// Allows access to the functionality of the KVM wrapper only as long as every required
+// KVM capability is present on the host.
 struct KvmContext {
     kvm: Kvm,
     nr_vcpus: usize,
@@ -171,23 +168,23 @@ impl KvmContext {
         })
     }
 
-    pub fn fd(&self) -> &Kvm {
+    fn fd(&self) -> &Kvm {
         &self.kvm
     }
 
     #[allow(dead_code)]
-    pub fn nr_vcpus(&self) -> usize {
+    fn nr_vcpus(&self) -> usize {
         self.nr_vcpus
     }
 
     #[allow(dead_code)]
-    pub fn max_vcpus(&self) -> usize {
+    fn max_vcpus(&self) -> usize {
         self.max_vcpus
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum EpollDispatch {
+enum EpollDispatch {
     Exit,
     Stdin,
     DeviceHandler(usize, DeviceEventT),
@@ -209,15 +206,15 @@ impl MaybeHandler {
     }
 }
 
-pub struct EpollEvent<T: AsRawFd> {
+struct EpollEvent<T: AsRawFd> {
     dispatch_index: u64,
     fd: T,
 }
 
-// This should handle epoll related business from now on. A glaring shortcoming of the current
-// design is the liberal passing around of raw_fds, and duping of file descriptors. This issue
-// will be solved when we also implement device removal.
-pub struct EpollContext {
+// Handles epoll related business.
+// A glaring shortcoming of the current design is the liberal passing around of raw_fds,
+// and duping of file descriptors. This issue will be solved when we also implement device removal.
+struct EpollContext {
     epoll_raw_fd: RawFd,
     stdin_index: u64,
     // FIXME: find a different design as this does not scale. This Vec can only grow.
@@ -226,15 +223,15 @@ pub struct EpollContext {
 }
 
 impl EpollContext {
-    pub fn new() -> Result<Self> {
+    fn new() -> Result<Self> {
         let epoll_raw_fd = epoll::create(true).map_err(Error::EpollFd)?;
 
-        // initial capacity large enough to hold:
+        // Initial capacity needs to be large enough to hold:
         // * 1 exit event
         // * 1 stdin event
         // * 2 queue events for virtio block
         // * 4 for virtio net
-        // the total is 8 elements; allowing spare capacity to avoid reallocations.
+        // The total is 8 elements; allowing spare capacity to avoid reallocations.
         let mut dispatch_table = Vec::with_capacity(20);
         let stdin_index = dispatch_table.len() as u64;
         dispatch_table.push(None);
@@ -246,7 +243,7 @@ impl EpollContext {
         })
     }
 
-    pub fn enable_stdin_event(&mut self) -> Result<()> {
+    fn enable_stdin_event(&mut self) -> Result<()> {
         epoll::ctl(
             self.epoll_raw_fd,
             epoll::EPOLL_CTL_ADD,
@@ -258,9 +255,9 @@ impl EpollContext {
         Ok(())
     }
 
-    pub fn disable_stdin_event(&mut self) -> Result<()> {
-        // ignore failure to remove from epoll, only reason for failure is
-        // that stdin has closed or changed - in which case we won't get
+    fn disable_stdin_event(&mut self) -> Result<()> {
+        // Ignore failure to remove from epoll. The only reason for failure is
+        // that stdin has closed or changed in which case we won't get
         // any more events on the original event_fd anyway.
         let _ = epoll::ctl(
             self.epoll_raw_fd,
@@ -273,7 +270,7 @@ impl EpollContext {
         Ok(())
     }
 
-    pub fn add_event<T>(&mut self, fd: T, token: EpollDispatch) -> Result<EpollEvent<T>>
+    fn add_event<T>(&mut self, fd: T, token: EpollDispatch) -> Result<EpollEvent<T>>
     where
         T: AsRawFd,
     {
@@ -289,7 +286,7 @@ impl EpollContext {
         Ok(EpollEvent { dispatch_index, fd })
     }
 
-    pub fn remove_event<T>(&mut self, epoll_event: EpollEvent<T>) -> Result<()>
+    fn remove_event<T>(&mut self, epoll_event: EpollEvent<T>) -> Result<()>
     where
         T: AsRawFd,
     {
@@ -321,12 +318,12 @@ impl EpollContext {
         (dispatch_base, sender)
     }
 
-    pub fn allocate_virtio_block_tokens(&mut self) -> virtio::block::EpollConfig {
+    fn allocate_virtio_block_tokens(&mut self) -> virtio::block::EpollConfig {
         let (dispatch_base, sender) = self.allocate_tokens(virtio::block::BLOCK_EVENTS_COUNT);
         virtio::block::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
-    pub fn allocate_virtio_net_tokens(&mut self) -> virtio::net::EpollConfig {
+    fn allocate_virtio_net_tokens(&mut self) -> virtio::net::EpollConfig {
         let (dispatch_base, sender) = self.allocate_tokens(virtio::net::NET_EVENTS_COUNT);
         virtio::net::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
@@ -336,11 +333,11 @@ impl EpollContext {
         match maybe.handler {
             Some(ref mut v) => Ok(v.as_mut()),
             None => {
-                // this should only be called in response to an epoll trigger,
-                // and this branch of the match should only be active on the first call (the first
-                // epoll event for this device), therefore the channel is guaranteed to contain
-                // a message for the first epoll event since both epoll event registration and
-                // channel send() happen in the device activate() function
+                // This should only be called in response to an epoll trigger.
+                // Moreover, this branch of the match should only be active on the first call
+                // (the first epoll event for this device), therefore the channel is guaranteed
+                // to contain a message for the first epoll event since both epoll event
+                // registration and channel send() happen in the device activate() function.
                 let received = maybe
                     .receiver
                     .try_recv()
@@ -355,15 +352,15 @@ impl Drop for EpollContext {
     fn drop(&mut self) {
         let rc = unsafe { libc::close(self.epoll_raw_fd) };
         if rc != 0 {
-            warn!("Cannot close epoll");
+            warn!("Cannot close epoll.");
         }
     }
 }
 
 pub struct KernelConfig {
-    pub cmdline: kernel_cmdline::Cmdline,
-    pub kernel_file: File,
-    pub cmdline_addr: GuestAddress,
+    cmdline: kernel_cmdline::Cmdline,
+    kernel_file: File,
+    cmdline_addr: GuestAddress,
 }
 
 pub struct Vmm {
@@ -372,7 +369,7 @@ pub struct Vmm {
     vm_config: MachineConfiguration,
     shared_info: Arc<RwLock<InstanceInfo>>,
 
-    /// guest VM core resources
+    // guest VM core resources
     guest_memory: Option<GuestMemory>,
     kernel_config: Option<KernelConfig>,
     kill_signaled: Option<Arc<AtomicBool>>,
@@ -380,7 +377,7 @@ pub struct Vmm {
     exit_evt: Option<EpollEvent<EventFd>>,
     vm: Vm,
 
-    /// guest VM devices
+    // guest VM devices
     mmio_device_manager: Option<MMIODeviceManager>,
     legacy_device_manager: LegacyDeviceManager,
 
@@ -391,7 +388,7 @@ pub struct Vmm {
 
     epoll_context: EpollContext,
 
-    /// api resources
+    // api resources
     api_event: EpollEvent<EventFd>,
     from_api: Receiver<Box<ApiRequest>>,
 
@@ -399,16 +396,16 @@ pub struct Vmm {
 }
 
 impl Vmm {
-    pub fn new(
+    fn new(
         api_shared_info: Arc<RwLock<InstanceInfo>>,
         api_event_fd: EventFd,
         from_api: Receiver<Box<ApiRequest>>,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
-        // if this fails, it's fatal, .expect() it
+        // If this fails, it's fatal; using expect() to crash.
         let api_event = epoll_context
             .add_event(api_event_fd, EpollDispatch::ApiRequest)
-            .expect("cannot add API eventfd to epoll");
+            .expect("Cannot add API eventfd to epoll.");
 
         let write_metrics_event = epoll_context
             .add_event(
@@ -416,7 +413,7 @@ impl Vmm {
                 TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?,
                 EpollDispatch::WriteMetrics,
             )
-            .expect("Cannot add write metrics TimerFd to epoll");
+            .expect("Cannot add write metrics TimerFd to epoll.");
 
         let block_device_configs = BlockDeviceConfigs::new();
         let kvm = KvmContext::new()?;
@@ -444,15 +441,15 @@ impl Vmm {
         })
     }
 
-    /// Only call this function as part of the API.
-    /// If the drive_id does not exist, a new Block Device Config is added to the list.
-    /// Else, if the VM is running, the block device will be updated.
-    /// Updating before the VM has started is not allowed.
-    pub fn put_block_device(
+    // Only call this function as part of the API.
+    // If the drive_id does not exist, a new Block Device Config is added to the list.
+    // Else, if the VM is running, the block device will be updated.
+    // Updating before the VM has started is not allowed.
+    fn put_block_device(
         &mut self,
         block_device_config: BlockDeviceConfig,
     ) -> result::Result<PutDriveOutcome, DriveError> {
-        // if the id of the drive already exists in the list, the operation is update
+        // If the id of the drive already exists in the list, the operation is update.
         if self.block_device_configs
             .contains_drive_id(block_device_config.drive_id.clone())
         {
@@ -478,12 +475,12 @@ impl Vmm {
         }
     }
 
-    pub fn put_virtual_machine_configuration(
+    fn put_virtual_machine_configuration(
         &mut self,
         machine_config: MachineConfiguration,
     ) -> std::result::Result<(), PutMachineConfigurationError> {
         if let Some(vcpu_count_value) = machine_config.vcpu_count {
-            // Check that the vcpu_count value is >=1
+            // Check that the vcpu_count value is >=1.
             if vcpu_count_value <= 0 {
                 return Err(PutMachineConfigurationError::InvalidVcpuCount);
             }
@@ -506,13 +503,13 @@ impl Vmm {
             None => self.vm_config.vcpu_count.unwrap(),
         };
 
-        // if hyperthreading is enabled or is to be enabled in this call
-        // only allow vcpu count to be 1 or even
+        // If hyperthreading is enabled or is to be enabled in this call
+        // only allow vcpu count to be 1 or even.
         if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
             return Err(PutMachineConfigurationError::InvalidVcpuCount);
         }
 
-        // Update all the fields that have a new value
+        // Update all the fields that have a new value.
         self.vm_config.vcpu_count = Some(vcpu_count_value);
         self.vm_config.ht_enabled = Some(ht_enabled);
 
@@ -527,10 +524,9 @@ impl Vmm {
         Ok(())
     }
 
-    /// Attach all block devices from the BlockDevicesConfig.
-    /// If there is no root block device, no other devices are attached.
+    // Attaches all block devices from the BlockDevicesConfig.
     fn attach_block_devices(&mut self, device_manager: &mut MMIODeviceManager) -> Result<()> {
-        // If there's no root device, do not attach any other devices
+        // If there's no root device, do not attach any other devices. This is a bug!
         let block_dev = &self.block_device_configs;
         // We rely on check_health function for making sure kernel_config is not None.
         let kernel_config = self.kernel_config.as_mut().unwrap();
@@ -547,7 +543,7 @@ impl Vmm {
 
             let epoll_context = &mut self.epoll_context;
             for drive_config in self.block_device_configs.config_list.iter() {
-                // adding root blk device from file
+                // Add the root block device from file.
                 let root_image = OpenOptions::new()
                     .read(true)
                     .write(!drive_config.is_read_only)
@@ -588,7 +584,7 @@ impl Vmm {
         Ok(())
     }
 
-    pub fn put_net_device(
+    fn put_net_device(
         &mut self,
         body: NetworkInterfaceBody,
     ) -> result::Result<SyncOkStatus, SyncError> {
@@ -672,32 +668,32 @@ impl Vmm {
         Ok(())
     }
 
-    pub fn configure_kernel(&mut self, kernel_config: KernelConfig) {
+    fn configure_kernel(&mut self, kernel_config: KernelConfig) {
         self.kernel_config = Some(kernel_config);
     }
 
-    pub fn init_guest_memory(&mut self) -> Result<()> {
-        // safe to unwrap because vm_config it is initialized with a default value
+    fn init_guest_memory(&mut self) -> Result<()> {
+        // It is safe to unwrap because vm_config it is initialized with a default value.
         let mem_size = self.vm_config.mem_size_mib.unwrap() << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
         self.guest_memory = Some(GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?);
         Ok(())
     }
 
-    pub fn check_health(&self) -> Result<()> {
+    fn check_health(&self) -> Result<()> {
         if self.kernel_config.is_none() {
             return Err(Error::MissingKernelConfig);
         }
         Ok(())
     }
 
-    pub fn init_devices(&mut self) -> Result<()> {
+    fn init_devices(&mut self) -> Result<()> {
         let guest_mem = self.guest_memory.clone().ok_or(Error::GuestMemory(
             sys_util::GuestMemoryError::MemoryNotInitialized,
         ))?;
-        // Instantiating MMIO device manager
+        // Instantiate the MMIO device manager.
         // 'mmio_base' address has to be an address which is protected by the kernel, in this case
-        // the start of the x86 specific gap of memory (currently hardcoded at 768MiB)
+        // the start of the x86 specific gap of memory (currently hardcoded at 768MiB).
         let mut device_manager =
             MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
@@ -708,7 +704,7 @@ impl Vmm {
         Ok(())
     }
 
-    pub fn init_microvm(&mut self) -> Result<()> {
+    fn init_microvm(&mut self) -> Result<()> {
         self.vm
             .memory_init(self.guest_memory.clone().ok_or(Error::VmSetup(
                 vstate::Error::GuestMemory(sys_util::GuestMemoryError::MemoryNotInitialized),
@@ -722,7 +718,7 @@ impl Vmm {
             .map_err(Error::VmSetup)?;
         self.vm.create_pit().map_err(Error::VmSetup)?;
 
-        // Safe to unwrap() because mmio_device_manager is instantiated in init_devices, which
+        // It is safe to unwrap() because mmio_device_manager is instantiated in init_devices, which
         // is called before init_microvm.
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
         for request in &device_manager.vm_requests {
@@ -738,22 +734,22 @@ impl Vmm {
         Ok(())
     }
 
-    pub fn start_vcpus(&mut self, entry_addr: GuestAddress) -> Result<()> {
-        // safe to unwrap because vm_config has a default value for vcpu_count
+    fn start_vcpus(&mut self, entry_addr: GuestAddress) -> Result<()> {
+        // It is safe to unwrap because vm_config has a default value for vcpu_count.
         let vcpu_count = self.vm_config.vcpu_count.unwrap();
         self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
-        // safe to unwrap since it's set just above
+        // It is safe to unwrap since it's set just above.
         let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
         self.kill_signaled = Some(Arc::new(AtomicBool::new(false)));
-        // safe to unwrap since it's set just above
+        // It is safe to unwrap since it's set just above.
         let kill_signaled = self.kill_signaled.as_mut().unwrap();
 
         let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
 
         for cpu_id in 0..vcpu_count {
             let io_bus = self.legacy_device_manager.io_bus.clone();
-            // Safe to unwrap() because mmio_device_manager is instantiated in init_devices, which
-            // is called before start_vcpus.
+            // It is safe to unwrap() because mmio_device_manager is instantiated in init_devices,
+            // which is called before start_vcpus.
             let device_manager = self.mmio_device_manager.as_ref().unwrap();
             let mmio_bus = device_manager.bus.clone();
             let kill_signaled = kill_signaled.clone();
@@ -768,8 +764,8 @@ impl Vmm {
 
             let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(Error::Vcpu)?;
 
-            // Safe to unwrap the ht_enabled flag because the machine configure has default values
-            // for all fields
+            // It is safe to unwrap the ht_enabled flag because the machine configure
+            // has default values for all fields.
             vcpu.configure(&self.vm_config, entry_addr, &self.vm)
                 .map_err(Error::VcpuConfigure)?;
             vcpu_handles.push(thread::Builder::new()
@@ -777,7 +773,7 @@ impl Vmm {
                 .spawn(move || {
                     unsafe {
                         extern "C" fn handle_signal(_: i32, _: *mut siginfo_t, _: *mut c_void) {}
-                        // async signal safe handler used to kill the vcpu handles.
+                        // This uses an async signal safe handler to kill the vcpu handles.
                         register_signal_handler(
                             VCPU_RTSIG_OFFSET,
                             sys_util::SignalHandler::Siginfo(handle_signal),
@@ -814,7 +810,8 @@ impl Vmm {
                                     info!("Received KVM_EXIT_SHUTDOWN signal");
                                     break;
                                 }
-                                // Documentation specifies that below kvm exits are considered errors.
+                                // Documentation specifies that below kvm exits are considered
+                                // errors.
                                 VcpuExit::FailEntry => {
                                     METRICS.vcpu.failures.inc();
                                     error!("Received KVM_EXIT_FAIL_ENTRY signal");
@@ -827,8 +824,8 @@ impl Vmm {
                                 }
                                 r => {
                                     METRICS.vcpu.failures.inc();
-                                    // TODO: Are we sure we want to finish running a vcpu upon receiving
-                                    // a vm exit that is not necessarily an error?
+                                    // TODO: Are we sure we want to finish running a vcpu upon
+                                    // receiving a vm exit that is not necessarily an error?
                                     error!("Unexpected exit reason on vcpu run: {:?}", r);
                                     break;
                                 }
@@ -864,16 +861,16 @@ impl Vmm {
         Ok(())
     }
 
-    pub fn load_kernel(&mut self) -> Result<GuestAddress> {
+    fn load_kernel(&mut self) -> Result<GuestAddress> {
         // This is the easy way out of consuming the value of the kernel_cmdline.
         // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
-        // safe to unwrap since we've already validated that the kernel_config has a value
-        // in the check_health function
+        // It is safe to unwrap since we've already validated that the kernel_config has a value
+        // in the check_health function.
         let kernel_config = self.kernel_config.as_mut().unwrap();
         let cmdline_cstring = CString::new(kernel_config.cmdline.clone())
             .map_err(|_| Error::KernelCmdLine(kernel_cmdline::Error::InvalidAscii))?;
 
-        // Safe to unwrap because the VM memory was initialized before in vm.memory_init()
+        // It is safe to unwrap because the VM memory was initialized before in vm.memory_init().
         let vm_memory = self.vm.get_memory().unwrap();
         let entry_addr = kernel_loader::load_kernel(vm_memory, &mut kernel_config.kernel_file)?;
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)?;
@@ -887,7 +884,7 @@ impl Vmm {
         Ok(entry_addr)
     }
 
-    pub fn register_events(&mut self) -> Result<()> {
+    fn register_events(&mut self) -> Result<()> {
         // If the lock is poisoned, it's OK to panic.
         let event_fd = self.legacy_device_manager
             .i8042
@@ -903,12 +900,11 @@ impl Vmm {
         Ok(())
     }
 
-    /// make sure to check Result of this function and call self.stop() in case of Err
-    pub fn start_instance(&mut self) -> Result<()> {
+    fn start_instance(&mut self) -> Result<()> {
         info!("VMM received instance start command");
         self.check_health()?;
 
-        // unwrap() to crash if the other thread poisoned this lock
+        // Use unwrap() to crash if the other thread poisoned this lock.
         self.shared_info.write().unwrap().state = InstanceState::Starting;
 
         self.init_guest_memory()?;
@@ -921,7 +917,7 @@ impl Vmm {
         self.register_events()?;
         self.start_vcpus(entry_addr)?;
 
-        // unwrap() to crash if the other thread poisoned this lock
+        // Use unwrap() to crash if the other thread poisoned this lock.
         self.shared_info.write().unwrap().state = InstanceState::Running;
 
         // Arm the log write timer.
@@ -937,9 +933,9 @@ impl Vmm {
         Ok(())
     }
 
-    pub fn stop(&mut self) -> Result<()> {
+    fn stop(&mut self) -> Result<()> {
         info!("VMM received instance stop command");
-        // unwrap() to crash if the other thread poisoned this lock
+        // Use unwrap() to crash if the other thread poisoned this lock.
         let mut shared_info = self.shared_info.write().unwrap();
         shared_info.state = InstanceState::Halting;
 
@@ -983,7 +979,7 @@ impl Vmm {
         Ok(())
     }
 
-    pub fn run_control(&mut self, api_enabled: bool) -> Result<()> {
+    fn run_control(&mut self, api_enabled: bool) -> Result<()> {
         const EPOLL_EVENTS_LEN: usize = 100;
 
         let mut events = Vec::<epoll::Event>::with_capacity(EPOLL_EVENTS_LEN);
@@ -1026,8 +1022,8 @@ impl Vmm {
                                     self.epoll_context.disable_stdin_event()?;
                                 }
                                 Ok(count) => {
-                                    // unwrap() to panic if another thread panicked
-                                    // while holding the lock
+                                    // Use unwrap() to panic if another thread panicked
+                                    // while holding the lock.
                                     self.legacy_device_manager
                                         .stdio_serial
                                         .lock()
@@ -1075,7 +1071,7 @@ impl Vmm {
 
     fn handle_start_instance(&mut self, sender: AsyncOutcomeSender) {
         let instance_state = {
-            // unwrap() to crash if the other thread poisoned this lock
+            // Use unwrap() to crash if the other thread poisoned this lock.
             let shared_info = self.shared_info.read().unwrap();
             shared_info.state.clone()
         };
@@ -1091,7 +1087,7 @@ impl Vmm {
                 }
             },
         };
-        // doing expect() to crash this thread as well if the other thread crashed
+        // Using expect() to crash this thread as well if the other thread crashed.
         sender.send(result).expect("one-shot channel closed");
     }
 
@@ -1108,7 +1104,7 @@ impl Vmm {
 
     fn is_instance_running(&self) -> bool {
         let instance_state = {
-            // unwrap() to crash if the other thread poisoned this lock
+            // Use unwrap() to crash if the other thread poisoned this lock.
             let shared_info = self.shared_info.read().unwrap();
             shared_info.state.clone()
         };
@@ -1169,8 +1165,8 @@ impl Vmm {
             return;
         }
 
-        // check that the kernel path exists and it is valid
         let box_response: Box<GenerateResponse + Send> = match boot_source_body.local_image {
+            // Check that the kernel path exists and it is valid.
             Some(image) => match File::open(image.kernel_image_path) {
                 Ok(kernel_file) => {
                     let mut cmdline =
@@ -1186,7 +1182,7 @@ impl Vmm {
                                 cmdline,
                                 cmdline_addr: GuestAddress(x86_64::layout::CMDLINE_START),
                             };
-                            // if the kernel was already configured, we have an update operation
+                            // If the kernel was already configured, we have an update operation.
                             let outcome = match self.kernel_config {
                                 Some(_) => PutBootSourceOutcome::Updated,
                                 None => PutBootSourceOutcome::Created,
@@ -1316,21 +1312,28 @@ impl Vmm {
     }
 }
 
+/// Starts a new vmm thread that can service API requests.
+///
+/// # Arguments
+///
+/// * `api_shared_info` - A parameter for storing information on the VMM (e.g the current state).
+/// * `api_event_fd` - An event fd used for receiving API associated events.
+/// * `from_api` - The receiver end point of the communication channel.
 pub fn start_vmm_thread(
     api_shared_info: Arc<RwLock<InstanceInfo>>,
     api_event_fd: EventFd,
     from_api: Receiver<Box<ApiRequest>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        // if this fails, consider it fatal: .expect()
+        // If this fails, consider it fatal. Use expect().
         let mut vmm = Vmm::new(api_shared_info, api_event_fd, from_api).expect("cannot create VMM");
         let r = vmm.run_control(true);
-        // make sure we clean up when this loop breaks on error
+        // Make sure we clean up when this loop breaks on error.
         if r.is_err() {
-            // stop() is safe to call at any moment; ignore the result
+            // stop() is safe to call at any moment; ignore the result.
             let _ = vmm.stop();
         }
-        // vmm thread errors are irrecoverable for now: .expect()
+        // vmm thread errors are irrecoverable for now. Use expect().
         r.expect("VMM thread fail");
         // TODO: maybe offer through API: an instance status reporting error messages (r)
     })
@@ -1343,8 +1346,8 @@ mod tests {
     use std::fs::File;
 
     use self::tempfile::NamedTempFile;
-    use super::*;
 
+    use super::*;
     use api_server::request::sync::DeviceState;
     use data_model::vm::CpuFeaturesTemplate;
     use net_util::MacAddr;
