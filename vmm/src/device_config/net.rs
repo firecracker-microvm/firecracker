@@ -49,10 +49,6 @@ impl NetworkInterfaceConfig {
         self.body = body;
     }
 
-    pub fn id_as_str(&self) -> &str {
-        self.id.as_str()
-    }
-
     pub fn take_tap(&mut self) -> Option<Tap> {
         self.tap.take()
     }

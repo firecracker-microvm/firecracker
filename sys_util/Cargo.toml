@@ -10,4 +10,3 @@ memory_model = { path = "../memory_model"}
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
-
