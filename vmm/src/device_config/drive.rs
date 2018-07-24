@@ -13,14 +13,22 @@ pub struct BlockDeviceConfig {
     pub drive_id: String,
     pub path_on_host: PathBuf,
     pub is_root_device: bool,
+    pub partuuid: Option<String>,
     pub is_read_only: bool,
     pub rate_limiter: Option<RateLimiterDescription>,
+}
+
+impl BlockDeviceConfig {
+    pub fn get_partuuid(&self) -> Option<&String> {
+        self.partuuid.as_ref()
+    }
 }
 
 // Wrapper for the collection that holds all the Block Devices Configs
 pub struct BlockDeviceConfigs {
     pub config_list: LinkedList<BlockDeviceConfig>,
     has_root_block: bool,
+    has_partuuid_root: bool,
     read_only_root: bool,
 }
 
@@ -31,6 +39,7 @@ impl From<DriveDescription> for BlockDeviceConfig {
             drive_id: item.drive_id,
             path_on_host: PathBuf::from(item.path_on_host),
             is_root_device: item.is_root_device,
+            partuuid: item.partuuid,
             is_read_only,
             rate_limiter: item.rate_limiter,
         }
@@ -42,6 +51,7 @@ impl BlockDeviceConfigs {
         BlockDeviceConfigs {
             config_list: LinkedList::<BlockDeviceConfig>::new(),
             has_root_block: false,
+            has_partuuid_root: false,
             read_only_root: false,
         }
     }
@@ -52,6 +62,10 @@ impl BlockDeviceConfigs {
 
     pub fn has_read_only_root(&self) -> bool {
         self.read_only_root
+    }
+
+    pub fn has_partuuid_root(&self) -> bool {
+        self.has_partuuid_root
     }
 
     pub fn contains_drive_path(&self, drive_path: PathBuf) -> bool {
@@ -92,7 +106,10 @@ impl BlockDeviceConfigs {
             } else {
                 self.has_root_block = true;
                 self.read_only_root = block_device_config.is_read_only;
-                // Root Device should be the first in the list
+                self.has_partuuid_root = block_device_config.partuuid.is_some();
+                // Root Device should be the first in the list whether or not PARTUUID is specified
+                // in order to avoid bugs in case of switching from partuuid boot scenarios to
+                // /dev/vda boot type.
                 self.config_list.push_front(block_device_config);
             }
         } else {
@@ -118,7 +135,7 @@ impl BlockDeviceConfigs {
     /// This function updates a Block Device Config prior to the guest boot. The update fails if it
     /// would result in two root block devices.
     pub fn update(&mut self, block_device_config: &BlockDeviceConfig) -> Result<()> {
-        // Check if the path exists
+        // Check if the path exists.
         if !block_device_config.path_on_host.exists() {
             return Err(DriveError::InvalidBlockDevicePath);
         }
@@ -127,23 +144,27 @@ impl BlockDeviceConfigs {
         for cfg in self.config_list.iter_mut() {
             if cfg.drive_id == block_device_config.drive_id {
                 if cfg.is_root_device {
-                    // Check if the root block device is being updated
+                    // Check if the root block device is being updated.
                     self.has_root_block = block_device_config.is_root_device;
                     self.read_only_root =
                         block_device_config.is_root_device && block_device_config.is_read_only;
+                    self.has_partuuid_root = block_device_config.partuuid.is_some();
                 } else if block_device_config.is_root_device {
-                    // Check if a second root block device is being added
+                    // Check if a second root block device is being added.
                     if root_id.is_some() {
                         return Err(DriveError::RootBlockDeviceAlreadyAdded);
                     } else {
-                        // One of the non-root blocks is becoming root
+                        // One of the non-root blocks is becoming root.
                         self.has_root_block = true;
                         self.read_only_root = block_device_config.is_read_only;
+                        self.has_partuuid_root = block_device_config.partuuid.is_some();
                     }
                 }
                 cfg.is_root_device = block_device_config.is_root_device;
                 cfg.path_on_host = block_device_config.path_on_host.clone();
                 cfg.is_read_only = block_device_config.is_read_only;
+                cfg.rate_limiter = block_device_config.rate_limiter.clone();
+                cfg.partuuid = block_device_config.partuuid.clone();
 
                 return Ok(());
             }
@@ -177,6 +198,7 @@ mod tests {
         let dummy_block_device = BlockDeviceConfig {
             path_on_host: dummy_path.clone(),
             is_root_device: false,
+            partuuid: None,
             is_read_only: false,
             drive_id: dummy_id.clone(),
             rate_limiter: None,
@@ -206,6 +228,7 @@ mod tests {
         let dummy_block_device = BlockDeviceConfig {
             path_on_host: dummy_path,
             is_root_device: true,
+            partuuid: None,
             is_read_only: true,
             drive_id: String::from("1"),
             rate_limiter: None,
@@ -232,6 +255,7 @@ mod tests {
         let root_block_device_1 = BlockDeviceConfig {
             path_on_host: dummy_path_1,
             is_root_device: true,
+            partuuid: None,
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
@@ -242,6 +266,7 @@ mod tests {
         let root_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: true,
+            partuuid: None,
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
@@ -263,6 +288,7 @@ mod tests {
         let root_block_device = BlockDeviceConfig {
             path_on_host: dummy_path_1,
             is_root_device: true,
+            partuuid: None,
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
@@ -273,6 +299,7 @@ mod tests {
         let dummy_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: false,
+            partuuid: None,
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
@@ -283,6 +310,7 @@ mod tests {
         let dummy_block_device_3 = BlockDeviceConfig {
             path_on_host: dummy_path_3,
             is_root_device: false,
+            partuuid: None,
             is_read_only: false,
             drive_id: String::from("3"),
             rate_limiter: None,
@@ -319,6 +347,7 @@ mod tests {
         let root_block_device = BlockDeviceConfig {
             path_on_host: dummy_path_1,
             is_root_device: true,
+            partuuid: None,
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
@@ -329,6 +358,7 @@ mod tests {
         let dummy_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: false,
+            partuuid: None,
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
@@ -339,6 +369,7 @@ mod tests {
         let dummy_block_device_3 = BlockDeviceConfig {
             path_on_host: dummy_path_3,
             is_root_device: false,
+            partuuid: None,
             is_read_only: false,
             drive_id: String::from("3"),
             rate_limiter: None,
@@ -361,7 +392,8 @@ mod tests {
         assert_eq!(block_devices_configs.config_list.len(), 3);
 
         let mut block_dev_iter = block_devices_configs.config_list.iter();
-        // The root device should be first in the list no matter of the order in which the devices were added
+        // The root device should be first in the list no matter of the order in
+        // which the devices were added.
         assert_eq!(block_dev_iter.next().unwrap(), &root_block_device);
         assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_2);
         assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_3);
@@ -371,6 +403,7 @@ mod tests {
     fn test_from_drive_description() {
         let dd = DriveDescription {
             is_root_device: true,
+            partuuid: None,
             path_on_host: String::from("/foo/bar"),
             drive_id: String::from("foo"),
             state: DeviceState::Attached,
@@ -392,6 +425,7 @@ mod tests {
         let root_block_device = BlockDeviceConfig {
             path_on_host: dummy_path_1,
             is_root_device: true,
+            partuuid: None,
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
@@ -402,6 +436,7 @@ mod tests {
         let mut dummy_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2.clone(),
             is_root_device: false,
+            partuuid: None,
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
