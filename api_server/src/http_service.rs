@@ -1089,6 +1089,7 @@ mod tests {
             path_on_host: String::from("/foo/bar"),
             state: DeviceState::Attached,
             is_root_device: true,
+            partuuid: None,
             permissions: DrivePermissions::ro,
             rate_limiter: None,
         };

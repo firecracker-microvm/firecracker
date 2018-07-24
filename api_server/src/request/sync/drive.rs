@@ -26,6 +26,8 @@ pub struct DriveDescription {
     pub is_root_device: bool,
     pub permissions: DrivePermissions,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub partuuid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limiter: Option<RateLimiterDescription>,
 }
 
@@ -129,6 +131,7 @@ mod tests {
                 state: DeviceState::Attached,
                 is_root_device: true,
                 permissions: DrivePermissions::ro,
+                partuuid: None,
                 rate_limiter: None,
             }.is_read_only()
         );
@@ -204,6 +207,7 @@ mod tests {
             state: DeviceState::Attached,
             is_root_device: true,
             permissions: DrivePermissions::ro,
+            partuuid: None,
             rate_limiter: None,
         };
 
