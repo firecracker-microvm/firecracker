@@ -69,6 +69,9 @@ const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 pub enum Error {
     ApiChannel,
     ConfigureSystem(x86_64::Error),
+    CreateBlockDevice(sys_util::Error),
+    CreateNetDevice(devices::virtio::Error),
+    CreateRateLimiter(std::io::Error),
     CreateLegacyDevice(device_manager::legacy::Error),
     DriveError(DriveError),
     DeviceVmRequest(sys_util::Error),
@@ -86,14 +89,11 @@ pub enum Error {
     LegacyIOBus(device_manager::legacy::Error),
     LogMetrics(logger::error::LoggerError),
     MissingKernelConfig,
-    NetDeviceNew(devices::virtio::Error),
     NetDeviceUnconfigured,
+    OpenBlockDevice(std::io::Error),
     Poll(std::io::Error),
-    RootBlockDeviceNew(sys_util::Error),
-    RootDiskImage(std::io::Error),
-    RateLimiterNew(std::io::Error),
-    RegisterBlock(device_manager::mmio::Error),
-    RegisterNet(device_manager::mmio::Error),
+    RegisterBlockDevice(device_manager::mmio::Error),
+    RegisterNetDevice(device_manager::mmio::Error),
     Serial(sys_util::Error),
     StdinHandle(sys_util::Error),
     Terminal(sys_util::Error),
@@ -119,7 +119,7 @@ impl std::convert::From<x86_64::Error> for Error {
 
 impl std::convert::From<kernel_cmdline::Error> for Error {
     fn from(e: kernel_cmdline::Error) -> Error {
-        Error::RegisterBlock(device_manager::mmio::Error::Cmdline(e))
+        Error::RegisterBlockDevice(device_manager::mmio::Error::Cmdline(e))
     }
 }
 
@@ -526,7 +526,6 @@ impl Vmm {
 
     // Attaches all block devices from the BlockDevicesConfig.
     fn attach_block_devices(&mut self, device_manager: &mut MMIODeviceManager) -> Result<()> {
-        // If there's no root device, do not attach any other devices. This is a bug!
         let block_dev = &self.block_device_configs;
         // We rely on check_health function for making sure kernel_config is not None.
         let kernel_config = self.kernel_config.as_mut().unwrap();
@@ -540,45 +539,46 @@ impl Vmm {
                     kernel_config.cmdline.insert_str(" ro")?;
                 }
             }
+        }
 
-            let epoll_context = &mut self.epoll_context;
-            for drive_config in self.block_device_configs.config_list.iter() {
-                // Add the root block device from file.
-                let root_image = OpenOptions::new()
-                    .read(true)
-                    .write(!drive_config.is_read_only)
-                    .open(&drive_config.path_on_host)
-                    .map_err(Error::RootDiskImage)?;
+        let epoll_context = &mut self.epoll_context;
+        for drive_config in self.block_device_configs.config_list.iter() {
+            // Add the block device from file.
+            let block_file = OpenOptions::new()
+                .read(true)
+                .write(!drive_config.is_read_only)
+                .open(&drive_config.path_on_host)
+                .map_err(Error::OpenBlockDevice)?;
 
-                if drive_config.is_root_device && drive_config.partuuid.is_some() {
-                    kernel_config.cmdline.insert_str(format!(
-                        " root=PARTUUID={}",
-                        drive_config.get_partuuid().unwrap()
-                    ))?;
-                    if drive_config.is_read_only {
-                        kernel_config.cmdline.insert_str(" ro")?;
-                    }
+            if drive_config.is_root_device && drive_config.get_partuuid().is_some() {
+                kernel_config.cmdline.insert_str(format!(
+                    " root=PARTUUID={}",
+                    //The unwrap is safe as we are firstly checking that partuuid is_some().
+                    drive_config.get_partuuid().unwrap()
+                ))?;
+                if drive_config.is_read_only {
+                    kernel_config.cmdline.insert_str(" ro")?;
                 }
-
-                let epoll_config = epoll_context.allocate_virtio_block_tokens();
-
-                let rate_limiter = rate_limiter_description_into_implementation(
-                    drive_config.rate_limiter.as_ref(),
-                ).map_err(Error::RateLimiterNew)?;
-                let block_box = Box::new(devices::virtio::Block::new(
-                    root_image,
-                    drive_config.is_read_only,
-                    epoll_config,
-                    rate_limiter,
-                ).map_err(Error::RootBlockDeviceNew)?);
-                device_manager
-                    .register_device(
-                        block_box,
-                        &mut kernel_config.cmdline,
-                        Some(drive_config.drive_id.clone()),
-                    )
-                    .map_err(Error::RegisterBlock)?;
             }
+
+            let epoll_config = epoll_context.allocate_virtio_block_tokens();
+
+            let rate_limiter = rate_limiter_description_into_implementation(
+                drive_config.rate_limiter.as_ref(),
+            ).map_err(Error::CreateRateLimiter)?;
+            let block_box = Box::new(devices::virtio::Block::new(
+                block_file,
+                drive_config.is_read_only,
+                epoll_config,
+                rate_limiter,
+            ).map_err(Error::CreateBlockDevice)?);
+            device_manager
+                .register_device(
+                    block_box,
+                    &mut kernel_config.cmdline,
+                    Some(drive_config.drive_id.clone()),
+                )
+                .map_err(Error::RegisterBlockDevice)?;
         }
 
         Ok(())
@@ -644,10 +644,10 @@ impl Vmm {
 
             let rx_rate_limiter = rate_limiter_description_into_implementation(
                 cfg.rx_rate_limiter.as_ref(),
-            ).map_err(Error::RateLimiterNew)?;
+            ).map_err(Error::CreateRateLimiter)?;
             let tx_rate_limiter = rate_limiter_description_into_implementation(
                 cfg.tx_rate_limiter.as_ref(),
-            ).map_err(Error::RateLimiterNew)?;
+            ).map_err(Error::CreateRateLimiter)?;
 
             if let Some(tap) = cfg.take_tap() {
                 let net_box = Box::new(devices::virtio::Net::new_with_tap(
@@ -656,11 +656,11 @@ impl Vmm {
                     epoll_config,
                     rx_rate_limiter,
                     tx_rate_limiter,
-                ).map_err(Error::NetDeviceNew)?);
+                ).map_err(Error::CreateNetDevice)?);
 
                 device_manager
                     .register_device(net_box, &mut kernel_config.cmdline, None)
-                    .map_err(Error::RegisterNet)?;
+                    .map_err(Error::RegisterNetDevice)?;
             } else {
                 return Err(Error::NetDeviceUnconfigured);
             }
@@ -1829,5 +1829,11 @@ mod tests {
         assert!(!vmm.get_kernel_cmdline().contains("root=PARTUUID="));
         assert!(!vmm.get_kernel_cmdline().contains("root=/dev/vda"));
 
+        // Test that the non root device is attached.
+        assert!(
+            device_manager
+                .get_address(&non_root_block_device.drive_id)
+                .is_some()
+        );
     }
 }
