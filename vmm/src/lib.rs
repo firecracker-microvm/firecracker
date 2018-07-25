@@ -1310,6 +1310,15 @@ impl Vmm {
 
         Ok(())
     }
+
+    #[cfg(test)]
+    fn get_kernel_cmdline(&self) -> &str {
+        if let Some(ref k) = self.kernel_config {
+            k.cmdline.as_str()
+        } else {
+            ""
+        }
+    }
 }
 
 /// Starts a new vmm thread that can service API requests.
@@ -1370,7 +1379,7 @@ mod tests {
     fn test_put_block_device() {
         let mut vmm = create_vmm_object();
         let f = NamedTempFile::new().unwrap();
-        // test that creating a new block device returns the correct output
+        // Test that creating a new block device returns the correct output (i.e. "Created").
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
             path_on_host: f.path().to_path_buf(),
@@ -1389,7 +1398,7 @@ mod tests {
                 .contains(&root_block_device)
         );
 
-        // test that updating an existing block device returns the correct output
+        // Test that creating a new block device returns the correct output (i.e. "Updated").
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
             path_on_host: f.path().to_path_buf(),
@@ -1702,5 +1711,123 @@ mod tests {
 
         assert_eq!(m1.dev(), m2.dev());
         assert_eq!(m1.ino(), m2.ino());
+    }
+
+    #[test]
+    pub fn test_attach_block_devices() {
+        let mut vmm = create_vmm_object();
+        let block_file = NamedTempFile::new().unwrap();
+        let kernel_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary kernel file.");
+        let kernel_path = String::from(kernel_file_temp.path().to_path_buf().to_str().unwrap());
+        let kernel_file = File::open(kernel_path).unwrap();
+
+        // Use Case 1: Root Block Device is not specified through PARTUUID.
+        let root_block_device = BlockDeviceConfig {
+            drive_id: String::from("root"),
+            path_on_host: block_file.path().to_path_buf(),
+            is_root_device: true,
+            partuuid: None,
+            is_read_only: false,
+            rate_limiter: None,
+        };
+        // Test that creating a new block device returns the correct output.
+        match vmm.put_block_device(root_block_device.clone()) {
+            Ok(outcome) => assert!(outcome == PutDriveOutcome::Created),
+            Err(_) => assert!(false),
+        };
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.guest_memory.is_some());
+        let mut cmdline = kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE);
+        assert!(cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).is_ok());
+        let kernel_cfg = KernelConfig {
+            cmdline,
+            kernel_file,
+            cmdline_addr: GuestAddress(x86_64::layout::CMDLINE_START),
+        };
+        vmm.configure_kernel(kernel_cfg);
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let mut device_manager =
+            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+        assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
+        assert!(vmm.get_kernel_cmdline().contains("root=/dev/vda"));
+
+        // Use Case 2: Root Block Device is specified through PARTUUID.
+        let mut vmm = create_vmm_object();
+        let root_block_device = BlockDeviceConfig {
+            drive_id: String::from("root"),
+            path_on_host: block_file.path().to_path_buf(),
+            is_root_device: true,
+            partuuid: Some("0eaa91a0-01".to_string()),
+            is_read_only: false,
+            rate_limiter: None,
+        };
+        let kernel_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary kernel file.");
+        let kernel_path = String::from(kernel_file_temp.path().to_path_buf().to_str().unwrap());
+        let kernel_file = File::open(kernel_path).unwrap();
+
+        // Test that creating a new block device returns the correct output.
+        match vmm.put_block_device(root_block_device.clone()) {
+            Ok(outcome) => assert!(outcome == PutDriveOutcome::Created),
+            Err(_) => assert!(false),
+        };
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.guest_memory.is_some());
+        let mut cmdline = kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE);
+        assert!(cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).is_ok());
+        let kernel_cfg = KernelConfig {
+            cmdline,
+            kernel_file,
+            cmdline_addr: GuestAddress(x86_64::layout::CMDLINE_START),
+        };
+        vmm.configure_kernel(kernel_cfg);
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let mut device_manager =
+            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+        assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
+        assert!(
+            vmm.get_kernel_cmdline()
+                .contains("root=PARTUUID=0eaa91a0-01")
+        );
+
+        // Use Case 3: Root Block Device is not added at all.
+        let mut vmm = create_vmm_object();
+        let non_root_block_device = BlockDeviceConfig {
+            drive_id: String::from("not_root"),
+            path_on_host: block_file.path().to_path_buf(),
+            is_root_device: false,
+            partuuid: Some("0eaa91a0-01".to_string()),
+            is_read_only: false,
+            rate_limiter: None,
+        };
+        let kernel_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary kernel file.");
+        let kernel_path = String::from(kernel_file_temp.path().to_path_buf().to_str().unwrap());
+        let kernel_file = File::open(kernel_path).unwrap();
+
+        // Test that creating a new block device returns the correct output.
+        match vmm.put_block_device(non_root_block_device.clone()) {
+            Ok(outcome) => assert!(outcome == PutDriveOutcome::Created),
+            Err(_) => assert!(false),
+        };
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.guest_memory.is_some());
+        let mut cmdline = kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE);
+        assert!(cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).is_ok());
+        let kernel_cfg = KernelConfig {
+            cmdline,
+            kernel_file,
+            cmdline_addr: GuestAddress(x86_64::layout::CMDLINE_START),
+        };
+        vmm.configure_kernel(kernel_cfg);
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let mut device_manager =
+            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+        assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
+        // Test that kernel commandline does not contain either /dev/vda or PARTUUID.
+        assert!(!vmm.get_kernel_cmdline().contains("root=PARTUUID="));
+        assert!(!vmm.get_kernel_cmdline().contains("root=/dev/vda"));
+
     }
 }
