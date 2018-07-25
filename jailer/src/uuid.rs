@@ -76,55 +76,57 @@ pub fn validate(mut input: &str) -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn test_uuid_validate() {
-    use super::*;
+mod tests {
+    #[test]
+    fn test_uuid_validate() {
+        use super::*;
 
-    // Testing invalid uuids.
-    assert_eq!(validate(""), Err(UUIDError::InvalidLength(0)));
-    assert_eq!(validate("a"), Err(UUIDError::InvalidLength(1)));
-    assert_eq!(
-        validate("551e7604-CDB3-5fbb-C6ADD-338BD51DB2F5"),
-        Err(UUIDError::InvalidLength(37))
-    );
-    assert_eq!(
-        validate("551e7604-DFC3A5abbAC7CAA431CA48AB2F3"),
-        Err(UUIDError::InvalidGroupCount(2))
-    );
-    assert_eq!(
-        validate("551e7604-DFC3-DFC3A5abbAC7CAA431CA48"),
-        Err(UUIDError::InvalidGroupCount(3))
-    );
-    assert_eq!(
-        validate("551e7604-DFC3-DFC3X5AbbAC7CAA431CA48"),
-        Err(UUIDError::InvalidChar('X'))
-    );
+        // Testing invalid uuids.
+        assert_eq!(validate(""), Err(UUIDError::InvalidLength(0)));
+        assert_eq!(validate("a"), Err(UUIDError::InvalidLength(1)));
+        assert_eq!(
+            validate("551e7604-CDB3-5fbb-C6ADD-338BD51DB2F5"),
+            Err(UUIDError::InvalidLength(37))
+        );
+        assert_eq!(
+            validate("551e7604-DFC3A5abbAC7CAA431CA48AB2F3"),
+            Err(UUIDError::InvalidGroupCount(2))
+        );
+        assert_eq!(
+            validate("551e7604-DFC3-DFC3A5abbAC7CAA431CA48"),
+            Err(UUIDError::InvalidGroupCount(3))
+        );
+        assert_eq!(
+            validate("551e7604-DFC3-DFC3X5AbbAC7CAA431CA48"),
+            Err(UUIDError::InvalidChar('X'))
+        );
 
-    assert_eq!(
-        validate("551e7604-DAF-35ab-fC7CAA43-CA48AB2F5"),
-        Err(UUIDError::InvalidGroupLength(3))
-    );
-    assert_eq!(
-        validate("01020304-1112-2122-3132-41424344"),
-        Err(UUIDError::InvalidGroupLength(8))
-    );
-    assert_eq!(
-        validate("67e5604510c1436%9257bca00e6fe1da"),
-        Err(UUIDError::InvalidChar('%'))
-    );
-    assert_eq!(
-        validate("342342323323534535435434587353276861"),
-        Err(UUIDError::InvalidGroupCount(1))
-    );
+        assert_eq!(
+            validate("551e7604-DAF-35ab-fC7CAA43-CA48AB2F5"),
+            Err(UUIDError::InvalidGroupLength(3))
+        );
+        assert_eq!(
+            validate("01020304-1112-2122-3132-41424344"),
+            Err(UUIDError::InvalidGroupLength(8))
+        );
+        assert_eq!(
+            validate("67e5604510c1436%9257bca00e6fe1da"),
+            Err(UUIDError::InvalidChar('%'))
+        );
+        assert_eq!(
+            validate("342342323323534535435434587353276861"),
+            Err(UUIDError::InvalidGroupCount(1))
+        );
 
-    // Testing valid ones also.
-    assert!(validate("00000000000000000000000000000000").is_ok());
-    assert!(validate("68f56045-20c2-437a-8257-bb781e5ae0c9").is_ok());
-    assert!(validate("F9168C5E-CEB2-4faa-B6BF-329BF39FA1E4").is_ok());
-    assert!(validate("67e5504410b1426f9247bb680e5fe0c8").is_ok());
-    assert!(validate("01020304-1112-2122-3132-414243444546").is_ok());
-    assert!(validate("urn:uuid:67e55044-10b1-426f-9247-bb680e5fe0c8").is_ok());
+        // Testing valid ones also.
+        assert!(validate("00000000000000000000000000000000").is_ok());
+        assert!(validate("68f56045-20c2-437a-8257-bb781e5ae0c9").is_ok());
+        assert!(validate("F9168C5E-CEB2-4faa-B6BF-329BF39FA1E4").is_ok());
+        assert!(validate("67e5504410b1426f9247bb680e5fe0c8").is_ok());
+        assert!(validate("01020304-1112-2122-3132-414243444546").is_ok());
+        assert!(validate("urn:uuid:67e55044-10b1-426f-9247-bb680e5fe0c8").is_ok());
 
-    assert!(validate("00000000000000000000000000000000").is_ok());
-    assert!(validate("00000000-0000-0000-0000-000000000000").is_ok());
+        assert!(validate("00000000000000000000000000000000").is_ok());
+        assert!(validate("00000000-0000-0000-0000-000000000000").is_ok());
+    }
 }
