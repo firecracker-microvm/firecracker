@@ -85,7 +85,7 @@ pub fn kvm_segment_from_gdt(entry: u64, table_index: u8) -> kvm_segment {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]
