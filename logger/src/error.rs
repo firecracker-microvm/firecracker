@@ -1,4 +1,4 @@
-//! Errors returned by the logger.
+//! Enumeration of errors returned by the logger.
 
 use std;
 use std::error::Error;
