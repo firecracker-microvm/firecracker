@@ -1,3 +1,5 @@
+//! Auxiliary module for flushing some input to a named PIPE (FIFO).
+
 use libc::O_NONBLOCK;
 use std::fs::{File, OpenOptions};
 use std::io::{LineWriter, Write};

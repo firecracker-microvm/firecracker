@@ -1,3 +1,25 @@
+//! Defines the metrics system.
+//! The main design goals of this system are:
+//! - Use lockless operations, preferably ones that don't require anything other than
+//!   simple reads/writes being atomic.
+//! - Exploit interior mutability and atomics being Sync to allow all methods (including the ones
+//!   which are effectively mutable) to be callable on a global non-mut static.
+//! - Rely on Serde to provide the actual serialization for logging the metrics.
+//! - Since all metrics start at 0, we implement the Default trait via derive for all of them,
+//!   to avoid having to initialize everything by hand.
+
+//! Moreover, the value of a metric is currently NOT reset to 0 each time it's being logged. The
+//! current approach is to store two values (current and previous) and compute the delta between
+//! them each time we do a flush (i.e by serialization). There are a number of advantages
+//! to this approach, including:
+//! - We don't have to introduce an additional write (to reset the value) from the thread which
+//!   does to actual logging, so less synchronization effort is required.
+//! - We don't have to worry at all that much about losing some data if logging fails for a while
+//!   (this could be a concern, I guess).
+//!
+//! If if turns out this approach is not really what we want, it's pretty easy to resort to
+//! something else, while working behind the same interface.
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chrono;
@@ -5,25 +27,8 @@ use serde::{Serialize, Serializer};
 
 const SYSCALL_MAX: usize = 350;
 
-// The main design goals of this metrics system are:
-// - Use lockless operations, preferably ones that don't require anything other than
-// simple reads/writes being atomic.
-// - Exploit interior mutability and atomics being Sync to allow all methods (including the ones
-// which are effectively mutable) to be callable on a global non-mut static.
-// - Rely on Serde to provide the actual serialization for logging the metrics.
-// - Since all metrics start at 0, we implement the Default trait via derive for all of them,
-// to avoid having to initialize everything by hand.
-
-// Moreover, the value of a metric is currently NOT reset to 0 each time it's being logged. There
-// are a number of advantages to this approach, including:
-// - We don't have to introduce an additional write (to reset the value) from the thread which
-// does to actual logging, so less synchronization effort is required.
-// - We don't have to worry at all that much about losing some data if logging fails for a while
-// (this could be a concern, I guess).
-//
-// If if turns out this approach is not really what we want, it's pretty easy to resort to something
-// else, while working behind the same interface.
-
+/// Used for defining new types of metrics that can be either incremented with an unit
+/// or an arbitrary amount of units.
 // This trait helps with writing less code. It has to be in scope (via an use directive) in order
 // for its methods to be available to call on structs that implement it.
 pub trait Metric {
@@ -268,8 +273,9 @@ pub struct FirecrackerMetrics {
     pub uart: SerialDeviceMetrics,
 }
 
-// The global variable used to increase the value of various metrics.
 lazy_static! {
+    /// Static instance used for handling metrics.
+    ///
     pub static ref METRICS: FirecrackerMetrics = FirecrackerMetrics::default();
 }
 

@@ -1,24 +1,24 @@
-//! Sends log messages to either stdout, stderr or a file provided as argument to the init.
+//! Sends log messages and metrics to either stdout, stderr or two FIFOs specified upon init.
 //!
 //! Every function exported by this module is thread-safe.
 //! Each function will silently fail until
-//! `log::init()` is called and returns `Ok`.
+//! `LOGGER.init()` is called and returns `Ok`.
 //!
 //! # Examples
 //!
 //! ```
 //! #[macro_use]
-//! extern crate log;
 //! extern crate logger;
-//! use logger::Logger;
+//! use logger::LOGGER;
+//! use std::ops::Deref;
 //!
 //! fn main() {
-//!     if let Err(e) = Logger::new().init(None) {
+//!     if let Err(e) = LOGGER.deref().init(None, None) {
 //!         println!("Could not initialize the log subsystem: {:?}", e);
 //!         return;
 //!     }
 //!     warn!("this is a warning");
-//!     error!("this is a error");
+//!     error!("this is an error");
 //! }
 //! ```
 extern crate chrono;
@@ -52,15 +52,15 @@ use log::{set_logger, set_max_level, Log, Metadata, Record};
 pub use metrics::{Metric, METRICS};
 use writers::*;
 
-/// Types used by the Logger.
+/// Type used by the Logger for returning functions outcome.
 ///
 pub type Result<T> = result::Result<T, LoggerError>;
 
 /// Values used by the Logger.
 ///
-pub const IN_PREFIX_SEPARATOR: &str = ":";
-pub const MSG_SEPARATOR: &str = " ";
-pub const DEFAULT_LEVEL: Level = Level::Warn;
+const IN_PREFIX_SEPARATOR: &str = ":";
+const MSG_SEPARATOR: &str = " ";
+const DEFAULT_LEVEL: Level = Level::Warn;
 
 /// Synchronization primitives used to run a one-time global initialization.
 ///
@@ -74,6 +74,8 @@ static STATE: AtomicUsize = ATOMIC_USIZE_INIT;
 const TIME_FMT: &str = "%Y-%m-%dT%H:%M:%S.%f";
 
 lazy_static! {
+    /// Static instance used for handling human-readable logs.
+    ///
     pub static ref LOGGER: Logger = Logger::new();
 }
 
@@ -115,7 +117,7 @@ impl LevelInfo {
 }
 
 /// Logger representing the logging subsystem.
-
+///
 // All member fields have types which are Sync, and exhibit interior mutability, so
 // we can call logging operations using a non-mut static global variable.
 pub struct Logger {
@@ -190,17 +192,17 @@ impl Logger {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// #[macro_use]
     /// extern crate log;
     /// extern crate logger;
-    /// use logger::Logger;
+    /// use logger::LOGGER;
+    /// use std::ops::Deref;
     ///
     /// fn main() {
-    ///     Logger::new()
-    ///         .set_include_level(true)
-    ///         .init(None)
-    ///         .unwrap();
+    ///     let l = LOGGER.deref();
+    ///     l.set_include_level(true);
+    ///     l.init(None, None).unwrap();
     ///
     ///     warn!("This will print 'WARN' surrounded by square brackets followed by log message");
     /// }
@@ -209,52 +211,52 @@ impl Logger {
         self.show_level.store(option, Ordering::Relaxed);
     }
 
-    /// Enables or disables including the file path and the line numbers in the tag of the log message.
+    /// Enables or disables including the file path and the line numbers in the tag of
+    /// the log message.
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// #[macro_use]
-    /// extern crate log;
     /// extern crate logger;
-    /// use logger::Logger;
+    /// use logger::LOGGER;
+    /// use std::ops::Deref;
     ///
     /// fn main() {
-    ///     Logger::new()
-    ///         .set_include_origin(true, true)
-    ///         .init(None)
-    ///         .unwrap();
+    ///     let l = LOGGER.deref();
+    ///     l.set_include_origin(true, true);
+    ///     l.init(None, None).unwrap();
     ///
     ///     warn!("This will print '[WARN:file_path.rs:155]' followed by log message");
     /// }
     /// ```
     pub fn set_include_origin(&self, file_path: bool, line_numbers: bool) {
         self.show_file_path.store(file_path, Ordering::Relaxed);
-        // if the file path is not shown, do not show line numbers either
+        // If the file path is not shown, do not show line numbers either.
         self.show_line_numbers
             .store(file_path && line_numbers, Ordering::Relaxed);
     }
 
     /// Explicitly sets the log level for the Logger.
-    /// User needs to say the level code(error, warn...) and the output destination will be updated if and only if the
-    /// logger was not initialized to log to a file.
-    /// The default level is WARN. So, ERROR and WARN statements will be shown (basically, all that is bigger
-    /// than the level code).
+    /// User needs to say the level code(error, warn...) and the output destination will be
+    /// updated if and only if the logger was not initialized to log to a FIFO.
+    /// The default level is WARN. So, ERROR and WARN statements will be shown (i.e. all that is
+    /// bigger than the level code).
     /// If level is decreased at INFO, ERROR, WARN and INFO statements will be outputted, etc.
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// #[macro_use]
-    /// extern crate log;
     /// extern crate logger;
-    /// use logger::Logger;
+    /// extern crate log;
+    /// use logger::LOGGER;
+    /// use std::ops::Deref;
     ///
     /// fn main() {
-    ///     Logger::new()
-    ///         .set_level(log::Level::Info)
-    ///         .init(None)
-    ///         .unwrap();
+    ///     let l = LOGGER.deref();
+    ///     l.set_level(log::Level::Info);
+    ///     l.init(None, None).unwrap();
     /// }
     /// ```
     pub fn set_level(&self, level: Level) {
@@ -316,23 +318,21 @@ impl Logger {
         }
     }
 
-    /// Initialize log subsystem (once and only once).
+    /// Initialize log system (once and only once).
     /// Every call made after the first will have no effect besides return `Ok` or `Err`
     /// appropriately (read description of error's enum items).
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```
     /// extern crate logger;
-    /// use logger::Logger;
+    /// use logger::LOGGER;
+    /// use std::ops::Deref;
     ///
     /// fn main() {
-    ///     Logger::new()
-    ///         .init(None)
-    ///         .unwrap();
+    ///     LOGGER.deref().init(None, None).unwrap();
     /// }
     /// ```
-
     pub fn init(&self, log_pipe: Option<String>, metrics_pipe: Option<String>) -> Result<()> {
         // If the logger was already initialized, error will be returned.
         if STATE.compare_and_swap(UNINITIALIZED, INITIALIZING, Ordering::SeqCst) != UNINITIALIZED {
@@ -410,6 +410,8 @@ impl Logger {
         }
     }
 
+    /// Flushes metrics to the FIFO provided as argument upon initialization of the logger.
+    ///
     pub fn log_metrics(&self) -> Result<()> {
         // Check that the logger is initialized.
         if STATE.load(Ordering::Relaxed) == INITIALIZED {
@@ -441,7 +443,7 @@ impl Logger {
     }
 }
 
-/// Implements trait log from the externally used log crate
+/// Implements trait log from the externally used log crate.
 ///
 impl Log for Logger {
     // Test whether a log level is enabled for the current module.
@@ -557,7 +559,7 @@ mod tests {
 
         assert!(l.log_metrics().is_ok());
 
-        // exercise the case when there is an error in opening file
+        // Exercise the case when there is an error in opening file.
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
         assert!(l.init(Some(String::from("")), None).is_err());
         let res = l.init(Some(log_file.clone()), Some(String::from("")));
