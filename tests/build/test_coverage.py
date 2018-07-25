@@ -27,7 +27,7 @@ def test_coverage(test_session_root_path, testsession_tmp_path):
     created by kcov after a coverag run.
     """
 
-    COVERAGE_TARGET_PCT = 64.5
+    COVERAGE_TARGET_PCT = 64.0
     # TODO: Put the coverage in s3 and update it automatically.
 
     COVERAGE_FILE = 'index.json'
