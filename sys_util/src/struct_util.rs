@@ -46,7 +46,7 @@ pub unsafe fn read_struct_slice<T: Copy, F: Read>(f: &mut F, len: usize) -> Resu
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use std::io::Cursor;
     use std::mem;

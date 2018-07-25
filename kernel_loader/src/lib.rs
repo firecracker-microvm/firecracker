@@ -143,7 +143,7 @@ pub fn load_cmdline(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use std::io::Cursor;
     use sys_util::{GuestAddress, GuestMemory};
