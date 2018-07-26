@@ -61,6 +61,7 @@ declare -ra KCOV_APT_GET_DEPS=(\
 )
 
 declare -ra PYTHON_SSH_YUM_DEPS=(python3-devel)
+declare -ra PYTHON_SSH_APT_DEPS=(libssl-dev)
 
 declare -ra GCC_STATIC_YUM_DEPS=(glibc-static)
 # Some tests will build static binaries for use in systems without user space.
@@ -311,13 +312,15 @@ create_python3_venv() {
 }
 
 install_python3_deps() {
+    say "Setup: Installing python-devel."
     if [ $PKG_MANAGER == "yum" ]; then
-        say "Setup: Installed python-devel."
         declare deps="${PYTHON_SSH_YUM_DEPS[@]}"
-        ensure $PKG_MANAGER install -q -y $deps >/dev/null 2>&1
-        say "Setup: Installed python-devel."
+    elif [ $PKG_MANAGER == "apt-get" ]; then
+        # It looks like on Debian and Ubuntu python-devel -static is included by default.
+        declare deps="${PYTHON_SSH_APT_DEPS[@]}"
     fi
-    # It looks like on Debian and Ubuntu python-devel -static is included by default.
+    ensure $PKG_MANAGER install -q -y $deps >/dev/null 2>&1
+    say "Setup: Installed python-devel."
 
     ensure python3 -m pip install -q "${PYTHON_DEPS[@]}"
     say "Setup: Installed python3 dependencies."
@@ -399,7 +402,7 @@ ensure_gcc_static() {
 }
 
 install_epel_deps() {
-     if [ $PKG_MANAGER == "yum" ]; then
+    if [ $PKG_MANAGER == "yum" ]; then
         ensure yum-config-manager --enable epel
         declare deps="${EPEL_TOOLS_YUM_DEPS[@]}"
     elif [ $PKG_MANAGER == "apt-get" ]; then
