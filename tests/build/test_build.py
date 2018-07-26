@@ -19,7 +19,6 @@ def test_build_debug(test_session_root_path):
     cargo_build(build_path)
 
 
-@pytest.mark.timeout(240)
 def test_build_release(test_session_root_path):
     build_path = os.path.join(
         test_session_root_path,

@@ -277,6 +277,7 @@ class Microvm:
     boot_cfg_resource = 'boot-source'
     actions_resource = 'actions'
     logger_resource = 'logger'
+    mmds_resource = 'mmds'
     # TODO: Get the API paths from the Firecracker API definition.
 
     def __init__(
@@ -338,6 +339,7 @@ class Microvm:
         self.boot_cfg_url = self.api_url + self.boot_cfg_resource
         self.actions_url = self.api_url + self.actions_resource
         self.logger_url = self.api_url + self.logger_resource
+        self.mmds_url = self.api_url + self.mmds_resource
 
         self.ensure_firecracker_binary()
 
