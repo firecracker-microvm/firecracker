@@ -360,6 +360,9 @@ definitions:
       kernel_image_path:
         type: string
         description: Host level path to the kernel image used to boot the guest
+      initrd_image_path:
+        type: string
+        description: Host level path to the initrd image used to boot the guest
 
   Logger:
     type: object

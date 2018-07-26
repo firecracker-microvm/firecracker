@@ -360,6 +360,7 @@ impl Drop for EpollContext {
 pub struct KernelConfig {
     pub cmdline: kernel_cmdline::Cmdline,
     pub kernel_file: File,
+    pub initrd_file: Option<File>,
     pub cmdline_addr: GuestAddress,
 }
 
@@ -858,11 +859,19 @@ impl Vmm {
         let vm_memory = self.vm.get_memory().unwrap();
         let entry_addr = kernel_loader::load_kernel(vm_memory, &mut kernel_config.kernel_file)?;
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)?;
+        let (initrd_addr, initrd_size) =
+            if let Some(ref mut initrd_file) = kernel_config.initrd_file {
+                kernel_loader::load_initrd(vm_memory, initrd_file)?
+            } else {
+                (GuestAddress(0), 0)
+            };
 
         x86_64::configure_system(
             vm_memory,
             kernel_config.cmdline_addr,
             cmdline_cstring.to_bytes().len() + 1,
+            initrd_addr,
+            initrd_size,
             self.vm_config.vcpu_count.ok_or(Error::GeneralFailure)?,
         )?;
         Ok(entry_addr)
@@ -1154,6 +1163,22 @@ impl Vmm {
         let box_response: Box<GenerateResponse + Send> = match boot_source_body.local_image {
             Some(image) => match File::open(image.kernel_image_path) {
                 Ok(kernel_file) => {
+                    // open the initrd too, if it exists and is valid
+                    let initrd_file = if let Some(initrd_path) = image.initrd_image_path {
+                        match File::open(initrd_path) {
+                            Ok(initrd_file) => Some(initrd_file),
+                            Err(_) => {
+                                sender
+                                    .send(Box::new(PutBootSourceConfigError::InvalidInitrdPath))
+                                    .map_err(|_| ())
+                                    .expect("one-shot channel closed");
+                                return;
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
                     let mut cmdline =
                         kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE);
                     match cmdline.insert_str(
@@ -1164,6 +1189,7 @@ impl Vmm {
                         Ok(_) => {
                             let kernel_config = KernelConfig {
                                 kernel_file,
+                                initrd_file,
                                 cmdline,
                                 cmdline_addr: GuestAddress(x86_64::layout::CMDLINE_START),
                             };

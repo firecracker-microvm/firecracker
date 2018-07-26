@@ -16,6 +16,7 @@ pub enum BootSourceType {
 #[serde(deny_unknown_fields)]
 pub struct LocalImage {
     pub kernel_image_path: String,
+    pub initrd_image_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -33,6 +34,7 @@ pub struct BootSourceBody {
 
 #[derive(Debug)]
 pub enum PutBootSourceConfigError {
+    InvalidInitrdPath,
     InvalidKernelPath,
     InvalidKernelCommandLine,
 }
@@ -41,6 +43,10 @@ impl GenerateResponse for PutBootSourceConfigError {
     fn generate_response(&self) -> Response {
         use self::PutBootSourceConfigError::*;
         match *self {
+            InvalidInitrdPath => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("The initrd path is invalid!"),
+            ),
             InvalidKernelPath => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The kernel path is invalid!"),
@@ -86,6 +92,12 @@ mod tests {
 
     #[test]
     fn test_generate_response_put_boot_source_config_error() {
+        assert_eq!(
+            PutBootSourceConfigError::InvalidInitrdPath
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
         assert_eq!(
             PutBootSourceConfigError::InvalidKernelPath
                 .generate_response()

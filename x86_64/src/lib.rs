@@ -124,6 +124,8 @@ pub fn configure_system(
     guest_mem: &GuestMemory,
     cmdline_addr: GuestAddress,
     cmdline_size: usize,
+    initrd_addr: GuestAddress,
+    initrd_size: usize,
     num_cpus: u8,
 ) -> Result<()> {
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
@@ -131,7 +133,7 @@ pub fn configure_system(
     const KERNEL_LOADER_OTHER: u8 = 0xff;
     /* These should come from the kernel's own header */
     const KERNEL_MIN_ALIGNMENT_BYTES: u32 = 0x1000000; // Must be non-zero.
-    const KERNEL_INIT_SIZE: u32 = 0x4000000; // Must be non-zero.
+    const KERNEL_INIT_SIZE: u32 = 0x1000000; // Must be non-zero.
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
     let end_32bit_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
     let himem_start = GuestAddress(layout::HIMEM_START);
@@ -148,6 +150,8 @@ pub fn configure_system(
     params.hdr.cmdline_size = cmdline_size as u32;
     params.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
     params.hdr.init_size = KERNEL_INIT_SIZE;
+    params.hdr.ramdisk_image = initrd_addr.offset() as u32;
+    params.hdr.ramdisk_size = initrd_size as u32;
 
     add_e820_entry(&mut params, 0, layout::EBDA_START, E820_RAM)?;
 
