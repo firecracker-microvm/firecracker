@@ -32,10 +32,12 @@ mod tests {
     fn test_into_parsed_request() {
         let body = BootSourceConfig {
             kernel_image_path: String::from("/foo/bar"),
+            initrd_path: None,
             boot_args: Some(String::from("foobar")),
         };
         let same_body = BootSourceConfig {
             kernel_image_path: String::from("/foo/bar"),
+            initrd_path: None,
             boot_args: Some(String::from("foobar")),
         };
         let (sender, receiver) = oneshot::channel();

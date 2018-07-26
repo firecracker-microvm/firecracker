@@ -30,9 +30,11 @@ pub enum Error {
     InvalidProgramHeaderAddress,
     LinuxNot64Bit,
     ReadElfHeader,
+    ReadInitrd,
     ReadKernelImage,
     ReadLinuxHeader,
     ReadProgramHeader,
+    SeekInitrd,
     SeekKernelEnd,
     SeekKernelStart,
     SeekLinuxHeader,
@@ -205,6 +207,37 @@ pub fn load_cmdline(
         .map_err(|_| Error::CommandLineCopy)?;
 
     Ok(())
+}
+
+/// Loads the initrd from a file into the given memory slice.
+///
+/// * `guest_mem` - The guest memory region the initrd is written to.
+/// * `initrd_image` - Input initrd image.
+///
+/// Returns the entry address of the initrd and its length as a tuple
+pub fn load_initrd<F>(
+    guest_mem: &GuestMemory,
+    initrd_image: &mut F,
+) -> Result<(GuestAddress, usize)>
+where
+    F: Read + Seek,
+{
+    // This works for bzImage kernels because they load at 1MiB and have 16MiB init space.
+    // In practice works for many ELF kernels too because they load at 16MiB.
+    // Ought to have an allocator in guest_mem to find an empty spot.
+    const INITRD_LOAD_ADDRESS: usize = 0x3000000; // 48 MiB
+
+    let load_bytes = initrd_image
+        .seek(SeekFrom::End(0))
+        .map_err(|_| Error::SeekInitrd)? as usize;
+    initrd_image
+        .seek(SeekFrom::Start(0))
+        .map_err(|_| Error::SeekInitrd)?;
+    guest_mem
+        .read_to_memory(GuestAddress(INITRD_LOAD_ADDRESS), initrd_image, load_bytes)
+        .map_err(|_| Error::ReadInitrd)?;
+
+    Ok((GuestAddress(INITRD_LOAD_ADDRESS), load_bytes))
 }
 
 #[cfg(test)]

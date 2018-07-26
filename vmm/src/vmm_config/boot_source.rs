@@ -10,6 +10,8 @@ use std::fmt::{Display, Formatter, Result};
 pub struct BootSourceConfig {
     /// Path of the kernel image.
     pub kernel_image_path: String,
+    /// Path of the initrd, if there is one.
+    pub initrd_path: Option<String>,
     /// The boot arguments to pass to the kernel. If this field is uninitialized, the default
     /// kernel command line is used: `reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -21,6 +23,8 @@ pub struct BootSourceConfig {
 pub enum BootSourceConfigError {
     /// The kernel file cannot be opened.
     InvalidKernelPath,
+    /// The initrd file cannot be opened.
+    InvalidInitrdPath,
     /// The kernel command line is invalid.
     InvalidKernelCommandLine,
     /// The boot source cannot be update post boot.
@@ -34,6 +38,11 @@ impl Display for BootSourceConfigError {
             InvalidKernelPath => write!(
                 f,
                 "The kernel file cannot be opened due to invalid kernel path or \
+                 invalid permissions.",
+            ),
+            InvalidInitrdPath => write!(
+                f,
+                "The initrd file cannot be opened due to invalid path or \
                  invalid permissions.",
             ),
             InvalidKernelCommandLine => write!(f, "The kernel command line is invalid!"),

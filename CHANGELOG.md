@@ -8,6 +8,7 @@
 - Documentation for Actions API Requests in `docs/api_requests/actions.md`.
 - Documentation for MMDS in `docs/mmds.md`.
 - Support for booting from bzImage-format kernels
+- Support for loading initrd as well as kernel
 
 ### Changed
 
