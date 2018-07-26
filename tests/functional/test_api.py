@@ -450,6 +450,105 @@ def test_rate_limiters_api_config(test_microvm_with_api):
     assert(test_microvm.api_session.is_good_response(response.status_code))
 
 
+def test_mmds(test_microvm_with_api):
+    test_microvm = test_microvm_with_api
+
+    response = test_microvm.api_session.get(test_microvm.mmds_url)
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+    assert(response.json() == {})
+
+    # Test that patch return NotFound when the MMDS is not initialized.
+    dummy_json = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'dummy'
+            }
+        }
+    }
+    response = test_microvm.api_session.patch(
+        test_microvm.mmds_url,
+        json = dummy_json
+    )
+    assert(response.status_code == 404)
+    fault_json = {
+        "fault_message": "The MMDS resource does not exist."
+    }
+    assert(response.json() == fault_json)
+
+    # Test that using the same json with a PUT request, the MMDS data-store is
+    # created.
+    response = test_microvm.api_session.put(
+        test_microvm.mmds_url,
+        json = dummy_json
+    )
+    assert(response.status_code == 201)
+    response = test_microvm.api_session.get(test_microvm.mmds_url)
+    assert(response.json() == dummy_json)
+
+    # PUT only allows full updates.
+    # The json used in MMDS is based on the one from the Instance Meta-data
+    # online documentation.
+    # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
+    data_store = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'ami-12345678',
+                'reservation-id': 'r-fea54097',
+                'local-hostname': 'ip-10-251-50-12.ec2.internal',
+                'public-hostname': 'ec2-203-0-113-25.compute-1.amazonaws.com',
+                'network': {
+                    'interfaces': {
+                        'macs': {
+                            '02:29:96:8f:6a:2d': {
+                                'device-number': '13345342',
+                                'local-hostname': 'localhost',
+                                'subnet-id': 'subnet-be9b61d'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    response = test_microvm.api_session.put(
+        test_microvm.mmds_url,
+        json = data_store
+    )
+
+    assert(response.status_code == 204)
+
+    response = test_microvm.api_session.get(test_microvm.mmds_url)
+    assert(response.json() == data_store)
+
+    # Change only the subnet id using PATCH method.
+    patch_json = {
+        'latest': {
+            'meta-data': {
+                'network': {
+                    'interfaces': {
+                        'macs': {
+                            '02:29:96:8f:6a:2d': {
+                                'subnet-id': 'subnet-12345'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    response = test_microvm.api_session.patch(
+        test_microvm.mmds_url,
+        json = patch_json
+    )
+    assert(response.status_code == 204)
+    data_store['latest']['meta-data']['network']['interfaces']['macs']\
+        ['02:29:96:8f:6a:2d']['subnet-id'] = 'subnet-12345'
+
+    response = test_microvm.api_session.get(test_microvm.mmds_url)
+    assert(response.json() == data_store)
+
+
 @pytest.mark.timeout(100)
 def test_api_unknown_fields(test_microvm_with_api):
     """ Tests that requests with unknown fields result in error 400 """
