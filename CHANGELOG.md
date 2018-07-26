@@ -7,6 +7,7 @@
 - Documentation for Logger API Requests in `docs/api_requests/logger.md`.
 - Documentation for Actions API Requests in `docs/api_requests/actions.md`.
 - Documentation for MMDS in `docs/mmds.md`.
+- Support for booting from bzImage-format kernels
 
 ### Changed
 

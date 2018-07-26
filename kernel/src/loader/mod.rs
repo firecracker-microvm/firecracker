@@ -24,13 +24,18 @@ pub enum Error {
     CommandLineOverflow,
     InvalidElfMagicNumber,
     InvalidEntryAddress,
+    InvalidLinuxMagicNumber,
     InvalidProgramHeaderSize,
     InvalidProgramHeaderOffset,
     InvalidProgramHeaderAddress,
+    LinuxNot64Bit,
     ReadElfHeader,
     ReadKernelImage,
+    ReadLinuxHeader,
     ReadProgramHeader,
+    SeekKernelEnd,
     SeekKernelStart,
+    SeekLinuxHeader,
     SeekElfStart,
     SeekProgramHeader,
 }
@@ -44,7 +49,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// * `kernel_image` - Input vmlinux image.
 ///
 /// Returns the entry address of the kernel.
-pub fn load_kernel<F>(guest_mem: &GuestMemory, kernel_image: &mut F) -> Result<GuestAddress>
+fn load_elf64<F>(guest_mem: &GuestMemory, kernel_image: &mut F) -> Result<GuestAddress>
 where
     F: Read + Seek,
 {
@@ -109,6 +114,66 @@ where
     }
 
     Ok(GuestAddress(ehdr.e_entry as usize))
+}
+
+/// Loads a kernel from a 64-bit vmlinuz bzImage to a slice
+///
+/// # Arguments
+///
+/// * `guest_mem` - The guest memory region the kernel is written to.
+/// * `kernel_image` - Input vmlinuz image.
+///
+/// Returns the entry address of the kernel.
+fn load_bzimage<F>(guest_mem: &GuestMemory, kernel_image: &mut F) -> Result<GuestAddress>
+where
+    F: Read + Seek,
+{
+    const BZIMAGE_HEADER_OFFSET: u64 = 0x1f1;
+    const BZIMAGE_HEADER_MAGIC: u32 = 0x53726448;
+    const BZIMAGE_LOAD_ADDRESS: usize = 0x100000;
+    const BZIMAGE_64BIT_ENTRY_ADDRESS: usize = BZIMAGE_LOAD_ADDRESS + 0x200;
+
+    let mut header: x86_64::bootparam::setup_header = Default::default();
+
+    /* Read and check the header. */
+    kernel_image
+        .seek(SeekFrom::Start(BZIMAGE_HEADER_OFFSET))
+        .map_err(|_| Error::SeekLinuxHeader)?;
+    unsafe {
+        // read_struct is safe when reading a POD struct.  It can be used and dropped without issue.
+        sys_util::read_struct(kernel_image, &mut header).map_err(|_| Error::ReadLinuxHeader)?;
+    }
+    if header.header != BZIMAGE_HEADER_MAGIC {
+        return Err(Error::InvalidLinuxMagicNumber);
+    }
+    if (header.xloadflags as u32 & x86_64::bootparam::XLF_KERNEL_64) == 0 {
+        return Err(Error::LinuxNot64Bit);
+    }
+
+    /* Find the protected-mode code in the file. */
+    let load_bytes = header.syssize as usize * 16;
+    let load_offset = if header.setup_sects == 0 {
+        5 * 512
+    } else {
+        (header.setup_sects as u64 + 1) * 512
+    };
+
+    /* Load it at the default bzImage load address. */
+    kernel_image
+        .seek(SeekFrom::Start(load_offset))
+        .map_err(|_| Error::SeekKernelStart)?;
+    guest_mem
+        .read_to_memory(GuestAddress(BZIMAGE_LOAD_ADDRESS), kernel_image, load_bytes)
+        .map_err(|_| Error::ReadKernelImage)?;
+
+    Ok(GuestAddress(BZIMAGE_64BIT_ENTRY_ADDRESS))
+}
+
+pub fn load_kernel<F>(guest_mem: &GuestMemory, kernel_image: &mut F) -> Result<GuestAddress>
+where
+    F: Read + Seek,
+{
+    load_elf64(guest_mem, kernel_image).or_else(|_| load_bzimage(guest_mem, kernel_image))
 }
 
 /// Writes the command line string to the given memory slice.
@@ -220,7 +285,7 @@ mod tests {
         bad_image[0x1] = 0x33;
         assert_eq!(
             Err(Error::InvalidElfMagicNumber),
-            load_kernel(&gm, &mut Cursor::new(&bad_image))
+            load_elf64(&gm, &mut Cursor::new(&bad_image))
         );
     }
 
@@ -232,7 +297,7 @@ mod tests {
         bad_image[0x5] = 2;
         assert_eq!(
             Err(Error::BigEndianElfOnLittle),
-            load_kernel(&gm, &mut Cursor::new(&bad_image))
+            load_elf64(&gm, &mut Cursor::new(&bad_image))
         );
     }
 
@@ -244,6 +309,45 @@ mod tests {
         bad_image[0x20] = 0x10;
         assert_eq!(
             Err(Error::InvalidProgramHeaderOffset),
+            load_elf64(&gm, &mut Cursor::new(&bad_image))
+        );
+    }
+
+    // bare skeleton of a bzImage-compatible file.
+    fn make_bz() -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(include_bytes!("test_bzImage.bin"));
+        v
+    }
+
+    #[test]
+    fn load_bz() {
+        let gm = create_guest_mem();
+        let image = make_bz();
+        assert_eq!(
+            Ok(GuestAddress(0x100200)),
+            load_kernel(&gm, &mut Cursor::new(&image))
+        );
+    }
+
+    #[test]
+    fn bad_bz_magic() {
+        let gm = create_guest_mem();
+        let mut bad_image = make_bz();
+        bad_image[0x203] = 0x0;
+        assert_eq!(
+            Err(Error::InvalidLinuxMagicNumber),
+            load_kernel(&gm, &mut Cursor::new(&bad_image))
+        );
+    }
+
+    #[test]
+    fn bad_bz_32bit() {
+        let gm = create_guest_mem();
+        let mut bad_image = make_bz();
+        bad_image[0x236] = 0x2;
+        assert_eq!(
+            Err(Error::LinuxNot64Bit),
             load_kernel(&gm, &mut Cursor::new(&bad_image))
         );
     }

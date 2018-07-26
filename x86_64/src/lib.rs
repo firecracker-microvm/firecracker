@@ -16,7 +16,7 @@ extern crate sys_util;
 #[allow(non_upper_case_globals)]
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
-mod bootparam;
+pub mod bootparam;
 // boot_params is just a series of ints, it is safe to initialize it.
 unsafe impl memory_model::DataInit for bootparam::boot_params {}
 
@@ -119,7 +119,9 @@ pub fn configure_system(
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
     const KERNEL_HDR_MAGIC: u32 = 0x53726448;
     const KERNEL_LOADER_OTHER: u8 = 0xff;
+    /* These should come from the kernel's own header */
     const KERNEL_MIN_ALIGNMENT_BYTES: u32 = 0x1000000; // Must be non-zero.
+    const KERNEL_INIT_SIZE: u32 = 0x4000000; // Must be non-zero.
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
     let end_32bit_gap_start = GuestAddress(get_32bit_gap_start());
 
@@ -136,6 +138,7 @@ pub fn configure_system(
     params.hdr.cmd_line_ptr = cmdline_addr.offset() as u32;
     params.hdr.cmdline_size = cmdline_size as u32;
     params.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
+    params.hdr.init_size = KERNEL_INIT_SIZE;
 
     add_e820_entry(&mut params, 0, layout::EBDA_START, E820_RAM)?;
 
