@@ -16,8 +16,9 @@ use super::{ActionMap, ActionMapValue};
 use data_model::mmds::MMDS;
 use data_model::vm::MachineConfiguration;
 use logger::{Metric, METRICS};
+use request::actions::ActionBody;
 use request::instance_info::InstanceInfo;
-use request::{self, ApiRequest, AsyncOutcome, AsyncRequestBody, IntoParsedRequest, ParsedRequest};
+use request::{self, ApiRequest, AsyncOutcome, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
 
 fn build_response_base<B: Into<hyper::Body>>(
@@ -135,25 +136,25 @@ fn parse_actions_req<'a>(
                 Error::InvalidID
             })?;
             METRICS.put_api_requests.actions_count.inc();
-            let async_body: AsyncRequestBody =
-                serde_json::from_slice(body.as_ref()).map_err(|e| {
-                    METRICS.put_api_requests.actions_fails.inc();
-                    Error::SerdeJson(e)
-                })?;
-            let parsed_req = async_body.to_parsed_request(unwrapped_id).map_err(|msg| {
+            let body: ActionBody = serde_json::from_slice(body.as_ref()).map_err(|e| {
+                METRICS.put_api_requests.actions_fails.inc();
+                Error::SerdeJson(e)
+            })?;
+            let parsed_req = body.clone().into_parsed_request(method).map_err(|msg| {
                 METRICS.put_api_requests.actions_fails.inc();
                 Error::Generic(StatusCode::BadRequest, msg)
             })?;
-            action_map
-                .borrow_mut()
-                .insert_unique(
-                    String::from(unwrapped_id),
-                    ActionMapValue::Pending(async_body),
-                )
-                .map_err(|_| {
-                    METRICS.put_api_requests.actions_fails.inc();
-                    Error::ActionExists
-                })?;
+            match parsed_req {
+                ParsedRequest::Async(_, _, _) => action_map
+                    .borrow_mut()
+                    .insert_unique(String::from(unwrapped_id), ActionMapValue::Pending(body))
+                    .map_err(|_| {
+                        METRICS.put_api_requests.actions_fails.inc();
+                        Error::ActionExists
+                    })?,
+                _ => (),
+            }
+
             Ok(parsed_req)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -594,7 +595,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                         Some(&mut ActionMapValue::Pending(ref mut async_body)) => {
                                             match outcome {
                                                 AsyncOutcome::Ok(timestamp) => {
-                                                    async_body.set_timestamp(timestamp);
+                                                    async_body.timestamp = Some(timestamp);
                                                     info!(
                                                         "Received Success on {}",
                                                         describe(
@@ -729,7 +730,8 @@ mod tests {
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use net_util::MacAddr;
-    use request::async::AsyncRequest;
+    use request::actions::{ActionBody, ActionType};
+    use request::async::{AsyncRequest, DeviceType, InstanceDeviceDetachAction};
     use request::sync::{
         DeviceState, DriveDescription, DrivePermissions, NetworkInterfaceBody, SyncRequest,
     };
@@ -927,20 +929,20 @@ mod tests {
 
                 match action_map.borrow_mut().get_mut("bar") {
                     Some(&mut ActionMapValue::Pending(ref body)) => {
-                        // The components of AsyncRequestBody are private, so an object can't be
+                        // The components of ActionBody are private, so an object can't be
                         // instantiated here. Reverting to comparison by string formatting.
-                        assert_eq!(
-                            format!("{:?}", body),
-                            "AsyncRequestBody { \
-                             action_id: \"bar\", \
-                             action_type: InstanceStart, \
-                             instance_device_detach_action: Some(\
-                             InstanceDeviceDetachAction { \
-                             device_type: Drive, \
-                             device_resource_id: \"dummy\", \
-                             force: true }), \
-                             timestamp: Some(1522850095) }"
-                        );
+                        let action_body = ActionBody {
+                            action_id: String::from("bar"),
+                            action_type: ActionType::InstanceStart,
+                            instance_device_detach_action: Some(InstanceDeviceDetachAction {
+                                device_type: DeviceType::Drive,
+                                device_resource_id: String::from("dummy"),
+                                force: true,
+                            }),
+                            payload: None,
+                            timestamp: Some(1522850095),
+                        };
+                        assert!(body.eq(&action_body));
                     }
                     _ => assert!(false),
                 };

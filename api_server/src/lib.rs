@@ -34,16 +34,16 @@ use tokio_uds::UnixListener;
 use data_model::mmds::MMDS;
 use fc_util::LriHashMap;
 use http_service::ApiServerHttpService;
+use request::actions::ActionBody;
 use request::instance_info::InstanceInfo;
 pub use request::ApiRequest;
-use request::AsyncRequestBody;
 use sys_util::EventFd;
 
 // When information is requested about an async action, it can still be waiting to be processed
 // by the VMM, or we already know the outcome, which is recorded directly into response form,
 // because it's inherently static at this point.
 pub enum ActionMapValue {
-    Pending(AsyncRequestBody),
+    Pending(ActionBody),
     // The response status code, and the response json body.
     JsonResponse(hyper::StatusCode, String),
 }
