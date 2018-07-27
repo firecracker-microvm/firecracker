@@ -4,15 +4,14 @@ pub mod sync;
 use serde_json::Value;
 use std::result;
 
-pub use self::async::{
-    AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest, AsyncRequestBody,
-};
+pub use self::async::{AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest};
 pub use self::sync::{
     APILoggerDescription, BootSourceBody, DriveDescription, NetworkInterfaceBody,
     SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest,
 };
 use hyper::Method;
 
+pub mod actions;
 pub mod instance_info;
 
 pub enum ParsedRequest {
