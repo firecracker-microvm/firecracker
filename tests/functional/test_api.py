@@ -285,10 +285,18 @@ def test_api_put_update_post_boot(test_microvm_with_api):
     """ Network interface update is not allowed after boot."""
     assert(not test_microvm.api_session.is_good_response(response.status_code))
 
-    """
-    TODO: Right now, PUT on block device triggers a rescan. After we properly
-    implement the rescan, we have to also check that PUT on /drives fails.
-    """
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfs',
+            'path_on_host': test_microvm.slot.rootfs_file,
+            'is_root_device': True,
+            'permissions': 'rw',
+            'state': 'Attached'
+        }
+    )
+    """ Block device update is not allowed after boot."""
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
 
 
 def test_rate_limiters_api_config(test_microvm_with_api):
@@ -689,3 +697,50 @@ def test_api_unknown_fields(test_microvm_with_api):
         }
     )
     assert response.status_code == 400
+
+
+def test_api_actions(test_microvm_with_api):
+    """
+    Tests PUT requests to /actions, other than InstanceStart and InstanceHalt.
+    """
+
+    test_microvm = test_microvm_with_api
+    test_microvm.basic_config()
+    """
+    Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface and
+    a root file system with the rw permission.
+    """
+
+    test_microvm.put_default_scratch_device()
+
+    response = test_microvm.api_session.put(
+        test_microvm.actions_url,
+        json={
+            'action_type': 'BlockDeviceRescan',
+            'payload': 'scratch',
+        }
+    )
+    """ Rescan operations before the guest boots are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
+
+    test_microvm.start()
+
+    response = test_microvm.api_session.put(
+        test_microvm.actions_url,
+        json={
+            'action_type': 'BlockDeviceRescan',
+            'payload': 'scratch',
+        }
+    )
+    """ Rescan operations after the guest boots are allowed. """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    response = test_microvm.api_session.put(
+        test_microvm.actions_url,
+        json={
+            'action_type': 'BlockDeviceRescan',
+            'payload': 'foobar',
+        }
+    )
+    """ Rescan operations on non-existent drives are not allowed. """
+    assert(not test_microvm.api_session.is_good_response(response.status_code))
