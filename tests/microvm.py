@@ -78,6 +78,20 @@ class FilesystemFile:
         finally:
             self._unmount()
 
+    def resize(self, new_size):
+        """ Resizes the filesystem file. """
+        run(
+            'truncate --size ' + str(new_size) + 'M ' + self.path,
+            shell=True,
+            check=True
+        )
+        run('resize2fs ' + self.path, shell=True, check=True)
+
+    def size(self):
+        """ Returns the size of the filesystem file. """
+        statinfo = os.stat(self.path)
+        return statinfo.st_size
+
     def _loop_mount(self):
         """
         Loop-mounts this file system file and returns the mount path.
@@ -214,6 +228,23 @@ class MicrovmSlot:
         path = os.path.join(self.fsfiles_path, name + '.ext4')
         self.fsfiles[name] = FilesystemFile(path, size=size, format='ext4')
         return path
+
+    def resize_fsfile(self, name, size):
+        """
+        Resizes the backing file of a guest's file system. `size` is in MiB.
+        """
+
+        fsfile = self.fsfiles[name]
+        if not fsfile:
+            raise ValueError(self.say("Invalid block device ID: " + name))
+        fsfile.resize(size)
+
+    def sizeof_fsfile(self, name):
+        """ Returns the size of the backing file of a guest's filesystem. """
+        fsfile = self.fsfiles[name]
+        if not fsfile:
+            raise ValueError(self.say("Invalid block device ID: " + name))
+        return fsfile.size()
 
     def make_tap(self, name: str=None, ip: str=None):
         """ Creates a new tap device, and brings it up. """
