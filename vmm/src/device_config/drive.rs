@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    /// Test BlockDevicesConfigs::add when you first add the root device and then the other devices
+    // Test BlockDevicesConfigs::add when you first add the root device and then the other devices.
     fn test_add_root_block_device_first() {
         let dummy_file_1 = NamedTempFile::new().unwrap();
         let dummy_path_1 = dummy_file_1.path().to_path_buf();
@@ -317,7 +317,6 @@ mod tests {
         };
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
-
         assert!(block_devices_configs.add(root_block_device.clone()).is_ok());
         assert!(
             block_devices_configs
@@ -331,6 +330,7 @@ mod tests {
         );
 
         assert_eq!(block_devices_configs.has_root_block_device(), true);
+        assert_eq!(block_devices_configs.has_partuuid_root(), false);
         assert_eq!(block_devices_configs.config_list.len(), 3);
 
         let mut block_dev_iter = block_devices_configs.config_list.iter();
@@ -340,12 +340,12 @@ mod tests {
     }
 
     #[test]
-    /// Test BlockDevicesConfigs::add when you add other devices first and then the root device
+    // Test BlockDevicesConfigs::add when you add other devices first and then the root device.
     fn test_root_block_device_add_last() {
         let dummy_file_1 = NamedTempFile::new().unwrap();
         let dummy_path_1 = dummy_file_1.path().to_path_buf();
         let root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path_1,
+            path_on_host: dummy_path_1.clone(),
             is_root_device: true,
             partuuid: None,
             is_read_only: false,
@@ -389,6 +389,7 @@ mod tests {
         assert!(block_devices_configs.add(root_block_device.clone()).is_ok());
 
         assert_eq!(block_devices_configs.has_root_block_device(), true);
+        assert_eq!(block_devices_configs.has_partuuid_root(), false);
         assert_eq!(block_devices_configs.config_list.len(), 3);
 
         let mut block_dev_iter = block_devices_configs.config_list.iter();
@@ -423,7 +424,7 @@ mod tests {
         let dummy_file_1 = NamedTempFile::new().unwrap();
         let dummy_path_1 = dummy_file_1.path().to_path_buf();
         let root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path_1,
+            path_on_host: dummy_path_1.clone(),
             is_root_device: true,
             partuuid: None,
             is_read_only: false,
@@ -463,8 +464,29 @@ mod tests {
         assert!(block_devices_configs.update(&dummy_block_device_2).is_err());
 
         // Update with 2 root block devices
-        dummy_block_device_2.path_on_host = dummy_path_2;
+        dummy_block_device_2.path_on_host = dummy_path_2.clone();
         dummy_block_device_2.is_root_device = true;
         assert!(block_devices_configs.update(&dummy_block_device_2).is_err());
+
+        // Switch roots and add a PARTUUID for the new one  .
+        let root_block_device_old = BlockDeviceConfig {
+            path_on_host: dummy_path_1,
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            drive_id: String::from("1"),
+            rate_limiter: None,
+        };
+        let root_block_device_new = BlockDeviceConfig {
+            path_on_host: dummy_path_2,
+            is_root_device: true,
+            partuuid: Some("0eaa91a0-01".to_string()),
+            is_read_only: false,
+            drive_id: String::from("2"),
+            rate_limiter: None,
+        };
+        assert!(&block_devices_configs.update(&root_block_device_old).is_ok());
+        assert!(&block_devices_configs.update(&root_block_device_new).is_ok());
+        assert!(block_devices_configs.has_partuuid_root);
     }
 }
