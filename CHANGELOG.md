@@ -2,11 +2,12 @@
 
 ## [Unreleased]
 
-## [0.7.0] - 2018-07-12
 ### Added
 
 - Rate limiting functionality allows specifying an initial one time
   burst size.
+- Firecracker can now boot from an arbitrary boot partition by specifying
+  its unique id in the driver's API call.
 
 ## [0.6.0]
 
