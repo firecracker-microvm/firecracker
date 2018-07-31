@@ -49,6 +49,145 @@ def test_rescan(test_microvm_with_ssh, network_config):
     ssh_connection.close()
 
 
+def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
+    """ Tests the output reported by blockdev when booting from /dev/vda."""
+    test_microvm = test_microvm_with_ssh
+
+    test_microvm.basic_config(vcpu_count=1, net_iface_count=0)
+    """
+    Sets up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
+    a root file system with the rw permission. The network interfaces is
+    added after we get an unique MAC and IP.
+    """
+    test_microvm.basic_network_config(network_config)
+
+    # Add another read-only block device.
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url + '/readonly',
+        json={
+            'drive_id': 'readonly',
+            'path_on_host': test_microvm.slot.make_fsfile(name='readonly'),
+            'is_root_device': False,
+            'permissions': 'ro',
+            'state': 'Attached'
+        }
+    )
+    """ Adds the root file system with rw permissions. """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    test_microvm.start()
+
+    # Prepare the input for doing the assertion
+    assert_dict = {}
+    # Keep an array of strings specifying the location where some string
+    # from the output is located.
+    # 1-0 means line 1, column 0.
+    keys_array = ["1-0", "1-8", "2-0"]
+    # Keep a dictionary where the keys are the location and the values
+    # represent the input to assert against.
+    assert_dict[keys_array[0]] = "rw"
+    assert_dict[keys_array[1]] = "/dev/vda"
+    assert_dict[keys_array[2]] = "ro"
+    check_drives(test_microvm, assert_dict, keys_array)
+
+
+def test_partuuid_boot(test_microvm_with_partuuid, network_config):
+    """ Tests the output reported by blockdev when booting with PARTUUID."""
+    test_microvm = test_microvm_with_partuuid
+
+    test_microvm.basic_config(
+        vcpu_count=1,
+        net_iface_count=0,
+        add_root_device=False
+    )
+    """
+    Sets up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
+    a root file system with the rw permission. The network interfaces is
+    added after we get an unique MAC and IP.
+    """
+    test_microvm.basic_network_config(network_config)
+
+    # Add the root block device specified through PARTUUID.
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfs',
+            'path_on_host': test_microvm.slot.rootfs_file,
+            'is_root_device': True,
+            'partuuid': '0eaa91a0-01',
+            'permissions': 'rw',
+            'state': 'Attached'
+        }
+    )
+    """ Adds the root file system with rw permissions. """
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    test_microvm.start()
+
+    assert_dict = {}
+    keys_array = ["1-0", "1-8", "2-0", "2-7"]
+    assert_dict[keys_array[0]] = "rw"
+    assert_dict[keys_array[1]] = "/dev/vda"
+    assert_dict[keys_array[2]] = "rw"
+    assert_dict[keys_array[3]] = "/dev/vda1"
+    check_drives(test_microvm, assert_dict, keys_array)
+
+
+def test_partuuid_update(test_microvm_with_ssh, network_config):
+    """
+    Tests that switching from booting from a PARTUUID to booting from
+    /dev/vda is successful.
+    """
+    test_microvm = test_microvm_with_ssh
+    test_microvm.basic_config(
+        vcpu_count=1,
+        net_iface_count=0,
+        add_root_device=False
+    )
+    """
+    Sets up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
+    a root file system with the rw permission. The network interfaces is
+    added after we get an unique MAC and IP.
+    """
+    test_microvm.basic_network_config(network_config)
+
+    # Add the root block device specified through PARTUUID.
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfs',
+            'path_on_host': test_microvm.slot.rootfs_file,
+            'is_root_device': True,
+            'partuuid': '0eaa91a0-01',
+            'permissions': 'rw',
+            'state': 'Attached'
+        }
+    )
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    # Update the root block device to boot from /dev/vda.
+    response = test_microvm.api_session.put(
+        test_microvm.blk_cfg_url + '/rootfs',
+        json={
+            'drive_id': 'rootfs',
+            'path_on_host': test_microvm.slot.rootfs_file,
+            'is_root_device': True,
+            'permissions': 'rw',
+            'state': 'Attached'
+        }
+    )
+    assert(test_microvm.api_session.is_good_response(response.status_code))
+
+    test_microvm.start()
+
+    # Assert that the final booting method is from /dev/vda.
+    assert_dict = {}
+    keys_array = ["1-0", "1-8"]
+    assert_dict[keys_array[0]] = "rw"
+    assert_dict[keys_array[1]] = "/dev/vda"
+    check_drives(test_microvm, assert_dict, keys_array)
+
+
 def _check_scratch_size(ssh_connection, size):
     _, stdout, stderr = ssh_connection.execute_command(
         "blockdev --getsize64 /dev/vdb"
@@ -56,3 +195,24 @@ def _check_scratch_size(ssh_connection, size):
     """ The scratch block device is /dev/vdb in the guest. """
     assert(stderr.read().decode("utf-8") == '')
     assert(stdout.readline().strip() == str(size))
+
+
+def process_blockdev_output(blockdev_out, assert_dict, keys_array):
+    blockdev_out_lines = blockdev_out.splitlines()
+
+    for key in keys_array:
+        line = int(key.split("-")[0])
+        col = int(key.split("-")[1])
+        blockdev_out_line = blockdev_out_lines[line]
+        assert(blockdev_out_line.split("   ")[col] == assert_dict[key])
+
+
+def check_drives(test_microvm, assert_dict, keys_array):
+    ssh_connection = SSHConnection(test_microvm.slot.ssh_config)
+
+    _, stdout, stderr = ssh_connection.execute_command("blockdev --report")
+    assert (stderr.read().decode("utf-8") == '')
+    process_blockdev_output(
+        stdout.read().decode("utf-8"),
+        assert_dict,
+        keys_array)
