@@ -304,6 +304,12 @@ definitions:
         description: Host level path for the guest drive
       is_root_device:
         type: boolean
+      partuuid:
+        type: string
+        description:
+          Represents the unique id of the boot partition of this device. It is
+          optional and it will be taken into account only if the is_root_device
+          field is true.
       permissions:
         $ref: "#/definitions/DrivePermissions"
       rate_limiter:
