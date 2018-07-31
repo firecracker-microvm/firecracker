@@ -388,7 +388,8 @@ class Microvm:
         vcpu_count: int=2,
         ht_enable: bool=False,
         mem_size_mib: int=256,
-        net_iface_count: int=1
+        net_iface_count: int=1,
+        add_root_device: bool=True,
     ):
         """
         Shortcut for quickly configuring a spawned microvm. Only handles:
@@ -438,18 +439,19 @@ class Microvm:
         """ Adds a kernel to start booting from. """
         assert(self.api_session.is_good_response(response.status_code))
 
-        response = self.api_session.put(
-            self.blk_cfg_url + '/rootfs',
-            json={
-                'drive_id': 'rootfs',
-                'path_on_host': self.slot.rootfs_file,
-                'is_root_device': True,
-                'permissions': 'rw',
-                'state': 'Attached'
-            }
-        )
-        """ Adds the root file system with rw permissions. """
-        assert(self.api_session.is_good_response(response.status_code))
+        if add_root_device:
+            response = self.api_session.put(
+                self.blk_cfg_url + '/rootfs',
+                json={
+                    'drive_id': 'rootfs',
+                    'path_on_host': self.slot.rootfs_file,
+                    'is_root_device': True,
+                    'permissions': 'rw',
+                    'state': 'Attached'
+                }
+            )
+            """ Adds the root file system with rw permissions. """
+            assert(self.api_session.is_good_response(response.status_code))
 
     def put_default_scratch_device(self):
         """
