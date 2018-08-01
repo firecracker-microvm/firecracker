@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use std::result;
 
-use api_server::request::sync::{DriveDescription, DriveError};
-use data_model::vm::RateLimiterDescription;
+use api_server::request::sync::DriveError;
+use data_model::vm::{DriveDescription, RateLimiterDescription};
 
 type Result<T> = result::Result<T, DriveError>;
 
@@ -182,7 +182,7 @@ mod tests {
     use self::tempfile::NamedTempFile;
     use super::*;
 
-    use api_server::request::sync::{DeviceState, DrivePermissions};
+    use data_model::vm::{DeviceState, DrivePermissions};
 
     #[test]
     fn test_create_block_devices_configs() {

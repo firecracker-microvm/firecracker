@@ -243,16 +243,19 @@ fn parse_drives_req<'a>(
         1 if method == Method::Put => {
             METRICS.put_api_requests.drive_count.inc();
 
-            Ok(serde_json::from_slice::<request::DriveDescription>(body)
-                .map_err(|e| {
+            let drive_desc =
+                serde_json::from_slice::<request::DriveDescription>(body).map_err(|e| {
                     METRICS.put_api_requests.drive_fails.inc();
                     Error::SerdeJson(e)
-                })?
-                .into_parsed_request(id_from_path.unwrap())
-                .map_err(|s| {
-                    METRICS.put_api_requests.drive_fails.inc();
-                    Error::Generic(StatusCode::BadRequest, s)
-                })?)
+                })?;
+            drive_desc.check_id(id_from_path.unwrap()).map_err(|s| {
+                METRICS.put_api_requests.drive_fails.inc();
+                Error::Generic(StatusCode::BadRequest, s)
+            })?;
+            Ok(drive_desc.into_parsed_request(method).map_err(|s| {
+                METRICS.put_api_requests.drive_fails.inc();
+                Error::Generic(StatusCode::BadRequest, s)
+            })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -738,17 +741,15 @@ fn describe(sync: bool, method: &Method, path: &String, body: &String) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data_model::vm::CpuFeaturesTemplate;
+    use data_model::vm::{CpuFeaturesTemplate, DeviceState, DriveDescription, DrivePermissions};
     use fc_util::LriHashMap;
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use net_util::MacAddr;
-    use request::actions::{ActionBody, ActionType};
+    use request::actions::ActionType;
     use request::async::{AsyncRequest, DeviceType, InstanceDeviceDetachAction};
-    use request::sync::{
-        DeviceState, DriveDescription, DrivePermissions, NetworkInterfaceBody, SyncRequest,
-    };
+    use request::sync::{NetworkInterfaceBody, SyncRequest};
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret =
@@ -1095,7 +1096,7 @@ mod tests {
             rate_limiter: None,
         };
 
-        match drive_desc.into_parsed_request("bar") {
+        match drive_desc.into_parsed_request(Method::Put) {
             Ok(pr) => match parse_drives_req(
                 &"/foo/bar"[1..].split_terminator('/').collect(),
                 &"/foo/bar",

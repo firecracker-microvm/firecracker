@@ -1,42 +1,13 @@
 use std::result;
 
 use futures::sync::oneshot;
-use hyper::{Response, StatusCode};
+use hyper::{Method, Response, StatusCode};
 
-use data_model::vm::RateLimiterDescription;
+use data_model::vm::DriveDescription;
 
-use super::{DeviceState, GenerateResponse, SyncRequest};
+use super::{GenerateResponse, SyncRequest};
 use http_service::{empty_response, json_fault_message, json_response};
-use request::ParsedRequest;
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[allow(non_camel_case_types)]
-pub enum DrivePermissions {
-    ro,
-    rw,
-}
-
-// This struct represents the strongly typed equivalent of the json body from drive
-// related requests.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct DriveDescription {
-    pub drive_id: String,
-    pub path_on_host: String,
-    pub state: DeviceState,
-    pub is_root_device: bool,
-    pub permissions: DrivePermissions,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub partuuid: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rate_limiter: Option<RateLimiterDescription>,
-}
-
-impl DriveDescription {
-    pub fn is_read_only(&self) -> bool {
-        self.permissions == DrivePermissions::ro
-    }
-}
+use request::{IntoParsedRequest, ParsedRequest};
 
 #[derive(Debug, PartialEq)]
 pub enum DriveError {
@@ -103,19 +74,16 @@ impl GenerateResponse for PutDriveOutcome {
     }
 }
 
-impl DriveDescription {
-    pub fn into_parsed_request(self, id_from_path: &str) -> result::Result<ParsedRequest, String> {
-        if id_from_path != self.drive_id {
-            return Err(String::from(
-                "The id from the path does not match the id from the body!",
-            ));
-        }
-
+impl IntoParsedRequest for DriveDescription {
+    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
-        Ok(ParsedRequest::Sync(
-            SyncRequest::PutDrive(self, sender),
-            receiver,
-        ))
+        match method {
+            Method::Put => Ok(ParsedRequest::Sync(
+                SyncRequest::PutDrive(self, sender),
+                receiver,
+            )),
+            _ => Ok(ParsedRequest::Dummy),
+        }
     }
 }
 
@@ -123,20 +91,7 @@ impl DriveDescription {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_is_read_only() {
-        assert!(
-            DriveDescription {
-                drive_id: String::from("foo"),
-                path_on_host: String::from("/foo/bar"),
-                state: DeviceState::Attached,
-                is_root_device: true,
-                permissions: DrivePermissions::ro,
-                partuuid: None,
-                rate_limiter: None,
-            }.is_read_only()
-        );
-    }
+    use data_model::vm::{DeviceState, DrivePermissions};
 
     #[test]
     fn test_generate_response_drive_error() {
@@ -212,12 +167,17 @@ mod tests {
             rate_limiter: None,
         };
 
-        assert!(&desc.clone().into_parsed_request("bar").is_err());
+        assert!(
+            &desc
+                .clone()
+                .into_parsed_request(Method::Options)
+                .eq(&Ok(ParsedRequest::Dummy))
+        );
         let (sender, receiver) = oneshot::channel();
         assert!(
             &desc
                 .clone()
-                .into_parsed_request("foo")
+                .into_parsed_request(Method::Put)
                 .eq(&Ok(ParsedRequest::Sync(
                     SyncRequest::PutDrive(desc, sender),
                     receiver
