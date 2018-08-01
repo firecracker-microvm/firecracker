@@ -3,8 +3,9 @@ use std::rc::Rc;
 use std::result;
 
 use api_server::request::sync::{
-    Error as SyncError, NetworkInterfaceBody, OkStatus as SyncOkStatus, RateLimiterDescription,
+    Error as SyncError, NetworkInterfaceBody, OkStatus as SyncOkStatus,
 };
+use data_model::vm::RateLimiterDescription;
 use net_util::{MacAddr, Tap, TapError};
 
 pub struct NetworkInterfaceConfig {

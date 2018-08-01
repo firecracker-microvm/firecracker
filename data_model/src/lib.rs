@@ -4,6 +4,8 @@ extern crate serde_derive;
 extern crate json_patch;
 extern crate serde_json;
 
+extern crate fc_util;
+
 pub mod mmds;
 pub mod vm;
 

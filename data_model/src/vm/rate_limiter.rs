@@ -1,3 +1,5 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+
 use std::io;
 
 use fc_util::ratelimiter::RateLimiter;
@@ -69,8 +71,9 @@ pub fn description_into_implementation(
 
 #[cfg(test)]
 mod tests {
+    extern crate serde_json;
+
     use super::*;
-    use serde_json;
 
     #[test]
     fn test_token_bucket_derives() {
