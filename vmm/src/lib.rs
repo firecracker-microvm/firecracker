@@ -44,11 +44,12 @@ use api_server::request::sync::machine_configuration::{
     PutMachineConfigurationError, PutMachineConfigurationOutcome,
 };
 use api_server::request::sync::{
-    rate_limiter_description_into_implementation, APILoggerDescription, BootSourceBody,
-    DriveDescription, DriveError, Error as SyncError, GenerateResponse, NetworkInterfaceBody,
-    OkStatus as SyncOkStatus, PutDriveOutcome, PutLoggerOutcome, SyncOutcomeSender, SyncRequest,
+    APILoggerDescription, BootSourceBody, DriveDescription, DriveError, Error as SyncError,
+    GenerateResponse, NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
+    PutLoggerOutcome, SyncOutcomeSender, SyncRequest,
 };
 use api_server::ApiRequest;
+use data_model::vm::description_into_implementation as rate_limiter_description_into_implementation;
 use data_model::vm::MachineConfiguration;
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
