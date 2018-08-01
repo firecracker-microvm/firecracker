@@ -6,9 +6,10 @@ use std::result;
 
 pub use self::async::{AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest};
 pub use self::sync::{
-    APILoggerDescription, BootSourceBody, DriveDescription, NetworkInterfaceBody,
-    SyncOutcomeReceiver, SyncOutcomeSender, SyncRequest,
+    APILoggerDescription, BootSourceBody, NetworkInterfaceBody, SyncOutcomeReceiver,
+    SyncOutcomeSender, SyncRequest,
 };
+pub use data_model::vm::DriveDescription;
 use hyper::Method;
 
 pub mod actions;

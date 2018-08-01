@@ -4,18 +4,21 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{self, StatusCode};
 
-use data_model::vm::{MachineConfiguration, RateLimiterDescription};
+use data_model::vm::{DriveDescription, MachineConfiguration};
 use http_service::{empty_response, json_fault_message, json_response};
 use net_util::TapError;
+use request::actions::ActionBody;
 
-pub mod boot_source;
+mod boot_source;
 mod drive;
 mod logger;
 pub mod machine_configuration;
 mod net;
 
-pub use self::boot_source::{BootSourceBody, BootSourceType, LocalImage};
-pub use self::drive::{DriveDescription, DriveError, DrivePermissions, PutDriveOutcome};
+pub use self::boot_source::{
+    BootSourceBody, BootSourceType, LocalImage, PutBootSourceConfigError, PutBootSourceOutcome,
+};
+pub use self::drive::{DriveError, PutDriveOutcome};
 pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, PutLoggerOutcome};
 pub use self::net::NetworkInterfaceBody;
 
@@ -44,11 +47,6 @@ where
 
 pub type SyncOutcomeSender = oneshot::Sender<Box<GenerateResponse + Send>>;
 pub type SyncOutcomeReceiver = oneshot::Receiver<Box<GenerateResponse + Send>>;
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub enum DeviceState {
-    Attached,
-}
 
 // This enum contains messages for the VMM which represent sync requests. They each contain various
 // bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
