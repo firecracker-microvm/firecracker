@@ -2,8 +2,9 @@ use std::result;
 
 use futures::sync::oneshot;
 
-use super::{DeviceState, RateLimiterDescription, SyncRequest};
+use super::SyncRequest;
 
+use data_model::vm::{DeviceState, RateLimiterDescription};
 use net_util::MacAddr;
 use request::ParsedRequest;
 

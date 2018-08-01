@@ -39,18 +39,18 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use api_server::request::actions::ActionBody;
 use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
-use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::request::sync::machine_configuration::{
     PutMachineConfigurationError, PutMachineConfigurationOutcome,
 };
 use api_server::request::sync::{
-    APILoggerDescription, BootSourceBody, DriveDescription, DriveError, Error as SyncError,
-    GenerateResponse, NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome,
-    PutLoggerOutcome, SyncOutcomeSender, SyncRequest,
+    APILoggerDescription, BootSourceBody, DriveError, Error as SyncError, GenerateResponse,
+    NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome, PutLoggerOutcome,
+    SyncOutcomeSender, SyncRequest,
 };
+use api_server::request::sync::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::ApiRequest;
 use data_model::vm::description_into_implementation as rate_limiter_description_into_implementation;
-use data_model::vm::MachineConfiguration;
+use data_model::vm::{DriveDescription, MachineConfiguration};
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -1363,13 +1363,13 @@ pub fn start_vmm_thread(
 mod tests {
     extern crate tempfile;
 
+    use super::*;
+
     use std::fs::File;
 
     use self::tempfile::NamedTempFile;
 
-    use super::*;
-    use api_server::request::sync::DeviceState;
-    use data_model::vm::CpuFeaturesTemplate;
+    use data_model::vm::{CpuFeaturesTemplate, DeviceState};
     use net_util::MacAddr;
 
     fn create_vmm_object() -> Vmm {

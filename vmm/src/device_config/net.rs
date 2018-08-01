@@ -122,7 +122,7 @@ impl NetworkInterfaceConfigs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use api_server::request::sync::DeviceState;
+    use data_model::vm::DeviceState;
     use net_util::MacAddr;
 
     fn make_netif(id: &str, name: &str, mac: MacAddr) -> NetworkInterfaceBody {
