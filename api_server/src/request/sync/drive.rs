@@ -3,7 +3,8 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Response, StatusCode};
 
-use super::rate_limiter::RateLimiterDescription;
+use data_model::vm::RateLimiterDescription;
+
 use super::{DeviceState, GenerateResponse, SyncRequest};
 use http_service::{empty_response, json_fault_message, json_response};
 use request::ParsedRequest;
