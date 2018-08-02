@@ -1522,19 +1522,23 @@ pub fn start_vmm_thread(
     api_event_fd: EventFd,
     from_api: Receiver<Box<ApiRequest>>,
 ) -> thread::JoinHandle<()> {
-    thread::spawn(move || {
-        // If this fails, consider it fatal. Use expect().
-        let mut vmm = Vmm::new(api_shared_info, api_event_fd, from_api).expect("cannot create VMM");
-        let r = vmm.run_control(true);
-        // Make sure we clean up when this loop breaks on error.
-        if r.is_err() {
-            // stop() is safe to call at any moment; ignore the result.
-            let _ = vmm.stop();
-        }
-        // vmm thread errors are irrecoverable for now. Use expect().
-        r.expect("VMM thread fail");
-        // TODO: maybe offer through API: an instance status reporting error messages (r)
-    })
+    thread::Builder::new()
+        .name("fc_vmm".to_string())
+        .spawn(move || {
+            // If this fails, consider it fatal. Use expect().
+            let mut vmm =
+                Vmm::new(api_shared_info, api_event_fd, from_api).expect("Cannot create VMM.");
+            let r = vmm.run_control(true);
+            // Make sure we clean up when this loop breaks on error.
+            if r.is_err() {
+                // stop() is safe to call at any moment; ignore the result.
+                let _ = vmm.stop();
+            }
+            // vmm thread errors are irrecoverable for now. Use expect().
+            r.expect("VMM thread run failed.");
+            // TODO: maybe offer through API: an instance status reporting error messages (r)
+        })
+        .expect("VMM thread spawn failed.")
 }
 
 #[cfg(test)]
