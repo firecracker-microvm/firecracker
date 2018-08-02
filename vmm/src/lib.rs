@@ -1,5 +1,6 @@
 extern crate epoll;
 extern crate libc;
+extern crate serde_json;
 extern crate timerfd;
 
 extern crate api_server;
@@ -22,6 +23,7 @@ mod vm_control;
 mod vstate;
 
 use libc::{c_void, siginfo_t};
+use serde_json::Value;
 
 use std::ffi::CString;
 use std::fs::{metadata, File, OpenOptions};
@@ -35,6 +37,7 @@ use std::time;
 
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
+use api_server::request::actions::ActionBody;
 use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::boot_source::{PutBootSourceConfigError, PutBootSourceOutcome};
@@ -467,48 +470,12 @@ impl Vmm {
         block_device_config: &BlockDeviceConfig,
     ) -> result::Result<PutDriveOutcome, DriveError> {
         if self.mmio_device_manager.is_some() {
-            self.live_update_block_device(block_device_config)
+            Err(DriveError::BlockDeviceUpdateNotAllowed)
         } else {
             self.block_device_configs
                 .update(block_device_config)
                 .map(|_| PutDriveOutcome::Updated)
         }
-    }
-
-    fn live_update_block_device(
-        &mut self,
-        block_device_config: &BlockDeviceConfig,
-    ) -> result::Result<PutDriveOutcome, DriveError> {
-        // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
-        // called before the guest boots, and this function is called after boot.
-        let device_manager = self.mmio_device_manager.as_ref().unwrap();
-
-        for drive_config in self.block_device_configs.config_list.iter() {
-            if drive_config.drive_id == block_device_config.drive_id {
-                match device_manager.get_address(&drive_config.drive_id) {
-                    Some(&address) => {
-                        let metadata = metadata(&block_device_config.path_on_host)
-                            .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-                        let new_size = metadata.len();
-                        if new_size % virtio::block::SECTOR_SIZE != 0 {
-                            warn!(
-                                "Disk size {} is not a multiple of sector size {}; \
-                                 the remainder will not be visible to the guest.",
-                                new_size,
-                                virtio::block::SECTOR_SIZE
-                            );
-                        }
-                        return device_manager
-                            .update_drive(address, new_size)
-                            .map(|_| PutDriveOutcome::Updated)
-                            .map_err(|_| DriveError::BlockDeviceUpdateFailed);
-                    }
-                    _ => return Err(DriveError::BlockDeviceUpdateFailed),
-                }
-            }
-        }
-
-        Err(DriveError::BlockDeviceUpdateNotAllowed)
     }
 
     pub fn put_virtual_machine_configuration(
@@ -616,6 +583,50 @@ impl Vmm {
         body: NetworkInterfaceBody,
     ) -> result::Result<SyncOkStatus, SyncError> {
         self.network_interface_configs.put(body)
+    }
+
+    fn rescan_block_device(&mut self, body: ActionBody) -> result::Result<SyncOkStatus, SyncError> {
+        if let Some(Value::String(drive_id)) = body.payload {
+            // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
+            // called before the guest boots, and this function is called after boot.
+            let device_manager = self.mmio_device_manager.as_ref().unwrap();
+            match device_manager.get_address(&drive_id) {
+                Some(&address) => {
+                    for drive_config in self.block_device_configs.config_list.iter() {
+                        if drive_config.drive_id == *drive_id {
+                            let metadata = metadata(&drive_config.path_on_host).map_err(|_| {
+                                SyncError::DriveOperationFailed(DriveError::BlockDeviceUpdateFailed)
+                            })?;
+                            let new_size = metadata.len();
+                            if new_size % virtio::block::SECTOR_SIZE != 0 {
+                                warn!(
+                                    "Disk size {} is not a multiple of sector size {}; \
+                                     the remainder will not be visible to the guest.",
+                                    new_size,
+                                    virtio::block::SECTOR_SIZE
+                                );
+                            }
+                            return device_manager
+                                .update_drive(address, new_size)
+                                .map(|_| SyncOkStatus::Updated)
+                                .map_err(|_| {
+                                    SyncError::DriveOperationFailed(
+                                        DriveError::BlockDeviceUpdateFailed,
+                                    )
+                                });
+                        }
+                    }
+                    Err(SyncError::DriveOperationFailed(
+                        DriveError::BlockDeviceUpdateFailed,
+                    ))
+                }
+                _ => Err(SyncError::DriveOperationFailed(
+                    DriveError::InvalidBlockDeviceID,
+                )),
+            }
+        } else {
+            Err(SyncError::InvalidPayload)
+        }
     }
 
     fn attach_net_devices(&mut self, device_manager: &mut MMIODeviceManager) -> Result<()> {
@@ -1238,6 +1249,21 @@ impl Vmm {
             .expect("one-shot channel closed");
     }
 
+    fn handle_rescan_block_device(&mut self, req_body: ActionBody, sender: SyncOutcomeSender) {
+        if !self.is_instance_running() {
+            sender
+                .send(Box::new(SyncError::OperationNotAllowedPreBoot))
+                .map_err(|_| ())
+                .expect("one-shot channel closed");
+            return;
+        }
+
+        sender
+            .send(Box::new(self.rescan_block_device(req_body)))
+            .map_err(|_| ())
+            .expect("one-shot channel closed");
+    }
+
     fn run_api_cmd(&mut self) -> Result<()> {
         let request = match self.from_api.try_recv() {
             Ok(t) => t,
@@ -1271,6 +1297,9 @@ impl Vmm {
                 }
                 SyncRequest::PutNetworkInterface(netif_body, sender) => {
                     self.handle_put_network_interface(netif_body, sender)
+                }
+                SyncRequest::RescanBlockDevice(req_body, sender) => {
+                    self.handle_rescan_block_device(req_body, sender)
                 }
             },
         }
