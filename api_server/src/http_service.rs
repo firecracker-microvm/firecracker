@@ -121,6 +121,20 @@ fn parse_actions_req<'a>(
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::GetActions),
 
+        0 if method == Method::Put => {
+            METRICS.put_api_requests.actions_count.inc();
+            Ok(serde_json::from_slice::<ActionBody>(body.as_ref())
+                .map_err(|e| {
+                    METRICS.put_api_requests.actions_fails.inc();
+                    Error::SerdeJson(e)
+                })?
+                .into_parsed_request(method)
+                .map_err(|msg| {
+                    METRICS.put_api_requests.actions_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, msg)
+                })?)
+        }
+
         1 if method == Method::Get => {
             METRICS.get_api_requests.actions_count.inc();
             let unwrapped_id = id_from_path.ok_or_else(|| {
@@ -929,10 +943,8 @@ mod tests {
 
                 match action_map.borrow_mut().get_mut("bar") {
                     Some(&mut ActionMapValue::Pending(ref body)) => {
-                        // The components of ActionBody are private, so an object can't be
-                        // instantiated here. Reverting to comparison by string formatting.
-                        let action_body = ActionBody {
-                            action_id: String::from("bar"),
+                        let other = ActionBody {
+                            action_id: Some(String::from("bar")),
                             action_type: ActionType::InstanceStart,
                             instance_device_detach_action: Some(InstanceDeviceDetachAction {
                                 device_type: DeviceType::Drive,
@@ -942,7 +954,7 @@ mod tests {
                             payload: None,
                             timestamp: Some(1522850095),
                         };
-                        assert!(body.eq(&action_body));
+                        assert!(body.eq(&other));
                     }
                     _ => assert!(false),
                 };

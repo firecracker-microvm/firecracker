@@ -21,6 +21,7 @@ pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, Put
 pub use self::net::NetworkInterfaceBody;
 pub use self::rate_limiter::description_into_implementation as rate_limiter_description_into_implementation;
 pub use self::rate_limiter::RateLimiterDescription;
+use request::actions::ActionBody;
 
 // Unlike async requests, sync request have outcomes which implement this trait. The idea is for
 // each outcome to be a struct which is cheaply and quickly instantiated by the VMM thread, then
@@ -62,9 +63,9 @@ pub enum SyncRequest {
     PutLogger(APILoggerDescription, SyncOutcomeSender),
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
+    RescanBlockDevice(ActionBody, SyncOutcomeSender),
 }
 
-// TODO: do we still need this?
 impl fmt::Debug for SyncRequest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "SyncRequest")
@@ -93,9 +94,13 @@ impl GenerateResponse for OkStatus {
 // Potential errors associated with sync requests.
 #[derive(Debug)]
 pub enum Error {
+    DriveOperationFailed(DriveError),
     GuestCIDAlreadyInUse,
     GuestMacAddressInUse,
+    InvalidPayload,
     OpenTap(TapError),
+    OperationFailed,
+    OperationNotAllowedPreBoot,
     UpdateNotAllowedPostBoot,
     UpdateNotImplemented,
 }
@@ -104,6 +109,7 @@ impl GenerateResponse for Error {
     fn generate_response(&self) -> hyper::Response {
         use self::Error::*;
         match *self {
+            DriveOperationFailed(ref e) => e.generate_response(),
             GuestCIDAlreadyInUse => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The specified guest CID is already in use."),
@@ -112,13 +118,25 @@ impl GenerateResponse for Error {
                 StatusCode::BadRequest,
                 json_fault_message("The specified guest MAC address is already in use."),
             ),
+            InvalidPayload => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("The request payload is invalid."),
+            ),
             OpenTap(ref e) => json_response(
                 StatusCode::BadRequest,
                 json_fault_message(format!("Could not open TAP device. {:?}", e)),
             ),
+            OperationFailed => json_response(
+                StatusCode::BadRequest,
+                json_fault_message(format!("The operation failed.")),
+            ),
+            OperationNotAllowedPreBoot => json_response(
+                StatusCode::Forbidden,
+                json_fault_message(format!("The operation is now allowed before boot.")),
+            ),
             UpdateNotAllowedPostBoot => json_response(
                 StatusCode::Forbidden,
-                json_fault_message("The update operation is not allowed"),
+                json_fault_message("The update operation is not allowed after boot."),
             ),
             UpdateNotImplemented => json_response(
                 StatusCode::InternalServerError,
@@ -160,6 +178,10 @@ mod tests {
                     &SyncRequest::PutNetworkInterface(ref netif, _),
                     &SyncRequest::PutNetworkInterface(ref other_netif, _),
                 ) => netif == other_netif,
+                (
+                    &SyncRequest::RescanBlockDevice(ref req, _),
+                    &SyncRequest::RescanBlockDevice(ref other_req, _),
+                ) => req == other_req,
                 _ => false,
             }
         }
@@ -176,15 +198,31 @@ mod tests {
 
     #[test]
     fn test_generate_response_error() {
-        let mut ret = Error::GuestCIDAlreadyInUse.generate_response();
+        let mut ret =
+            Error::DriveOperationFailed(DriveError::InvalidBlockDeviceID).generate_response();
+        assert_eq!(ret.status(), StatusCode::BadRequest);
+
+        ret = Error::GuestCIDAlreadyInUse.generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
 
         ret = Error::GuestMacAddressInUse.generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
 
+        ret = Error::InvalidPayload.generate_response();
+        assert_eq!(ret.status(), StatusCode::BadRequest);
+
         ret = Error::OpenTap(TapError::OpenTun(std::io::Error::from_raw_os_error(22)))
             .generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
+
+        ret = Error::OperationFailed.generate_response();
+        assert_eq!(ret.status(), StatusCode::BadRequest);
+
+        ret = Error::OperationNotAllowedPreBoot.generate_response();
+        assert_eq!(ret.status(), StatusCode::Forbidden);
+
+        ret = Error::UpdateNotAllowedPostBoot.generate_response();
+        assert_eq!(ret.status(), StatusCode::Forbidden);
 
         ret = Error::UpdateNotImplemented.generate_response();
         assert_eq!(ret.status(), StatusCode::InternalServerError);

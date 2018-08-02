@@ -38,6 +38,7 @@ impl DriveDescription {
 #[derive(Debug, PartialEq)]
 pub enum DriveError {
     RootBlockDeviceAlreadyAdded,
+    InvalidBlockDeviceID,
     InvalidBlockDevicePath,
     BlockDevicePathAlreadyExists,
     BlockDeviceUpdateFailed,
@@ -52,6 +53,10 @@ impl GenerateResponse for DriveError {
             RootBlockDeviceAlreadyAdded => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("A root block device already exists!"),
+            ),
+            InvalidBlockDeviceID => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("Invalid block device ID!"),
             ),
             InvalidBlockDevicePath => json_response(
                 StatusCode::BadRequest,
@@ -133,6 +138,12 @@ mod tests {
     fn test_generate_response_drive_error() {
         assert_eq!(
             DriveError::RootBlockDeviceAlreadyAdded
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
+        assert_eq!(
+            DriveError::InvalidBlockDeviceID
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
