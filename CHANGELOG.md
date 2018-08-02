@@ -2,12 +2,31 @@
 
 ## [Unreleased]
 
+## [0.7.0]
+
 ### Added
 
 - Rate limiting functionality allows specifying an initial one time
   burst size.
 - Firecracker can now boot from an arbitrary boot partition by specifying
   its unique id in the driver's API call.
+- Block device rescan is triggered via a PUT `/actions` with the drive ID in the
+  action body's `payload` field and the `action_type` field set to
+  `BlockDeviceRescan`.
+
+### Changed
+
+- Removed `noapic` from the default guest kernel command line.
+- The `action_id` parameter is no longer required for synchronous PUT requests
+  to `/actions`.
+- PUT requests are no longer allowed on `/drives` resources after the guest
+  has booted.
+
+### Fixed
+
+- Fixed guest instance kernel loader to accelerate vCPUs launch and consequently
+  guest kernel boot.
+- Fixed network emulation to improve IO performance.
 
 ## [0.6.0]
 
