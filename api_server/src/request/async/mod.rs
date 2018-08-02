@@ -36,88 +36,12 @@ pub struct InstanceDeviceDetachAction {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use request::actions::ActionBody;
-    use request::{IntoParsedRequest, ParsedRequest};
-
-    use hyper::Method;
-    use serde_json;
-
-    impl PartialEq for AsyncRequest {
-        fn eq(&self, other: &AsyncRequest) -> bool {
-            match (self, other) {
-                (&AsyncRequest::StartInstance(_), &AsyncRequest::StartInstance(_)) => true,
-                (&AsyncRequest::StopInstance(_), &AsyncRequest::StopInstance(_)) => true,
-                _ => false,
-            }
+impl PartialEq for AsyncRequest {
+    fn eq(&self, other: &AsyncRequest) -> bool {
+        match (self, other) {
+            (&AsyncRequest::StartInstance(_), &AsyncRequest::StartInstance(_)) => true,
+            (&AsyncRequest::StopInstance(_), &AsyncRequest::StopInstance(_)) => true,
+            _ => false,
         }
-    }
-
-    #[test]
-    fn test_into_parsed_request() {
-        let jsons = vec![
-            "{
-                \"action_id\": \"dummy\",
-                \"action_type\": \"InstanceStart\",
-                \"instance_device_detach_action\": {\
-                    \"device_type\": \"Drive\",
-                    \"device_resource_id\": \"dummy\",
-                    \"force\": true},
-                \"timestamp\": 1522850095
-              }",
-            "{
-                \"action_id\": \"dummy\",
-                \"action_type\": \"InstanceHalt\",
-                \"instance_device_detach_action\": {\
-                    \"device_type\": \"Drive\",
-                    \"device_resource_id\": \"dummy\",
-                    \"force\": true},
-                \"timestamp\": 1522850095
-              }",
-            "{
-                \"action_id\": \"not_dummy\",
-                \"action_type\": \"InstanceStart\",
-                \"instance_device_detach_action\": {\
-                    \"device_type\": \"Drive\",
-                    \"device_resource_id\": \"dummy\",
-                    \"force\": true},
-                \"timestamp\": 1522850095
-              }",
-            "{
-                \"action_id\": \"dummy\",
-                \"action_type\": \"IAmNotAnActionType\"\
-              }",
-        ];
-        let (sender, receiver) = oneshot::channel();
-        let req: ParsedRequest = ParsedRequest::Async(
-            String::from("dummy"),
-            AsyncRequest::StartInstance(sender),
-            receiver,
-        );
-
-        let mut result: Result<ActionBody, serde_json::Error> = serde_json::from_str(jsons[0]);
-        println!("{:?}", result);
-        assert!(result.is_ok());
-        assert!(
-            result
-                .unwrap()
-                .into_parsed_request(Method::Put)
-                .unwrap()
-                .eq(&req)
-        );
-
-        for json in jsons[1..3].to_vec() {
-            result = serde_json::from_str(json);
-            assert!(result.is_ok());
-            assert!(!result
-                .unwrap()
-                .into_parsed_request(Method::Put)
-                .unwrap()
-                .eq(&req));
-        }
-
-        result = serde_json::from_str(jsons[3]);
-        assert!(result.is_err());
     }
 }
