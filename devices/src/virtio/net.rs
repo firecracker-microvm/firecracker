@@ -152,7 +152,8 @@ impl NetEpollHandler {
         }
         // If limiter.consume() fails it means there is no more TokenType::Bytes
         // budget and rate limiting is in effect.
-        if !self.rx
+        if !self
+            .rx
             .rate_limiter
             .consume(self.rx.bytes_read as u64, TokenType::Bytes)
         {
@@ -324,7 +325,8 @@ impl NetEpollHandler {
 
             // If limiter.consume() fails it means there is no more TokenType::Bytes
             // budget and rate limiting is in effect.
-            if !self.tx
+            if !self
+                .tx
                 .rate_limiter
                 .consume(read_count as u64, TokenType::Bytes)
             {

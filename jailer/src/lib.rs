@@ -81,7 +81,8 @@ impl<'a> JailerArgs<'a> {
         // Check that id meets the style of an UUID's.
         validate(id).map_err(Error::ValidateUUID)?;
 
-        let numa_node = node.parse::<u32>()
+        let numa_node = node
+            .parse::<u32>()
             .map_err(|_| Error::NumaNode(String::from(node)))?;
 
         let exec_file_path =
@@ -104,9 +105,11 @@ impl<'a> JailerArgs<'a> {
             return Err(Error::NotAFolder(chroot_base_dir));
         }
 
-        let uid = uid.parse::<u32>()
+        let uid = uid
+            .parse::<u32>()
             .map_err(|_| Error::Uid(String::from(uid)))?;
-        let gid = gid.parse::<u32>()
+        let gid = gid
+            .parse::<u32>()
             .map_err(|_| Error::Gid(String::from(gid)))?;
 
         Ok(JailerArgs {
@@ -213,7 +216,8 @@ pub fn run(args: JailerArgs) -> Result<()> {
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
 pub fn into_cstring(path: PathBuf) -> Result<CString> {
-    let path_str = path.clone()
+    let path_str = path
+        .clone()
         .into_os_string()
         .into_string()
         .map_err(|e| Error::OsStringParsing(path, e))?;

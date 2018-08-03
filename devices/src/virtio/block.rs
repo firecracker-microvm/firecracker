@@ -88,7 +88,8 @@ enum RequestType {
 }
 
 fn request_type(mem: &GuestMemory, desc_addr: GuestAddress) -> result::Result<RequestType, Error> {
-    let type_ = mem.read_obj_from_addr(desc_addr)
+    let type_ = mem
+        .read_obj_from_addr(desc_addr)
         .map_err(Error::GuestMemory)?;
     match type_ {
         VIRTIO_BLK_T_IN => Ok(RequestType::In),
@@ -246,7 +247,8 @@ impl BlockEpollHandler {
                     {
                         // If limiter.consume() fails it means there is no more TokenType::Bytes
                         // budget and rate limiting is in effect.
-                        if !self.rate_limiter
+                        if !self
+                            .rate_limiter
                             .consume(request.data_len as u64, TokenType::Bytes)
                         {
                             rate_limited = true;

@@ -119,11 +119,14 @@ mod tests {
         format!("{:?}", desc);
         assert!(&desc.clone().into_parsed_request().is_ok());
         let (sender, receiver) = oneshot::channel();
-        assert!(&desc.clone()
-            .into_parsed_request()
-            .eq(&Ok(ParsedRequest::Sync(
-                SyncRequest::PutLogger(desc, sender),
-                receiver
-            ))));
+        assert!(
+            &desc
+                .clone()
+                .into_parsed_request()
+                .eq(&Ok(ParsedRequest::Sync(
+                    SyncRequest::PutLogger(desc, sender),
+                    receiver
+                )))
+        );
     }
 }
