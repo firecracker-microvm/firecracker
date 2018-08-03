@@ -36,6 +36,29 @@ paths:
           description: Internal Server Error
           schema:
             $ref: "#/definitions/Error"
+
+  /actions:
+    put:
+      summary: Creates a synchronous action.
+      operationId: createSyncAction
+      parameters:
+      - name: info
+        in: body
+        required: true
+        schema:
+          $ref: "#/definitions/InstanceActionInfo"
+      responses:
+        204:
+          description: The update was successful
+        400:
+          description: The action cannot be executed due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal Server Error
+          schema:
+            $ref: "#/definitions/Error"
+
   /actions/{action_id}:
     get:
       summary: Returns detailed information about an action.
@@ -328,8 +351,6 @@ definitions:
     description:
       Variant wrapper containing the real action.
       The timestamp field is read-only, trying to update/change it with an API call will fail.
-    required:
-      - action_id
     properties:
       action_id:
         type: string
@@ -339,8 +360,11 @@ definitions:
         description: Enumeration indicating what type of action is contained in the payload
         type: string
         enum:
+          - BlockDeviceRescan
           - InstanceStart
           - InstanceHalt
+      payload:
+        type: string
       timestamp:
         type: string
 
