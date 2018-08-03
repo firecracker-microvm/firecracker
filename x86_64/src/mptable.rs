@@ -284,7 +284,8 @@ mod tests {
 
         setup_mptable(&mem, num_cpus).unwrap();
 
-        let mpf_intel = mem.read_obj_from_addr(GuestAddress(layout::MPTABLE_START))
+        let mpf_intel = mem
+            .read_obj_from_addr(GuestAddress(layout::MPTABLE_START))
             .unwrap();
 
         assert_eq!(mpf_intel_compute_checksum(&mpf_intel), mpf_intel.checksum);
@@ -300,7 +301,8 @@ mod tests {
 
         setup_mptable(&mem, num_cpus).unwrap();
 
-        let mpf_intel: mpf_intel = mem.read_obj_from_addr(GuestAddress(layout::MPTABLE_START))
+        let mpf_intel: mpf_intel = mem
+            .read_obj_from_addr(GuestAddress(layout::MPTABLE_START))
             .unwrap();
         let mpc_offset = GuestAddress(mpf_intel.physptr as usize);
         let mpc_table: mpc_table = mem.read_obj_from_addr(mpc_offset).unwrap();
@@ -335,7 +337,8 @@ mod tests {
         for i in 0..MAX_CPUS {
             setup_mptable(&mem, i).unwrap();
 
-            let mpf_intel: mpf_intel = mem.read_obj_from_addr(GuestAddress(layout::MPTABLE_START))
+            let mpf_intel: mpf_intel = mem
+                .read_obj_from_addr(GuestAddress(layout::MPTABLE_START))
                 .unwrap();
             let mpc_offset = GuestAddress(mpf_intel.physptr as usize);
             let mpc_table: mpc_table = mem.read_obj_from_addr(mpc_offset).unwrap();

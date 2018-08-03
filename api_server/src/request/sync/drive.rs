@@ -213,11 +213,14 @@ mod tests {
 
         assert!(&desc.clone().into_parsed_request("bar").is_err());
         let (sender, receiver) = oneshot::channel();
-        assert!(&desc.clone()
-            .into_parsed_request("foo")
-            .eq(&Ok(ParsedRequest::Sync(
-                SyncRequest::PutDrive(desc, sender),
-                receiver
-            ))));
+        assert!(
+            &desc
+                .clone()
+                .into_parsed_request("foo")
+                .eq(&Ok(ParsedRequest::Sync(
+                    SyncRequest::PutDrive(desc, sender),
+                    receiver
+                )))
+        );
     }
 }

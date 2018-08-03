@@ -70,7 +70,8 @@ impl NetworkInterfaceConfigs {
     }
 
     pub fn put(&mut self, body: NetworkInterfaceBody) -> result::Result<SyncOkStatus, SyncError> {
-        match self.if_list
+        match self
+            .if_list
             .iter()
             .position(|netif| netif.id.as_str() == body.iface_id.as_str())
         {

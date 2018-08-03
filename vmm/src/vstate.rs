@@ -226,7 +226,8 @@ mod tests {
             .unwrap()
             .write_obj_at_addr(67u8, obj_addr)
             .unwrap();
-        let read_val: u8 = vm.get_memory()
+        let read_val: u8 = vm
+            .get_memory()
             .unwrap()
             .read_obj_from_addr(obj_addr)
             .unwrap();
@@ -263,16 +264,11 @@ mod tests {
         use std::io::{self, Write};
         // This example based on https://lwn.net/Articles/658511/
         let code = [
-            0xba,
-            0xf8,
-            0x03, /* mov $0x3f8, %dx */
-            0x00,
-            0xd8, /* add %bl, %al */
-            0x04,
-            '0' as u8, /* add $'0', %al */
+            0xba, 0xf8, 0x03, /* mov $0x3f8, %dx */
+            0x00, 0xd8, /* add %bl, %al */
+            0x04, '0' as u8, /* add $'0', %al */
             0xee,      /* out %al, (%dx) */
-            0xb0,
-            '\n' as u8, /* mov $'\n', %al */
+            0xb0, '\n' as u8, /* mov $'\n', %al */
             0xee,       /* out %al, (%dx) */
             0xf4,       /* hlt */
         ];
