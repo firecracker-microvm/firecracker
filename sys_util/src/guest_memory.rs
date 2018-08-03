@@ -52,7 +52,8 @@ impl GuestMemory {
         let mut regions = Vec::<MemoryRegion>::new();
         for range in ranges.iter() {
             if let Some(last) = regions.last() {
-                if last.guest_base
+                if last
+                    .guest_base
                     .checked_add(last.mapping.size())
                     .map_or(true, |a| a > range.0)
                 {

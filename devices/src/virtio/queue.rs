@@ -106,7 +106,8 @@ impl<'a> DescriptorChain<'a> {
     }
 
     fn is_valid(&self) -> bool {
-        if self.mem
+        if self
+            .mem
             .checked_offset(self.addr, self.len as usize)
             .is_none() || (self.has_next() && self.next >= self.queue_size)
         {

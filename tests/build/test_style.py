@@ -38,7 +38,7 @@ def test_style():
     install_rustfmt_if_needed()
 
     process = run(
-        'cargo fmt --all -- --write-mode=diff',
+        'cargo fmt --all -- --check',
         shell=True,
         check=True,
         stdout=PIPE
