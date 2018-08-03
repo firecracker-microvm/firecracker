@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 use epoll;
+use serde_json::from_str;
 use std::cmp;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -16,6 +17,7 @@ use super::{
     ActivateError, ActivateResult, DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK,
     VIRTIO_MMIO_INT_VRING,
 };
+use data_model::vm::BlockDeviceConfig;
 use fc_util::ratelimiter::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
 use sys_util::Result as SysResult;
@@ -36,6 +38,8 @@ const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
 const KILL_EVENT: DeviceEventT = 1;
 // Rate limiter budget is now available.
 const RATE_LIMITER_EVENT: DeviceEventT = 2;
+// Backing file on the host has changed.
+const FS_UPDATE_EVENT: DeviceEventT = 3;
 // Number of DeviceEventT events supported by this implementation.
 pub const BLOCK_EVENTS_COUNT: usize = 3;
 
@@ -123,6 +127,25 @@ fn build_device_id(disk_image: &File) -> result::Result<String, Error> {
         blk_metadata.st_ino()
     ).to_owned();
     Ok(device_id)
+}
+
+fn build_disk_image_id(disk_image: &File) -> Vec<u8> {
+    let mut default_disk_image_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
+    match build_device_id(disk_image) {
+        Err(_) => {
+            warn!("Could not generate device id. We'll use a default.");
+        }
+        Ok(m) => {
+            // The kernel only knows to read a maximum of VIRTIO_BLK_ID_BYTES.
+            // This will also zero out any leftover bytes.
+            let disk_id = m.as_bytes();
+            let bytes_to_copy = cmp::min(disk_id.len(), VIRTIO_BLK_ID_BYTES as usize);
+            for i in 0..bytes_to_copy {
+                default_disk_image_id[i] = disk_id[i];
+            }
+        }
+    }
+    default_disk_image_id
 }
 
 struct Request {
@@ -322,6 +345,27 @@ impl BlockEpollHandler {
     fn set_rate_limiter(&mut self, rate_limiter: RateLimiter) {
         self.rate_limiter = rate_limiter;
     }
+
+    fn update_drive(&mut self, drive_desc: String) {
+        // The unwrap()s are safe because this function is called with a serialized
+        // BlockDeviceConfig.
+        let device_cfg = from_str::<BlockDeviceConfig>(drive_desc.as_str()).unwrap();
+        match OpenOptions::new()
+            .read(true)
+            .write(!device_cfg.is_read_only)
+            .open(device_cfg.path_on_host)
+        {
+            Ok(disk_image) => {
+                self.disk_image = disk_image;
+                self.disk_image_id = build_disk_image_id(&self.disk_image);
+                METRICS.block.update_count.inc();
+            }
+            Err(e) => {
+                error!("Failed to update block device: {:?}", e);
+                METRICS.block.update_fails.inc();
+            }
+        }
+    }
 }
 
 impl EpollHandler for BlockEpollHandler {
@@ -357,6 +401,18 @@ impl EpollHandler for BlockEpollHandler {
                 }
             }
             _ => panic!("Unknown event type was received."),
+        }
+    }
+
+    fn handle_event_with_payload(
+        &mut self,
+        device_event: DeviceEventT,
+        event_flags: u32,
+        payload: &[u8],
+    ) {
+        match device_event {
+            FS_UPDATE_EVENT => self.update_drive(String::from_utf8(payload.to_vec()).unwrap()),
+            _ => self.handle_event(device_event, event_flags),
         }
     }
 }
@@ -558,24 +614,7 @@ impl VirtioDevice for Block {
             let queue_evt = queue_evts.remove(0);
             let queue_evt_raw_fd = queue_evt.as_raw_fd();
 
-            let mut default_disk_image_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
-            let disk_image_id = match build_device_id(&disk_image) {
-                Err(_) => {
-                    warn!("Could not generate device id. We'll use a default.");
-                    default_disk_image_id
-                }
-                Ok(m) => {
-                    // The kernel only knows to read a maximum of VIRTIO_BLK_ID_BYTES.
-                    // This will also zero out any leftover bytes.
-                    let disk_id = m.as_bytes();
-                    let bytes_to_copy = cmp::min(disk_id.len(), VIRTIO_BLK_ID_BYTES as usize);
-                    for i in 0..bytes_to_copy {
-                        default_disk_image_id[i] = disk_id[i];
-                    }
-                    default_disk_image_id
-                }
-            };
-
+            let disk_image_id = build_disk_image_id(&disk_image);
             let handler = BlockEpollHandler {
                 queues,
                 mem,
@@ -638,10 +677,11 @@ impl VirtioDevice for Block {
 mod tests {
     extern crate tempfile;
 
-    use self::tempfile::tempfile;
+    use self::tempfile::{tempfile, NamedTempFile};
     use super::*;
 
     use libc;
+    use std::fs::metadata;
     use std::sync::mpsc::Receiver;
     use std::thread;
     use std::time::Duration;
@@ -1291,8 +1331,36 @@ mod tests {
             }
         }
 
+        // test block device update handler
+        {
+            let f = NamedTempFile::new().unwrap();
+            let path = f.path().to_path_buf();
+            let mdata = metadata(&path).unwrap();
+            let mut id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
+            let str_id = format!("{}{}{}", mdata.st_dev(), mdata.st_rdev(), mdata.st_ino());
+            let part_id = str_id.as_bytes();
+            for i in 0..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize) {
+                id[i] = part_id[i];
+            }
+
+            let str_block = format!(
+                "{{
+                \"drive_id\": \"bar\",
+                \"path_on_host\": \"{}\",
+                \"is_root_device\": true,
+                \"is_read_only\": true
+              }}",
+                path.to_str().unwrap()
+            );
+
+            h.handle_event_with_payload(FS_UPDATE_EVENT, 0, &str_block.as_bytes());
+
+            assert_eq!(h.disk_image.metadata().unwrap().st_ino(), mdata.st_ino());
+            assert_eq!(h.disk_image_id, id);
+        }
+
         // can be called like this for now, because it currently doesn't really do anything
         // besides outputting some message
-        h.handle_event(KILL_EVENT, 0);
+        h.handle_event_with_payload(KILL_EVENT, 0, &vec![]);
     }
 }

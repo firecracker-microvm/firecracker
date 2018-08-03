@@ -8,6 +8,7 @@ use data_model::vm::{BlockDeviceConfig, DriveError, MachineConfiguration};
 use http_service::{empty_response, json_fault_message, json_response};
 use net_util::TapError;
 use request::actions::ActionBody;
+use serde_json::Value;
 
 mod boot_source;
 mod drive;
@@ -18,7 +19,7 @@ mod net;
 pub use self::boot_source::{
     BootSourceBody, BootSourceType, LocalImage, PutBootSourceConfigError, PutBootSourceOutcome,
 };
-pub use self::drive::PutDriveOutcome;
+pub use self::drive::{PatchDriveOutcome, PutDriveOutcome};
 pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, PutLoggerOutcome};
 pub use self::net::NetworkInterfaceBody;
 
@@ -52,6 +53,7 @@ pub type SyncOutcomeReceiver = oneshot::Receiver<Box<GenerateResponse + Send>>;
 // bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
 pub enum SyncRequest {
     GetMachineConfiguration(SyncOutcomeSender),
+    PatchDrive(Value, SyncOutcomeSender),
     PutBootSource(BootSourceBody, SyncOutcomeSender),
     PutDrive(BlockDeviceConfig, SyncOutcomeSender),
     PutLogger(APILoggerDescription, SyncOutcomeSender),
@@ -152,6 +154,10 @@ mod tests {
     impl PartialEq for SyncRequest {
         fn eq(&self, other: &SyncRequest) -> bool {
             match (self, other) {
+                (
+                    &SyncRequest::PatchDrive(ref payload, _),
+                    &SyncRequest::PatchDrive(ref other_payload, _),
+                ) => payload == other_payload,
                 (
                     &SyncRequest::PutBootSource(ref bsb, _),
                     &SyncRequest::PutBootSource(ref other_bsb, _),

@@ -1,5 +1,6 @@
 extern crate epoll;
 extern crate libc;
+extern crate serde;
 extern crate serde_json;
 extern crate timerfd;
 
@@ -22,9 +23,11 @@ pub mod kernel_cmdline;
 mod vm_control;
 mod vstate;
 
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::{metadata, File, OpenOptions};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::path::PathBuf;
 use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
@@ -44,13 +47,15 @@ use api_server::request::sync::machine_configuration::{
 };
 use api_server::request::sync::{
     APILoggerDescription, BootSourceBody, Error as SyncError, GenerateResponse,
-    NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome, PutLoggerOutcome,
-    SyncOutcomeSender, SyncRequest,
+    NetworkInterfaceBody, OkStatus as SyncOkStatus, PatchDriveOutcome, PutDriveOutcome,
+    PutLoggerOutcome, SyncOutcomeSender, SyncRequest,
 };
 use api_server::request::sync::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::ApiRequest;
-use data_model::vm::description_into_implementation as rate_limiter_description_into_implementation;
-use data_model::vm::{BlockDeviceConfig, BlockDeviceConfigs, DriveError, MachineConfiguration};
+use data_model::vm::{
+    description_into_implementation as rate_limiter_description_into_implementation,
+    BlockDeviceConfig, BlockDeviceConfigs, DriveError, MachineConfiguration,
+};
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -319,9 +324,12 @@ impl EpollContext {
         (dispatch_base, sender)
     }
 
-    fn allocate_virtio_block_tokens(&mut self) -> virtio::block::EpollConfig {
+    fn allocate_virtio_block_tokens(&mut self) -> (virtio::block::EpollConfig, usize) {
         let (dispatch_base, sender) = self.allocate_tokens(virtio::block::BLOCK_EVENTS_COUNT);
-        virtio::block::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
+        (
+            virtio::block::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender),
+            self.device_handlers.len(),
+        )
     }
 
     fn allocate_virtio_net_tokens(&mut self) -> virtio::net::EpollConfig {
@@ -381,6 +389,7 @@ pub struct Vmm {
     // guest VM devices
     mmio_device_manager: Option<MMIODeviceManager>,
     legacy_device_manager: LegacyDeviceManager,
+    drive_handler_id_map: HashMap<String, usize>,
 
     // If there is a Root Block Device, this should be added as the first element of the list
     // This is necessary because we want the root to always be mounted on /dev/vda
@@ -434,6 +443,7 @@ impl Vmm {
             legacy_device_manager: LegacyDeviceManager::new()
                 .map_err(|e| Error::CreateLegacyDevice(e))?,
             block_device_configs,
+            drive_handler_id_map: HashMap::new(),
             network_interface_configs: NetworkInterfaceConfigs::new(),
             epoll_context,
             api_event,
@@ -457,10 +467,95 @@ impl Vmm {
                 .update(&block_device_config)
                 .map(|_| PutDriveOutcome::Updated)
         } else {
-            match self.block_device_configs.add(block_device_config) {
-                Ok(_) => Ok(PutDriveOutcome::Created),
+            self.block_device_configs
+                .add(block_device_config)
+                .map(|_| PutDriveOutcome::Created)
+        }
+    }
+
+    fn rescan(&self, drive_id: &String, path_on_host: &PathBuf) -> result::Result<(), DriveError> {
+        // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
+        // called before the guest boots, and this function is called after boot.
+        let device_manager = self.mmio_device_manager.as_ref().unwrap();
+        match device_manager.get_address(&drive_id) {
+            Some(&address) => {
+                let metadata =
+                    metadata(&path_on_host).map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                let new_size = metadata.len();
+                if new_size % virtio::block::SECTOR_SIZE != 0 {
+                    warn!(
+                        "Disk size {} is not a multiple of sector size {}; \
+                         the remainder will not be visible to the guest.",
+                        new_size,
+                        virtio::block::SECTOR_SIZE
+                    );
+                }
+                return device_manager
+                    .update_drive(address, new_size)
+                    .map_err(|_| DriveError::BlockDeviceUpdateFailed);
+            }
+            _ => return Err(DriveError::BlockDeviceUpdateFailed),
+        }
+    }
+
+    fn patch_block_device(
+        &mut self,
+        fields: Value,
+    ) -> result::Result<PatchDriveOutcome, DriveError> {
+        let guest_running = self.mmio_device_manager.is_some();
+
+        if let Some(Value::String(id)) = fields.get("drive_id") {
+            let mut merged_drive = self.block_device_configs.get_block_device_config(&id)?;
+            merged_drive.merge(&fields)?;
+
+            match self.block_device_configs.update(&merged_drive) {
+                Ok(Some(path)) => {
+                    // Rescan is only necessary if the guest has booted.
+                    if guest_running {
+                        // In order to update the file, the handler needs to know the path and the
+                        // permissions, regardless of whether they were sent in the PATCH request.
+                        self.update_drive_handler(
+                            &merged_drive.drive_id,
+                            serde_json::to_string(&merged_drive)
+                                .map_err(|_| DriveError::BlockDeviceUpdateFailed)?,
+                        ).and_then(|_| {
+                            self.rescan(&merged_drive.drive_id, &path)
+                                .map(|_| PatchDriveOutcome::Updated)
+                        })
+                    } else {
+                        Ok(PatchDriveOutcome::Updated)
+                    }
+                }
+                Ok(None) => Ok(PatchDriveOutcome::Updated),
                 Err(e) => Err(e),
             }
+        } else {
+            Err(DriveError::BlockDeviceUpdateNotAllowed)
+        }
+    }
+
+    fn update_drive_handler(
+        &mut self,
+        drive_id: &String,
+        drive_details: String,
+    ) -> result::Result<(), DriveError> {
+        if let Some(device_idx) = self.drive_handler_id_map.get(drive_id) {
+            match self.epoll_context.get_device_handler(*device_idx) {
+                Ok(handler) => {
+                    handler.handle_event_with_payload(
+                        3,
+                        *device_idx as u32,
+                        drive_details.as_bytes(),
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    warn!("invalid handler for device {}: {:?}", device_idx, e);
+                    Err(DriveError::BlockDeviceUpdateFailed)
+                }
+            }
+        } else {
+            Err(DriveError::BlockDeviceUpdateFailed)
         }
     }
 
@@ -550,7 +645,9 @@ impl Vmm {
                 }
             }
 
-            let epoll_config = epoll_context.allocate_virtio_block_tokens();
+            let (epoll_config, curr_device_idx) = epoll_context.allocate_virtio_block_tokens();
+            self.drive_handler_id_map
+                .insert(drive_config.drive_id.clone(), curr_device_idx - 1);
 
             let rate_limiter = rate_limiter_description_into_implementation(
                 drive_config.rate_limiter.as_ref(),
@@ -1137,6 +1234,47 @@ impl Vmm {
         }
     }
 
+    fn check_patch_payload_post_boot(&self, fields: &Value) -> result::Result<(), SyncError> {
+        // After guest boot, only `path_on_host` can be updated.
+        match fields {
+            Value::Object(fields_map) => {
+                for key in fields_map.keys() {
+                    if key != "drive_id" && key != "path_on_host" {
+                        return Err(SyncError::UpdateNotAllowedPostBoot);
+                    }
+                }
+                Ok(())
+            }
+            _ => Err(SyncError::OperationFailed),
+        }
+    }
+
+    fn handle_patch_drive(&mut self, fields: Value, sender: SyncOutcomeSender) {
+        if self.is_instance_running() {
+            match self.check_patch_payload_post_boot(&fields) {
+                Ok(()) => (),
+                Err(e) => {
+                    sender
+                        .send(Box::new(e))
+                        .map_err(|_| ())
+                        .expect("one-shot channel closed");
+                    return;
+                }
+            }
+        }
+
+        match self.patch_block_device(fields) {
+            Ok(ret) => sender
+                .send(Box::new(ret))
+                .map_err(|_| ())
+                .expect("one-shot channel closed"),
+            Err(e) => sender
+                .send(Box::new(e))
+                .map_err(|_| ())
+                .expect("one-shot channel closed"),
+        }
+    }
+
     fn handle_put_logger(
         &mut self,
         logger_description: APILoggerDescription,
@@ -1297,6 +1435,9 @@ impl Vmm {
                 SyncRequest::GetMachineConfiguration(sender) => {
                     self.handle_get_machine_configuration(sender)
                 }
+                SyncRequest::PatchDrive(drive_description, sender) => {
+                    self.handle_patch_drive(drive_description, sender)
+                }
                 SyncRequest::PutBootSource(boot_source_body, sender) => {
                     self.handle_put_boot_source(boot_source_body, sender)
                 }
@@ -1328,6 +1469,14 @@ impl Vmm {
         } else {
             ""
         }
+    }
+
+    #[cfg(test)]
+    fn remove_addr(&mut self, id: &String) {
+        self.mmio_device_manager
+            .as_mut()
+            .unwrap()
+            .remove_address(id);
     }
 }
 
@@ -1365,11 +1514,67 @@ mod tests {
     use super::*;
 
     use std::fs::File;
+    use std::sync::atomic::AtomicUsize;
+
+    use serde_json::Map;
 
     use self::tempfile::NamedTempFile;
-
     use data_model::vm::{CpuFeaturesTemplate, DeviceState};
+    use devices::virtio::ActivateResult;
     use net_util::MacAddr;
+
+    struct DummyEpollHandler {
+        pub evt: Option<DeviceEventT>,
+        pub flags: Option<u32>,
+        pub payload: Option<Vec<u8>>,
+    }
+
+    impl EpollHandler for DummyEpollHandler {
+        fn handle_event(&mut self, device_event: DeviceEventT, event_flags: u32) {
+            self.evt = Some(device_event);
+            self.flags = Some(event_flags);
+        }
+
+        fn handle_event_with_payload(
+            &mut self,
+            device_event: DeviceEventT,
+            event_flags: u32,
+            payload: &[u8],
+        ) {
+            self.evt = Some(device_event);
+            self.flags = Some(event_flags);
+            self.payload = Some(payload.to_vec());
+        }
+    }
+
+    #[allow(dead_code)]
+    #[derive(Clone)]
+    struct DummyDevice {
+        dummy: u32,
+    }
+
+    impl devices::virtio::VirtioDevice for DummyDevice {
+        fn device_type(&self) -> u32 {
+            0
+        }
+
+        fn queue_max_sizes(&self) -> &[u16] {
+            &[10]
+        }
+
+        #[allow(unused_variables)]
+        #[allow(unused_mut)]
+        fn activate(
+            &mut self,
+            mem: GuestMemory,
+            interrupt_evt: EventFd,
+            status: Arc<AtomicUsize>,
+            queues: Vec<devices::virtio::Queue>,
+            mut queue_evts: Vec<EventFd>,
+        ) -> ActivateResult {
+            Ok(())
+        }
+    }
 
     fn create_vmm_object() -> Vmm {
         let shared_info = Arc::new(RwLock::new(InstanceInfo {
@@ -1383,6 +1588,22 @@ mod tests {
             from_api,
         ).expect("Cannot Create VMM");
         return vmm;
+    }
+
+    #[test]
+    fn test_device_handler() {
+        let mut ep = EpollContext::new().unwrap();
+        let (base, sender) = ep.allocate_tokens(1);
+        assert_eq!(ep.device_handlers.len(), 1);
+        assert_eq!(base, 1);
+
+        let handler = DummyEpollHandler {
+            evt: None,
+            flags: None,
+            payload: None,
+        };
+        assert!(sender.send(Box::new(handler)).is_ok());
+        assert!(ep.get_device_handler(0).is_ok());
     }
 
     #[test]
@@ -1408,7 +1629,7 @@ mod tests {
                 .contains(&root_block_device)
         );
 
-        // Test that creating a new block device returns the correct output (i.e. "Updated").
+        // Test that updating a block device returns the correct output (i.e. "Updated").
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
             path_on_host: f.path().to_path_buf(),
@@ -1845,5 +2066,113 @@ mod tests {
                 .get_address(&non_root_block_device.drive_id)
                 .is_some()
         );
+
+        // Test partial update of block devices.
+        let mut fields = Map::<String, Value>::new();
+        fields.insert(
+            String::from("drive_id"),
+            Value::String(String::from("not_root")),
+        );
+        fields.insert(String::from("is_read_only"), Value::Bool(false));
+        assert!(
+            vmm.patch_block_device(Value::Object(fields))
+                .eq(&Ok(PatchDriveOutcome::Updated))
+        );
+        match vmm
+            .block_device_configs
+            .get_block_device_config(&String::from("not_root"))
+        {
+            Ok(block) => assert!(!block.is_read_only),
+            _ => assert!(false),
+        }
+
+        let mut fields = Map::<String, Value>::new();
+        fields.insert(
+            String::from("drive_id"),
+            Value::String(String::from("not_root")),
+        );
+        let new_block = NamedTempFile::new().unwrap();
+        let path = String::from(new_block.path().to_path_buf().to_str().unwrap());
+        fields.insert(String::from("path_on_host"), Value::String(path));
+        assert!(
+            vmm.patch_block_device(Value::Object(fields))
+                .eq(&Ok(PatchDriveOutcome::Updated))
+        );
+    }
+
+    #[test]
+    fn test_rescan() {
+        let mut vmm = create_vmm_object();
+        let root_file = NamedTempFile::new().unwrap();
+        let scratch_file = NamedTempFile::new().unwrap();
+        let kernel_file_temp = NamedTempFile::new().unwrap();
+        let kernel_path = String::from(kernel_file_temp.path().to_path_buf().to_str().unwrap());
+        let kernel_file = File::open(kernel_path).unwrap();
+
+        let root_block_device = BlockDeviceConfig {
+            drive_id: String::from("root"),
+            path_on_host: root_file.path().to_path_buf(),
+            is_root_device: true,
+            partuuid: None,
+            is_read_only: false,
+            rate_limiter: None,
+        };
+        let non_root_block_device = BlockDeviceConfig {
+            drive_id: String::from("not_root"),
+            path_on_host: scratch_file.path().to_path_buf(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: true,
+            rate_limiter: None,
+        };
+
+        assert!(vmm.put_block_device(root_block_device.clone()).is_ok());
+        assert!(vmm.put_block_device(non_root_block_device.clone()).is_ok());
+
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.guest_memory.is_some());
+        let mut cmdline = kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE);
+        assert!(cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).is_ok());
+        let kernel_cfg = KernelConfig {
+            cmdline: cmdline.clone(),
+            kernel_file: kernel_file,
+            cmdline_addr: GuestAddress(x86_64::layout::CMDLINE_START),
+        };
+        vmm.configure_kernel(kernel_cfg);
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let mut device_manager =
+            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+
+        let dummy_box = Box::new(DummyDevice { dummy: 0 });
+        let _addr = device_manager
+            .register_device(dummy_box, &mut cmdline, Some(String::from("not_root")))
+            .unwrap();
+
+        vmm.mmio_device_manager = Some(device_manager);
+
+        // Test valid rescan.
+        let body = serde_json::from_str::<ActionBody>(
+            "{\"action_type\": \"BlockDeviceRescan\", \"payload\": \"not_root\"}",
+        ).unwrap();
+        assert!(vmm.rescan_block_device(body).is_ok());
+
+        // Test rescan with invalid ID.
+        let body = serde_json::from_str::<ActionBody>(
+            "{\"action_type\": \"BlockDeviceRescan\", \"payload\": \"foo\"}",
+        ).unwrap();
+        assert!(vmm.rescan_block_device(body).is_err());
+
+        // Test rescan with invalid payload.
+        let body = serde_json::from_str::<ActionBody>(
+            "{\"action_type\": \"BlockDeviceRescan\", \"payload\": {}}",
+        ).unwrap();
+        assert!(vmm.rescan_block_device(body).is_err());
+
+        // Test rescan with invalid device address.
+        vmm.remove_addr(&String::from("not_root"));
+        let body = serde_json::from_str::<ActionBody>(
+            "{\"action_type\": \"BlockDeviceRescan\", \"payload\": \"not_root\"}",
+        ).unwrap();
+        assert!(vmm.rescan_block_device(body).is_err());
     }
 }

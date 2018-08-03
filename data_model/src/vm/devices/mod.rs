@@ -2,4 +2,4 @@
 
 mod drive;
 
-pub use self::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
+pub use self::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError, PatchDrivePayload};

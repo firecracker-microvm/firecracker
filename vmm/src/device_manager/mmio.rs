@@ -163,6 +163,11 @@ impl MMIODeviceManager {
     pub fn get_address(&self, id: &String) -> Option<&u64> {
         return self.id_to_addr_map.get(id.as_str());
     }
+
+    #[cfg(test)]
+    pub fn remove_address(&mut self, id: &String) {
+        self.id_to_addr_map.remove(id).unwrap();
+    }
 }
 
 #[cfg(test)]

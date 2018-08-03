@@ -527,6 +527,15 @@ impl EpollHandler for NetEpollHandler {
             _ => panic!("Unknown event type was received."),
         }
     }
+
+    fn handle_event_with_payload(
+        &mut self,
+        device_event: DeviceEventT,
+        event_flags: u32,
+        _: &[u8],
+    ) {
+        self.handle_event(device_event, event_flags);
+    }
 }
 
 pub struct EpollConfig {
