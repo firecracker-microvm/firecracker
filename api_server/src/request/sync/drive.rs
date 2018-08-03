@@ -13,7 +13,6 @@ use request::{IntoParsedRequest, ParsedRequest};
 pub enum PutDriveOutcome {
     Created,
     Updated,
-    Error(DriveError),
 }
 
 impl GenerateResponse for PutDriveOutcome {
@@ -22,7 +21,20 @@ impl GenerateResponse for PutDriveOutcome {
         match *self {
             Created => empty_response(StatusCode::Created),
             Updated => empty_response(StatusCode::NoContent),
-            Error(ref e) => e.generate_response(),
+        }
+    }
+}
+
+#[derive(PartialEq)]
+pub enum PatchDriveOutcome {
+    Updated,
+}
+
+impl GenerateResponse for PatchDriveOutcome {
+    fn generate_response(&self) -> Response {
+        use self::PatchDriveOutcome::*;
+        match *self {
+            Updated => empty_response(StatusCode::NoContent),
         }
     }
 }
@@ -44,10 +56,6 @@ impl GenerateResponse for DriveError {
     fn generate_response(&self) -> Response {
         use self::DriveError::*;
         match *self {
-            RootBlockDeviceAlreadyAdded => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("A root block device already exists!"),
-            ),
             InvalidBlockDeviceID => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("Invalid block device ID!"),
@@ -66,11 +74,19 @@ impl GenerateResponse for DriveError {
             ),
             BlockDeviceUpdateNotAllowed => json_response(
                 StatusCode::Forbidden,
-                json_fault_message("The update operation is not allowed!"),
+                json_fault_message("The block device update operation is not allowed!"),
             ),
             NotImplemented => json_response(
                 StatusCode::InternalServerError,
                 json_fault_message("The operation is not implemented!"),
+            ),
+            RootBlockDeviceAlreadyAdded => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("A root block device already exists!"),
+            ),
+            SerdeJson => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("Invalid request body!"),
             ),
         }
     }
@@ -84,12 +100,6 @@ mod tests {
 
     #[test]
     fn test_generate_response_drive_error() {
-        assert_eq!(
-            DriveError::RootBlockDeviceAlreadyAdded
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
         assert_eq!(
             DriveError::InvalidBlockDeviceID
                 .generate_response()
@@ -124,6 +134,16 @@ mod tests {
             DriveError::NotImplemented.generate_response().status(),
             StatusCode::InternalServerError
         );
+        assert_eq!(
+            DriveError::RootBlockDeviceAlreadyAdded
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
+        assert_eq!(
+            DriveError::SerdeJson.generate_response().status(),
+            StatusCode::BadRequest
+        );
     }
 
     #[test]
@@ -136,11 +156,13 @@ mod tests {
             PutDriveOutcome::Updated.generate_response().status(),
             StatusCode::NoContent
         );
+    }
+
+    #[test]
+    fn test_generate_response_patch_drive_outcome() {
         assert_eq!(
-            PutDriveOutcome::Error(DriveError::NotImplemented)
-                .generate_response()
-                .status(),
-            StatusCode::InternalServerError
+            PatchDriveOutcome::Updated.generate_response().status(),
+            StatusCode::NoContent
         );
     }
 
