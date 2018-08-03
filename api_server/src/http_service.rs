@@ -12,14 +12,15 @@ use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 use tokio_core::reactor::Handle;
 
-use super::{ActionMap, ActionMapValue};
 use data_model::mmds::MMDS;
-use data_model::vm::{BlockDeviceConfig, MachineConfiguration};
+use data_model::vm::{BlockDeviceConfig, MachineConfiguration, PatchDrivePayload};
 use logger::{Metric, METRICS};
 use request::actions::ActionBody;
 use request::instance_info::InstanceInfo;
 use request::{self, ApiRequest, AsyncOutcome, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
+
+use super::{ActionMap, ActionMapValue};
 
 fn build_response_base<B: Into<hyper::Body>>(
     status: StatusCode,
@@ -256,6 +257,22 @@ fn parse_drives_req<'a>(
                 Error::Generic(StatusCode::BadRequest, s)
             })?)
         }
+
+        1 if method == Method::Patch => {
+            METRICS.patch_api_requests.drive_count.inc();
+
+            Ok(PatchDrivePayload {
+                fields: serde_json::from_slice(body).map_err(|e| {
+                    METRICS.patch_api_requests.drive_fails.inc();
+                    Error::SerdeJson(e)
+                })?,
+            }.into_parsed_request(method)
+                .map_err(|s| {
+                    METRICS.patch_api_requests.drive_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
+        }
+
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -741,6 +758,7 @@ fn describe(sync: bool, method: &Method, path: &String, body: &String) -> String
 mod tests {
     use super::*;
 
+    use serde_json::{Map, Value};
     use std::path::PathBuf;
 
     use data_model::vm::{CpuFeaturesTemplate, DeviceState};
@@ -749,9 +767,9 @@ mod tests {
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use net_util::MacAddr;
-    use request::actions::ActionType;
     use request::async::{AsyncRequest, DeviceType, InstanceDeviceDetachAction};
     use request::sync::{NetworkInterfaceBody, SyncRequest};
+    use request::ActionType;
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret =
@@ -928,7 +946,7 @@ mod tests {
             _ => assert!(false),
         }
 
-        // PUT
+        // PUT InstanceStart
         match parse_actions_req(
             &path_tokens,
             &path,
@@ -966,7 +984,55 @@ mod tests {
             _ => assert!(false),
         }
 
+        // PUT BlockDeviceRescan
+        let json = "{
+                \"action_type\": \"BlockDeviceRescan\",
+                \"payload\": \"foo\"
+              }";
+        let body: Chunk = Chunk::from(json);
+        let path = "/foo";
+        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+        match parse_actions_req(
+            &path_tokens,
+            &path,
+            Method::Put,
+            &None,
+            &body,
+            &mut action_map,
+        ) {
+            Ok(pr) => {
+                let (sender, receiver) = oneshot::channel();
+                let action_body = ActionBody {
+                    action_id: None,
+                    action_type: ActionType::BlockDeviceRescan,
+                    instance_device_detach_action: None,
+                    payload: Some(Value::String(String::from("foo"))),
+                    timestamp: None,
+                };
+                assert!(pr.eq(&ParsedRequest::Sync(
+                    SyncRequest::RescanBlockDevice(action_body, sender),
+                    receiver
+                )));
+            }
+            _ => assert!(false),
+        }
+
         // Error cases
+
+        let path = "/foo/bar";
+        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+        let id_from_path = Some(path_tokens[1]);
+        let json = "{
+                \"action_id\": \"bar\",
+                \"action_type\": \"InstanceStart\",
+                \"instance_device_detach_action\": {\
+                    \"device_type\": \"Drive\",
+                    \"device_resource_id\": \"dummy\",
+                    \"force\": true},
+                \"timestamp\": 1522850095
+              }";
+        let body: Chunk = Chunk::from(json);
+
         // Test the case where action already exists.
         assert!(
             parse_actions_req(
@@ -997,6 +1063,60 @@ mod tests {
                 Method::Put,
                 &id_from_path,
                 &Chunk::from("foo"),
+                &mut action_map
+            ).is_err()
+        );
+
+        // Test PUT with invalid action body.
+        assert!(
+            parse_actions_req(
+                &"/foo".split_terminator('/').collect(),
+                &"/foo",
+                Method::Put,
+                &None,
+                &Chunk::from("{\"action_type\": \"foo\"}"),
+                &mut action_map
+            ).is_err()
+        );
+
+        // Test PUT async request with missing ID.
+        let json = "{
+                \"action_type\": \"InstanceStart\"
+              }";
+        assert!(
+            parse_actions_req(
+                &path_tokens,
+                &path,
+                Method::Put,
+                &id_from_path,
+                &Chunk::from(json),
+                &mut action_map
+            ).is_err()
+        );
+
+        let json = "{
+                \"action_id\": \"foo\",
+                \"action_type\": \"InstanceStart\"
+              }";
+        assert!(
+            parse_actions_req(
+                &path_tokens,
+                &path,
+                Method::Put,
+                &None,
+                &Chunk::from(json),
+                &mut action_map
+            ).is_err()
+        );
+
+        // Test GET with missing ID.
+        assert!(
+            parse_actions_req(
+                &"/foo".split_terminator('/').collect(),
+                &"/foo",
+                Method::Get,
+                &None,
+                &Chunk::from(""),
                 &mut action_map
             ).is_err()
         );
@@ -1120,6 +1240,28 @@ mod tests {
             ).is_err()
         );
 
+        // PATCH
+        let json = "{
+                \"drive_id\": \"bar\",
+                \"is_read_only\": false
+              }";
+        let body: Chunk = Chunk::from(json);
+        let mut payload_map = Map::<String, Value>::new();
+        payload_map.insert(String::from("drive_id"), Value::String(String::from("bar")));
+        payload_map.insert(String::from("is_read_only"), Value::Bool(false));
+        let patch_payload = PatchDrivePayload {
+            fields: Value::Object(payload_map),
+        };
+        match patch_payload.into_parsed_request(Method::Patch) {
+            Ok(pr) => {
+                match parse_drives_req(&path_tokens, &path, Method::Patch, &id_from_path, &body) {
+                    Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
+                    _ => assert!(false),
+                }
+            }
+            _ => assert!(false),
+        }
+
         // Test case where id from path is different.
         assert!(
             parse_drives_req(
@@ -1127,6 +1269,24 @@ mod tests {
                 &"/foo/bar",
                 Method::Put,
                 &Some("barr"),
+                &body
+            ).is_err()
+        );
+
+        // Test case where the id of the request body is different.
+        let json = "{
+                \"drive_id\": \"barr\",
+                \"path_on_host\": \"/foo/bar\",
+                \"is_root_device\": true,
+                \"is_read_only\": true
+              }";
+        let body: Chunk = Chunk::from(json);
+        assert!(
+            parse_drives_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Put,
+                &Some("bar"),
                 &body
             ).is_err()
         );
@@ -1143,6 +1303,22 @@ mod tests {
                 &"/foo/bar"[1..].split_terminator('/').collect(),
                 &"/foo/bar",
                 Method::Put,
+                &Some("bar"),
+                &body
+            ).is_err()
+        );
+
+        // Test case where the PATCH payload is invalid.
+        let json = "{
+                \"drive_id\": \"bar\",
+                \"foo\"
+              }";
+        let body: Chunk = Chunk::from(json);
+        assert!(
+            parse_drives_req(
+                &"/foo/bar"[1..].split_terminator('/').collect(),
+                &"/foo/bar",
+                Method::Patch,
                 &Some("bar"),
                 &body
             ).is_err()
@@ -1257,6 +1433,10 @@ mod tests {
                 Method::Put,
                 &Chunk::from("{\"foo\": \"bar\"")
             ).is_err()
+        );
+
+        assert!(
+            parse_machine_config_req(&path_tokens, &path, Method::Put, &Chunk::from("{}")).is_err()
         );
     }
 
@@ -1401,6 +1581,11 @@ mod tests {
         let invalid_json = "\"latest\": {}}";
         let body = Chunk::from(invalid_json);
         assert!(parse_mmds_request(&path_tokens, path, Method::Put, &body).is_err());
+
+        // Test for invalid json on PATCH
+        let invalid_json = "\"latest\": {}}";
+        let body = Chunk::from(invalid_json);
+        assert!(parse_mmds_request(&path_tokens, path, Method::Patch, &body).is_err());
 
         // Test for invalid path
         let path = "/mmds/something";

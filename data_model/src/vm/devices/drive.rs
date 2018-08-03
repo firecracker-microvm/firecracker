@@ -4,21 +4,23 @@ use std::collections::LinkedList;
 use std::path::PathBuf;
 use std::result;
 
-use serde_json::Value;
+use json_patch;
+use serde_json::{self, to_value, Value};
 
-use vm::{PatchError, RateLimiterDescription, ValidatePatch};
+use vm::RateLimiterDescription;
 
 type Result<T> = result::Result<T, DriveError>;
 
 #[derive(Debug, PartialEq)]
 pub enum DriveError {
-    RootBlockDeviceAlreadyAdded,
     InvalidBlockDeviceID,
     InvalidBlockDevicePath,
     BlockDevicePathAlreadyExists,
     BlockDeviceUpdateFailed,
     BlockDeviceUpdateNotAllowed,
     NotImplemented,
+    RootBlockDeviceAlreadyAdded,
+    SerdeJson,
 }
 
 /// Use this structure to set up the Block Device before booting the kernel
@@ -48,6 +50,19 @@ impl BlockDeviceConfig {
 
     pub fn get_partuuid(&self) -> Option<&String> {
         self.partuuid.as_ref()
+    }
+
+    pub fn merge(&mut self, fields: &Value) -> Result<()> {
+        let mut self_val = to_value(&self).map_err(|_| DriveError::SerdeJson)?;
+        json_patch::merge(&mut self_val, fields);
+
+        *self = serde_json::from_str(
+            serde_json::to_string(&self_val)
+                .map_err(|_| DriveError::SerdeJson)?
+                .as_str(),
+        ).map_err(|_| DriveError::SerdeJson)?;
+
+        Ok(())
     }
 }
 
@@ -145,10 +160,24 @@ impl BlockDeviceConfigs {
         None
     }
 
-    /// This function updates a Block Device Config prior to the guest boot. The update fails if it
-    /// would result in two root block devices.
-    pub fn update(&mut self, block_device_config: &BlockDeviceConfig) -> Result<()> {
-        // Check if the path exists.
+    pub fn get_block_device_config(&self, id: &String) -> Result<BlockDeviceConfig> {
+        for drive_config in self.config_list.iter() {
+            if drive_config.drive_id.eq(id) {
+                return Ok(drive_config.clone());
+            }
+        }
+        Err(DriveError::InvalidBlockDeviceID)
+    }
+
+    /// This function updates a Block Device Config. The update fails if it would result in two
+    /// root block devices. Full updates are allowed via PUT prior to the guest boot. Partial
+    /// updates are allowed via PATCH both before and after boot.
+    /// If the update requires a rescan in order to complete, the path to the backing file on the
+    /// host is returned in the Result. Note that for the moment, partial updates after guest boot
+    /// can only change the file path, therefore PATCH operations on /drives should always contain
+    /// a new file path and should always trigger a rescan.
+    pub fn update(&mut self, block_device_config: &BlockDeviceConfig) -> Result<Option<PathBuf>> {
+        // Check if the path exists
         if !block_device_config.path_on_host.exists() {
             return Err(DriveError::InvalidBlockDevicePath);
         }
@@ -174,12 +203,17 @@ impl BlockDeviceConfigs {
                     }
                 }
                 cfg.is_root_device = block_device_config.is_root_device;
+                let rescan_needed = cfg.path_on_host != block_device_config.path_on_host;
                 cfg.path_on_host = block_device_config.path_on_host.clone();
                 cfg.is_read_only = block_device_config.is_read_only;
                 cfg.rate_limiter = block_device_config.rate_limiter.clone();
                 cfg.partuuid = block_device_config.partuuid.clone();
 
-                return Ok(());
+                if rescan_needed {
+                    return Ok(Some(cfg.path_on_host.clone()));
+                } else {
+                    return Ok(None);
+                }
             }
         }
 
@@ -187,42 +221,12 @@ impl BlockDeviceConfigs {
     }
 }
 
-struct PatchDrivePayload {
-    fields: Value,
-}
-
-impl ValidatePatch for PatchDrivePayload {
-    fn validate(&self) -> result::Result<(), PatchError> {
-        match self.fields {
-            Value::Object(ref fields_map) => {
-                let mut id_found = false;
-                let mut bad_fields: Vec<String> = vec![];
-                const ALLOWED_FIELDS: [&'static str; 2] = ["drive_id", "path_on_host"];
-
-                for property in fields_map.keys() {
-                    if ALLOWED_FIELDS
-                        .iter()
-                        .find(|&&field| field == property)
-                        .is_none()
-                    {
-                        bad_fields.push(property.clone());
-                    }
-
-                    if property.eq("drive_id") {
-                        id_found = true;
-                    }
-                }
-                if !id_found {
-                    Err(PatchError::IdNotFound)
-                } else if bad_fields.is_empty() {
-                    Err(PatchError::InvalidFields(bad_fields))
-                } else {
-                    Ok(())
-                }
-            }
-            _ => Err(PatchError::InvalidPayload),
-        }
-    }
+#[derive(Clone)]
+pub struct PatchDrivePayload {
+    // Leaving `fields` pub because ownership on it needs to be yielded to the
+    // Request enum object. A getter couldn't move `fields` out of the borrowed
+    // PatchDrivePayload object.
+    pub fields: Value,
 }
 
 #[cfg(test)]
@@ -231,6 +235,7 @@ mod tests {
 
     use self::tempfile::NamedTempFile;
     use super::*;
+    use serde_json::Map;
 
     #[test]
     fn test_create_block_devices_configs() {
@@ -483,6 +488,20 @@ mod tests {
                 .is_ok()
         );
 
+        // Get OK
+        assert!(
+            block_devices_configs
+                .get_block_device_config(&String::from("1"))
+                .eq(&Ok(root_block_device))
+        );
+
+        // Get with invalid ID
+        assert!(
+            block_devices_configs
+                .get_block_device_config(&String::from("foo"))
+                .is_err()
+        );
+
         // Update OK
         dummy_block_device_2.is_read_only = true;
         assert!(block_devices_configs.update(&dummy_block_device_2).is_ok());
@@ -518,5 +537,32 @@ mod tests {
         assert!(&block_devices_configs.update(&root_block_device_old).is_ok());
         assert!(&block_devices_configs.update(&root_block_device_new).is_ok());
         assert!(block_devices_configs.has_partuuid_root);
+    }
+
+    #[test]
+    fn test_merge() {
+        let dummy_file_1 = NamedTempFile::new().unwrap();
+        let dummy_path_1 = dummy_file_1.path().to_path_buf();
+        let mut root_block_device = BlockDeviceConfig {
+            path_on_host: dummy_path_1.clone(),
+            is_root_device: true,
+            partuuid: None,
+            is_read_only: false,
+            drive_id: String::from("1"),
+            rate_limiter: None,
+        };
+        let mut fields = Map::<String, Value>::new();
+        fields.insert(String::from("drive_id"), Value::String(String::from("1")));
+        fields.insert(String::from("is_root_device"), Value::Bool(false));
+
+        assert!(
+            root_block_device
+                .merge(&Value::Object(fields.clone()))
+                .is_ok()
+        );
+        assert!(!root_block_device.is_root_device);
+
+        fields.insert(String::from("foo"), Value::Bool(true));
+        assert!(root_block_device.merge(&Value::Object(fields)).is_err());
     }
 }
