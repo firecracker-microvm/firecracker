@@ -68,7 +68,7 @@ class FilesystemFile:
             self._unmount()
 
     def copy_from(self, rel_src_path, dst_path):
-        """ Copy from relative path inside this filesystem file. """
+        """ Copies from a relative path inside this filesystem file. """
         self._loop_mount()
         full_src_path = os.path.join(self.loop_mount_path, rel_src_path)
 
@@ -92,9 +92,13 @@ class FilesystemFile:
         statinfo = os.stat(self.path)
         return statinfo.st_size
 
+    def create_file(self, rel_path, content=None):
+        """ Creates a file inside this filesystem file. """
+        self._loop_mount()
+        
     def _loop_mount(self):
         """
-        Loop-mounts this file system file and returns the mount path.
+        Loop-mounts this file system file and saves the mount path.
         Always unmount with _unmount() as soon as possible.
         """
         loop_mount_path = self.path + '.' + self.LOOP_MOUNT_PATH_SUFFIX
