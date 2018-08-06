@@ -1,27 +1,29 @@
-""" Tests if both the debug and the release builds pass. """
+"""Tests that check if both the debug and the release builds pass."""
 
 import os
 
 import pytest
 
-from host_tools.cargo_build import cargo_build, CARGO_BUILD_REL_PATH,\
-    CARGO_RELEASE_REL_PATH
+import host_tools.cargo_build as host  # pylint:disable=import-error
 
-CARGO_DEBUG_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "debug")
+
+CARGO_DEBUG_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, 'debug')
 
 
 @pytest.mark.timeout(240)
 def test_build_debug(test_session_root_path):
+    """Test if a debug-mode build works."""
     build_path = os.path.join(
         test_session_root_path,
         CARGO_DEBUG_REL_PATH
     )
-    cargo_build(build_path)
+    host.cargo_build(build_path)
 
 
 def test_build_release(test_session_root_path):
+    """Test if a release-mode build works."""
     build_path = os.path.join(
         test_session_root_path,
-        CARGO_RELEASE_REL_PATH
+        host.CARGO_RELEASE_REL_PATH
     )
-    cargo_build(build_path, '--release')
+    host.cargo_build(build_path, '--release')

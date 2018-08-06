@@ -1,9 +1,9 @@
-"""
-This module is imported by pytest at the start of every test session. Fixtures
-herein are made available to every test collected by pytest.
+"""Imported by pytest at the start of every test session.
 
 # Fixture Goals
 
+Fixtures herein are made available to every test collected by pytest. They are
+designed with the following goals in mind:
 - Running a test on a microvm is as easy as importing a microvm fixture.
 - Adding a new microvm image (kernel, rootfs) for tests to run on is as easy as
   uploading that image to a key-value store, e.g., an s3 bucket.
@@ -70,8 +70,6 @@ be run on every microvm image in the bucket, each as a separate test case.
 # Notes
 
 - Reading up on pytest fixtures is probably needed when editing this file.
-- Programming here is not defensive, since tests systems turn false negatives
-  into a quality-improving positive feedback loop.
 
 # TODO
 
@@ -86,7 +84,6 @@ be run on every microvm image in the bucket, each as a separate test case.
 import threading
 import os
 import shutil
-import time
 import tempfile
 import uuid
 
@@ -98,64 +95,67 @@ from microvm import JailerContext, MicrovmSlot, Microvm
 
 
 TEST_MICROVM_IMAGES_S3_BUCKET = 'spec.firecracker'
-""" The bucket that holds Firecracker microvm test images. """
+"""The bucket that holds Firecracker microvm test images."""
 
 ENV_TMPDIR_VAR = 'TR_TMPDIR'
-"""
-If this environment variable is set, its value will become the root for
-temporary directories created by the test session.
-"""
+"""If set, value becomes the root for temporary test session directories."""
 
 DEFAULT_ROOT_TESTSESSION_PATH = '/tmp/firecracker_test_session/'
-""" If ENV_TMPDIR_VAR is not set, this path will be used. """
+"""If ENV_TMPDIR_VAR is not set, this path will be used instead."""
 
 IP4_GENERATOR_CREATE_LOCK = threading.Lock()
 
+# Some tests create system-level resources; ensure we run as root.
 if os.geteuid() != 0:
-    """ Some tests create system-level resources, so we should run as root. """
     raise PermissionError("Test session needs to be run as root.")
 
 
 @pytest.fixture(autouse=True, scope='session')
 def test_session_root_path():
-    """
-    Ensures and yields the testrun root directory. If created here, it is also
-    destroyed during teardown. The root directory is created per test session.
-    """
+    """Ensure and yield the testrun root directory.
 
+    If created here, it is also destroyed during teardown. The root directory
+    is created per test session.
+    """
     created_test_session_root_path = False
 
     try:
-        test_session_root_path = os.environ[ENV_TMPDIR_VAR]
-    except:
-        test_session_root_path = DEFAULT_ROOT_TESTSESSION_PATH
+        root_path = os.environ[ENV_TMPDIR_VAR]
+    except Exception:
+        root_path = DEFAULT_ROOT_TESTSESSION_PATH
+        raise Exception
 
-    if not os.path.exists(test_session_root_path):
-        os.makedirs(test_session_root_path)
+    if not os.path.exists(root_path):
+        os.makedirs(root_path)
         created_test_session_root_path = True
 
-    yield test_session_root_path
+    yield root_path
 
     if created_test_session_root_path:
-        shutil.rmtree(test_session_root_path)
+        shutil.rmtree(root_path)
 
 
 @pytest.fixture
-def testsession_tmp_path(test_session_root_path):
-    """ Yields a random temporary directory. Destroyed on teardown. """
-    test_session_tmp_path = tempfile.mkdtemp(prefix=test_session_root_path)
-    yield test_session_tmp_path
-    shutil.rmtree(test_session_tmp_path)
+def test_session_tmp_path(test_session_root_path):
+    """Yield a random temporary directory. Destroyed on teardown."""
+    # pylint: disable=redefined-outer-name
+    # The fixture pattern causes a pylint false positive for that rule.
+
+    tmp_path = tempfile.mkdtemp(prefix=test_session_root_path)
+    yield tmp_path
+    shutil.rmtree(tmp_path)
 
 
 @pytest.fixture
 def microvm_slot(test_session_root_path):
-    """ Yields a microvm slot with an UUID as the slot id. """
+    """Yield a microvm slot with an UUID as the slot id."""
+    # pylint: disable=redefined-outer-name
+    # The fixture pattern causes a pylint false positive for that rule.
 
-    id = str(uuid.uuid4())
+    microvm_slot_id = str(uuid.uuid4())
     slot = MicrovmSlot(
-        jailer_context=JailerContext.default_with_id(id),
-        id=id,
+        jailer_context=JailerContext.default_with_id(microvm_slot_id),
+        slot_id=microvm_slot_id,
         microvm_root_path=test_session_root_path
     )
     slot.setup()
@@ -165,20 +165,20 @@ def microvm_slot(test_session_root_path):
 
 @pytest.fixture
 def microvm(microvm_slot):
-    """ Yields a spawned microvm in a given microvm slot. """
+    """Yield a spawned microvm in a given microvm slot."""
+    # pylint: disable=redefined-outer-name
+    # The fixture pattern causes a pylint false positive for that rule.
 
-    microvm = Microvm(microvm_slot, id=str(uuid.uuid4()))
-    microvm.spawn()
-    microvm.wait_create()
-
-    yield microvm
-
-    microvm.kill()
+    vm = Microvm(microvm_slot, microvm_id=str(uuid.uuid4()))
+    vm.spawn()
+    vm.wait_create()
+    yield vm
+    vm.kill()
 
 
 @pytest.fixture
 def network_config():
-    """ Yields a UniqueIPv4Generator. """
+    """Yield a UniqueIPv4Generator."""
     with IP4_GENERATOR_CREATE_LOCK:
         ipv4_generator = UniqueIPv4Generator.get_instance()
     yield ipv4_generator
@@ -186,7 +186,7 @@ def network_config():
 
 @pytest.fixture
 def microvm_image_fetcher():
-    """ Returns an borg object that knows about fetching microvm images. """
+    """Return a borg object that knows about fetching microvm images."""
     return MicrovmImageS3Fetcher(TEST_MICROVM_IMAGES_S3_BUCKET)
 
 
@@ -196,7 +196,10 @@ def microvm_image_fetcher():
     )
 )
 def test_microvm_any(request, microvm, microvm_image_fetcher):
-    """
+    """Yield a microvm that can have any image in the spec bucket.
+
+    A test case using this fixture will run for every microvm_image.
+
     When using a pytest parameterized fixture, a test case is created for each
     parameter in the list. We generate the list dynamically based on the
     capability filter. This will result in
@@ -204,11 +207,14 @@ def test_microvm_any(request, microvm, microvm_image_fetcher):
     test cases for each test that depends on this fixture, each receiving a
     microvm slot with a different microvm image.
     """
+    # pylint: disable=redefined-outer-name
+    # The fixture pattern causes a pylint false positive for that rule.
+
     microvm_image_fetcher.get_microvm_image(request.param, microvm.slot)
     yield microvm
 
 
-test_microvm_cap_fixture_template = (
+TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (
     "@pytest.fixture("
     "    params=microvm_image_fetcher().list_microvm_images(\n"
     "        capability_filter=['CAP']\n"
@@ -221,17 +227,17 @@ test_microvm_cap_fixture_template = (
     "    yield microvm"
 )
 
+# To make test writing easy, we want to dynamically create fixtures with all
+# capabilities present in the test microvm images bucket. `pytest` doesn't
+# provide a way to do that outright, but luckily all of python is just lists of
+# of lists and a cursor, so exec() works fine here.
+#
+# TODO: Support generating fixtures with more than one capability. This is
+# supported by the MicrovmImageFetcher, but not by the fixture template.
 for capability in microvm_image_fetcher().enum_capabilities():
     test_microvm_cap_fixture = (
-        test_microvm_cap_fixture_template.replace('CAP', capability)
+        TEST_MICROVM_CAP_FIXTURE_TEMPLATE.replace('CAP', capability)
     )
+    # pylint: disable=exec-used
+    # This is the most straightforward way to achieve this result.
     exec(test_microvm_cap_fixture)
-"""
-To make test writing easy, we want to dynamically create fixtures with all
-capabilities present in the test microvm images bucket. `pytest` doesn't
-provide a way to do that outright, but luckily all of python is just lists of
-of lists and a cursor, so exec() works fine here.
-
-TODO: Support generating fixtures with more than one capability. This is
-      supported by the MicrovmImageFetcher, but not by the fixture template.
-"""
