@@ -1,5 +1,4 @@
-"""
-Tests pertaining to line/branch test coverage for the Firecracker code base.
+"""Tests pertaining to line/branch test coverage for the Firecracker code base.
 
 # TODO
 
@@ -14,27 +13,28 @@ from subprocess import run
 
 import pytest
 
-from host_tools.cargo_build import CARGO_BUILD_REL_PATH
+import host_tools.cargo_build as host  # pylint: disable=import-error
 
 
-CARGO_KCOV_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "kcov")
+COVERAGE_TARGET_PCT = 65.0
+# TODO: Put the coverage in s3 and update it automatically.
+
+CARGO_KCOV_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, 'kcov')
+
+KCOV_COVERAGE_FILE = 'index.json'
+"""kcov will aggregate coverage data in this file."""
+
+KCOV_COVERAGE_REGEX = r'"covered":"(\d+\.\d)"'
+"""Regex for extracting coverage data from a kcov output file."""
 
 
 @pytest.mark.timeout(240)
-def test_coverage(test_session_root_path, testsession_tmp_path):
+def test_coverage(test_session_root_path, test_session_tmp_path):
+    """Test line coverage with kcov.
+
+    The result is extracted from the index.json created by kcov after a
+    coverage run.
     """
-    Test line coverage with kcov. The result is extracted from the index.json
-    created by kcov after a coverag run.
-    """
-
-    COVERAGE_TARGET_PCT = 65.0
-    # TODO: Put the coverage in s3 and update it automatically.
-
-    COVERAGE_FILE = 'index.json'
-    """ kcov will aggregate coverage data in this file. """
-
-    COVERAGE_REGEX = r'"covered":"(\d+\.\d)"'
-    """ Regex for extracting coverage data from a kcov output file. """
 
     exclude_pattern = (
         '${CARGO_HOME:-$HOME/.cargo/},'
@@ -45,18 +45,23 @@ def test_coverage(test_session_root_path, testsession_tmp_path):
     )
     exclude_region = '\'mod tests {\''
 
-    cmd = "CARGO_TARGET_DIR={} cargo kcov --all --output {} -- \
-        --exclude-pattern={} --exclude-region={} --verify".format(
+    cmd = (
+        'CARGO_TARGET_DIR={} cargo kcov --all '
+        '--output {} -- '
+        '--exclude-pattern={} '
+        '--exclude-region={} --verify'
+    ).format(
         os.path.join(test_session_root_path, CARGO_KCOV_REL_PATH),
-        testsession_tmp_path,
+        test_session_tmp_path,
         exclude_pattern,
         exclude_region
     )
-    run(cmd, shell=True, check=True)
     # By default, `cargo kcov` passes `--exclude-pattern=$CARGO_HOME --verify`
     # to kcov. To pass others arguments, we need to include the defaults.
-    coverage_file = os.path.join(testsession_tmp_path, COVERAGE_FILE)
+    run(cmd, shell=True, check=True)
+
+    coverage_file = os.path.join(test_session_tmp_path, KCOV_COVERAGE_FILE)
     with open(coverage_file) as cov_output:
-        coverage = float(re.findall(COVERAGE_REGEX, cov_output.read())[0])
+        coverage = float(re.findall(KCOV_COVERAGE_REGEX, cov_output.read())[0])
     print("Coverage is: " + str(coverage))
-    assert(coverage >= COVERAGE_TARGET_PCT)
+    assert coverage >= COVERAGE_TARGET_PCT

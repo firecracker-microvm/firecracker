@@ -1,111 +1,33 @@
+"""Tests that fail if network throughput does not obey rate limits."""
+
+from subprocess import run, PIPE
 import time
 
-from host_tools.network import SSHConnection, mac_from_ip
-from subprocess import run, PIPE
+import host_tools.network as host  # pylint: disable=import-error
 
 # The iperf version to run this tests with
 IPERF_BINARY = 'iperf3'
+
 # Interval used by iperf to get maximum bandwidth
 IPERF_TRANSMIT_TIME = 3
+
 # The rate limiting value
 RATE_LIMIT_BYTES = 10485760
+
 # The initial token bucket size
 BURST_SIZE = 1048576000
+
 # The refill time for the token bucket
 RATE_LIMIT_REFILL_TIME = 100
+
 # Deltas that are accepted between expected values and achieved
 # values throughout the tests
 MAX_BYTES_DIFF_PERCENTAGE = 10
 MAX_TIME_DIFF = 25
 
 
-def start_iperf_on_guest(test_microvm, hostname):
-    """ Starts iperf in server mode through an SSH connection. """
-
-    test_microvm.slot.ssh_config['hostname'] = hostname
-    ssh_connection = SSHConnection(test_microvm.slot.ssh_config)
-
-    iperf_cmd = "{} -sD -f KBytes\n".format(IPERF_BINARY)
-    ssh_connection.execute_command(iperf_cmd)
-
-    # Wait for the iperf daemon to start.
-    time.sleep(2)
-    ssh_connection.close()
-
-
-def run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
-    """
-    Runs a client related iperf command through an SSH connection.
-    """
-
-    test_microvm.slot.ssh_config['hostname'] = hostname
-    ssh_connection = SSHConnection(test_microvm.slot.ssh_config)
-
-    _, stdout, stderr = ssh_connection.execute_command(iperf_cmd)
-    assert(stderr.read().decode("utf-8") == '')
-
-    out = stdout.read().decode("utf-8")
-
-    ssh_connection.close()
-    return out
-
-
-def start_local_iperf(netns_cmd_prefix):
-    """ Starts iperf in server mode after killing any leftover iperf daemon."""
-    iperf_cmd = "pkill {}\n".format(IPERF_BINARY)
-
-    run(iperf_cmd, shell=True)
-
-    iperf_cmd = "{} {} -sD -f KBytes\n".format(netns_cmd_prefix, IPERF_BINARY)
-
-    run(iperf_cmd, shell=True)
-
-    # Wait for the iperf daemon to start.
-    time.sleep(2)
-
-
-def run_local_iperf(iperf_cmd):
-    """ Runs a client related iperf command locally. """
-
-    process = run(iperf_cmd, shell=True, stdout=PIPE)
-    return process.stdout.decode("utf-8")
-
-
-def get_difference(current, previous):
-    """
-    Returns the percentage with which the two values differ from each other.
-    """
-
-    if current == previous:
-        return 0
-    try:
-        return (abs(current - previous) / previous) * 100.0
-    except ZeroDivisionError:
-        # It means previous and only previous is 0.
-        return 100.0
-
-
-def process_iperf_output(iperf_out):
-    found_line = 0
-    iperf_out_lines = iperf_out.splitlines()
-    for line in iperf_out_lines:
-        if line.find("- - - - - - - -") != -1:
-            found_line += 1
-
-        if found_line == 3:
-            iperf_out_time = line.split("  ")[2].split(
-                "-"
-            )[1].strip().split(" ")[0]
-            iperf_out_bw = line.split("  ")[5].split(
-                " "
-            )[0].strip()
-            break
-        elif found_line > 0:
-            found_line += 1
-    return float(iperf_out_time), float(iperf_out_bw)
-
-
 def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
+    """Run iperf tx with and without rate limiting; check limiting effect."""
     test_microvm = test_microvm_with_ssh
 
     test_microvm.basic_config(net_iface_count=0)
@@ -114,36 +36,36 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
     # 1. No rate limiting
     # 2. Rate limiting without burst
     # 3. Rate limiting with burst
-    host_ips = ["", "", ""]
-    guest_ips = ["", "", ""]
+    host_ips = ['', '', '']
+    guest_ips = ['', '', '']
 
     (host_ips[0], guest_ips[0]) = network_config.get_next_available_ips(2)
-    tap_name = test_microvm.slot.make_tap(ip="{}/{}".format(
+    tap_name = test_microvm.slot.make_tap(ip='{}/{}'.format(
         host_ips[0], network_config.get_netmask_len()
     ))
-    iface_id = "1"
+    iface_id = '1'
     response = test_microvm.api_session.put(
         "{}/{}".format(test_microvm.net_cfg_url, iface_id),
         json={
             'iface_id': iface_id,
             'host_dev_name': tap_name,
-            'guest_mac': mac_from_ip(guest_ips[0]),
+            'guest_mac': host.mac_from_ip(guest_ips[0]),
             'state': 'Attached'
         }
     )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
+    assert test_microvm.api_session.is_good_response(response.status_code)
 
     (host_ips[1], guest_ips[1]) = network_config.get_next_available_ips(2)
-    tap_name = test_microvm.slot.make_tap(ip="{}/{}".format(
+    tap_name = test_microvm.slot.make_tap(ip='{}/{}'.format(
         host_ips[1], network_config.get_netmask_len()
     ))
-    iface_id = "2"
+    iface_id = '2'
     response = test_microvm.api_session.put(
-        "{}/{}".format(test_microvm.net_cfg_url, iface_id),
+        '{}/{}'.format(test_microvm.net_cfg_url, iface_id),
         json={
             'iface_id': iface_id,
             'host_dev_name': tap_name,
-            'guest_mac': mac_from_ip(guest_ips[1]),
+            'guest_mac': host.mac_from_ip(guest_ips[1]),
             'state': 'Attached',
             'tx_rate_limiter': {
                 'bandwidth': {
@@ -153,19 +75,19 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
             }
         }
     )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
+    assert test_microvm.api_session.is_good_response(response.status_code)
 
     (host_ips[2], guest_ips[2]) = network_config.get_next_available_ips(2)
-    tap_name = test_microvm.slot.make_tap(ip="{}/{}".format(
+    tap_name = test_microvm.slot.make_tap(ip='{}/{}'.format(
         host_ips[2], network_config.get_netmask_len()
     ))
-    iface_id = "3"
+    iface_id = '3'
     response = test_microvm.api_session.put(
-        "{}/{}".format(test_microvm.net_cfg_url, iface_id),
+        '{}/{}'.format(test_microvm.net_cfg_url, iface_id),
         json={
             'iface_id': iface_id,
             'host_dev_name': tap_name,
-            'guest_mac': mac_from_ip(guest_ips[2]),
+            'guest_mac': host.mac_from_ip(guest_ips[2]),
             'state': 'Attached',
             'tx_rate_limiter': {
                 'bandwidth': {
@@ -176,13 +98,13 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
             }
         }
     )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
+    assert test_microvm.api_session.is_good_response(response.status_code)
 
     # Start the microvm.
     test_microvm.start()
 
     # Start iperf on the host as this is the tx rate limiting test.
-    start_local_iperf(test_microvm.slot.netns_cmd_prefix())
+    _start_local_iperf(test_microvm.slot.netns_cmd_prefix())
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf; 1000 converts to Bytes.
@@ -192,8 +114,8 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
         IPERF_TRANSMIT_TIME
     )
 
-    iperf_out = run_iperf_on_guest(test_microvm, iperf_cmd, guest_ips[0])
-    iperf_out = process_iperf_output(iperf_out)[1]
+    iperf_out = _run_iperf_on_guest(test_microvm, iperf_cmd, guest_ips[0])
+    iperf_out = _process_iperf_output(iperf_out)[1]
 
     rate_no_limit_bytes = 1000 * float(iperf_out)
 
@@ -210,20 +132,23 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
         host_ips[1],
         IPERF_TRANSMIT_TIME
     )
-    iperf_out = run_iperf_on_guest(
+    iperf_out = _run_iperf_on_guest(
         test_microvm, iperf_cmd, guest_ips[1]
     )
-    iperf_out = process_iperf_output(iperf_out)[1]
+    iperf_out = _process_iperf_output(iperf_out)[1]
 
     rate_limit_bytes_achieved = 1000 * float(iperf_out)
     rate_limit_bytes_expected = rate_limit_bps
 
     # Assert on the bytes expected and achieved with rate limiting on; we are
     # expecting a difference no bigger than MAX_RATE_LIMIT_BYTES_DIFF
-    assert(get_difference(
-        rate_limit_bytes_achieved,
-        rate_limit_bytes_expected
-    ) < MAX_BYTES_DIFF_PERCENTAGE)
+    assert (
+        _get_difference(
+            rate_limit_bytes_achieved,
+            rate_limit_bytes_expected
+        )
+        < MAX_BYTES_DIFF_PERCENTAGE
+    )
 
     # Third step: get the number of bytes when rate limiting is on and there is
     # an initial burst size from where to consume.
@@ -234,10 +159,10 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
         host_ips[2],
         BURST_SIZE
     )
-    iperf_out = run_iperf_on_guest(test_microvm, iperf_cmd, guest_ips[2])
+    iperf_out = _run_iperf_on_guest(test_microvm, iperf_cmd, guest_ips[2])
     # iperf will give variable number of output lines depending on how much
     # time it took to send the amount specified.
-    burst_bw_first_time_achieved = process_iperf_output(iperf_out)[1]
+    burst_bw_first_time_achieved = _process_iperf_output(iperf_out)[1]
 
     # The second time we use iperf to send bytes we need to see that the burst
     # was consumed and that the transmit rate is now equal to the rate limit.
@@ -246,27 +171,31 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
     iperf_cmd = '{} -c {} -n{} -f KBytes'.format(
         IPERF_BINARY, host_ips[2], rate_limit_bps
     )
-    iperf_out = run_iperf_on_guest(test_microvm, iperf_cmd, guest_ips[2])
-    iperf_out_time, iperf_out_bw = process_iperf_output(iperf_out)
+    iperf_out = _run_iperf_on_guest(test_microvm, iperf_cmd, guest_ips[2])
+    iperf_out_time, iperf_out_bw = _process_iperf_output(iperf_out)
 
     # Test that the bandwidth we obtained first time is at least as two times
     # higher than the one obtained when rate limiting is on.
-    assert(get_difference(burst_bw_first_time_achieved, iperf_out_bw) > 100)
+    assert _get_difference(burst_bw_first_time_achieved, iperf_out_bw) > 100
     # Test that the bandwidth we obtained second time is at least two times
     # lower than the one obtained when no rate limiting is in place.
-    assert(get_difference(rate_no_limit_bytes, iperf_out_bw) > 100)
+    assert _get_difference(rate_no_limit_bytes, iperf_out_bw) > 100
 
     burst_consumed_time_achieved = iperf_out_time
     # We expect it to take around 1 sec now.
     burst_consumed_time_expected = 1
 
-    assert(get_difference(
-        burst_consumed_time_achieved,
-        burst_consumed_time_expected
-    ) < MAX_TIME_DIFF)
+    assert (
+        _get_difference(
+            burst_consumed_time_achieved,
+            burst_consumed_time_expected
+        )
+        < MAX_TIME_DIFF
+    )
 
 
 def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
+    """Run iperf rx with and without rate limiting; check limiting effect."""
     test_microvm = test_microvm_with_ssh
 
     test_microvm.basic_config(net_iface_count=0)
@@ -275,37 +204,37 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
     # 1. No rate limiting
     # 2. Rate limiting without burst
     # 3. Rate limiting with burst
-    host_ips = ["", "", ""]
-    guest_ips = ["", "", ""]
+    host_ips = ['', '', '']
+    guest_ips = ['', '', '']
 
     (host_ips[0], guest_ips[0]) = network_config.get_next_available_ips(2)
-    tap_name = test_microvm.slot.make_tap(ip="{}/{}".format(
+    tap_name = test_microvm.slot.make_tap(ip='{}/{}'.format(
         host_ips[0],
         network_config.get_netmask_len()
     ))
-    iface_id = "1"
+    iface_id = '1'
     response = test_microvm.api_session.put(
         "{}/{}".format(test_microvm.net_cfg_url, iface_id),
         json={
             'iface_id': iface_id,
             'host_dev_name': tap_name,
-            'guest_mac': mac_from_ip(guest_ips[0]),
+            'guest_mac': host.mac_from_ip(guest_ips[0]),
             'state': 'Attached'
         }
     )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
+    assert test_microvm.api_session.is_good_response(response.status_code)
 
     (host_ips[1], guest_ips[1]) = network_config.get_next_available_ips(2)
-    tap_name = test_microvm.slot.make_tap(ip="{}/{}".format(
+    tap_name = test_microvm.slot.make_tap(ip='{}/{}'.format(
         host_ips[1], network_config.get_netmask_len()
     ))
-    iface_id = "2"
+    iface_id = '2'
     response = test_microvm.api_session.put(
         "{}/{}".format(test_microvm.net_cfg_url, iface_id),
         json={
             'iface_id': iface_id,
             'host_dev_name': tap_name,
-            'guest_mac': mac_from_ip(guest_ips[1]),
+            'guest_mac': host.mac_from_ip(guest_ips[1]),
             'state': 'Attached',
             'rx_rate_limiter': {
                 'bandwidth': {
@@ -315,20 +244,20 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
             }
         }
     )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
+    assert test_microvm.api_session.is_good_response(response.status_code)
 
     (host_ips[2], guest_ips[2]) = network_config.get_next_available_ips(2)
-    tap_name = test_microvm.slot.make_tap(ip="{}/{}".format(
+    tap_name = test_microvm.slot.make_tap(ip='{}/{}'.format(
         host_ips[2],
         network_config.get_netmask_len()
     ))
-    iface_id = "3"
+    iface_id = '3'
     response = test_microvm.api_session.put(
         "{}/{}".format(test_microvm.net_cfg_url, iface_id),
         json={
             'iface_id': iface_id,
             'host_dev_name': tap_name,
-            'guest_mac': mac_from_ip(guest_ips[2]),
+            'guest_mac': host.mac_from_ip(guest_ips[2]),
             'state': 'Attached',
             'rx_rate_limiter': {
                 'bandwidth': {
@@ -339,13 +268,13 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
             }
         }
     )
-    assert(test_microvm.api_session.is_good_response(response.status_code))
+    assert test_microvm.api_session.is_good_response(response.status_code)
 
     # Start the microvm.
     test_microvm.start()
 
     # Start iperf on guest.
-    start_iperf_on_guest(test_microvm, guest_ips[0])
+    _start_iperf_on_guest(test_microvm, guest_ips[0])
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf; 1000 converts to Bytes.
@@ -355,8 +284,8 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
         guest_ips[0],
         IPERF_TRANSMIT_TIME
     )
-    iperf_out = run_local_iperf(iperf_cmd)
-    iperf_out = process_iperf_output(iperf_out)[1]
+    iperf_out = _run_local_iperf(iperf_cmd)
+    iperf_out = _process_iperf_output(iperf_out)[1]
 
     rate_no_limit_bytes = float(iperf_out)
 
@@ -374,17 +303,20 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
         guest_ips[1],
         IPERF_TRANSMIT_TIME
     )
-    iperf_out = run_local_iperf(iperf_cmd)
-    iperf_out = process_iperf_output(iperf_out)[1]
+    iperf_out = _run_local_iperf(iperf_cmd)
+    iperf_out = _process_iperf_output(iperf_out)[1]
     rate_limit_bytes_achieved = 1000 * float(iperf_out)
     rate_limit_bytes_expected = rate_limit_bps
 
     # Assert on the bytes expected and achieved with rate limiting on; we are
     # expecting a difference no bigger than MAX_RATE_LIMIT_BYTES_DIFF
-    assert(get_difference(
-        rate_limit_bytes_achieved,
-        rate_limit_bytes_expected
-    ) < MAX_BYTES_DIFF_PERCENTAGE)
+    assert (
+        _get_difference(
+            rate_limit_bytes_achieved,
+            rate_limit_bytes_expected
+        )
+        < MAX_BYTES_DIFF_PERCENTAGE
+    )
 
     # Third step: get the number of bytes when rate limiting is on and there is
     # an initial burst size from where to consume.
@@ -396,11 +328,11 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
         IPERF_BINARY,
         guest_ips[2],
         BURST_SIZE)
-    iperf_out = run_local_iperf(iperf_cmd)
+    iperf_out = _run_local_iperf(iperf_cmd)
 
     # iperf will give variable number of output lines depending on how much
     # time it took to send the amount specified.
-    burst_bw_first_time_achieved = process_iperf_output(iperf_out)[1]
+    burst_bw_first_time_achieved = _process_iperf_output(iperf_out)[1]
 
     # The second time we use iperf to send bytes we need to see that the burst
     # was consumed and that the transmit rate is now equal to the rate limit.
@@ -412,21 +344,107 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
         guest_ips[2],
         rate_limit_bps
     )
-    iperf_out = run_local_iperf(iperf_cmd)
-    iperf_out_time, iperf_out_bw = process_iperf_output(iperf_out)
+    iperf_out = _run_local_iperf(iperf_cmd)
+    iperf_out_time, iperf_out_bw = _process_iperf_output(iperf_out)
 
     # Test that the bandwidth we obtained first time is at least two times
     # higher than the one obtained when rate limiting is on.
-    assert(get_difference(burst_bw_first_time_achieved, iperf_out_bw) > 100)
+    assert _get_difference(burst_bw_first_time_achieved, iperf_out_bw) > 100
     # Test that the bandwidth we obtained second time is at least two times
     # lower than the one obtained when no rate limiting is in place.
-    assert(get_difference(rate_no_limit_bytes, iperf_out_bw) > 100)
+    assert _get_difference(rate_no_limit_bytes, iperf_out_bw) > 100
 
     burst_consumed_time_achieved = iperf_out_time
     # We expect it to take around 1 sec now.
     burst_consumed_time_expected = 1
 
-    assert(get_difference(
-        burst_consumed_time_achieved,
-        burst_consumed_time_expected
-    ) < MAX_TIME_DIFF)
+    assert (
+        _get_difference(
+            burst_consumed_time_achieved,
+            burst_consumed_time_expected
+        )
+        < MAX_TIME_DIFF
+    )
+
+
+def _start_iperf_on_guest(test_microvm, hostname):
+    """Start iperf in server mode through an SSH connection."""
+
+    test_microvm.slot.ssh_config['hostname'] = hostname
+    ssh_connection = host.SSHConnection(test_microvm.slot.ssh_config)
+
+    iperf_cmd = '{} -sD -f KBytes\n'.format(IPERF_BINARY)
+    ssh_connection.execute_command(iperf_cmd)
+
+    # Wait for the iperf daemon to start.
+    time.sleep(2)
+    ssh_connection.close()
+
+
+def _run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
+    """Run a client related iperf command through an SSH connection."""
+
+    test_microvm.slot.ssh_config['hostname'] = hostname
+    ssh_connection = host.SSHConnection(test_microvm.slot.ssh_config)
+
+    _, stdout, stderr = ssh_connection.execute_command(iperf_cmd)
+    assert stderr.read().decode('utf-8') == ''
+
+    out = stdout.read().decode('utf-8')
+
+    ssh_connection.close()
+    return out
+
+
+def _start_local_iperf(netns_cmd_prefix):
+    """Start iperf in server mode after killing any leftover iperf daemon."""
+    iperf_cmd = 'pkill {}\n'.format(IPERF_BINARY)
+
+    run(iperf_cmd, shell=True)
+
+    iperf_cmd = '{} {} -sD -f KBytes\n'.format(netns_cmd_prefix, IPERF_BINARY)
+
+    run(iperf_cmd, shell=True)
+
+    # Wait for the iperf daemon to start.
+    time.sleep(2)
+
+
+def _run_local_iperf(iperf_cmd):
+    """Runs a client related iperf command locally."""
+
+    process = run(iperf_cmd, shell=True, stdout=PIPE)
+    return process.stdout.decode('utf-8')
+
+
+def _get_difference(current, previous):
+    """Returns the percentage delta between the arguments."""
+
+    if current == previous:
+        return 0
+    try:
+        return (abs(current - previous) / previous) * 100.0
+    except ZeroDivisionError:
+        # It means previous and only previous is 0.
+        return 100.0
+
+
+def _process_iperf_output(iperf_out):
+    """Parse iperf 3 output and return test time and bandwidth."""
+    found_line = 0
+    iperf_out_lines = iperf_out.splitlines()
+    for line in iperf_out_lines:
+        if line.find('- - - - - - - -') != -1:
+            found_line += 1
+
+        if found_line == 3:
+            iperf_out_time = line.split('  ')[2].split(
+                '-'
+            )[1].strip().split(" ")[0]
+            iperf_out_bw = line.split('  ')[5].split(
+                ' '
+            )[0].strip()
+            break
+        elif found_line > 0:
+            found_line += 1
+    return float(iperf_out_time), float(iperf_out_bw)
