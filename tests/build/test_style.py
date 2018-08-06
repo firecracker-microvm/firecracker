@@ -1,10 +1,4 @@
-"""
-Tests ensuring codebase style compliance.
-
-# TODO
-
-- Add checks for non-rust code in the codebase.
-"""
+"""Tests ensuring codebase style compliance for Rust and Python."""
 
 from subprocess import run, PIPE
 
@@ -14,37 +8,71 @@ import pytest
 SUCCESS_CODE = 0
 
 
-def install_rustfmt_if_needed():
-    """ Installs rustfmt if it's not available yet. """
+@pytest.mark.timeout(120)
+def test_rust_style():
+    """Fail if there's misbehaving Rust style in this repo."""
+
+    # Install rustfmt if it's not available yet.
     rustfmt_check = run(
         'rustup component list | grep --silent "rustfmt.*(installed)"',
         shell=True
     )
-
     if not rustfmt_check.returncode == SUCCESS_CODE:
-        # rustfmt-preview is used with the current state of things.
-        # See github.com/rust-lang-nursery/rustfmt for information.
         run(
             'rustup component add rustfmt-preview'
-            '    >/dev/null 2>&1',
+            '>/dev/null 2>&1',
             shell=True,
             check=True
         )
+        # rustfmt-preview is used with the current state of things.
+        # See github.com/rust-lang-nursery/rustfmt for information.
 
-
-@pytest.mark.timeout(120)
-def test_style():
-    """ Fails if there's misbehaving Rust style in this repo. """
-    install_rustfmt_if_needed()
-
+    # Check that the output is empty.
     process = run(
         'cargo fmt --all -- --check',
         shell=True,
         check=True,
         stdout=PIPE
     )
-    assert("Diff in" not in process.stdout.decode("utf-8"))
-    """
-    Check that the output is empty.
-    rustfmt prepends a 'Diff in...'  to the output reported.
-    """
+    # rustfmt prepends `"Diff in"` to the reported output.
+    assert "Diff in" not in process.stdout.decode('utf-8')
+
+
+@pytest.mark.timeout(120)
+def test_python_style():
+    """Fail if there's misbehaving Python style in the test system."""
+
+    # Check style with pylint.
+    run(
+        r'find ../ -iname "*.py" -exec '
+        r'python3 -m pylint '
+        r'--jobs=0 --persistent=no --score=no --output-format=colorized '
+        r'--attr-rgx="[a-z_][a-z0-9_]{1,30}$" '
+        r'--argument-rgx="[a-z_][a-z0-9_]{1,30}$" '
+        r'--variable-rgx="[a-z_][a-z0-9_]{1,30}$" '
+        r'--disable='
+        r'bad-continuation,fixme,'
+        r'too-many-instance-attributes,too-many-locals,too-many-arguments '
+        r'{} \;',
+        shell=True,
+        check=True
+    )
+
+    # Check style with flake8.
+    # TODO: Uncomment this after https://gitlab.com/pycqa/flake8/issues/406 is
+    # fixed
+    # run('python3 -m flake8 ../', shell=True, check=True)
+
+    # Check style with pycodestyle.
+    run(
+        'python3 -m pycodestyle --show-pep8 --show-source ../',
+        shell=True,
+        check=True
+    )
+
+    # Check style with pydocstyle.
+    run(
+        'python3 -m pydocstyle --explain --source ../',
+        shell=True,
+        check=True
+    )

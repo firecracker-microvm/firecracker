@@ -1,5 +1,4 @@
-"""
-Runs unit tests at integration time.
+"""A test that ensures that all unit tests pass at integration time.
 
 # TODO
 
@@ -12,18 +11,20 @@ from subprocess import run
 
 import pytest
 
-from host_tools.cargo_build import CARGO_BUILD_REL_PATH
+import host_tools.cargo_build as host  # pylint: disable=import-error
 
 
-CARGO_UNITTEST_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "test")
+CARGO_UNITTEST_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, "test")
 
 
 @pytest.mark.timeout(240)
 def test_unittests(test_session_root_path):
-    """ Runs all unit tests from all Rust crates in the repo. """
-    cmd = "CARGO_TARGET_DIR={} RUST_BACKTRACE=1 " \
-          "cargo test --all --no-fail-fast".format(
-        os.path.join(test_session_root_path, CARGO_UNITTEST_REL_PATH),
+    """Run all unit tests from all Rust crates in the repo."""
+    run(
+        'CARGO_TARGET_DIR={} RUST_BACKTRACE=1 cargo test --all --no-fail-fast'
+        .format(
+            os.path.join(test_session_root_path, CARGO_UNITTEST_REL_PATH),
+        ),
+        shell=True,
+        check=True
     )
-    run(cmd, shell=True, check=True)
-
