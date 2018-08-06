@@ -3,7 +3,7 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
 
-use data_model::vm::{DriveDescription, DriveError};
+use data_model::vm::{BlockDeviceConfig, DriveError};
 
 use super::{GenerateResponse, SyncRequest};
 use http_service::{empty_response, json_fault_message, json_response};
@@ -27,7 +27,7 @@ impl GenerateResponse for PutDriveOutcome {
     }
 }
 
-impl IntoParsedRequest for DriveDescription {
+impl IntoParsedRequest for BlockDeviceConfig {
     fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         match method {
@@ -80,7 +80,7 @@ impl GenerateResponse for DriveError {
 mod tests {
     use super::*;
 
-    use data_model::vm::{DeviceState, DrivePermissions};
+    use std::path::PathBuf;
 
     #[test]
     fn test_generate_response_drive_error() {
@@ -146,12 +146,11 @@ mod tests {
 
     #[test]
     fn test_into_parsed_request() {
-        let desc = DriveDescription {
+        let desc = BlockDeviceConfig {
             drive_id: String::from("foo"),
-            path_on_host: String::from("/foo/bar"),
-            state: DeviceState::Attached,
+            path_on_host: PathBuf::from(String::from("/foo/bar")),
             is_root_device: true,
-            permissions: DrivePermissions::ro,
+            is_read_only: true,
             partuuid: None,
             rate_limiter: None,
         };

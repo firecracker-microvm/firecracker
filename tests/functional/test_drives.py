@@ -68,8 +68,7 @@ def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
             'drive_id': 'readonly',
             'path_on_host': test_microvm.slot.make_fsfile(name='readonly'),
             'is_root_device': False,
-            'permissions': 'ro',
-            'state': 'Attached'
+            'is_read_only': True
         }
     )
     """ Adds the root file system with rw permissions. """
@@ -115,8 +114,7 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
             'path_on_host': test_microvm.slot.rootfs_file,
             'is_root_device': True,
             'partuuid': '0eaa91a0-01',
-            'permissions': 'rw',
-            'state': 'Attached'
+            'is_read_only': False
         }
     )
     """ Adds the root file system with rw permissions. """
@@ -159,8 +157,7 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
             'path_on_host': test_microvm.slot.rootfs_file,
             'is_root_device': True,
             'partuuid': '0eaa91a0-01',
-            'permissions': 'rw',
-            'state': 'Attached'
+            'is_read_only': False
         }
     )
     assert(test_microvm.api_session.is_good_response(response.status_code))
@@ -172,8 +169,7 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
             'drive_id': 'rootfs',
             'path_on_host': test_microvm.slot.rootfs_file,
             'is_root_device': True,
-            'permissions': 'rw',
-            'state': 'Attached'
+            'is_read_only': False
         }
     )
     assert(test_microvm.api_session.is_good_response(response.status_code))
