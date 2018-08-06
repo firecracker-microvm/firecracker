@@ -2,4 +2,4 @@
 
 mod drive;
 
-pub use self::drive::{DriveDescription, DrivePermissions};
+pub use self::drive::{DriveDescription, DriveError, DrivePermissions};
