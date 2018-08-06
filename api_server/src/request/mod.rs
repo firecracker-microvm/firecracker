@@ -9,7 +9,7 @@ pub use self::sync::{
     APILoggerDescription, BootSourceBody, NetworkInterfaceBody, SyncOutcomeReceiver,
     SyncOutcomeSender, SyncRequest,
 };
-pub use data_model::vm::DriveDescription;
+pub use data_model::vm::BlockDeviceConfig;
 use hyper::Method;
 
 pub mod actions;

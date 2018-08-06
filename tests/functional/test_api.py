@@ -70,8 +70,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
             'drive_id': 'root',
             'path_on_host': 'foo.bar',
             'is_root_device': True,
-            'permissions': 'ro',
-            'state': 'Attached'
+            'is_read_only': True
         }
     )
     """ Updates to `path_on_host` with an invalid path are not allowed. """
@@ -83,8 +82,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
             'drive_id': 'otherroot',
             'path_on_host': test_microvm.slot.make_fsfile(name='otherroot'),
             'is_root_device': True,
-            'permissions': 'rw',
-            'state': 'Attached'
+            'is_read_only': False
         }
     )
     """
@@ -99,11 +97,10 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
             'drive_id': 'scratch',
             'path_on_host': test_microvm.slot.make_fsfile(name='otherscratch'),
             'is_root_device': False,
-            'permissions': 'ro',
-            'state': 'Attached'
+            'is_read_only': True
         }
     )
-    """ Valid updates to `path_on_host` and `permissions` are allowed. """
+    """ Valid updates to `path_on_host` and `is_read_only` are allowed. """
     assert(test_microvm.api_session.is_good_response(response.status_code))
     microvm_config_json = {
         'vcpu_count': 4,
@@ -291,8 +288,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
             'drive_id': 'rootfs',
             'path_on_host': test_microvm.slot.rootfs_file,
             'is_root_device': True,
-            'permissions': 'rw',
-            'state': 'Attached'
+            'is_read_only': False
         }
     )
     """ Block device update is not allowed after boot."""
@@ -310,14 +306,13 @@ def test_rate_limiters_api_config(test_microvm_with_api):
             'drive_id': 'bw',
             'path_on_host': test_microvm.slot.make_fsfile(),
             'is_root_device': False,
-            'permissions': 'rw',
+            'is_read_only': False,
             'rate_limiter': {
                 'bandwidth': {
                     'size': 1000000,
                     'refill_time': 100
                 }
             },
-            'state': 'Attached'
         }
     )
     """ Verify the request succeeded """
@@ -330,14 +325,13 @@ def test_rate_limiters_api_config(test_microvm_with_api):
             'drive_id': 'ops',
             'path_on_host': test_microvm.slot.make_fsfile(),
             'is_root_device': False,
-            'permissions': 'rw',
+            'is_read_only': False,
             'rate_limiter': {
                 'ops': {
                     'size': 1,
                     'refill_time': 100
                 }
             },
-            'state': 'Attached'
         }
     )
     """ Verify the request succeeded """
@@ -350,7 +344,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
             'drive_id': 'bwops',
             'path_on_host': test_microvm.slot.make_fsfile(),
             'is_root_device': False,
-            'permissions': 'rw',
+            'is_read_only': False,
             'rate_limiter': {
                 'bandwidth': {
                     'size': 1000000,
@@ -361,7 +355,6 @@ def test_rate_limiters_api_config(test_microvm_with_api):
                     'refill_time': 100
                 }
             },
-            'state': 'Attached'
         }
     )
     """ Verify the request succeeded """
@@ -376,10 +369,9 @@ def test_rate_limiters_api_config(test_microvm_with_api):
             'drive_id': 'nada',
             'path_on_host': test_microvm.slot.make_fsfile(),
             'is_root_device': False,
-            'permissions': 'rw',
+            'is_read_only': False,
             'rate_limiter': {
             },
-            'state': 'Attached'
         }
     )
     """ Verify the request succeeded """
@@ -612,8 +604,7 @@ def test_api_unknown_fields(test_microvm_with_api):
             'drive-id': 'root',
             'path_on_host': test_microvm.slot.rootfs_file,
             'is_root_device': True,
-            'permissions': 'rw',
-            'state': 'Attached'
+            'is_read_only': False
         }
     )
     assert response.status_code == 400
@@ -634,7 +625,7 @@ def test_api_unknown_fields(test_microvm_with_api):
             'iface-id': 1,
             'host_dev_name': 'vmtap33',
             'guest_mac': '06:00:00:00:00:01',
-            'state': 'Attached'
+
         }
     )
     assert response.status_code == 400

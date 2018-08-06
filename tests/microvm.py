@@ -446,8 +446,7 @@ class Microvm:
                     'drive_id': 'rootfs',
                     'path_on_host': self.slot.rootfs_file,
                     'is_root_device': True,
-                    'permissions': 'rw',
-                    'state': 'Attached'
+                    'is_read_only': False
                 }
             )
             """ Adds the root file system with rw permissions. """
@@ -465,8 +464,7 @@ class Microvm:
                 'drive_id': 'scratch',
                 'path_on_host': self.slot.make_fsfile(name='scratch'),
                 'is_root_device': False,
-                'permissions': 'rw',
-                'state': 'Attached'
+                'is_read_only': False
             }
         )
         assert(self.api_session.is_good_response(response.status_code))

@@ -14,7 +14,7 @@ use tokio_core::reactor::Handle;
 
 use super::{ActionMap, ActionMapValue};
 use data_model::mmds::MMDS;
-use data_model::vm::MachineConfiguration;
+use data_model::vm::{BlockDeviceConfig, MachineConfiguration};
 use logger::{Metric, METRICS};
 use request::actions::ActionBody;
 use request::instance_info::InstanceInfo;
@@ -243,16 +243,15 @@ fn parse_drives_req<'a>(
         1 if method == Method::Put => {
             METRICS.put_api_requests.drive_count.inc();
 
-            let drive_desc =
-                serde_json::from_slice::<request::DriveDescription>(body).map_err(|e| {
-                    METRICS.put_api_requests.drive_fails.inc();
-                    Error::SerdeJson(e)
-                })?;
-            drive_desc.check_id(id_from_path.unwrap()).map_err(|s| {
+            let device_cfg = serde_json::from_slice::<BlockDeviceConfig>(body).map_err(|e| {
                 METRICS.put_api_requests.drive_fails.inc();
-                Error::Generic(StatusCode::BadRequest, s)
+                Error::SerdeJson(e)
             })?;
-            Ok(drive_desc.into_parsed_request(method).map_err(|s| {
+            device_cfg.check_id(id_from_path.unwrap()).map_err(|s| {
+                METRICS.put_api_requests.drive_fails.inc();
+                Error::Generic(StatusCode::BadRequest, format!("{:?}", s))
+            })?;
+            Ok(device_cfg.into_parsed_request(method).map_err(|s| {
                 METRICS.put_api_requests.drive_fails.inc();
                 Error::Generic(StatusCode::BadRequest, s)
             })?)
@@ -741,7 +740,10 @@ fn describe(sync: bool, method: &Method, path: &String, body: &String) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data_model::vm::{CpuFeaturesTemplate, DeviceState, DriveDescription, DrivePermissions};
+
+    use std::path::PathBuf;
+
+    use data_model::vm::{CpuFeaturesTemplate, DeviceState};
     use fc_util::LriHashMap;
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
@@ -1062,9 +1064,8 @@ mod tests {
         let json = "{
                 \"drive_id\": \"bar\",
                 \"path_on_host\": \"/foo/bar\",
-                \"state\": \"Attached\",
                 \"is_root_device\": true,
-                \"permissions\": \"ro\"
+                \"is_read_only\": true
               }";
         let body: Chunk = Chunk::from(json);
 
@@ -1086,13 +1087,12 @@ mod tests {
         }
 
         // PUT
-        let drive_desc = DriveDescription {
+        let drive_desc = BlockDeviceConfig {
             drive_id: String::from("bar"),
-            path_on_host: String::from("/foo/bar"),
-            state: DeviceState::Attached,
+            path_on_host: PathBuf::from(String::from("/foo/bar")),
             is_root_device: true,
             partuuid: None,
-            permissions: DrivePermissions::ro,
+            is_read_only: true,
             rate_limiter: None,
         };
 
@@ -1131,13 +1131,11 @@ mod tests {
             ).is_err()
         );
 
-        // Deserializing to a DriveDescription should fail when mandatory fields are missing.
+        // Deserializing to a BlockDeviceConfig should fail when mandatory fields are missing.
         let json = "{
                 \"drive_id\": \"bar\",
                 \"path_on_host\": \"/foo/bar\",
-                \"statee\": \"Attached\",
-                \"is_root_device\": true,
-                \"permissions\": \"ro\"
+                \"is_read_only\": true
               }";
         let body: Chunk = Chunk::from(json);
         assert!(
