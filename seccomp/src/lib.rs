@@ -40,8 +40,12 @@ const BPF_K: u16 = 0x00;
 /// Return codes for BPF programs.
 ///  See /usr/include/linux/seccomp.h .
 const SECCOMP_RET_ALLOW: u32 = 0x7fff0000;
+const SECCOMP_RET_ERRNO: u32 = 0x00050000;
 const SECCOMP_RET_KILL: u32 = 0x00000000;
+const SECCOMP_RET_LOG: u32 = 0x7ffc0000;
+const SECCOMP_RET_TRACE: u32 = 0x7ff00000;
 const SECCOMP_RET_TRAP: u32 = 0x00030000;
+const SECCOMP_RET_MASK: u32 = 0x0000ffff;
 
 /// x86_64 architecture identifier.
 /// See /usr/include/linux/audit.h .
@@ -86,6 +90,7 @@ pub enum SeccompLevel<'a> {
 }
 
 /// Seccomp errors.
+#[derive(Debug)]
 pub enum Error {
     /// Argument number that exceeds the maximum value.
     InvalidArgumentNumber,
@@ -118,6 +123,34 @@ pub struct SeccompCondition {
     operator: SeccompCmpOp,
     /// The value that will be compared with the argument value.
     value: u64,
+}
+
+/// Actions that `seccomp` can apply to process calling a syscall.
+pub enum SeccompAction {
+    /// Allows syscall.
+    Allow,
+    /// Returns from syscall with specified error number.
+    Errno(u32),
+    /// Kills calling process.
+    Kill,
+    /// Same as allow but logs call.
+    Log,
+    /// Notifies tracing process of the caller with respective number.
+    Trace(u32),
+    /// Sends `SIGSYS` to the calling process.
+    Trap,
+}
+
+/// Rule that `seccomp` attempts to match for a syscall.
+///
+/// If all conditions match then rule gets matched.
+/// The action of the first rule that matches will be applied to the calling process.
+/// If no rule matches the default action is applied.
+pub struct SeccompRule {
+    /// Conditions of rule that need to match in order for the rule to get matched.
+    conditions: Vec<SeccompCondition>,
+    /// Action applied to calling process if rule gets matched.
+    action: SeccompAction,
 }
 
 /// BPF instruction structure definition.
@@ -293,6 +326,107 @@ impl SeccompCondition {
     }
 }
 
+impl From<SeccompAction> for u32 {
+    /// Return codes of the BPF program for each action.
+    fn from(action: SeccompAction) -> Self {
+        match action {
+            SeccompAction::Allow => SECCOMP_RET_ALLOW,
+            SeccompAction::Errno(x) => SECCOMP_RET_ERRNO | (x & SECCOMP_RET_MASK),
+            SeccompAction::Kill => SECCOMP_RET_KILL,
+            SeccompAction::Log => SECCOMP_RET_LOG,
+            SeccompAction::Trace(x) => SECCOMP_RET_TRACE | (x & SECCOMP_RET_MASK),
+            SeccompAction::Trap => SECCOMP_RET_TRAP,
+        }
+    }
+}
+
+impl SeccompRule {
+    /// Creates a new rule, rules with 0 conditions always match.
+    pub fn new(conditions: Vec<SeccompCondition>, action: SeccompAction) -> Self {
+        Self { conditions, action }
+    }
+
+    /// Translates a rule into BPF statements.
+    ///
+    /// Each rule starts with 2 jump statements:
+    /// - The first jump enters the rule, attempting a match.
+    /// - The second jump points to the end of the rule chain for one syscall, into the rule chain
+    ///   for the next syscall or the default action if the current syscall is the last one. It
+    ///   essentially jumps out of the current rule chain.
+    fn into_bpf(self) -> Vec<sock_filter> {
+        // Rule is built backwards, last statement is the action of the rule.
+        // The offset to the next rule is 1.
+        let mut accumulator = Vec::with_capacity(
+            self.conditions.len()
+                + ((self.conditions.len() * CONDITION_MAX_LEN as usize) / ::std::u8::MAX as usize)
+                + 1,
+        );
+        let mut rule_len = 1;
+        let mut offset = 1;
+        accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, u32::from(self.action))]);
+
+        // Conditions are translated into BPF statements and prepended to the rule.
+        self.conditions.into_iter().for_each(|condition| {
+            SeccompRule::append_condition(condition, &mut accumulator, &mut rule_len, &mut offset)
+        });
+
+        // The two initial jump statements are prepended to the rule.
+        let rule_jumps = vec![
+            BPF_STMT(BPF_JMP + BPF_JA, 1),
+            BPF_STMT(BPF_JMP + BPF_JA, offset as u32 + 1),
+        ];
+        rule_len += rule_jumps.len();
+        accumulator.push(rule_jumps);
+
+        // Finally, builds the translated rule by consuming the accumulator.
+        let mut result = Vec::with_capacity(rule_len);
+        accumulator
+            .into_iter()
+            .rev()
+            .for_each(|mut instructions| result.append(&mut instructions));
+
+        result
+    }
+
+    /// Helper function.
+    /// Appends a condition of the rule to an accumulator, updating the length of the rule and
+    /// offset to the next rule.
+    fn append_condition(
+        condition: SeccompCondition,
+        accumulator: &mut Vec<Vec<sock_filter>>,
+        rule_len: &mut usize,
+        offset: &mut u8,
+    ) {
+        // Tries to detect whether prepending the current condition will produce an unjumpable
+        // offset (since BPF jumps are a maximum of 255 instructions).
+        if *offset as u16 + CONDITION_MAX_LEN + 1 > ::std::u8::MAX as u16 {
+            // If that is the case, three additional helper jumps are prepended and the offset
+            // is reset to 1.
+            //
+            // - The first jump continues the evaluation of the condition chain by jumping to
+            // the next condition or the action of the rule if the last condition was matched.
+            // - The second, jumps out of the rule, to the next rule or the default action of
+            // the context in case of the last rule in the rule chain of a syscall.
+            // - The third jumps out of the rule chain of the syscall, to the rule chain of the
+            // next syscall number to be checked or the default action of the context in the
+            // case of the last rule chain.
+            let helper_jumps = vec![
+                BPF_STMT(BPF_JMP + BPF_JA, 2),
+                BPF_STMT(BPF_JMP + BPF_JA, *offset as u32 + 1),
+                BPF_STMT(BPF_JMP + BPF_JA, *offset as u32 + 1),
+            ];
+            *rule_len += helper_jumps.len();
+            accumulator.push(helper_jumps);
+            *offset = 1;
+        }
+
+        let condition = condition.into_bpf(*offset);
+        *rule_len += condition.len();
+        *offset += condition.len() as u8;
+        accumulator.push(condition);
+    }
+}
+
 /// Builds the array of filter instructions and sends them to the kernel.
 pub fn setup_seccomp(level: SeccompLevel) -> Result<(), i32> {
     let mut filters = Vec::new();
@@ -414,6 +548,105 @@ mod tests {
     use super::*;
     use std::process;
 
+    /// Checks that rule gets translated correctly into BPF statements.
+    #[test]
+    fn test_rule_bpf_output() {
+        // Builds rule.
+        let rule = SeccompRule::new(
+            vec![
+                SeccompCondition::new(0, SeccompCmpOp::Eq, 1).unwrap(),
+                SeccompCondition::new(2, SeccompCmpOp::MaskedEq(0b1010), 14).unwrap(),
+            ],
+            SeccompAction::Allow,
+        );
+
+        // Calculates architecture dependent argument value offsets.
+        let (msb_offset, lsb_offset) = {
+            #[cfg(target_endian = "big")]
+            {
+                (0, 4)
+            }
+            #[cfg(target_endian = "little")]
+            {
+                (4, 0)
+            }
+        };
+
+        // Builds hardcoded BPF instructions.
+        let instructions = vec![
+            BPF_STMT(0x05, 1),
+            BPF_STMT(0x05, 12),
+            BPF_STMT(0x20, 32 + msb_offset),
+            BPF_STMT(0x54, 0),
+            BPF_JUMP(0x15, 0, 0, 8),
+            BPF_STMT(0x20, 32 + lsb_offset),
+            BPF_STMT(0x54, 0b1010),
+            BPF_JUMP(0x15, 14 & 0b1010, 0, 5),
+            BPF_STMT(0x20, 16 + msb_offset),
+            BPF_JUMP(0x15, 0, 0, 3),
+            BPF_STMT(0x20, 16 + lsb_offset),
+            BPF_JUMP(0x15, 1, 0, 1),
+            BPF_STMT(0x06, 0x7fff0000),
+        ];
+
+        // Compares translated rule with hardcoded BPF instructions.
+        assert_eq!(rule.into_bpf(), instructions);
+    }
+
+    /// Checks that rule with too many conditions gets translated correctly into BPF statements
+    /// using three helper jumps.
+    #[test]
+    fn test_rule_many_conditions_bpf_output() {
+        // Builds rule.
+        let mut conditions = Vec::with_capacity(43);
+        for _ in 0..42 {
+            conditions.push(SeccompCondition::new(0, SeccompCmpOp::MaskedEq(0), 0).unwrap());
+        }
+        conditions.push(SeccompCondition::new(0, SeccompCmpOp::Eq, 0).unwrap());
+        let rule = SeccompRule::new(conditions, SeccompAction::Allow);
+
+        // Calculates architecture dependent argument value offsets.
+        let (msb_offset, lsb_offset) = {
+            #[cfg(target_endian = "big")]
+            {
+                (0, 4)
+            }
+            #[cfg(target_endian = "little")]
+            {
+                (4, 0)
+            }
+        };
+
+        // Builds hardcoded BPF instructions.
+        let mut instructions = vec![
+            BPF_STMT(0x05, 1),
+            BPF_STMT(0x05, 6),
+            BPF_STMT(0x20, 16 + msb_offset),
+            BPF_JUMP(0x15, 0, 0, 3),
+            BPF_STMT(0x20, 16 + lsb_offset),
+            BPF_JUMP(0x15, 0, 0, 1),
+            BPF_STMT(0x05, 2),
+            BPF_STMT(0x05, 254),
+            BPF_STMT(0x05, 254),
+        ];
+        let mut offset = 253;
+        for _ in 0..42 {
+            offset -= 6;
+            instructions.append(&mut vec![
+                BPF_STMT(0x20, 16 + msb_offset),
+                BPF_STMT(0x54, 0),
+                BPF_JUMP(0x15, 0, 0, offset + 3),
+                BPF_STMT(0x20, 16 + lsb_offset),
+                BPF_STMT(0x54, 0),
+                BPF_JUMP(0x15, 0, 0, offset),
+            ]);
+        }
+        instructions.push(BPF_STMT(0x06, 0x7fff0000));
+
+        // Compares translated rule with hardcoded BPF instructions.
+        assert_eq!(rule.into_bpf(), instructions);
+    }
+
     #[test]
     fn test_signal_handler() {
         assert!(setup_sigsys_handler().is_ok());
@@ -438,6 +671,30 @@ mod tests {
 
         // The reason this test doesn't check the failure metrics as well is that the signal handler
         // doesn't work right with kcov - possibly because the process is being pinned to 1 core.
+    }
+
+    #[test]
+    fn test_bpf_expanding_functions() {
+        // Compares the output of the BPF instruction generating functions to hardcoded
+        // instructions.
+        assert_eq!(
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, 16),
+            sock_filter {
+                code: 0x20,
+                jt: 0,
+                jf: 0,
+                k: 16,
+            }
+        );
+        assert_eq!(
+            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, 10, 2, 5),
+            sock_filter {
+                code: 0x15,
+                jt: 2,
+                jf: 5,
+                k: 10,
+            }
+        );
     }
 
     #[test]
