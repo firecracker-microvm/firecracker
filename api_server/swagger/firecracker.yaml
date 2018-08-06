@@ -309,12 +309,6 @@ definitions:
     enum:
       - Attached
 
-  DrivePermissions:
-    type: string
-    enum:
-      - ro
-      - rw
-
   Drive:
     type: object
     required:
@@ -333,12 +327,10 @@ definitions:
           Represents the unique id of the boot partition of this device. It is
           optional and it will be taken into account only if the is_root_device
           field is true.
-      permissions:
-        $ref: "#/definitions/DrivePermissions"
+      is_read_only:
+        type: boolean
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
-      state:
-        $ref: "#/definitions/DeviceState"
 
   Error:
     properties:
@@ -492,4 +484,3 @@ definitions:
         format: int64
         description: The amount of milliseconds it takes for the bucket to refill.
         minimum: 0
-
