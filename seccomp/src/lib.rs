@@ -6,21 +6,36 @@ extern crate logger;
 extern crate sys_util;
 
 use self::logger::{Metric, METRICS};
+use std::result::Result;
 
 /// Integer values for the level of seccomp filtering used.
 /// See `struct SeccompLevel` for more information about the different levels.
 pub const SECCOMP_LEVEL_BASIC: u32 = 1;
 pub const SECCOMP_LEVEL_NONE: u32 = 0;
 
-/// BPF filter machine instructions
-///  See /usr/include/linux/bpf_common.h .
-const BPF_ABS: u16 = 0x20;
-const BPF_JEQ: u16 = 0x10;
-const BPF_JMP: u16 = 0x05;
-const BPF_K: u16 = 0x00;
+/// BPF Instruction classes.
+/// See /usr/include/linux/bpf_common.h .
 const BPF_LD: u16 = 0x00;
+const BPF_ALU: u16 = 0x04;
+const BPF_JMP: u16 = 0x05;
 const BPF_RET: u16 = 0x06;
+
+/// BPF ld/ldx fields
+/// See /usr/include/linux/bpf_common.h .
 const BPF_W: u16 = 0x00;
+const BPF_ABS: u16 = 0x20;
+
+/// BPF alu fields.
+/// See /usr/include/linux/bpf_common.h .
+const BPF_AND: u16 = 0x50;
+
+/// BPF jmp fields.
+/// See /usr/include/linux/bpf_common.h .
+const BPF_JA: u16 = 0x00;
+const BPF_JEQ: u16 = 0x10;
+const BPF_JGT: u16 = 0x20;
+const BPF_JGE: u16 = 0x30;
+const BPF_K: u16 = 0x00;
 
 /// Return codes for BPF programs.
 ///  See /usr/include/linux/seccomp.h .
@@ -41,12 +56,68 @@ const AUDIT_ARCH_X86_64: u32 = 62 | 0x80000000 | 0x40000000;
 /// See https://github.com/rust-lang/libc/issues/716 for why the offset is different in Rust.
 const SI_OFF_SYSCALL: isize = 6;
 
+/// The maximum number of a syscall argument.
+/// A syscall can have at most 6 arguments.
+/// Arguments are numbered from 0 to 5.
+const ARG_NUMBER_MAX: u8 = 5;
+
+/// The maximum number of BPF statements that a condition will be translated into.
+const CONDITION_MAX_LEN: u16 = 6;
+
+/// `struct seccomp_data` offsets and sizes of fields in bytes:
+///
+/// ```c
+/// struct seccomp_data {
+///     int nr;
+///     __u32 arch;
+///     __u64 instruction_pointer;
+///     __u64 args[6];
+/// };
+/// ```
+const SECCOMP_DATA_ARGS_OFFSET: u8 = 16;
+const SECCOMP_DATA_ARG_SIZE: u8 = 8;
+
 /// Specifies the type of seccomp filtering used.
 pub enum SeccompLevel<'a> {
     /// Seccomp filtering by analysing syscall number.
     Basic(&'a [i64]),
     /// No seccomp filtering.
     None,
+}
+
+/// Seccomp errors.
+pub enum Error {
+    /// Argument number that exceeds the maximum value.
+    InvalidArgumentNumber,
+}
+
+/// Comparison to perform when matching a condition.
+#[derive(PartialEq)]
+pub enum SeccompCmpOp {
+    /// Argument value is equal to the specified value.
+    Eq,
+    /// Argument value is greater than or equal to the specified value.
+    Ge,
+    /// Argument value is greater than specified value.
+    Gt,
+    /// Argument value is less than or equal to the specified value.
+    Le,
+    /// Argument value is less than specified value.
+    Lt,
+    /// Masked bits of argument value are equal to masked bits of specified value.
+    MaskedEq(u64),
+    /// Argument value is not equal to specified value.
+    Ne,
+}
+
+/// Condition that syscall must match in order to satisfy a rule.
+pub struct SeccompCondition {
+    /// Number of the argument value that is to be compared.
+    arg_number: u8,
+    /// Comparison to perform.
+    operator: SeccompCmpOp,
+    /// The value that will be compared with the argument value.
+    value: u64,
 }
 
 /// BPF instruction structure definition.
@@ -67,6 +138,159 @@ struct sock_filter {
 struct sock_fprog {
     pub len: ::std::os::raw::c_ushort,
     pub filter: *const sock_filter,
+}
+
+impl SeccompCondition {
+    /// Creates a new `SeccompCondition`.
+    pub fn new(arg_number: u8, operator: SeccompCmpOp, value: u64) -> Result<Self, Error> {
+        // Checks that the given argument number is valid.
+        if arg_number > ARG_NUMBER_MAX {
+            return Err(Error::InvalidArgumentNumber);
+        }
+
+        Ok(Self {
+            arg_number,
+            operator,
+            value,
+        })
+    }
+
+    /// Helper method.
+    /// Returns most significant half, least significant half of the `value` field of
+    /// `SeccompCondition`, also returns the offsets of the most significant and least significant
+    /// half of the argument specified by `arg_number` relative to `struct seccomp_data` passed to
+    /// the BPF program by the kernel.
+    fn value_segments(&self) -> (u32, u32, u8, u8) {
+        // Splits the specified value into its most significant and least significant halves.
+        let (msb, lsb) = ((self.value >> 32) as u32, self.value as u32);
+
+        // Offset to the argument specified by `arg_number`.
+        let arg_offset = SECCOMP_DATA_ARGS_OFFSET + self.arg_number * SECCOMP_DATA_ARG_SIZE;
+
+        // Extracts offsets of most significant and least significant halves of argument.
+        let (msb_offset, lsb_offset) = {
+            #[cfg(target_endian = "big")]
+            {
+                (arg_offset, arg_offset + SECCOMP_DATA_ARG_SIZE / 2)
+            }
+            #[cfg(target_endian = "little")]
+            {
+                (arg_offset + SECCOMP_DATA_ARG_SIZE / 2, arg_offset)
+            }
+        };
+
+        (msb, lsb, msb_offset, lsb_offset)
+    }
+
+    /// Helper methods, translating conditions into BPF statements, based on the operator of the
+    /// condition.
+    ///
+    /// The `offset` parameter is a given jump offset to the start of the next rule. The jump is
+    /// performed if the condition fails and thus the current rule does not match so `seccomp` tries
+    /// to match the next rule by jumping out of the current rule.
+    ///
+    /// In case the condition is part of the last rule, the jump offset is to the default action of
+    /// respective context.
+    ///
+    /// The most significant and least significant halves of the argument value are compared
+    /// separately since the BPF operand and accumulator are 4 bytes whereas an argument value is 8.
+    fn into_eq_bpf(self, offset: u8) -> Vec<sock_filter> {
+        let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
+        vec![
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, lsb, 0, offset),
+        ]
+    }
+
+    fn into_ge_bpf(self, offset: u8) -> Vec<sock_filter> {
+        let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
+        vec![
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
+            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, lsb, 0, offset),
+        ]
+    }
+
+    fn into_gt_bpf(self, offset: u8) -> Vec<sock_filter> {
+        let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
+        vec![
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
+            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, lsb, 0, offset),
+        ]
+    }
+
+    fn into_le_bpf(self, offset: u8) -> Vec<sock_filter> {
+        let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
+        vec![
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
+            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, lsb, offset, 0),
+        ]
+    }
+
+    fn into_lt_bpf(self, offset: u8) -> Vec<sock_filter> {
+        let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
+        vec![
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
+            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, lsb, offset, 0),
+        ]
+    }
+
+    fn into_masked_eq_bpf(self, offset: u8, mask: u64) -> Vec<sock_filter> {
+        let (_, _, msb_offset, lsb_offset) = self.value_segments();
+        let masked_value = self.value & mask;
+        let (msb, lsb) = ((masked_value >> 32) as u32, masked_value as u32);
+        let (mask_msb, mask_lsb) = ((mask >> 32) as u32, mask as u32);
+
+        vec![
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_STMT(BPF_ALU + BPF_AND + BPF_K, mask_msb),
+            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 3),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_STMT(BPF_ALU + BPF_AND + BPF_K, mask_lsb),
+            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, lsb, 0, offset),
+        ]
+    }
+
+    fn into_ne_bpf(self, offset: u8) -> Vec<sock_filter> {
+        let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
+        vec![
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, lsb, offset, 0),
+        ]
+    }
+
+    /// Translates `SeccompCondition` into BPF statements.
+    fn into_bpf(self, offset: u8) -> Vec<sock_filter> {
+        let result = match self.operator {
+            SeccompCmpOp::Eq => self.into_eq_bpf(offset),
+            SeccompCmpOp::Ge => self.into_ge_bpf(offset),
+            SeccompCmpOp::Gt => self.into_gt_bpf(offset),
+            SeccompCmpOp::Le => self.into_le_bpf(offset),
+            SeccompCmpOp::Lt => self.into_lt_bpf(offset),
+            SeccompCmpOp::MaskedEq(mask) => self.into_masked_eq_bpf(offset, mask),
+            SeccompCmpOp::Ne => self.into_ne_bpf(offset),
+        };
+
+        // Regression testing that the `CONDITION_MAX_LEN` constant was properly updated.
+        assert!(result.len() <= CONDITION_MAX_LEN as usize);
+
+        result
+    }
 }
 
 /// Builds the array of filter instructions and sends them to the kernel.
