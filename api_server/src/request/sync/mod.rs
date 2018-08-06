@@ -4,7 +4,7 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{self, StatusCode};
 
-use data_model::vm::{DriveDescription, MachineConfiguration};
+use data_model::vm::{DriveDescription, DriveError, MachineConfiguration};
 use http_service::{empty_response, json_fault_message, json_response};
 use net_util::TapError;
 use request::actions::ActionBody;
@@ -18,7 +18,7 @@ mod net;
 pub use self::boot_source::{
     BootSourceBody, BootSourceType, LocalImage, PutBootSourceConfigError, PutBootSourceOutcome,
 };
-pub use self::drive::{DriveError, PutDriveOutcome};
+pub use self::drive::PutDriveOutcome;
 pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, PutLoggerOutcome};
 pub use self::net::NetworkInterfaceBody;
 

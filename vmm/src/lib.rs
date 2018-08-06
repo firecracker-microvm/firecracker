@@ -43,14 +43,14 @@ use api_server::request::sync::machine_configuration::{
     PutMachineConfigurationError, PutMachineConfigurationOutcome,
 };
 use api_server::request::sync::{
-    APILoggerDescription, BootSourceBody, DriveError, Error as SyncError, GenerateResponse,
+    APILoggerDescription, BootSourceBody, Error as SyncError, GenerateResponse,
     NetworkInterfaceBody, OkStatus as SyncOkStatus, PutDriveOutcome, PutLoggerOutcome,
     SyncOutcomeSender, SyncRequest,
 };
 use api_server::request::sync::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::ApiRequest;
 use data_model::vm::description_into_implementation as rate_limiter_description_into_implementation;
-use data_model::vm::{DriveDescription, MachineConfiguration};
+use data_model::vm::{DriveDescription, DriveError, MachineConfiguration};
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;

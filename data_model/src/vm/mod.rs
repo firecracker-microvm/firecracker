@@ -4,9 +4,9 @@ mod devices;
 mod machine_config;
 mod rate_limiter;
 
-pub use self::devices::{DriveDescription, DrivePermissions};
-pub use self::machine_config::{CpuFeaturesTemplate, MachineConfiguration};
-pub use self::rate_limiter::{description_into_implementation, RateLimiterDescription};
+pub use vm::devices::{DriveDescription, DriveError, DrivePermissions};
+pub use vm::machine_config::{CpuFeaturesTemplate, MachineConfiguration};
+pub use vm::rate_limiter::{description_into_implementation, RateLimiterDescription};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum DeviceState {

@@ -3,21 +3,41 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
 
-use data_model::vm::DriveDescription;
+use data_model::vm::{DriveDescription, DriveError};
 
 use super::{GenerateResponse, SyncRequest};
 use http_service::{empty_response, json_fault_message, json_response};
 use request::{IntoParsedRequest, ParsedRequest};
 
-#[derive(Debug, PartialEq)]
-pub enum DriveError {
-    RootBlockDeviceAlreadyAdded,
-    InvalidBlockDeviceID,
-    InvalidBlockDevicePath,
-    BlockDevicePathAlreadyExists,
-    BlockDeviceUpdateFailed,
-    BlockDeviceUpdateNotAllowed,
-    NotImplemented,
+#[derive(PartialEq)]
+pub enum PutDriveOutcome {
+    Created,
+    Updated,
+    Error(DriveError),
+}
+
+impl GenerateResponse for PutDriveOutcome {
+    fn generate_response(&self) -> Response {
+        use self::PutDriveOutcome::*;
+        match *self {
+            Created => empty_response(StatusCode::Created),
+            Updated => empty_response(StatusCode::NoContent),
+            Error(ref e) => e.generate_response(),
+        }
+    }
+}
+
+impl IntoParsedRequest for DriveDescription {
+    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
+        let (sender, receiver) = oneshot::channel();
+        match method {
+            Method::Put => Ok(ParsedRequest::Sync(
+                SyncRequest::PutDrive(self, sender),
+                receiver,
+            )),
+            _ => Ok(ParsedRequest::Dummy),
+        }
+    }
 }
 
 impl GenerateResponse for DriveError {
@@ -52,37 +72,6 @@ impl GenerateResponse for DriveError {
                 StatusCode::InternalServerError,
                 json_fault_message("The operation is not implemented!"),
             ),
-        }
-    }
-}
-
-#[derive(PartialEq)]
-pub enum PutDriveOutcome {
-    Created,
-    Updated,
-    Error(DriveError),
-}
-
-impl GenerateResponse for PutDriveOutcome {
-    fn generate_response(&self) -> Response {
-        use self::PutDriveOutcome::*;
-        match *self {
-            Created => empty_response(StatusCode::Created),
-            Updated => empty_response(StatusCode::NoContent),
-            Error(ref e) => e.generate_response(),
-        }
-    }
-}
-
-impl IntoParsedRequest for DriveDescription {
-    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
-        let (sender, receiver) = oneshot::channel();
-        match method {
-            Method::Put => Ok(ParsedRequest::Sync(
-                SyncRequest::PutDrive(self, sender),
-                receiver,
-            )),
-            _ => Ok(ParsedRequest::Dummy),
         }
     }
 }
