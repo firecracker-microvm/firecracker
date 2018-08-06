@@ -4,7 +4,7 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{self, StatusCode};
 
-use data_model::vm::{DriveDescription, DriveError, MachineConfiguration};
+use data_model::vm::{BlockDeviceConfig, DriveError, MachineConfiguration};
 use http_service::{empty_response, json_fault_message, json_response};
 use net_util::TapError;
 use request::actions::ActionBody;
@@ -53,7 +53,7 @@ pub type SyncOutcomeReceiver = oneshot::Receiver<Box<GenerateResponse + Send>>;
 pub enum SyncRequest {
     GetMachineConfiguration(SyncOutcomeSender),
     PutBootSource(BootSourceBody, SyncOutcomeSender),
-    PutDrive(DriveDescription, SyncOutcomeSender),
+    PutDrive(BlockDeviceConfig, SyncOutcomeSender),
     PutLogger(APILoggerDescription, SyncOutcomeSender),
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),

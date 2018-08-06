@@ -50,7 +50,7 @@ use api_server::request::sync::{
 use api_server::request::sync::{PutBootSourceConfigError, PutBootSourceOutcome};
 use api_server::ApiRequest;
 use data_model::vm::description_into_implementation as rate_limiter_description_into_implementation;
-use data_model::vm::{DriveDescription, DriveError, MachineConfiguration};
+use data_model::vm::{BlockDeviceConfig, BlockDeviceConfigs, DriveError, MachineConfiguration};
 use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -1125,8 +1125,12 @@ impl Vmm {
         }
     }
 
-    fn handle_put_drive(&mut self, drive_description: DriveDescription, sender: SyncOutcomeSender) {
-        match self.put_block_device(BlockDeviceConfig::from(drive_description)) {
+    fn handle_put_drive(
+        &mut self,
+        block_device_config: BlockDeviceConfig,
+        sender: SyncOutcomeSender,
+    ) {
+        match self.put_block_device(block_device_config) {
             Ok(ret) => sender
                 .send(Box::new(ret))
                 .map_err(|_| ())
@@ -1301,8 +1305,8 @@ impl Vmm {
                 SyncRequest::PutBootSource(boot_source_body, sender) => {
                     self.handle_put_boot_source(boot_source_body, sender)
                 }
-                SyncRequest::PutDrive(drive_description, sender) => {
-                    self.handle_put_drive(drive_description, sender)
+                SyncRequest::PutDrive(block_device_config, sender) => {
+                    self.handle_put_drive(block_device_config, sender)
                 }
                 SyncRequest::PutLogger(logger_description, sender) => {
                     self.handle_put_logger(logger_description, sender)
