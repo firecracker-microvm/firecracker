@@ -41,6 +41,17 @@ impl DriveDescription {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum DriveError {
+    RootBlockDeviceAlreadyAdded,
+    InvalidBlockDeviceID,
+    InvalidBlockDevicePath,
+    BlockDevicePathAlreadyExists,
+    BlockDeviceUpdateFailed,
+    BlockDeviceUpdateNotAllowed,
+    NotImplemented,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

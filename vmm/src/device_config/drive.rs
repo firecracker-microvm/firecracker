@@ -3,8 +3,7 @@ use std::path::PathBuf;
 
 use std::result;
 
-use api_server::request::sync::DriveError;
-use data_model::vm::{DriveDescription, RateLimiterDescription};
+use data_model::vm::{DriveDescription, DriveError, RateLimiterDescription};
 
 type Result<T> = result::Result<T, DriveError>;
 
