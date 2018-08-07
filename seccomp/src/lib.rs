@@ -6,12 +6,16 @@ extern crate logger;
 extern crate sys_util;
 
 use self::logger::{Metric, METRICS};
+use std::collections::HashMap;
 use std::result::Result;
 
 /// Integer values for the level of seccomp filtering used.
 /// See `struct SeccompLevel` for more information about the different levels.
 pub const SECCOMP_LEVEL_BASIC: u32 = 1;
 pub const SECCOMP_LEVEL_NONE: u32 = 0;
+
+/// Maximum number of instructions that a BPF program can have.
+const BPF_MAX_LEN: usize = 4096;
 
 /// BPF Instruction classes.
 /// See /usr/include/linux/bpf_common.h .
@@ -78,6 +82,7 @@ const CONDITION_MAX_LEN: u16 = 6;
 ///     __u64 args[6];
 /// };
 /// ```
+const SECCOMP_DATA_NR_OFFSET: u8 = 0;
 const SECCOMP_DATA_ARGS_OFFSET: u8 = 16;
 const SECCOMP_DATA_ARG_SIZE: u8 = 8;
 
@@ -92,6 +97,11 @@ pub enum SeccompLevel<'a> {
 /// Seccomp errors.
 #[derive(Debug)]
 pub enum Error {
+    /// Filter context that when translated into BPF code, exceeds the maximum number of
+    /// instructions that a BPF program can have.
+    ContextTooLarge,
+    /// Attempting to add an empty vector of rules to the rule chain of a syscall.
+    EmptyRulesVector,
     /// Argument number that exceeds the maximum value.
     InvalidArgumentNumber,
 }
@@ -151,6 +161,14 @@ pub struct SeccompRule {
     conditions: Vec<SeccompCondition>,
     /// Action applied to calling process if rule gets matched.
     action: SeccompAction,
+}
+
+/// Filter context containing rules assigned to syscall numbers.
+pub struct SeccompFilterContext {
+    /// Hash map, mapping a priority and a chain of rules to a syscall number.
+    rules: HashMap<i64, (i64, Vec<SeccompRule>)>,
+    /// Default action to apply to syscall numbers that do not exist in the hash map.
+    default_action: SeccompAction,
 }
 
 /// BPF instruction structure definition.
@@ -427,6 +445,154 @@ impl SeccompRule {
     }
 }
 
+impl SeccompFilterContext {
+    /// Creates a new filter context
+    pub fn new(
+        rules: HashMap<i64, (i64, Vec<SeccompRule>)>,
+        default_action: SeccompAction,
+    ) -> Result<Self, Error> {
+        // All inserted syscalls must have at least one rule, otherwise BPF code will break.
+        for (_, value) in rules.iter() {
+            if value.1.len() == 0 {
+                return Err(Error::EmptyRulesVector);
+            }
+        }
+
+        Ok(Self {
+            rules,
+            default_action,
+        })
+    }
+
+    /// Adds a rule to a syscall number in the filter context.
+    pub fn add_rule(
+        &mut self,
+        syscall_number: i64,
+        default_priority: Option<i64>,
+        rule: SeccompRule,
+    ) {
+        self.rules
+            .entry(syscall_number)
+            .or_insert_with(|| (default_priority.unwrap_or(0), vec![]))
+            .1
+            .push(rule);
+    }
+
+    /// Adds rules to a syscall number in the filter context.
+    pub fn add_rules(
+        &mut self,
+        syscall_number: i64,
+        default_priority: Option<i64>,
+        mut rules: Vec<SeccompRule>,
+    ) -> Result<(), Error> {
+        // All inserted syscalls must have at least one rule, otherwise BPF code will break.
+        if rules.len() == 0 {
+            return Err(Error::EmptyRulesVector);
+        }
+
+        self.rules
+            .entry(syscall_number)
+            .or_insert_with(|| (default_priority.unwrap_or(0), vec![]))
+            .1
+            .append(&mut rules);
+
+        Ok(())
+    }
+
+    /// Translates filter context into BPF instructions.
+    fn into_bpf(self) -> Result<Vec<sock_filter>, Error> {
+        // The called syscall number is loaded.
+        let mut accumulator = Vec::with_capacity(1);
+        let mut context_len = 1;
+        accumulator.push(vec![BPF_STMT(
+            BPF_LD + BPF_W + BPF_ABS,
+            SECCOMP_DATA_NR_OFFSET as u32,
+        )]);
+
+        // Orders syscalls by priority, the highest number represents the highest priority.
+        let mut iter = {
+            let mut vec: Vec<_> = self.rules.into_iter().collect();
+            accumulator.reserve_exact(vec.len() + 1);
+
+            // (syscall_number, (priority, rules)), thus .1 is (priority, rules), (.1).0 is
+            // priority.
+            vec.sort_by(|a, b| (a.1).0.cmp(&(b.1).0).reverse());
+
+            // Gets rid of priorities since syscalls were ordered.
+            vec.into_iter().map(|(a, (_, b))| (a, b))
+        };
+
+        // For each syscall adds its rule chain to the context.
+        let default_action = u32::from(self.default_action);
+        iter.try_for_each(|(syscall_number, chain)| {
+            SeccompFilterContext::append_syscall_chain(
+                syscall_number,
+                chain,
+                default_action,
+                &mut accumulator,
+                &mut context_len,
+            )
+        })?;
+
+        // The default action is once again appended, it is reached if all syscall number
+        // comparisons fail.
+        context_len += 1;
+        accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, default_action)]);
+
+        // Finally, builds the translated context by consuming the accumulator.
+        let mut result = Vec::with_capacity(context_len);
+        accumulator
+            .into_iter()
+            .for_each(|mut instructions| result.append(&mut instructions));
+
+        Ok(result)
+    }
+
+    /// Helper function.
+    /// Appends a chain of the context to an accumulator, updating the length of the context.
+    fn append_syscall_chain(
+        syscall_number: i64,
+        chain: Vec<SeccompRule>,
+        default_action: u32,
+        accumulator: &mut Vec<Vec<sock_filter>>,
+        context_len: &mut usize,
+    ) -> Result<(), Error> {
+        // The rules of the chain are translated into BPF statements.
+        let chain: Vec<_> = chain.into_iter().map(|rule| rule.into_bpf()).collect();
+        let chain_len = chain.iter().map(|rule| rule.len()).fold(0, |a, b| a + b);
+
+        // The chain starts with a comparison checking the loaded syscall number against the
+        // syscall number of the chain.
+        let mut built_syscall = Vec::with_capacity(1 + chain_len + 1);
+        built_syscall.push(BPF_JUMP(
+            BPF_JMP + BPF_JEQ + BPF_K,
+            syscall_number as u32,
+            0,
+            1,
+        ));
+
+        // The rules of the chain are appended.
+        chain
+            .into_iter()
+            .for_each(|mut rule| built_syscall.append(&mut rule));
+
+        // The default action is appended, if the syscall number comparison matched and then all
+        // rules fail to match, the default action is reached.
+        built_syscall.push(BPF_STMT(BPF_RET + BPF_K, default_action));
+
+        // The chain is appended to the result.
+        *context_len += built_syscall.len();
+        accumulator.push(built_syscall);
+
+        // BPF programs are limited to 4096 statements.
+        if *context_len >= BPF_MAX_LEN {
+            return Err(Error::ContextTooLarge);
+        }
+
+        Ok(())
+    }
+}
+
 /// Builds the array of filter instructions and sends them to the kernel.
 pub fn setup_seccomp(level: SeccompLevel) -> Result<(), i32> {
     let mut filters = Vec::new();
@@ -645,6 +811,96 @@ mod tests {
 
         // Compares translated rule with hardcoded BPF instructions.
         assert_eq!(rule.into_bpf(), instructions);
+    }
+
+    #[test]
+    fn test_context_bpf_output() {
+        // Compares translated context with hardcoded BPF program.
+        let context = SeccompFilterContext::new(
+            vec![
+                (
+                    1,
+                    (
+                        1,
+                        vec![
+                            SeccompRule::new(
+                                vec![
+                                    SeccompCondition::new(2, SeccompCmpOp::Le, 14).unwrap(),
+                                    SeccompCondition::new(2, SeccompCmpOp::Ne, 10).unwrap(),
+                                ],
+                                SeccompAction::Allow,
+                            ),
+                            SeccompRule::new(
+                                vec![
+                                    SeccompCondition::new(2, SeccompCmpOp::Gt, 20).unwrap(),
+                                    SeccompCondition::new(2, SeccompCmpOp::Lt, 30).unwrap(),
+                                ],
+                                SeccompAction::Allow,
+                            ),
+                        ],
+                    ),
+                ),
+                (
+                    9,
+                    (
+                        0,
+                        vec![SeccompRule::new(
+                            vec![
+                                SeccompCondition::new(1, SeccompCmpOp::MaskedEq(0b100), 36)
+                                    .unwrap(),
+                            ],
+                            SeccompAction::Allow,
+                        )],
+                    ),
+                ),
+            ].into_iter()
+            .collect(),
+            SeccompAction::Trap,
+        ).unwrap();
+        let instructions = vec![
+            BPF_STMT(0x20, 0),
+            BPF_JUMP(0x15, 1, 0, 1),
+            BPF_STMT(0x05, 1),
+            BPF_STMT(0x05, 11),
+            BPF_STMT(0x20, 36),
+            BPF_JUMP(0x15, 0, 0, 2),
+            BPF_STMT(0x20, 32),
+            BPF_JUMP(0x15, 10, 6, 0),
+            BPF_STMT(0x20, 36),
+            BPF_JUMP(0x25, 0, 4, 0),
+            BPF_JUMP(0x15, 0, 0, 2),
+            BPF_STMT(0x20, 32),
+            BPF_JUMP(0x25, 14, 1, 0),
+            BPF_STMT(0x06, 0x7fff0000),
+            BPF_STMT(0x05, 1),
+            BPF_STMT(0x05, 12),
+            BPF_STMT(0x20, 36),
+            BPF_JUMP(0x25, 0, 9, 0),
+            BPF_JUMP(0x15, 0, 0, 2),
+            BPF_STMT(0x20, 32),
+            BPF_JUMP(0x35, 30, 6, 0),
+            BPF_STMT(0x20, 36),
+            BPF_JUMP(0x25, 0, 3, 0),
+            BPF_JUMP(0x15, 0, 0, 3),
+            BPF_STMT(0x20, 32),
+            BPF_JUMP(0x25, 20, 0, 1),
+            BPF_STMT(0x06, 0x7fff0000),
+            BPF_STMT(0x06, 0x00030000),
+            BPF_JUMP(0x15, 9, 0, 1),
+            BPF_STMT(0x05, 1),
+            BPF_STMT(0x05, 8),
+            BPF_STMT(0x20, 28),
+            BPF_STMT(0x54, 0),
+            BPF_JUMP(0x15, 0, 0, 4),
+            BPF_STMT(0x20, 24),
+            BPF_STMT(0x54, 0b100),
+            BPF_JUMP(0x15, 36 & 0b100, 0, 1),
+            BPF_STMT(0x06, 0x7fff0000),
+            BPF_STMT(0x06, 0x00030000),
+            BPF_STMT(0x06, 0x00030000),
+        ];
+
+        assert_eq!(context.into_bpf().unwrap(), instructions);
     }
 
     #[test]
