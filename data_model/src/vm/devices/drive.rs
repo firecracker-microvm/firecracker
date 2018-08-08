@@ -4,7 +4,9 @@ use std::collections::LinkedList;
 use std::path::PathBuf;
 use std::result;
 
-use vm::RateLimiterDescription;
+use serde_json::Value;
+
+use vm::{PatchError, RateLimiterDescription, ValidatePatch};
 
 type Result<T> = result::Result<T, DriveError>;
 
@@ -182,6 +184,44 @@ impl BlockDeviceConfigs {
         }
 
         Err(DriveError::BlockDeviceUpdateFailed)
+    }
+}
+
+struct PatchDrivePayload {
+    fields: Value,
+}
+
+impl ValidatePatch for PatchDrivePayload {
+    fn validate(&self) -> result::Result<(), PatchError> {
+        match self.fields {
+            Value::Object(ref fields_map) => {
+                let mut id_found = false;
+                let mut bad_fields: Vec<String> = vec![];
+                const ALLOWED_FIELDS: [&'static str; 2] = ["drive_id", "path_on_host"];
+
+                for property in fields_map.keys() {
+                    if ALLOWED_FIELDS
+                        .iter()
+                        .find(|&&field| field == property)
+                        .is_none()
+                    {
+                        bad_fields.push(property.clone());
+                    }
+
+                    if property.eq("drive_id") {
+                        id_found = true;
+                    }
+                }
+                if !id_found {
+                    Err(PatchError::IdNotFound)
+                } else if bad_fields.is_empty() {
+                    Err(PatchError::InvalidFields(bad_fields))
+                } else {
+                    Ok(())
+                }
+            }
+            _ => Err(PatchError::InvalidPayload),
+        }
     }
 }
 
