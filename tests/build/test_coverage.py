@@ -28,7 +28,7 @@ KCOV_COVERAGE_REGEX = r'"covered":"(\d+\.\d)"'
 """Regex for extracting coverage data from a kcov output file."""
 
 
-@pytest.mark.timeout(240)
+@pytest.mark.timeout(400)
 def test_coverage(test_session_root_path, test_session_tmp_path):
     """Test line coverage with kcov.
 
