@@ -36,10 +36,11 @@ pub enum Error {
     ChangeDevNetTunOwner(sys_util::Error),
     Chroot(sys_util::Error),
     CloseNetNsFd(sys_util::Error),
+    CloseDevNullFd(sys_util::Error),
     Copy(PathBuf, PathBuf, io::Error),
     CreateDir(PathBuf, io::Error),
-    OsStringParsing(PathBuf, OsString),
     CStringParsing(NulError),
+    Dup2(sys_util::Error),
     Exec(io::Error),
     FileCreate(PathBuf, io::Error),
     FileName(PathBuf),
@@ -60,6 +61,8 @@ pub enum Error {
     NotAlphanumeric(String),
     NumaNode(String),
     OpenDevKvm(sys_util::Error),
+    OpenDevNull(sys_util::Error),
+    OsStringParsing(PathBuf, OsString),
     PivotRoot(sys_util::Error),
     ReadLine(PathBuf, io::Error),
     ReadToString(PathBuf, io::Error),
@@ -67,6 +70,7 @@ pub enum Error {
     RmOldRootDir(sys_util::Error),
     SetCurrentDir(io::Error),
     SetNetNs(sys_util::Error),
+    SetSid(sys_util::Error),
     Uid(String),
     UmountOldRoot(sys_util::Error),
     UnexpectedKvmFd(i32),
@@ -136,6 +140,13 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Path to the network namespace this microVM should join.")
                 .required(false)
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("daemonize")
+                .long("daemonize")
+                .help("Daemonize the jailer before exec, by invoking setsid(), and redirecting the standard I/O file descriptors to /dev/null.")
+                .required(false)
+                .takes_value(false),
         )
 }
 

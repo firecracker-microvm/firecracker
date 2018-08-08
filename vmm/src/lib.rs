@@ -249,13 +249,23 @@ impl EpollContext {
         })
     }
 
-    fn enable_stdin_event(&mut self) -> Result<()> {
-        epoll::ctl(
+    pub fn enable_stdin_event(&mut self) -> Result<()> {
+        if let Err(e) = epoll::ctl(
             self.epoll_raw_fd,
             epoll::EPOLL_CTL_ADD,
             libc::STDIN_FILENO,
             epoll::Event::new(epoll::EPOLLIN, self.stdin_index),
-        ).map_err(Error::EpollFd)?;
+        ) {
+            // TODO: We just log this message, and immediatedly return Ok, instead of returning the
+            // actual error because this operation always fails with EPERM when adding a fd which
+            // has been redirected to /dev/null via dup2 (this may happen inside the jailer).
+            // Find a better solution to this (and think about the state of the serial device
+            // while we're at it). This also led to commenting out parts of the
+            // enable_disable_stdin_test() unit test function.
+            warn!("Could not add stdin event to epoll. {:?}", e);
+            return Ok(());
+        }
+
         self.dispatch_table[self.stdin_index as usize] = Some(EpollDispatch::Stdin);
 
         Ok(())
@@ -1804,8 +1814,11 @@ mod tests {
         let mut ep = EpollContext::new().unwrap();
         // enabling stdin should work
         assert!(ep.enable_stdin_event().is_ok());
+
         // doing it again should fail
-        assert!(ep.enable_stdin_event().is_err());
+        // TODO: commented out because stdin & /dev/null related issues, as mentioned in another
+        // comment from enable_stdin_event().
+        // assert!(ep.enable_stdin_event().is_err());
 
         // disabling stdin should work
         assert!(ep.disable_stdin_event().is_ok());
