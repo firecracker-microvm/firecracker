@@ -444,8 +444,6 @@ impl Vmm {
 
     // Only call this function as part of the API.
     // If the drive_id does not exist, a new Block Device Config is added to the list.
-    // Else, if the VM is running, the block device will be updated.
-    // Updating before the VM has started is not allowed.
     fn put_block_device(
         &mut self,
         block_device_config: BlockDeviceConfig,
@@ -455,25 +453,14 @@ impl Vmm {
             .block_device_configs
             .contains_drive_id(block_device_config.drive_id.clone())
         {
-            return self.update_block_device(&block_device_config);
+            self.block_device_configs
+                .update(&block_device_config)
+                .map(|_| PutDriveOutcome::Updated)
         } else {
             match self.block_device_configs.add(block_device_config) {
                 Ok(_) => Ok(PutDriveOutcome::Created),
                 Err(e) => Err(e),
             }
-        }
-    }
-
-    fn update_block_device(
-        &mut self,
-        block_device_config: &BlockDeviceConfig,
-    ) -> result::Result<PutDriveOutcome, DriveError> {
-        if self.mmio_device_manager.is_some() {
-            Err(DriveError::BlockDeviceUpdateNotAllowed)
-        } else {
-            self.block_device_configs
-                .update(block_device_config)
-                .map(|_| PutDriveOutcome::Updated)
         }
     }
 
@@ -1130,6 +1117,14 @@ impl Vmm {
         block_device_config: BlockDeviceConfig,
         sender: SyncOutcomeSender,
     ) {
+        if self.is_instance_running() {
+            sender
+                .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
+                .map_err(|_| ())
+                .expect("one-shot channel closed");
+            return;
+        }
+
         match self.put_block_device(block_device_config) {
             Ok(ret) => sender
                 .send(Box::new(ret))
