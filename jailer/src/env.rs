@@ -14,7 +14,21 @@ use sys_util;
 use MAX_ID_LENGTH;
 use {Error, Result};
 
+const STDIN_FILENO: libc::c_int = 0;
+const STDOUT_FILENO: libc::c_int = 1;
+const STDERR_FILENO: libc::c_int = 2;
+
 const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
+const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
+
+// Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
+fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
+    // This is safe because we are using a library function with valid parameters.
+    if unsafe { libc::dup2(old_fd, new_fd) } < 0 {
+        return Err(Error::Dup2(sys_util::Error::last()));
+    }
+    Ok(())
+}
 
 pub struct Env {
     id: String,
@@ -24,6 +38,7 @@ pub struct Env {
     uid: u32,
     gid: u32,
     netns: Option<String>,
+    daemonize: bool,
 }
 
 // Function will only allow alphanumeric characters and hyphens.
@@ -91,6 +106,8 @@ impl Env {
             None => None,
         };
 
+        let daemonize = args.is_present("daemonize");
+
         Ok(Env {
             id: id.to_string(),
             numa_node,
@@ -99,6 +116,7 @@ impl Env {
             uid,
             gid,
             netns,
+            daemonize,
         })
     }
 
@@ -177,6 +195,23 @@ impl Env {
         let cgroup = Cgroup::new(self.id.as_str(), self.numa_node, exec_file_name)?;
         cgroup.attach_pid()?;
 
+        // If daemonization was requested, open /dev/null before chrooting.
+        let dev_null = if self.daemonize {
+            // Safe because we use a constant null-terminated string and verify the result.
+            let ret = unsafe {
+                libc::open(
+                    DEV_NULL_WITH_NUL.as_ptr() as *const libc::c_char,
+                    libc::O_RDWR,
+                )
+            };
+            if ret < 0 {
+                return Err(Error::OpenDevNull(sys_util::Error::last()));
+            }
+            Some(ret)
+        } else {
+            None
+        };
+
         // Jail self.
         chroot(self.chroot_dir())?;
 
@@ -213,6 +248,24 @@ impl Env {
             return Err(Error::ChangeDevNetTunOwner(sys_util::Error::last()));
         }
 
+        // Daemonize before exec, if so required (when the dev_null variable != None).
+        if let Some(fd) = dev_null {
+            // Call setsid(). Safe because it's a library function.
+            if unsafe { libc::setsid() } < 0 {
+                return Err(Error::SetSid(sys_util::Error::last()));
+            }
+
+            // Replace the stdio file descriptors with the /dev/null fd.
+            dup2(fd, STDIN_FILENO)?;
+            dup2(fd, STDOUT_FILENO)?;
+            dup2(fd, STDERR_FILENO)?;
+
+            // Safe because we are passing valid parameters, and checking the result.
+            if unsafe { libc::close(fd) } < 0 {
+                return Err(Error::CloseDevNullFd(sys_util::Error::last()));
+            }
+        }
+
         Err(Error::Exec(
             Command::new(chroot_exec_file)
                 .arg("--jailed")
@@ -229,6 +282,7 @@ impl Env {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use clap_app;
 
     fn make_args<'a>(
@@ -239,6 +293,7 @@ mod tests {
         gid: &str,
         chroot_base: &str,
         netns: Option<&str>,
+        daemonize: bool,
     ) -> ArgMatches<'a> {
         let app = clap_app();
 
@@ -263,6 +318,10 @@ mod tests {
             arg_vec.push(s);
         }
 
+        if daemonize {
+            arg_vec.push("--daemonize");
+        }
+
         app.get_matches_from_safe(arg_vec).unwrap()
     }
 
@@ -285,6 +344,7 @@ mod tests {
             gid,
             chroot_base,
             Some(netns),
+            true,
         )).expect("This new environment should be created successfully.");
 
         let mut chroot_dir = PathBuf::from(chroot_base);
@@ -296,9 +356,34 @@ mod tests {
         assert_eq!(format!("{}", good_env.gid()), gid);
         assert_eq!(format!("{}", good_env.uid()), uid);
         assert_eq!(good_env.netns, Some(netns.to_string()));
+        assert!(good_env.daemonize);
+
+        let another_good_env =
+            Env::new(make_args(
+                node,
+                id,
+                exec_file,
+                uid,
+                gid,
+                chroot_base,
+                None,
+                false,
+            )).expect("This another new environment should be created successfully.");
+        assert!(!another_good_env.daemonize);
 
         // Not fine - invalid node.
-        assert!(Env::new(make_args("zzz", id, exec_file, uid, gid, chroot_base, None)).is_err());
+        assert!(
+            Env::new(make_args(
+                "zzz",
+                id,
+                exec_file,
+                uid,
+                gid,
+                chroot_base,
+                None,
+                true
+            )).is_err()
+        );
 
         // Not fine - invalid id.
         assert!(
@@ -309,7 +394,8 @@ mod tests {
                 uid,
                 gid,
                 chroot_base,
-                None
+                None,
+                true
             )).is_err()
         );
 
@@ -322,7 +408,8 @@ mod tests {
                 uid,
                 gid,
                 chroot_base,
-                None
+                None,
+                true
             )).is_err()
         );
 
@@ -335,7 +422,8 @@ mod tests {
                 "zzz",
                 gid,
                 chroot_base,
-                None
+                None,
+                true
             )).is_err()
         );
 
@@ -348,7 +436,8 @@ mod tests {
                 uid,
                 "zzz",
                 chroot_base,
-                None
+                None,
+                true
             )).is_err()
         );
 
@@ -366,5 +455,22 @@ mod tests {
             long_str.push('a');
         }
         assert!(check_id(long_str.as_str()).is_err());
+    }
+
+    #[test]
+    fn test_dup2() {
+        // Open /dev/kvm since it should be available anyway.
+        let fd1 = fs::File::open("/dev/kvm").unwrap().into_raw_fd();
+        // We open a second file to make sure its associated fd is not used by something else.
+        let fd2 = fs::File::open("/dev/kvm").unwrap().into_raw_fd();
+
+        dup2(fd1, fd2).unwrap();
+
+        unsafe {
+            libc::close(fd1);
+        }
+        unsafe {
+            libc::close(fd2);
+        }
     }
 }
