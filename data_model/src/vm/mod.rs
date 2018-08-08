@@ -12,3 +12,14 @@ pub use vm::rate_limiter::{description_into_implementation, RateLimiterDescripti
 pub enum DeviceState {
     Attached,
 }
+
+#[derive(Debug)]
+pub enum PatchError {
+    IdNotFound,
+    InvalidFields(Vec<String>),
+    InvalidPayload,
+}
+
+pub trait ValidatePatch {
+    fn validate(&self) -> Result<(), PatchError>;
+}
