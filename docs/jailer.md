@@ -32,6 +32,11 @@ After starting, the Jailer goes through the following operations:
 - If the `--secomp-level` flag is set to `1`, sets up a list of seccomp
   filters, white listing the minimum set of system calls that Firecracker
   requires to function.
+- If the `--seccomp-level` flag is set to `2`, sets up advanced
+  seccomp filtering. The default action for a syscall is to send `SIGSYS`,
+  unless there is an added rule white listing respective syscall with the given
+  set of arguments. The added rules are the minimum set that Firecracker
+  requires to function.
 - Otherwise if `--seccomp-level` flag is not set or is set to `0`, does not use
   seccomp filtering.
 - Validate **all provided paths** and the VM `id`.

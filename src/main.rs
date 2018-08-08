@@ -66,10 +66,11 @@ fn main() {
                     "Level of seccomp filtering.\n
     - Level 0: No filtering.\n
     - Level 1: Seccomp filtering by syscall number.\n
+    - Level 2: Seccomp filtering by syscall number and argument values.\n
 ",
                 ).takes_value(true)
                 .default_value("0")
-                .possible_values(&["0", "1"]),
+                .possible_values(&["0", "1", "2"]),
         ).get_matches();
 
     let bind_path = cmd_arguments

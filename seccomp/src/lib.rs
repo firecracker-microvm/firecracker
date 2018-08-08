@@ -11,6 +11,7 @@ use std::result::Result;
 
 /// Integer values for the level of seccomp filtering used.
 /// See `struct SeccompLevel` for more information about the different levels.
+pub const SECCOMP_LEVEL_ADVANCED: u32 = 2;
 pub const SECCOMP_LEVEL_BASIC: u32 = 1;
 pub const SECCOMP_LEVEL_NONE: u32 = 0;
 
@@ -88,6 +89,8 @@ const SECCOMP_DATA_ARG_SIZE: u8 = 8;
 
 /// Specifies the type of seccomp filtering used.
 pub enum SeccompLevel<'a> {
+    /// Seccomp filtering by analysing syscall number and argument values of syscall.
+    Advanced(SeccompFilterContext),
     /// Seccomp filtering by analysing syscall number.
     Basic(&'a [i64]),
     /// No seccomp filtering.
@@ -601,6 +604,9 @@ pub fn setup_seccomp(level: SeccompLevel) -> Result<(), i32> {
 
     // Load filters according to specified filter level.
     match level {
+        SeccompLevel::Advanced(context) => {
+            filters.extend(context.into_bpf().map_err(|_| libc::EINVAL)?);
+        }
         SeccompLevel::Basic(allowed_syscalls) => {
             filters.extend(EXAMINE_SYSCALL());
             for &syscall in allowed_syscalls {

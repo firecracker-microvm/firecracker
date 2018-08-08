@@ -154,11 +154,12 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Level of seccomp filtering that will be passed to executed path as argument.\n
     - Level 0: No filtering.\n
     - Level 1: Seccomp filtering by syscall number.\n
+    - Level 2: Seccomp filtering by syscall number and argument values.\n
 ")
                 .required(false)
                 .takes_value(true)
                 .default_value("0")
-                .possible_values(&["0", "1"]),
+                .possible_values(&["0", "1", "2"]),
         )
 }
 

@@ -989,6 +989,11 @@ impl Vmm {
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
         match self.seccomp_level {
+            seccomp::SECCOMP_LEVEL_ADVANCED => {
+                seccomp::setup_seccomp(seccomp::SeccompLevel::Advanced(
+                    default_syscalls::default_context().unwrap(),
+                )).expect("Could not load filters as requested!");
+            }
             seccomp::SECCOMP_LEVEL_BASIC => {
                 seccomp::setup_seccomp(seccomp::SeccompLevel::Basic(
                     default_syscalls::ALLOWED_SYSCALLS,
@@ -1628,7 +1633,7 @@ mod tests {
             shared_info,
             EventFd::new().expect("cannot create eventFD"),
             from_api,
-            seccomp::SECCOMP_LEVEL_BASIC,
+            seccomp::SECCOMP_LEVEL_ADVANCED,
         ).expect("Cannot Create VMM");
         return vmm;
     }

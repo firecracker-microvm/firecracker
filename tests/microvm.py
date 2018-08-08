@@ -67,7 +67,7 @@ class JailerContext:
             chroot_base='/srv/jailer',
             netns=slot_id,
             daemonize=True,
-            seccomp_level=1
+            seccomp_level=2
         )
 
     def chroot_base_with_id(self):
