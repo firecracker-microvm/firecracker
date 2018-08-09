@@ -5,7 +5,6 @@ extern crate sys_util;
 
 mod cgroup;
 mod env;
-mod uuid;
 
 use std::ffi::{CString, NulError, OsStr, OsString};
 use std::fs::{canonicalize, create_dir_all, metadata};
@@ -16,12 +15,12 @@ use std::path::PathBuf;
 use std::result;
 
 use env::Env;
-use uuid::validate;
 
 pub const KVM_FD: i32 = 3;
 pub const LISTENER_FD: i32 = 4;
 
 const SOCKET_FILE_NAME: &str = "api.socket";
+const MAX_ID_LENGTH: usize = 64;
 
 #[derive(Debug)]
 pub enum Error {
@@ -40,6 +39,8 @@ pub enum Error {
     FileOpen(PathBuf, io::Error),
     GetOldFdFlags(sys_util::Error),
     Gid(String),
+    InvalidCharId(),
+    InvalidLengthId(),
     Metadata(PathBuf, io::Error),
     NotAFile(PathBuf),
     NotAFolder(PathBuf),
@@ -54,7 +55,6 @@ pub enum Error {
     UnexpectedListenerFd(i32),
     UnixListener(io::Error),
     UnsetCloexec(sys_util::Error),
-    ValidateUUID(uuid::UUIDError),
     Write(PathBuf, io::Error),
 }
 
@@ -78,8 +78,8 @@ impl<'a> JailerArgs<'a> {
         uid: &str,
         gid: &str,
     ) -> Result<Self> {
-        // Check that id meets the style of an UUID's.
-        validate(id).map_err(Error::ValidateUUID)?;
+        // Check that id has only alphanumeric chars and hyphens in it.
+        check_id(id)?;
 
         let numa_node = node
             .parse::<u32>()
@@ -222,4 +222,36 @@ pub fn into_cstring(path: PathBuf) -> Result<CString> {
         .into_string()
         .map_err(|e| Error::OsStringParsing(path, e))?;
     CString::new(path_str.clone()).map_err(|e| Error::CStringParsing(path_str, e))
+}
+
+// Function will only allow alphanumeric characters and hyphens.
+// Also a MAX_ID_LENGTH restriction is applied.
+fn check_id(input: &str) -> Result<()> {
+    let no_hyphens = str::replace(input, "-", "");
+    for c in no_hyphens.chars() {
+        if !c.is_alphanumeric() {
+            return Err(Error::InvalidCharId());
+        }
+    }
+    if input.len() > MAX_ID_LENGTH {
+        return Err(Error::InvalidLengthId());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_id() {
+        assert!(check_id("12-3aa").is_ok());
+        assert!(check_id("12:3aa").is_err());
+        assert!(check_id("①").is_err());
+        let mut long_str = "".to_string();
+        for _n in 1..=MAX_ID_LENGTH + 1 {
+            long_str.push('a');
+        }
+        assert!(check_id(long_str.as_str()).is_err());
+    }
 }
