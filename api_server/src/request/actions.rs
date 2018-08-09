@@ -44,13 +44,23 @@ impl IntoParsedRequest for ActionBody {
                     sync_receiver,
                 ))
             }
-            ActionType::InstanceStart => {
+           /* ActionType::InstanceStart => {
                 let (async_sender, async_receiver) = oneshot::channel();
                 match self.action_id {
                     Some(id) => Ok(ParsedRequest::Async(
                         id.clone(),
                         AsyncRequest::StartInstance(async_sender),
                         async_receiver,
+                    )),
+                    None => Err(String::from("Missing ID")),
+                }
+            }*/
+            ActionType::InstanceStart => {
+                let (sync_sender, sync_receiver) = oneshot::channel();
+                match self.action_id {
+                    Some(id) => Ok(ParsedRequest::Sync(
+                        SyncRequest::SyncStartInstance(sync_sender),
+                        sync_receiver,
                     )),
                     None => Err(String::from("Missing ID")),
                 }

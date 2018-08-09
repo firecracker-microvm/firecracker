@@ -60,6 +60,7 @@ pub enum SyncRequest {
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
     RescanBlockDevice(ActionBody, SyncOutcomeSender),
+    SyncStartInstance(SyncOutcomeSender)
 }
 
 impl fmt::Debug for SyncRequest {
@@ -74,6 +75,7 @@ impl fmt::Debug for SyncRequest {
 #[derive(PartialEq)]
 pub enum OkStatus {
     Created,
+    InstanceStarted,
     Updated,
 }
 
@@ -82,6 +84,7 @@ impl GenerateResponse for OkStatus {
         use self::OkStatus::*;
         match *self {
             Created => empty_response(StatusCode::Created),
+            InstanceStarted => empty_response(StatusCode::Ok),
             Updated => empty_response(StatusCode::NoContent),
         }
     }
@@ -92,8 +95,10 @@ impl GenerateResponse for OkStatus {
 pub enum Error {
     DriveOperationFailed(DriveError),
     GuestCIDAlreadyInUse,
+    GuestInstanceAlreadyRunning,
     GuestMacAddressInUse,
     InvalidPayload,
+    MicroVMStartFailed,
     OpenTap(TapError),
     OperationFailed,
     OperationNotAllowedPreBoot,
@@ -114,9 +119,17 @@ impl GenerateResponse for Error {
                 StatusCode::BadRequest,
                 json_fault_message("The specified guest MAC address is already in use."),
             ),
+            GuestInstanceAlreadyRunning => json_response(
+                StatusCode::Forbidden,
+                json_fault_message("The guest instance is already running."),
+            ),
             InvalidPayload => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The request payload is invalid."),
+            ),
+            MicroVMStartFailed => json_response(
+                StatusCode::InternalServerError,
+                json_fault_message("The start of the microVM failed."),
             ),
             OpenTap(ref e) => json_response(
                 StatusCode::BadRequest,

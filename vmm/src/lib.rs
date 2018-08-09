@@ -1198,6 +1198,29 @@ impl Vmm {
         sender.send(result).expect("one-shot channel closed");
     }
 
+    fn handle_sync_start_instance(&mut self, sender: SyncOutcomeSender) {
+
+        if self.is_instance_running() {
+            sender
+                .send(Box::new(SyncError::GuestInstanceAlreadyRunning))
+                .map_err(|_| ())
+                .expect("one-shot channel closed");
+            return;
+        }
+
+        match self.start_instance() {
+                Ok(_) => sender
+                    .send(Box::new(SyncOkStatus::InstanceStarted))
+                    .map_err(|_| ())
+                    .expect("one-shot channel closed"),
+                Err(e) => sender
+                    .send(Box::new(SyncError::MicroVMStartFailed))
+                    .map_err(|_| ())
+                    .expect("one-shot channel closed"),
+        };
+
+    }
+
     fn handle_stop_instance(&mut self, sender: AsyncOutcomeSender) {
         let result = match self.stop() {
             Ok(_) => AsyncOutcome::Ok(0),
@@ -1428,6 +1451,7 @@ impl Vmm {
             .expect("one-shot channel closed");
     }
 
+
     fn run_api_cmd(&mut self) -> Result<()> {
         let request = match self.from_api.try_recv() {
             Ok(t) => t,
@@ -1467,6 +1491,9 @@ impl Vmm {
                 }
                 SyncRequest::RescanBlockDevice(req_body, sender) => {
                     self.handle_rescan_block_device(req_body, sender)
+                }
+                SyncRequest::SyncStartInstance(sender) => {
+                    self.handle_sync_start_instance(sender)
                 }
             },
         }
