@@ -29,7 +29,8 @@ def test_rescan(test_microvm_with_ssh, network_config):
 
     ssh_connection = SSHConnection(test_microvm.slot.ssh_config)
 
-    _check_scratch_size(ssh_connection, test_microvm.slot.sizeof_fsfile('scratch'))
+    _check_scratch_size(ssh_connection,
+                        test_microvm.slot.sizeof_fsfile('scratch'))
 
     test_microvm.slot.resize_fsfile('scratch', 512)
     """ Resizes the filesystem file from 256 MiB (default) to 512 MiB."""
@@ -44,7 +45,8 @@ def test_rescan(test_microvm_with_ssh, network_config):
     """ Rescan operations after the guest boots are allowed. """
     assert(test_microvm.api_session.is_good_response(response.status_code))
 
-    _check_scratch_size(ssh_connection, test_microvm.slot.sizeof_fsfile('scratch'))
+    _check_scratch_size(ssh_connection,
+                        test_microvm.slot.sizeof_fsfile('scratch'))
 
     ssh_connection.close()
 
@@ -111,7 +113,7 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
         test_microvm.blk_cfg_url + '/rootfs',
         json={
             'drive_id': 'rootfs',
-            'path_on_host': test_microvm.slot.rootfs_file,
+            'path_on_host': test_microvm.rootfs_api_path(),
             'is_root_device': True,
             'partuuid': '0eaa91a0-01',
             'is_read_only': False
@@ -154,7 +156,7 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
         test_microvm.blk_cfg_url + '/rootfs',
         json={
             'drive_id': 'rootfs',
-            'path_on_host': test_microvm.slot.rootfs_file,
+            'path_on_host': test_microvm.rootfs_api_path(),
             'is_root_device': True,
             'partuuid': '0eaa91a0-01',
             'is_read_only': False
@@ -167,7 +169,7 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
         test_microvm.blk_cfg_url + '/rootfs',
         json={
             'drive_id': 'rootfs',
-            'path_on_host': test_microvm.slot.rootfs_file,
+            'path_on_host': test_microvm.rootfs_api_path(),
             'is_root_device': True,
             'is_read_only': False
         }

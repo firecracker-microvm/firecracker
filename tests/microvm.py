@@ -32,20 +32,68 @@ class JailerContext:
     """
 
     def default_with_id(id: str):
-        return JailerContext(id=id, numa_node=0, uid=1234, gid=1234,
+        return JailerContext(id=id, numa_node=0,
+                             binary_name=Microvm.FC_BINARY_NAME,
+                             uid=1234, gid=1234,
                              chroot_base='/srv/jailer', netns=None,
                              daemonize=False)
 
-    def __init__(self, id: str, numa_node: int, uid: int, gid: int,
-                 chroot_base: str, netns: str, daemonize: bool):
+    def __init__(self, id: str, numa_node: int, binary_name:str, uid: int,
+                 gid: int, chroot_base: str, netns: str, daemonize: bool):
         self.id = id
         self.numa_node = numa_node
+        self.binary_name = binary_name
         self.uid = uid
         self.gid = gid
         self.chroot_base = chroot_base
         self.netns = netns
         self.daemonize = daemonize
 
+    def chroot_base_with_id(self):
+        return os.path.join(self.chroot_base, self.binary_name, self.id)
+
+    def api_socket_path(self):
+        return os.path.join(self.chroot_base_with_id(), 'api.socket')
+
+    def chroot_path(self):
+        return os.path.join(self.chroot_base_with_id(), 'root')
+
+    def ln_and_chown(self, file_path):
+        """
+        Creates a hard link to the specified file, changes the owner to
+        uid:gid, and returns a path to the link which is valid within the jail.
+        """
+        file_name = os.path.basename(file_path)
+        global_p = os.path.join(self.chroot_path(), file_name)
+        jailed_p = os.path.join("/", file_name)
+
+        run('ln -f {} {}'.format(file_path, global_p), shell=True, check=True)
+        run('chown {}:{} {}'.format(self.uid, self.gid, global_p), shell=True,
+            check=True)
+
+        return jailed_p
+
+    def cleanup(self):
+        shutil.rmtree(self.chroot_base_with_id())
+        """
+        Remove the cgroup folders. This is a hacky solution, which assumes
+        cgroup controllers are mounted as they are right now in AL2.
+        TODO: better solution at some point?
+        """
+        run('sleep 1', shell=True, check=True)
+
+        controllers = ('cpu', 'cpuset', 'pids')
+        for c in controllers:
+            run('rmdir /sys/fs/cgroup/{}/{}/{}'.format(c,
+                                                       self.binary_name,
+                                                       self.id),
+                shell=True, check=True)
+        """
+        The base /sys/fs/cgroup/<controller>/firecracker folder will remain,
+        because we can't remove it unless we're sure there's no other running
+        slot/microVM.
+        TODO: better solution at some point?
+        """
 
 class FilesystemFile:
     """ Facility for creating and working with filesystem files. """
@@ -257,6 +305,18 @@ class MicrovmSlot:
 
         path = os.path.join(self.fsfiles_path, name + '.ext4')
         self.fsfiles[name] = FilesystemFile(path, size=size, format='ext4')
+
+        if self.jailer_context:
+            """
+            TODO: When drives are going to be attached using some sort of
+            helper method as opposed to sending a request based on in-place
+            JSON at various code locations, this logic can be moved over to
+            that method. Currently, we assume this is only called when building
+            the JSON body of an HTTP request about to be sent to the API
+            server.
+            """
+            return self.jailer_context.ln_and_chown(path)
+
         return path
 
     def resize_fsfile(self, name, size):
@@ -304,6 +364,13 @@ class MicrovmSlot:
 
         run('mkfifo ' + path, shell=True, check=True)
         self.fifos.add(path)
+
+        if self.jailer_context:
+            """
+            TODO: Do this in a better way, when refactoring the in-tree integration tests.
+            """
+            return self.jailer_context.ln_and_chown(path)
+
         return path
 
     def teardown(self):
@@ -324,6 +391,9 @@ class MicrovmSlot:
             run('ip link delete ' + tap, shell=True, check=True)
             run('ip tuntap del mode tap name ' + tap, shell=True, check=True)
 
+        if self.jailer_context:
+            self.jailer_context.cleanup()
+
 
 class Microvm:
     """
@@ -339,8 +409,8 @@ class Microvm:
     """
 
     FC_BINARY_NAME = 'firecracker'
+    JAILER_BINARY_NAME = 'jailer'
 
-    fc_start_cmd = 'screen -dmS {session} {fc_binary} --api-sock {fc_usock}'
     fc_stop_cmd = 'screen -XS {session} kill'
 
     api_usocket_name = 'api.socket'
@@ -363,7 +433,8 @@ class Microvm:
             CARGO_RELEASE_REL_PATH,
             RELEASE_BINARIES_REL_PATH
         ),
-        fc_binary_name=FC_BINARY_NAME
+        fc_binary_name=FC_BINARY_NAME,
+        jailer_binary_name=JAILER_BINARY_NAME
     ):
         self.slot = microvm_slot
         self.id = id
@@ -372,14 +443,20 @@ class Microvm:
             fc_binary_rel_path
         )
         self.fc_binary_name = fc_binary_name
+        self.jailer_binary_name = jailer_binary_name
 
         self.session_name = self.fc_binary_name + '-' + self.id
 
-        api_usocket_full_name = os.path.join(
-            self.slot.path,
-            self.api_usocket_name
-        )
-        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        if self.slot.jailer_context:
+            self.api_usocket_full_name = \
+                self.slot.jailer_context.api_socket_path()
+        else:
+            self.api_usocket_full_name = os.path.join(
+                self.slot.path,
+                self.api_usocket_name
+            )
+
+        url_encoded_path = urllib.parse.quote_plus(self.api_usocket_full_name)
         self.api_url = self.api_usocket_url_prefix + url_encoded_path + '/'
 
         self.api_session = self._start_api_session()
@@ -402,6 +479,29 @@ class Microvm:
     def say(self, message: str):
         return "Microvm " + self.id + ": " + message
 
+    def kernel_api_path(self):
+        """
+        TODO: this function and the next are both returning the path to the
+        kernel/filesystem image, and setting up the links inside the jail (when
+        necessary). This is more or less a hack until we move to making API
+        requests via helper methods. We assume they are only going to be
+        invoked while building the bodies for requests which are about to be
+        sent to the API server.
+        """
+        if self.slot.jailer_context:
+           return self.slot.jailer_context.ln_and_chown(self.slot.kernel_file)
+        return self.slot.kernel_file
+
+    def rootfs_api_path(self):
+        if self.slot.jailer_context:
+            return self.slot.jailer_context.ln_and_chown(self.slot.rootfs_file)
+        return self.slot.rootfs_file
+
+    def chroot_path(self):
+        if self.slot.jailer_context:
+            return self.slot.jailer_context.chroot_path()
+        return None
+
     def spawn(self):
         """
         Start a microVM in a screen session, using an existing microVM slot.
@@ -418,14 +518,47 @@ class Microvm:
 
         self.ensure_firecracker_binary()
 
-        start_fc_session_cmd = self.fc_start_cmd.format(
-            session=self.session_name,
-            fc_binary=os.path.join(self.fc_binary_path, self.fc_binary_name),
-            fc_usock=os.path.join(self.slot.path, self.api_usocket_name)
-        )
-        run(start_fc_session_cmd, shell=True, check=True)
+        fc_binary = os.path.join(self.fc_binary_path, self.fc_binary_name)
 
+        context = self.slot.jailer_context
+
+        if context:
+            jailer_binary = os.path.join(self.fc_binary_path,
+                                         self.jailer_binary_name)
+            jailer_params = '--id {id} --exec-file {exec_file} --uid {uid}' \
+                            ' --gid {gid} --node {node}'.format(
+                id=context.id, exec_file=fc_binary, uid=context.uid,
+                gid=context.gid, node=context.numa_node)
+            start_cmd = 'screen -dmS {session} {binary} {params}'.format(
+                session=self.session_name,
+                binary=jailer_binary,
+                params=jailer_params
+            )
+        else:
+            start_cmd = 'screen -dmS {session} {binary} --api-sock ' \
+                        '{fc_usock}'.format(
+                session=self.session_name,
+                binary=fc_binary,
+                fc_usock=self.api_usocket_full_name
+            )
+
+        run(start_cmd, shell=True, check=True)
         return self.api_url
+
+    def wait_create(self):
+        """
+        Wait until the API socket and chroot folder (when jailed) become
+        available.
+        """
+
+        while True:
+            time.sleep(0.001)
+            # TODO: Switch to getting notified somehow when things get created?
+            if not os.path.exists(self.api_usocket_full_name):
+                continue
+            if self.chroot_path() and not os.path.exists(self.chroot_path()):
+                continue
+            break
 
     def basic_config(
         self,
@@ -484,7 +617,7 @@ class Microvm:
             json={
                 'boot_source_id': '1',
                 'source_type': 'LocalImage',
-                'local_image': {'kernel_image_path': self.slot.kernel_file}
+                'local_image': {'kernel_image_path': self.kernel_api_path()}
             }
         )
         """ Adds a kernel to start booting from. """
@@ -495,7 +628,7 @@ class Microvm:
                 self.blk_cfg_url + '/rootfs',
                 json={
                     'drive_id': 'rootfs',
-                    'path_on_host': self.slot.rootfs_file,
+                    'path_on_host': self.rootfs_api_path(),
                     'is_root_device': True,
                     'is_read_only': False
                 }
@@ -605,8 +738,11 @@ class Microvm:
 
     def ensure_firecracker_binary(self):
         """ If no firecracker binary exists in the binaries path, build it. """
-        binary_path=os.path.join(self.fc_binary_path, self.fc_binary_name)
-        if not os.path.isfile(binary_path):
+        fc_binary_path = os.path.join(self.fc_binary_path, self.fc_binary_name)
+        jailer_binary_path = os.path.join(self.fc_binary_path,
+                                          self.jailer_binary_name)
+        if not os.path.isfile(fc_binary_path) or\
+                not os.path.isfile(jailer_binary_path):
             build_path = os.path.join(
                 self.slot.microvm_root_path,
                 CARGO_RELEASE_REL_PATH

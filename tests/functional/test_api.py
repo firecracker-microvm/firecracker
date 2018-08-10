@@ -53,6 +53,15 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     kernel_copy = test_microvm.slot.kernel_file + '.copy'
     # The copy will be cleaned up by the microvm fixture's teardown() function.
     shutil.copy(test_microvm.slot.kernel_file, kernel_copy)
+
+    if test_microvm.slot.jailer_context:
+        kernel_copy = test_microvm.slot.jailer_context.ln_and_chown(
+            kernel_copy)
+    """
+    TODO: This is just a stopgap until api calls are invoked via helper
+    methods.
+    """
+
     response = test_microvm.api_session.put(
         test_microvm.boot_cfg_url,
         json={
@@ -488,7 +497,8 @@ def test_mmds(test_microvm_with_api):
     # PUT only allows full updates.
     # The json used in MMDS is based on the one from the Instance Meta-data
     # online documentation.
-    # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
+    # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/
+    #                                                ec2-instance-metadata.html
     data_store = {
         'latest': {
             'meta-data': {
