@@ -25,6 +25,28 @@ from host_tools.cargo_build import cargo_build, CARGO_RELEASE_REL_PATH,\
 from host_tools.network import mac_from_ip
 
 
+class JailerContext:
+    """ Describes the jailer configuration. This is a parameter of each
+    MicrovmSlot, and the end goal here is to run Firecracker jailed for every
+    relevant test.
+    """
+
+    def default_with_id(id: str):
+        return JailerContext(id=id, numa_node=0, uid=1234, gid=1234,
+                             chroot_base='/srv/jailer', netns=None,
+                             daemonize=False)
+
+    def __init__(self, id: str, numa_node: int, uid: int, gid: int,
+                 chroot_base: str, netns: str, daemonize: bool):
+        self.id = id
+        self.numa_node = numa_node
+        self.uid = uid
+        self.gid = gid
+        self.chroot_base = chroot_base
+        self.netns = netns
+        self.daemonize = daemonize
+
+
 class FilesystemFile:
     """ Facility for creating and working with filesystem files. """
 
@@ -172,9 +194,11 @@ class MicrovmSlot:
     """
 
     def __init__(
-        self, id: str="firecracker_slot",
+        self, jailer_context: JailerContext,
+        id: str="firecracker_slot",
         microvm_root_path=DEFAULT_MICROVM_ROOT_PATH
     ):
+        self.jailer_context = jailer_context
         self.id = id
         self.microvm_root_path = microvm_root_path
         self.path = os.path.join(
