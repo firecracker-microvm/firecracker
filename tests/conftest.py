@@ -169,15 +169,7 @@ def microvm(microvm_slot):
 
     microvm = Microvm(microvm_slot, id=str(uuid.uuid4()))
     microvm.spawn()
-
-    while True:
-        if os.path.exists(
-                os.path.join(microvm.slot.path, microvm.api_usocket_name)
-        ):
-            break
-        else:
-            time.sleep(0.001)
-            # TODO: Switch to getting notified when the socket file is created.
+    microvm.wait_create()
 
     yield microvm
 
