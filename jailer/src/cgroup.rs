@@ -50,7 +50,7 @@ fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
 // 1) If .../A/B/C/file does not exist, or if .../A/B/file does not exist, return an error.
 // 2) If .../A/B/file is not empty, write the first line of .../A/B/file into .../A/B/C/file
 // and return.
-// 3) Otherwise, if condition == true, call inherit_from_parent_aux(.../A/B, file, false).
+// 3) If ../A/B/file exists but it is empty, call inherit_from_parent_aux(.../A/B, file, false).
 // 4) If .../A/B/file is no longer empty, write the first line of .../A/B/file into
 // .../A/B/C/file, and return.
 // 5) Otherwise, return an error.
@@ -78,14 +78,13 @@ fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
 
 fn inherit_from_parent_aux(
     path: &mut PathBuf,
-    file_name: &'static str,
+    file_name: &str,
     retry_one_level_up: bool,
 ) -> Result<()> {
     // The function with_file_name() replaces the last component of a path with the given name.
     let parent_file = path.with_file_name(file_name);
 
     let mut line = readln_special(&parent_file)?;
-
     if line.is_empty() {
         if retry_one_level_up {
             // We have to borrow "parent" from "parent_file" as opposed to "path", because then
@@ -104,7 +103,7 @@ fn inherit_from_parent_aux(
         if line.is_empty() {
             return Err(Error::CgroupInheritFromParent(
                 path.to_path_buf(),
-                file_name,
+                file_name.to_string(),
             ));
         }
     }
@@ -118,7 +117,7 @@ fn inherit_from_parent_aux(
 
 // The path reference is &mut here because we do a push to get the destination file name. However,
 // a pop follows shortly after (see fn inherit_from_parent_aux), reverting to the original value.
-fn inherit_from_parent(path: &mut PathBuf, file_name: &'static str) -> Result<()> {
+fn inherit_from_parent(path: &mut PathBuf, file_name: &str) -> Result<()> {
     inherit_from_parent_aux(path, file_name, true)
 }
 
@@ -146,7 +145,10 @@ impl Cgroup {
                         if let Some(_) =
                             found_controllers.insert(controller, PathBuf::from(&capture["dir"]))
                         {
-                            return Err(Error::CgroupLineNotUnique(PROC_MOUNTS, controller));
+                            return Err(Error::CgroupLineNotUnique(
+                                PROC_MOUNTS.to_string(),
+                                controller.to_string(),
+                            ));
                         }
                     }
                 }
@@ -159,7 +161,10 @@ impl Cgroup {
             // We return an error about the first one we didn't find.
             for controller in CONTROLLERS.into_iter() {
                 if !found_controllers.contains_key(controller) {
-                    return Err(Error::CgroupLineNotFound(PROC_MOUNTS, controller));
+                    return Err(Error::CgroupLineNotFound(
+                        PROC_MOUNTS.to_string(),
+                        controller.to_string(),
+                    ));
                 }
             }
         }
@@ -212,5 +217,55 @@ impl Cgroup {
             writeln_special(tasks_file, pid)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate tempfile;
+
+    use self::tempfile::{tempdir, tempdir_in, NamedTempFile};
+    use super::*;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_inherit_from_parent() {
+        // 1. If parent file does not exist, return an error.
+
+        // This is /A/B/ .
+        let dir = tempdir().expect("Cannot create temporary directory.");
+        // This is /A/B/C .
+        let dir2 = tempdir_in(dir.path()).expect("Cannot create temporary directory.");
+        let path2 = PathBuf::from(dir2.path());
+        let result = inherit_from_parent(&mut PathBuf::from(&path2), "inexistent");
+        assert!(result.is_err());
+        assert!(format!("{:?}", result).contains("ReadToString"));
+
+        // 2. If parent file exists and is empty, will go one level up, and return error because
+        // the grandparent file does not exist.
+        let mut named_file = NamedTempFile::new_in(dir.path()).expect("Cannot create named file.");
+        let result = inherit_from_parent(
+            &mut PathBuf::from(path2.clone()),
+            named_file.path().file_name().unwrap().to_str().unwrap(),
+        );
+        assert!(result.is_err());
+        assert!(format!("{:?}", result).contains("CgroupInheritFromParent"));
+
+        let child_file = dir2
+            .path()
+            .join(named_file.path().file_name().unwrap().to_str().unwrap());
+
+        // 3. If parent file exists and is not empty, will return ok and child file will have its
+        // contents.
+        let some_line = "Parent line";
+        writeln!(named_file, "{}", some_line).expect("Cannot write to file.");
+        let result = inherit_from_parent(
+            &mut PathBuf::from(path2),
+            named_file.path().file_name().unwrap().to_str().unwrap(),
+        );
+        assert!(result.is_ok());
+        let res = readln_special(&child_file).expect("Cannot read from file.");
+        assert!(res == some_line);
     }
 }

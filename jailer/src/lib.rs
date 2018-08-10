@@ -30,9 +30,9 @@ const MAX_ID_LENGTH: usize = 64;
 #[derive(Debug)]
 pub enum Error {
     Canonicalize(PathBuf, io::Error),
-    CgroupInheritFromParent(PathBuf, &'static str),
-    CgroupLineNotFound(&'static str, &'static str),
-    CgroupLineNotUnique(&'static str, &'static str),
+    CgroupInheritFromParent(PathBuf, String),
+    CgroupLineNotFound(String, String),
+    CgroupLineNotUnique(String, String),
     ChangeDevNetTunOwner(sys_util::Error),
     Chroot(sys_util::Error),
     CloseNetNsFd(sys_util::Error),
