@@ -94,7 +94,7 @@ import pytest
 
 from host_tools.network import UniqueIPv4Generator
 from microvm_image import MicrovmImageS3Fetcher
-from microvm import MicrovmSlot, Microvm
+from microvm import JailerContext, MicrovmSlot, Microvm
 
 
 TEST_MICROVM_IMAGES_S3_BUCKET = 'spec.firecracker'
@@ -151,8 +151,11 @@ def testsession_tmp_path(test_session_root_path):
 @pytest.fixture
 def microvm_slot(test_session_root_path):
     """ Yields a microvm slot with an UUID as the slot id. """
+
+    id = str(uuid.uuid4())
     slot = MicrovmSlot(
-        id=str(uuid.uuid4()),
+        jailer_context=JailerContext.default_with_id(id),
+        id=id,
         microvm_root_path=test_session_root_path
     )
     slot.setup()
