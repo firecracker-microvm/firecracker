@@ -5,6 +5,7 @@ import threading
 import paramiko
 from paramiko import SSHClient
 from retry.api import retry_call
+from nsenter import Namespace
 
 
 class SSHConnection:
@@ -25,6 +26,7 @@ class SSHConnection:
     ssh -i ssh_key_path username@hostname
     """
     def __init__(self, ssh_config):
+        self.netns_file_path = ssh_config['netns_file_path']
         self.ssh_client = SSHClient()
         self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         assert (os.path.exists(ssh_config['ssh_key_path']))
@@ -32,6 +34,19 @@ class SSHConnection:
         # is less than 30 seconds. Sleep 1, 2, 4, 8, ... seconds between
         # attempts. These parameters might need additional tweaking when we
         # add tests with 1000 Firecracker microvm.
+
+        # TODO: If a microvm runs in a particular network namespace, we have to
+        # temporarily switch to that namespace when doing something that routes
+        # packets over the network, otherwise the destination will not be
+        # reachable. Use a better setup/solution at some point!
+
+        if self.netns_file_path:
+            with Namespace(self.netns_file_path, 'net'):
+                self.initial_connect(ssh_config)
+        else:
+            self.initial_connect(ssh_config)
+
+    def initial_connect(self, ssh_config):
         retry_call(
             self.ssh_client.connect,
             fargs=[ssh_config['hostname']],
@@ -48,11 +63,20 @@ class SSHConnection:
 
     def execute_command(self, cmd_string):
         """ Executes the command passed as a string in the ssh context. """
+
+        if self.netns_file_path:
+            with Namespace(self.netns_file_path, 'net'):
+                return self.ssh_client.exec_command(cmd_string)
         return self.ssh_client.exec_command(cmd_string)
 
     def close(self):
         """ Closes the SSH connection. """
-        self.ssh_client.close()
+
+        if self.netns_file_path:
+            with Namespace(self.netns_file_path, 'net'):
+                self.ssh_client.close()
+        else:
+            self.ssh_client.close()
 
 
 class NoMoreIPsError(Exception):
@@ -141,7 +165,8 @@ class UniqueIPv4Generator:
         )
 
         """Check if there are any IPs left to use from the current range."""
-        if (self.next_valid_subnet_id + self.subnet_max_ip_count) > max_ip_as_int:
+        if (self.next_valid_subnet_id + self.subnet_max_ip_count) \
+                > max_ip_as_int:
             # Check if there are any other IP ranges.
             if self.ip_range_index < len(self.ip_range) - 1:
                 # Move to the next IP range.
@@ -223,7 +248,8 @@ def mac_from_ip(ip_address):
     """
     mac_as_list = ["06", "00"]
     mac_as_list.extend(
-        list(map(lambda val: '{0:02x}'.format(int(val)), ip_address.split('.')))
+        list(map(lambda val: '{0:02x}'.format(int(val)),
+                 ip_address.split('.')))
     )
 
     return "{}:{}:{}:{}:{}:{}".format(*mac_as_list)
