@@ -35,8 +35,8 @@ class JailerContext:
         return JailerContext(id=id, numa_node=0,
                              binary_name=Microvm.FC_BINARY_NAME,
                              uid=1234, gid=1234,
-                             chroot_base='/srv/jailer', netns=None,
-                             daemonize=False)
+                             chroot_base='/srv/jailer',
+                             netns=id, daemonize=False)
 
     def __init__(self, id: str, numa_node: int, binary_name:str, uid: int,
                  gid: int, chroot_base: str, netns: str, daemonize: bool):
@@ -73,6 +73,20 @@ class JailerContext:
 
         return jailed_p
 
+    def netns_file_path(self):
+        """
+        The path on the host to the file which represents the netns, and which
+        must be passed to the jailer as the value of the --netns parameter,
+        when in use.
+        """
+        if self.netns:
+            return '/var/run/netns/{}'.format(self.netns)
+        return None
+
+    def setup(self):
+        if self.netns:
+            run('ip netns add {}'.format(self.netns), shell=True, check=True)
+
     def cleanup(self):
         shutil.rmtree(self.chroot_base_with_id())
         """
@@ -94,6 +108,9 @@ class JailerContext:
         slot/microVM.
         TODO: better solution at some point?
         """
+
+        if self.netns:
+            run('ip netns del {}'.format(self.netns), shell=True, check=True)
 
 class FilesystemFile:
     """ Facility for creating and working with filesystem files. """
@@ -266,7 +283,8 @@ class MicrovmSlot:
         """ Assigned once an microvm image populates this slot. """
         self.rootfs_file = ''
         """ Assigned once an microvm image populates this slot. """
-        self.ssh_config = {'username': 'root'}
+        self.ssh_config = {'username': 'root',
+                           'netns_file_path': self.netns_file_path()}
         """The ssh config dictionary is populated with information about how
         to connect to microvm that has ssh capability. The path of the private
         key is populated by microvms with ssh capabilities and the hostname
@@ -296,6 +314,24 @@ class MicrovmSlot:
         os.makedirs(self.path)
         os.makedirs(self.kernel_path)
         os.makedirs(self.fsfiles_path)
+
+        if self.jailer_context:
+            self.jailer_context.setup()
+
+    def netns(self):
+        if self.jailer_context:
+            return self.jailer_context.netns
+        return None
+
+    def netns_file_path(self):
+        if self.jailer_context:
+            return self.jailer_context.netns_file_path()
+        return None
+
+    def netns_cmd_prefix(self):
+        if self.netns():
+            return 'ip netns exec {} '.format(self.netns())
+        return ''
 
     def make_fsfile(self, name: str=None, size: int=256):
         """ Creates an new file system in a file. `size` is in MiB. """
@@ -337,7 +373,11 @@ class MicrovmSlot:
         return fsfile.size()
 
     def make_tap(self, name: str=None, ip: str=None):
-        """ Creates a new tap device, and brings it up. """
+        """
+        Creates a new tap device, and brings it up. If a JailerContext is
+        associated with the current slot, and a network namespace is specified,
+        then we also move the interface to that namespace.
+        """
 
         if name is None:
             name = self.id[:8] + '_tap' + str(len(self.taps) + 1)
@@ -346,8 +386,14 @@ class MicrovmSlot:
             raise ValueError(self.say("Tap already exists: " + name))
 
         run('ip tuntap add mode tap name ' + name, shell=True, check=True)
+
+        if self.netns():
+            run('ip link set {} netns {}'.format(name, self.netns()),
+                shell=True, check=True)
+
         if ip:
-            run("ifconfig {} {} up".format(name, ip), shell=True, check=True)
+            run('{} ifconfig {} {} up'.format(
+                self.netns_cmd_prefix(), name, ip), shell=True, check=True)
 
         self.taps.add(name)
         return name
@@ -387,9 +433,15 @@ class MicrovmSlot:
             os.rmdir(self.microvm_root_path)
 
         for tap in self.taps:
-            run('ip link set ' + tap + ' down', shell=True, check=True)
-            run('ip link delete ' + tap, shell=True, check=True)
-            run('ip tuntap del mode tap name ' + tap, shell=True, check=True)
+            run('{} ip link set {} down'.format(self.netns_cmd_prefix(), tap),
+                shell=True, check=True)
+            run('{} ip link delete {}'.format(self.netns_cmd_prefix(), tap),
+                shell=True, check=True)
+            run('{} ip tuntap del mode tap name {}'.format(
+                self.netns_cmd_prefix(), tap), shell=True, check=True)
+
+        if self.jailer_context:
+            self.jailer_context.cleanup()
 
         if self.jailer_context:
             self.jailer_context.cleanup()
@@ -529,6 +581,11 @@ class Microvm:
                             ' --gid {gid} --node {node}'.format(
                 id=context.id, exec_file=fc_binary, uid=context.uid,
                 gid=context.gid, node=context.numa_node)
+
+            if context.netns:
+                jailer_params += ' --netns {}'.format(
+                    context.netns_file_path())
+
             start_cmd = 'screen -dmS {session} {binary} {params}'.format(
                 session=self.session_name,
                 binary=jailer_binary,

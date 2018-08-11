@@ -50,13 +50,13 @@ def run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
     return out
 
 
-def start_local_iperf():
+def start_local_iperf(netns_cmd_prefix):
     """ Starts iperf in server mode after killing any leftover iperf daemon."""
     iperf_cmd = "pkill {}\n".format(IPERF_BINARY)
 
     run(iperf_cmd, shell=True)
 
-    iperf_cmd = "{} -sD -f KBytes\n".format(IPERF_BINARY)
+    iperf_cmd = "{} {} -sD -f KBytes\n".format(netns_cmd_prefix, IPERF_BINARY)
 
     run(iperf_cmd, shell=True)
 
@@ -182,7 +182,7 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
     test_microvm.start()
 
     # Start iperf on the host as this is the tx rate limiting test.
-    start_local_iperf()
+    start_local_iperf(test_microvm.slot.netns_cmd_prefix())
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf; 1000 converts to Bytes.
@@ -191,6 +191,7 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
         host_ips[0],
         IPERF_TRANSMIT_TIME
     )
+
     iperf_out = run_iperf_on_guest(test_microvm, iperf_cmd, guest_ips[0])
     iperf_out = process_iperf_output(iperf_out)[1]
 
@@ -348,7 +349,8 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf; 1000 converts to Bytes.
-    iperf_cmd = '{} -c {} -t{} -f KBytes'.format(
+    iperf_cmd = '{} {} -c {} -t{} -f KBytes'.format(
+        test_microvm.slot.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ips[0],
         IPERF_TRANSMIT_TIME
@@ -366,7 +368,8 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
 
     # Use iperf for 2 seconds to get the number of bytes it sent with rate
     # limiting on.
-    iperf_cmd = '{} -c {} -t{} -f KBytes'.format(
+    iperf_cmd = '{} {} -c {} -t{} -f KBytes'.format(
+        test_microvm.slot.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ips[1],
         IPERF_TRANSMIT_TIME
@@ -388,7 +391,8 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
 
     # Use iperf to obtain the time interval that a BURST_SIZE (way larger
     # than the bucket's size) can be sent over the network.
-    iperf_cmd = '{} -c {} -n{} -f KBytes'.format(
+    iperf_cmd = '{} {} -c {} -n{} -f KBytes'.format(
+        test_microvm.slot.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ips[2],
         BURST_SIZE)
@@ -402,7 +406,8 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
     # was consumed and that the transmit rate is now equal to the rate limit.
     # We are sending the amount of bytes that can be sent in 1 sec with rate
     # rate limiting enabled.
-    iperf_cmd = '{} -c {} -n{} -f KBytes'.format(
+    iperf_cmd = '{} {} -c {} -n{} -f KBytes'.format(
+        test_microvm.slot.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ips[2],
         rate_limit_bps
