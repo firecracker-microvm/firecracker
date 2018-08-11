@@ -46,6 +46,7 @@ declare -ra PYTHON_DEPS=( \
      requests requests-unixsocket \
      paramiko \
      retry \
+     nsenter \
 )
 
 declare -r RUSTUP_URL=https://sh.rustup.rs
