@@ -12,6 +12,8 @@ to create, test drive, and destroy microvms (based on microvm images).
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
 
+import ctypes
+import ctypes.util
 import os
 import shutil
 from subprocess import run
@@ -36,7 +38,7 @@ class JailerContext:
                              binary_name=Microvm.FC_BINARY_NAME,
                              uid=1234, gid=1234,
                              chroot_base='/srv/jailer',
-                             netns=id, daemonize=False)
+                             netns=id, daemonize=True)
 
     def __init__(self, id: str, numa_node: int, binary_name:str, uid: int,
                  gid: int, chroot_base: str, netns: str, daemonize: bool):
@@ -84,10 +86,13 @@ class JailerContext:
         return None
 
     def setup(self):
+        run('mkdir -p {}'.format(self.chroot_base), shell=True, check=True)
         if self.netns:
             run('ip netns add {}'.format(self.netns), shell=True, check=True)
 
     def cleanup(self):
+        # We can't delete the entire folder tree here, because other slots
+        # might still be running ?!
         shutil.rmtree(self.chroot_base_with_id())
         """
         Remove the cgroup folders. This is a hacky solution, which assumes
@@ -442,10 +447,7 @@ class MicrovmSlot:
 
         if self.jailer_context:
             self.jailer_context.cleanup()
-
-        if self.jailer_context:
-            self.jailer_context.cleanup()
-
+            
 
 class Microvm:
     """
@@ -554,6 +556,11 @@ class Microvm:
             return self.slot.jailer_context.chroot_path()
         return None
 
+    def is_daemonized(self):
+        if self.slot.jailer_context:
+            return self.slot.jailer_context.daemonize
+        return False
+
     def spawn(self):
         """
         Start a microVM in a screen session, using an existing microVM slot.
@@ -577,19 +584,48 @@ class Microvm:
         if context:
             jailer_binary = os.path.join(self.fc_binary_path,
                                          self.jailer_binary_name)
-            jailer_params = '--id {id} --exec-file {exec_file} --uid {uid}' \
-                            ' --gid {gid} --node {node}'.format(
-                id=context.id, exec_file=fc_binary, uid=context.uid,
-                gid=context.gid, node=context.numa_node)
+
+            jailer_params_list = ['--id', str(context.id), '--exec-file',
+                                  fc_binary, '--uid', str(context.uid),
+                                  '--gid', str(context.gid), '--node',
+                                  str(context.numa_node)]
 
             if context.netns:
-                jailer_params += ' --netns {}'.format(
-                    context.netns_file_path())
+                jailer_params_list.append('--netns')
+                jailer_params_list.append(context.netns_file_path())
+
+            # When the daemonize flag is on, we want to clone-exec into the
+            # jailer rather than executing it via spawning a shell. Going
+            # forward, we'll probably switch to this method for running
+            # Firecracker in general, because it represents the way it's meant
+            # to be run by customers (together with CLONE_NEWPID flag).
+
+            if context.daemonize:
+                jailer_params_list = ['jailer'] + jailer_params_list
+                jailer_params_list.append('--daemonize')
+
+                def exec_func():
+                    os.execv(jailer_binary, jailer_params_list)
+                    return -1
+
+                libc = ctypes.CDLL(ctypes.util.find_library('c'))
+                stack_size = 4096
+                stack = ctypes.c_char_p(b' ' * stack_size)
+                stack_top = ctypes.c_void_p(ctypes.cast(stack,
+                                        ctypes.c_void_p).value + stack_size)
+                exec_func_c = ctypes.CFUNCTYPE(ctypes.c_int)(exec_func)
+
+                # Don't know how to refer to defines with ctypes & libc.
+                CLONE_NEWPID = 0x20000000
+
+                self.jailer_clone_pid = libc.clone(exec_func_c, stack_top,
+                                                   CLONE_NEWPID)
+                return self.api_url
 
             start_cmd = 'screen -dmS {session} {binary} {params}'.format(
                 session=self.session_name,
                 binary=jailer_binary,
-                params=jailer_params
+                params=' '.join(jailer_params_list)
             )
         else:
             start_cmd = 'screen -dmS {session} {binary} --api-sock ' \
@@ -607,6 +643,13 @@ class Microvm:
         Wait until the API socket and chroot folder (when jailed) become
         available.
         """
+
+        # TODO: if appears that, since this function is used somewhere in
+        # fixture setup logic or something like that, it's not subject to
+        # timeout restrictions. If this loops forever because, for example the
+        # jailer is not started properly and does not get to create the
+        # resources we are looking for, the whole test suite will hang.
+        # Is this observation correct? If so, fix at some point.
 
         while True:
             time.sleep(0.001)
@@ -787,11 +830,16 @@ class Microvm:
         Kills a Firecracker microVM process. Does not issue a stop command to
         the guest.
         """
-        run(
-            self.fc_stop_cmd.format(session=self.session_name),
-            shell=True,
-            check=True
-        )
+
+        if self.is_daemonized():
+            run('kill -9 {}'.format(self.jailer_clone_pid), shell=True,
+                check=True)
+        else:
+            run(
+                self.fc_stop_cmd.format(session=self.session_name),
+                shell=True,
+                check=True
+            )
 
     def ensure_firecracker_binary(self):
         """ If no firecracker binary exists in the binaries path, build it. """
