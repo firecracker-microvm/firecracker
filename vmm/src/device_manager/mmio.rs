@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use devices;
 use kernel_cmdline;
 use kvm::IoeventAddress;
+use memory_model::GuestMemory;
 use sys_util;
-use sys_util::GuestMemory;
 use vm_control::VmRequest;
 
 /// Errors for MMIO device manager.
@@ -175,8 +175,9 @@ mod tests {
     use super::*;
     use devices::virtio::{ActivateResult, VirtioDevice};
     use kernel_cmdline;
+    use memory_model::{GuestAddress, GuestMemory};
     use std::sync::atomic::AtomicUsize;
-    use sys_util::{EventFd, GuestAddress, GuestMemory};
+    use sys_util::EventFd;
     const QUEUE_SIZES: &'static [u16] = &[64];
 
     #[allow(dead_code)]

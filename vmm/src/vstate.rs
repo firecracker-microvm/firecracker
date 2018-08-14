@@ -6,7 +6,8 @@ use std::result;
 
 use data_model::vm::MachineConfiguration;
 use kvm::*;
-use sys_util::{EventFd, GuestAddress, GuestMemory};
+use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
+use sys_util::EventFd;
 use x86_64::{cpuid, interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
@@ -15,7 +16,7 @@ pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
 pub enum Error {
     AlreadyRunning,
     CpuId(x86_64::cpuid::Error),
-    GuestMemory(sys_util::GuestMemoryError),
+    GuestMemory(GuestMemoryError),
     Kvm(sys_util::Error),
     VmFd(sys_util::Error),
     VcpuFd(sys_util::Error),

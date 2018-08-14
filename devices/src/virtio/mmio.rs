@@ -8,7 +8,8 @@ use std::sync::Arc;
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
-use sys_util::{EventFd, GuestAddress, GuestMemory, Result};
+use memory_model::{GuestAddress, GuestMemory};
+use sys_util::{EventFd, Result};
 use BusDevice;
 
 //TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used

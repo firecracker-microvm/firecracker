@@ -6,7 +6,5 @@ authors = ["The Chromium OS Authors"]
 [dependencies]
 libc = ">=0.2.39"
 
-memory_model = { path = "../memory_model"}
-
 [dev-dependencies]
 tempfile = ">=3.0.2"

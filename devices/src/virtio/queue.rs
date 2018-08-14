@@ -6,7 +6,7 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use sys_util::{GuestAddress, GuestMemory};
+use memory_model::{GuestAddress, GuestMemory};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -384,7 +384,7 @@ pub(crate) mod tests {
     use std::mem;
 
     pub use super::*;
-    use sys_util::{GuestAddress, GuestMemory};
+    use memory_model::{GuestAddress, GuestMemory};
 
     // Represents a location in GuestMemory which holds a given type.
     pub struct SomeplaceInMemory<'a, T> {
