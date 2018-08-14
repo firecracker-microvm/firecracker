@@ -5,29 +5,19 @@
 //! Small system utility modules for usage by other modules.
 
 extern crate libc;
-extern crate memory_model;
 
 #[macro_use]
 pub mod ioctl;
 
 mod errno;
 mod eventfd;
-mod guest_address;
-mod guest_memory;
-mod mmap;
 mod signal;
 mod struct_util;
 mod terminal;
 
 pub use errno::{errno_result, Error, Result};
 pub use eventfd::*;
-pub use guest_address::*;
-pub use guest_memory::*;
 pub use ioctl::*;
-pub use mmap::*;
 pub use signal::*;
 pub use struct_util::*;
 pub use terminal::*;
-
-pub use guest_memory::Error as GuestMemoryError;
-pub use mmap::Error as MmapError;

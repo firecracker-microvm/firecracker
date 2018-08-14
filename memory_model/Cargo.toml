@@ -4,3 +4,9 @@ version = "0.1.0"
 authors = ["The Chromium OS Authors"]
 
 [dependencies]
+libc = ">=0.2.39"
+
+sys_util = { path = "../sys_util" }
+
+[dev-dependencies]
+tempfile = ">=3.0.2"

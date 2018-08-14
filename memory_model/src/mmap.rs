@@ -12,10 +12,8 @@ use std::ptr::null_mut;
 
 use libc;
 
-use errno;
-
-use memory_model::volatile_memory::*;
-use memory_model::DataInit;
+use sys_util;
+use DataInit;
 
 #[derive(Debug)]
 pub enum Error {
@@ -26,16 +24,15 @@ pub enum Error {
     /// Couldn't read from the given source.
     ReadFromSource(std::io::Error),
     /// `mmap` returned the given error.
-    SystemCallFailed(errno::Error),
+    SystemCallFailed(sys_util::Error),
     /// Writing to memory failed
     WriteToMemory(std::io::Error),
     /// Reading from memory failed
     ReadFromMemory(std::io::Error),
 }
-pub type Result<T> = std::result::Result<T, Error>;
+type Result<T> = std::result::Result<T, Error>;
 
 /// Wraps an anonymous shared memory mapping in the current process.
-#[derive(Debug)]
 pub struct MemoryMapping {
     addr: *mut u8,
     size: usize,
@@ -67,11 +64,11 @@ impl MemoryMapping {
             )
         };
         if addr.is_null() {
-            return Err(Error::SystemCallFailed(errno::Error::last()));
+            return Err(Error::SystemCallFailed(sys_util::Error::last()));
         }
         Ok(MemoryMapping {
             addr: addr as *mut u8,
-            size: size,
+            size,
         })
     }
 
@@ -94,15 +91,15 @@ impl MemoryMapping {
             )
         };
         if addr.is_null() {
-            return Err(Error::SystemCallFailed(errno::Error::last()));
+            return Err(Error::SystemCallFailed(sys_util::Error::last()));
         }
         Ok(MemoryMapping {
             addr: addr as *mut u8,
-            size: size,
+            size,
         })
     }
 
-    /// Returns a pointer to the begining of the memory region.  Should only be
+    /// Returns a pointer to the beginning of the memory region.  Should only be
     /// used for passing this region to ioctls for setting guest memory.
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
@@ -122,7 +119,7 @@ impl MemoryMapping {
     /// * Write a slice at offset 256.
     ///
     /// ```
-    /// #   use sys_util::MemoryMapping;
+    /// #   use memory_model::MemoryMapping;
     /// #   let mut mem_map = MemoryMapping::new(1024).unwrap();
     ///     let res = mem_map.write_slice(&[1,2,3,4,5], 256);
     ///     assert!(res.is_ok());
@@ -150,7 +147,7 @@ impl MemoryMapping {
     /// * Read a slice of size 16 at offset 256.
     ///
     /// ```
-    /// #   use sys_util::MemoryMapping;
+    /// #   use memory_model::MemoryMapping;
     /// #   let mut mem_map = MemoryMapping::new(1024).unwrap();
     ///     let buf = &mut [0u8; 16];
     ///     let res = mem_map.read_slice(buf, 256);
@@ -177,7 +174,7 @@ impl MemoryMapping {
     /// * Write a u64 at offset 16.
     ///
     /// ```
-    /// #   use sys_util::MemoryMapping;
+    /// #   use memory_model::MemoryMapping;
     /// #   let mut mem_map = MemoryMapping::new(1024).unwrap();
     ///     let res = mem_map.write_obj(55u64, 16);
     ///     assert!(res.is_ok());
@@ -204,7 +201,7 @@ impl MemoryMapping {
     /// * Read a u64 written to offset 32.
     ///
     /// ```
-    /// #   use sys_util::MemoryMapping;
+    /// #   use memory_model::MemoryMapping;
     /// #   let mut mem_map = MemoryMapping::new(1024).unwrap();
     ///     let res = mem_map.write_obj(55u64, 32);
     ///     assert!(res.is_ok());
@@ -236,7 +233,7 @@ impl MemoryMapping {
     /// * Read bytes from /dev/urandom
     ///
     /// ```
-    /// # use sys_util::MemoryMapping;
+    /// # use memory_model::MemoryMapping;
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # fn test_read_random() -> Result<u32, ()> {
@@ -256,7 +253,7 @@ impl MemoryMapping {
             return Err(Error::InvalidRange(mem_offset, count));
         }
         unsafe {
-            // It is safe to overwrite the volatile memory.  Acessing the guest
+            // It is safe to overwrite the volatile memory. Accessing the guest
             // memory as a mutable slice is OK because nothing assumes another
             // thread won't change what is loaded.
             let dst = &mut self.as_mut_slice()[mem_offset..mem_end];
@@ -277,7 +274,7 @@ impl MemoryMapping {
     /// * Write 128 bytes to /dev/null
     ///
     /// ```
-    /// # use sys_util::MemoryMapping;
+    /// # use memory_model::MemoryMapping;
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # fn test_write_null() -> Result<(), ()> {
@@ -299,7 +296,7 @@ impl MemoryMapping {
             return Err(Error::InvalidRange(mem_offset, count));
         }
         unsafe {
-            // It is safe to read from volatile memory.  Acessing the guest
+            // It is safe to read from volatile memory. Accessing the guest
             // memory as a slice is OK because nothing assumes another thread
             // won't change what is loaded.
             let src = &self.as_mut_slice()[mem_offset..mem_end];
@@ -321,19 +318,6 @@ impl MemoryMapping {
     }
 }
 
-impl VolatileMemory for MemoryMapping {
-    fn get_slice(&self, offset: usize, count: usize) -> VolatileMemoryResult<VolatileSlice> {
-        let mem_end = calc_offset(offset, count)?;
-        if mem_end > self.size {
-            return Err(VolatileMemoryError::OutOfBounds { addr: mem_end });
-        }
-
-        // Safe because we checked that offset + count was within our range and we only ever hand
-        // out volatile accessors.
-        Ok(unsafe { VolatileSlice::new((self.addr as usize + offset) as *mut _, count) })
-    }
-}
-
 impl Drop for MemoryMapping {
     fn drop(&mut self) {
         // This is safe because we mmap the area at addr ourselves, and nobody
@@ -350,7 +334,6 @@ mod tests {
 
     use self::tempfile::tempfile;
     use super::*;
-    use memory_model::{VolatileMemory, VolatileMemoryError};
     use std::fs::File;
     use std::mem;
     use std::path::Path;
@@ -367,48 +350,6 @@ mod tests {
         let res = m.write_slice(&[1, 2, 3, 4, 5, 6], 0);
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), 5);
-    }
-
-    #[test]
-    fn slice_size() {
-        let m = MemoryMapping::new(5).unwrap();
-        let s = m.get_slice(2, 3).unwrap();
-        assert_eq!(s.size(), 3);
-    }
-
-    #[test]
-    fn slice_addr() {
-        let m = MemoryMapping::new(5).unwrap();
-        let s = m.get_slice(2, 3).unwrap();
-        assert_eq!(s.as_ptr(), unsafe { m.as_ptr().offset(2) });
-    }
-
-    #[test]
-    fn slice_store() {
-        let m = MemoryMapping::new(5).unwrap();
-        let r = m.get_ref(2).unwrap();
-        r.store(9u16);
-        assert_eq!(m.read_obj::<u16>(2).unwrap(), 9);
-    }
-
-    #[test]
-    fn slice_overflow_error() {
-        use std::usize;
-        let m = MemoryMapping::new(5).unwrap();
-        let res = m.get_slice(usize::MAX, 3).unwrap_err();
-        assert_eq!(
-            res,
-            VolatileMemoryError::Overflow {
-                base: usize::MAX,
-                offset: 3,
-            }
-        );
-    }
-    #[test]
-    fn slice_oob_error() {
-        let m = MemoryMapping::new(5).unwrap();
-        let res = m.get_slice(3, 3).unwrap_err();
-        assert_eq!(res, VolatileMemoryError::OutOfBounds { addr: 6 });
     }
 
     #[test]

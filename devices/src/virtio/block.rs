@@ -20,8 +20,9 @@ use super::{
 use data_model::vm::BlockDeviceConfig;
 use fc_util::ratelimiter::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
+use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
+use sys_util::EventFd;
 use sys_util::Result as SysResult;
-use sys_util::{EventFd, GuestAddress, GuestMemory, GuestMemoryError};
 use virtio_sys::virtio_blk::*;
 use virtio_sys::virtio_config::*;
 use {DeviceEventT, EpollHandler};

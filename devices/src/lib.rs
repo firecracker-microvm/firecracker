@@ -12,6 +12,7 @@ extern crate serde_json;
 extern crate data_model;
 #[macro_use]
 extern crate logger;
+extern crate memory_model;
 extern crate net_sys;
 extern crate net_util;
 extern crate sys_util;
