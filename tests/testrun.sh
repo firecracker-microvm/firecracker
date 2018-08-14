@@ -61,7 +61,7 @@ declare -ra KCOV_APT_GET_DEPS=(\
 )
 
 declare -ra PYTHON_SSH_YUM_DEPS=(python3-devel)
-declare -ra PYTHON_SSH_APT_DEPS=(libssl-dev)
+declare -ra PYTHON_SSH_APT_DEPS=(libssl-dev python3-dev)
 
 declare -ra GCC_STATIC_YUM_DEPS=(glibc-static)
 # Some tests will build static binaries for use in systems without user space.
