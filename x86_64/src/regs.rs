@@ -12,8 +12,8 @@ use kvm_sys::kvm_msrs;
 use kvm_sys::kvm_regs;
 use kvm_sys::kvm_sregs;
 use layout;
+use memory_model::{GuestAddress, GuestMemory};
 use sys_util;
-use sys_util::{GuestAddress, GuestMemory};
 
 #[derive(Debug)]
 pub enum Error {
@@ -267,7 +267,7 @@ pub fn setup_sregs(mem: &GuestMemory, vcpu: &kvm::VcpuFd) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sys_util::{GuestAddress, GuestMemory};
+    use memory_model::{GuestAddress, GuestMemory};
 
     fn create_guest_mem() -> GuestMemory {
         GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap()

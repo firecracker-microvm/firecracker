@@ -10,6 +10,7 @@ extern crate libc;
 extern crate data_model;
 extern crate jailer;
 extern crate kvm_sys;
+extern crate memory_model;
 extern crate sys_util;
 
 mod cap;
@@ -21,14 +22,13 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use libc::{open, EINVAL, ENOSPC, O_RDWR};
 
 use kvm_sys::*;
-
-use sys_util::{errno_result, Error, EventFd, MemoryMapping, Result};
+use memory_model::MemoryMapping;
+use sys_util::{errno_result, Error, EventFd, Result};
 use sys_util::{
     ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref, ioctl_with_val,
 };
 
 pub use cap::*;
-
 pub use kvm_sys::KVM_API_VERSION;
 
 /// Taken from Linux Kernel v4.14.13 (arch/x86/include/asm/kvm_host.h)
@@ -383,7 +383,6 @@ pub enum VcpuExit<'a> {
 }
 
 /// A wrapper around creating and using a kvm related VCPU fd
-#[derive(Debug)]
 pub struct VcpuFd {
     vcpu: File,
     run_mmap: MemoryMapping,
@@ -1002,7 +1001,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn run_code_test() {
-        use sys_util::{GuestAddress, GuestMemory};
+        use memory_model::{GuestAddress, GuestMemory};
 
         // This example based on https://lwn.net/Articles/658511/
         let code = [
@@ -1096,7 +1095,7 @@ mod tests {
             badf_error
         );
 
-        assert_eq!(VmFd::new(&faulty_kvm).unwrap_err(), badf_error);
+        assert_eq!(VmFd::new(&faulty_kvm).err().unwrap(), badf_error);
         let mut faulty_vm_fd = VmFd {
             vm: unsafe { File::from_raw_fd(-1) },
             supported_cpuid: CpuId::new(max_cpus),
@@ -1123,7 +1122,7 @@ mod tests {
             badf_error
         );
 
-        assert_eq!(VcpuFd::new(0, &mut faulty_vm_fd).unwrap_err(), badf_error);
+        assert_eq!(VcpuFd::new(0, &mut faulty_vm_fd).err().unwrap(), badf_error);
         let faulty_vcpu_fd = VcpuFd {
             vcpu: unsafe { File::from_raw_fd(-1) },
             run_mmap: MemoryMapping::new(10).unwrap(),

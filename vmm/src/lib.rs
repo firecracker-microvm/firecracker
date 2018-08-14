@@ -12,6 +12,7 @@ extern crate kvm;
 extern crate kvm_sys;
 #[macro_use]
 extern crate logger;
+extern crate memory_model;
 extern crate net_util;
 extern crate sys_util;
 extern crate x86_64;
@@ -63,7 +64,8 @@ use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
 use kvm::*;
 use logger::{Metric, LOGGER, METRICS};
-use sys_util::{register_signal_handler, EventFd, GuestAddress, GuestMemory, Killable, Terminal};
+use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
+use sys_util::{register_signal_handler, EventFd, Killable, Terminal};
 use vm_control::VmResponse;
 use vstate::{Vcpu, Vm};
 
@@ -84,7 +86,7 @@ pub enum Error {
     EpollFd(std::io::Error),
     EventFd(sys_util::Error),
     GeneralFailure,
-    GuestMemory(sys_util::GuestMemoryError),
+    GuestMemory(GuestMemoryError),
     InvalidKernelPath,
     Kernel(std::io::Error),
     KernelCmdLine(kernel_cmdline::Error),
@@ -789,7 +791,7 @@ impl Vmm {
 
     fn init_devices(&mut self) -> Result<()> {
         let guest_mem = self.guest_memory.clone().ok_or(Error::GuestMemory(
-            sys_util::GuestMemoryError::MemoryNotInitialized,
+            memory_model::GuestMemoryError::MemoryNotInitialized,
         ))?;
         // Instantiate the MMIO device manager.
         // 'mmio_base' address has to be an address which is protected by the kernel, in this case
@@ -807,7 +809,7 @@ impl Vmm {
     fn init_microvm(&mut self) -> Result<()> {
         self.vm
             .memory_init(self.guest_memory.clone().ok_or(Error::VmSetup(
-                vstate::Error::GuestMemory(sys_util::GuestMemoryError::MemoryNotInitialized),
+                vstate::Error::GuestMemory(memory_model::GuestMemoryError::MemoryNotInitialized),
             ))?)
             .map_err(Error::VmSetup)?;
         self.vm

@@ -18,6 +18,7 @@ kernel_loader = { path = "../kernel_loader" }
 kvm = { path = "../kvm" }
 kvm_sys = { path = "../kvm_sys" }
 logger = { path = "../logger" }
+memory_model = { path = "../memory_model" }
 net_util = { path = "../net_util"}
 sys_util = { path = "../sys_util" }
 x86_64 = { path = "../x86_64" }

@@ -19,9 +19,10 @@ use std::vec::Vec;
 use super::{ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
 use fc_util::ratelimiter::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
+use memory_model::{GuestAddress, GuestMemory};
 use net_sys;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
-use sys_util::{Error as SysError, EventFd, GuestAddress, GuestMemory};
+use sys_util::{Error as SysError, EventFd};
 use virtio_sys::virtio_config::*;
 use virtio_sys::virtio_net::*;
 use {DeviceEventT, EpollHandler};
@@ -867,7 +868,7 @@ mod tests {
     use libc;
 
     use super::*;
-    use sys_util::GuestAddress;
+    use memory_model::GuestAddress;
     use virtio::queue::tests::*;
 
     struct DummyNet {

@@ -1,6 +1,8 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+extern crate libc;
+extern crate sys_util;
 
 /// Types for which it is safe to initialize from raw data.
 ///
@@ -11,7 +13,7 @@
 /// Implementing this trait guarantees that it is safe to instantiate the struct with random data.
 pub unsafe trait DataInit: Copy + Send + Sync {}
 
-// All intrinsic types and arays of intrinsic types are DataInit.  They are just numbers.
+// All intrinsic types and arrays of intrinsic types are DataInit.  They are just numbers.
 macro_rules! array_data_init {
     ($T:ty, $($N:expr)+) => {
         $(
@@ -42,8 +44,11 @@ data_init_type!(i32);
 data_init_type!(i64);
 data_init_type!(isize);
 
-pub mod endian;
-pub use endian::*;
+mod guest_address;
+mod guest_memory;
+mod mmap;
 
-pub mod volatile_memory;
-pub use volatile_memory::*;
+pub use guest_address::GuestAddress;
+pub use guest_memory::Error as GuestMemoryError;
+pub use guest_memory::GuestMemory;
+pub use mmap::MemoryMapping;

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+extern crate memory_model;
 extern crate sys_util;
 extern crate x86_64;
 
@@ -9,7 +10,7 @@ use std::ffi::CStr;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
-use sys_util::{GuestAddress, GuestMemory};
+use memory_model::{GuestAddress, GuestMemory};
 
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
@@ -145,8 +146,8 @@ pub fn load_cmdline(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use memory_model::{GuestAddress, GuestMemory};
     use std::io::Cursor;
-    use sys_util::{GuestAddress, GuestMemory};
 
     const MEM_SIZE: usize = 0x180000;
 

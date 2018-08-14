@@ -9,11 +9,10 @@ use std::slice;
 
 use libc::c_char;
 
-use sys_util::{GuestAddress, GuestMemory};
-
-use mpspec::*;
+use memory_model::{GuestAddress, GuestMemory};
 
 use layout;
+use mpspec::*;
 
 #[derive(Debug)]
 pub enum Error {
