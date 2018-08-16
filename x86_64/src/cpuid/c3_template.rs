@@ -1,5 +1,4 @@
 use cpuid::cpu_leaf::*;
-use cpuid::str_to_u32;
 use kvm_sys::kvm_cpuid_entry2;
 
 pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
@@ -77,26 +76,6 @@ pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
                 entry.ecx &= !(1 << leaf_0x80000001::ecx::PREFETCH_SHIFT);
                 entry.ecx &= !(1 << leaf_0x80000001::ecx::LZCNT_SHIFT);
                 entry.edx &= !(1 << leaf_0x80000001::edx::PDPE1GB_SHIFT);
-            }
-            0x80000002 => {
-                // set this leaf to "Intel(R) Xeon(R)"
-                entry.eax = str_to_u32("etnI");
-                entry.ebx = str_to_u32(")R(l");
-                entry.ecx = str_to_u32("oeX ");
-                entry.edx = str_to_u32(")R(n");
-            }
-            0x80000003 => {
-                // set this leaf to " Processor"
-                entry.eax = str_to_u32("orP ");
-                entry.ebx = str_to_u32("ssec");
-                entry.ecx = str_to_u32("  ro");
-                entry.edx = 0;
-            }
-            0x80000004 => {
-                entry.eax = 0;
-                entry.ebx = 0;
-                entry.ecx = 0;
-                entry.edx = 0;
             }
 
             _ => (),
