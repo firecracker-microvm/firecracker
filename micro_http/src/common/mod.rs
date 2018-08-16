@@ -7,6 +7,7 @@ pub mod ascii {
     pub const SP: &[u8] = b" ";
 }
 
+#[derive(Clone, PartialEq)]
 pub struct Body {
     body: Vec<u8>,
 }
