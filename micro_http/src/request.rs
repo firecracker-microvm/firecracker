@@ -70,6 +70,10 @@ impl Request {
             body: None,
         })
     }
+
+    pub fn get_uri(&self) -> String {
+        self.request_line.uri.clone()
+    }
 }
 
 mod helpers {
