@@ -6,8 +6,12 @@ use kvm::CpuId;
 
 mod cpu_leaf;
 
+mod brand_string;
 mod c3_template;
 mod t2_template;
+
+use self::brand_string::BrandString;
+use self::brand_string::Reg as BsReg;
 
 // constants for setting the fields of kvm_cpuid2 structures
 // CPUID bits in ebx, ecx, and edx.
@@ -16,6 +20,8 @@ const EBX_CLFLUSH_CACHELINE: u32 = 8; // Flush a cache line size.
 // The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to get a
 // unique topology of the next level. This allows 64 logical processors/package.
 const LEAFBH_INDEX1_APICID_SHIFT: u32 = 6;
+
+const DEFAULT_BRAND_STRING: &[u8] = b"Intel(R) Xeon(R) Processor";
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -37,15 +43,6 @@ fn get_max_addressable_lprocessors(cpu_count: u8) -> result::Result<u8, Error> {
     Ok(max_addressable_lcpu as u8)
 }
 
-// Converts a 4 letters string to u32; if the string has more than 4 letters, only the first 4 are returned
-fn str_to_u32(string: &str) -> u32 {
-    let str_bytes = string.as_bytes();
-    return (str_bytes[0] as u32) << 24
-        | (str_bytes[1] as u32) << 16
-        | (str_bytes[2] as u32) << 8
-        | (str_bytes[3] as u32);
-}
-
 pub fn set_cpuid_template(template: CpuFeaturesTemplate, kvm_cpuid: &mut CpuId) {
     let entries = kvm_cpuid.mut_entries_slice();
     match template {
@@ -64,6 +61,35 @@ pub fn filter_cpuid(
 ) -> Result<()> {
     let entries = kvm_cpuid.mut_entries_slice();
     let max_addr_cpu = get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
+
+    // TODO: Add non-Intel CPU support
+    // Generate the emulated brand string.
+    //
+    // For non-Intel CPUs, we'll just expose DEFAULT_BRAND_STRING
+    //
+    // For Intel CPUs, the brand string we expose will be:
+    //    "Intel(R) Xeon(R) Processor @ {host freq}"
+    // where {host freq} is the CPU frequency, as present in the
+    // host brand string (e.g. 4.01GHz).
+    //
+    // This is safe because we know DEFAULT_BRAND_STRING to hold valid data
+    // (allowed length and holding only valid ASCII chars).
+    let mut bstr = BrandString::from_bytes_unchecked(DEFAULT_BRAND_STRING);
+    if let Ok(host_bstr) = BrandString::from_host_cpuid() {
+        if host_bstr.starts_with(b"Intel") {
+            if let Some(freq) = host_bstr.find_freq() {
+                // It's safe to unwrap here, because push_bytes() only fails if the internal
+                // buffer overflows. DEFAULT_BRAND_STRING + b" @ " cannot cause that.
+                bstr.push_bytes(b" @ ").unwrap();
+                if bstr.push_bytes(freq).is_err() {
+                    // The frequency string should never be long enough for push_bytes() to fail,
+                    // but let's fall back to our default string if the unthinkable happens.
+                    bstr = BrandString::from_bytes_unchecked(DEFAULT_BRAND_STRING);
+                }
+            }
+        }
+    }
+
     for entry in entries.iter_mut() {
         match entry.function {
             0x1 => {
@@ -199,6 +225,12 @@ pub fn filter_cpuid(
                 // EDX bits 31..0 contain x2APIC ID of current logical processor
                 // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
                 entry.edx = cpu_id as u32;
+            }
+            0x80000002..=0x80000004 => {
+                entry.eax = bstr.get_reg_for_leaf(entry.function, BsReg::EAX);
+                entry.ebx = bstr.get_reg_for_leaf(entry.function, BsReg::EBX);
+                entry.ecx = bstr.get_reg_for_leaf(entry.function, BsReg::ECX);
+                entry.edx = bstr.get_reg_for_leaf(entry.function, BsReg::EDX);
             }
             _ => (),
         }

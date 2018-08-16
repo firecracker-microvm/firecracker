@@ -8,6 +8,7 @@
 *mandatory*.
 - PATCH drive only allows patching/changing the `path_on_host` property.
 - All PUT and PATCH requests return the status code 204.
+- CPUID brand string (aka model name) now includes the host CPU frequency
 
 ## [0.9.0]
 
