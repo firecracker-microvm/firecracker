@@ -10,7 +10,7 @@ api_server = { path = "api_server" }
 data_model = { path = "data_model" }
 jailer = { path = "jailer" }
 logger = { path = "logger"}
-micro_http = { path = "micro_http" }
+mmds_glue = { path = "mmds_glue" }
 seccomp = { path = "seccomp" }
 vmm = { path = "vmm" }
 

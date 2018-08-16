@@ -1,0 +1,11 @@
+[package]
+name = "mmds_glue"
+version = "0.1.0"
+authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+data_model = { path = "../data_model" }
+micro_http = { path = "../micro_http" }
+
+[dev-dependencies]
+serde_json = ">=1.0.9"
