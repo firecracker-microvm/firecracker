@@ -1,6 +1,8 @@
 """Tests for the CPU topology emulation feature."""
 
+import re
 import host_tools.network as host  # pylint: disable=import-error
+from host_tools.network import SSHConnection
 
 
 def test_1vcpu(test_microvm_with_ssh, network_config):
@@ -76,3 +78,51 @@ def _check_cpu_topology(test_microvm, expected_cpu_topology):
             break
 
     ssh_connection.close()
+
+
+def test_brand_string(test_microvm_with_ssh, network_config):
+    """
+    For Intel CPUs, the guest brand string should be:
+        Intel(R) Xeon(R) Processor @ {host frequency}
+    where {host frequency} is the frequency reported by the host CPUID
+    (e.g. 4.01GHz)
+
+    For non-Intel CPUs, the guest brand string should be:
+        Intel(R) Xeon(R) Processor
+    """
+    cif = open('/proc/cpuinfo', 'r')
+    host_brand_string = None
+    while True:
+        line = cif.readline()
+        if line == '':
+            break
+        mo = re.search("^model name\\s+:\\s+(.+)$", line)
+        if mo:
+            host_brand_string = mo.group(1)
+            break
+    cif.close()
+    assert(host_brand_string is not None)
+
+    test_microvm = test_microvm_with_ssh
+    test_microvm.basic_config(vcpu_count=1, net_iface_count=0)
+    test_microvm.basic_network_config(network_config)
+    test_microvm.start()
+
+    ssh_connection = SSHConnection(test_microvm.slot.ssh_config)
+
+    guest_cmd = "cat /proc/cpuinfo | grep 'model name' | head -1"
+    _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
+    assert (stderr.read().decode("utf-8") == '')
+
+    mo = re.search("^model name\\s+:\\s+(.+)$", stdout.readline().rstrip())
+    assert(not (mo is None))
+    guest_brand_string = mo.group(1)
+    assert(len(guest_brand_string) > 0)
+
+    expected_guest_brand_string = "Intel(R) Xeon(R) Processor"
+    if host_brand_string.startswith("Intel"):
+        mo = re.search("[.0-9]+[MG]Hz", host_brand_string)
+        if mo:
+            expected_guest_brand_string += " @ " + mo.group(0)
+
+    assert(guest_brand_string == expected_guest_brand_string)
