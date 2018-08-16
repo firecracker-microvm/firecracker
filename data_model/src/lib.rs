@@ -1,7 +1,9 @@
+extern crate json_patch;
+#[macro_use]
+extern crate lazy_static;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate json_patch;
 extern crate serde_json;
 
 extern crate fc_util;
