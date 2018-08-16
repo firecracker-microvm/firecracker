@@ -12,3 +12,8 @@ kvm_sys = { path = "../kvm_sys" }
 kvm = { path = "../kvm" }
 memory_model = { path = "../memory_model" }
 sys_util = { path = "../sys_util" }
+
+
+[build-dependencies]
+cc = "1.0"
+
