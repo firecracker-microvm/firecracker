@@ -1,6 +1,19 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.0]
+
+### Added
+
+- The jailer can now be configured to enter a preexisting network namespace,
+  and to run as a daemon.
+- Enabled PATCH operations on `/drives` resources.
+
+## Changed
+
+- The microVM `id` supplied to the jailer may now contain alphanumeric characters
+  and hyphens, up to a maximum length of 64 characters.
+- Replaced the `permissions` property of `/drives` resources with a boolean.
+- Removed the `state` property of `/drives` resources.
 
 ## [0.7.0]
 
