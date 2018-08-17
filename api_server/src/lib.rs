@@ -31,7 +31,7 @@ use hyper::server::Http;
 use tokio_core::reactor::Core;
 use tokio_uds::UnixListener;
 
-use data_model::mmds::MMDS;
+use data_model::mmds::Mmds;
 use fc_util::LriHashMap;
 use http_service::ApiServerHttpService;
 use request::actions::ActionBody;
@@ -61,7 +61,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct ApiServer {
     // MMDS info directly accessible from the API thread.
-    mmds_info: Arc<Mutex<MMDS>>,
+    mmds_info: Arc<Mutex<Mmds>>,
     // VMM instance info directly accessible from the API thread.
     vmm_shared_info: Arc<RwLock<InstanceInfo>>,
     // Sender which allows passing messages to the VMM.
@@ -72,7 +72,7 @@ pub struct ApiServer {
 
 impl ApiServer {
     pub fn new(
-        mmds_info: Arc<Mutex<MMDS>>,
+        mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
         api_request_sender: mpsc::Sender<Box<ApiRequest>>,
         max_previous_actions: usize,
