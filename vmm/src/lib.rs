@@ -41,7 +41,6 @@ use serde_json::Value;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use api_server::request::actions::ActionBody;
-use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::machine_configuration::{
     PutMachineConfigurationError, PutMachineConfigurationOutcome,
@@ -1037,6 +1036,9 @@ impl Vmm {
             .fd
             .set_state(timer_state, SetTimeFlags::Default);
 
+        eprintln!("Handle sync start - instance started");
+
+
         Ok(())
     }
 
@@ -1176,7 +1178,7 @@ impl Vmm {
         Ok(())
     }
 
-    fn handle_start_instance(&mut self, sender: AsyncOutcomeSender) {
+    /*fn handle_start_instance(&mut self, sender: AsyncOutcomeSender) {
         let instance_state = {
             // Use unwrap() to crash if the other thread poisoned this lock.
             let shared_info = self.shared_info.read().unwrap();
@@ -1196,9 +1198,11 @@ impl Vmm {
         };
         // Using expect() to crash this thread as well if the other thread crashed.
         sender.send(result).expect("one-shot channel closed");
-    }
+    }*/
 
     fn handle_sync_start_instance(&mut self, sender: SyncOutcomeSender) {
+
+        eprintln!("Handle sync start");
 
         if self.is_instance_running() {
             sender
@@ -1207,21 +1211,22 @@ impl Vmm {
                 .expect("one-shot channel closed");
             return;
         }
+        eprintln!("Handle sync start - instance not running yet");
 
         match self.start_instance() {
                 Ok(_) => sender
                     .send(Box::new(SyncOkStatus::InstanceStarted))
                     .map_err(|_| ())
                     .expect("one-shot channel closed"),
-                Err(e) => sender
-                    .send(Box::new(SyncError::MicroVMStartFailed))
+                Err(_) => sender
+                    .send(Box::new(SyncError::InstanceStartFailed))
                     .map_err(|_| ())
                     .expect("one-shot channel closed"),
         };
 
     }
 
-    fn handle_stop_instance(&mut self, sender: AsyncOutcomeSender) {
+    /*fn handle_stop_instance(&mut self, sender: AsyncOutcomeSender) {
         let result = match self.stop() {
             Ok(_) => AsyncOutcome::Ok(0),
             Err(e) => AsyncOutcome::Error(format!(
@@ -1230,7 +1235,7 @@ impl Vmm {
             )),
         };
         sender.send(result).expect("one-shot channel closed");
-    }
+    }*/
 
     fn is_instance_running(&self) -> bool {
         let instance_state = {
@@ -1350,6 +1355,7 @@ impl Vmm {
 
         let box_response: Box<GenerateResponse + Send> = match boot_source_body.local_image {
             // Check that the kernel path exists and it is valid.
+
             Some(image) => match File::open(image.kernel_image_path) {
                 Ok(kernel_file) => {
                     let mut cmdline =
@@ -1463,10 +1469,6 @@ impl Vmm {
             }
         };
         match *request {
-            ApiRequest::Async(req) => match req {
-                AsyncRequest::StartInstance(sender) => self.handle_start_instance(sender),
-                AsyncRequest::StopInstance(sender) => self.handle_stop_instance(sender),
-            },
             ApiRequest::Sync(req) => match req {
                 SyncRequest::GetMachineConfiguration(sender) => {
                     self.handle_get_machine_configuration(sender)

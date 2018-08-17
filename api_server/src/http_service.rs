@@ -17,7 +17,7 @@ use data_model::vm::{BlockDeviceConfig, MachineConfiguration, PatchDrivePayload}
 use logger::{Metric, METRICS};
 use request::actions::ActionBody;
 use request::instance_info::InstanceInfo;
-use request::{self, ApiRequest, AsyncOutcome, IntoParsedRequest, ParsedRequest};
+use request::{self, ApiRequest, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
 
 use super::{ActionMap, ActionMapValue};
@@ -159,16 +159,6 @@ fn parse_actions_req<'a>(
                 METRICS.put_api_requests.actions_fails.inc();
                 Error::Generic(StatusCode::BadRequest, msg)
             })?;
-            match parsed_req {
-                ParsedRequest::Async(_, _, _) => action_map
-                    .borrow_mut()
-                    .insert_unique(String::from(unwrapped_id), ActionMapValue::Pending(body))
-                    .map_err(|_| {
-                        METRICS.put_api_requests.actions_fails.inc();
-                        Error::ActionExists
-                    })?,
-                _ => (),
-            }
 
             Ok(parsed_req)
         }
@@ -594,95 +584,6 @@ impl hyper::server::Service for ApiServerHttpService {
                         StatusCode::Ok,
                         mmds_info.lock().unwrap().get_data_str(),
                     ))),
-                    Async(id, async_req, outcome_receiver) => {
-                        if send_to_vmm(
-                            ApiRequest::Async(async_req),
-                            &api_request_sender,
-                            &vmm_send_event,
-                        ).is_err()
-                        {
-                            METRICS.api_server.async_vmm_send_timeout_count.inc();
-                            // hyper::Error::Cancel would have been more appropriate, but it's no
-                            // longer available for some reason.
-                            return Either::A(future::err(hyper::Error::Timeout));
-                        }
-
-                        let b_str = String::from_utf8_lossy(&b.to_vec()).to_string();
-                        let path_dbg = path.clone();
-                        info!("Sent {}", describe(false, &method_copy, &path, &b_str));
-
-                        // We have to explicitly spawn a future that will handle the outcome of the
-                        // async request.
-                        handle.spawn(
-                            outcome_receiver
-                                .map(move |outcome| {
-                                    // Let's see if the action is still in the map (it might have
-                                    // been evicted by newer actions, although that's extremely
-                                    // unlikely under normal circumstances).
-                                    let (response_status, json_body) = match action_map
-                                        .borrow_mut()
-                                        .get_mut(id.as_str())
-                                    {
-                                        // Pending is the only possible status before the outcome is
-                                        // resolved, so we know all other match arms are equivalent.
-                                        Some(&mut ActionMapValue::Pending(ref mut async_body)) => {
-                                            match outcome {
-                                                AsyncOutcome::Ok(timestamp) => {
-                                                    async_body.timestamp = Some(timestamp);
-                                                    info!(
-                                                        "Received Success on {}",
-                                                        describe(
-                                                            false,
-                                                            &method_copy,
-                                                            &path_dbg,
-                                                            &b_str
-                                                        )
-                                                    );
-                                                    // We use unwrap because the serialize operation
-                                                    // should not fail in this case.
-                                                    (
-                                                        StatusCode::Ok,
-                                                        serde_json::to_string(&async_body).unwrap(),
-                                                    )
-                                                }
-                                                AsyncOutcome::Error(msg) => {
-                                                    info!(
-                                                        "Received Error on {}",
-                                                        describe(
-                                                            false,
-                                                            &method_copy,
-                                                            &path_dbg,
-                                                            &b_str
-                                                        )
-                                                    );
-                                                    METRICS.api_server.async_outcome_fails.inc();
-                                                    (
-                                                        StatusCode::BadRequest,
-                                                        json_fault_message(msg),
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        _ => {
-                                            METRICS.api_server.async_missed_actions_count.inc();
-                                            return;
-                                        }
-                                    };
-                                    // Replace the old value with the already built response.
-                                    action_map.borrow_mut().insert(
-                                        id,
-                                        ActionMapValue::JsonResponse(response_status, json_body),
-                                    );
-                                })
-                                .map_err(|_| {
-                                    METRICS.api_server.async_outcome_fails.inc();
-                                }),
-                        );
-
-                        // This is returned immediately; the previous handle.spawn() just registers
-                        // the provided closure to run when the outcome is complete.
-                        Either::A(future::ok(empty_response(StatusCode::Created)))
-                    }
                     Sync(sync_req, outcome_receiver) => {
                         if send_to_vmm(
                             ApiRequest::Sync(sync_req),
@@ -957,9 +858,8 @@ mod tests {
         ) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
-                assert!(pr.eq(&ParsedRequest::Async(
-                    String::from("bar"),
-                    AsyncRequest::StartInstance(sender),
+                assert!(pr.eq(&ParsedRequest::Sync(
+                    SyncRequest::SyncStartInstance(sender),
                     receiver
                 )));
 

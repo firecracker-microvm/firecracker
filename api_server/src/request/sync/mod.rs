@@ -79,6 +79,19 @@ pub enum OkStatus {
     Updated,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub enum DeviceType {
+    Drive,
+}
+
+// Represents the associated json block from the async request body.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstanceDeviceDetachAction {
+    pub device_type: DeviceType,
+    pub device_resource_id: String,
+    pub force: bool,
+}
 impl GenerateResponse for OkStatus {
     fn generate_response(&self) -> hyper::Response {
         use self::OkStatus::*;
@@ -98,7 +111,7 @@ pub enum Error {
     GuestInstanceAlreadyRunning,
     GuestMacAddressInUse,
     InvalidPayload,
-    MicroVMStartFailed,
+    InstanceStartFailed,
     OpenTap(TapError),
     OperationFailed,
     OperationNotAllowedPreBoot,
@@ -127,7 +140,7 @@ impl GenerateResponse for Error {
                 StatusCode::BadRequest,
                 json_fault_message("The request payload is invalid."),
             ),
-            MicroVMStartFailed => json_response(
+            InstanceStartFailed => json_response(
                 StatusCode::InternalServerError,
                 json_fault_message("The start of the microVM failed."),
             ),

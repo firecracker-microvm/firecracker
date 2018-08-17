@@ -6,8 +6,7 @@ use futures::sync::oneshot;
 use hyper::Method;
 use serde_json::Value;
 
-use request::async::{AsyncRequest, InstanceDeviceDetachAction};
-use request::sync::SyncRequest;
+use request::sync::{SyncRequest, InstanceDeviceDetachAction};
 use request::{IntoParsedRequest, ParsedRequest};
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
@@ -17,7 +16,6 @@ use request::{IntoParsedRequest, ParsedRequest};
 pub enum ActionType {
     BlockDeviceRescan,
     InstanceStart,
-    InstanceHalt,
 }
 
 // The model of the json body from an async request. We use Serde to transform each associated
@@ -56,15 +54,17 @@ impl IntoParsedRequest for ActionBody {
                 }
             }*/
             ActionType::InstanceStart => {
+                eprintln!("InstanceStart oneshot channel creation");
                 let (sync_sender, sync_receiver) = oneshot::channel();
                 match self.action_id {
-                    Some(id) => Ok(ParsedRequest::Sync(
+                    Some(_) => Ok(ParsedRequest::Sync(
                         SyncRequest::SyncStartInstance(sync_sender),
                         sync_receiver,
                     )),
                     None => Err(String::from("Missing ID")),
                 }
             }
+            /*
             ActionType::InstanceHalt => {
                 let (async_sender, async_receiver) = oneshot::channel();
                 match self.action_id {
@@ -76,7 +76,7 @@ impl IntoParsedRequest for ActionBody {
                     )),
                     None => Err(String::from("Missing ID")),
                 }
-            }
+            }*/
         }
     }
 }
@@ -125,37 +125,8 @@ mod tests {
                 \"timestamp\": 1522850095
               }";
             let (sender, receiver) = oneshot::channel();
-            let req: ParsedRequest = ParsedRequest::Async(
-                String::from("dummy"),
-                AsyncRequest::StartInstance(sender),
-                receiver,
-            );
-
-            let result: Result<ActionBody, serde_json::Error> = serde_json::from_str(json);
-            assert!(result.is_ok());
-            assert!(
-                result
-                    .unwrap()
-                    .into_parsed_request(Method::Put)
-                    .unwrap()
-                    .eq(&req)
-            );
-        }
-
-        {
-            let json = "{
-                \"action_id\": \"dummy\",
-                \"action_type\": \"InstanceHalt\",
-                \"instance_device_detach_action\": {\
-                    \"device_type\": \"Drive\",
-                    \"device_resource_id\": \"dummy\",
-                    \"force\": true},
-                \"timestamp\": 1522850095
-              }";
-            let (sender, receiver) = oneshot::channel();
-            let req: ParsedRequest = ParsedRequest::Async(
-                String::from("dummy"),
-                AsyncRequest::StopInstance(sender),
+            let req: ParsedRequest = ParsedRequest::Sync(
+                SyncRequest::SyncStartInstance(sender),
                 receiver,
             );
 
