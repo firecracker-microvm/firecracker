@@ -4,15 +4,15 @@ use json_patch::merge;
 use serde_json::Value;
 
 lazy_static! {
-    // A static reference to a global MMDS instance. We currently use this for ease of access during
-    // prototyping. We'll consider something like passing Arc<Mutex<MMDS>> references to the
+    // A static reference to a global Mmds instance. We currently use this for ease of access during
+    // prototyping. We'll consider something like passing Arc<Mutex<Mmds>> references to the
     // appropriate threads in the future.
-    pub static ref STATIC_MMDS: Arc<Mutex<MMDS>> = Arc::new(Mutex::new(MMDS::default()));
+    pub static ref MMDS: Arc<Mutex<Mmds>> = Arc::new(Mutex::new(Mmds::default()));
 }
 
-/// The MMDS is the Microvm Metadata Service represented as an untyped json.
+/// The Mmds is the Microvm Metadata Service represented as an untyped json.
 #[derive(Clone)]
-pub struct MMDS {
+pub struct Mmds {
     data_store: Value,
     is_initialized: bool,
 }
@@ -23,18 +23,18 @@ pub enum Error {
     UnsupportedValueType,
 }
 
-impl Default for MMDS {
+impl Default for Mmds {
     fn default() -> Self {
-        MMDS {
+        Mmds {
             data_store: Value::default(),
             is_initialized: false,
         }
     }
 }
 
-impl MMDS {
+impl Mmds {
     /// This method is needed to provide the correct status code for API request.
-    /// When the MMDS structure is initialized for the first time via the API, the
+    /// When the Mmds structure is initialized for the first time via the API, the
     /// status code should be 201 (Created) and when the structure is updated, the
     /// status code should be 204 (Updated).
     pub fn is_initialized(&self) -> bool {
@@ -141,9 +141,9 @@ impl MMDS {
             Some(val) => {
                 // If path ends with /, return all keys in Value::Object
                 if path.ends_with("/") {
-                    MMDS::get_keys(val)
+                    Mmds::get_keys(val)
                 } else {
-                    match MMDS::get_value_as_string(val) {
+                    match Mmds::get_value_as_string(val) {
                         Ok(value) => Ok(vec![value]),
                         Err(e) => Err(e),
                     }
@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_mmds() {
-        let mut mmds = MMDS::default();
+        let mut mmds = Mmds::default();
         assert_eq!(mmds.is_initialized(), false);
 
         let mut mmds_json = "{\"meta-data\":{\"iam\":\"dummy\"},\"user-data\":\"1522850095\"}";
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_get_value() {
-        let mut mmds = MMDS::default();
+        let mut mmds = Mmds::default();
         let data = r#"{
             "name": {
                 "first": "John",
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_get_element_from_array() {
-        let mut mmds = MMDS::default();
+        let mut mmds = Mmds::default();
         let data = r#"{
             "phones": [
                 "+40 1234567",
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_invalid_types() {
-        let mut mmds = MMDS::default();
+        let mut mmds = Mmds::default();
         let data = r#"{
             "name": {
                 "first": "John",
