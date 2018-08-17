@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.8.0]
+
+### Added
+
+- PATCH operations are allowed on `/drives` resources. The request body must
+  contain the ID of the updated drive and any of the drive's properties, with
+  their new values. All properties can be updated prior to guest boot. Only the
+  path of the backing host file can be updated post boot.
+
+### Changed
+
+- The `permissions` property of `/drives` resources was replaced with a boolean
+  property called `is_read_only`.
+- The `state` property of `/drives` resources was removed.
+
+### Fixed
+
 ## [0.7.0]
 
 ### Added
