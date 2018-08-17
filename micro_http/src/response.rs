@@ -3,6 +3,7 @@ use common::{Body, Version};
 use headers::{Header, Headers, MediaType};
 
 #[allow(dead_code)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum StatusCode {
     OK,
     BadRequest,
@@ -84,6 +85,14 @@ impl Response {
         let response = [status_line, headers, body.to_owned()].concat();
 
         return response;
+    }
+
+    pub fn status(&self) -> StatusCode {
+        self.status_line.status_code
+    }
+
+    pub fn body(&self) -> Option<Body> {
+        self.body.clone()
     }
 }
 
