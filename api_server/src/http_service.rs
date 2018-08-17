@@ -12,7 +12,7 @@ use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 use tokio_core::reactor::Handle;
 
-use data_model::mmds::MMDS;
+use data_model::mmds::Mmds;
 use data_model::vm::{BlockDeviceConfig, MachineConfiguration, PatchDrivePayload};
 use logger::{Metric, METRICS};
 use request::actions::ActionBody;
@@ -458,7 +458,7 @@ fn send_to_vmm(
 // request. This is the one for our ApiServer.
 pub struct ApiServerHttpService {
     // MMDS info directly accessible from this API thread.
-    mmds_info: Arc<Mutex<MMDS>>,
+    mmds_info: Arc<Mutex<Mmds>>,
     // VMM instance info directly accessible from this API thread.
     vmm_shared_info: Arc<RwLock<InstanceInfo>>,
     // This allows sending messages to the VMM thread. It makes sense to use a Rc for the sender
@@ -475,7 +475,7 @@ pub struct ApiServerHttpService {
 
 impl ApiServerHttpService {
     pub fn new(
-        mmds_info: Arc<Mutex<MMDS>>,
+        mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
         api_request_sender: Rc<mpsc::Sender<Box<ApiRequest>>>,
         vmm_send_event: Rc<EventFd>,
