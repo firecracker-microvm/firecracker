@@ -210,10 +210,12 @@ mod tests {
         };
 
         // Test path ends with /; Value is a dictionary.
-        match mmds.get_value("/phones/".to_string()) {
-            Ok(ret) => assert_eq!(ret, vec!["home/", "mobile"]),
-            Err(e) => assert!(false),
-        };
+        if let Ok(ret) = mmds.get_value("/phones/".to_string()) {
+            assert_eq!(ret, vec!["home/", "mobile"]);
+        } else {
+            assert!(false);
+        }
+
         match mmds.get_value("/phones/home/".to_string()) {
             Ok(ret) => assert_eq!(ret, vec!["RO", "UK"]),
             Err(_) => assert!(false),

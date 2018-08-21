@@ -254,6 +254,7 @@ pub struct VcpuMetrics {
 #[derive(Default, Serialize)]
 pub struct VmmMetrics {
     pub device_events: SharedMetric,
+    pub panic_count: SharedMetric,
 }
 
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
