@@ -668,8 +668,7 @@ mod tests {
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use net_util::MacAddr;
-    use request::async::{AsyncRequest, DeviceType, InstanceDeviceDetachAction};
-    use request::sync::{NetworkInterfaceBody, SyncRequest};
+    use request::sync::{NetworkInterfaceBody, SyncRequest, DeviceType, InstanceDeviceDetachAction};
     use request::ActionType;
 
     fn body_to_string(body: hyper::Body) -> String {

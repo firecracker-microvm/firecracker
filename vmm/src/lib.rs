@@ -1036,7 +1036,7 @@ impl Vmm {
             .fd
             .set_state(timer_state, SetTimeFlags::Default);
 
-        eprintln!("Handle sync start - instance started");
+        //eprintln!("Handle sync start - instance started");
 
 
         Ok(())
@@ -1202,7 +1202,7 @@ impl Vmm {
 
     fn handle_sync_start_instance(&mut self, sender: SyncOutcomeSender) {
 
-        eprintln!("Handle sync start");
+        //eprintln!("Handle sync start");
 
         if self.is_instance_running() {
             sender
@@ -1211,7 +1211,7 @@ impl Vmm {
                 .expect("one-shot channel closed");
             return;
         }
-        eprintln!("Handle sync start - instance not running yet");
+        //eprintln!("Handle sync start - instance not running yet");
 
         match self.start_instance() {
                 Ok(_) => sender

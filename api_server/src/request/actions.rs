@@ -54,7 +54,7 @@ impl IntoParsedRequest for ActionBody {
                 }
             }*/
             ActionType::InstanceStart => {
-                eprintln!("InstanceStart oneshot channel creation");
+                //eprintln!("InstanceStart oneshot channel creation");
                 let (sync_sender, sync_receiver) = oneshot::channel();
                 match self.action_id {
                     Some(_) => Ok(ParsedRequest::Sync(
