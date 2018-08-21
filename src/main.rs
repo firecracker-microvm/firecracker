@@ -19,7 +19,7 @@ use std::sync::{Arc, RwLock};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::ApiServer;
 use data_model::mmds::MMDS;
-use logger::LOGGER;
+use logger::{Metric, LOGGER, METRICS};
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const MAX_STORED_ASYNC_REQS: usize = 100;
@@ -31,9 +31,11 @@ fn main() {
     // terminating as we're building with panic = "abort".
     // It's worth noting that the abort is caused by sending a SIG_ABORT signal to the process.
     panic::set_hook(Box::new(move |info| {
-        // We're currently using the closure parameter, which is a &PanicInfo, for printing the origin of the panic,
-        // including the payload passed to panic! and the source code location from which the panic originated.
+        // We're currently using the closure parameter, which is a &PanicInfo, for printing the
+        // origin of the panic, including the payload passed to panic! and the source code location
+        // from which the panic originated.
         error!("Panic occurred: {:?}", info);
+        METRICS.vmm.panic_count.inc();
 
         let bt = Backtrace::new();
         error!("{:?}", bt);
