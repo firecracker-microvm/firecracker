@@ -34,6 +34,7 @@ pub struct ActionBody {
 
 impl IntoParsedRequest for ActionBody {
     fn into_parsed_request(self, _: Method) -> result::Result<ParsedRequest, String> {
+        let clone = self.clone();
         match self.action_type {
             ActionType::BlockDeviceRescan => {
                 let (sync_sender, sync_receiver) = oneshot::channel();
@@ -56,13 +57,10 @@ impl IntoParsedRequest for ActionBody {
             ActionType::InstanceStart => {
                 //eprintln!("InstanceStart oneshot channel creation");
                 let (sync_sender, sync_receiver) = oneshot::channel();
-                match self.action_id {
-                    Some(_) => Ok(ParsedRequest::Sync(
-                        SyncRequest::SyncStartInstance(sync_sender),
-                        sync_receiver,
-                    )),
-                    None => Err(String::from("Missing ID")),
-                }
+                Ok(ParsedRequest::Sync(
+                    SyncRequest::SyncStartInstance(sync_sender),
+                    sync_receiver,
+                ))
             }
             /*
             ActionType::InstanceHalt => {
@@ -129,7 +127,6 @@ mod tests {
                 SyncRequest::SyncStartInstance(sender),
                 receiver,
             );
-
             let result: Result<ActionBody, serde_json::Error> = serde_json::from_str(json);
             assert!(result.is_ok());
             assert!(

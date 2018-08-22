@@ -845,7 +845,7 @@ mod tests {
             Ok(pr) => assert!(pr.eq(&ParsedRequest::GetAction(String::from("bar")))),
             _ => assert!(false),
         }
-
+        /*
         // PUT InstanceStart
         match parse_actions_req(
             &path_tokens,
@@ -882,6 +882,7 @@ mod tests {
             }
             _ => assert!(false),
         }
+        */
 
         // PUT BlockDeviceRescan
         let json = "{
@@ -933,6 +934,7 @@ mod tests {
         let body: Chunk = Chunk::from(json);
 
         // Test the case where action already exists.
+        /*
         assert!(
             parse_actions_req(
                 &path_tokens,
@@ -943,6 +945,7 @@ mod tests {
                 &mut action_map
             ).is_err()
         );
+        */
 
         assert!(
             parse_actions_req(

@@ -208,6 +208,10 @@ mod tests {
                     &SyncRequest::RescanBlockDevice(ref req, _),
                     &SyncRequest::RescanBlockDevice(ref other_req, _),
                 ) => req == other_req,
+                (
+                    &SyncRequest::SyncStartInstance(_),
+                    &SyncRequest::SyncStartInstance(_),
+                ) => true,
                 _ => false,
             }
         }
