@@ -342,6 +342,8 @@ definitions:
     type: object
     required:
       - drive_id
+      - is_root_device
+      - is_read_only
     properties:
       drive_id:
         type: string
