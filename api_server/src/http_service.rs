@@ -857,7 +857,7 @@ mod tests {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
-                    SyncRequest::SyncStartInstance(sender),
+                    SyncRequest::StartInstance(sender),
                     receiver
                 )));
 

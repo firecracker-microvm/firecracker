@@ -1167,30 +1167,7 @@ impl Vmm {
         Ok(())
     }
 
-    /*fn handle_start_instance(&mut self, sender: AsyncOutcomeSender) {
-        let instance_state = {
-            // Use unwrap() to crash if the other thread poisoned this lock.
-            let shared_info = self.shared_info.read().unwrap();
-            shared_info.state.clone()
-        };
-        let result = match instance_state {
-            InstanceState::Starting | InstanceState::Running | InstanceState::Halting => {
-                AsyncOutcome::Error("Guest Instance already running.".to_string())
-            }
-            _ => match self.start_instance() {
-                Ok(_) => AsyncOutcome::Ok(0),
-                Err(e) => {
-                    let _ = self.stop();
-                    AsyncOutcome::Error(format!("Cannot start microvm: {:?}", e))
-                }
-            },
-        };
-        // Using expect() to crash this thread as well if the other thread crashed.
-        sender.send(result).expect("one-shot channel closed");
-    }*/
-
-    fn handle_sync_start_instance(&mut self, sender: SyncOutcomeSender) {
-        //eprintln!("Handle sync start");
+    fn handle_start_instance(&mut self, sender: SyncOutcomeSender) {
 
         if self.is_instance_running() {
             sender
@@ -1199,7 +1176,6 @@ impl Vmm {
                 .expect("one-shot channel closed");
             return;
         }
-        //eprintln!("Handle sync start - instance not running yet");
 
         match self.start_instance() {
             Ok(_) => sender
@@ -1212,17 +1188,6 @@ impl Vmm {
                 .expect("one-shot channel closed"),
         };
     }
-
-    /*fn handle_stop_instance(&mut self, sender: AsyncOutcomeSender) {
-        let result = match self.stop() {
-            Ok(_) => AsyncOutcome::Ok(0),
-            Err(e) => AsyncOutcome::Error(format!(
-                "Errors detected during instance stop()! err: {:?}",
-                e
-            )),
-        };
-        sender.send(result).expect("one-shot channel closed");
-    }*/
 
     fn is_instance_running(&self) -> bool {
         let instance_state = {
@@ -1479,7 +1444,9 @@ impl Vmm {
                 SyncRequest::RescanBlockDevice(req_body, sender) => {
                     self.handle_rescan_block_device(req_body, sender)
                 }
-                SyncRequest::SyncStartInstance(sender) => self.handle_sync_start_instance(sender),
+                SyncRequest::StartInstance(sender) => {
+                    self.handle_start_instance(sender)
+                }
             },
         }
 

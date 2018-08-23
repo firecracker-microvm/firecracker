@@ -60,7 +60,7 @@ pub enum SyncRequest {
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
     RescanBlockDevice(ActionBody, SyncOutcomeSender),
-    SyncStartInstance(SyncOutcomeSender),
+    StartInstance(SyncOutcomeSender),
 }
 
 impl fmt::Debug for SyncRequest {
@@ -208,7 +208,7 @@ mod tests {
                     &SyncRequest::RescanBlockDevice(ref req, _),
                     &SyncRequest::RescanBlockDevice(ref other_req, _),
                 ) => req == other_req,
-                (&SyncRequest::SyncStartInstance(_), &SyncRequest::SyncStartInstance(_)) => true,
+                (&SyncRequest::StartInstance(_), &SyncRequest::StartInstance(_)) => true,
                 _ => false,
             }
         }
