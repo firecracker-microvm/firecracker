@@ -6,7 +6,7 @@ use futures::sync::oneshot;
 use hyper::Method;
 use serde_json::Value;
 
-use request::sync::{SyncRequest, InstanceDeviceDetachAction};
+use request::sync::{InstanceDeviceDetachAction, SyncRequest};
 use request::{IntoParsedRequest, ParsedRequest};
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
@@ -43,17 +43,6 @@ impl IntoParsedRequest for ActionBody {
                     sync_receiver,
                 ))
             }
-           /* ActionType::InstanceStart => {
-                let (async_sender, async_receiver) = oneshot::channel();
-                match self.action_id {
-                    Some(id) => Ok(ParsedRequest::Async(
-                        id.clone(),
-                        AsyncRequest::StartInstance(async_sender),
-                        async_receiver,
-                    )),
-                    None => Err(String::from("Missing ID")),
-                }
-            }*/
             ActionType::InstanceStart => {
                 //eprintln!("InstanceStart oneshot channel creation");
                 let (sync_sender, sync_receiver) = oneshot::channel();
@@ -62,19 +51,6 @@ impl IntoParsedRequest for ActionBody {
                     sync_receiver,
                 ))
             }
-            /*
-            ActionType::InstanceHalt => {
-                let (async_sender, async_receiver) = oneshot::channel();
-                match self.action_id {
-                    Some(id) => Ok(ParsedRequest::Async(
-                        // Safe to unwrap() because the value is checked above.
-                        id.clone(),
-                        AsyncRequest::StopInstance(async_sender),
-                        async_receiver,
-                    )),
-                    None => Err(String::from("Missing ID")),
-                }
-            }*/
         }
     }
 }
@@ -123,10 +99,8 @@ mod tests {
                 \"timestamp\": 1522850095
               }";
             let (sender, receiver) = oneshot::channel();
-            let req: ParsedRequest = ParsedRequest::Sync(
-                SyncRequest::SyncStartInstance(sender),
-                receiver,
-            );
+            let req: ParsedRequest =
+                ParsedRequest::Sync(SyncRequest::SyncStartInstance(sender), receiver);
             let result: Result<ActionBody, serde_json::Error> = serde_json::from_str(json);
             assert!(result.is_ok());
             assert!(

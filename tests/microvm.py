@@ -817,13 +817,16 @@ class Microvm:
             self.actions_url + '/1',
             json={'action_id': '1', 'action_type': 'InstanceStart'}
         )
+        print(response.status_code)
         assert(self.api_session.is_good_response(response.status_code))
 
+        """
         # Wait for the microvm to start.
         time.sleep(1)
         # Check that the Instance Start was successful
         response = self.api_session.get(self.actions_url + '/1')
         assert (self.api_session.is_good_response(response.status_code))
+        """
 
     def kill(self):
         """

@@ -672,11 +672,10 @@ mod tests {
     use request::ActionType;
 
     fn body_to_string(body: hyper::Body) -> String {
-        let ret =
-            body.fold(Vec::new(), |mut acc, chunk| {
-                acc.extend_from_slice(&*chunk);
-                Ok::<_, hyper::Error>(acc)
-            }).and_then(move |value| Ok(value));
+        let ret = body.fold(Vec::new(), |mut acc, chunk| {
+            acc.extend_from_slice(&*chunk);
+            Ok::<_, hyper::Error>(acc)
+        }).and_then(move |value| Ok(value));
 
         String::from_utf8_lossy(&ret.wait().unwrap()).into()
     }

@@ -470,8 +470,7 @@ impl Vmm {
         block_device_config: BlockDeviceConfig,
     ) -> result::Result<PutDriveOutcome, DriveError> {
         // If the id of the drive already exists in the list, the operation is update.
-        if self
-            .block_device_configs
+        if self.block_device_configs
             .contains_drive_id(block_device_config.drive_id.clone())
         {
             self.block_device_configs
@@ -663,14 +662,12 @@ impl Vmm {
             let rate_limiter = rate_limiter_description_into_implementation(
                 drive_config.rate_limiter.as_ref(),
             ).map_err(Error::CreateRateLimiter)?;
-            let block_box = Box::new(
-                devices::virtio::Block::new(
-                    block_file,
-                    drive_config.is_read_only,
-                    epoll_config,
-                    rate_limiter,
-                ).map_err(Error::CreateBlockDevice)?,
-            );
+            let block_box = Box::new(devices::virtio::Block::new(
+                block_file,
+                drive_config.is_read_only,
+                epoll_config,
+                rate_limiter,
+            ).map_err(Error::CreateBlockDevice)?);
             device_manager
                 .register_device(
                     block_box,
@@ -749,15 +746,13 @@ impl Vmm {
             ).map_err(Error::CreateRateLimiter)?;
 
             if let Some(tap) = cfg.take_tap() {
-                let net_box = Box::new(
-                    devices::virtio::Net::new_with_tap(
-                        tap,
-                        cfg.guest_mac(),
-                        epoll_config,
-                        rx_rate_limiter,
-                        tx_rate_limiter,
-                    ).map_err(Error::CreateNetDevice)?,
-                );
+                let net_box = Box::new(devices::virtio::Net::new_with_tap(
+                    tap,
+                    cfg.guest_mac(),
+                    epoll_config,
+                    rx_rate_limiter,
+                    tx_rate_limiter,
+                ).map_err(Error::CreateNetDevice)?);
 
                 device_manager
                     .register_device(net_box, &mut kernel_config.cmdline, None)
@@ -856,8 +851,7 @@ impl Vmm {
             let kill_signaled = kill_signaled.clone();
             let vcpu_thread_barrier = vcpu_thread_barrier.clone();
             // If the lock is poisoned, it's OK to panic.
-            let vcpu_exit_evt = self
-                .legacy_device_manager
+            let vcpu_exit_evt = self.legacy_device_manager
                 .i8042
                 .lock()
                 .unwrap()
@@ -870,95 +864,92 @@ impl Vmm {
             // has default values for all fields.
             vcpu.configure(&self.vm_config, entry_addr, &self.vm)
                 .map_err(Error::VcpuConfigure)?;
-            vcpu_handles.push(
-                thread::Builder::new()
-                    .name(format!("fc_vcpu{}", cpu_id))
-                    .spawn(move || {
-                        unsafe {
-                            extern "C" fn handle_signal(_: i32, _: *mut siginfo_t, _: *mut c_void) {
-                            }
-                            // This uses an async signal safe handler to kill the vcpu handles.
-                            register_signal_handler(
-                                VCPU_RTSIG_OFFSET,
-                                sys_util::SignalHandler::Siginfo(handle_signal),
-                                true,
-                            ).expect("Failed to register vcpu signal handler");
+            vcpu_handles.push(thread::Builder::new()
+                .name(format!("fc_vcpu{}", cpu_id))
+                .spawn(move || {
+                    unsafe {
+                        extern "C" fn handle_signal(_: i32, _: *mut siginfo_t, _: *mut c_void) {}
+                        // This uses an async signal safe handler to kill the vcpu handles.
+                        register_signal_handler(
+                            VCPU_RTSIG_OFFSET,
+                            sys_util::SignalHandler::Siginfo(handle_signal),
+                            true,
+                        ).expect("Failed to register vcpu signal handler");
+                    }
+
+                    vcpu_thread_barrier.wait();
+
+                    loop {
+                        match vcpu.run() {
+                            Ok(run) => match run {
+                                VcpuExit::IoIn(addr, data) => {
+                                    io_bus.read(addr as u64, data);
+                                    METRICS.vcpu.exit_io_in.inc();
+                                }
+                                VcpuExit::IoOut(addr, data) => {
+                                    io_bus.write(addr as u64, data);
+                                    METRICS.vcpu.exit_io_out.inc();
+                                }
+                                VcpuExit::MmioRead(addr, data) => {
+                                    mmio_bus.read(addr, data);
+                                    METRICS.vcpu.exit_mmio_read.inc();
+                                }
+                                VcpuExit::MmioWrite(addr, data) => {
+                                    mmio_bus.write(addr, data);
+                                    METRICS.vcpu.exit_mmio_write.inc();
+                                }
+                                VcpuExit::Hlt => {
+                                    info!("Received KVM_EXIT_HLT signal");
+                                    break;
+                                }
+                                VcpuExit::Shutdown => {
+                                    info!("Received KVM_EXIT_SHUTDOWN signal");
+                                    break;
+                                }
+                                // Documentation specifies that below kvm exits are considered
+                                // errors.
+                                VcpuExit::FailEntry => {
+                                    METRICS.vcpu.failures.inc();
+                                    error!("Received KVM_EXIT_FAIL_ENTRY signal");
+                                    break;
+                                }
+                                VcpuExit::InternalError => {
+                                    METRICS.vcpu.failures.inc();
+                                    error!("Received KVM_EXIT_INTERNAL_ERROR signal");
+                                    break;
+                                }
+                                r => {
+                                    METRICS.vcpu.failures.inc();
+                                    // TODO: Are we sure we want to finish running a vcpu upon
+                                    // receiving a vm exit that is not necessarily an error?
+                                    error!("Unexpected exit reason on vcpu run: {:?}", r);
+                                    break;
+                                }
+                            },
+                            Err(vstate::Error::VcpuRun(ref e)) => match e.errno() {
+                                // Why do we check for these if we only return EINVAL?
+                                libc::EAGAIN | libc::EINTR => {}
+                                _ => {
+                                    METRICS.vcpu.failures.inc();
+                                    error!("Failure during vcpu run: {:?}", e);
+                                    break;
+                                }
+                            },
+                            _ => (),
                         }
 
-                        vcpu_thread_barrier.wait();
-
-                        loop {
-                            match vcpu.run() {
-                                Ok(run) => match run {
-                                    VcpuExit::IoIn(addr, data) => {
-                                        io_bus.read(addr as u64, data);
-                                        METRICS.vcpu.exit_io_in.inc();
-                                    }
-                                    VcpuExit::IoOut(addr, data) => {
-                                        io_bus.write(addr as u64, data);
-                                        METRICS.vcpu.exit_io_out.inc();
-                                    }
-                                    VcpuExit::MmioRead(addr, data) => {
-                                        mmio_bus.read(addr, data);
-                                        METRICS.vcpu.exit_mmio_read.inc();
-                                    }
-                                    VcpuExit::MmioWrite(addr, data) => {
-                                        mmio_bus.write(addr, data);
-                                        METRICS.vcpu.exit_mmio_write.inc();
-                                    }
-                                    VcpuExit::Hlt => {
-                                        info!("Received KVM_EXIT_HLT signal");
-                                        break;
-                                    }
-                                    VcpuExit::Shutdown => {
-                                        info!("Received KVM_EXIT_SHUTDOWN signal");
-                                        break;
-                                    }
-                                    // Documentation specifies that below kvm exits are considered
-                                    // errors.
-                                    VcpuExit::FailEntry => {
-                                        METRICS.vcpu.failures.inc();
-                                        error!("Received KVM_EXIT_FAIL_ENTRY signal");
-                                        break;
-                                    }
-                                    VcpuExit::InternalError => {
-                                        METRICS.vcpu.failures.inc();
-                                        error!("Received KVM_EXIT_INTERNAL_ERROR signal");
-                                        break;
-                                    }
-                                    r => {
-                                        METRICS.vcpu.failures.inc();
-                                        // TODO: Are we sure we want to finish running a vcpu upon
-                                        // receiving a vm exit that is not necessarily an error?
-                                        error!("Unexpected exit reason on vcpu run: {:?}", r);
-                                        break;
-                                    }
-                                },
-                                Err(vstate::Error::VcpuRun(ref e)) => match e.errno() {
-                                    // Why do we check for these if we only return EINVAL?
-                                    libc::EAGAIN | libc::EINTR => {}
-                                    _ => {
-                                        METRICS.vcpu.failures.inc();
-                                        error!("Failure during vcpu run: {:?}", e);
-                                        break;
-                                    }
-                                },
-                                _ => (),
-                            }
-
-                            if kill_signaled.load(Ordering::SeqCst) {
-                                break;
-                            }
+                        if kill_signaled.load(Ordering::SeqCst) {
+                            break;
                         }
+                    }
 
-                        // Nothing we need do for the success case.
-                        if let Err(e) = vcpu_exit_evt.write(1) {
-                            METRICS.vcpu.failures.inc();
-                            error!("Failed signaling vcpu exit event: {:?}", e);
-                        }
-                    })
-                    .map_err(Error::VcpuSpawn)?,
-            );
+                    // Nothing we need do for the success case.
+                    if let Err(e) = vcpu_exit_evt.write(1) {
+                        METRICS.vcpu.failures.inc();
+                        error!("Failed signaling vcpu exit event: {:?}", e);
+                    }
+                })
+                .map_err(Error::VcpuSpawn)?);
         }
 
         vcpu_thread_barrier.wait();
@@ -991,8 +982,7 @@ impl Vmm {
 
     fn register_events(&mut self) -> Result<()> {
         // If the lock is poisoned, it's OK to panic.
-        let event_fd = self
-            .legacy_device_manager
+        let event_fd = self.legacy_device_manager
             .i8042
             .lock()
             .unwrap()
@@ -1037,7 +1027,6 @@ impl Vmm {
             .set_state(timer_state, SetTimeFlags::Default);
 
         //eprintln!("Handle sync start - instance started");
-
 
         Ok(())
     }
@@ -1201,7 +1190,6 @@ impl Vmm {
     }*/
 
     fn handle_sync_start_instance(&mut self, sender: SyncOutcomeSender) {
-
         //eprintln!("Handle sync start");
 
         if self.is_instance_running() {
@@ -1214,16 +1202,15 @@ impl Vmm {
         //eprintln!("Handle sync start - instance not running yet");
 
         match self.start_instance() {
-                Ok(_) => sender
-                    .send(Box::new(SyncOkStatus::InstanceStarted))
-                    .map_err(|_| ())
-                    .expect("one-shot channel closed"),
-                Err(_) => sender
-                    .send(Box::new(SyncError::InstanceStartFailed))
-                    .map_err(|_| ())
-                    .expect("one-shot channel closed"),
+            Ok(_) => sender
+                .send(Box::new(SyncOkStatus::InstanceStarted))
+                .map_err(|_| ())
+                .expect("one-shot channel closed"),
+            Err(_) => sender
+                .send(Box::new(SyncError::InstanceStartFailed))
+                .map_err(|_| ())
+                .expect("one-shot channel closed"),
         };
-
     }
 
     /*fn handle_stop_instance(&mut self, sender: AsyncOutcomeSender) {
@@ -1355,7 +1342,6 @@ impl Vmm {
 
         let box_response: Box<GenerateResponse + Send> = match boot_source_body.local_image {
             // Check that the kernel path exists and it is valid.
-
             Some(image) => match File::open(image.kernel_image_path) {
                 Ok(kernel_file) => {
                     let mut cmdline =
@@ -1457,7 +1443,6 @@ impl Vmm {
             .expect("one-shot channel closed");
     }
 
-
     fn run_api_cmd(&mut self) -> Result<()> {
         let request = match self.from_api.try_recv() {
             Ok(t) => t,
@@ -1494,9 +1479,7 @@ impl Vmm {
                 SyncRequest::RescanBlockDevice(req_body, sender) => {
                     self.handle_rescan_block_device(req_body, sender)
                 }
-                SyncRequest::SyncStartInstance(sender) => {
-                    self.handle_sync_start_instance(sender)
-                }
+                SyncRequest::SyncStartInstance(sender) => self.handle_sync_start_instance(sender),
             },
         }
 
