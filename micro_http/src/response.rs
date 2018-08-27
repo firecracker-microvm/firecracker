@@ -1,4 +1,4 @@
-use ascii::SP;
+use ascii::{CRLF, SP};
 use common::{Body, Version};
 use headers::{Header, Headers, MediaType};
 
@@ -41,7 +41,7 @@ impl StatusLine {
         let http_version = self.http_version.raw();
         let status_code = self.status_code.raw();
 
-        return [http_version, SP, status_code, SP].concat();
+        return [http_version, SP, status_code, SP, CRLF].concat();
     }
 }
 
@@ -111,11 +111,11 @@ mod tests {
         let content_length = format!("Content-Length: {}\r\n", body.len());
 
         let expected_response_1 = format!(
-            "HTTP/1.0 200 {}{}This is a test",
+            "HTTP/1.0 200 \r\n{}{}\r\nThis is a test",
             content_length, content_type
         );
         let expected_response_2 = format!(
-            "HTTP/1.0 200 {}{}This is a test",
+            "HTTP/1.0 200 \r\n{}{}\r\nThis is a test",
             content_type, content_length
         );
 
