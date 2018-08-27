@@ -2,6 +2,7 @@ extern crate epoll;
 extern crate libc;
 extern crate serde;
 extern crate serde_json;
+extern crate time;
 extern crate timerfd;
 
 extern crate api_server;
@@ -30,11 +31,11 @@ use std::fs::{metadata, File, OpenOptions};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::result;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
-use std::time;
+use std::time::Duration;
 
 use libc::{c_void, siginfo_t};
 use serde_json::Value;
@@ -69,9 +70,13 @@ use sys_util::{register_signal_handler, EventFd, Killable, Terminal};
 use vm_control::VmResponse;
 use vstate::{Vcpu, Vm};
 
+const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u16 = 0x03f0;
+const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
+
 const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
 const VCPU_RTSIG_OFFSET: i32 = 0;
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
+static START_INSTANCE_REQUEST_TS: AtomicUsize = ATOMIC_USIZE_INIT;
 
 #[derive(Debug)]
 pub enum Error {
@@ -896,6 +901,17 @@ impl Vmm {
                                         METRICS.vcpu.exit_io_in.inc();
                                     }
                                     VcpuExit::IoOut(addr, data) => {
+                                        if addr == MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE
+                                            && data[0] == MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE
+                                        {
+                                            let boot_time_ns = time::precise_time_ns() as usize
+                                                - START_INSTANCE_REQUEST_TS.load(Ordering::Acquire);
+                                            warn!(
+                                                "Guest-boot-time = {:>6} us {} ms",
+                                                boot_time_ns / 1000,
+                                                boot_time_ns / 1000000
+                                            );
+                                        }
                                         io_bus.write(addr as u64, data);
                                         METRICS.vcpu.exit_io_out.inc();
                                     }
@@ -1030,8 +1046,8 @@ impl Vmm {
         // Arm the log write timer.
         // TODO: the timer does not stop on InstanceStop.
         let timer_state = TimerState::Periodic {
-            current: time::Duration::from_secs(WRITE_METRICS_PERIOD_SECONDS),
-            interval: time::Duration::from_secs(WRITE_METRICS_PERIOD_SECONDS),
+            current: Duration::from_secs(WRITE_METRICS_PERIOD_SECONDS),
+            interval: Duration::from_secs(WRITE_METRICS_PERIOD_SECONDS),
         };
         self.write_metrics_event
             .fd
@@ -1177,6 +1193,8 @@ impl Vmm {
     }
 
     fn handle_start_instance(&mut self, sender: AsyncOutcomeSender) {
+        START_INSTANCE_REQUEST_TS.store(time::precise_time_ns() as usize, Ordering::Release);
+
         let instance_state = {
             // Use unwrap() to crash if the other thread poisoned this lock.
             let shared_info = self.shared_info.read().unwrap();
