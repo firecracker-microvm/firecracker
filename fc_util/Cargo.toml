@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-time = "0.1.39"
+time = ">=0.1.39"
 timerfd = "1.0"
 
 logger = { path = "../logger" }

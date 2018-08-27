@@ -9,6 +9,7 @@ epoll = "=2.1.0"
 scopeguard = "=0.3.3"
 serde = "=1.0.27"
 serde_json = ">=1.0.9"
+time = ">=0.1.39"
 timerfd = ">=1.0"
 
 api_server = { path = "../api_server" }
