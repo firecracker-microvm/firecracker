@@ -37,7 +37,7 @@ impl StatusLine {
         };
     }
 
-    fn raw(&mut self) -> Vec<u8> {
+    fn raw(&self) -> Vec<u8> {
         let http_version = self.http_version.raw();
         let status_code = self.status_code.raw();
 
@@ -77,7 +77,7 @@ impl Response {
         }
     }
 
-    pub fn raw(&mut self) -> Vec<u8> {
+    pub fn raw(&self) -> Vec<u8> {
         let status_line = self.status_line.raw();
         let headers = self.headers.raw();
         let body = self.body_raw();
