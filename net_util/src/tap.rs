@@ -373,9 +373,11 @@ mod tests {
 
         let (mac, mut tx, _) = pnet_get_mac_tx_rx(ifname);
 
-        tx.build_and_send(1, buf_size, &mut |buf| {
+        let res = tx.build_and_send(1, buf_size, &mut |buf| {
             pnet_build_packet(buf, mac, payload);
         });
+        // Make sure build_and_send() -> Option<io::Result<()>> succeeds.
+        res.unwrap().unwrap();
     }
 
     // For a given interface name, this returns a tuple that contains the MAC address of the
@@ -500,8 +502,11 @@ mod tests {
             }
 
             let udp_bytes = &ipv4_bytes[20..];
+
+            let udp_len = UdpPacket::new(udp_bytes).unwrap().get_length() as usize;
+
             // Skip the header bytes.
-            let inner_string = str::from_utf8(&udp_bytes[8..]).unwrap();
+            let inner_string = str::from_utf8(&udp_bytes[8..udp_len]).unwrap();
 
             if inner_string.eq(DATA_STRING) {
                 found_packet_sz = Some(size);
