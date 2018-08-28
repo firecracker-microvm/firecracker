@@ -53,11 +53,11 @@ declare -r RUSTUP_URL=https://sh.rustup.rs
 declare -ra RUST_DEPS=(cargo-kcov)
 
 declare -ra KCOV_YUM_DEPS=(\
-    gcc gcc-c++ cmake \
+    gcc gcc-c++ cmake jq \
     elfutils-libelf-devel libcurl-devel binutils-devel elfutils-devel \
 )
 declare -ra KCOV_APT_GET_DEPS=(\
-    gcc g++ cmake \
+    gcc g++ cmake jq \
     binutils-dev libcurl4-openssl-dev zlib1g-dev libdw-dev libiberty-dev \
 )
 
