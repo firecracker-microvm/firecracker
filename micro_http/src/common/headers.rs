@@ -37,8 +37,11 @@ impl Headers {
 
         for (key, val) in &self.headers {
             let header = [key.raw(), COLON, SP, val.clone().as_bytes(), CRLF].concat();
-            response = [response, header].concat()
+            response = [response, header].concat();
         }
+
+        // The header section ends with a CRLF.
+        response = [response, CRLF.to_owned()].concat();
 
         return response;
     }

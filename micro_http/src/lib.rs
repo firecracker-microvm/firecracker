@@ -5,5 +5,7 @@ mod response;
 use common::ascii;
 use common::headers;
 
-pub use request::Request;
-pub use response::Response;
+pub use request::{Error as RequestError, Request};
+pub use response::{Response, StatusCode};
+
+pub use common::Body;

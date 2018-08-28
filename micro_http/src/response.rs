@@ -1,8 +1,9 @@
-use ascii::SP;
+use ascii::{CRLF, SP};
 use common::{Body, Version};
 use headers::{Header, Headers, MediaType};
 
 #[allow(dead_code)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum StatusCode {
     OK,
     BadRequest,
@@ -36,11 +37,11 @@ impl StatusLine {
         };
     }
 
-    fn raw(&mut self) -> Vec<u8> {
+    fn raw(&self) -> Vec<u8> {
         let http_version = self.http_version.raw();
         let status_code = self.status_code.raw();
 
-        return [http_version, SP, status_code, SP].concat();
+        return [http_version, SP, status_code, SP, CRLF].concat();
     }
 }
 
@@ -76,7 +77,7 @@ impl Response {
         }
     }
 
-    pub fn raw(&mut self) -> Vec<u8> {
+    pub fn raw(&self) -> Vec<u8> {
         let status_line = self.status_line.raw();
         let headers = self.headers.raw();
         let body = self.body_raw();
@@ -84,6 +85,14 @@ impl Response {
         let response = [status_line, headers, body.to_owned()].concat();
 
         return response;
+    }
+
+    pub fn status(&self) -> StatusCode {
+        self.status_line.status_code
+    }
+
+    pub fn body(&self) -> Option<Body> {
+        self.body.clone()
     }
 }
 
@@ -102,11 +111,11 @@ mod tests {
         let content_length = format!("Content-Length: {}\r\n", body.len());
 
         let expected_response_1 = format!(
-            "HTTP/1.0 200 {}{}This is a test",
+            "HTTP/1.0 200 \r\n{}{}\r\nThis is a test",
             content_length, content_type
         );
         let expected_response_2 = format!(
-            "HTTP/1.0 200 {}{}This is a test",
+            "HTTP/1.0 200 \r\n{}{}\r\nThis is a test",
             content_type, content_length
         );
 

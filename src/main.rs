@@ -16,7 +16,7 @@ use std::sync::{Arc, RwLock};
 
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::ApiServer;
-use data_model::mmds::STATIC_MMDS;
+use data_model::mmds::MMDS;
 use logger::LOGGER;
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
@@ -70,7 +70,7 @@ fn main() {
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,
     }));
-    let mmds_info = STATIC_MMDS.clone();
+    let mmds_info = MMDS.clone();
     let (to_vmm, from_api) = channel();
     let server = ApiServer::new(
         mmds_info,
