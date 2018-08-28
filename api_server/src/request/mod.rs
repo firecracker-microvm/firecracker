@@ -1,7 +1,6 @@
-pub mod actions;
-pub mod async;
-pub mod instance_info;
 pub mod sync;
+pub mod actions;
+pub mod instance_info;
 
 use serde_json::Value;
 use std::result;
@@ -11,7 +10,6 @@ use futures::sync::oneshot;
 use hyper::Method;
 
 pub use self::actions::{ActionBody, ActionType};
-pub use self::async::{AsyncOutcome, AsyncOutcomeReceiver, AsyncOutcomeSender, AsyncRequest};
 pub use self::sync::{
     APILoggerDescription, BootSourceBody, NetworkInterfaceBody, SyncOutcomeReceiver,
     SyncOutcomeSender, SyncRequest,
@@ -25,8 +23,6 @@ pub enum ParsedRequest {
     GetMMDS,
     PatchMMDS(Value),
     PutMMDS(Value),
-    // the first String is the id
-    Async(String, AsyncRequest, AsyncOutcomeReceiver),
     Sync(SyncRequest, SyncOutcomeReceiver),
 }
 
@@ -34,7 +30,6 @@ pub enum ParsedRequest {
 // of a certain action.
 #[derive(Debug)]
 pub enum ApiRequest {
-    Async(AsyncRequest),
     Sync(SyncRequest),
 }
 
@@ -61,10 +56,6 @@ impl IntoParsedRequest for PatchDrivePayload {
 impl PartialEq for ParsedRequest {
     fn eq(&self, other: &ParsedRequest) -> bool {
         match (self, other) {
-            (
-                &ParsedRequest::Async(ref id, ref request, _),
-                &ParsedRequest::Async(ref other_id, ref other_request, _),
-            ) => id == other_id && request == other_request,
             (
                 &ParsedRequest::Sync(ref sync_req, _),
                 &ParsedRequest::Sync(ref other_sync_req, _),

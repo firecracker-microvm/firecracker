@@ -60,6 +60,7 @@ pub enum SyncRequest {
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
     RescanBlockDevice(ActionBody, SyncOutcomeSender),
+    StartInstance(SyncOutcomeSender),
 }
 
 impl fmt::Debug for SyncRequest {
@@ -74,14 +75,29 @@ impl fmt::Debug for SyncRequest {
 #[derive(PartialEq)]
 pub enum OkStatus {
     Created,
+    InstanceStarted,
     Updated,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub enum DeviceType {
+    Drive,
+}
+
+// Represents the associated json block from the async request body.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstanceDeviceDetachAction {
+    pub device_type: DeviceType,
+    pub device_resource_id: String,
+    pub force: bool,
+}
 impl GenerateResponse for OkStatus {
     fn generate_response(&self) -> hyper::Response {
         use self::OkStatus::*;
         match *self {
             Created => empty_response(StatusCode::Created),
+            InstanceStarted => empty_response(StatusCode::Ok),
             Updated => empty_response(StatusCode::NoContent),
         }
     }
@@ -92,8 +108,10 @@ impl GenerateResponse for OkStatus {
 pub enum Error {
     DriveOperationFailed(DriveError),
     GuestCIDAlreadyInUse,
+    GuestInstanceAlreadyRunning,
     GuestMacAddressInUse,
     InvalidPayload,
+    InstanceStartFailed,
     OpenTap(TapError),
     OperationFailed,
     OperationNotAllowedPreBoot,
@@ -114,9 +132,17 @@ impl GenerateResponse for Error {
                 StatusCode::BadRequest,
                 json_fault_message("The specified guest MAC address is already in use."),
             ),
+            GuestInstanceAlreadyRunning => json_response(
+                StatusCode::Forbidden,
+                json_fault_message("The guest instance is already running."),
+            ),
             InvalidPayload => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The request payload is invalid."),
+            ),
+            InstanceStartFailed => json_response(
+                StatusCode::InternalServerError,
+                json_fault_message("The start of the microVM failed."),
             ),
             OpenTap(ref e) => json_response(
                 StatusCode::BadRequest,
@@ -182,6 +208,7 @@ mod tests {
                     &SyncRequest::RescanBlockDevice(ref req, _),
                     &SyncRequest::RescanBlockDevice(ref other_req, _),
                 ) => req == other_req,
+                (&SyncRequest::StartInstance(_), &SyncRequest::StartInstance(_)) => true,
                 _ => false,
             }
         }

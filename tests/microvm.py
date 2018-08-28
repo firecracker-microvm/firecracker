@@ -819,11 +819,16 @@ class Microvm:
         )
         assert(self.api_session.is_good_response(response.status_code))
 
+        """
+        TODO: if InstanceStart action result added to the action map again
+              then re-enable this test
+        
         # Wait for the microvm to start.
         time.sleep(1)
         # Check that the Instance Start was successful
         response = self.api_session.get(self.actions_url + '/1')
         assert (self.api_session.is_good_response(response.status_code))
+        """
 
     def kill(self):
         """
