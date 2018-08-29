@@ -20,6 +20,7 @@ const CONTROLLER_PIDS: &str = "pids";
 // The list of cgroup controllers we're interested in.
 const CONTROLLERS: [&'static str; 3] = [CONTROLLER_CPU, CONTROLLER_CPUSET, CONTROLLER_PIDS];
 const PROC_MOUNTS: &str = "/proc/mounts";
+const NODE_TO_CPULIST: &str = "/sys/devices/system/node/node";
 
 pub struct Cgroup {
     tasks_files: Vec<PathBuf>,
@@ -133,7 +134,6 @@ impl Cgroup {
         let re = Regex::new(
             r"^cgroup[[:space:]](?P<dir>.*)[[:space:]]cgroup[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
         ).map_err(Error::RegEx)?;
-
         for l in BufReader::new(f).lines() {
             let l = l.map_err(|e| Error::ReadLine(PathBuf::from(PROC_MOUNTS), e))?;
             if let Some(capture) = re.captures(&l) {
@@ -194,8 +194,21 @@ impl Cgroup {
                 inherit_from_parent(&mut path_buf, CPUSET_MEMS)?;
 
                 // Enforce NUMA node restriction.
+                // The cpuset subsystem assigns individual CPUs and memory nodes to cgroups.
+                // CPUSET_MEMS specifies the memory nodes that tasks in this cgroup are permitted to
+                // access.
                 path_buf.push(CPUSET_MEMS);
                 writeln_special(&path_buf, numa_node)?;
+                path_buf.pop();
+                // Similar to how numactl library does, we are copying the contents of
+                // /sys/devices/system/node/nodeX/cpulist to the cpuset.cpus file for ensuring
+                // correct numa cpu assignment.
+                let line = readln_special(&PathBuf::from(format!(
+                    "{}{}/cpulist",
+                    NODE_TO_CPULIST, numa_node
+                )))?;
+                path_buf.push(CPUSET_CPUS);
+                writeln_special(&path_buf, line)?;
                 path_buf.pop();
             }
 
