@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ascii::{COLON, CRLF, SP};
+use ascii::{COLON, CR, LF, SP};
 
 #[derive(Eq, Hash, PartialEq)]
 pub enum Header {
@@ -36,12 +36,12 @@ impl Headers {
         let mut response = Vec::new();
 
         for (key, val) in &self.headers {
-            let header = [key.raw(), COLON, SP, val.clone().as_bytes(), CRLF].concat();
+            let header = [key.raw(), &[COLON, SP], val.clone().as_bytes(), &[CR, LF]].concat();
             response = [response, header].concat();
         }
 
         // The header section ends with a CRLF.
-        response = [response, CRLF.to_owned()].concat();
+        response = [response, vec![CR, LF]].concat();
 
         return response;
     }
