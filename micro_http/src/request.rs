@@ -26,18 +26,29 @@ pub enum Error {
     InvalidRequest,
 }
 
+#[derive(Clone, PartialEq)]
+struct Uri<'a> {
+    bytes: &'a [u8],
+}
+
+impl<'a> Uri<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Uri { bytes }
+    }
+}
+
 #[derive(PartialEq)]
-struct RequestLine {
+struct RequestLine<'a> {
     method: Method,
-    uri: String,
+    uri: Uri<'a>,
     http_version: Version,
 }
 
-impl RequestLine {
-    fn try_from(request_line: &[u8]) -> Result<Self, Error> {
+impl<'a> RequestLine<'a> {
+    fn try_from(request_line: &'a[u8]) -> Result<Self, Error> {
         let (method, remaining_bytes) = split(request_line, SP);
         if method != Method::Get.raw() {
-                return Err(Error::InvalidRequest);
+            return Err(Error::InvalidRequest);
         }
 
         let (uri, remaining_bytes) = split(remaining_bytes, SP);
@@ -45,7 +56,11 @@ impl RequestLine {
         if uri.len() == 0 {
             return Err(Error::InvalidRequest);
         }
-        let uri = from_utf8(uri).map_err(|_| Error::InvalidRequest)?;
+        if from_utf8(uri).is_err() {
+            // TODO: return UTF8 error.
+            return Err(Error::InvalidRequest);
+        }
+        // TODO add some more validation to the URI.
 
         let (mut version, _) = split(remaining_bytes, LF);
         // If the version ends with \r, we need to strip it.
@@ -58,7 +73,7 @@ impl RequestLine {
 
         Ok(RequestLine {
             method: Method::Get,
-            uri: String::from(uri),
+            uri: Uri::new(uri),
             http_version: Version::Http10,
         })
     }
@@ -72,13 +87,13 @@ impl RequestLine {
 }
 
 #[allow(unused)]
-pub struct Request {
-    request_line: RequestLine,
+pub struct Request<'a> {
+    request_line: RequestLine<'a>,
     headers: Headers,
     body: Option<Body>,
 }
 
-impl Request {
+impl<'a> Request<'a> {
     /// Parses a byte slice into a HTTP Request.
     /// The byte slice is expected to have the following format: </br>
     ///     * Request Line: "GET SP Request-uri SP HTTP/1.0 CRLF" - Mandatory </br>
@@ -99,7 +114,7 @@ impl Request {
     ///
     /// let http_request = Request::try_from(b"GET http://localhost/home HTTP/1.0\r\n");
     ///
-    pub fn try_from(byte_stream: &[u8]) -> Result<Self, Error> {
+    pub fn try_from(byte_stream: &'a [u8]) -> Result<Self, Error> {
         // The first line of the request is the Request Line. The line ending is LF.
         let (request_line, _) = split(byte_stream, LF);
         if request_line.len() < RequestLine::min_len() {
@@ -116,8 +131,9 @@ impl Request {
         })
     }
 
-    pub fn get_uri(&self) -> String {
-        self.request_line.uri.clone()
+    pub fn get_uri_utf8(&self) -> &str {
+        // Safe to unwrap because we validate the URI when creating the Request Line.
+        from_utf8(self.request_line.uri.bytes).unwrap()
     }
 }
 
@@ -125,7 +141,7 @@ impl Request {
 mod tests {
     use super::*;
 
-    impl PartialEq for Request {
+    impl<'a> PartialEq for Request<'a> {
         fn eq(&self, other: &Request) -> bool {
             // Ignore the other fields of Request for now because they are not used.
             return self.request_line == other.request_line;
@@ -137,7 +153,7 @@ mod tests {
         let expected_request_line = RequestLine {
             http_version: Version::Http10,
             method: Method::Get,
-            uri: String::from("http://localhost/home"),
+            uri: Uri::new(b"http://localhost/home"),
         };
 
         let request_line = b"GET http://localhost/home HTTP/1.0\r\n";
@@ -165,7 +181,7 @@ mod tests {
             request_line: RequestLine {
                 http_version: Version::Http10,
                 method: Method::Get,
-                uri: String::from("http://localhost/home"),
+                uri: Uri::new(b"http://localhost/home"),
             },
             body: None,
             headers: Headers::default(),
