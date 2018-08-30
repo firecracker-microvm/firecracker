@@ -70,6 +70,7 @@ impl Vm {
     /// Currently this is x86 specific (because of the TSS address setup)
     pub fn memory_init(&mut self, guest_mem: GuestMemory) -> Result<()> {
         guest_mem.with_regions(|index, guest_addr, size, host_addr| {
+            info!("Guest memory starts at {:x?}", host_addr);
             // Safe because the guest regions are guaranteed not to overlap.
             self.fd.set_user_memory_region(
                 index as u32,
