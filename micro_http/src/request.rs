@@ -35,21 +35,21 @@ struct RequestLine {
 
 impl RequestLine {
     fn try_from(request_line: &[u8]) -> Result<Self, Error> {
-        let (method, remaining_bytes) = split(request_line, SP[0]);
+        let (method, remaining_bytes) = split(request_line, SP);
         if method != Method::Get.raw() {
                 return Err(Error::InvalidRequest);
         }
 
-        let (uri, remaining_bytes) = split(remaining_bytes, SP[0]);
+        let (uri, remaining_bytes) = split(remaining_bytes, SP);
         // TODO add some more validation to the URI.
         if uri.len() == 0 {
             return Err(Error::InvalidRequest);
         }
         let uri = from_utf8(uri).map_err(|_| Error::InvalidRequest)?;
 
-        let (mut version, _) = split(remaining_bytes, LF[0]);
+        let (mut version, _) = split(remaining_bytes, LF);
         // If the version ends with \r, we need to strip it.
-        if version.len() > 1 && version[version.len() - 1] == CR[0] {
+        if version.len() > 1 && version[version.len() - 1] == CR {
             version = &version[..version.len() - 1]
         }
         if version != Version::Http10.raw() {
@@ -101,7 +101,7 @@ impl Request {
     ///
     pub fn try_from(byte_stream: &[u8]) -> Result<Self, Error> {
         // The first line of the request is the Request Line. The line ending is LF.
-        let (request_line, _) = split(byte_stream, LF[0]);
+        let (request_line, _) = split(byte_stream, LF);
         if request_line.len() < RequestLine::min_len() {
             return Err(Error::InvalidRequest);
         }

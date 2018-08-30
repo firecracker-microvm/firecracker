@@ -1,4 +1,4 @@
-use ascii::{CRLF, SP};
+use ascii::{CR, LF, SP};
 use common::{Body, Version};
 use headers::{Header, Headers, MediaType};
 
@@ -41,7 +41,7 @@ impl StatusLine {
         let http_version = self.http_version.raw();
         let status_code = self.status_code.raw();
 
-        return [http_version, SP, status_code, SP, CRLF].concat();
+        return [http_version, &[SP], status_code, &[SP, CR, LF]].concat();
     }
 }
 
