@@ -1,5 +1,25 @@
+use std::str::from_utf8;
+
+use common::ascii::{CR, LF, SP};
 use common::{Body, Method, Version};
 use headers::Headers;
+
+// Helper function used for parsing the HTTP Request.
+// Splits the bytes in a pair containing the bytes before the separator and after the separator.
+// The separator is not included in the return values.
+fn split(bytes: &[u8], separator: u8) -> (&[u8], &[u8]) {
+    for index in 0..bytes.len() {
+        if bytes[index] == separator {
+            if index + 1 < bytes.len() {
+                return (&bytes[..index], &bytes[index + 1..]);
+            } else {
+                return (&bytes[..index], &[]);
+            }
+        }
+    }
+
+    return (&[], bytes);
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -14,18 +34,40 @@ struct RequestLine {
 }
 
 impl RequestLine {
-    fn try_from(byte_stream: &[u8]) -> Result<Self, Error> {
-        let method_len = helpers::request_line::check_method(byte_stream)?;
-        let version_len = helpers::request_line::check_http_version(byte_stream)?;
+    fn try_from(request_line: &[u8]) -> Result<Self, Error> {
+        let (method, remaining_bytes) = split(request_line, SP[0]);
+        if method != Method::Get.raw() {
+                return Err(Error::InvalidRequest);
+        }
 
-        let request_uri =
-            helpers::request_line::get_request_uri(byte_stream, method_len, version_len)?;
+        let (uri, remaining_bytes) = split(remaining_bytes, SP[0]);
+        // TODO add some more validation to the URI.
+        if uri.len() == 0 {
+            return Err(Error::InvalidRequest);
+        }
+        let uri = from_utf8(uri).map_err(|_| Error::InvalidRequest)?;
+
+        let (mut version, _) = split(remaining_bytes, LF[0]);
+        // If the version ends with \r, we need to strip it.
+        if version.len() > 1 && version[version.len() - 1] == CR[0] {
+            version = &version[..version.len() - 1]
+        }
+        if version != Version::Http10.raw() {
+            return Err(Error::InvalidRequest);
+        }
 
         Ok(RequestLine {
-            http_version: Version::Http10,
             method: Method::Get,
-            uri: request_uri,
+            uri: String::from(uri),
+            http_version: Version::Http10,
         })
+    }
+
+    // Returns the minimum length of a valid request. The request must contain
+    // the method (GET), the URI (minmum 1 character), the HTTP method(HTTP/DIGIT.DIGIT) and
+    // 3 separators (SP/LF).
+    fn min_len() -> usize {
+        Method::Get.raw().len() + 1 + Version::Http10.raw().len() + 3
     }
 }
 
@@ -59,10 +101,13 @@ impl Request {
     ///
     pub fn try_from(byte_stream: &[u8]) -> Result<Self, Error> {
         // The first line of the request is the Request Line. The line ending is LF.
-        let lf_pos = helpers::request::get_first_lf(byte_stream)?;
+        let (request_line, _) = split(byte_stream, LF[0]);
+        if request_line.len() < RequestLine::min_len() {
+            return Err(Error::InvalidRequest);
+        }
 
         // The Request Line should include the trailing LF.
-        let request_line = RequestLine::try_from(&byte_stream[0..=lf_pos])?;
+        let request_line = RequestLine::try_from(&byte_stream[..=request_line.len()])?;
         // We ignore the Headers and Entity body because we don't need them for MMDS requests.
         Ok(Request {
             request_line,
@@ -76,89 +121,8 @@ impl Request {
     }
 }
 
-mod helpers {
-    use super::{Error, Method, Version};
-    use ascii::{CRLF, LF, SP};
-
-    // Module used for grouping functions that parse a Request.
-    pub mod request {
-        use super::*;
-
-        // Helper function that returns the first position of the LF character in a u8 slice.
-        // Returns Error::InvalidRequest if LF is not found.
-        pub fn get_first_lf(byte_stream: &[u8]) -> Result<usize, Error> {
-            for i in 0..byte_stream.len() {
-                if byte_stream[i] == LF[0] {
-                    return Ok(i);
-                }
-            }
-            return Err(Error::InvalidRequest);
-        }
-    }
-
-    // Module used for grouping functions that parse a RequestLine.
-    pub mod request_line {
-        use super::*;
-        use std;
-
-        // Checks that the HTTP method is correct (only GET is supported).
-        // When the method is correct, returns the length of the method + 1, where the additional 1
-        // is the length of SP character.
-        pub fn check_method(byte_stream: &[u8]) -> Result<usize, Error> {
-            // The first 3 characters from the request line should be the method.
-            // We only support GET requests. Check that the first three letters are GET, followed
-            // by SP.
-            let request_line_prefix = [Method::Get.raw(), SP].concat();
-
-            if byte_stream.starts_with(request_line_prefix.as_slice()) {
-                return Ok(request_line_prefix.len());
-            }
-
-            return Err(Error::InvalidRequest);
-        }
-
-        // Checks that the HTTP version is 1.0. When the version is correct, it returns the length
-        // of the suffix defined as "SP HTTP_Version CRLF/LF".
-        pub fn check_http_version(byte_stream: &[u8]) -> Result<usize, Error> {
-            let http_version = Version::Http10.raw();
-
-            let line_suffix_with_crlf = [SP, http_version.clone(), CRLF].concat();
-            let line_suffix_with_lf = [SP, http_version, LF].concat();
-
-            if byte_stream.ends_with(line_suffix_with_crlf.as_slice()) {
-                return Ok(line_suffix_with_crlf.len());
-            }
-
-            if byte_stream.ends_with(line_suffix_with_lf.as_slice()) {
-                return Ok(line_suffix_with_lf.len());
-            }
-
-            return Err(Error::InvalidRequest);
-        }
-
-        // Returns the request URI.
-        // The prefix should be GET SP and the suffix one of SP HTTP/1.0 CRLF or SP HTTP/1.0 LF.
-        // TODO: we need some validation of the URI.
-        pub fn get_request_uri(
-            byte_stream: &[u8],
-            prefix_len: usize,
-            suffix_len: usize,
-        ) -> Result<String, Error> {
-            if prefix_len + suffix_len >= byte_stream.len() {
-                return Err(Error::InvalidRequest);
-            }
-
-            match std::str::from_utf8(&byte_stream[prefix_len..(byte_stream.len() - suffix_len)]) {
-                Ok(request_uri) => Ok(String::from(request_uri)),
-                Err(_) => Err(Error::InvalidRequest),
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::helpers::request_line::{check_http_version, check_method, get_request_uri};
     use super::*;
 
     impl PartialEq for Request {
@@ -166,63 +130,6 @@ mod tests {
             // Ignore the other fields of Request for now because they are not used.
             return self.request_line == other.request_line;
         }
-    }
-
-    #[test]
-    fn test_check_http_method() {
-        let request_line = b"GET http://localhost/home HTTP/1.0\r\n";
-        match check_method(request_line) {
-            Ok(len) => assert_eq!(len, 4),
-            Err(_) => assert!(false),
-        };
-
-        let request_line = b"PUT http://localhost/home HTTP/1.0\r\n";
-        assert!(check_method(request_line).is_err());
-
-        assert!(check_method(b"").is_err());
-    }
-
-    #[test]
-    fn test_check_http_version() {
-        // Test CRLF ending for Request Line.
-        let request_line = b"GET http://localhost/home HTTP/1.0\r\n";
-        let expected_http_version = b" HTTP/1.0\r\n";
-        match check_http_version(request_line) {
-            Ok(val) => assert_eq!(val, expected_http_version.len()),
-            Err(_) => assert!(false),
-        };
-
-        // Test LF ending for Request Line.
-        let request_line = b"GET http://localhost/home HTTP/1.0\n";
-        let expected_http_version = b" HTTP/1.0\n";
-        match check_http_version(request_line) {
-            Ok(val) => assert_eq!(val, expected_http_version.len()),
-            Err(_) => assert!(false),
-        };
-
-        // Test Invalid HTTP version.
-        let request_line = b"GET http://localhost/home HTTP/1.1\n";
-        match check_http_version(request_line) {
-            Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, Error::InvalidRequest),
-        };
-
-        assert!(check_http_version(b"").is_err());
-    }
-
-    #[test]
-    fn test_get_request_uri() {
-        let request_line = b"GET http://localhost/home HTTP/1.0\r\n";
-        let prefix = b"GET ";
-        let suffix = b" HTTP/1.0\r\n";
-        let request_uri = String::from("http://localhost/home");
-
-        match get_request_uri(request_line, prefix.len(), suffix.len()) {
-            Ok(req_uri) => assert_eq!(req_uri, request_uri),
-            Err(_) => assert!(false),
-        };
-
-        assert!(get_request_uri(request_line, 50, 50).is_err());
     }
 
     #[test]
