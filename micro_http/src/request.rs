@@ -23,7 +23,10 @@ fn split(bytes: &[u8], separator: u8) -> (&[u8], &[u8]) {
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
+    InvalidHttpMethod(&'static str),
     InvalidRequest,
+    InvalidUri(&'static str),
+    InvalidHttpVersion(&'static str),
 }
 
 #[derive(Clone, PartialEq)]
@@ -45,31 +48,50 @@ struct RequestLine<'a> {
 }
 
 impl<'a> RequestLine<'a> {
-    fn try_from(request_line: &'a[u8]) -> Result<Self, Error> {
-        let (method, remaining_bytes) = split(request_line, SP);
+    fn validate_method(method: &[u8]) -> Result<(), Error> {
         if method != Method::Get.raw() {
-            return Err(Error::InvalidRequest);
+            return Err(Error::InvalidHttpMethod("Unsupported HTTP method."));
         }
+        Ok(())
+    }
 
-        let (uri, remaining_bytes) = split(remaining_bytes, SP);
-        // TODO add some more validation to the URI.
+    fn validate_uri(uri: &[u8]) -> Result<(), Error> {
         if uri.len() == 0 {
-            return Err(Error::InvalidRequest);
+            return Err(Error::InvalidUri("Empty URI not allowed."));
         }
         if from_utf8(uri).is_err() {
-            // TODO: return UTF8 error.
-            return Err(Error::InvalidRequest);
+            return Err(Error::InvalidUri("Cannot parse URI as UTF-8."));
         }
         // TODO add some more validation to the URI.
+        Ok(())
+    }
+
+    fn validate_version(version: &[u8]) -> Result<(), Error> {
+        if version != Version::Http10.raw() {
+            return Err(Error::InvalidHttpVersion("Unsupported HTTP version."));
+        }
+        Ok(())
+    }
+
+    fn remove_trailing_cr(version: &[u8]) -> &[u8] {
+        if version.len() > 1 && version[version.len() - 1] == CR {
+            return &version[..version.len() - 1];
+        }
+
+        version
+    }
+
+    fn try_from(request_line: &'a [u8]) -> Result<Self, Error> {
+        let (method, remaining_bytes) = split(request_line, SP);
+        RequestLine::validate_method(method)?;
+
+        let (uri, remaining_bytes) = split(remaining_bytes, SP);
+        RequestLine::validate_uri(uri)?;
 
         let (mut version, _) = split(remaining_bytes, LF);
         // If the version ends with \r, we need to strip it.
-        if version.len() > 1 && version[version.len() - 1] == CR {
-            version = &version[..version.len() - 1]
-        }
-        if version != Version::Http10.raw() {
-            return Err(Error::InvalidRequest);
-        }
+        version = RequestLine::remove_trailing_cr(version);
+        RequestLine::validate_version(version)?;
 
         Ok(RequestLine {
             method: Method::Get,
