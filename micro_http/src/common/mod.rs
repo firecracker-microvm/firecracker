@@ -1,11 +1,10 @@
 pub mod headers;
 
 pub mod ascii {
-    pub const CR: &[u8] = b"\r";
-    pub const CRLF: &[u8] = b"\r\n";
-    pub const COLON: &[u8] = b":";
-    pub const LF: &[u8] = b"\n";
-    pub const SP: &[u8] = b" ";
+    pub const CR: u8 = b'\r';
+    pub const COLON: u8 = b':';
+    pub const LF: u8 = b'\n';
+    pub const SP: u8 = b' ';
 }
 
 #[derive(Clone, PartialEq)]
