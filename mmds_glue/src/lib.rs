@@ -2,7 +2,7 @@ extern crate data_model;
 extern crate micro_http;
 
 use data_model::mmds::{Error as MmdsError, MMDS};
-use micro_http::{Body, Request, Response, StatusCode};
+use micro_http::{Body, Request, RequestError, Response, StatusCode};
 
 fn build_response(status_code: StatusCode, body: Body) -> Response {
     let mut response = Response::new(status_code);
@@ -56,15 +56,18 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                 }
             }
         }
-        Err(_) => {
-            // All errors that come from parsing the request are BadRequest.
-            // We will probably need to separate the errors in errors that map to BadRequest (400)
-            // and to Internal Server Error (500).
-            build_response(
+        Err(e) => match e {
+            RequestError::InvalidHttpVersion(err_msg) => {
+                build_response(StatusCode::NotImplemented, Body::new(err_msg.to_string()))
+            }
+            RequestError::InvalidUri(err_msg) | RequestError::InvalidHttpMethod(err_msg) => {
+                build_response(StatusCode::BadRequest, Body::new(err_msg.to_string()))
+            }
+            RequestError::InvalidRequest => build_response(
                 StatusCode::BadRequest,
                 Body::new("Invalid request.".to_string()),
-            )
-        }
+            ),
+        },
     }
 }
 
@@ -97,6 +100,24 @@ mod tests {
         let request = b"HTTP/1.1";
         let dummy_response = Response::new(StatusCode::BadRequest);
         assert!(parse_request(request).status() == dummy_response.status());
+
+        // Test unsupported HTTP version.
+        let request = b"GET http://169.254.169.255/ HTTP/1.1\r\n";
+        let mut expected_response = Response::new(StatusCode::NotImplemented);
+        expected_response.set_body(Body::new("Unsupported HTTP version.".to_string()));
+        let actual_response = parse_request(request);
+
+        assert!(expected_response.status() == actual_response.status());
+        assert!(expected_response.body().unwrap() == actual_response.body().unwrap());
+
+        // Test invalid HTTP Method.
+        let request = b"PUT http://169.254.169.255/ HTTP/1.0\r\n";
+        let mut expected_response = Response::new(StatusCode::BadRequest);
+        expected_response.set_body(Body::new("Unsupported HTTP method.".to_string()));
+        let actual_response = parse_request(request);
+
+        assert!(expected_response.status() == actual_response.status());
+        assert!(expected_response.body().unwrap() == actual_response.body().unwrap());
 
         // Test invalid URI.
         let request = b"GET http://169.254.169.255/ HTTP/1.0\r\n";
