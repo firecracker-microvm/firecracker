@@ -14,18 +14,19 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
     let request = Request::try_from(request_bytes);
     match request {
         Ok(request) => {
-            let uri = request.get_uri();
+            let uri_utf8 = request.get_uri_utf8();
+
             // Only accept URI that start with uri_prefix.
             // The instance metadata is available at the following uri, as specified in the
             // official documentation:
             // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
             let uri_prefix = "http://169.254.169.254";
-            if !uri.starts_with(uri_prefix) {
-                let error_msg = format!("Invalid URI: {}", uri);
+            if !uri_utf8.starts_with(uri_prefix) {
+                let error_msg = format!("Invalid URI: {}.", uri_utf8);
                 return build_response(StatusCode::BadRequest, Body::new(error_msg));
             }
 
-            let mmds_uri = &uri[uri_prefix.len()..];
+            let mmds_uri = &uri_utf8[uri_prefix.len()..];
             // The lock can be held by one thread only, so it is safe to unwrap.
             let response = MMDS.lock().unwrap().get_value(mmds_uri.to_string());
             match response {
@@ -101,7 +102,7 @@ mod tests {
         let request = b"GET http://169.254.169.255/ HTTP/1.0\r\n";
         let mut expected_response = Response::new(StatusCode::BadRequest);
         expected_response.set_body(Body::new(
-            "Invalid URI: http://169.254.169.255/".to_string(),
+            "Invalid URI: http://169.254.169.255/.".to_string(),
         ));
         let actual_response = parse_request(request);
 
