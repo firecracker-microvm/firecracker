@@ -6,8 +6,11 @@ use kvm::CpuId;
 
 mod cpu_leaf;
 
+mod brand_string;
 mod c3_template;
 mod t2_template;
+
+use self::brand_string::BrandString;
 
 // constants for setting the fields of kvm_cpuid2 structures
 // CPUID bits in ebx, ecx, and edx.
@@ -17,11 +20,51 @@ const EBX_CLFLUSH_CACHELINE: u32 = 8; // Flush a cache line size.
 // unique topology of the next level. This allows 64 logical processors/package.
 const LEAFBH_INDEX1_APICID_SHIFT: u32 = 6;
 
+const DEFAULT_BRAND_STRING: &str = "Intel(R) Xeon(R) Processor";
+
 pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
     VcpuCountOverflow,
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[repr(C)]
+struct CpuidRegs {
+    pub eax: u32,
+    pub ebx: u32,
+    pub ecx: u32,
+    pub edx: u32,
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn host_cpuid(leaf: u32) -> CpuidRegs {
+    extern "C" {
+        fn x86_64_cpuid_host_cpuid(
+            leaf: u32,
+            eax: &mut u32,
+            ebx: &mut u32,
+            ecx: &mut u32,
+            edx: &mut u32,
+        );
+    }
+    let mut regs = CpuidRegs {
+        eax: 0,
+        ebx: 0,
+        ecx: 0,
+        edx: 0,
+    };
+    unsafe {
+        x86_64_cpuid_host_cpuid(
+            leaf,
+            &mut regs.eax,
+            &mut regs.ebx,
+            &mut regs.ecx,
+            &mut regs.edx,
+        );
+    }
+    regs
 }
 
 /// This function is used for setting leaf 01H EBX[23-16]
@@ -35,15 +78,6 @@ fn get_max_addressable_lprocessors(cpu_count: u8) -> result::Result<u8, Error> {
         return Err(Error::VcpuCountOverflow);
     }
     Ok(max_addressable_lcpu as u8)
-}
-
-// Converts a 4 letters string to u32; if the string has more than 4 letters, only the first 4 are returned
-fn str_to_u32(string: &str) -> u32 {
-    let str_bytes = string.as_bytes();
-    return (str_bytes[0] as u32) << 24
-        | (str_bytes[1] as u32) << 16
-        | (str_bytes[2] as u32) << 8
-        | (str_bytes[3] as u32);
 }
 
 pub fn set_cpuid_template(template: CpuFeaturesTemplate, kvm_cpuid: &mut CpuId) {
@@ -64,6 +98,31 @@ pub fn filter_cpuid(
 ) -> Result<()> {
     let entries = kvm_cpuid.mut_entries_slice();
     let max_addr_cpu = get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
+
+    // Generate the emulated brand string.
+    //
+    // For non-Intel CPUs, we'll just expose the host brand string
+    //
+    // For Intel CPUs, the brand string we expose will be:
+    //    "Intel(R) Xeon(R) Processor @ {host freq}"
+    // where {host freq} is the CPU frequency, as present in the
+    // host brand string (e.g. 4.01GHz).
+    let bstr = match BrandString::from_host_cpuid() {
+        Ok(host_bstr) => {
+            if host_bstr.starts_with("Intel") {
+                let mut res = BrandString::from_str(DEFAULT_BRAND_STRING);
+                if let Ok(freq) = host_bstr.borrow_freq_str() {
+                    res.push_str(" @ ");
+                    res.push_str(freq);
+                }
+                res
+            } else {
+                host_bstr
+            }
+        }
+        Err(_) => BrandString::from_str(DEFAULT_BRAND_STRING),
+    };
+
     for entry in entries.iter_mut() {
         match entry.function {
             0x1 => {
@@ -200,6 +259,14 @@ pub fn filter_cpuid(
                 // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
                 entry.edx = cpu_id as u32;
             }
+            0x80000002 | 0x80000003 | 0x80000004 => {
+                let _regs = bstr.borrow_regs_for_leaf(entry.function);
+                entry.eax = _regs.eax;
+                entry.ebx = _regs.ebx;
+                entry.ecx = _regs.ecx;
+                entry.edx = _regs.edx;
+            }
+
             _ => (),
         }
     }
