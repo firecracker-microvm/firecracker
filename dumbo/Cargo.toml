@@ -1,0 +1,7 @@
+[package]
+name = "dumbo"
+version = "0.1.0"
+authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+byteorder = ">=1.2.1"
