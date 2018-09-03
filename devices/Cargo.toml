@@ -10,6 +10,7 @@ libc = ">=0.2.39"
 serde_json = "=1.0.9"
 
 data_model = { path = "../data_model" }
+dumbo = { path = "../dumbo" }
 fc_util = { path = "../fc_util" }
 logger = { path = "../logger" }
 memory_model = { path = "../memory_model" }
