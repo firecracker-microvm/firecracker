@@ -94,11 +94,25 @@ from microvm_image import MicrovmImageS3Fetcher
 from microvm import JailerContext, MicrovmSlot, Microvm
 
 
-TEST_MICROVM_IMAGES_S3_BUCKET = 'spec.firecracker'
-"""The bucket that holds Firecracker microvm test images."""
+SPEC_S3_BUCKET = 'spec.firecracker'
+"""The s3 bucket that holds global Firecracker specifications."""
+
+DEFAULT_TEST_IMAGES_S3_BUCKET = 'spec.firecracker'
+"""The default s3 bucket that holds Firecracker microvm test images."""
+
+ENV_TEST_IMAGES_S3_BUCKET = 'TEST_MICROVM_IMAGES_S3_BUCKET'
+"""Environment variable for configuring the test microvm s3 bucket.
+
+If variable exists in `os.environ`, its value will be used as the s3 bucket
+for microvm test images.
+"""
 
 ENV_TMPDIR_VAR = 'TR_TMPDIR'
-"""If set, value becomes the root for temporary test session directories."""
+"""Environment variable for configuring temporary directory.
+
+If variable exists in `os.environ`, its value it will be used for the test
+session root and temporary directories.
+"""
 
 DEFAULT_ROOT_TESTSESSION_PATH = '/tmp/firecracker_test_session/'
 """If ENV_TMPDIR_VAR is not set, this path will be used instead."""
@@ -186,8 +200,17 @@ def network_config():
 
 @pytest.fixture
 def microvm_image_fetcher():
-    """Return a borg object that knows about fetching microvm images."""
-    return MicrovmImageS3Fetcher(TEST_MICROVM_IMAGES_S3_BUCKET)
+    """Return a borg object that knows about fetching microvm images.
+
+    If `ENV_TEST_IMAGES_S3_BUCKET` is set in the environment, target the bucket
+    specified therein, else use the default.
+    """
+    if ENV_TEST_IMAGES_S3_BUCKET in os.environ:
+        test_images_s3_bucket = os.environ.get(ENV_TEST_IMAGES_S3_BUCKET)
+    else:
+        test_images_s3_bucket = DEFAULT_TEST_IMAGES_S3_BUCKET
+
+    return MicrovmImageS3Fetcher(test_images_s3_bucket)
 
 
 @pytest.fixture(
