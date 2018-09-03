@@ -1,6 +1,7 @@
 use std::str::from_utf8;
 
 use common::ascii::{CR, LF, SP};
+pub use common::Error;
 use common::{Body, Method, Version};
 use headers::Headers;
 
@@ -21,22 +22,46 @@ fn split(bytes: &[u8], separator: u8) -> (&[u8], &[u8]) {
     return (&[], bytes);
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    InvalidHttpMethod(&'static str),
-    InvalidRequest,
-    InvalidUri(&'static str),
-    InvalidHttpVersion(&'static str),
-}
-
 #[derive(Clone, PartialEq)]
-struct Uri<'a> {
+pub struct Uri<'a> {
     bytes: &'a [u8],
 }
 
 impl<'a> Uri<'a> {
     fn new(bytes: &'a [u8]) -> Self {
         Uri { bytes }
+    }
+
+    /// URIs can be represented in absolute form or relative form. The absolute form includes
+    /// the HTTP scheme, followed by the absolute path as follows:
+    /// "http:" "//" host [ ":" port ] [ abs_path ]
+    /// The relative URIs can be one of net_path | abs_path | rel_path.
+    /// This method only handles absolute URIs and relative URIs specified by abs_path.
+    /// The abs_path is expected to start with '/'.
+    ///
+    /// # Errors
+    /// Returns an empty byte array when the host or the path are empty/invalid.
+    ///
+    pub fn get_abs_path(&self) -> &'a [u8] {
+        let http_scheme_prefix = b"http://";
+        if self.bytes.starts_with(http_scheme_prefix) {
+            if self.bytes.len() == http_scheme_prefix.len() {
+                return &[];
+            }
+            // The host in this case includes the port and contains the bytes after http:// up to
+            // the next '/'.
+            let (host, _) = split(&self.bytes[http_scheme_prefix.len()..], b'/');
+            if host.len() == 0 {
+                return &[];
+            }
+            let path_start_index = http_scheme_prefix.len() + host.len();
+            return &self.bytes[path_start_index..];
+        } else {
+            if self.bytes[0] != b'/' {
+                return &[];
+            }
+            return &self.bytes;
+        }
     }
 }
 
@@ -67,7 +92,7 @@ impl<'a> RequestLine<'a> {
     }
 
     fn validate_version(version: &[u8]) -> Result<(), Error> {
-        if version != Version::Http10.raw() {
+        if version != Version::Http10.raw() && version != Version::Http11.raw() {
             return Err(Error::InvalidHttpVersion("Unsupported HTTP version."));
         }
         Ok(())
@@ -96,7 +121,7 @@ impl<'a> RequestLine<'a> {
         Ok(RequestLine {
             method: Method::Get,
             uri: Uri::new(uri),
-            http_version: Version::Http10,
+            http_version: Version::try_from(version).unwrap(),
         })
     }
 
@@ -153,9 +178,12 @@ impl<'a> Request<'a> {
         })
     }
 
-    pub fn get_uri_utf8(&self) -> &str {
-        // Safe to unwrap because we validate the URI when creating the Request Line.
-        from_utf8(self.request_line.uri.bytes).unwrap()
+    pub fn uri(&self) -> &Uri {
+        &self.request_line.uri
+    }
+
+    pub fn http_version(&self) -> Version {
+        self.request_line.http_version
     }
 }
 
@@ -171,6 +199,24 @@ mod tests {
     }
 
     #[test]
+    fn test_uri() {
+        let uri = Uri::new(b"http://localhost/home");
+        assert_eq!(uri.get_abs_path(), b"/home");
+
+        let uri = Uri::new(b"/home");
+        assert_eq!(uri.get_abs_path(), b"/home");
+
+        let uri = Uri::new(b"home");
+        assert_eq!(uri.get_abs_path(), b"");
+
+        let uri = Uri::new(b"http://");
+        assert_eq!(uri.get_abs_path(), b"");
+
+        let uri = Uri::new(b"http://192.168.0.0");
+        assert_eq!(uri.get_abs_path(), b"");
+    }
+
+    #[test]
     fn test_into_request_line() {
         let expected_request_line = RequestLine {
             http_version: Version::Http10,
@@ -179,6 +225,18 @@ mod tests {
         };
 
         let request_line = b"GET http://localhost/home HTTP/1.0\r\n";
+        match RequestLine::try_from(request_line) {
+            Ok(request) => assert!(request == expected_request_line),
+            Err(_) => assert!(false),
+        };
+
+        let expected_request_line = RequestLine {
+            http_version: Version::Http11,
+            method: Method::Get,
+            uri: Uri::new(b"http://localhost/home"),
+        };
+
+        let request_line = b"GET http://localhost/home HTTP/1.1\r\n";
         match RequestLine::try_from(request_line) {
             Ok(request) => assert!(request == expected_request_line),
             Err(_) => assert!(false),

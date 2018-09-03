@@ -30,9 +30,9 @@ struct StatusLine {
 }
 
 impl StatusLine {
-    fn new(status_code: StatusCode) -> Self {
+    fn new(http_version: Version, status_code: StatusCode) -> Self {
         return StatusLine {
-            http_version: Version::Http10,
+            http_version,
             status_code,
         };
     }
@@ -52,9 +52,9 @@ pub struct Response {
 }
 
 impl Response {
-    pub fn new(status_code: StatusCode) -> Response {
+    pub fn new(http_version: Version, status_code: StatusCode) -> Response {
         return Response {
-            status_line: StatusLine::new(status_code),
+            status_line: StatusLine::new(http_version, status_code),
             headers: Headers::default(),
             body: None,
         };
@@ -94,6 +94,10 @@ impl Response {
     pub fn body(&self) -> Option<Body> {
         self.body.clone()
     }
+
+    pub fn http_version(&self) -> Version {
+        self.status_line.http_version.clone()
+    }
 }
 
 #[cfg(test)]
@@ -102,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_raw() {
-        let mut response = Response::new(StatusCode::OK);
+        let mut response = Response::new(Version::Http10, StatusCode::OK);
         let body = String::from("This is a test");
         response.set_body(Body::new(body.clone()));
 
