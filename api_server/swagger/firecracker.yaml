@@ -59,55 +59,6 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
-  /actions/{action_id}:
-    get:
-      summary: Returns detailed information about an action.
-      operationId: describeInstanceAction
-      parameters:
-      - name: action_id
-        in: path
-        description: The action identifier
-        required: true
-        type: string
-      responses:
-        200:
-          description: The instance action information
-          schema:
-            $ref: "#/definitions/InstanceActionInfo"
-        404:
-          description: Action not found
-          schema:
-            $ref: "#/definitions/Error"
-        409:
-          description: Action is still pending
-          schema:
-            $ref: "#/definitions/Error"
-        default:
-          description: Internal Server Error
-          schema:
-            $ref: "#/definitions/Error"
-    put:
-      summary: Creates an instance action.
-      operationId: createInstanceAction
-      parameters:
-      - name: action_id
-        in: path
-        description: The action identifier
-        required: true
-        type: string
-      - name: info
-        in: body
-        required: true
-        schema:
-          $ref: "#/definitions/InstanceActionInfo"
-      responses:
-        201:
-          description: Action created
-        default:
-          description: Internal Server Error
-          schema:
-            $ref: "#/definitions/Error"
-
   /boot-source:
     put:
       summary: Creates or updates the boot source.
@@ -383,9 +334,9 @@ definitions:
         description: Enumeration indicating what type of action is contained in the payload
         type: string
         enum:
-          - BlockDeviceRescan
-          - InstanceStart
-          - InstanceHalt
+        - BlockDeviceRescan
+        - InstanceStart
+        - InstanceHalt
       payload:
         type: string
       timestamp:

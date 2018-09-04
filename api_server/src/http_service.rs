@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::result;
 use std::str;
@@ -10,17 +9,15 @@ use futures::{Future, Stream};
 
 use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
-use tokio_core::reactor::Handle;
 
 use data_model::mmds::Mmds;
 use data_model::vm::{BlockDeviceConfig, MachineConfiguration, PatchDrivePayload};
 use logger::{Metric, METRICS};
 use request::actions::ActionBody;
 use request::instance_info::InstanceInfo;
-use request::{self, ApiRequest, AsyncOutcome, IntoParsedRequest, ParsedRequest};
+use request::sync::SyncRequest;
+use request::{self, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
-
-use super::{ActionMap, ActionMapValue};
 
 fn build_response_base<B: Into<hyper::Body>>(
     status: StatusCode,
@@ -63,8 +60,6 @@ pub fn json_fault_message<T: AsRef<str>>(msg: T) -> String {
 }
 
 enum Error<'a> {
-    // PUT for an action id that already exists
-    ActionExists,
     // A generic error, with a given status code and message to be turned into a fault message.
     Generic(StatusCode, String),
     // The resource ID is invalid.
@@ -79,10 +74,6 @@ enum Error<'a> {
 impl<'a> Into<hyper::Response> for Error<'a> {
     fn into(self) -> hyper::Response {
         match self {
-            Error::ActionExists => json_response(
-                StatusCode::Conflict,
-                json_fault_message("An action with the same id already exists."),
-            ),
             Error::Generic(status, msg) => json_response(status, json_fault_message(msg)),
             Error::InvalidID => {
                 json_response(StatusCode::BadRequest, json_fault_message("Invalid ID"))
@@ -115,13 +106,9 @@ fn parse_actions_req<'a>(
     path_tokens: &Vec<&str>,
     path: &'a str,
     method: Method,
-    id_from_path: &Option<&str>,
     body: &Chunk,
-    action_map: &mut Rc<RefCell<ActionMap>>,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
-        0 if method == Method::Get => Ok(ParsedRequest::GetActions),
-
         0 if method == Method::Put => {
             METRICS.put_api_requests.actions_count.inc();
             Ok(serde_json::from_slice::<ActionBody>(body.as_ref())
@@ -136,21 +123,9 @@ fn parse_actions_req<'a>(
                 })?)
         }
 
-        1 if method == Method::Get => {
-            METRICS.get_api_requests.actions_count.inc();
-            let unwrapped_id = id_from_path.ok_or_else(|| {
-                METRICS.get_api_requests.actions_fails.inc();
-                (Error::InvalidID)
-            })?;
-            Ok(ParsedRequest::GetAction(String::from(unwrapped_id)))
-        }
-
         1 if method == Method::Put => {
-            let unwrapped_id = id_from_path.ok_or_else(|| {
-                METRICS.put_api_requests.actions_fails.inc();
-                Error::InvalidID
-            })?;
             METRICS.put_api_requests.actions_count.inc();
+
             let body: ActionBody = serde_json::from_slice(body.as_ref()).map_err(|e| {
                 METRICS.put_api_requests.actions_fails.inc();
                 Error::SerdeJson(e)
@@ -159,17 +134,6 @@ fn parse_actions_req<'a>(
                 METRICS.put_api_requests.actions_fails.inc();
                 Error::Generic(StatusCode::BadRequest, msg)
             })?;
-            match parsed_req {
-                ParsedRequest::Async(_, _, _) => action_map
-                    .borrow_mut()
-                    .insert_unique(String::from(unwrapped_id), ActionMapValue::Pending(body))
-                    .map_err(|_| {
-                        METRICS.put_api_requests.actions_fails.inc();
-                        Error::ActionExists
-                    })?,
-                _ => (),
-            }
-
             Ok(parsed_req)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -385,12 +349,7 @@ fn parse_netif_req<'a>(
 // message to be passed to the VMM, and associated entities, such as channels which allow the
 // reception of the outcome back from the VMM.
 // TODO: finish implementing/parsing all possible requests.
-fn parse_request<'a>(
-    action_map: &mut Rc<RefCell<ActionMap>>,
-    method: Method,
-    path: &'a str,
-    body: &Chunk,
-) -> Result<'a, ParsedRequest> {
+fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, ParsedRequest> {
     // Commenting this out for now.
     /*
     if cfg!(debug_assertions) {
@@ -432,7 +391,7 @@ fn parse_request<'a>(
     }
 
     match path_tokens[0] {
-        "actions" => parse_actions_req(&path_tokens, path, method, &id_from_path, body, action_map),
+        "actions" => parse_actions_req(&path_tokens, path, method, body),
         "boot-source" => parse_boot_source_req(&path_tokens, path, method, body),
         "drives" => parse_drives_req(&path_tokens, path, method, &id_from_path, body),
         "logger" => parse_logger_req(&path_tokens, path, method, body),
@@ -446,8 +405,8 @@ fn parse_request<'a>(
 // A helper function which is always used when a message is placed into the communication channel
 // with the VMM (so we don't forget to write to the EventFd).
 fn send_to_vmm(
-    req: ApiRequest,
-    sender: &mpsc::Sender<Box<ApiRequest>>,
+    req: SyncRequest,
+    sender: &mpsc::Sender<Box<SyncRequest>>,
     send_event: &EventFd,
 ) -> result::Result<(), ()> {
     sender.send(Box::new(req)).map_err(|_| ())?;
@@ -464,31 +423,23 @@ pub struct ApiServerHttpService {
     // This allows sending messages to the VMM thread. It makes sense to use a Rc for the sender
     // (instead of cloning) because everything happens on a single thread, so there's no risk of
     // having races (if that was even a problem to begin with).
-    api_request_sender: Rc<mpsc::Sender<Box<ApiRequest>>>,
+    api_request_sender: Rc<mpsc::Sender<Box<SyncRequest>>>,
     // We write to this EventFd to let the VMM know about new messages.
     vmm_send_event: Rc<EventFd>,
-    // Keeps records on async actions.
-    action_map: Rc<RefCell<ActionMap>>,
-    // A tokio core handle, used to spawn futures.
-    handle: Rc<Handle>,
 }
 
 impl ApiServerHttpService {
     pub fn new(
         mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_request_sender: Rc<mpsc::Sender<Box<ApiRequest>>>,
+        api_request_sender: Rc<mpsc::Sender<Box<SyncRequest>>>,
         vmm_send_event: Rc<EventFd>,
-        action_map: Rc<RefCell<ActionMap>>,
-        handle: Rc<Handle>,
     ) -> Self {
         ApiServerHttpService {
             mmds_info,
             vmm_shared_info,
             api_request_sender,
             vmm_send_event,
-            action_map,
-            handle,
         }
     }
 }
@@ -504,14 +455,12 @@ impl hyper::server::Service for ApiServerHttpService {
     fn call(&self, req: Self::Request) -> Self::Future {
         // We do all this cloning to be able too move everything we need
         // into the closure that follows.
-        let mut action_map = self.action_map.clone();
         let mmds_info = self.mmds_info.clone();
         let method = req.method().clone();
         let method_copy = req.method().clone();
         let path = String::from(req.path());
         let shared_info_lock = self.vmm_shared_info.clone();
         let api_request_sender = self.api_request_sender.clone();
-        let handle = self.handle.clone();
         let vmm_send_event = self.vmm_send_event.clone();
 
         // for nice looking match arms
@@ -522,7 +471,7 @@ impl hyper::server::Service for ApiServerHttpService {
         // and then does something with the newly available body (via and_then).
         Box::new(req.body().concat2().and_then(move |b| {
             // When this will be executed, the body is available. We start by parsing the request.
-            match parse_request(&mut action_map, method, path.as_ref(), &b) {
+            match parse_request(method, path.as_ref(), &b) {
                 Ok(parsed_req) => match parsed_req {
                     // TODO: remove this when all actions are implemented.
                     Dummy => Either::A(future::ok(json_response(StatusCode::Ok, "I'm a dummy."))),
@@ -543,30 +492,6 @@ impl hyper::server::Service for ApiServerHttpService {
                                     json_fault_message(e.to_string()),
                                 )))
                             }
-                        }
-                    }
-                    GetActions => {
-                        // TODO: return a proper response, both here and for other requests which
-                        // are in a similar condition right now.
-                        // not yet documented; should I add rate metric?
-                        Either::A(future::ok(empty_response(StatusCode::Ok)))
-                    }
-                    GetAction(id) => {
-                        METRICS.get_api_requests.action_info_count.inc();
-                        match action_map.borrow().get(&id) {
-                            Some(value) => match *value {
-                                ActionMapValue::Pending(_) => Either::A(future::ok(json_response(
-                                    StatusCode::Conflict,
-                                    json_fault_message("Action is still pending."),
-                                ))),
-                                ActionMapValue::JsonResponse(ref status, ref body) => Either::A(
-                                    future::ok(json_response(status.clone(), body.clone())),
-                                ),
-                            },
-                            None => Either::A(future::ok(json_response(
-                                StatusCode::NotFound,
-                                json_fault_message("Action not found."),
-                            ))),
                         }
                     }
                     PatchMMDS(json_value) => {
@@ -594,102 +519,8 @@ impl hyper::server::Service for ApiServerHttpService {
                         StatusCode::Ok,
                         mmds_info.lock().unwrap().get_data_str(),
                     ))),
-                    Async(id, async_req, outcome_receiver) => {
-                        if send_to_vmm(
-                            ApiRequest::Async(async_req),
-                            &api_request_sender,
-                            &vmm_send_event,
-                        ).is_err()
-                        {
-                            METRICS.api_server.async_vmm_send_timeout_count.inc();
-                            // hyper::Error::Cancel would have been more appropriate, but it's no
-                            // longer available for some reason.
-                            return Either::A(future::err(hyper::Error::Timeout));
-                        }
-
-                        let b_str = String::from_utf8_lossy(&b.to_vec()).to_string();
-                        let path_dbg = path.clone();
-                        info!("Sent {}", describe(false, &method_copy, &path, &b_str));
-
-                        // We have to explicitly spawn a future that will handle the outcome of the
-                        // async request.
-                        handle.spawn(
-                            outcome_receiver
-                                .map(move |outcome| {
-                                    // Let's see if the action is still in the map (it might have
-                                    // been evicted by newer actions, although that's extremely
-                                    // unlikely under normal circumstances).
-                                    let (response_status, json_body) = match action_map
-                                        .borrow_mut()
-                                        .get_mut(id.as_str())
-                                    {
-                                        // Pending is the only possible status before the outcome is
-                                        // resolved, so we know all other match arms are equivalent.
-                                        Some(&mut ActionMapValue::Pending(ref mut async_body)) => {
-                                            match outcome {
-                                                AsyncOutcome::Ok(timestamp) => {
-                                                    async_body.timestamp = Some(timestamp);
-                                                    info!(
-                                                        "Received Success on {}",
-                                                        describe(
-                                                            false,
-                                                            &method_copy,
-                                                            &path_dbg,
-                                                            &b_str
-                                                        )
-                                                    );
-                                                    // We use unwrap because the serialize operation
-                                                    // should not fail in this case.
-                                                    (
-                                                        StatusCode::Ok,
-                                                        serde_json::to_string(&async_body).unwrap(),
-                                                    )
-                                                }
-                                                AsyncOutcome::Error(msg) => {
-                                                    info!(
-                                                        "Received Error on {}",
-                                                        describe(
-                                                            false,
-                                                            &method_copy,
-                                                            &path_dbg,
-                                                            &b_str
-                                                        )
-                                                    );
-                                                    METRICS.api_server.async_outcome_fails.inc();
-                                                    (
-                                                        StatusCode::BadRequest,
-                                                        json_fault_message(msg),
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        _ => {
-                                            METRICS.api_server.async_missed_actions_count.inc();
-                                            return;
-                                        }
-                                    };
-                                    // Replace the old value with the already built response.
-                                    action_map.borrow_mut().insert(
-                                        id,
-                                        ActionMapValue::JsonResponse(response_status, json_body),
-                                    );
-                                })
-                                .map_err(|_| {
-                                    METRICS.api_server.async_outcome_fails.inc();
-                                }),
-                        );
-
-                        // This is returned immediately; the previous handle.spawn() just registers
-                        // the provided closure to run when the outcome is complete.
-                        Either::A(future::ok(empty_response(StatusCode::Created)))
-                    }
                     Sync(sync_req, outcome_receiver) => {
-                        if send_to_vmm(
-                            ApiRequest::Sync(sync_req),
-                            &api_request_sender,
-                            &vmm_send_event,
-                        ).is_err()
-                        {
+                        if send_to_vmm(sync_req, &api_request_sender, &vmm_send_event).is_err() {
                             METRICS.api_server.sync_vmm_send_timeout_count.inc();
                             return Either::A(future::err(hyper::Error::Timeout));
                         }
@@ -762,12 +593,10 @@ mod tests {
     use std::path::PathBuf;
 
     use data_model::vm::{CpuFeaturesTemplate, DeviceState};
-    use fc_util::LriHashMap;
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use net_util::MacAddr;
-    use request::async::{AsyncRequest, DeviceType, InstanceDeviceDetachAction};
     use request::sync::{NetworkInterfaceBody, SyncRequest};
     use request::ActionType;
 
@@ -841,18 +670,12 @@ mod tests {
 
     #[test]
     fn test_error_to_response() {
-        let mut response: hyper::Response = Error::ActionExists.into();
-        assert_eq!(response.status(), StatusCode::Conflict);
-        assert_eq!(
-            response.headers().get::<ContentType>(),
-            Some(&ContentType::json())
-        );
-
         let json_err_key = "fault_message";
         let json_err_val = "This is an error message";
         let err_message = format!("{{\n  \"{}\": \"{}\"\n}}", &json_err_key, &json_err_val);
         let message = String::from("This is an error message");
-        response = Error::Generic(StatusCode::ServiceUnavailable, message).into();
+        let mut response: hyper::Response =
+            Error::Generic(StatusCode::ServiceUnavailable, message).into();
         assert_eq!(response.status(), StatusCode::ServiceUnavailable);
         assert_eq!(
             response.headers().get::<ContentType>(),
@@ -904,82 +727,21 @@ mod tests {
 
     #[test]
     fn test_parse_actions_req() {
-        let mut action_map: Rc<RefCell<ActionMap>> =
-            Rc::new(RefCell::new(LriHashMap::<String, ActionMapValue>::new(1)));
-        let path = "/foo/bar";
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-        let id_from_path = Some(path_tokens[1]);
+        // PUT InstanceStart
         let json = "{
-                \"action_id\": \"bar\",
-                \"action_type\": \"InstanceStart\",
-                \"instance_device_detach_action\": {\
-                    \"device_type\": \"Drive\",
-                    \"device_resource_id\": \"dummy\",
-                    \"force\": true},
-                \"timestamp\": 1522850095
+                \"action_type\": \"InstanceStart\"
               }";
         let body: Chunk = Chunk::from(json);
+        let path = "/foo";
+        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
 
-        // GET GetActions
-        match parse_actions_req(
-            &"/foo"[1..].split_terminator('/').collect(),
-            &"/foo",
-            Method::Get,
-            &id_from_path,
-            &body,
-            &mut action_map,
-        ) {
-            Ok(pr) => assert!(pr.eq(&ParsedRequest::GetActions)),
-            _ => assert!(false),
-        }
-
-        // GET GetAction
-        match parse_actions_req(
-            &path_tokens,
-            &path,
-            Method::Get,
-            &id_from_path,
-            &body,
-            &mut action_map,
-        ) {
-            Ok(pr) => assert!(pr.eq(&ParsedRequest::GetAction(String::from("bar")))),
-            _ => assert!(false),
-        }
-
-        // PUT InstanceStart
-        match parse_actions_req(
-            &path_tokens,
-            &path,
-            Method::Put,
-            &id_from_path,
-            &body,
-            &mut action_map,
-        ) {
+        match parse_actions_req(&path_tokens, &path, Method::Put, &body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
-                assert!(pr.eq(&ParsedRequest::Async(
-                    String::from("bar"),
-                    AsyncRequest::StartInstance(sender),
+                assert!(pr.eq(&ParsedRequest::Sync(
+                    SyncRequest::StartInstance(sender),
                     receiver
                 )));
-
-                match action_map.borrow_mut().get_mut("bar") {
-                    Some(&mut ActionMapValue::Pending(ref body)) => {
-                        let other = ActionBody {
-                            action_id: Some(String::from("bar")),
-                            action_type: ActionType::InstanceStart,
-                            instance_device_detach_action: Some(InstanceDeviceDetachAction {
-                                device_type: DeviceType::Drive,
-                                device_resource_id: String::from("dummy"),
-                                force: true,
-                            }),
-                            payload: None,
-                            timestamp: Some(1522850095),
-                        };
-                        assert!(body.eq(&other));
-                    }
-                    _ => assert!(false),
-                };
             }
             _ => assert!(false),
         }
@@ -992,18 +754,10 @@ mod tests {
         let body: Chunk = Chunk::from(json);
         let path = "/foo";
         let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-        match parse_actions_req(
-            &path_tokens,
-            &path,
-            Method::Put,
-            &None,
-            &body,
-            &mut action_map,
-        ) {
+        match parse_actions_req(&path_tokens, &path, Method::Put, &body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 let action_body = ActionBody {
-                    action_id: None,
                     action_type: ActionType::BlockDeviceRescan,
                     instance_device_detach_action: None,
                     payload: Some(Value::String(String::from("foo"))),
@@ -1021,49 +775,16 @@ mod tests {
 
         let path = "/foo/bar";
         let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-        let id_from_path = Some(path_tokens[1]);
-        let json = "{
-                \"action_id\": \"bar\",
-                \"action_type\": \"InstanceStart\",
-                \"instance_device_detach_action\": {\
-                    \"device_type\": \"Drive\",
-                    \"device_resource_id\": \"dummy\",
-                    \"force\": true},
-                \"timestamp\": 1522850095
-              }";
-        let body: Chunk = Chunk::from(json);
 
-        // Test the case where action already exists.
-        assert!(
-            parse_actions_req(
-                &path_tokens,
-                &path,
-                Method::Put,
-                &id_from_path,
-                &body,
-                &mut action_map
-            ).is_err()
-        );
-
-        assert!(
-            parse_actions_req(
-                &path_tokens,
-                &path,
-                Method::Put,
-                &id_from_path,
-                &Chunk::from("foo"),
-                &mut action_map
-            ).is_err()
-        );
+        // PUT action with invalid body
+        assert!(parse_actions_req(&path_tokens, &path, Method::Put, &Chunk::from("foo"),).is_err());
 
         assert!(
             parse_actions_req(
                 &"/foo/bar/baz"[1..].split_terminator('/').collect(),
                 &"/foo/bar/baz",
                 Method::Put,
-                &id_from_path,
                 &Chunk::from("foo"),
-                &mut action_map
             ).is_err()
         );
 
@@ -1073,51 +794,7 @@ mod tests {
                 &"/foo".split_terminator('/').collect(),
                 &"/foo",
                 Method::Put,
-                &None,
                 &Chunk::from("{\"action_type\": \"foo\"}"),
-                &mut action_map
-            ).is_err()
-        );
-
-        // Test PUT async request with missing ID.
-        let json = "{
-                \"action_type\": \"InstanceStart\"
-              }";
-        assert!(
-            parse_actions_req(
-                &path_tokens,
-                &path,
-                Method::Put,
-                &id_from_path,
-                &Chunk::from(json),
-                &mut action_map
-            ).is_err()
-        );
-
-        let json = "{
-                \"action_id\": \"foo\",
-                \"action_type\": \"InstanceStart\"
-              }";
-        assert!(
-            parse_actions_req(
-                &path_tokens,
-                &path,
-                Method::Put,
-                &None,
-                &Chunk::from(json),
-                &mut action_map
-            ).is_err()
-        );
-
-        // Test GET with missing ID.
-        assert!(
-            parse_actions_req(
-                &"/foo".split_terminator('/').collect(),
-                &"/foo",
-                Method::Get,
-                &None,
-                &Chunk::from(""),
-                &mut action_map
             ).is_err()
         );
     }
@@ -1596,11 +1273,9 @@ mod tests {
 
     #[test]
     fn test_parse_request() {
-        let mut action_map: Rc<RefCell<ActionMap>> =
-            Rc::new(RefCell::new(LriHashMap::<String, ActionMapValue>::new(1)));
         let body: Chunk = Chunk::from("{ \"foo\": \"bar\" }");
 
-        assert!(parse_request(&mut action_map, Method::Get, "foo/bar", &body).is_err());
+        assert!(parse_request(Method::Get, "foo/bar", &body).is_err());
 
         let all_methods = vec![
             Method::Put,
@@ -1615,41 +1290,32 @@ mod tests {
         ];
 
         for method in &all_methods {
-            assert!(parse_request(&mut action_map, method.clone(), "/foo", &body).is_err());
+            assert!(parse_request(method.clone(), "/foo", &body).is_err());
         }
 
         // Test empty request
-        match parse_request(&mut action_map, Method::Get, "/", &body) {
+        match parse_request(Method::Get, "/", &body) {
             Ok(pr) => assert!(pr.eq(&ParsedRequest::GetInstanceInfo)),
             _ => assert!(false),
         }
         for method in &all_methods {
             if *method != Method::Get {
-                assert!(parse_request(&mut action_map, method.clone(), "/", &body).is_err());
-            }
-        }
-
-        // Test requests with valid id_from_path
-        assert!(parse_request(&mut action_map, Method::Get, "/actions/foobar", &body).is_ok());
-        for method in &all_methods {
-            if *method != Method::Get {
-                assert!(parse_request(&mut action_map, method.clone(), "/foo/bar", &body).is_err());
+                assert!(parse_request(method.clone(), "/", &body).is_err());
             }
         }
 
         // Test all valid requests
         // Each request type is unit tested separately
         for path in vec![
-            "/actions",
             "/boot-source",
             "/drives",
             "/machine-config",
             "/network-interfaces",
         ] {
-            assert!(parse_request(&mut action_map, Method::Get, path, &body).is_ok());
+            assert!(parse_request(Method::Get, path, &body).is_ok());
             for method in &all_methods {
                 if *method != Method::Get && *method != Method::Put {
-                    assert!(parse_request(&mut action_map, method.clone(), path, &body).is_err());
+                    assert!(parse_request(method.clone(), path, &body).is_err());
                 }
             }
         }
