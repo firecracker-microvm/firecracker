@@ -5,14 +5,14 @@ use serde::ser::{Serialize, Serializer};
 
 pub const MAC_ADDR_LEN: usize = 6;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MacAddr {
     bytes: [u8; MAC_ADDR_LEN],
 }
 
 impl MacAddr {
     // The error contains the str that failed to be parsed, for nicer error message generation.
-    pub fn parse_str<'a, S>(s: &'a S) -> Result<MacAddr, &'a str>
+    pub fn parse_str<S>(s: &S) -> Result<MacAddr, &str>
     where
         S: AsRef<str> + ?Sized,
     {
@@ -33,6 +33,27 @@ impl MacAddr {
         Ok(MacAddr { bytes })
     }
 
+    // Does not check whether src.len() == MAC_ADDR_LEN.
+    #[inline]
+    pub fn from_bytes_unchecked(src: &[u8]) -> MacAddr {
+        // TODO: using something like std::mem::uninitialized could avoid the extra initialization,
+        // if this ever becomes a performance bottleneck.
+        let mut bytes = [0u8; MAC_ADDR_LEN];
+        &bytes[..].copy_from_slice(&src[..]);
+
+        MacAddr { bytes }
+    }
+
+    // An error can only occur if the slice length is different from MAC_ADDR_LEN.
+    #[inline]
+    pub fn from_bytes(src: &[u8]) -> Result<MacAddr, ()> {
+        if src.len() != MAC_ADDR_LEN {
+            return Err(());
+        }
+        Ok(MacAddr::from_bytes_unchecked(src))
+    }
+
+    #[inline]
     pub fn get_bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -91,6 +112,20 @@ mod tests {
 
         let bytes = mac.get_bytes();
         assert_eq!(bytes, [0x12u8, 0x34, 0x56, 0x78, 0x9a, 0xbc]);
+    }
+
+    #[test]
+    fn test_from_bytes() {
+        let src1 = [0x01, 0x02, 0x03, 0x04, 0x05];
+        let src2 = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06];
+        let src3 = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+
+        assert!(MacAddr::from_bytes(&src1[..]).is_err());
+
+        let x = MacAddr::from_bytes(&src2[..]).unwrap();
+        assert_eq!(x.to_string(), String::from("01:02:03:04:05:06"));
+
+        assert!(MacAddr::from_bytes(&src3[..]).is_err());
     }
 
     #[test]
