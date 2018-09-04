@@ -18,7 +18,6 @@ extern crate sys_util;
 mod http_service;
 pub mod request;
 
-use std::cell::RefCell;
 use std::io;
 use std::os::unix::io::FromRawFd;
 use std::path::Path;
@@ -32,11 +31,10 @@ use tokio_core::reactor::Core;
 use tokio_uds::UnixListener;
 
 use data_model::mmds::Mmds;
-use fc_util::LriHashMap;
 use http_service::ApiServerHttpService;
 use request::actions::ActionBody;
 use request::instance_info::InstanceInfo;
-pub use request::ApiRequest;
+use request::sync::SyncRequest;
 use sys_util::EventFd;
 
 // When information is requested about an async action, it can still be waiting to be processed
@@ -47,9 +45,6 @@ pub enum ActionMapValue {
     // The response status code, and the response json body.
     JsonResponse(hyper::StatusCode, String),
 }
-
-// A map that holds information about currently pending, and previous async actions.
-pub type ActionMap = LriHashMap<String, ActionMapValue>;
 
 #[derive(Debug)]
 pub enum Error {
@@ -65,8 +60,7 @@ pub struct ApiServer {
     // VMM instance info directly accessible from the API thread.
     vmm_shared_info: Arc<RwLock<InstanceInfo>>,
     // Sender which allows passing messages to the VMM.
-    api_request_sender: Rc<mpsc::Sender<Box<ApiRequest>>>,
-    max_previous_actions: usize,
+    api_request_sender: Rc<mpsc::Sender<Box<SyncRequest>>>,
     efd: Rc<EventFd>,
 }
 
@@ -74,14 +68,12 @@ impl ApiServer {
     pub fn new(
         mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_request_sender: mpsc::Sender<Box<ApiRequest>>,
-        max_previous_actions: usize,
+        api_request_sender: mpsc::Sender<Box<SyncRequest>>,
     ) -> Result<Self> {
         Ok(ApiServer {
             mmds_info,
             vmm_shared_info,
             api_request_sender: Rc::new(api_request_sender),
-            max_previous_actions,
             efd: Rc::new(EventFd::new().map_err(Error::Eventfd)?),
         })
     }
@@ -105,10 +97,6 @@ impl ApiServer {
 
         let http: Http<hyper::Chunk> = Http::new();
 
-        let action_map = Rc::new(RefCell::new(LriHashMap::<String, ActionMapValue>::new(
-            self.max_previous_actions,
-        )));
-
         let f = listener
             .incoming()
             .for_each(|(stream, _)| {
@@ -119,8 +107,6 @@ impl ApiServer {
                     self.vmm_shared_info.clone(),
                     self.api_request_sender.clone(),
                     self.efd.clone(),
-                    action_map.clone(),
-                    handle.clone(),
                 );
                 let connection = http.serve_connection(stream, service);
                 // todo: is spawn() any better/worse than execute()?

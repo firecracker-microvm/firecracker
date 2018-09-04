@@ -22,7 +22,6 @@ use data_model::mmds::MMDS;
 use logger::{Metric, LOGGER, METRICS};
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
-const MAX_STORED_ASYNC_REQS: usize = 100;
 
 fn main() {
     // If the signal handler can't be set, it's OK to panic.
@@ -78,12 +77,7 @@ fn main() {
     }));
     let mmds_info = MMDS.clone();
     let (to_vmm, from_api) = channel();
-    let server = ApiServer::new(
-        mmds_info,
-        shared_info.clone(),
-        to_vmm,
-        MAX_STORED_ASYNC_REQS,
-    ).unwrap();
+    let server = ApiServer::new(mmds_info, shared_info.clone(), to_vmm).unwrap();
 
     let api_event_fd = server
         .get_event_fd_clone()

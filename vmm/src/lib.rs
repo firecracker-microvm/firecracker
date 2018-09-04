@@ -42,7 +42,6 @@ use serde_json::Value;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use api_server::request::actions::ActionBody;
-use api_server::request::async::{AsyncOutcome, AsyncOutcomeSender, AsyncRequest};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::sync::machine_configuration::{
     PutMachineConfigurationError, PutMachineConfigurationOutcome,
@@ -53,7 +52,6 @@ use api_server::request::sync::{
     PutLoggerOutcome, SyncOutcomeSender, SyncRequest,
 };
 use api_server::request::sync::{PutBootSourceConfigError, PutBootSourceOutcome};
-use api_server::ApiRequest;
 use data_model::vm::{
     description_into_implementation as rate_limiter_description_into_implementation,
     BlockDeviceConfig, BlockDeviceConfigs, DriveError, MachineConfiguration,
@@ -417,7 +415,7 @@ pub struct Vmm {
 
     // api resources
     api_event: EpollEvent<EventFd>,
-    from_api: Receiver<Box<ApiRequest>>,
+    from_api: Receiver<Box<SyncRequest>>,
 
     write_metrics_event: EpollEvent<TimerFd>,
 }
@@ -426,7 +424,7 @@ impl Vmm {
     fn new(
         api_shared_info: Arc<RwLock<InstanceInfo>>,
         api_event_fd: EventFd,
-        from_api: Receiver<Box<ApiRequest>>,
+        from_api: Receiver<Box<SyncRequest>>,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
@@ -1195,39 +1193,27 @@ impl Vmm {
         Ok(())
     }
 
-    fn handle_start_instance(&mut self, sender: AsyncOutcomeSender) {
+    fn handle_start_instance(&mut self, sender: SyncOutcomeSender) {
         START_INSTANCE_REQUEST_TS.store(time::precise_time_ns() as usize, Ordering::Release);
 
-        let instance_state = {
-            // Use unwrap() to crash if the other thread poisoned this lock.
-            let shared_info = self.shared_info.read().unwrap();
-            shared_info.state.clone()
-        };
-        let result = match instance_state {
-            InstanceState::Starting | InstanceState::Running | InstanceState::Halting => {
-                AsyncOutcome::Error("Guest Instance already running.".to_string())
-            }
-            _ => match self.start_instance() {
-                Ok(_) => AsyncOutcome::Ok(0),
-                Err(e) => {
-                    let _ = self.stop();
-                    AsyncOutcome::Error(format!("Cannot start microvm: {:?}", e))
-                }
-            },
-        };
-        // Using expect() to crash this thread as well if the other thread crashed.
-        sender.send(result).expect("one-shot channel closed");
-    }
+        if self.is_instance_running() {
+            sender
+                .send(Box::new(SyncError::MicroVMAlreadyRunning))
+                .map_err(|_| ())
+                .expect("one-shot channel closed");
+            return;
+        }
 
-    fn handle_stop_instance(&mut self, sender: AsyncOutcomeSender) {
-        let result = match self.stop() {
-            Ok(_) => AsyncOutcome::Ok(0),
-            Err(e) => AsyncOutcome::Error(format!(
-                "Errors detected during instance stop()! err: {:?}",
-                e
-            )),
+        match self.start_instance() {
+            Ok(_) => sender
+                .send(Box::new(SyncOkStatus::Ok))
+                .map_err(|_| ())
+                .expect("one-shot channel closed"),
+            Err(_) => sender
+                .send(Box::new(SyncError::InstanceStartFailed))
+                .map_err(|_| ())
+                .expect("one-shot channel closed"),
         };
-        sender.send(result).expect("one-shot channel closed");
     }
 
     fn is_instance_running(&self) -> bool {
@@ -1451,7 +1437,7 @@ impl Vmm {
 
     fn run_api_cmd(&mut self) -> Result<()> {
         let request = match self.from_api.try_recv() {
-            Ok(t) => t,
+            Ok(t) => *t,
             Err(TryRecvError::Empty) => {
                 return Err(Error::ApiChannel);
             }
@@ -1459,37 +1445,33 @@ impl Vmm {
                 panic!();
             }
         };
-        match *request {
-            ApiRequest::Async(req) => match req {
-                AsyncRequest::StartInstance(sender) => self.handle_start_instance(sender),
-                AsyncRequest::StopInstance(sender) => self.handle_stop_instance(sender),
-            },
-            ApiRequest::Sync(req) => match req {
-                SyncRequest::GetMachineConfiguration(sender) => {
-                    self.handle_get_machine_configuration(sender)
-                }
-                SyncRequest::PatchDrive(drive_description, sender) => {
-                    self.handle_patch_drive(drive_description, sender)
-                }
-                SyncRequest::PutBootSource(boot_source_body, sender) => {
-                    self.handle_put_boot_source(boot_source_body, sender)
-                }
-                SyncRequest::PutDrive(block_device_config, sender) => {
-                    self.handle_put_drive(block_device_config, sender)
-                }
-                SyncRequest::PutLogger(logger_description, sender) => {
-                    self.handle_put_logger(logger_description, sender)
-                }
-                SyncRequest::PutMachineConfiguration(machine_config_body, sender) => {
-                    self.handle_put_machine_configuration(machine_config_body, sender)
-                }
-                SyncRequest::PutNetworkInterface(netif_body, sender) => {
-                    self.handle_put_network_interface(netif_body, sender)
-                }
-                SyncRequest::RescanBlockDevice(req_body, sender) => {
-                    self.handle_rescan_block_device(req_body, sender)
-                }
-            },
+
+        match request {
+            SyncRequest::GetMachineConfiguration(sender) => {
+                self.handle_get_machine_configuration(sender)
+            }
+            SyncRequest::PatchDrive(drive_description, sender) => {
+                self.handle_patch_drive(drive_description, sender)
+            }
+            SyncRequest::PutBootSource(boot_source_body, sender) => {
+                self.handle_put_boot_source(boot_source_body, sender)
+            }
+            SyncRequest::PutDrive(block_device_config, sender) => {
+                self.handle_put_drive(block_device_config, sender)
+            }
+            SyncRequest::PutLogger(logger_description, sender) => {
+                self.handle_put_logger(logger_description, sender)
+            }
+            SyncRequest::PutMachineConfiguration(machine_config_body, sender) => {
+                self.handle_put_machine_configuration(machine_config_body, sender)
+            }
+            SyncRequest::PutNetworkInterface(netif_body, sender) => {
+                self.handle_put_network_interface(netif_body, sender)
+            }
+            SyncRequest::RescanBlockDevice(req_body, sender) => {
+                self.handle_rescan_block_device(req_body, sender)
+            }
+            SyncRequest::StartInstance(sender) => self.handle_start_instance(sender),
         }
 
         Ok(())
@@ -1523,7 +1505,7 @@ impl Vmm {
 pub fn start_vmm_thread(
     api_shared_info: Arc<RwLock<InstanceInfo>>,
     api_event_fd: EventFd,
-    from_api: Receiver<Box<ApiRequest>>,
+    from_api: Receiver<Box<SyncRequest>>,
 ) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("fc_vmm".to_string())
