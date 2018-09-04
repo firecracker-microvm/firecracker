@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::vec::Vec;
 
 use super::{ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
+use dumbo::ns::{DetourFrameOutcome, MmdsNetworkStack};
 use fc_util::ratelimiter::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
@@ -119,6 +120,29 @@ impl RxVirtio {
     }
 }
 
+fn vnet_hdr_len() -> usize {
+    mem::size_of::<virtio_net_hdr_v1>()
+}
+
+// Frames being sent/received through the network device model have a VNET header. This
+// function returns a slice which holds the L2 frame bytes without this header.
+fn frame_bytes_from_buf(buf: &[u8]) -> &[u8] {
+    &buf[vnet_hdr_len()..]
+}
+
+fn frame_bytes_from_buf_mut(buf: &mut [u8]) -> &mut [u8] {
+    &mut buf[vnet_hdr_len()..]
+}
+
+// This initializes to all 0 the VNET hdr part of a buf.
+fn init_vnet_hdr(buf: &mut [u8]) {
+    // The buffer should be larger than vnet_hdr_len.
+    // TODO: any better way to set all these bytes to 0? Or is this optimized by the compiler?
+    for i in 0..vnet_hdr_len() {
+        buf[i] = 0;
+    }
+}
+
 struct NetEpollHandler {
     rx: RxVirtio,
     tap: Tap,
@@ -130,6 +154,7 @@ struct NetEpollHandler {
     // Remove once MRG_RXBUF is supported and this variable is actually used.
     #[allow(dead_code)]
     acked_features: u64,
+    mmds_ns: Option<Box<MmdsNetworkStack>>,
 }
 
 impl NetEpollHandler {
@@ -243,10 +268,37 @@ impl NetEpollHandler {
         }
     }
 
+    // We currently prioritize packets from the MMDS over regular network packets.
+    fn read_from_mmds_or_tap(&mut self) -> io::Result<usize> {
+        if let Some(ns) = self.mmds_ns.as_mut() {
+            match ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx.frame_buf[..])) {
+                // The MMDS has nothing to send.
+                Ok(None) => (),
+                // The MMDS wrote a packet to the buffer.
+                Ok(Some(len)) => {
+                    let len = len.get();
+                    METRICS.mmds.tx_frames.inc();
+                    METRICS.mmds.tx_bytes.add(len);
+                    init_vnet_hdr(&mut self.rx.frame_buf[..]);
+                    return Ok(vnet_hdr_len() + len);
+                }
+                // The MMDS tried to write something but failed. This shouldn't really happen, and
+                // may lead to tricky situations, because the process_rx() main loop will exit
+                // if there are no frames on the tap. Other MMDS frames pending at this point will
+                // have to wait until something triggers process_rx() again.
+                Err(_) => {
+                    // TODO: log something when we'll stop worrying about error flooding?
+                    METRICS.mmds.tx_errors.inc();
+                }
+            }
+        }
+        self.read_tap()
+    }
+
     fn process_rx(&mut self) {
         // Read as many frames as possible.
         loop {
-            match self.read_tap() {
+            match self.read_from_mmds_or_tap() {
                 Ok(count) => {
                     self.rx.bytes_read = count;
                     if !self.rate_limited_rx_single_frame() {
@@ -293,6 +345,12 @@ impl NetEpollHandler {
     fn process_tx(&mut self) {
         let mut rate_limited = false;
         let mut used_count = 0;
+
+        // The MMDS network stack works like a state machine, based on synchronous calls, and
+        // without being added to any event loop. If any frame is accepted by the MMDS, we also
+        // trigger a process_rx() which checks if there are any new frames to be sent, starting
+        // with the MMDS network stack.
+        let mut process_rx_for_mmds = false;
 
         for avail_desc in self.tx.queue.iter(&self.mem) {
             // If limiter.consume() fails it means there is no more TokenType::Ops
@@ -361,17 +419,45 @@ impl NetEpollHandler {
                 }
             }
 
-            let write_result = self.tap.write(&self.tx.frame_buf[..read_count as usize]);
-            match write_result {
-                Ok(_) => {
-                    METRICS.net.tx_bytes_count.add(read_count);
-                    METRICS.net.tx_packets_count.inc();
+            let mut frame_went_to_imds = false;
+
+            // Check if the frame should be heading towards the MMDS.
+            if let Some(ns) = self.mmds_ns.as_mut() {
+                match ns.detour_frame(frame_bytes_from_buf(&self.tx.frame_buf[..read_count])) {
+                    DetourFrameOutcome::Accepted(maybe_error) => {
+                        METRICS.mmds.rx_accepted.inc();
+                        if let Some(_) = maybe_error {
+                            // TODO: log something when we'll stop worrying about error flooding?
+                            METRICS.mmds.rx_accepted_err.inc();
+                        }
+
+                        // hacky hacky
+                        self.tx.rate_limiter.manual_replenish(1, TokenType::Ops);
+
+                        if !self.rx.deferred_frame {
+                            process_rx_for_mmds = true;
+                        }
+
+                        frame_went_to_imds = true;
+                    }
+                    DetourFrameOutcome::DoNotWant => (),
+                    DetourFrameOutcome::UnexpectedFrame => METRICS.mmds.rx_bad_eth.inc(),
                 }
-                Err(e) => {
-                    error!("Failed to write to tap: {:?}", e);
-                    METRICS.net.tx_fails.inc();
-                }
-            };
+            }
+
+            if !frame_went_to_imds {
+                let write_result = self.tap.write(&self.tx.frame_buf[..read_count as usize]);
+                match write_result {
+                    Ok(_) => {
+                        METRICS.net.tx_bytes_count.add(read_count);
+                        METRICS.net.tx_packets_count.inc();
+                    }
+                    Err(e) => {
+                        error!("Failed to write to tap: {:?}", e);
+                        METRICS.net.tx_fails.inc();
+                    }
+                };
+            }
 
             self.tx.used_desc_heads[used_count] = head_index;
             used_count += 1;
@@ -389,6 +475,11 @@ impl NetEpollHandler {
             for &desc_index in &self.tx.used_desc_heads[..used_count] {
                 self.tx.queue.add_used(&self.mem, desc_index, 0);
             }
+        }
+
+        // An incoming frame for the MMDS may trigger the transmission of a new message.
+        if process_rx_for_mmds {
+            self.process_rx();
         }
     }
 
@@ -775,6 +866,7 @@ impl VirtioDevice for Net {
                     interrupt_status: status,
                     interrupt_evt,
                     acked_features: self.acked_features,
+                    mmds_ns: Some(Box::new(MmdsNetworkStack::new_with_defaults())),
                 };
 
                 let tap_raw_fd = handler.tap.as_raw_fd();
@@ -1008,6 +1100,7 @@ mod tests {
             interrupt_status,
             interrupt_evt,
             acked_features: n.acked_features,
+            mmds_ns: None,
         };
 
         let daddr = 0x2000;
@@ -1162,6 +1255,7 @@ mod tests {
             interrupt_status,
             interrupt_evt,
             acked_features: n.acked_features,
+            mmds_ns: None,
         };
 
         let daddr = 0x2000;
@@ -1289,6 +1383,7 @@ mod tests {
             interrupt_status,
             interrupt_evt,
             acked_features: n.acked_features,
+            mmds_ns: None,
         };
 
         let daddr = 0x2000;
