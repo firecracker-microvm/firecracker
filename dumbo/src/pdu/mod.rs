@@ -8,6 +8,12 @@ pub mod arp;
 pub mod bytes;
 pub mod ethernet;
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub enum Error {
+    Arp(arp::Error),
+    Ethernet(ethernet::Error),
+}
+
 /// This is the baseline definition of the Incomplete struct, which wraps a PDU that does not have
 /// everything filled in. It's mostly important when writing PDUs, because fields like checksum
 /// can only be calculated after the payload becomes known. Also, we want the length of the
