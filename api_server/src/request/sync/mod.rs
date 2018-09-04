@@ -60,6 +60,7 @@ pub enum SyncRequest {
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
     RescanBlockDevice(ActionBody, SyncOutcomeSender),
+    StartInstance(SyncOutcomeSender),
 }
 
 impl fmt::Debug for SyncRequest {
@@ -74,7 +75,22 @@ impl fmt::Debug for SyncRequest {
 #[derive(PartialEq)]
 pub enum OkStatus {
     Created,
+    Ok,
     Updated,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub enum DeviceType {
+    Drive,
+}
+
+// Represents the associated json block from the async request body.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstanceDeviceDetachAction {
+    pub device_type: DeviceType,
+    pub device_resource_id: String,
+    pub force: bool,
 }
 
 impl GenerateResponse for OkStatus {
@@ -82,6 +98,7 @@ impl GenerateResponse for OkStatus {
         use self::OkStatus::*;
         match *self {
             Created => empty_response(StatusCode::Created),
+            Ok => empty_response(StatusCode::Ok),
             Updated => empty_response(StatusCode::NoContent),
         }
     }
@@ -93,7 +110,9 @@ pub enum Error {
     DriveOperationFailed(DriveError),
     GuestCIDAlreadyInUse,
     GuestMacAddressInUse,
+    InstanceStartFailed,
     InvalidPayload,
+    MicroVMAlreadyRunning,
     OpenTap(TapError),
     OperationFailed,
     OperationNotAllowedPreBoot,
@@ -114,9 +133,17 @@ impl GenerateResponse for Error {
                 StatusCode::BadRequest,
                 json_fault_message("The specified guest MAC address is already in use."),
             ),
+            InstanceStartFailed => json_response(
+                StatusCode::InternalServerError,
+                json_fault_message("The microVM failed to start."),
+            ),
             InvalidPayload => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The request payload is invalid."),
+            ),
+            MicroVMAlreadyRunning => json_response(
+                StatusCode::Forbidden,
+                json_fault_message("The microVM is already running."),
             ),
             OpenTap(ref e) => json_response(
                 StatusCode::BadRequest,
@@ -182,6 +209,7 @@ mod tests {
                     &SyncRequest::RescanBlockDevice(ref req, _),
                     &SyncRequest::RescanBlockDevice(ref other_req, _),
                 ) => req == other_req,
+                (&SyncRequest::StartInstance(_), &SyncRequest::StartInstance(_)) => true,
                 _ => false,
             }
         }
@@ -208,8 +236,14 @@ mod tests {
         ret = Error::GuestMacAddressInUse.generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
 
+        ret = Error::InstanceStartFailed.generate_response();
+        assert_eq!(ret.status(), StatusCode::InternalServerError);
+
         ret = Error::InvalidPayload.generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
+
+        ret = Error::MicroVMAlreadyRunning.generate_response();
+        assert_eq!(ret.status(), StatusCode::Forbidden);
 
         ret = Error::OpenTap(TapError::OpenTun(std::io::Error::from_raw_os_error(22)))
             .generate_response();
