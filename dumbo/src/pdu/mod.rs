@@ -4,6 +4,7 @@
 //! communication using a specific protocol. Ethernet frames, IP packets, and TCP segments are all
 //! example of protocol data units.
 
+pub mod arp;
 pub mod bytes;
 pub mod ethernet;
 
