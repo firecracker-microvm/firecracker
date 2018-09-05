@@ -142,9 +142,8 @@ def test_session_root_path():
 
     try:
         root_path = os.environ[ENV_TMPDIR_VAR]
-    except Exception:
+    except KeyError:
         root_path = DEFAULT_ROOT_TESTSESSION_PATH
-        raise Exception
 
     if not os.path.exists(root_path):
         os.makedirs(root_path)
