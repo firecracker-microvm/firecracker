@@ -84,6 +84,7 @@ be run on every microvm image in the bucket, each as a separate test case.
 import threading
 import os
 import shutil
+import sys
 import tempfile
 import uuid
 
@@ -118,6 +119,12 @@ DEFAULT_ROOT_TESTSESSION_PATH = '/tmp/firecracker_test_session/'
 """If ENV_TMPDIR_VAR is not set, this path will be used instead."""
 
 IP4_GENERATOR_CREATE_LOCK = threading.Lock()
+
+
+# This codebase uses Python features available in Python 3.6 or above
+if sys.version_info < (3, 6):
+    raise SystemError("This codebase requires Python 3.6 or above.")
+
 
 # Some tests create system-level resources; ensure we run as root.
 if os.geteuid() != 0:
