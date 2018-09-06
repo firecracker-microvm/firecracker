@@ -24,23 +24,21 @@ fn split(bytes: &[u8], separator: u8) -> (&[u8], &[u8]) {
 
 #[derive(Clone, PartialEq)]
 pub struct Uri<'a> {
-    bytes: &'a [u8],
+    slice: &'a str,
 }
 
 impl<'a> Uri<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Uri { bytes }
+    fn new(slice: &'a str) -> Self {
+        Uri { slice }
     }
 
-    fn try_from(bytes: &'a[u8]) -> Result<Self, Error> {
+    fn try_from(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() == 0 {
             return Err(Error::InvalidUri("Empty URI not allowed."));
         }
-        if from_utf8(bytes).is_err() {
-            return Err(Error::InvalidUri("Cannot parse URI as UTF-8."));
-        }
-        // TODO add some more validation to the URI.
-        Ok(Uri::new(bytes))
+        let utf8_slice =
+            from_utf8(bytes).map_err(|_| Error::InvalidUri("Cannot parse URI as UTF-8."))?;
+        Ok(Uri::new(utf8_slice))
     }
 
     /// URIs can be represented in absolute form or relative form. The absolute form includes
@@ -53,25 +51,25 @@ impl<'a> Uri<'a> {
     /// # Errors
     /// Returns an empty byte array when the host or the path are empty/invalid.
     ///
-    pub fn get_abs_path(&self) -> &'a [u8] {
-        let http_scheme_prefix = b"http://";
-        if self.bytes.starts_with(http_scheme_prefix) {
-            if self.bytes.len() == http_scheme_prefix.len() {
-                return &[];
+    pub fn get_abs_path(&self) -> &'a str {
+        let http_scheme_prefix = "http://";
+        if self.slice.starts_with(http_scheme_prefix) {
+            if self.slice.len() == http_scheme_prefix.len() {
+                return "";
             }
             // The host in this case includes the port and contains the bytes after http:// up to
             // the next '/'.
-            let (host, _) = split(&self.bytes[http_scheme_prefix.len()..], b'/');
+            let (host, _) = split(&self.slice.as_bytes()[http_scheme_prefix.len()..], b'/');
             if host.len() == 0 {
-                return &[];
+                return "";
             }
             let path_start_index = http_scheme_prefix.len() + host.len();
-            return &self.bytes[path_start_index..];
+            return &self.slice[path_start_index..];
         } else {
-            if self.bytes[0] != b'/' {
-                return &[];
+            if self.slice.starts_with("/") {
+                return &self.slice;
             }
-            return &self.bytes;
+            return "";
         }
     }
 }
@@ -186,20 +184,20 @@ mod tests {
 
     #[test]
     fn test_uri() {
-        let uri = Uri::new(b"http://localhost/home");
-        assert_eq!(uri.get_abs_path(), b"/home");
+        let uri = Uri::new("http://localhost/home");
+        assert_eq!(uri.get_abs_path(), "/home");
 
-        let uri = Uri::new(b"/home");
-        assert_eq!(uri.get_abs_path(), b"/home");
+        let uri = Uri::new("/home");
+        assert_eq!(uri.get_abs_path(), "/home");
 
-        let uri = Uri::new(b"home");
-        assert_eq!(uri.get_abs_path(), b"");
+        let uri = Uri::new("home");
+        assert_eq!(uri.get_abs_path(), "");
 
-        let uri = Uri::new(b"http://");
-        assert_eq!(uri.get_abs_path(), b"");
+        let uri = Uri::new("http://");
+        assert_eq!(uri.get_abs_path(), "");
 
-        let uri = Uri::new(b"http://192.168.0.0");
-        assert_eq!(uri.get_abs_path(), b"");
+        let uri = Uri::new("http://192.168.0.0");
+        assert_eq!(uri.get_abs_path(), "");
     }
 
     #[test]
@@ -207,7 +205,7 @@ mod tests {
         let expected_request_line = RequestLine {
             http_version: Version::Http10,
             method: Method::Get,
-            uri: Uri::new(b"http://localhost/home"),
+            uri: Uri::new("http://localhost/home"),
         };
 
         let request_line = b"GET http://localhost/home HTTP/1.0\r\n";
@@ -219,7 +217,7 @@ mod tests {
         let expected_request_line = RequestLine {
             http_version: Version::Http11,
             method: Method::Get,
-            uri: Uri::new(b"http://localhost/home"),
+            uri: Uri::new("http://localhost/home"),
         };
 
         let request_line = b"GET http://localhost/home HTTP/1.1\r\n";
@@ -247,7 +245,7 @@ mod tests {
             request_line: RequestLine {
                 http_version: Version::Http10,
                 method: Method::Get,
-                uri: Uri::new(b"http://localhost/home"),
+                uri: Uri::new("http://localhost/home"),
             },
             body: None,
             headers: Headers::default(),
