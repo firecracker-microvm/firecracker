@@ -4,8 +4,6 @@ extern crate micro_http;
 use data_model::mmds::{Error as MmdsError, MMDS};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 
-use std::str::from_utf8;
-
 fn build_response(http_version: Version, status_code: StatusCode, body: Body) -> Response {
     let mut response = Response::new(http_version, status_code);
     response.set_body(body);
@@ -25,12 +23,9 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                 );
             }
 
-            // We ensure that the URI is UTF-8 when creating the request.
-            let uri_utf8 = from_utf8(uri).unwrap();
-
             // The lock can be held by one thread only, so it is safe to unwrap.
-            // If another thread poisened the lock, we abort the execution.
-            let response = MMDS.lock().unwrap().get_value(uri_utf8.to_string());
+            // If another thread poisoned the lock, we abort the execution.
+            let response = MMDS.lock().unwrap().get_value(uri.to_string());
             match response {
                 Ok(response) => {
                     let response_body = response.join("\n");
@@ -44,7 +39,7 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                     match e {
                         MmdsError::NotFound => {
                             // NotFound
-                            let error_msg = format!("Resource not found: {}.", uri_utf8);
+                            let error_msg = format!("Resource not found: {}.", uri);
                             return build_response(
                                 request.http_version(),
                                 StatusCode::NotFound,
@@ -53,10 +48,8 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                         }
                         MmdsError::UnsupportedValueType => {
                             // InternalServerError
-                            let error_msg = format!(
-                                "The resource {} has an invalid format.",
-                                uri_utf8.to_string()
-                            );
+                            let error_msg =
+                                format!("The resource {} has an invalid format.", uri.to_string());
                             return build_response(
                                 request.http_version(),
                                 StatusCode::InternalServerError,
