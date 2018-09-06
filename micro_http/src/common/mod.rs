@@ -42,6 +42,13 @@ pub enum Method {
 }
 
 impl Method {
+    pub fn try_from(bytes: &[u8]) -> Result<Self, Error> {
+        match bytes {
+            b"GET" => Ok(Method::Get),
+            _ => Err(Error::InvalidHttpMethod("Unsupported HTTP method.")),
+        }
+    }
+
     pub fn raw(&self) -> &'static [u8] {
         match self {
             Method::Get => b"GET",
@@ -67,7 +74,7 @@ impl Version {
         match bytes {
             b"HTTP/1.0" => Ok(Version::Http10),
             b"HTTP/1.1" => Ok(Version::Http11),
-            _ => Err(Error::InvalidHttpVersion("Cannot parse HTTP version.")),
+            _ => Err(Error::InvalidHttpVersion("Unsupported HTTP version.")),
         }
     }
 
