@@ -32,6 +32,17 @@ impl<'a> Uri<'a> {
         Uri { bytes }
     }
 
+    fn try_from(bytes: &'a[u8]) -> Result<Self, Error> {
+        if bytes.len() == 0 {
+            return Err(Error::InvalidUri("Empty URI not allowed."));
+        }
+        if from_utf8(bytes).is_err() {
+            return Err(Error::InvalidUri("Cannot parse URI as UTF-8."));
+        }
+        // TODO add some more validation to the URI.
+        Ok(Uri::new(bytes))
+    }
+
     /// URIs can be represented in absolute form or relative form. The absolute form includes
     /// the HTTP scheme, followed by the absolute path as follows:
     /// "http:" "//" host [ ":" port ] [ abs_path ]
@@ -73,31 +84,6 @@ struct RequestLine<'a> {
 }
 
 impl<'a> RequestLine<'a> {
-    fn validate_method(method: &[u8]) -> Result<(), Error> {
-        if method != Method::Get.raw() {
-            return Err(Error::InvalidHttpMethod("Unsupported HTTP method."));
-        }
-        Ok(())
-    }
-
-    fn validate_uri(uri: &[u8]) -> Result<(), Error> {
-        if uri.len() == 0 {
-            return Err(Error::InvalidUri("Empty URI not allowed."));
-        }
-        if from_utf8(uri).is_err() {
-            return Err(Error::InvalidUri("Cannot parse URI as UTF-8."));
-        }
-        // TODO add some more validation to the URI.
-        Ok(())
-    }
-
-    fn validate_version(version: &[u8]) -> Result<(), Error> {
-        if version != Version::Http10.raw() && version != Version::Http11.raw() {
-            return Err(Error::InvalidHttpVersion("Unsupported HTTP version."));
-        }
-        Ok(())
-    }
-
     fn remove_trailing_cr(version: &[u8]) -> &[u8] {
         if version.len() > 1 && version[version.len() - 1] == CR {
             return &version[..version.len() - 1];
@@ -106,22 +92,22 @@ impl<'a> RequestLine<'a> {
         version
     }
 
-    fn try_from(request_line: &'a [u8]) -> Result<Self, Error> {
+    fn parse_request_line(request_line: &[u8]) -> (&[u8], &[u8], &[u8]) {
         let (method, remaining_bytes) = split(request_line, SP);
-        RequestLine::validate_method(method)?;
-
         let (uri, remaining_bytes) = split(remaining_bytes, SP);
-        RequestLine::validate_uri(uri)?;
-
         let (mut version, _) = split(remaining_bytes, LF);
-        // If the version ends with \r, we need to strip it.
         version = RequestLine::remove_trailing_cr(version);
-        RequestLine::validate_version(version)?;
+
+        (method, uri, version)
+    }
+
+    fn try_from(request_line: &'a [u8]) -> Result<Self, Error> {
+        let (method, uri, version) = RequestLine::parse_request_line(request_line);
 
         Ok(RequestLine {
-            method: Method::Get,
-            uri: Uri::new(uri),
-            http_version: Version::try_from(version).unwrap(),
+            method: Method::try_from(method)?,
+            uri: Uri::try_from(uri)?,
+            http_version: Version::try_from(version)?,
         })
     }
 
