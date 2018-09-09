@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 use std::result::Result;
 
 use net_util::MacAddr;
-use pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
+use pdu::arp::{test_speculative_tpa, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
 use pdu::ethernet::{EthernetFrame, ETHERTYPE_ARP};
 use pdu::{self, Error as PduError};
 
@@ -72,11 +72,12 @@ impl MmdsNetworkStack {
 
     // This is the entry point into the MMDS network stack. The src slice should hold the contents
     // of an Ethernet frame (of that exact size, without the CRC).
-
-    // TODO: We'll shorty add some code which checks whether this frame can be heading towards the
-    // MMDS by looking at where the destination IP address should be. If this test fails, we can
-    // ignore the frame, and skip all the other checks which don't make sense anymore.
     pub fn detour_frame(&mut self, src: &[u8]) -> DetourFrameOutcome {
+        // The frame cannot possibly contain an ARP request for the MMDS IPv4 addr.
+        if !test_speculative_tpa(src, self.ipv4_addr) {
+            return DetourFrameOutcome::DoNotWant;
+        }
+
         if let Ok(eth) = EthernetFrame::from_bytes(src) {
             match eth.ethertype() {
                 ETHERTYPE_ARP => return self.detour_arp(eth),

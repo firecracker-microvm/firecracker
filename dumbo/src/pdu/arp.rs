@@ -5,7 +5,7 @@ use std::net::Ipv4Addr;
 use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
-use super::ethernet::ETHERTYPE_IPV4;
+use super::ethernet::{self, ETHERTYPE_IPV4};
 use net_util::{MacAddr, MAC_ADDR_LEN};
 
 // A more detailed view into an ARP frame can be found here:
@@ -254,6 +254,20 @@ impl<'a, T: NetworkBytes> fmt::Debug for EthIPv4ArpFrame<'a, T> {
     }
 }
 
+/// This function checks if `buf` may hold an Ethernet frame which encapsulates an EthIPv4ArpRequest
+/// for the given address. Cannot produce false negatives.
+#[inline]
+pub fn test_speculative_tpa(buf: &[u8], addr: Ipv4Addr) -> bool {
+    // The unchecked methods are safe because we actually check the buffer length beforehand.
+    if buf.len() >= ethernet::PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN {
+        let bytes = &buf[ethernet::PAYLOAD_OFFSET..];
+        if EthIPv4ArpFrame::from_bytes_unchecked(bytes).tpa() == addr {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,5 +422,27 @@ mod tests {
             EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
             Error::PLen
         );
+    }
+
+    #[test]
+    fn test_speculative() {
+        let mut a = [0u8; 1000];
+        let addr = Ipv4Addr::new(1, 2, 3, 4);
+
+        assert!(!test_speculative_tpa(a.as_ref(), addr));
+
+        {
+            let mac = MacAddr::from_bytes_unchecked(&[0; 6]);
+            let mut eth =
+                ::pdu::ethernet::EthernetFrame::write_incomplete(a.as_mut(), mac, mac, 0).unwrap();
+            let mut arp = EthIPv4ArpFrame::from_bytes_unchecked(eth.inner_mut().payload_mut());
+            arp.set_tpa(addr);
+        }
+
+        assert!(test_speculative_tpa(a.as_ref(), addr));
+
+        // Let's also test for a very small buffer.
+        let small = [0u8; 1];
+        assert!(!test_speculative_tpa(small.as_ref(), addr));
     }
 }
