@@ -11,8 +11,9 @@ const SRC_MAC_OFFSET: usize = 6;
 const ETHERTYPE_OFFSET: usize = 12;
 
 // We don't support 802.1Q tags.
-// TODO: support 802.1Q tags?!
-const PAYLOAD_OFFSET: usize = 14;
+// TODO: support 802.1Q tags?! If so, don't forget to change the speculative_test_* functions
+// for ARP and IPv4.
+pub(super) const PAYLOAD_OFFSET: usize = 14;
 
 pub const ETHERTYPE_ARP: u16 = 0x0806;
 pub const ETHERTYPE_IPV4: u16 = 0x0800;
