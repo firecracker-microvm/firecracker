@@ -1,3 +1,5 @@
+use std::io::{Error as WriteError, Write};
+
 use ascii::{CR, LF, SP};
 use common::{Body, Version};
 use headers::{Header, Headers, MediaType};
@@ -37,11 +39,13 @@ impl StatusLine {
         };
     }
 
-    fn raw(&self) -> Vec<u8> {
-        let http_version = self.http_version.raw();
-        let status_code = self.status_code.raw();
+    fn write_all<T: Write>(&self, mut buf: T) -> Result<(), WriteError> {
+        buf.write_all(self.http_version.raw())?;
+        buf.write_all(&[SP])?;
+        buf.write_all(self.status_code.raw())?;
+        buf.write_all(&[SP, CR, LF])?;
 
-        return [http_version, &[SP], status_code, &[SP, CR, LF]].concat();
+        Ok(())
     }
 }
 
@@ -70,21 +74,19 @@ impl Response {
         self.body = Some(body);
     }
 
-    fn body_raw(&self) -> &[u8] {
-        match self.body {
-            Some(ref body) => body.raw(),
-            None => &[],
+    fn write_body<T: Write>(&self, mut buf: T) -> Result<(), WriteError> {
+        if let Some(ref body) = self.body {
+            buf.write_all(body.raw())?;
         }
+        Ok(())
     }
 
-    pub fn raw(&self) -> Vec<u8> {
-        let status_line = self.status_line.raw();
-        let headers = self.headers.raw();
-        let body = self.body_raw();
+    pub fn write_all<T: Write>(&self, mut buf: &mut T) -> Result<(), WriteError> {
+        self.status_line.write_all(&mut buf)?;
+        self.headers.write_all(&mut buf)?;
+        self.write_body(&mut buf)?;
 
-        let response = [status_line, headers, body.to_owned()].concat();
-
-        return response;
+        Ok(())
     }
 
     pub fn status(&self) -> StatusCode {
@@ -105,27 +107,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_raw() {
+    fn test_write_response() {
         let mut response = Response::new(Version::Http10, StatusCode::OK);
         let body = String::from("This is a test");
         response.set_body(Body::new(body.clone()));
 
         // Headers can be in either order.
-        let content_type = "Content-Type: text/plain\r\n";
-        let content_length = format!("Content-Length: {}\r\n", body.len());
+        let expected_response_1: &'static [u8] = b"HTTP/1.0 200 \r\n\
+            Content-Type: text/plain\r\n\
+            Content-Length: 14\r\n\r\n\
+            This is a test";
 
-        let expected_response_1 = format!(
-            "HTTP/1.0 200 \r\n{}{}\r\nThis is a test",
-            content_length, content_type
-        );
-        let expected_response_2 = format!(
-            "HTTP/1.0 200 \r\n{}{}\r\nThis is a test",
-            content_type, content_length
-        );
+        let expected_response_2: &'static [u8] = b"HTTP/1.0 200 \r\n\
+            Content-Length: 14\r\n\
+            Content-Type: text/plain\r\n\r\n\
+            This is a test";
 
+        let mut response_buf: [u8; 77] = [0; 77];
+        assert!(response.write_all(&mut response_buf.as_mut()).is_ok());
         assert!(
-            response.raw() == expected_response_1.into_bytes()
-                || response.raw() == expected_response_2.into_bytes()
+            response_buf.as_ref() == expected_response_1
+                || response_buf.as_ref() == expected_response_2
         );
+
+        // Test write failed.
+        let mut response_buf: [u8; 1] = [0; 1];
+        assert!(response.write_all(&mut response_buf.as_mut()).is_err());
     }
 }
