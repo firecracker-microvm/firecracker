@@ -116,13 +116,13 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     )
     response_json = response.json()
 
-    vcpu_count = str(microvm_config_json['vcpu_count'])
+    vcpu_count = microvm_config_json['vcpu_count']
     assert response_json['vcpu_count'] == vcpu_count
 
-    ht_enabled = str(microvm_config_json['ht_enabled']).lower()
+    ht_enabled = microvm_config_json['ht_enabled']
     assert response_json['ht_enabled'] == ht_enabled
 
-    mem_size_mib = str(microvm_config_json['mem_size_mib'])
+    mem_size_mib = microvm_config_json['mem_size_mib']
     assert response_json['mem_size_mib'] == mem_size_mib
 
     cpu_template = str(microvm_config_json['cpu_template'])
