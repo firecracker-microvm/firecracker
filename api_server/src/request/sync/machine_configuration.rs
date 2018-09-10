@@ -53,22 +53,12 @@ impl GenerateResponse for PutMachineConfigurationOutcome {
 
 impl GenerateResponse for MachineConfiguration {
     fn generate_response(&self) -> Response {
-        let vcpu_count = match self.vcpu_count {
-            Some(v) => v.to_string(),
-            None => String::from("Uninitialized"),
-        };
-        let mem_size = match self.mem_size_mib {
-            Some(v) => v.to_string(),
-            None => String::from("Uninitialized"),
-        };
-        let ht_enabled = match self.ht_enabled {
-            Some(v) => v.to_string(),
-            None => String::from("Uninitialized"),
-        };
-        let cpu_template = match self.cpu_template {
-            Some(ref v) => v.to_string(),
-            None => String::from("Uninitialized"),
-        };
+        let vcpu_count = self.vcpu_count.unwrap_or(1);
+        let mem_size = self.mem_size_mib.unwrap_or(128);
+        let ht_enabled = self.ht_enabled.unwrap_or(false);
+        let cpu_template = self
+            .cpu_template
+            .map_or("Uninitialized".to_string(), |c| c.to_string());
 
         json_response(
             StatusCode::Ok,
