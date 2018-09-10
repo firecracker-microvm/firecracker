@@ -74,7 +74,9 @@ impl Version {
         match bytes {
             b"HTTP/1.0" => Ok(Version::Http10),
             b"HTTP/1.1" => Ok(Version::Http11),
-            _ => Err(Error::InvalidHttpVersion("Unsupported HTTP version.")),
+            _ => Err(Error::InvalidHttpVersion(
+                "Unsupported HTTP version.",
+            )),
         }
     }
 
