@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::{Error as WriteError, Write};
 
 use ascii::{COLON, CR, LF, SP};
 
@@ -32,18 +33,18 @@ impl Headers {
         self.headers.insert(header, value);
     }
 
-    pub fn raw(&self) -> Vec<u8> {
-        let mut response = Vec::new();
-
+    pub fn write_all<T: Write>(&self, buf: &mut T) -> Result<(), WriteError> {
         for (key, val) in &self.headers {
-            let header = [key.raw(), &[COLON, SP], val.clone().as_bytes(), &[CR, LF]].concat();
-            response = [response, header].concat();
+            buf.write_all(key.raw())?;
+            buf.write_all(&[COLON, SP])?;
+            buf.write_all(&val.as_bytes())?;
+            buf.write_all(&[CR, LF])?;
         }
 
         // The header section ends with a CRLF.
-        response = [response, vec![CR, LF]].concat();
+        buf.write_all(&[CR, LF])?;
 
-        return response;
+        Ok(())
     }
 }
 
@@ -92,5 +93,28 @@ mod tests {
             headers.headers.get(&Header::ContentLength).unwrap(),
             &"130".to_string()
         );
+    }
+
+    #[test]
+    fn test_write_headers() {
+        // Test write empty headers object
+        {
+            let headers = Headers::default();
+            let mut response_buf: [u8; 2] = [0_u8; 2];
+
+            assert!(headers.write_all(&mut response_buf.as_mut()).is_ok());
+            assert_eq!(response_buf, [CR, LF]);
+        }
+
+        // Test write with one header
+        {
+            let mut headers = Headers::default();
+            headers.add(Header::ContentLength, "10".to_string());
+            let expected: &'static [u8] = b"Content-Length: 10\r\n\r\n";
+            let mut response_buf = [0_u8; 22];
+
+            assert!(headers.write_all(&mut response_buf.as_mut()).is_ok());
+            assert_eq!(expected, response_buf.as_ref());
+        }
     }
 }
