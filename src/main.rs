@@ -59,6 +59,17 @@ fn main() {
             Arg::with_name("jailed")
                 .long("jailed")
                 .help("Let Firecracker know it's running inside a jail."),
+        ).arg(
+            Arg::with_name("seccomp-level")
+                .long("seccomp-level")
+                .help(
+                    "Level of seccomp filtering.\n
+    - Level 0: No filtering.\n
+    - Level 1: Seccomp filtering by syscall number.\n
+",
+                ).takes_value(true)
+                .default_value("0")
+                .possible_values(&["0", "1"]),
         ).get_matches();
 
     let bind_path = cmd_arguments
@@ -70,6 +81,16 @@ fn main() {
         data_model::FIRECRACKER_IS_JAILED.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
+    // The value of the argument can be safely unwrapped, because a default value was specified.
+    // The value of the argument can be parsed into an unsigned integer since its possible values
+    // were specified and they are all unsigned integers, therefore the result of the parsing can be
+    // safely unwrapped.
+    let seccomp_level = cmd_arguments
+        .value_of("seccomp-level")
+        .unwrap()
+        .parse::<u32>()
+        .unwrap();
+
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,
     }));
@@ -80,7 +101,8 @@ fn main() {
     let api_event_fd = server
         .get_event_fd_clone()
         .expect("Cannot clone API eventFD.");
-    let _vmm_thread_handle = vmm::start_vmm_thread(shared_info, api_event_fd, from_api);
+    let _vmm_thread_handle =
+        vmm::start_vmm_thread(shared_info, api_event_fd, from_api, seccomp_level);
 
     server.bind_and_run(bind_path).unwrap();
 }
