@@ -41,7 +41,8 @@ class JailerContext:
         gid: int,
         chroot_base: str,
         netns: str,
-        daemonize: bool
+        daemonize: bool,
+        seccomp_level: int
     ):
         """Set up jailer fields."""
         self.microvm_slot_id = microvm_slot_id
@@ -52,6 +53,7 @@ class JailerContext:
         self.chroot_base = chroot_base
         self.netns = netns
         self.daemonize = daemonize
+        self.seccomp_level = seccomp_level
 
     @staticmethod
     def default_with_id(slot_id: str):
@@ -64,7 +66,8 @@ class JailerContext:
             gid=1234,
             chroot_base='/srv/jailer',
             netns=slot_id,
-            daemonize=True
+            daemonize=True,
+            seccomp_level=1
         )
 
     def chroot_base_with_id(self):
@@ -628,7 +631,9 @@ class Microvm:
                 '--gid',
                 str(context.gid),
                 '--node',
-                str(context.numa_node)
+                str(context.numa_node),
+                '--seccomp-level',
+                str(context.seccomp_level)
             ]
 
             if context.netns:

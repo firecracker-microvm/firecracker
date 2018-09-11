@@ -29,9 +29,11 @@ jailer --id <id> --node <numa_node> --exec-file <exec_file> --uid <uid> --gid <g
 
 After starting, the Jailer goes through the following operations:
 
-- If the `USE_SECCOMP` environment variable is set, sets up a list of seccomp
+- If the `--secomp-level` flag is set to `1`, sets up a list of seccomp
   filters, white listing the minimum set of system calls that Firecracker
   requires to function.
+- Otherwise if `--seccomp-level` flag is not set or is set to `0`, does not use
+  seccomp filtering.
 - Validate **all provided paths** and the VM `id`.
 - Close all open file descriptors unrelated to standard input.
 - Open `/dev/kvm` as *RW*, and bind a Unix domain socket listener to

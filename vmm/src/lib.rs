@@ -14,10 +14,12 @@ extern crate kvm;
 extern crate logger;
 extern crate memory_model;
 extern crate net_util;
+extern crate seccomp;
 extern crate sys_util;
 extern crate x86_64;
 
 mod api_logger_config;
+pub mod default_syscalls;
 mod device_config;
 mod device_manager;
 pub mod kernel_cmdline;
@@ -420,6 +422,10 @@ pub struct Vmm {
     from_api: Receiver<Box<SyncRequest>>,
 
     write_metrics_event: EpollEvent<TimerFd>,
+
+    // The level of seccomp filtering used. Seccomp filters are loaded before executing guest code.
+    // See `seccomp::SeccompLevel` for more information about seccomp levels.
+    seccomp_level: u32,
 }
 
 impl Vmm {
@@ -427,6 +433,7 @@ impl Vmm {
         api_shared_info: Arc<RwLock<InstanceInfo>>,
         api_event_fd: EventFd,
         from_api: Receiver<Box<SyncRequest>>,
+        seccomp_level: u32,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
@@ -465,6 +472,7 @@ impl Vmm {
             api_event,
             from_api,
             write_metrics_event,
+            seccomp_level,
         })
     }
 
@@ -974,6 +982,19 @@ impl Vmm {
                         }
                     }).map_err(Error::VcpuSpawn)?,
             );
+        }
+
+        // Starts seccomp filtering before executing guest code.
+        // Filters according to specified level.
+        // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
+        // altogether is the desired behaviour.
+        match self.seccomp_level {
+            seccomp::SECCOMP_LEVEL_BASIC => {
+                seccomp::setup_seccomp(seccomp::SeccompLevel::Basic(
+                    default_syscalls::ALLOWED_SYSCALLS,
+                )).expect("Could not load filters as requested!");
+            }
+            seccomp::SECCOMP_LEVEL_NONE | _ => {}
         }
 
         vcpu_thread_barrier.wait();
@@ -1501,17 +1522,21 @@ impl Vmm {
 /// * `api_shared_info` - A parameter for storing information on the VMM (e.g the current state).
 /// * `api_event_fd` - An event fd used for receiving API associated events.
 /// * `from_api` - The receiver end point of the communication channel.
+/// * `seccomp_level` - The level of seccomp filtering used. Filters are loaded before executing
+///                     guest code.
+///                     See `seccomp::SeccompLevel` for more information about seccomp levels.
 pub fn start_vmm_thread(
     api_shared_info: Arc<RwLock<InstanceInfo>>,
     api_event_fd: EventFd,
     from_api: Receiver<Box<SyncRequest>>,
+    seccomp_level: u32,
 ) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("fc_vmm".to_string())
         .spawn(move || {
             // If this fails, consider it fatal. Use expect().
-            let mut vmm =
-                Vmm::new(api_shared_info, api_event_fd, from_api).expect("Cannot create VMM.");
+            let mut vmm = Vmm::new(api_shared_info, api_event_fd, from_api, seccomp_level)
+                .expect("Cannot create VMM.");
             let r = vmm.run_control(true);
             // Make sure we clean up when this loop breaks on error.
             if r.is_err() {
@@ -1603,6 +1628,7 @@ mod tests {
             shared_info,
             EventFd::new().expect("cannot create eventFD"),
             from_api,
+            seccomp::SECCOMP_LEVEL_BASIC,
         ).expect("Cannot Create VMM");
         return vmm;
     }
