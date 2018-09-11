@@ -22,6 +22,15 @@ pub struct NetworkInterfaceBody {
     pub rx_rate_limiter: Option<RateLimiterDescription>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tx_rate_limiter: Option<RateLimiterDescription>,
+    #[serde(default = "default_allow_mmds_requests")]
+    pub allow_mmds_requests: bool,
+}
+
+// Serde does not allow specifying a default value for a field
+// that is not required. The workaround is to specify a function
+// that returns the value.
+fn default_allow_mmds_requests() -> bool {
+    false
 }
 
 impl NetworkInterfaceBody {
@@ -54,6 +63,7 @@ mod tests {
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            allow_mmds_requests: false,
         };
 
         assert!(netif.clone().into_parsed_request("bar").is_err());
@@ -78,6 +88,7 @@ mod tests {
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
             rx_rate_limiter: Some(RateLimiterDescription::default()),
             tx_rate_limiter: Some(RateLimiterDescription::default()),
+            allow_mmds_requests: true,
         };
 
         // This is the json encoding of the netif variable.
@@ -89,7 +100,8 @@ mod tests {
             "rx_rate_limiter": {
             },
             "tx_rate_limiter": {
-            }
+            },
+            "allow_mmds_requests": true
         }"#;
 
         let x = serde_json::from_str(jstr).expect("deserialization failed.");

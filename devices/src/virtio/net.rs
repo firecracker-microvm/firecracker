@@ -672,6 +672,7 @@ pub struct Net {
     epoll_config: EpollConfig,
     rx_rate_limiter: Option<RateLimiter>,
     tx_rate_limiter: Option<RateLimiter>,
+    allow_mmds_requests: bool,
 }
 
 impl Net {
@@ -682,6 +683,7 @@ impl Net {
         epoll_config: EpollConfig,
         rx_rate_limiter: Option<RateLimiter>,
         tx_rate_limiter: Option<RateLimiter>,
+        allow_mmds_requests: bool,
     ) -> Result<Self> {
         let kill_evt = EventFd::new().map_err(Error::CreateKillEventFd)?;
 
@@ -725,6 +727,7 @@ impl Net {
             epoll_config,
             rx_rate_limiter,
             tx_rate_limiter,
+            allow_mmds_requests,
         })
     }
 
@@ -749,6 +752,7 @@ impl Net {
             epoll_config,
             rx_rate_limiter,
             tx_rate_limiter,
+            false,
         )
     }
 }
@@ -850,6 +854,10 @@ impl VirtioDevice for Net {
                 let tx_queue = queues.remove(0);
                 let rx_queue_evt = queue_evts.remove(0);
                 let tx_queue_evt = queue_evts.remove(0);
+                let mut mmds_ns = None;
+                if self.allow_mmds_requests {
+                    mmds_ns = Some(Box::new(MmdsNetworkStack::new_with_defaults()));
+                }
                 let handler = NetEpollHandler {
                     rx: RxVirtio::new(
                         rx_queue,
@@ -866,7 +874,7 @@ impl VirtioDevice for Net {
                     interrupt_status: status,
                     interrupt_evt,
                     acked_features: self.acked_features,
-                    mmds_ns: Some(Box::new(MmdsNetworkStack::new_with_defaults())),
+                    mmds_ns,
                 };
 
                 let tap_raw_fd = handler.tap.as_raw_fd();
