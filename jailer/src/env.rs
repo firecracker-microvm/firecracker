@@ -39,6 +39,7 @@ pub struct Env {
     gid: u32,
     netns: Option<String>,
     daemonize: bool,
+    seccomp_level: u32,
 }
 
 // Function will only allow alphanumeric characters and hyphens.
@@ -108,6 +109,16 @@ impl Env {
 
         let daemonize = args.is_present("daemonize");
 
+        // The value of the argument can be safely unwrapped, because a default value was specified.
+        // The value of the argument can be parsed into an unsigned integer since its possible
+        // values were specified and they are all unsigned integers, therefore the result of the
+        // parsing can be safely unwrapped.
+        let seccomp_level = args
+            .value_of("seccomp-level")
+            .unwrap()
+            .parse::<u32>()
+            .unwrap();
+
         Ok(Env {
             id: id.to_string(),
             numa_node,
@@ -117,6 +128,7 @@ impl Env {
             gid,
             netns,
             daemonize,
+            seccomp_level,
         })
     }
 
@@ -269,6 +281,7 @@ impl Env {
         Err(Error::Exec(
             Command::new(chroot_exec_file)
                 .arg("--jailed")
+                .arg(format!("--seccomp-level={}", self.seccomp_level))
                 .stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())

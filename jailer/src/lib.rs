@@ -148,6 +148,18 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .required(false)
                 .takes_value(false),
         )
+        .arg(
+            Arg::with_name("seccomp-level")
+                .long("seccomp-level")
+                .help("Level of seccomp filtering that will be passed to executed path as argument.\n
+    - Level 0: No filtering.\n
+    - Level 1: Seccomp filtering by syscall number.\n
+")
+                .required(false)
+                .takes_value(true)
+                .default_value("0")
+                .possible_values(&["0", "1"]),
+        )
 }
 
 fn open_dev_kvm() -> Result<i32> {

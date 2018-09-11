@@ -38,13 +38,14 @@ def tmp_jailer(test_session_root_path):
     with open(os.path.join(jailer_srcdir, 'main.rs'), 'w') as jailer_src:
         jailer_src.write("""
             extern crate seccomp;
+            extern crate vmm;
             use std::env::args;
             use std::os::unix::process::CommandExt;
             use std::process::{Command, Stdio};
             fn main() {
                 let args: Vec<String> = args().collect();
                 let exec_file = &args[1];
-                seccomp::setup_seccomp().unwrap();
+                seccomp::setup_seccomp(seccomp::SeccompLevel::Basic(vmm::default_syscalls::ALLOWED_SYSCALLS)).unwrap();
                 Command::new(exec_file).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).exec();
             }
             """)
