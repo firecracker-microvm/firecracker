@@ -754,6 +754,8 @@ impl Vmm {
                 cfg.tx_rate_limiter.as_ref(),
             ).map_err(Error::CreateRateLimiter)?;
 
+            let allow_mmds_requests = cfg.allow_mmds_requests();
+
             if let Some(tap) = cfg.take_tap() {
                 let net_box = Box::new(
                     devices::virtio::Net::new_with_tap(
@@ -762,6 +764,7 @@ impl Vmm {
                         epoll_config,
                         rx_rate_limiter,
                         tx_rate_limiter,
+                        allow_mmds_requests,
                     ).map_err(Error::CreateNetDevice)?,
                 );
 
@@ -1695,6 +1698,7 @@ mod tests {
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            allow_mmds_requests: false,
         };
         match vmm.put_net_device(network_interface) {
             Ok(outcome) => assert!(outcome == SyncOkStatus::Created),
@@ -1710,6 +1714,7 @@ mod tests {
                 guest_mac: Some(mac),
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
+                allow_mmds_requests: false,
             };
             match vmm.put_net_device(network_interface) {
                 Ok(outcome) => assert!(outcome == SyncOkStatus::Updated),
