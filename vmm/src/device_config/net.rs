@@ -57,6 +57,10 @@ impl NetworkInterfaceConfig {
     pub fn guest_mac(&self) -> Option<&MacAddr> {
         self.body.guest_mac.as_ref()
     }
+
+    pub fn allow_mmds_requests(&self) -> bool {
+        self.body.allow_mmds_requests
+    }
 }
 
 pub struct NetworkInterfaceConfigs {
@@ -133,6 +137,7 @@ mod tests {
             guest_mac: Some(mac),
             rx_rate_limiter: Some(RateLimiterDescription::default()),
             tx_rate_limiter: Some(RateLimiterDescription::default()),
+            allow_mmds_requests: false,
         }
     }
 

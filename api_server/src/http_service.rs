@@ -1478,6 +1478,7 @@ mod tests {
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9a:BC").unwrap()),
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            allow_mmds_requests: false,
         };
 
         match netif.into_parsed_request("bar") {
