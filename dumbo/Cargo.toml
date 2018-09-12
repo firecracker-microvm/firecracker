@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
+bitflags = ">=1.0.4"
 byteorder = ">=1.2.1"
 
 net_util = { path = "../net_util" }
