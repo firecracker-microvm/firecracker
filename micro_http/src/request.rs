@@ -1,7 +1,7 @@
 use std::str::from_utf8;
 
 use common::ascii::{CR, LF, SP};
-pub use common::Error;
+pub use common::RequestError;
 use common::{Body, Method, Version};
 use headers::Headers;
 
@@ -32,12 +32,12 @@ impl<'a> Uri<'a> {
         Uri { slice }
     }
 
-    fn try_from(bytes: &'a [u8]) -> Result<Self, Error> {
+    fn try_from(bytes: &'a [u8]) -> Result<Self, RequestError> {
         if bytes.len() == 0 {
-            return Err(Error::InvalidUri("Empty URI not allowed."));
+            return Err(RequestError::InvalidUri("Empty URI not allowed."));
         }
         let utf8_slice =
-            from_utf8(bytes).map_err(|_| Error::InvalidUri("Cannot parse URI as UTF-8."))?;
+            from_utf8(bytes).map_err(|_| RequestError::InvalidUri("Cannot parse URI as UTF-8."))?;
         Ok(Uri::new(utf8_slice))
     }
 
@@ -99,7 +99,7 @@ impl<'a> RequestLine<'a> {
         (method, uri, version)
     }
 
-    fn try_from(request_line: &'a [u8]) -> Result<Self, Error> {
+    fn try_from(request_line: &'a [u8]) -> Result<Self, RequestError> {
         let (method, uri, version) = RequestLine::parse_request_line(request_line);
 
         Ok(RequestLine {
@@ -145,11 +145,11 @@ impl<'a> Request<'a> {
     ///
     /// let http_request = Request::try_from(b"GET http://localhost/home HTTP/1.0\r\n");
     ///
-    pub fn try_from(byte_stream: &'a [u8]) -> Result<Self, Error> {
+    pub fn try_from(byte_stream: &'a [u8]) -> Result<Self, RequestError> {
         // The first line of the request is the Request Line. The line ending is LF.
         let (request_line, _) = split(byte_stream, LF);
         if request_line.len() < RequestLine::min_len() {
-            return Err(Error::InvalidRequest);
+            return Err(RequestError::InvalidRequest);
         }
 
         // The Request Line should include the trailing LF.
