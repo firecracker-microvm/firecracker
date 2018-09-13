@@ -15,3 +15,11 @@ use std::sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT};
 
 // ATOMIC_BOOL_INIT = false
 pub static FIRECRACKER_IS_JAILED: AtomicBool = ATOMIC_BOOL_INIT;
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirecrackerContext {
+    pub id: String,
+    pub jailed: bool,
+    pub seccomp_level: u32,
+}
