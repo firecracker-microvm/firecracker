@@ -43,10 +43,11 @@ pub struct Env {
     netns: Option<String>,
     daemonize: bool,
     seccomp_level: u32,
+    start_time_ms: u64,
 }
 
 impl Env {
-    pub fn new(args: ArgMatches) -> Result<Self> {
+    pub fn new(args: ArgMatches, start_time_ms: u64) -> Result<Self> {
         // All arguments are either mandatory, or have default values, so the unwraps
         // should not fail.
         let id = args.value_of("id").unwrap();
@@ -116,6 +117,7 @@ impl Env {
             netns,
             daemonize,
             seccomp_level,
+            start_time_ms,
         })
     }
 
@@ -269,6 +271,7 @@ impl Env {
             id: self.id.clone(),
             jailed: true,
             seccomp_level: self.seccomp_level,
+            start_time_ms: self.start_time_ms,
         };
 
         Err(Error::Exec(
@@ -343,16 +346,19 @@ mod tests {
         let netns = "zzzns";
 
         // This should be fine.
-        let good_env = Env::new(make_args(
-            node,
-            id,
-            exec_file,
-            uid,
-            gid,
-            chroot_base,
-            Some(netns),
-            true,
-        )).expect("This new environment should be created successfully.");
+        let good_env = Env::new(
+            make_args(
+                node,
+                id,
+                exec_file,
+                uid,
+                gid,
+                chroot_base,
+                Some(netns),
+                true,
+            ),
+            0,
+        ).expect("This new environment should be created successfully.");
 
         let mut chroot_dir = PathBuf::from(chroot_base);
         chroot_dir.push(Path::new(exec_file).file_name().unwrap());
@@ -365,86 +371,68 @@ mod tests {
         assert_eq!(good_env.netns, Some(netns.to_string()));
         assert!(good_env.daemonize);
 
-        let another_good_env = Env::new(make_args(
-            node,
-            id,
-            exec_file,
-            uid,
-            gid,
-            chroot_base,
-            None,
-            false,
-        )).expect("This another new environment should be created successfully.");
+        let another_good_env = Env::new(
+            make_args(node, id, exec_file, uid, gid, chroot_base, None, false),
+            0,
+        ).expect("This another new environment should be created successfully.");
         assert!(!another_good_env.daemonize);
 
         // Not fine - invalid node.
         assert!(
-            Env::new(make_args(
-                "zzz",
-                id,
-                exec_file,
-                uid,
-                gid,
-                chroot_base,
-                None,
-                true
-            )).is_err()
+            Env::new(
+                make_args("zzz", id, exec_file, uid, gid, chroot_base, None, true),
+                0
+            ).is_err()
         );
 
         // Not fine - invalid id.
         assert!(
-            Env::new(make_args(
-                node,
-                "/ad./sa12",
-                exec_file,
-                uid,
-                gid,
-                chroot_base,
-                None,
-                true
-            )).is_err()
+            Env::new(
+                make_args(
+                    node,
+                    "/ad./sa12",
+                    exec_file,
+                    uid,
+                    gid,
+                    chroot_base,
+                    None,
+                    true
+                ),
+                0
+            ).is_err()
         );
 
         // Not fine - inexistent (hopefully) exec_file.
         assert!(
-            Env::new(make_args(
-                node,
-                id,
-                "/this!/file!/should!/not!/exist!/",
-                uid,
-                gid,
-                chroot_base,
-                None,
-                true
-            )).is_err()
+            Env::new(
+                make_args(
+                    node,
+                    id,
+                    "/this!/file!/should!/not!/exist!/",
+                    uid,
+                    gid,
+                    chroot_base,
+                    None,
+                    true
+                ),
+                0
+            ).is_err()
         );
 
         // Not fine - invalid uid.
         assert!(
-            Env::new(make_args(
-                node,
-                id,
-                exec_file,
-                "zzz",
-                gid,
-                chroot_base,
-                None,
-                true
-            )).is_err()
+            Env::new(
+                make_args(node, id, exec_file, "zzz", gid, chroot_base, None, true),
+                0
+            ).is_err()
         );
 
         // Not fine - invalid gid.
         assert!(
-            Env::new(make_args(
-                node,
-                id,
-                exec_file,
-                uid,
-                "zzz",
-                chroot_base,
-                None,
-                true
-            )).is_err()
+            Env::new(
+                make_args(node, id, exec_file, uid, "zzz", chroot_base, None, true),
+                0
+            ).is_err()
         );
 
         // The chroot-base-dir param is not validated by Env::new, but rather in run, when we

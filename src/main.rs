@@ -73,12 +73,14 @@ fn main() {
 
     let mut instance_id = String::from(DEFAULT_INSTANCE_ID);
     let mut seccomp_level = 0;
+    let mut start_time_ms = None;
     if let Some(s) = cmd_arguments.value_of("context") {
         let context = serde_json::from_str::<FirecrackerContext>(s).unwrap();
         data_model::FIRECRACKER_IS_JAILED
             .store(context.jailed, std::sync::atomic::Ordering::Relaxed);
         instance_id = context.id;
         seccomp_level = context.seccomp_level;
+        start_time_ms = Some(context.start_time_ms);
     }
 
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
@@ -95,7 +97,7 @@ fn main() {
     let _vmm_thread_handle =
         vmm::start_vmm_thread(shared_info, api_event_fd, from_api, seccomp_level);
 
-    server.bind_and_run(bind_path).unwrap();
+    server.bind_and_run(bind_path, start_time_ms).unwrap();
 }
 
 #[cfg(test)]
