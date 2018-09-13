@@ -116,9 +116,6 @@ impl Serialize for SharedMetric {
 // Metrics related to the internal api server
 #[derive(Default, Serialize)]
 pub struct ApiServerMetrics {
-    pub async_missed_actions_count: SharedMetric,
-    pub async_outcome_fails: SharedMetric,
-    pub async_vmm_send_timeout_count: SharedMetric,
     pub instance_info_fails: SharedMetric,
     pub sync_outcome_fails: SharedMetric,
     pub sync_vmm_send_timeout_count: SharedMetric,
@@ -127,9 +124,6 @@ pub struct ApiServerMetrics {
 // Metrics on GET Api Requests
 #[derive(Default, Serialize)]
 pub struct GetRequestsMetrics {
-    pub action_info_count: SharedMetric,
-    pub actions_count: SharedMetric,
-    pub actions_fails: SharedMetric,
     pub instance_info_count: SharedMetric,
     pub machine_cfg_count: SharedMetric,
     pub machine_cfg_fails: SharedMetric,
