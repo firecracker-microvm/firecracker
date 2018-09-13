@@ -178,7 +178,7 @@ fn open_dev_kvm() -> Result<i32> {
     Ok(ret)
 }
 
-pub fn run(args: ArgMatches) -> Result<()> {
+pub fn run(args: ArgMatches, start_time_ms: u64) -> Result<()> {
     // We open /dev/kvm and create the listening socket. These file descriptors will be
     // passed on to Firecracker post exec, and used via knowing their values in advance.
 
@@ -203,7 +203,7 @@ pub fn run(args: ArgMatches) -> Result<()> {
         }
     }
 
-    let env = Env::new(args)?;
+    let env = Env::new(args, start_time_ms)?;
 
     // Ensure the folder exists.
     fs::create_dir_all(env.chroot_dir())

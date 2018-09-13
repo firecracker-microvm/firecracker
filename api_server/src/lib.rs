@@ -1,3 +1,4 @@
+extern crate chrono;
 extern crate futures;
 extern crate hyper;
 extern crate serde;
@@ -32,6 +33,7 @@ use tokio_uds::UnixListener;
 
 use data_model::mmds::Mmds;
 use http_service::ApiServerHttpService;
+use logger::{Metric, METRICS};
 use request::instance_info::InstanceInfo;
 use request::SyncRequest;
 use sys_util::EventFd;
@@ -69,7 +71,11 @@ impl ApiServer {
     }
 
     // TODO: does tokio_uds also support abstract domain sockets?
-    pub fn bind_and_run<P: AsRef<Path>>(&self, uds_path: P) -> Result<()> {
+    pub fn bind_and_run<P: AsRef<Path>>(
+        &self,
+        uds_path: P,
+        jailer_start_time_ms: Option<u64>,
+    ) -> Result<()> {
         let mut core = Core::new().map_err(Error::Io)?;
         let handle = Rc::new(core.handle());
 
@@ -84,6 +90,14 @@ impl ApiServer {
         } else {
             UnixListener::bind(uds_path, &handle).map_err(Error::Io)?
         };
+
+        if let Some(start_time_ms) = jailer_start_time_ms {
+            let delta = (chrono::Utc::now().timestamp_millis() as u64) - start_time_ms;
+            METRICS
+                .api_server
+                .process_startup_time_ms
+                .add(delta as usize);
+        }
 
         let http: Http<hyper::Chunk> = Http::new();
 
