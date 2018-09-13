@@ -117,6 +117,7 @@ impl Serialize for SharedMetric {
 #[derive(Default, Serialize)]
 pub struct ApiServerMetrics {
     pub instance_info_fails: SharedMetric,
+    pub process_startup_time_ms: SharedMetric,
     pub sync_outcome_fails: SharedMetric,
     pub sync_vmm_send_timeout_count: SharedMetric,
 }
