@@ -326,10 +326,6 @@ definitions:
       Variant wrapper containing the real action.
       The timestamp field is read-only, trying to update/change it with an API call will fail.
     properties:
-      action_id:
-        type: string
-        minLength: 1
-        maxLength: 64
       action_type:
         description: Enumeration indicating what type of action is contained in the payload
         type: string
