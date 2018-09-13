@@ -8,7 +8,7 @@ pub mod ascii {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Error {
+pub enum RequestError {
     InvalidHttpMethod(&'static str),
     InvalidRequest,
     InvalidUri(&'static str),
@@ -42,10 +42,10 @@ pub enum Method {
 }
 
 impl Method {
-    pub fn try_from(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn try_from(bytes: &[u8]) -> Result<Self, RequestError> {
         match bytes {
             b"GET" => Ok(Method::Get),
-            _ => Err(Error::InvalidHttpMethod("Unsupported HTTP method.")),
+            _ => Err(RequestError::InvalidHttpMethod("Unsupported HTTP method.")),
         }
     }
 
@@ -70,11 +70,11 @@ impl Version {
         }
     }
 
-    pub fn try_from(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn try_from(bytes: &[u8]) -> Result<Self, RequestError> {
         match bytes {
             b"HTTP/1.0" => Ok(Version::Http10),
             b"HTTP/1.1" => Ok(Version::Http11),
-            _ => Err(Error::InvalidHttpVersion(
+            _ => Err(RequestError::InvalidHttpVersion(
                 "Unsupported HTTP version.",
             )),
         }
