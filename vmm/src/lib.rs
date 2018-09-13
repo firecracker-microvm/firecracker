@@ -966,6 +966,11 @@ impl Vmm {
             .fd
             .set_state(timer_state, SetTimeFlags::Default);
 
+        // Log the metrics straight away to check the process startup time.
+        if let Err(_) = LOGGER.log_metrics() {
+            METRICS.logger.missed_metrics_count.inc();
+        }
+
         Ok(())
     }
 
