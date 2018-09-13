@@ -1,3 +1,6 @@
+extern crate data_model;
+extern crate serde_json;
+
 use std::ffi::CStr;
 use std::fs::{self, canonicalize, File};
 use std::os::unix::io::IntoRawFd;
@@ -262,12 +265,18 @@ impl Env {
             }
         }
 
+        let context = data_model::FirecrackerContext {
+            id: self.id.clone(),
+            jailed: true,
+            seccomp_level: self.seccomp_level,
+        };
+
         Err(Error::Exec(
             Command::new(chroot_exec_file)
-                .arg(format!("--id={}", self.id))
-                .arg("--jailed")
-                .arg(format!("--seccomp-level={}", self.seccomp_level))
-                .stdin(Stdio::inherit())
+                .arg(format!(
+                    "--context={}",
+                    serde_json::to_string(&context).unwrap()
+                )).stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
                 .uid(self.uid())
