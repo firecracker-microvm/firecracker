@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 use std::result::Result;
 
 use net_util::MacAddr;
-use pdu::arp::{ETH_IPV4_FRAME_LEN, EthIPv4ArpFrame};
+use pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
 use pdu::ethernet::{EthernetFrame, ETHERTYPE_ARP};
 use pdu::{self, Error as PduError};
 
@@ -139,7 +139,7 @@ impl MmdsNetworkStack {
             dst_mac,
             dst_ipv4,
         ).map_err(PduError::Arp)?
-            .len();
+        .len();
 
         Ok(Some(
             // The unwrap() is safe because arp_len > 0.

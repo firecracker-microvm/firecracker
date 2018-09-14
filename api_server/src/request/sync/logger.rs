@@ -102,7 +102,7 @@ mod tests {
             PutLoggerOutcome::Error(APILoggerError::InitializationFailure(
                 "Could not initialize log system".to_string()
             )).generate_response()
-                .status(),
+            .status(),
             StatusCode::BadRequest
         );
     }

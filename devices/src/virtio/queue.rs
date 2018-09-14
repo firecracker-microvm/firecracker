@@ -109,7 +109,8 @@ impl<'a> DescriptorChain<'a> {
         if self
             .mem
             .checked_offset(self.addr, self.len as usize)
-            .is_none() || (self.has_next() && self.next >= self.queue_size)
+            .is_none()
+            || (self.has_next() && self.next >= self.queue_size)
         {
             false
         } else {
