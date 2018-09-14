@@ -113,8 +113,7 @@ impl ApiServer {
                 // We have to adjust the future item and error, to fit spawn()'s definition.
                 handle.spawn(connection.map(|_| ()).map_err(|_| ()));
                 Ok(())
-            })
-            .map_err(Error::Io);
+            }).map_err(Error::Io);
 
         // This runs forever, unless an error is returned somewhere within f (but nothing happens
         // for errors which might arise inside the connections we spawn from f, unless we explicitly

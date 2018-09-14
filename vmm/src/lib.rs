@@ -437,8 +437,7 @@ impl Vmm {
                 // non-blocking & close on exec
                 TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?,
                 EpollDispatch::WriteMetrics,
-            )
-            .expect("Cannot add write metrics TimerFd to epoll.");
+            ).expect("Cannot add write metrics TimerFd to epoll.");
 
         let block_device_configs = BlockDeviceConfigs::new();
         let kvm = KvmContext::new()?;
@@ -664,9 +663,9 @@ impl Vmm {
             self.drive_handler_id_map
                 .insert(drive_config.drive_id.clone(), curr_device_idx - 1);
 
-            let rate_limiter = rate_limiter_description_into_implementation(
-                drive_config.rate_limiter.as_ref(),
-            ).map_err(Error::CreateRateLimiter)?;
+            let rate_limiter =
+                rate_limiter_description_into_implementation(drive_config.rate_limiter.as_ref())
+                    .map_err(Error::CreateRateLimiter)?;
             let block_box = Box::new(
                 devices::virtio::Block::new(
                     block_file,
@@ -680,8 +679,7 @@ impl Vmm {
                     block_box,
                     &mut kernel_config.cmdline,
                     Some(drive_config.drive_id.clone()),
-                )
-                .map_err(Error::RegisterBlockDevice)?;
+                ).map_err(Error::RegisterBlockDevice)?;
         }
 
         Ok(())
@@ -745,12 +743,12 @@ impl Vmm {
         for cfg in self.network_interface_configs.iter_mut() {
             let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
 
-            let rx_rate_limiter = rate_limiter_description_into_implementation(
-                cfg.rx_rate_limiter.as_ref(),
-            ).map_err(Error::CreateRateLimiter)?;
-            let tx_rate_limiter = rate_limiter_description_into_implementation(
-                cfg.tx_rate_limiter.as_ref(),
-            ).map_err(Error::CreateRateLimiter)?;
+            let rx_rate_limiter =
+                rate_limiter_description_into_implementation(cfg.rx_rate_limiter.as_ref())
+                    .map_err(Error::CreateRateLimiter)?;
+            let tx_rate_limiter =
+                rate_limiter_description_into_implementation(cfg.tx_rate_limiter.as_ref())
+                    .map_err(Error::CreateRateLimiter)?;
 
             let allow_mmds_requests = cfg.allow_mmds_requests();
 
@@ -816,14 +814,12 @@ impl Vmm {
         self.vm
             .memory_init(self.guest_memory.clone().ok_or(Error::VmSetup(
                 vstate::Error::GuestMemory(memory_model::GuestMemoryError::MemoryNotInitialized),
-            ))?)
-            .map_err(Error::VmSetup)?;
+            ))?).map_err(Error::VmSetup)?;
         self.vm
             .setup_irqchip(
                 &self.legacy_device_manager.com_evt_1_3,
                 &self.legacy_device_manager.com_evt_2_4,
-            )
-            .map_err(Error::VmSetup)?;
+            ).map_err(Error::VmSetup)?;
         self.vm.create_pit().map_err(Error::VmSetup)?;
 
         // It is safe to unwrap() because mmio_device_manager is instantiated in init_devices, which
@@ -974,8 +970,7 @@ impl Vmm {
                             METRICS.vcpu.failures.inc();
                             error!("Failed signaling vcpu exit event: {:?}", e);
                         }
-                    })
-                    .map_err(Error::VcpuSpawn)?,
+                    }).map_err(Error::VcpuSpawn)?,
             );
         }
 
@@ -1016,7 +1011,9 @@ impl Vmm {
             .unwrap()
             .get_eventfd_clone()
             .map_err(|_| Error::GeneralFailure)?;
-        let exit_epoll_evt = self.epoll_context.add_event(event_fd, EpollDispatch::Exit)?;
+        let exit_epoll_evt = self
+            .epoll_context
+            .add_event(event_fd, EpollDispatch::Exit)?;
         self.exit_evt = Some(exit_epoll_evt);
 
         self.epoll_context.enable_stdin_event()?;
@@ -1522,8 +1519,7 @@ pub fn start_vmm_thread(
             // vmm thread errors are irrecoverable for now. Use expect().
             r.expect("VMM thread run failed.");
             // TODO: maybe offer through API: an instance status reporting error messages (r)
-        })
-        .expect("VMM thread spawn failed.")
+        }).expect("VMM thread spawn failed.")
 }
 
 #[cfg(test)]

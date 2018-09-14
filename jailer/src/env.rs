@@ -71,8 +71,8 @@ impl Env {
             .map_err(|_| Error::NumaNode(String::from(numa_node_str)))?;
 
         let exec_file = args.value_of("exec_file").unwrap();
-        let exec_file_path =
-            canonicalize(exec_file).map_err(|e| Error::Canonicalize(PathBuf::from(exec_file), e))?;
+        let exec_file_path = canonicalize(exec_file)
+            .map_err(|e| Error::Canonicalize(PathBuf::from(exec_file), e))?;
 
         if !exec_file_path.is_file() {
             return Err(Error::NotAFile(exec_file_path));
@@ -358,17 +358,16 @@ mod tests {
         assert_eq!(good_env.netns, Some(netns.to_string()));
         assert!(good_env.daemonize);
 
-        let another_good_env =
-            Env::new(make_args(
-                node,
-                id,
-                exec_file,
-                uid,
-                gid,
-                chroot_base,
-                None,
-                false,
-            )).expect("This another new environment should be created successfully.");
+        let another_good_env = Env::new(make_args(
+            node,
+            id,
+            exec_file,
+            uid,
+            gid,
+            chroot_base,
+            None,
+            false,
+        )).expect("This another new environment should be created successfully.");
         assert!(!another_good_env.daemonize);
 
         // Not fine - invalid node.
