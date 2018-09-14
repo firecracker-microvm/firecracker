@@ -115,8 +115,7 @@ fn parse_actions_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::SerdeJson(e)
-                })?
-                .into_parsed_request(method)
+                })?.into_parsed_request(method)
                 .map_err(|msg| {
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::Generic(StatusCode::BadRequest, msg)
@@ -156,8 +155,7 @@ fn parse_boot_source_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::SerdeJson(e)
-                })?
-                .into_parsed_request()
+                })?.into_parsed_request()
                 .map_err(|s| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -231,10 +229,10 @@ fn parse_drives_req<'a>(
                     Error::SerdeJson(e)
                 })?,
             }.into_parsed_request(method)
-                .map_err(|s| {
-                    METRICS.patch_api_requests.drive_fails.inc();
-                    Error::Generic(StatusCode::BadRequest, s)
-                })?)
+            .map_err(|s| {
+                METRICS.patch_api_requests.drive_fails.inc();
+                Error::Generic(StatusCode::BadRequest, s)
+            })?)
         }
 
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -258,8 +256,7 @@ fn parse_logger_req<'a>(
                     .map_err(|e| {
                         METRICS.put_api_requests.logger_fails.inc();
                         Error::SerdeJson(e)
-                    })?
-                    .into_parsed_request()
+                    })?.into_parsed_request()
                     .map_err(|s| {
                         METRICS.put_api_requests.logger_fails.inc();
                         Error::Generic(StatusCode::BadRequest, s)
@@ -300,8 +297,7 @@ fn parse_machine_config_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::SerdeJson(e)
-                })?
-                .into_parsed_request(method)
+                })?.into_parsed_request(method)
                 .map_err(|s| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -333,8 +329,7 @@ fn parse_netif_req<'a>(
                     .map_err(|e| {
                         METRICS.put_api_requests.network_fails.inc();
                         Error::SerdeJson(e)
-                    })?
-                    .into_parsed_request(unwrapped_id)
+                    })?.into_parsed_request(unwrapped_id)
                     .map_err(|s| {
                         METRICS.put_api_requests.network_fails.inc();
                         Error::Generic(StatusCode::BadRequest, s)
@@ -601,8 +596,8 @@ mod tests {
     use request::ActionType;
 
     fn body_to_string(body: hyper::Body) -> String {
-        let ret =
-            body.fold(Vec::new(), |mut acc, chunk| {
+        let ret = body
+            .fold(Vec::new(), |mut acc, chunk| {
                 acc.extend_from_slice(&*chunk);
                 Ok::<_, hyper::Error>(acc)
             }).and_then(move |value| Ok(value));

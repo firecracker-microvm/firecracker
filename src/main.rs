@@ -55,13 +55,11 @@ fn main() {
                 .help("Path to unix domain socket used by the API")
                 .default_value(DEFAULT_API_SOCK_PATH)
                 .takes_value(true),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("jailed")
                 .long("jailed")
                 .help("Let Firecracker know it's running inside a jail."),
-        )
-        .get_matches();
+        ).get_matches();
 
     let bind_path = cmd_arguments
         .value_of("api_sock")
@@ -160,8 +158,7 @@ mod tests {
                     .init(
                         Some(log_file_temp.path().to_str().unwrap().to_string()),
                         Some(metrics_file_temp.path().to_str().unwrap().to_string()),
-                    )
-                    .expect("Could not initialize logger.");
+                    ).expect("Could not initialize logger.");
                 // EnterDrop is used here only to be able to check the content of the log file
                 // after panicking.
                 let _my_setup = EnterDrop { log_file };
