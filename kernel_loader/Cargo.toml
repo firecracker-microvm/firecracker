@@ -3,8 +3,6 @@ name = "kernel_loader"
 version = "0.1.0"
 
 [dependencies]
-libc = ">=0.2.39"
-
 sys_util = { path = "../sys_util" }
 memory_model = { path = "../memory_model" }
 x86_64 = { path = "../x86_64" }
