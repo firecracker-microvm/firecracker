@@ -10,7 +10,6 @@ extern crate data_model;
 extern crate devices;
 extern crate kernel_loader;
 extern crate kvm;
-extern crate kvm_sys;
 #[macro_use]
 extern crate logger;
 extern crate memory_model;
