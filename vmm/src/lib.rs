@@ -260,7 +260,7 @@ impl EpollContext {
             libc::STDIN_FILENO,
             epoll::Event::new(epoll::EPOLLIN, self.stdin_index),
         ) {
-            // TODO: We just log this message, and immediatedly return Ok, instead of returning the
+            // TODO: We just log this message, and immediately return Ok, instead of returning the
             // actual error because this operation always fails with EPERM when adding a fd which
             // has been redirected to /dev/null via dup2 (this may happen inside the jailer).
             // Find a better solution to this (and think about the state of the serial device
