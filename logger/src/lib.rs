@@ -270,6 +270,10 @@ impl Logger {
     /// of the log statement based on the logger settings.
     ///
     fn create_prefix(&self, record: &Record) -> String {
+        if !self.show_level() && !self.show_file_path() {
+            return "".to_string();
+        }
+
         let level_str = if self.show_level() {
             record.level().to_string()
         } else {
@@ -297,7 +301,7 @@ impl Logger {
             String::new()
         };
 
-        format!("[{}{}{}]", level_str, file_path_str, line_str)
+        format!(" [{}{}{}]", level_str, file_path_str, line_str)
     }
 
     fn log_fifo_guard(&self) -> MutexGuard<Option<PipeLogWriter>> {
@@ -454,7 +458,7 @@ impl Log for Logger {
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
             let msg = format!(
-                "{} {}{}{}",
+                "{}{}{}{}",
                 Local::now().format(TIME_FMT),
                 self.create_prefix(&record),
                 MSG_SEPARATOR,
