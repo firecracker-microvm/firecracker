@@ -15,7 +15,7 @@ import shutil
 from subprocess import run, PIPE
 from threading import Thread
 import time
-from typing import Dict, Set
+from typing import Dict, List, Set
 import urllib
 
 import requests_unixsocket
@@ -99,7 +99,6 @@ class JailerContext:
             shell=True,
             check=True
         )
-
         return jailed_p
 
     def netns_file_path(self):
@@ -327,8 +326,8 @@ class MicrovmSlot:
         """A set of file systems for this microvm slot."""
         self.taps: Set[str] = set()
         """A set of tap devices for this microvm slot."""
-        self.fifos: Set[str] = set()
-        """A set of named pipes for this microvm slot."""
+        self.fifos: List[str] = list()
+        """A list of named pipes (for logging and metrics purpose)."""
 
     def say(self, message: str):
         """Return a message from your microVM slot."""
@@ -436,15 +435,12 @@ class MicrovmSlot:
         path = os.path.join(self.path, name)
         if os.path.exists(path):
             raise ValueError(self.say("Named pipe already exists: " + path))
-
-        run('mkfifo ' + path, shell=True, check=True)
-        self.fifos.add(path)
+        cmd = 'mkfifo ' + path
+        run(cmd, shell=True, check=True)
+        self.fifos.append(path)
 
         if self.jailer_context:
-            # TODO: Do this in a better way, when refactoring the in-tree
-            #       integration tests.
             return self.jailer_context.ln_and_chown(path)
-
         return path
 
     def teardown(self):
@@ -548,12 +544,6 @@ class Microvm:
         self.logger_url = None
         self.mmds_url = None
         self.memory_cop_thread = None
-        # TODO read the log up to the memory address where the guest's region
-        # starts, then cross reference it with `pmap` output to compute memory
-        # overhead. Currently the log doesn't seem to be flushed until the
-        # Firecracker process closes the pipe, so `pmap` will be cross
-        # referenced instead with the known size of the guest's memory region.
-        self.log_fifo_path = None
         self.mem_size_mib = None
         self.monitor_memory = monitor_memory
 
@@ -726,9 +716,7 @@ class Microvm:
         mem_size_mib: int = 256,
         net_iface_count: int = 1,
         add_root_device: bool = True,
-        log_enable: bool = False,
-        log_fifo: str = 'firecracker.pipe',
-        metrics_fifo: str = 'metrics.pipe'
+        log_enable: bool = False
     ):
         """Shortcut for quickly configuring a spawned microvm.
 
@@ -747,10 +735,7 @@ class Microvm:
             raise ValueError("Supports at most 10 network interfaces.")
 
         if log_enable:
-            self.basic_logger_config(
-                log_fifo=log_fifo,
-                metrics_fifo=metrics_fifo
-            )
+            self.logger_config()
 
         response = self.api_session.put(
             self.microvm_cfg_url,
@@ -858,20 +843,24 @@ class Microvm:
         # we can now update the ssh_config dictionary with the IP of the VM.
         self.slot.ssh_config['hostname'] = guest_ip
 
-    def basic_logger_config(
+    def logger_config(
             self,
-            log_fifo: str = 'firecracker.pipe',
-            metrics_fifo: str = 'metrics.pipe'
+            level: str = 'Info',
+            show_level: bool = True,
+            show_origin: bool = True,
     ):
         """Configure logging."""
+        jailed_log_fifo = self.slot.make_fifo()
+        jailed_metrics_fifo = self.slot.make_fifo()
+
         response = self.api_session.put(
             self.logger_url,
             json={
-                'log_fifo': self.slot.make_fifo(log_fifo),
-                'metrics_fifo': self.slot.make_fifo(metrics_fifo),
-                'level': 'Info',
-                'show_level': True,
-                'show_log_origin': True
+                'log_fifo': jailed_log_fifo,
+                'metrics_fifo': jailed_metrics_fifo,
+                'level': level,
+                'show_level': show_level,
+                'show_log_origin': show_origin
             }
         )
         assert self.api_session.is_good_response(response.status_code)
