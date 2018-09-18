@@ -6,7 +6,6 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 [dependencies]
 libc = ">=0.2.39"
 epoll = "=2.1.0"
-scopeguard = "=0.3.3"
 serde = "=1.0.27"
 serde_json = ">=1.0.9"
 time = ">=0.1.39"
@@ -17,7 +16,6 @@ data_model = { path = "../data_model" }
 devices = { path = "../devices" }
 kernel_loader = { path = "../kernel_loader" }
 kvm = { path = "../kvm" }
-kvm_sys = { path = "../kvm_sys" }
 logger = { path = "../logger" }
 memory_model = { path = "../memory_model" }
 net_util = { path = "../net_util"}
