@@ -633,11 +633,11 @@ def test_api_unknown_fields(test_microvm_with_api):
     )
     assert response.status_code == 400
 
-    # Test invalid field for AsyncRequestBody: `action_id` -> `action-id`.
+    # Test invalid field for SyncRequest
     response = test_microvm.api_session.put(
         test_microvm.actions_url,
         json={
-            'action_di': 'start',
+            'invalid_field': 'foo',
             'action_type': 'InstanceStart',
         }
     )
@@ -648,7 +648,6 @@ def test_api_unknown_fields(test_microvm_with_api):
     response = test_microvm.api_session.put(
         test_microvm.actions_url,
         json={
-            'action_id': 'start3',
             'action_type': 'InstanceStart',
             'instance_device_detach_action': {
                 'device_type': 'Drive',
