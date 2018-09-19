@@ -27,8 +27,6 @@ pub struct ActionBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance_device_detach_action: Option<InstanceDeviceDetachAction>,
     pub payload: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<u64>,
 }
 
 impl IntoParsedRequest for ActionBody {
@@ -69,7 +67,6 @@ mod tests {
                 action_type: ActionType::BlockDeviceRescan,
                 instance_device_detach_action: None,
                 payload: Some(Value::String(String::from("foobar"))),
-                timestamp: None,
             };
             let req = ParsedRequest::Sync(SyncRequest::RescanBlockDevice(body, sender), receiver);
 

@@ -23,10 +23,10 @@ pub use self::drive::{PatchDriveOutcome, PutDriveOutcome};
 pub use self::logger::{APILoggerDescription, APILoggerError, APILoggerLevel, PutLoggerOutcome};
 pub use self::net::NetworkInterfaceBody;
 
-// Unlike async requests, sync request have outcomes which implement this trait. The idea is for
-// each outcome to be a struct which is cheaply and quickly instantiated by the VMM thread, then
-// passed back the the API thread, and then unpacked into a http response using the implementation
-// of the generate_response() method.
+// Sync requests have outcomes which implement this trait. The idea is for each outcome to be a
+// struct which is cheaply and quickly instantiated by the VMM thread, then passed back the the API
+// thread, and then unpacked into a http response using the implementation of
+// the generate_response() method.
 pub trait GenerateResponse {
     fn generate_response(&self) -> hyper::Response;
 }
@@ -84,7 +84,7 @@ pub enum DeviceType {
     Drive,
 }
 
-// Represents the associated json block from the async request body.
+// Represents the associated json block from the sync request body.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InstanceDeviceDetachAction {

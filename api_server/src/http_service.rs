@@ -527,7 +527,7 @@ impl hyper::server::Service for ApiServerHttpService {
                         let path_copy_err = path_copy.clone();
                         let method_copy_err = method_copy.clone();
 
-                        info!("Sent {}", describe(true, &method_copy, &path, &b_str));
+                        info!("Sent {}", describe(&method_copy, &path, &b_str));
 
                         // Sync requests don't receive a response until the outcome is returned.
                         // Once more, this just registers a closure to run when the result is
@@ -537,7 +537,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                 .map(move |x| {
                                     info!(
                                         "Received Success on {}",
-                                        describe(true, &method_copy, &path_copy, &b_str)
+                                        describe(&method_copy, &path_copy, &b_str)
                                     );
                                     x.generate_response()
                                 })
@@ -545,7 +545,6 @@ impl hyper::server::Service for ApiServerHttpService {
                                     info!(
                                         "Received Error on {}",
                                         describe(
-                                            true,
                                             &method_copy_err,
                                             &path_copy_err,
                                             &b_str_err
@@ -564,20 +563,13 @@ impl hyper::server::Service for ApiServerHttpService {
 }
 
 /// Helper function for metric-logging purposes on API requests
-/// `sync` refers to whether or not the function is synchronous or not (false)
 /// `method` is whether PUT or GET
 /// `path` and `body` represent path of the API request and body, respectively
-fn describe(sync: bool, method: &Method, path: &String, body: &String) -> String {
-    match sync {
-        false => format!(
-            "asynchronous {:?} request {:?} with body {:?}",
-            method, path, body
-        ),
-        true => format!(
-            "synchronous {:?} request {:?} with body {:?}",
-            method, path, body
-        ),
-    }
+fn describe(method: &Method, path: &String, body: &String) -> String {
+    format!(
+        "synchronous {:?} request {:?} with body {:?}",
+        method, path, body
+    )
 }
 
 #[cfg(test)]
@@ -756,7 +748,6 @@ mod tests {
                     action_type: ActionType::BlockDeviceRescan,
                     instance_device_detach_action: None,
                     payload: Some(Value::String(String::from("foo"))),
-                    timestamp: None,
                 };
                 assert!(pr.eq(&ParsedRequest::Sync(
                     SyncRequest::RescanBlockDevice(action_body, sender),
@@ -1319,25 +1310,15 @@ mod tests {
     #[test]
     fn test_describe() {
         let body: String = String::from("{ \"foo\": \"bar\" }");
-        let msj = describe(true, &Method::Get, &String::from("/foo/bar"), &body);
+        let msj = describe(&Method::Get, &String::from("/foo/bar"), &body);
         assert_eq!(
             msj,
             "synchronous Get request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
         );
-        let msj = describe(true, &Method::Put, &String::from("/foo/bar"), &body);
+        let msj = describe(&Method::Put, &String::from("/foo/bar"), &body);
         assert_eq!(
             msj,
             "synchronous Put request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
-        );
-        let msj = describe(false, &Method::Get, &String::from("/foo/bar"), &body);
-        assert_eq!(
-            msj,
-            "asynchronous Get request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
-        );
-        let msj = describe(false, &Method::Put, &String::from("/foo/bar"), &body);
-        assert_eq!(
-            msj,
-            "asynchronous Put request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
         );
     }
 }
