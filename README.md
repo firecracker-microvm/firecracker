@@ -220,27 +220,18 @@ To run a guest OS within a Firecracker microVMs, you will need have:
 ### Power-On the MicroVM
 
 Simply issue the `InstanceStart` action to the `/actions` API resource.
-This is an asynchronous API request. You can check the response with a get
+This is an synchronous API request. You can check the response with a get
 on the same path.
 
 ``` bash
 # Start the Firecracker MicroVM
 curl --unix-socket /tmp/firecracker.socket -i \
-     -X PUT "http://localhost/actions/start" \
+     -X PUT "http://localhost/actions" \
      -H  "accept: application/json" \
      -H  "Content-Type: application/json" \
      -d "{
-            \"action_id\": \"start\",
             \"action_type\": \"InstanceStart\"
          }"
-
-# Wait some time for the MicroVM to boot
-sleep 0.5
-
-# Get the response of starting the MicroVM
-curl --unix-socket /tmp/firecracker.socket -i \
-     -X GET "http://localhost/actions/start" \
-     -H "accept: application/json"
 ```
 
 ### Notes

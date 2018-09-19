@@ -324,7 +324,6 @@ definitions:
     type: object
     description:
       Variant wrapper containing the real action.
-      The timestamp field is read-only, trying to update/change it with an API call will fail.
     properties:
       action_type:
         description: Enumeration indicating what type of action is contained in the payload
@@ -334,8 +333,6 @@ definitions:
         - InstanceStart
         - InstanceHalt
       payload:
-        type: string
-      timestamp:
         type: string
 
   InstanceInfo:

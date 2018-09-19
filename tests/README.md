@@ -93,8 +93,8 @@ def test_with_any_microvm(test_microvm_any):
     # [...]
 
     response = test_microvm_any.api_session.put(
-        test_microvm_any.actions_url + '/1',
-        json={'action_id': '1', 'action_type': 'InstanceStart'}
+        test_microvm_any.actions_url,
+        json={'action_type': 'InstanceStart'}
     )
     assert(test_microvm_any.api_session.is_good_response(response.status_code))
 ```
