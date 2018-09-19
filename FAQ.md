@@ -19,7 +19,7 @@ the "Power-On the MicroVM" section. If the result of the GET is:
 
 - **Error**: Submit a new issue with the label "Support: Failure".
 - **Success**: If the boot was successful, you should see an output like
-  `{"action_id":"start","action_type":"InstanceStart","timestamp":0}`.
+  `{"action_type":"InstanceStart"}`.
 
 If you have no output in the console, most likely you will have to update the
 kernel command line. By default, Firecracker starts with the serial console

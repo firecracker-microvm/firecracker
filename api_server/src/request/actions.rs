@@ -18,7 +18,7 @@ pub enum ActionType {
     InstanceStart,
 }
 
-// The model of the json body from an async request. We use Serde to transform each associated
+// The model of the json body from a sync request. We use Serde to transform each associated
 // json body into this.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -87,8 +87,7 @@ mod tests {
                 \"instance_device_detach_action\": {\
                     \"device_type\": \"Drive\",
                     \"device_resource_id\": \"dummy\",
-                    \"force\": true},
-                \"timestamp\": 1522850095
+                    \"force\": true}
               }";
             let (sender, receiver) = oneshot::channel();
             let req: ParsedRequest =
