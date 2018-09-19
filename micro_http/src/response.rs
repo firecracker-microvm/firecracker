@@ -112,6 +112,10 @@ mod tests {
         let body = String::from("This is a test");
         response.set_body(Body::new(body.clone()));
 
+        assert!(response.status() == StatusCode::OK);
+        assert_eq!(response.body().unwrap(), Body::new(body.clone()));
+        assert_eq!(response.http_version(), Version::Http10);
+
         // Headers can be in either order.
         let expected_response_1: &'static [u8] = b"HTTP/1.0 200 \r\n\
             Content-Type: text/plain\r\n\
@@ -133,5 +137,14 @@ mod tests {
         // Test write failed.
         let mut response_buf: [u8; 1] = [0; 1];
         assert!(response.write_all(&mut response_buf.as_mut()).is_err());
+    }
+
+    #[test]
+    fn test_status_code() {
+        assert_eq!(StatusCode::OK.raw(), b"200");
+        assert_eq!(StatusCode::BadRequest.raw(), b"400");
+        assert_eq!(StatusCode::NotFound.raw(), b"404");
+        assert_eq!(StatusCode::InternalServerError.raw(), b"500");
+        assert_eq!(StatusCode::NotImplemented.raw(), b"501");
     }
 }

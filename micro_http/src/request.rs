@@ -22,7 +22,7 @@ fn split(bytes: &[u8], separator: u8) -> (&[u8], &[u8]) {
     return (&[], bytes);
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Uri<'a> {
     slice: &'a str,
 }
@@ -74,7 +74,7 @@ impl<'a> Uri<'a> {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 struct RequestLine<'a> {
     method: Method,
     uri: Uri<'a>,
@@ -118,6 +118,7 @@ impl<'a> RequestLine<'a> {
 }
 
 #[allow(unused)]
+#[derive(Debug)]
 pub struct Request<'a> {
     request_line: RequestLine<'a>,
     headers: Headers,
@@ -210,7 +211,7 @@ mod tests {
 
         let request_line = b"GET http://localhost/home HTTP/1.0\r\n";
         match RequestLine::try_from(request_line) {
-            Ok(request) => assert!(request == expected_request_line),
+            Ok(request) => assert_eq!(request, expected_request_line),
             Err(_) => assert!(false),
         };
 
@@ -220,23 +221,40 @@ mod tests {
             uri: Uri::new("http://localhost/home"),
         };
 
+        // Happy case with request line ending in CRLF.
         let request_line = b"GET http://localhost/home HTTP/1.1\r\n";
         match RequestLine::try_from(request_line) {
-            Ok(request) => assert!(request == expected_request_line),
+            Ok(request) => assert_eq!(request, expected_request_line),
+            Err(_) => assert!(false),
+        };
+
+        // Happy case with request line ending in LF instead of CRLF.
+        let request_line = b"GET http://localhost/home HTTP/1.1\n";
+        match RequestLine::try_from(request_line) {
+            Ok(request) => assert_eq!(request, expected_request_line),
             Err(_) => assert!(false),
         };
 
         // Test for invalid method.
         let request_line = b"PUT http://localhost/home HTTP/1.0\r\n";
-        assert!(RequestLine::try_from(request_line).is_err());
+        assert_eq!(
+            RequestLine::try_from(request_line).unwrap_err(),
+            RequestError::InvalidHttpMethod("Unsupported HTTP method.")
+        );
 
         // Test for invalid uri.
         let request_line = b"GET  HTTP/1.0\r\n";
-        assert!(RequestLine::try_from(request_line).is_err());
+        assert_eq!(
+            RequestLine::try_from(request_line).unwrap_err(),
+            RequestError::InvalidUri("Empty URI not allowed.")
+        );
 
         // Test for invalid HTTP version.
         let request_line = b"GET http://localhost/home HTTP/2.0\r\n";
-        assert!(RequestLine::try_from(request_line).is_err());
+        assert_eq!(
+            RequestLine::try_from(request_line).unwrap_err(),
+            RequestError::InvalidHttpVersion("Unsupported HTTP version.")
+        );
     }
 
     #[test]
@@ -252,6 +270,16 @@ mod tests {
         };
         let request_bytes = b"GET http://localhost/home HTTP/1.0\r\n \
                                      Last-Modified: Tue, 15 Nov 1994 12:45:26 GMT";
-        assert!(Request::try_from(request_bytes) == Ok(expected_request));
+        let request = Request::try_from(request_bytes).unwrap();
+        assert!(request == expected_request);
+        assert_eq!(request.uri(), &Uri::new("http://localhost/home"));
+        assert_eq!(request.http_version(), Version::Http10);
+
+        // Test for invalid Request (length is less than minimum).
+        let request_bytes = b"GET";
+        assert_eq!(
+            Request::try_from(request_bytes).unwrap_err(),
+            RequestError::InvalidRequest
+        );
     }
 }
