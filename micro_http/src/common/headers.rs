@@ -3,7 +3,7 @@ use std::io::{Error as WriteError, Write};
 
 use ascii::{COLON, CR, LF, SP};
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 pub enum Header {
     ContentLength,
     ContentType,
@@ -18,6 +18,7 @@ impl Header {
     }
 }
 
+#[derive(Debug)]
 pub struct Headers {
     headers: HashMap<Header, String>,
 }
