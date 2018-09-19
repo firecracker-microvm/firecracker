@@ -1501,23 +1501,6 @@ impl Vmm {
 
         Ok(())
     }
-
-    #[cfg(test)]
-    fn get_kernel_cmdline(&self) -> &str {
-        if let Some(ref k) = self.kernel_config {
-            k.cmdline.as_str()
-        } else {
-            ""
-        }
-    }
-
-    #[cfg(test)]
-    fn remove_addr(&mut self, id: &String) {
-        self.mmio_device_manager
-            .as_mut()
-            .unwrap()
-            .remove_address(id);
-    }
 }
 
 /// Starts a new vmm thread that can service API requests.
@@ -1569,6 +1552,23 @@ mod tests {
     use data_model::vm::{CpuFeaturesTemplate, DeviceState};
     use devices::virtio::ActivateResult;
     use net_util::MacAddr;
+
+    impl Vmm {
+        fn get_kernel_cmdline(&self) -> &str {
+            if let Some(ref k) = self.kernel_config {
+                k.cmdline.as_str()
+            } else {
+                ""
+            }
+        }
+
+        fn remove_addr(&mut self, id: &String) {
+            self.mmio_device_manager
+                .as_mut()
+                .unwrap()
+                .remove_address(id);
+        }
+    }
 
     struct DummyEpollHandler {
         pub evt: Option<DeviceEventT>,
