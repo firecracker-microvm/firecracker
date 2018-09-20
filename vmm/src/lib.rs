@@ -1623,10 +1623,8 @@ mod tests {
         }
     }
 
-    fn create_vmm_object() -> Vmm {
-        let shared_info = Arc::new(RwLock::new(InstanceInfo {
-            state: InstanceState::Uninitialized,
-        }));
+    fn create_vmm_object(state: InstanceState) -> Vmm {
+        let shared_info = Arc::new(RwLock::new(InstanceInfo { state }));
 
         let (_to_vmm, from_api) = channel();
         let vmm = Vmm::new(
@@ -1656,7 +1654,7 @@ mod tests {
 
     #[test]
     fn test_put_block_device() {
-        let mut vmm = create_vmm_object();
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         let f = NamedTempFile::new().unwrap();
         // Test that creating a new block device returns the correct output (i.e. "Created").
         let root_block_device = BlockDeviceConfig {
@@ -1699,7 +1697,7 @@ mod tests {
 
     #[test]
     fn test_put_net_device() {
-        let mut vmm = create_vmm_object();
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
 
         // test create network interface
         let network_interface = NetworkInterfaceBody {
@@ -1736,7 +1734,7 @@ mod tests {
 
     #[test]
     fn test_machine_configuration() {
-        let mut vmm = create_vmm_object();
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
 
         // test the default values of machine config
         // vcpu_count = 1
@@ -1998,8 +1996,40 @@ mod tests {
     }
 
     #[test]
-    pub fn test_attach_block_devices() {
-        let mut vmm = create_vmm_object();
+    fn test_check_health() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert!(vmm.check_health().is_err());
+
+        let dummy_addr = GuestAddress(0x1000);
+        vmm.configure_kernel(KernelConfig {
+            cmdline_addr: dummy_addr,
+            cmdline: kernel_cmdline::Cmdline::new(10),
+            kernel_file: tempfile::tempfile().unwrap(),
+        });
+        assert!(vmm.check_health().is_ok());
+    }
+
+    #[test]
+    fn test_is_instance_running() {
+        let vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert_eq!(vmm.is_instance_running(), false);
+
+        let vmm = create_vmm_object(InstanceState::Starting);
+        assert_eq!(vmm.is_instance_running(), true);
+
+        let vmm = create_vmm_object(InstanceState::Halting);
+        assert_eq!(vmm.is_instance_running(), true);
+
+        let vmm = create_vmm_object(InstanceState::Halted);
+        assert_eq!(vmm.is_instance_running(), true);
+
+        let vmm = create_vmm_object(InstanceState::Running);
+        assert_eq!(vmm.is_instance_running(), true);
+    }
+
+    #[test]
+    fn test_attach_block_devices() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         let block_file = NamedTempFile::new().unwrap();
         let kernel_file_temp =
             NamedTempFile::new().expect("Failed to create temporary kernel file.");
@@ -2037,7 +2067,7 @@ mod tests {
         assert!(vmm.get_kernel_cmdline().contains("root=/dev/vda"));
 
         // Use Case 2: Root Block Device is specified through PARTUUID.
-        let mut vmm = create_vmm_object();
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
             path_on_host: block_file.path().to_path_buf(),
@@ -2076,7 +2106,7 @@ mod tests {
         );
 
         // Use Case 3: Root Block Device is not added at all.
-        let mut vmm = create_vmm_object();
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         let non_root_block_device = BlockDeviceConfig {
             drive_id: String::from("not_root"),
             path_on_host: block_file.path().to_path_buf(),
@@ -2155,7 +2185,7 @@ mod tests {
 
     #[test]
     fn test_rescan() {
-        let mut vmm = create_vmm_object();
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         let root_file = NamedTempFile::new().unwrap();
         let scratch_file = NamedTempFile::new().unwrap();
         let kernel_file_temp = NamedTempFile::new().unwrap();
@@ -2203,25 +2233,25 @@ mod tests {
 
         vmm.mmio_device_manager = Some(device_manager);
 
-        // Test valid rescan.
+        // Test valid rescan_block_device.
         let body = serde_json::from_str::<ActionBody>(
             "{\"action_type\": \"BlockDeviceRescan\", \"payload\": \"not_root\"}",
         ).unwrap();
         assert!(vmm.rescan_block_device(body).is_ok());
 
-        // Test rescan with invalid ID.
+        // Test rescan_block_device with invalid ID.
         let body = serde_json::from_str::<ActionBody>(
             "{\"action_type\": \"BlockDeviceRescan\", \"payload\": \"foo\"}",
         ).unwrap();
         assert!(vmm.rescan_block_device(body).is_err());
 
-        // Test rescan with invalid payload.
+        // Test rescan_block_device with invalid payload.
         let body = serde_json::from_str::<ActionBody>(
             "{\"action_type\": \"BlockDeviceRescan\", \"payload\": {}}",
         ).unwrap();
         assert!(vmm.rescan_block_device(body).is_err());
 
-        // Test rescan with invalid device address.
+        // Test rescan_block_device with invalid device address.
         vmm.remove_addr(&String::from("not_root"));
         let body = serde_json::from_str::<ActionBody>(
             "{\"action_type\": \"BlockDeviceRescan\", \"payload\": \"not_root\"}",
