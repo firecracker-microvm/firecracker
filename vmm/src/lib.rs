@@ -1221,7 +1221,7 @@ impl Vmm {
     fn handle_start_instance(&mut self, sender: SyncOutcomeSender) {
         START_INSTANCE_REQUEST_TS.store(time::precise_time_ns() as usize, Ordering::Release);
 
-        if self.is_instance_running() {
+        if self.is_instance_initialized() {
             sender
                 .send(Box::new(SyncError::MicroVMAlreadyRunning))
                 .map_err(|_| ())
@@ -1241,7 +1241,7 @@ impl Vmm {
         };
     }
 
-    fn is_instance_running(&self) -> bool {
+    fn is_instance_initialized(&self) -> bool {
         let instance_state = {
             // Use unwrap() to crash if the other thread poisoned this lock.
             let shared_info = self.shared_info.read().unwrap();
@@ -1258,7 +1258,7 @@ impl Vmm {
         block_device_config: BlockDeviceConfig,
         sender: SyncOutcomeSender,
     ) {
-        if self.is_instance_running() {
+        if self.is_instance_initialized() {
             sender
                 .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
                 .map_err(|_| ())
@@ -1294,7 +1294,7 @@ impl Vmm {
     }
 
     fn handle_patch_drive(&mut self, fields: Value, sender: SyncOutcomeSender) {
-        if self.is_instance_running() {
+        if self.is_instance_initialized() {
             match self.check_patch_payload_post_boot(&fields) {
                 Ok(()) => (),
                 Err(e) => {
@@ -1324,7 +1324,7 @@ impl Vmm {
         logger_description: APILoggerDescription,
         sender: SyncOutcomeSender,
     ) {
-        if self.is_instance_running() {
+        if self.is_instance_initialized() {
             sender
                 .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
                 .map_err(|_| ())
@@ -1349,7 +1349,7 @@ impl Vmm {
         boot_source_body: BootSourceBody,
         sender: SyncOutcomeSender,
     ) {
-        if self.is_instance_running() {
+        if self.is_instance_initialized() {
             sender
                 .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
                 .map_err(|_| ())
@@ -1407,7 +1407,7 @@ impl Vmm {
         machine_config_body: MachineConfiguration,
         sender: SyncOutcomeSender,
     ) {
-        if self.is_instance_running() {
+        if self.is_instance_initialized() {
             sender
                 .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
                 .map_err(|_| ())
@@ -1431,7 +1431,7 @@ impl Vmm {
         netif_body: NetworkInterfaceBody,
         sender: SyncOutcomeSender,
     ) {
-        if self.is_instance_running() {
+        if self.is_instance_initialized() {
             sender
                 .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
                 .map_err(|_| ())
@@ -1446,7 +1446,7 @@ impl Vmm {
     }
 
     fn handle_rescan_block_device(&mut self, req_body: ActionBody, sender: SyncOutcomeSender) {
-        if !self.is_instance_running() {
+        if !self.is_instance_initialized() {
             sender
                 .send(Box::new(SyncError::OperationNotAllowedPreBoot))
                 .map_err(|_| ())
@@ -2010,21 +2010,21 @@ mod tests {
     }
 
     #[test]
-    fn test_is_instance_running() {
+    fn test_is_instance_initialized() {
         let vmm = create_vmm_object(InstanceState::Uninitialized);
-        assert_eq!(vmm.is_instance_running(), false);
+        assert_eq!(vmm.is_instance_initialized(), false);
 
         let vmm = create_vmm_object(InstanceState::Starting);
-        assert_eq!(vmm.is_instance_running(), true);
+        assert_eq!(vmm.is_instance_initialized(), true);
 
         let vmm = create_vmm_object(InstanceState::Halting);
-        assert_eq!(vmm.is_instance_running(), true);
+        assert_eq!(vmm.is_instance_initialized(), true);
 
         let vmm = create_vmm_object(InstanceState::Halted);
-        assert_eq!(vmm.is_instance_running(), true);
+        assert_eq!(vmm.is_instance_initialized(), true);
 
         let vmm = create_vmm_object(InstanceState::Running);
-        assert_eq!(vmm.is_instance_running(), true);
+        assert_eq!(vmm.is_instance_initialized(), true);
     }
 
     #[test]
