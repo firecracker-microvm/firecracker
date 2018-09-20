@@ -2173,6 +2173,40 @@ mod tests {
     }
 
     #[test]
+    fn test_attach_net_devices() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.guest_memory.is_some());
+
+        vmm.default_kernel_config();
+
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let mut device_manager =
+            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+
+        // test create network interface
+        let network_interface = NetworkInterfaceBody {
+            iface_id: String::from("netif"),
+            state: DeviceState::Attached,
+            host_dev_name: String::from("hostname3"),
+            guest_mac: None,
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+            allow_mmds_requests: false,
+        };
+
+        match vmm.put_net_device(network_interface) {
+            Ok(outcome) => assert!(outcome == SyncOkStatus::Created),
+            Err(_) => assert!(false),
+        }
+
+        assert!(vmm.attach_net_devices(&mut device_manager).is_ok());
+        // a second call to attach_net_devices should fail because when
+        // we are creating the virtio::Net object, we are taking the tap.
+        assert!(vmm.attach_net_devices(&mut device_manager).is_err());
+    }
+
+    #[test]
     fn test_rescan() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config();
