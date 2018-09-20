@@ -2207,6 +2207,15 @@ mod tests {
     }
 
     #[test]
+    fn test_init_devices() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.default_kernel_config();
+        assert!(vmm.init_guest_memory().is_ok());
+
+        assert!(vmm.init_devices().is_ok());
+    }
+
+    #[test]
     fn test_rescan() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config();
