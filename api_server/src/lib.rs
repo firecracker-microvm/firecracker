@@ -33,7 +33,7 @@ use tokio_uds::UnixListener;
 use data_model::mmds::Mmds;
 use http_service::ApiServerHttpService;
 use request::instance_info::InstanceInfo;
-use request::sync::SyncRequest;
+use request::SyncRequest;
 use sys_util::EventFd;
 
 #[derive(Debug)]

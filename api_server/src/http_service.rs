@@ -14,9 +14,11 @@ use data_model::mmds::Mmds;
 use data_model::vm::{BlockDeviceConfig, MachineConfiguration, PatchDrivePayload};
 use logger::{Metric, METRICS};
 use request::actions::ActionBody;
+use request::boot_source::BootSourceBody;
 use request::instance_info::InstanceInfo;
-use request::sync::SyncRequest;
-use request::{self, IntoParsedRequest, ParsedRequest};
+use request::logger::APILoggerDescription;
+use request::net::NetworkInterfaceBody;
+use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
 use sys_util::EventFd;
 
 fn build_response_base<B: Into<hyper::Body>>(
@@ -151,7 +153,7 @@ fn parse_boot_source_req<'a>(
 
         0 if method == Method::Put => {
             METRICS.put_api_requests.boot_source_count.inc();
-            Ok(serde_json::from_slice::<request::BootSourceBody>(body)
+            Ok(serde_json::from_slice::<BootSourceBody>(body)
                 .map_err(|e| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::SerdeJson(e)
@@ -251,17 +253,15 @@ fn parse_logger_req<'a>(
 
         0 if method == Method::Put => {
             METRICS.put_api_requests.logger_count.inc();
-            Ok(
-                serde_json::from_slice::<request::APILoggerDescription>(body)
-                    .map_err(|e| {
-                        METRICS.put_api_requests.logger_fails.inc();
-                        Error::SerdeJson(e)
-                    })?.into_parsed_request()
-                    .map_err(|s| {
-                        METRICS.put_api_requests.logger_fails.inc();
-                        Error::Generic(StatusCode::BadRequest, s)
-                    })?,
-            )
+            Ok(serde_json::from_slice::<APILoggerDescription>(body)
+                .map_err(|e| {
+                    METRICS.put_api_requests.logger_fails.inc();
+                    Error::SerdeJson(e)
+                })?.into_parsed_request()
+                .map_err(|s| {
+                    METRICS.put_api_requests.logger_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -324,17 +324,15 @@ fn parse_netif_req<'a>(
             let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
             METRICS.put_api_requests.network_count.inc();
 
-            Ok(
-                serde_json::from_slice::<request::NetworkInterfaceBody>(body)
-                    .map_err(|e| {
-                        METRICS.put_api_requests.network_fails.inc();
-                        Error::SerdeJson(e)
-                    })?.into_parsed_request(unwrapped_id)
-                    .map_err(|s| {
-                        METRICS.put_api_requests.network_fails.inc();
-                        Error::Generic(StatusCode::BadRequest, s)
-                    })?,
-            )
+            Ok(serde_json::from_slice::<NetworkInterfaceBody>(body)
+                .map_err(|e| {
+                    METRICS.put_api_requests.network_fails.inc();
+                    Error::SerdeJson(e)
+                })?.into_parsed_request(unwrapped_id)
+                .map_err(|s| {
+                    METRICS.put_api_requests.network_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -584,8 +582,8 @@ mod tests {
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use net_util::MacAddr;
-    use request::sync::{NetworkInterfaceBody, SyncRequest};
-    use request::ActionType;
+    use request::actions::ActionType;
+    use request::SyncRequest;
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret = body
@@ -807,7 +805,7 @@ mod tests {
         // Falling back to json deserialization for constructing the "correct" request because not
         // all of BootSourceBody's members are accessible. Rather than making them all public just
         // for the purpose of unit tests, it's preferable to trust the deserialization.
-        let res_bsb = serde_json::from_slice::<request::BootSourceBody>(&body);
+        let res_bsb = serde_json::from_slice::<BootSourceBody>(&body);
         match res_bsb {
             Ok(boot_source_body) => {
                 match parse_boot_source_req(&path_tokens, &path, Method::Put, &body) {
@@ -1008,8 +1006,8 @@ mod tests {
         }
 
         // PUT
-        let logger_body = serde_json::from_slice::<request::APILoggerDescription>(&body)
-            .expect("deserialization failed");
+        let logger_body =
+            serde_json::from_slice::<APILoggerDescription>(&body).expect("deserialization failed");
         match parse_logger_req(&path_tokens, &path, Method::Put, &body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();

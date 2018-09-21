@@ -6,8 +6,7 @@ use futures::sync::oneshot;
 use hyper::Method;
 use serde_json::Value;
 
-use request::sync::{InstanceDeviceDetachAction, SyncRequest};
-use request::{IntoParsedRequest, ParsedRequest};
+use request::{InstanceDeviceDetachAction, IntoParsedRequest, ParsedRequest, SyncRequest};
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed
