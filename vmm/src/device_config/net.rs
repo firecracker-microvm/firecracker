@@ -2,9 +2,8 @@ use std::mem;
 use std::rc::Rc;
 use std::result;
 
-use api_server::request::sync::{
-    Error as SyncError, NetworkInterfaceBody, OkStatus as SyncOkStatus,
-};
+use api_server::request::net::NetworkInterfaceBody;
+use api_server::request::{Error as SyncError, OkStatus as SyncOkStatus};
 use data_model::vm::RateLimiterDescription;
 use net_util::{MacAddr, Tap, TapError};
 
