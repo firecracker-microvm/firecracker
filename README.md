@@ -140,7 +140,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
             \"vcpu_count\": 6,
             \"mem_size_mib\": 3906,
             \"cpu_template\": \"T2\",
-            \"ht_enabled\": true,
+            \"ht_enabled\": true
         }"
 ```
 
@@ -189,7 +189,7 @@ properties:
     and refill time of `1000 milliseconds`
  - No TX rate limiting of any kind
  - State is `attached`
-```bash
+``` bash
 curl --unix-socket /tmp/firecracker.socket -i \
      -X PUT "http://localhost/network-interfaces/1" \
      -H "accept: application/json" \
@@ -214,9 +214,37 @@ To run a guest OS within a Firecracker microVMs, you will need have:
 
 - **A guest kernel image** that boots and runs with Firecracker's minimal/VirtIO
   device model. Pass this via the `/boot-source` API resource.
+``` bash
+# Configure the Guest Kernel Image
+curl --unix-socket /tmp/firecracker.socket -i \
+     -X PUT "http://localhost/boot-source" \
+     -H "accept: application/json" \
+     -H "Content-Type: application/json" \
+     -d "{
+            \"boot_source_id\": \"1\",
+            \"source_type\": \"LocalImage\",
+            \"local_image\": {
+              \"kernel_image_path\": \" ABSOLUTE_PATH/vmlinux.bin \"
+            },
+            \"boot_args\": \" reboot=k panic=1 pci=off nomodules console=ttyS0 \"
+        }"
+```  
 - **A guest root file system** that boots with that kernel. You'll pass this as
   a bootable block device to Firecracker via the `/drives` API resource.
-
+``` bash
+# Configure the Guest Root File System
+curl --unix-socket /tmp/firecracker.socket -i \
+     -X PUT "http://localhost/drives/1" \
+     -H "accept: application/json" \
+     -H "Content-Type: application/json" \
+     -d "{
+           \"drive_id\": \"1\",
+           \"path_on_host\": \" ABSOLUTE_PATH/name.rootfs.ext4 \",
+           \"is_root_device\": true,
+           \"permissions\": \"rw\",
+           \"state\": \"Attached\"
+         }"
+``` 
 ### Power-On the MicroVM
 
 Simply issue the `InstanceStart` action to the `/actions` API resource.
