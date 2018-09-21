@@ -41,16 +41,19 @@ use serde_json::Value;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use api_server::request::actions::ActionBody;
+use api_server::request::boot_source::{
+    BootSourceBody, PutBootSourceConfigError, PutBootSourceOutcome,
+};
+use api_server::request::drive::{PatchDriveOutcome, PutDriveOutcome};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
-use api_server::request::sync::machine_configuration::{
+use api_server::request::logger::{APILoggerDescription, PutLoggerOutcome};
+use api_server::request::machine_configuration::{
     PutMachineConfigurationError, PutMachineConfigurationOutcome,
 };
-use api_server::request::sync::{
-    APILoggerDescription, BootSourceBody, Error as SyncError, GenerateResponse,
-    NetworkInterfaceBody, OkStatus as SyncOkStatus, PatchDriveOutcome, PutDriveOutcome,
-    PutLoggerOutcome, SyncOutcomeSender, SyncRequest,
+use api_server::request::net::NetworkInterfaceBody;
+use api_server::request::{
+    Error as SyncError, GenerateResponse, OkStatus as SyncOkStatus, SyncOutcomeSender, SyncRequest,
 };
-use api_server::request::sync::{PutBootSourceConfigError, PutBootSourceOutcome};
 use data_model::vm::{
     description_into_implementation as rate_limiter_description_into_implementation,
     BlockDeviceConfig, BlockDeviceConfigs, DriveError, MachineConfiguration,

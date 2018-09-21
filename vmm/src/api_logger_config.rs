@@ -1,6 +1,6 @@
 use std::result;
 
-use api_server::request::sync::{APILoggerDescription, APILoggerError, APILoggerLevel};
+use api_server::request::logger::{APILoggerDescription, APILoggerError, APILoggerLevel};
 use logger::{Level, LOGGER};
 
 type Result<T> = result::Result<T, APILoggerError>;
@@ -43,7 +43,7 @@ fn from_api_level(api_level: Option<APILoggerLevel>) -> Option<Level> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use api_server::request::sync::{APILoggerDescription, APILoggerLevel};
+    use api_server::request::logger::{APILoggerDescription, APILoggerLevel};
     use std::fs::{self, File};
     use std::io::{BufRead, BufReader};
     use std::path::Path;
