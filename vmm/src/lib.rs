@@ -1231,7 +1231,7 @@ impl Vmm {
 
         match self.start_instance() {
             Ok(_) => sender
-                .send(Box::new(SyncOkStatus::Ok))
+                .send(Box::new(SyncOkStatus::NoContent))
                 .map_err(|_| ())
                 .expect("one-shot channel closed"),
             Err(_) => sender
