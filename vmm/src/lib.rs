@@ -725,7 +725,7 @@ impl Vmm {
                             }
                             return device_manager
                                 .update_drive(address, new_size)
-                                .map(|_| SyncOkStatus::Updated)
+                                .map(|_| SyncOkStatus::NoContent)
                                 .map_err(|_| {
                                     SyncError::DriveOperationFailed(
                                         DriveError::BlockDeviceUpdateFailed,
@@ -1742,7 +1742,7 @@ mod tests {
                 allow_mmds_requests: false,
             };
             match vmm.put_net_device(network_interface) {
-                Ok(outcome) => assert!(outcome == SyncOkStatus::Updated),
+                Ok(outcome) => assert!(outcome == SyncOkStatus::NoContent),
                 Err(_) => assert!(false),
             }
         }
