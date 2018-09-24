@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate bitflags;
 extern crate byteorder;
+extern crate rand;
 
 extern crate net_util;
 

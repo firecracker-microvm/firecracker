@@ -188,7 +188,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     // byte represents the option kind, the second is the option length (including these first two
     // bytes), and finally the next x - 2 bytes represent option data. The length of the MSS option
     // is 4, so the option data encodes an u16 in network order.
-    pub fn parse_mss(&self, header_len: usize) -> Result<Option<NonZeroU16>, Error> {
+    pub fn parse_mss_option(&self, header_len: usize) -> Result<Option<NonZeroU16>, Error> {
         let b = self.options_unchecked(header_len);
         let mut i = 0;
         // The MSS option is 4 bytes wide, so we need at least 4 more bytes to look for it.
@@ -611,7 +611,7 @@ mod tests {
         {
             let p = TcpSegment::from_bytes(&a[..segment_len], Some((src_addr, dst_addr))).unwrap();
             assert_eq!(
-                p.parse_mss(header_len),
+                p.parse_mss_option(header_len),
                 Ok(Some(NonZeroU16::new(mss_left as u16).unwrap()))
             );
         }
