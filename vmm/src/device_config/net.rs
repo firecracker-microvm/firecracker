@@ -109,7 +109,7 @@ impl NetworkInterfaceConfigs {
             self.validate_unique_mac(&body.guest_mac)?;
             self.if_list[index].update_from_body(body);
         }
-        Ok(SyncOkStatus::Updated)
+        Ok(SyncOkStatus::NoContent)
     }
 
     fn validate_unique_mac(&self, mac: &Option<MacAddr>) -> result::Result<(), SyncError> {
