@@ -88,7 +88,7 @@ impl fmt::Debug for SyncRequest {
 pub enum OkStatus {
     Created,
     Ok,
-    Updated,
+    NoContent,
 }
 
 impl GenerateResponse for OkStatus {
@@ -97,7 +97,7 @@ impl GenerateResponse for OkStatus {
         match *self {
             Created => empty_response(StatusCode::Created),
             Ok => empty_response(StatusCode::Ok),
-            Updated => empty_response(StatusCode::NoContent),
+            NoContent => empty_response(StatusCode::NoContent),
         }
     }
 }
@@ -279,7 +279,7 @@ mod tests {
         let mut ret = OkStatus::Created.generate_response();
         assert_eq!(ret.status(), StatusCode::Created);
 
-        ret = OkStatus::Updated.generate_response();
+        ret = OkStatus::NoContent.generate_response();
         assert_eq!(ret.status(), StatusCode::NoContent);
     }
 
