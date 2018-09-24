@@ -30,10 +30,6 @@ const OPTION_LEN_MSS: usize = 0x04;
 
 // An arbitrarily chosen value, used for sanity checks.
 const MSS_MIN: u16 = 100;
-pub const MSS_DEFAULT: u16 = 536;
-
-// The largest possible window size ever (requires the window scaling option).
-pub const MAX_WINDOW_SIZE: u32 = 1_073_725_440;
 
 bitflags! {
     // These values are pretty much only valid in conjunction with the flags_after_ns() function,

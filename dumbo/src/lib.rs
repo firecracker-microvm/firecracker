@@ -6,6 +6,7 @@ extern crate net_util;
 
 pub mod ns;
 pub mod pdu;
+pub mod tcp;
 
 use std::ops::Index;
 
