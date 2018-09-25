@@ -1,10 +1,10 @@
-use std::cmp::min;
 use std::convert::From;
 use std::net::Ipv4Addr;
 use std::result::Result;
 
-use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
-use super::Incomplete;
+use pdu::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
+use pdu::ethernet;
+use pdu::Incomplete;
 
 const VERSION_AND_IHL_OFFSET: usize = 0;
 const DSCP_AND_ECN_OFFSET: usize = 1;
@@ -18,7 +18,6 @@ const SOURCE_ADDRESS_OFFSET: usize = 12;
 const DESTINATION_ADDRESS_OFFSET: usize = 16;
 const OPTIONS_OFFSET: usize = 20;
 
-const MAX_HEADER_LEN: usize = 60;
 const IPV4_VERSION: u8 = 0x04;
 const DEFAULT_TTL: u8 = 200;
 
@@ -75,7 +74,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
             return Err(Error::SliceExactLength);
         }
 
-        if header_len < OPTIONS_OFFSET || header_len > min(MAX_HEADER_LEN, total_len) {
+        if header_len < OPTIONS_OFFSET {
             return Err(Error::HeaderLen);
         }
 
@@ -395,11 +394,29 @@ impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
     }
 }
 
+/// This function checks if `buf` may hold an IPv4Packet heading towards the given address. Cannot
+/// produce false negatives.
+#[inline]
+pub fn test_speculative_dst_addr(buf: &[u8], addr: Ipv4Addr) -> bool {
+    // The unchecked methods are safe because we actually check the buffer length beforehand.
+    if buf.len() >= ethernet::PAYLOAD_OFFSET + OPTIONS_OFFSET {
+        let bytes = &buf[ethernet::PAYLOAD_OFFSET..];
+        if IPv4Packet::from_bytes_unchecked(bytes).destination_address() == addr {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use std::fmt;
 
+    use net_util::MacAddr;
+
     use super::*;
+
+    const MAX_HEADER_LEN: usize = 60;
 
     impl<'a, T: NetworkBytes> fmt::Debug for IPv4Packet<'a, T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -526,7 +543,9 @@ mod tests {
 
         // Header length too large. We have to add at least 4 here, because the setter converts
         // header_len into the ihl field via division by 4, so anything less will lead to a valid
-        // result (the ihl corresponding to IPV4_MAX_HEADER_LEN).
+        // result (the ihl corresponding to IPV4_MAX_HEADER_LEN). When decoding the header_len back
+        // from the packet, we'll get a smaller value than OPTIONS_OFFSET, because it wraps around
+        // modulo 60, since the ihl field is only four bits wide, and then gets multiplied with 4.
         p(buf.as_mut()).set_version_and_header_len(IPV4_VERSION, MAX_HEADER_LEN + 4);
         look_for_error(buf.as_ref(), Error::HeaderLen);
 
@@ -593,5 +612,34 @@ mod tests {
             assert_eq!(p.total_len() as usize, p.len());
             assert_eq!(p.len(), header_len + payload_len);
         }
+    }
+
+    #[test]
+    fn test_speculative() {
+        let mut buf = [0u8; 1000];
+        let mac = MacAddr::from_bytes_unchecked(&[0; 6]);
+        let ip = Ipv4Addr::new(1, 2, 3, 4);
+        let other_ip = Ipv4Addr::new(5, 6, 7, 8);
+
+        {
+            let mut eth =
+                ::pdu::ethernet::EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, 0)
+                    .unwrap();
+            IPv4Packet::from_bytes_unchecked(eth.inner_mut().payload_mut())
+                .set_destination_address(ip);
+        }
+        assert!(test_speculative_dst_addr(buf.as_ref(), ip));
+
+        {
+            let mut eth =
+                ::pdu::ethernet::EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, 0)
+                    .unwrap();
+            IPv4Packet::from_bytes_unchecked(eth.inner_mut().payload_mut())
+                .set_destination_address(other_ip);
+        }
+        assert!(!test_speculative_dst_addr(buf.as_ref(), ip));
+
+        let small = [0u8; 1];
+        assert!(!test_speculative_dst_addr(small.as_ref(), ip));
     }
 }
