@@ -8,4 +8,7 @@ bitflags = ">=1.0.4"
 byteorder = ">=1.2.1"
 rand = ">=0.5.5"
 
+fc_util = { path = "../fc_util" }
+logger = { path = "../logger" }
+mmds_glue = { path = "../mmds_glue" }
 net_util = { path = "../net_util" }

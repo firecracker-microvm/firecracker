@@ -192,6 +192,7 @@ pub struct LoggerSystemMetrics {
 pub struct MmdsMetrics {
     pub rx_accepted: SharedMetric,
     pub rx_accepted_err: SharedMetric,
+    pub rx_accepted_unusual: SharedMetric,
     pub rx_bad_eth: SharedMetric,
     pub tx_bytes: SharedMetric,
     pub tx_errors: SharedMetric,

@@ -3,6 +3,9 @@ extern crate bitflags;
 extern crate byteorder;
 extern crate rand;
 
+extern crate fc_util;
+extern crate logger;
+extern crate mmds_glue;
 extern crate net_util;
 
 pub mod ns;
