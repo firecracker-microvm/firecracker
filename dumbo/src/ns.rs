@@ -2,28 +2,15 @@ use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 use std::result::Result;
 
+use logger::{Metric, METRICS};
 use net_util::MacAddr;
-use pdu::arp::{test_speculative_tpa, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
-use pdu::ethernet::{EthernetFrame, ETHERTYPE_ARP};
-use pdu::{self, Error as PduError};
+use pdu::arp::{test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
+use pdu::ethernet::{Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP};
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub enum Error {
-    Pdu(pdu::Error),
-}
-
-pub enum DetourFrameOutcome {
-    // If the option is None, the frame has been accepted and successfully processed by the MMDS
-    // network stack. Otherwise, it was addressed to the MMDS stack (it contains an IPv4 packet with
-    // the appropriate destination address), but there was an error while processing it. The device
-    // model should ignore the packet in either case.
-    Accepted(Option<Error>),
-    // The frame does not appear to head towards the MMDS  (its payload is not a valid IPv4 packet
-    // with the appropriate destination address). The device model should continue to handle it.
-    DoNotWant,
-    // We could not manage to successfully parse the input as a valid Ethernet frame. The device
-    // model might as well continue to handle it.
-    UnexpectedFrame,
+enum WriteArpReplyError {
+    Arp(ArpFrameError),
+    Ethernet(EthernetFrameError),
 }
 
 pub struct MmdsNetworkStack {
@@ -72,62 +59,63 @@ impl MmdsNetworkStack {
 
     // This is the entry point into the MMDS network stack. The src slice should hold the contents
     // of an Ethernet frame (of that exact size, without the CRC).
-    pub fn detour_frame(&mut self, src: &[u8]) -> DetourFrameOutcome {
+    pub fn detour_frame(&mut self, src: &[u8]) -> bool {
         // The frame cannot possibly contain an ARP request for the MMDS IPv4 addr.
         if !test_speculative_tpa(src, self.ipv4_addr) {
-            return DetourFrameOutcome::DoNotWant;
+            return false;
         }
 
         if let Ok(eth) = EthernetFrame::from_bytes(src) {
             match eth.ethertype() {
                 ETHERTYPE_ARP => return self.detour_arp(eth),
-                _ => return DetourFrameOutcome::DoNotWant,
+                _ => (),
             };
         } else {
-            return DetourFrameOutcome::UnexpectedFrame;
+            METRICS.mmds.rx_bad_eth.inc();
         }
+        return false;
     }
 
-    fn detour_arp(&mut self, eth: EthernetFrame<&[u8]>) -> DetourFrameOutcome {
+    fn detour_arp(&mut self, eth: EthernetFrame<&[u8]>) -> bool {
         if let Ok(arp) = EthIPv4ArpFrame::request_from_bytes(eth.payload()) {
             if arp.tpa() == self.ipv4_addr() {
                 self.remote_mac_addr = arp.sha();
                 self.pending_arp_reply = Some(arp.spa());
-                return DetourFrameOutcome::Accepted(None);
+                return true;
             }
         }
-        DetourFrameOutcome::DoNotWant
+        false
     }
 
     // Allows the MMDS network stack to write a frame to the specified buffer. Will return:
-    // - Ok(None), if the MMDS network stack has no frame to send at this point. The buffer can be
+    // - None, if the MMDS network stack has no frame to send at this point. The buffer can be
     // used for something else by the device model.
-    //
-    // - Ok(len), if a frame of the given length has been written to the specified buffer.
-    //
-    // - Error(e), if the MMDS network stack has at least one frame to send, but did not manage to
-    // write it successfully to the specified buffer. The device model can use the buffer for
-    // something else.
-    pub fn write_next_frame(&mut self, buf: &mut [u8]) -> Result<Option<NonZeroUsize>, Error> {
-        let remote_mac_addr = self.remote_mac_addr;
+    // - Some(len), if a frame of the given length has been written to the specified buffer.
+    pub fn write_next_frame(&mut self, buf: &mut [u8]) -> Option<NonZeroUsize> {
         // We try to send ARP replies first.
         if let Some(spa) = self.pending_arp_reply.take() {
-            return self
-                .write_arp_reply(buf, remote_mac_addr, spa)
-                .map_err(Error::Pdu);
+            return match self.write_arp_reply(buf, spa) {
+                Ok(something) => something,
+                Err(_) => {
+                    METRICS.mmds.tx_errors.inc();
+                    None
+                }
+            };
         }
-        Ok(None)
+        None
     }
 
     fn write_arp_reply(
         &mut self,
         buf: &mut [u8],
-        dst_mac: MacAddr,
         dst_ipv4: Ipv4Addr,
-    ) -> Result<Option<NonZeroUsize>, PduError> {
-        let mut eth_unsized =
-            EthernetFrame::write_incomplete(buf, dst_mac, self.mac_addr(), ETHERTYPE_ARP)
-                .map_err(PduError::Ethernet)?;
+    ) -> Result<Option<NonZeroUsize>, WriteArpReplyError> {
+        let mut eth_unsized = EthernetFrame::write_incomplete(
+            buf,
+            self.remote_mac_addr,
+            self.mac_addr,
+            ETHERTYPE_ARP,
+        ).map_err(WriteArpReplyError::Ethernet)?;
 
         let arp_len = EthIPv4ArpFrame::write_reply(
             eth_unsized
@@ -137,9 +125,9 @@ impl MmdsNetworkStack {
                 .0,
             self.mac_addr(),
             self.ipv4_addr(),
-            dst_mac,
+            self.remote_mac_addr,
             dst_ipv4,
-        ).map_err(PduError::Arp)?
+        ).map_err(WriteArpReplyError::Arp)?
         .len();
 
         Ok(Some(

@@ -20,7 +20,7 @@ use super::{
     ActivateError, ActivateResult, EpollHandlerPayload, Queue, VirtioDevice, TYPE_NET,
     VIRTIO_MMIO_INT_VRING,
 };
-use dumbo::ns::{DetourFrameOutcome, MmdsNetworkStack};
+use dumbo::ns::MmdsNetworkStack;
 use fc_util::ratelimiter::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
@@ -274,25 +274,13 @@ impl NetEpollHandler {
     // We currently prioritize packets from the MMDS over regular network packets.
     fn read_from_mmds_or_tap(&mut self) -> io::Result<usize> {
         if let Some(ns) = self.mmds_ns.as_mut() {
-            match ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx.frame_buf[..])) {
-                // The MMDS has nothing to send.
-                Ok(None) => (),
-                // The MMDS wrote a packet to the buffer.
-                Ok(Some(len)) => {
-                    let len = len.get();
-                    METRICS.mmds.tx_frames.inc();
-                    METRICS.mmds.tx_bytes.add(len);
-                    init_vnet_hdr(&mut self.rx.frame_buf[..]);
-                    return Ok(vnet_hdr_len() + len);
-                }
-                // The MMDS tried to write something but failed. This shouldn't really happen, and
-                // may lead to tricky situations, because the process_rx() main loop will exit
-                // if there are no frames on the tap. Other MMDS frames pending at this point will
-                // have to wait until something triggers process_rx() again.
-                Err(_) => {
-                    // TODO: log something when we'll stop worrying about error flooding?
-                    METRICS.mmds.tx_errors.inc();
-                }
+            if let Some(len) = ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx.frame_buf))
+            {
+                let len = len.get();
+                METRICS.mmds.tx_frames.inc();
+                METRICS.mmds.tx_bytes.add(len);
+                init_vnet_hdr(&mut self.rx.frame_buf);
+                return Ok(vnet_hdr_len() + len);
             }
         }
         self.read_tap()
@@ -356,6 +344,8 @@ impl NetEpollHandler {
         let mut process_rx_for_mmds = false;
 
         for avail_desc in self.tx.queue.iter(&self.mem) {
+            let mut frame_went_to_imds = false;
+
             // If limiter.consume() fails it means there is no more TokenType::Ops
             // budget and rate limiting is in effect.
             if !self.tx.rate_limiter.consume(1, TokenType::Ops) {
@@ -399,6 +389,8 @@ impl NetEpollHandler {
                 break;
             }
 
+            let byte_tokens_consumed = read_count as u64;
+
             read_count = 0;
             // Copy buffer from across multiple descriptors.
             // TODO(performance - Issue #420): change this to use `writev()` instead of `write()`
@@ -422,29 +414,22 @@ impl NetEpollHandler {
                 }
             }
 
-            let mut frame_went_to_imds = false;
-
             // Check if the frame should be heading towards the MMDS.
             if let Some(ns) = self.mmds_ns.as_mut() {
-                match ns.detour_frame(frame_bytes_from_buf(&self.tx.frame_buf[..read_count])) {
-                    DetourFrameOutcome::Accepted(maybe_error) => {
-                        METRICS.mmds.rx_accepted.inc();
-                        if let Some(_) = maybe_error {
-                            // TODO: log something when we'll stop worrying about error flooding?
-                            METRICS.mmds.rx_accepted_err.inc();
-                        }
+                if ns.detour_frame(frame_bytes_from_buf(&self.tx.frame_buf[..read_count])) {
+                    METRICS.mmds.rx_accepted.inc();
 
-                        // hacky hacky
-                        self.tx.rate_limiter.manual_replenish(1, TokenType::Ops);
+                    // hacky hacky
+                    self.tx
+                        .rate_limiter
+                        .manual_replenish(byte_tokens_consumed, TokenType::Bytes);
+                    self.tx.rate_limiter.manual_replenish(1, TokenType::Ops);
 
-                        if !self.rx.deferred_frame {
-                            process_rx_for_mmds = true;
-                        }
-
-                        frame_went_to_imds = true;
+                    if !self.rx.deferred_frame {
+                        process_rx_for_mmds = true;
                     }
-                    DetourFrameOutcome::DoNotWant => (),
-                    DetourFrameOutcome::UnexpectedFrame => METRICS.mmds.rx_bad_eth.inc(),
+
+                    frame_went_to_imds = true;
                 }
             }
 
