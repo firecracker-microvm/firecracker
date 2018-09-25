@@ -108,7 +108,7 @@ pub enum Error {
     DriveOperationFailed(DriveError),
     GuestCIDAlreadyInUse,
     GuestMacAddressInUse,
-    InstanceStartFailed,
+    InstanceStartFailed(ErrorType, String),
     InvalidPayload,
     MicroVMAlreadyRunning,
     OpenTap(TapError),
@@ -116,6 +116,12 @@ pub enum Error {
     OperationNotAllowedPreBoot,
     UpdateNotAllowedPostBoot,
     UpdateNotImplemented,
+}
+
+#[derive(Debug)]
+pub enum ErrorType {
+    UserError,
+    InternalError,
 }
 
 impl GenerateResponse for Error {
@@ -131,10 +137,14 @@ impl GenerateResponse for Error {
                 StatusCode::BadRequest,
                 json_fault_message("The specified guest MAC address is already in use."),
             ),
-            InstanceStartFailed => json_response(
-                StatusCode::InternalServerError,
-                json_fault_message("The microVM failed to start."),
-            ),
+            InstanceStartFailed(ref error_type, ref error_msg) => {
+                let status_code = match error_type {
+                    ErrorType::InternalError => StatusCode::InternalServerError,
+                    ErrorType::UserError => StatusCode::BadRequest,
+                };
+
+                json_response(status_code, json_fault_message(error_msg))
+            }
             InvalidPayload => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The request payload is invalid."),
@@ -295,8 +305,13 @@ mod tests {
         ret = Error::GuestMacAddressInUse.generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
 
-        ret = Error::InstanceStartFailed.generate_response();
+        ret = Error::InstanceStartFailed(ErrorType::InternalError, "Dummy error".to_string())
+            .generate_response();
         assert_eq!(ret.status(), StatusCode::InternalServerError);
+
+        ret = Error::InstanceStartFailed(ErrorType::UserError, "Dummy error".to_string())
+            .generate_response();
+        assert_eq!(ret.status(), StatusCode::BadRequest);
 
         ret = Error::InvalidPayload.generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);

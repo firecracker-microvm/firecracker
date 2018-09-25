@@ -54,7 +54,8 @@ use api_server::request::machine_configuration::{
 };
 use api_server::request::net::NetworkInterfaceBody;
 use api_server::request::{
-    Error as SyncError, GenerateResponse, OkStatus as SyncOkStatus, SyncOutcomeSender, SyncRequest,
+    Error as SyncError, ErrorType, GenerateResponse, OkStatus as SyncOkStatus, SyncOutcomeSender,
+    SyncRequest,
 };
 use data_model::vm::{
     description_into_implementation as rate_limiter_description_into_implementation,
@@ -1304,10 +1305,19 @@ impl Vmm {
                 .send(Box::new(SyncOkStatus::NoContent))
                 .map_err(|_| ())
                 .expect("one-shot channel closed"),
-            Err(_) => sender
-                .send(Box::new(SyncError::InstanceStartFailed))
-                .map_err(|_| ())
-                .expect("one-shot channel closed"),
+            Err(e) => {
+                let err_type = match e {
+                    Error::User(_) => ErrorType::UserError,
+                    Error::Internal(_) => ErrorType::InternalError,
+                };
+
+                sender
+                    .send(Box::new(SyncError::InstanceStartFailed(
+                        err_type,
+                        format!("Failed to start microVM. {:?}", e),
+                    ))).map_err(|_| ())
+                    .expect("one-shot channel closed")
+            }
         };
     }
 
