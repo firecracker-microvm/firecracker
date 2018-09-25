@@ -1,4 +1,5 @@
 pub mod connection;
+mod endpoint;
 
 use pdu::bytes::NetworkBytes;
 use pdu::tcp::{Flags as TcpFlags, TcpSegment};
