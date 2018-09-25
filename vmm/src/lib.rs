@@ -80,61 +80,126 @@ const VCPU_RTSIG_OFFSET: i32 = 0;
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 static START_INSTANCE_REQUEST_TS: AtomicUsize = ATOMIC_USIZE_INIT;
 
+/// User Errors describe bad configuration (user input).
+#[derive(Debug)]
+pub enum UserError {
+    /// This error is thrown by the minimal boot loader implementation.
+    /// It is related to a faulty memory configuration.
+    ConfigureSystem(x86_64::Error),
+    /// Unable to seek the block device backing file due to invalid permissions or
+    /// the file was deleted/corrupted.
+    CreateBlockDevice(sys_util::Error),
+    /// This error can come from both bad user input and internal errors and we should probably
+    /// split this at some point.
+    /// Internal errors are due to resource exhaustion.
+    /// Users errors  are due to invalid permissions.
+    CreateNetDevice(devices::virtio::Error),
+    /// This error describes a bad user configuration by which a VM can end up with two
+    /// root block devices. Invalid operations on drives will also return a Drive Error.
+    Drive(DriveError),
+    /// The kernel path is invalid.
+    InvalidKernelPath,
+    /// The kernel command line is invalid.
+    KernelCmdLine(kernel_cmdline::Error),
+    /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
+    KernelLoader(kernel_loader::Error),
+    /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
+    /// permission to open the file descriptor.
+    Kvm(sys_util::Error),
+    /// The host kernel reports an invalid KVM API version.
+    KvmApiVersion(i32),
+    /// Cannot initialize the KVM context due to missing capabilities.
+    KvmCap(kvm::Cap),
+    /// Cannot start the VM because the kernel was not configured.
+    MissingKernelConfig,
+    /// Cannot open the block device backing file.
+    OpenBlockDevice(std::io::Error),
+}
+
+/// These errors are unrelated to the user and usually refer to logical errors
+/// or bad management of resources (memory, file descriptors & others).
+#[derive(Debug)]
+pub enum InternalError {
+    ApiChannel,
+    /// Creating a Rate Limiter can fail because of resource exhaustion when trying to
+    /// create a new timer file descriptor.
+    CreateRateLimiter(std::io::Error),
+    /// Legacy devices work with Event file descriptors and the creation can fail because
+    /// of resource exhaustion.
+    CreateLegacyDevice(device_manager::legacy::Error),
+    /// Executing a VM request failed.
+    DeviceVmRequest(sys_util::Error),
+    /// An operation on the epoll instance failed due to resource exhaustion or bad configuration.
+    EpollFd(std::io::Error),
+    /// Cannot read from an Event file descriptor.
+    EventFd(sys_util::Error),
+    /// Describes a logical problem.
+    GeneralFailure, // TODO: there are some cases in which this error should be replaced.
+    /// Memory regions are overlapping or mmap fails.
+    GuestMemory(GuestMemoryError),
+    /// Cannot add devices to the Legacy I/O Bus.
+    LegacyIOBus(device_manager::legacy::Error),
+    /// The net device configuration is missing the tap device.
+    NetDeviceUnconfigured,
+    /// Epoll wait failed.
+    Poll(std::io::Error),
+    /// Cannot initialize a MMIO Block Device or add a device to the MMIO Bus.
+    RegisterBlockDevice(device_manager::mmio::Error),
+    /// Cannot initialize a MMIO Network Device or add a device to the MMIO Bus.
+    RegisterNetDevice(device_manager::mmio::Error),
+    /// Write to the serial console failed.
+    Serial(sys_util::Error),
+    /// Cannot initialize/configure the STDIN handle.
+    StdinHandle(sys_util::Error),
+    /// Cannot create Timer file descriptor.
+    TimerFd(std::io::Error),
+    /// Cannot create a new vCPU file descriptor.
+    Vcpu(vstate::Error),
+    /// vCPU configuration failed.
+    VcpuConfigure(vstate::Error),
+    /// Cannot spawn a new vCPU thread.
+    VcpuSpawn(std::io::Error),
+    /// Cannot open the VM file descriptor.
+    Vm(vstate::Error),
+    /// Cannot configure the VM.
+    VmConfigure(vstate::Error),
+}
+
 #[derive(Debug)]
 pub enum Error {
-    ApiChannel,
-    ConfigureSystem(x86_64::Error),
-    CreateBlockDevice(sys_util::Error),
-    CreateNetDevice(devices::virtio::Error),
-    CreateRateLimiter(std::io::Error),
-    CreateLegacyDevice(device_manager::legacy::Error),
-    DriveError(DriveError),
-    DeviceVmRequest(sys_util::Error),
-    EpollFd(std::io::Error),
-    EventFd(sys_util::Error),
-    GeneralFailure,
-    GuestMemory(GuestMemoryError),
-    InvalidKernelPath,
-    Kernel(std::io::Error),
-    KernelCmdLine(kernel_cmdline::Error),
-    KernelLoader(kernel_loader::Error),
-    Kvm(sys_util::Error),
-    KvmApiVersion(i32),
-    KvmCap(kvm::Cap),
-    LegacyIOBus(device_manager::legacy::Error),
-    LogMetrics(logger::error::LoggerError),
-    MissingKernelConfig,
-    NetDeviceUnconfigured,
-    OpenBlockDevice(std::io::Error),
-    Poll(std::io::Error),
-    RegisterBlockDevice(device_manager::mmio::Error),
-    RegisterNetDevice(device_manager::mmio::Error),
-    Serial(sys_util::Error),
-    StdinHandle(sys_util::Error),
-    Terminal(sys_util::Error),
-    TimerFd(std::io::Error),
-    Vcpu(vstate::Error),
-    VcpuConfigure(vstate::Error),
-    VcpuSpawn(std::io::Error),
-    Vm(vstate::Error),
-    VmSetup(vstate::Error),
+    User(UserError),
+    Internal(InternalError),
+}
+
+impl std::convert::From<InternalError> for Error {
+    fn from(err: InternalError) -> Self {
+        Error::Internal(err)
+    }
+}
+
+impl std::convert::From<UserError> for Error {
+    fn from(err: UserError) -> Self {
+        Error::User(err)
+    }
 }
 
 impl std::convert::From<kernel_loader::Error> for Error {
     fn from(e: kernel_loader::Error) -> Error {
-        Error::KernelLoader(e)
+        Error::User(UserError::KernelLoader(e))
     }
 }
 
 impl std::convert::From<x86_64::Error> for Error {
     fn from(e: x86_64::Error) -> Error {
-        Error::ConfigureSystem(e)
+        Error::User(UserError::ConfigureSystem(e))
     }
 }
 
 impl std::convert::From<kernel_cmdline::Error> for Error {
     fn from(e: kernel_cmdline::Error) -> Error {
-        Error::RegisterBlockDevice(device_manager::mmio::Error::Cmdline(e))
+        Error::Internal(InternalError::RegisterBlockDevice(
+            device_manager::mmio::Error::Cmdline(e),
+        ))
     }
 }
 
@@ -152,15 +217,15 @@ impl KvmContext {
     fn new() -> Result<Self> {
         fn check_cap(kvm: &Kvm, cap: Cap) -> std::result::Result<(), Error> {
             if !kvm.check_extension(cap) {
-                return Err(Error::KvmCap(cap));
+                return Err(Error::User(UserError::KvmCap(cap)));
             }
             Ok(())
         }
 
-        let kvm = Kvm::new().map_err(Error::Kvm)?;
+        let kvm = Kvm::new().map_err(UserError::Kvm)?;
 
         if kvm.get_api_version() != kvm::KVM_API_VERSION as i32 {
-            return Err(Error::KvmApiVersion(kvm.get_api_version()));
+            return Err(Error::User(UserError::KvmApiVersion(kvm.get_api_version())));
         }
 
         check_cap(&kvm, Cap::Irqchip)?;
@@ -239,7 +304,7 @@ struct EpollContext {
 
 impl EpollContext {
     fn new() -> Result<Self> {
-        let epoll_raw_fd = epoll::create(true).map_err(Error::EpollFd)?;
+        let epoll_raw_fd = epoll::create(true).map_err(InternalError::EpollFd)?;
 
         // Initial capacity needs to be large enough to hold:
         // * 1 exit event
@@ -289,7 +354,7 @@ impl EpollContext {
             epoll::EPOLL_CTL_DEL,
             libc::STDIN_FILENO,
             epoll::Event::new(epoll::EPOLLIN, self.stdin_index),
-        ).map_err(Error::EpollFd);
+        ).map_err(InternalError::EpollFd);
         self.dispatch_table[self.stdin_index as usize] = None;
 
         Ok(())
@@ -305,7 +370,7 @@ impl EpollContext {
             epoll::EPOLL_CTL_ADD,
             fd.as_raw_fd(),
             epoll::Event::new(epoll::EPOLLIN, dispatch_index),
-        ).map_err(Error::EpollFd)?;
+        ).map_err(InternalError::EpollFd)?;
         self.dispatch_table.push(Some(token));
 
         Ok(EpollEvent { dispatch_index, fd })
@@ -320,7 +385,7 @@ impl EpollContext {
             epoll::EPOLL_CTL_DEL,
             epoll_event.fd.as_raw_fd(),
             epoll::Event::new(epoll::EPOLLIN, epoll_event.dispatch_index),
-        ).map_err(Error::EpollFd)?;
+        ).map_err(InternalError::EpollFd)?;
         self.dispatch_table[epoll_event.dispatch_index as usize] = None;
 
         Ok(())
@@ -369,7 +434,7 @@ impl EpollContext {
                 let received = maybe
                     .receiver
                     .try_recv()
-                    .map_err(|_| Error::GeneralFailure)?;
+                    .map_err(|_| InternalError::GeneralFailure)?;
                 Ok(maybe.handler.get_or_insert(received).as_mut())
             }
         }
@@ -444,13 +509,14 @@ impl Vmm {
         let write_metrics_event = epoll_context
             .add_event(
                 // non-blocking & close on exec
-                TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?,
+                TimerFd::new_custom(ClockId::Monotonic, true, true)
+                    .map_err(InternalError::TimerFd)?,
                 EpollDispatch::WriteMetrics,
             ).expect("Cannot add write metrics TimerFd to epoll.");
 
         let block_device_configs = BlockDeviceConfigs::new();
         let kvm = KvmContext::new()?;
-        let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
+        let vm = Vm::new(kvm.fd()).map_err(InternalError::Vm)?;
 
         Ok(Vmm {
             _kvm: kvm,
@@ -464,7 +530,7 @@ impl Vmm {
             vm,
             mmio_device_manager: None,
             legacy_device_manager: LegacyDeviceManager::new()
-                .map_err(|e| Error::CreateLegacyDevice(e))?,
+                .map_err(InternalError::CreateLegacyDevice)?,
             block_device_configs,
             drive_handler_id_map: HashMap::new(),
             network_interface_configs: NetworkInterfaceConfigs::new(),
@@ -656,7 +722,7 @@ impl Vmm {
                 .read(true)
                 .write(!drive_config.is_read_only)
                 .open(&drive_config.path_on_host)
-                .map_err(Error::OpenBlockDevice)?;
+                .map_err(UserError::OpenBlockDevice)?;
 
             if drive_config.is_root_device && drive_config.get_partuuid().is_some() {
                 kernel_config.cmdline.insert_str(format!(
@@ -675,21 +741,21 @@ impl Vmm {
 
             let rate_limiter =
                 rate_limiter_description_into_implementation(drive_config.rate_limiter.as_ref())
-                    .map_err(Error::CreateRateLimiter)?;
+                    .map_err(InternalError::CreateRateLimiter)?;
             let block_box = Box::new(
                 devices::virtio::Block::new(
                     block_file,
                     drive_config.is_read_only,
                     epoll_config,
                     rate_limiter,
-                ).map_err(Error::CreateBlockDevice)?,
+                ).map_err(UserError::CreateBlockDevice)?,
             );
             device_manager
                 .register_device(
                     block_box,
                     &mut kernel_config.cmdline,
                     Some(drive_config.drive_id.clone()),
-                ).map_err(Error::RegisterBlockDevice)?;
+                ).map_err(InternalError::RegisterBlockDevice)?;
         }
 
         Ok(())
@@ -755,10 +821,10 @@ impl Vmm {
 
             let rx_rate_limiter =
                 rate_limiter_description_into_implementation(cfg.rx_rate_limiter.as_ref())
-                    .map_err(Error::CreateRateLimiter)?;
+                    .map_err(InternalError::CreateRateLimiter)?;
             let tx_rate_limiter =
                 rate_limiter_description_into_implementation(cfg.tx_rate_limiter.as_ref())
-                    .map_err(Error::CreateRateLimiter)?;
+                    .map_err(InternalError::CreateRateLimiter)?;
 
             let allow_mmds_requests = cfg.allow_mmds_requests();
 
@@ -771,14 +837,14 @@ impl Vmm {
                         rx_rate_limiter,
                         tx_rate_limiter,
                         allow_mmds_requests,
-                    ).map_err(Error::CreateNetDevice)?,
+                    ).map_err(UserError::CreateNetDevice)?,
                 );
 
                 device_manager
                     .register_device(net_box, &mut kernel_config.cmdline, None)
-                    .map_err(Error::RegisterNetDevice)?;
+                    .map_err(InternalError::RegisterNetDevice)?;
             } else {
-                return Err(Error::NetDeviceUnconfigured);
+                return Err(InternalError::NetDeviceUnconfigured)?;
             }
         }
         Ok(())
@@ -792,19 +858,20 @@ impl Vmm {
         // It is safe to unwrap because vm_config it is initialized with a default value.
         let mem_size = self.vm_config.mem_size_mib.unwrap() << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
-        self.guest_memory = Some(GuestMemory::new(&arch_mem_regions).map_err(Error::GuestMemory)?);
+        self.guest_memory =
+            Some(GuestMemory::new(&arch_mem_regions).map_err(InternalError::GuestMemory)?);
         Ok(())
     }
 
     fn check_health(&self) -> Result<()> {
         if self.kernel_config.is_none() {
-            return Err(Error::MissingKernelConfig);
+            return Err(UserError::MissingKernelConfig)?;
         }
         Ok(())
     }
 
     fn init_devices(&mut self) -> Result<()> {
-        let guest_mem = self.guest_memory.clone().ok_or(Error::GuestMemory(
+        let guest_mem = self.guest_memory.clone().ok_or(InternalError::GuestMemory(
             memory_model::GuestMemoryError::MemoryNotInitialized,
         ))?;
         // Instantiate the MMIO device manager.
@@ -822,28 +889,28 @@ impl Vmm {
 
     fn init_microvm(&mut self) -> Result<()> {
         self.vm
-            .memory_init(self.guest_memory.clone().ok_or(Error::VmSetup(
+            .memory_init(self.guest_memory.clone().ok_or(InternalError::VmConfigure(
                 vstate::Error::GuestMemory(memory_model::GuestMemoryError::MemoryNotInitialized),
-            ))?).map_err(Error::VmSetup)?;
+            ))?).map_err(InternalError::VmConfigure)?;
         self.vm
             .setup_irqchip(
                 &self.legacy_device_manager.com_evt_1_3,
                 &self.legacy_device_manager.com_evt_2_4,
-            ).map_err(Error::VmSetup)?;
-        self.vm.create_pit().map_err(Error::VmSetup)?;
+            ).map_err(InternalError::VmConfigure)?;
+        self.vm.create_pit().map_err(InternalError::VmConfigure)?;
 
         // It is safe to unwrap() because mmio_device_manager is instantiated in init_devices, which
         // is called before init_microvm.
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
         for request in &device_manager.vm_requests {
             if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
-                return Err(Error::DeviceVmRequest(e));
+                return Err(InternalError::DeviceVmRequest(e))?;
             }
         }
 
         self.legacy_device_manager
             .register_devices()
-            .map_err(Error::LegacyIOBus)?;
+            .map_err(InternalError::LegacyIOBus)?;
 
         Ok(())
     }
@@ -875,14 +942,14 @@ impl Vmm {
                 .lock()
                 .unwrap()
                 .get_eventfd_clone()
-                .map_err(|_| Error::GeneralFailure)?;
+                .map_err(|_| InternalError::GeneralFailure)?;
 
-            let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(Error::Vcpu)?;
+            let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(InternalError::Vcpu)?;
 
             // It is safe to unwrap the ht_enabled flag because the machine configure
             // has default values for all fields.
             vcpu.configure(&self.vm_config, entry_addr, &self.vm)
-                .map_err(Error::VcpuConfigure)?;
+                .map_err(InternalError::VcpuConfigure)?;
             vcpu_handles.push(
                 thread::Builder::new()
                     .name(format!("fc_vcpu{}", cpu_id))
@@ -980,7 +1047,7 @@ impl Vmm {
                             METRICS.vcpu.failures.inc();
                             error!("Failed signaling vcpu exit event: {:?}", e);
                         }
-                    }).map_err(Error::VcpuSpawn)?,
+                    }).map_err(InternalError::VcpuSpawn)?,
             );
         }
 
@@ -1014,7 +1081,7 @@ impl Vmm {
         // in the check_health function.
         let kernel_config = self.kernel_config.as_mut().unwrap();
         let cmdline_cstring = CString::new(kernel_config.cmdline.clone())
-            .map_err(|_| Error::KernelCmdLine(kernel_cmdline::Error::InvalidAscii))?;
+            .map_err(|_| UserError::KernelCmdLine(kernel_cmdline::Error::InvalidAscii))?;
 
         // It is safe to unwrap because the VM memory was initialized before in vm.memory_init().
         let vm_memory = self.vm.get_memory().unwrap();
@@ -1025,7 +1092,9 @@ impl Vmm {
             vm_memory,
             kernel_config.cmdline_addr,
             cmdline_cstring.to_bytes().len() + 1,
-            self.vm_config.vcpu_count.ok_or(Error::GeneralFailure)?,
+            self.vm_config
+                .vcpu_count
+                .ok_or(InternalError::GeneralFailure)?,
         )?;
         Ok(entry_addr)
     }
@@ -1038,7 +1107,7 @@ impl Vmm {
             .lock()
             .unwrap()
             .get_eventfd_clone()
-            .map_err(|_| Error::GeneralFailure)?;
+            .map_err(|_| InternalError::GeneralFailure)?;
         let exit_epoll_evt = self
             .epoll_context
             .add_event(event_fd, EpollDispatch::Exit)?;
@@ -1117,7 +1186,7 @@ impl Vmm {
             .stdin_handle
             .lock()
             .set_canon_mode()
-            .map_err(Error::StdinHandle)?;
+            .map_err(InternalError::StdinHandle)?;
 
         //TODO:
         // - clean epoll_context:
@@ -1139,7 +1208,8 @@ impl Vmm {
 
         // TODO: try handling of errors/failures without breaking this main loop.
         'poll: loop {
-            let num_events = epoll::wait(epoll_raw_fd, -1, &mut events[..]).map_err(Error::Poll)?;
+            let num_events =
+                epoll::wait(epoll_raw_fd, -1, &mut events[..]).map_err(InternalError::Poll)?;
 
             for i in 0..num_events {
                 let dispatch_idx = events[i].data() as usize;
@@ -1149,7 +1219,7 @@ impl Vmm {
                         EpollDispatch::Exit => {
                             match self.exit_evt {
                                 Some(ref ev) => {
-                                    ev.fd.read().map_err(Error::EventFd)?;
+                                    ev.fd.read().map_err(InternalError::EventFd)?;
                                 }
                                 None => warn!("leftover exit-evt in epollcontext!"),
                             }
@@ -1178,7 +1248,7 @@ impl Vmm {
                                         .lock()
                                         .unwrap()
                                         .queue_input_bytes(&out[..count])
-                                        .map_err(Error::Serial)?;
+                                        .map_err(InternalError::Serial)?;
                                 }
                             }
                         }
@@ -1194,7 +1264,7 @@ impl Vmm {
                             }
                         }
                         EpollDispatch::ApiRequest => {
-                            self.api_event.fd.read().map_err(Error::EventFd)?;
+                            self.api_event.fd.read().map_err(InternalError::EventFd)?;
                             self.run_api_cmd().unwrap_or_else(|_| {
                                 warn!("got spurious notification from api thread");
                                 ()
@@ -1464,7 +1534,7 @@ impl Vmm {
         let request = match self.from_api.try_recv() {
             Ok(t) => *t,
             Err(TryRecvError::Empty) => {
-                return Err(Error::ApiChannel);
+                return Err(InternalError::ApiChannel)?;
             }
             Err(TryRecvError::Disconnected) => {
                 panic!();
