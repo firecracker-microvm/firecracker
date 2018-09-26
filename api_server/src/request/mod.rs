@@ -118,6 +118,22 @@ pub enum Error {
     UpdateNotImplemented,
 }
 
+/// We need to implement to string because we are sending the errors to the clients by
+/// using json_fault_message function that expects a type which implements AsRef<str>.
+/// When using the default Debug formatting, we end up with invalid jsons because we don't
+/// escape the quotes in the error message.
+impl ToString for Error {
+    fn to_string(&self) -> String {
+        match self {
+            Error::InstanceStartFailed(_, ref err_msg) => err_msg.replace("\"", ""),
+            _ => {
+                let err_msg = format!("{:?}", self);
+                err_msg.replace("\"", "")
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ErrorType {
     UserError,
@@ -137,13 +153,13 @@ impl GenerateResponse for Error {
                 StatusCode::BadRequest,
                 json_fault_message("The specified guest MAC address is already in use."),
             ),
-            InstanceStartFailed(ref error_type, ref error_msg) => {
+            InstanceStartFailed(ref error_type, _) => {
                 let status_code = match error_type {
                     ErrorType::InternalError => StatusCode::InternalServerError,
                     ErrorType::UserError => StatusCode::BadRequest,
                 };
 
-                json_response(status_code, json_fault_message(error_msg))
+                json_response(status_code, json_fault_message(self.to_string()))
             }
             InvalidPayload => json_response(
                 StatusCode::BadRequest,
@@ -153,9 +169,9 @@ impl GenerateResponse for Error {
                 StatusCode::Forbidden,
                 json_fault_message("The microVM is already running."),
             ),
-            OpenTap(ref e) => json_response(
+            OpenTap(_) => json_response(
                 StatusCode::BadRequest,
-                json_fault_message(format!("Could not open TAP device. {:?}", e)),
+                json_fault_message(format!("Could not open TAP device. {}", self.to_string())),
             ),
             OperationFailed => json_response(
                 StatusCode::BadRequest,
@@ -220,7 +236,9 @@ impl PartialEq for ParsedRequest {
 mod tests {
     use super::*;
 
-    use serde_json::Map;
+    use futures::{Future, Stream};
+    use hyper::{Body, Response};
+    use serde_json::{self, Map};
     use std;
 
     // Implementation for the "==" operator.
@@ -293,47 +311,73 @@ mod tests {
         assert_eq!(ret.status(), StatusCode::NoContent);
     }
 
+    fn get_body(
+        response: Response<Body>,
+    ) -> std::result::Result<serde_json::Value, serde_json::Error> {
+        let body = response
+            .body()
+            .map_err(|_| ())
+            .fold(vec![], |mut acc, chunk| {
+                acc.extend_from_slice(&chunk);
+                Ok(acc)
+            }).and_then(|v| String::from_utf8(v).map_err(|_| ()));
+        serde_json::from_str::<Value>(body.wait().unwrap().as_ref())
+    }
+
     #[test]
     fn test_generate_response_error() {
         let mut ret =
             Error::DriveOperationFailed(DriveError::InvalidBlockDeviceID).generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
+        assert!(get_body(ret).is_ok());
 
         ret = Error::GuestCIDAlreadyInUse.generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
+        assert!(get_body(ret).is_ok());
 
         ret = Error::GuestMacAddressInUse.generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
+        assert!(get_body(ret).is_ok());
 
-        ret = Error::InstanceStartFailed(ErrorType::InternalError, "Dummy error".to_string())
-            .generate_response();
+        ret = Error::InstanceStartFailed(
+            ErrorType::InternalError,
+            "Dummy error message.".to_string(),
+        ).generate_response();
         assert_eq!(ret.status(), StatusCode::InternalServerError);
+        assert!(get_body(ret).is_ok());
 
-        ret = Error::InstanceStartFailed(ErrorType::UserError, "Dummy error".to_string())
+        ret = Error::InstanceStartFailed(ErrorType::UserError, "Dummy error message.".to_string())
             .generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
+        assert!(get_body(ret).is_ok());
 
         ret = Error::InvalidPayload.generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
+        assert!(get_body(ret).is_ok());
 
         ret = Error::MicroVMAlreadyRunning.generate_response();
         assert_eq!(ret.status(), StatusCode::Forbidden);
+        assert!(get_body(ret).is_ok());
 
         ret = Error::OpenTap(TapError::OpenTun(std::io::Error::from_raw_os_error(22)))
             .generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
+        assert!(get_body(ret).is_ok());
 
         ret = Error::OperationFailed.generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
+        assert!(get_body(ret).is_ok());
 
         ret = Error::OperationNotAllowedPreBoot.generate_response();
         assert_eq!(ret.status(), StatusCode::Forbidden);
+        assert!(get_body(ret).is_ok());
 
         ret = Error::UpdateNotAllowedPostBoot.generate_response();
         assert_eq!(ret.status(), StatusCode::Forbidden);
+        assert!(get_body(ret).is_ok());
 
         ret = Error::UpdateNotImplemented.generate_response();
         assert_eq!(ret.status(), StatusCode::InternalServerError);
+        assert!(get_body(ret).is_ok());
     }
-
 }
