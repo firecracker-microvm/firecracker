@@ -10,5 +10,6 @@ pub enum InstanceState {
 // This struct represents the strongly typed equivalent of the json body of InstanceInfo
 #[derive(Debug, Serialize)]
 pub struct InstanceInfo {
+    pub id: String,
     pub state: InstanceState,
 }

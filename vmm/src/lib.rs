@@ -1403,7 +1403,12 @@ impl Vmm {
             return;
         }
 
-        match api_logger_config::init_logger(logger_description) {
+        let id;
+        {
+            let guard = self.shared_info.read().unwrap();
+            id = guard.id.clone();
+        }
+        match api_logger_config::init_logger(id.as_str(), logger_description) {
             Ok(_) => sender
                 .send(Box::new(PutLoggerOutcome::Initialized))
                 .map_err(|_| ())
@@ -1662,7 +1667,10 @@ mod tests {
     }
 
     fn create_vmm_object(state: InstanceState) -> Vmm {
-        let shared_info = Arc::new(RwLock::new(InstanceInfo { state }));
+        let shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state,
+            id: "TEST_ID".to_string(),
+        }));
 
         let (_to_vmm, from_api) = channel();
         let vmm = Vmm::new(

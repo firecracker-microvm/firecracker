@@ -1,6 +1,7 @@
 """Tests the format of human readable logs by checking response of the API
 config calls."""
 
+import re
 from time import strptime
 import host_tools.logging as log_tools
 
@@ -27,43 +28,34 @@ def to_formal_log_level(log_level):
     return ""
 
 
-def check_log_message(log_str, log_level, show_level, show_origin):
+def check_log_message(log_str, instance_id, level, show_level, show_origin):
     """Parse the string representing the logs and look for the parts
      that should be there.
+     The log line should look lie this:
+         YYYY-MM-DDTHH:MM:SS.NNNNNNNNN [ID:LEVEL:FILE:LINE] MESSAGE
+     where LEVEL and FILE:LINE are both optional.
+     e.g.:
+        2018-09-09T12:52:00.123456789 [MYID:WARN:/path/to/file.rs:52] warning
     """
-    log_str_parts = log_str.split(' ')
-
-    # The timestamp is the first part of the log message always.
-    timestamp = log_str_parts[0][:-10]
+    (timestamp, tag, _) = log_str.split(' ')[:3]
+    timestamp = timestamp[:-10]
     strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
 
-    if not show_level and not show_origin:
-        # In case the log does not contain level or origin, log message has 2
-        # parts and that is the least we are checking.
-        assert log_str_parts[1] != "[]"
-        assert len(log_str_parts) > 1
-        return
-
-    log_str_parts_info = log_str_parts[1][1:-1].split(':')
-    # Make sure that the log contains at least two parts (timestamp,
-    # info and log message) in case level or origin should be there.
-    assert len(log_str_parts) > 2
+    pattern = "\\[(" + instance_id + ")"
     if show_level:
-        index_configured_level = LOG_LEVELS.index(
-                                    to_formal_log_level(log_level))
-        index_logged_level = LOG_LEVELS.index(log_str_parts_info[0])
-        assert index_logged_level <= index_configured_level
-
+        pattern += ":(" + "|".join(LOG_LEVELS) + ")"
     if show_origin:
-        if show_level:
-            log_path = log_str_parts_info[1]
-            log_line_number = log_str_parts_info[2]
-        else:
-            log_path = log_str_parts_info[0]
-            log_line_number = log_str_parts_info[1]
-        path_components = log_path.split('/')
-        assert len(path_components) > 1
-        assert int(log_line_number)
+        pattern += ":([^:]+/[^:]+):([0-9]+)"
+    pattern += "\\]"
+
+    mo = re.match(pattern, tag)
+    assert mo is not None
+
+    if show_level:
+        tag_level = mo.group(2)
+        tag_level_no = LOG_LEVELS.index(tag_level)
+        configured_level_no = LOG_LEVELS.index(to_formal_log_level(level))
+        assert tag_level_no <= configured_level_no
 
 
 def test_no_origin_logs(test_microvm_with_ssh, network_config):
@@ -138,4 +130,10 @@ def _test_log_config(
 
     lines = log_tools.sequential_fifo_reader(microvm, 0, 20)
     for line in lines:
-        check_log_message(line, log_level, show_level, show_origin)
+        check_log_message(
+            line,
+            microvm.slot.jailer_context.microvm_slot_id,
+            log_level,
+            show_level,
+            show_origin
+        )

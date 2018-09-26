@@ -5,7 +5,7 @@ use logger::{Level, LOGGER};
 
 type Result<T> = result::Result<T, APILoggerError>;
 
-pub fn init_logger(api_logger: APILoggerDescription) -> Result<()> {
+pub fn init_logger(instance_id: &str, api_logger: APILoggerDescription) -> Result<()> {
     let level = from_api_level(api_logger.level);
 
     if let Some(val) = level {
@@ -20,7 +20,11 @@ pub fn init_logger(api_logger: APILoggerDescription) -> Result<()> {
         LOGGER.set_include_level(val);
     }
 
-    if let Err(ref e) = LOGGER.init(Some(api_logger.log_fifo), Some(api_logger.metrics_fifo)) {
+    if let Err(ref e) = LOGGER.init(
+        instance_id,
+        Some(api_logger.log_fifo),
+        Some(api_logger.metrics_fifo),
+    ) {
         return Err(APILoggerError::InitializationFailure(e.to_string()));
     } else {
         Ok(())
@@ -78,7 +82,7 @@ mod tests {
             show_level: None,
             show_log_origin: None,
         };
-        assert!(init_logger(desc).is_err());
+        assert!(init_logger("TEST-ID", desc).is_err());
 
         File::create(&Path::new(&log_filename)).expect("Failed to create temporary log file.");
 
@@ -91,7 +95,7 @@ mod tests {
             show_level: Some(true),
             show_log_origin: Some(true),
         };
-        let res = init_logger(desc).is_ok();
+        let res = init_logger("TEST-ID", desc).is_ok();
 
         if !res {
             let _x = fs::remove_file(log_filename);
@@ -104,12 +108,12 @@ mod tests {
         warn!("warning");
         error!("error");
 
-        // info should not be outputted
+        // info should not be output
         let res = validate_logs(
             log_filename,
             &[
-                ("[WARN", "logger_config.rs", "warn"),
-                ("[ERROR", "logger_config.rs", "error"),
+                ("WARN", "logger_config.rs", "warn"),
+                ("ERROR", "logger_config.rs", "error"),
             ],
         );
         let _x = fs::remove_file(log_filename);
