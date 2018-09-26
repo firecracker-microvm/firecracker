@@ -334,6 +334,9 @@ definitions:
 
   InstanceInfo:
     properties:
+      id:
+        description: MicroVM / instance ID.
+        type: string
       state:
         description:
           The current detailed state of the Firecracker instance.
