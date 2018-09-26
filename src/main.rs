@@ -6,6 +6,7 @@ extern crate api_server;
 extern crate data_model;
 #[macro_use]
 extern crate logger;
+extern crate fc_util;
 extern crate seccomp;
 extern crate vmm;
 
@@ -19,9 +20,11 @@ use std::sync::{Arc, RwLock};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::ApiServer;
 use data_model::mmds::MMDS;
+use fc_util::validators::validate_instance_id;
 use logger::{Metric, LOGGER, METRICS};
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
+const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 
 fn main() {
     // If the signal handler can't be set, it's OK to panic.
@@ -56,6 +59,15 @@ fn main() {
                 .default_value(DEFAULT_API_SOCK_PATH)
                 .takes_value(true),
         ).arg(
+            Arg::with_name("id")
+                .long("id")
+                .help("Instance ID")
+                .takes_value(true)
+                .default_value(DEFAULT_INSTANCE_ID)
+                .validator(|s: String| -> Result<(), String> {
+                    validate_instance_id(&s).map_err(|e| format!("{}", e))
+                }),
+        ).arg(
             Arg::with_name("jailed")
                 .long("jailed")
                 .help("Let Firecracker know it's running inside a jail."),
@@ -78,6 +90,9 @@ fn main() {
         .map(|s| PathBuf::from(s))
         .unwrap();
 
+    // It's safe un unwrap here because clap's been provided with a default value
+    let instance_id = cmd_arguments.value_of("id").unwrap().to_string();
+
     if cmd_arguments.is_present("jailed") {
         data_model::FIRECRACKER_IS_JAILED.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -94,6 +109,7 @@ fn main() {
 
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,
+        id: instance_id,
     }));
     let mmds_info = MMDS.clone();
     let (to_vmm, from_api) = channel();
@@ -182,6 +198,7 @@ mod tests {
         // Initialize the logger
         LOGGER
             .init(
+                "TEST-ID",
                 Some(log_file_temp.path().to_str().unwrap().to_string()),
                 Some(metrics_file_temp.path().to_str().unwrap().to_string()),
             ).expect("Could not initialize logger.");

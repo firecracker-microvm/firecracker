@@ -13,7 +13,7 @@
 //! use std::ops::Deref;
 //!
 //! fn main() {
-//!     if let Err(e) = LOGGER.deref().init(None, None) {
+//!     if let Err(e) = LOGGER.deref().init("MY-INSTANCE", None, None) {
 //!         println!("Could not initialize the log subsystem: {:?}", e);
 //!         return;
 //!     }
@@ -41,7 +41,7 @@ use std::error::Error;
 use std::ops::Deref;
 use std::result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, RwLock};
 
 use chrono::Local;
 
@@ -129,6 +129,7 @@ pub struct Logger {
     log_fifo: Mutex<Option<PipeLogWriter>>,
     // Used in case we want to send metrics to a FIFO.
     metrics_fifo: Mutex<Option<PipeLogWriter>>,
+    instance_id: RwLock<String>,
 }
 
 /// Auxiliary function to get the default destination for some code level.
@@ -173,6 +174,7 @@ impl Logger {
             },
             log_fifo: Mutex::new(None),
             metrics_fifo: Mutex::new(None),
+            instance_id: RwLock::new(String::new()),
         }
     }
 
@@ -202,7 +204,7 @@ impl Logger {
     /// fn main() {
     ///     let l = LOGGER.deref();
     ///     l.set_include_level(true);
-    ///     l.init(None, None).unwrap();
+    ///     l.init("MY-INSTANCE", None, None).unwrap();
     ///
     ///     warn!("This will print 'WARN' surrounded by square brackets followed by log message");
     /// }
@@ -225,7 +227,7 @@ impl Logger {
     /// fn main() {
     ///     let l = LOGGER.deref();
     ///     l.set_include_origin(true, true);
-    ///     l.init(None, None).unwrap();
+    ///     l.init("MY-INSTANCE", None, None).unwrap();
     ///
     ///     warn!("This will print '[WARN:file_path.rs:155]' followed by log message");
     /// }
@@ -256,7 +258,7 @@ impl Logger {
     /// fn main() {
     ///     let l = LOGGER.deref();
     ///     l.set_level(log::Level::Info);
-    ///     l.init(None, None).unwrap();
+    ///     l.init("MY-INSTANCE", None, None).unwrap();
     /// }
     /// ```
     pub fn set_level(&self, level: Level) {
@@ -270,38 +272,36 @@ impl Logger {
     /// of the log statement based on the logger settings.
     ///
     fn create_prefix(&self, record: &Record) -> String {
-        if !self.show_level() && !self.show_file_path() {
-            return "".to_string();
+        let mut res = String::from(" [");
+
+        {
+            // It's safe to unrwap here, because instance_id is only written to
+            // during log initialization, so there aren't any writers that could
+            // poison the lock.
+            let id_guard = self.instance_id.read().unwrap();
+            res.push_str(id_guard.as_ref());
         }
 
-        let level_str = if self.show_level() {
-            record.level().to_string()
-        } else {
-            String::new()
-        };
+        if self.show_level() {
+            res.push_str(IN_PREFIX_SEPARATOR);
+            res.push_str(record.level().to_string().as_str());
+        }
 
-        let file_path_str = if self.show_file_path() {
+        if self.show_file_path() {
             let pth = record.file().unwrap_or("unknown");
-            if self.show_level() {
-                format!("{}{}", IN_PREFIX_SEPARATOR, pth)
-            } else {
-                pth.into()
-            }
-        } else {
-            String::new()
-        };
+            res.push_str(IN_PREFIX_SEPARATOR);
+            res.push_str(pth);
+        }
 
-        let line_str = if self.show_line_numbers() {
-            if let Some(l) = record.line() {
-                format!("{}{}", IN_PREFIX_SEPARATOR, l)
-            } else {
-                String::new()
+        if self.show_line_numbers() {
+            if let Some(ln) = record.line() {
+                res.push_str(IN_PREFIX_SEPARATOR);
+                res.push_str(ln.to_string().as_ref());
             }
-        } else {
-            String::new()
-        };
+        }
 
-        format!(" [{}{}{}]", level_str, file_path_str, line_str)
+        res.push_str("]");
+        res
     }
 
     fn log_fifo_guard(&self) -> MutexGuard<Option<PipeLogWriter>> {
@@ -334,14 +334,24 @@ impl Logger {
     /// use std::ops::Deref;
     ///
     /// fn main() {
-    ///     LOGGER.deref().init(None, None).unwrap();
+    ///     LOGGER.deref().init("MY-INSTANCE", None, None).unwrap();
     /// }
     /// ```
-    pub fn init(&self, log_pipe: Option<String>, metrics_pipe: Option<String>) -> Result<()> {
+    pub fn init(
+        &self,
+        instance_id: &str,
+        log_pipe: Option<String>,
+        metrics_pipe: Option<String>,
+    ) -> Result<()> {
         // If the logger was already initialized, error will be returned.
         if STATE.compare_and_swap(UNINITIALIZED, INITIALIZING, Ordering::SeqCst) != UNINITIALIZED {
             METRICS.logger.log_fails.inc();
             return Err(LoggerError::AlreadyInitialized);
+        }
+
+        {
+            let mut id_guard = self.instance_id.write().unwrap();
+            *id_guard = instance_id.to_string();
         }
 
         if let Some(path) = log_pipe.as_ref() {
@@ -487,7 +497,7 @@ mod tests {
 
     fn validate_logs(
         log_path: &str,
-        expected: &[(&'static str, &'static str, &'static str)],
+        expected: &[(&'static str, &'static str, &'static str, &'static str)],
     ) -> bool {
         let f = File::open(log_path).unwrap();
         let mut reader = BufReader::new(f);
@@ -514,6 +524,8 @@ mod tests {
 
     #[test]
     fn test_init_with_file() {
+        const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
+
         let l = LOGGER.deref();
 
         l.set_include_origin(false, true);
@@ -535,12 +547,15 @@ mod tests {
         let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
         let metrics_file = String::from(metrics_file_temp.path().to_path_buf().to_str().unwrap());
 
-        assert!(l.init(Some(log_file.clone()), Some(metrics_file)).is_ok());
+        assert!(
+            l.init(TEST_INSTANCE_ID, Some(log_file.clone()), Some(metrics_file))
+                .is_ok()
+        );
 
         info!("info");
         warn!("warning");
 
-        assert!(l.init(None, None).is_err());
+        assert!(l.init(TEST_INSTANCE_ID, None, None).is_err());
 
         info!("info");
         warn!("warning");
@@ -553,11 +568,11 @@ mod tests {
         validate_logs(
             &log_file,
             &[
-                ("[INFO", "lib.rs", "info"),
-                ("[WARN", "lib.rs", "warn"),
-                ("[INFO", "lib.rs", "info"),
-                ("[WARN", "lib.rs", "warn"),
-                ("[ERROR", "lib.rs", "error"),
+                (TEST_INSTANCE_ID, "INFO", "lib.rs", "info"),
+                (TEST_INSTANCE_ID, "WARN", "lib.rs", "warn"),
+                (TEST_INSTANCE_ID, "INFO", "lib.rs", "info"),
+                (TEST_INSTANCE_ID, "WARN", "lib.rs", "warn"),
+                (TEST_INSTANCE_ID, "ERROR", "lib.rs", "error"),
             ],
         );
 
@@ -565,8 +580,8 @@ mod tests {
 
         // Exercise the case when there is an error in opening file.
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
-        assert!(l.init(Some(String::from("")), None).is_err());
-        let res = l.init(Some(log_file.clone()), Some(String::from("")));
+        assert!(l.init("TEST-ID", Some(String::from("")), None).is_err());
+        let res = l.init("TEST-ID", Some(log_file.clone()), Some(String::from("")));
         assert!(res.is_err());
 
         l.set_include_level(true);
@@ -593,12 +608,12 @@ mod tests {
         let l = Logger::new();
 
         assert_eq!(
-            format!("{:?}", l.init(None, None).err()),
+            format!("{:?}", l.init("TEST-ID", None, None).err()),
             "Some(AlreadyInitialized)"
         );
 
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
-        let res = l.init(Some(log_file.clone()), None);
+        let res = l.init("TEST-ID", Some(log_file.clone()), None);
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.err().unwrap()),
