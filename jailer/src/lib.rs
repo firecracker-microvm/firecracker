@@ -3,6 +3,7 @@ extern crate clap;
 extern crate libc;
 extern crate regex;
 
+extern crate fc_util;
 extern crate sys_util;
 
 mod cgroup;
@@ -20,12 +21,12 @@ use std::result;
 use clap::{App, Arg, ArgMatches};
 
 use env::Env;
+use fc_util::validators;
 
 pub const KVM_FD: i32 = 3;
 pub const LISTENER_FD: i32 = 4;
 
 const SOCKET_FILE_NAME: &str = "api.socket";
-const MAX_ID_LENGTH: usize = 64;
 
 #[derive(Debug)]
 pub enum Error {
@@ -48,8 +49,7 @@ pub enum Error {
     FromBytesWithNul(&'static [u8]),
     GetOldFdFlags(sys_util::Error),
     Gid(String),
-    InvalidCharId,
-    InvalidLengthId,
+    InvalidInstanceId(validators::Error),
     Metadata(PathBuf, io::Error),
     MissingParent(PathBuf),
     MkdirOldRoot(sys_util::Error),

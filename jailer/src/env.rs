@@ -10,8 +10,8 @@ use libc;
 
 use cgroup::Cgroup;
 use chroot::chroot;
+use fc_util::validators;
 use sys_util;
-use MAX_ID_LENGTH;
 use {Error, Result};
 
 const STDIN_FILENO: libc::c_int = 0;
@@ -42,29 +42,13 @@ pub struct Env {
     seccomp_level: u32,
 }
 
-// Function will only allow alphanumeric characters and hyphens.
-// Also a MAX_ID_LENGTH restriction is applied.
-fn check_id(input: &str) -> Result<()> {
-    let no_hyphens = str::replace(input, "-", "");
-    for c in no_hyphens.chars() {
-        if !c.is_alphanumeric() {
-            return Err(Error::InvalidCharId);
-        }
-    }
-    if input.len() > MAX_ID_LENGTH {
-        return Err(Error::InvalidLengthId);
-    }
-    Ok(())
-}
-
 impl Env {
     pub fn new(args: ArgMatches) -> Result<Self> {
         // All arguments are either mandatory, or have default values, so the unwraps
         // should not fail.
         let id = args.value_of("id").unwrap();
 
-        // Check that id has only alphanumeric chars and hyphens in it.
-        check_id(id)?;
+        validators::validate_instance_id(id).map_err(|e| Error::InvalidInstanceId(e))?;
 
         let numa_node_str = args.value_of("numa_node").unwrap();
         let numa_node = numa_node_str
@@ -280,6 +264,7 @@ impl Env {
 
         Err(Error::Exec(
             Command::new(chroot_exec_file)
+                .arg(format!("--id={}", self.id))
                 .arg("--jailed")
                 .arg(format!("--seccomp-level={}", self.seccomp_level))
                 .stdin(Stdio::inherit())
@@ -455,18 +440,6 @@ mod tests {
 
         // The chroot-base-dir param is not validated by Env::new, but rather in run, when we
         // actually attempt to create the folder structure (the same goes for netns).
-    }
-
-    #[test]
-    fn test_check_id() {
-        assert!(check_id("12-3aa").is_ok());
-        assert!(check_id("12:3aa").is_err());
-        assert!(check_id("①").is_err());
-        let mut long_str = "".to_string();
-        for _n in 1..=MAX_ID_LENGTH + 1 {
-            long_str.push('a');
-        }
-        assert!(check_id(long_str.as_str()).is_err());
     }
 
     #[test]
