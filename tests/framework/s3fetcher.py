@@ -2,12 +2,13 @@
 
 import os
 import re
+
 from shutil import copyfile
 from typing import List
 
 import boto3
 
-from microvm import MicrovmSlot
+from framework.microvm import MicrovmSlot
 
 
 class MicrovmImageS3Fetcher:
@@ -74,11 +75,11 @@ class MicrovmImageS3Fetcher:
     """
 
     microvm_images = None
+    microvm_images_by_cap = None
 
     def __init__(
         self,
-        microvm_images_bucket,
-        microvm_images_path=MICROVM_IMAGES_RELPATH
+        microvm_images_bucket
     ):
         """Initialize fetcher shared state, s3 client, paths, and data."""
         self.__dict__ = self.__shared_state
@@ -87,14 +88,17 @@ class MicrovmImageS3Fetcher:
         # Will use AWS EC2 IMDS credentials if present.
 
         self.microvm_images_bucket = microvm_images_bucket
-        self.microvm_images_path = microvm_images_path
 
+        # The Borg pattern ensures that the map_bucket() is called only once
+        # per test session.
         if self.microvm_images is None:
             self.map_bucket()
+        assert self.microvm_images and self.microvm_images_by_cap
 
     def get_microvm_image(
         self,
         microvm_image_name,
+        microvm,
         microvm_slot: MicrovmSlot
     ):
         """Fetch a microvm image into an existing microvm local slot.
@@ -118,7 +122,7 @@ class MicrovmImageS3Fetcher:
                 continue
 
             image_rel_path = os.path.join(
-                self.microvm_images_path,
+                self.MICROVM_IMAGES_RELPATH,
                 microvm_image_name
             )
 
@@ -156,7 +160,8 @@ class MicrovmImageS3Fetcher:
                     resource_rel_path,
                     resource_local_path)
 
-            copyfile(resource_local_path, slot_dest_path)
+            if not os.path.exists(slot_dest_path):
+                copyfile(resource_local_path, slot_dest_path)
 
             if resource_key.endswith(self.MICROVM_IMAGE_KERNEL_FILE_SUFFIX):
                 microvm_slot.kernel_file = slot_dest_path
@@ -167,7 +172,7 @@ class MicrovmImageS3Fetcher:
             if resource_key.endswith(self.MICROVM_IMAGE_SSH_KEY_SUFFIX):
                 # Add the key path to the config dictionary and set
                 # permissions.
-                microvm_slot.ssh_config['ssh_key_path'] = slot_dest_path
+                microvm.ssh_config['ssh_key_path'] = slot_dest_path
                 os.chmod(slot_dest_path, 400)
 
     def list_microvm_images(self, capability_filter: List[str] = None):
@@ -200,12 +205,12 @@ class MicrovmImageS3Fetcher:
         self.microvm_images = {}
         self.microvm_images_by_cap = {}
         folder_key_groups_regex = re.compile(
-            self.microvm_images_path + r'(.+?)/(.*)'
+            self.MICROVM_IMAGES_RELPATH + r'(.+?)/(.*)'
         )
 
         for obj in self.s3.list_objects_v2(
             Bucket=self.microvm_images_bucket,
-            Prefix=self.microvm_images_path
+            Prefix=self.MICROVM_IMAGES_RELPATH
         )['Contents']:
             key_groups = re.match(folder_key_groups_regex, obj['Key'])
             microvm_image_name = key_groups.group(1)

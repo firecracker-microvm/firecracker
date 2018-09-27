@@ -3,16 +3,15 @@
 import fcntl
 import os
 import sys
-from threading import Thread
+
 from queue import Queue
+from subprocess import run
+from threading import Thread
 
 
-def open_microvm_fifo_nonblocking(
-        test_microvm,
-        fifo_index
-):
+def open_fifo_nonblocking(fifo_path):
     """Open a FIFO as read-only and non-blocking."""
-    fifo = open(test_microvm.slot.fifos[fifo_index], "r")
+    fifo = open(fifo_path, "r")
     fd = fifo.fileno()
     flag = fcntl.fcntl(fd, fcntl.F_GETFL)
     fcntl.fcntl(fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
@@ -20,15 +19,14 @@ def open_microvm_fifo_nonblocking(
 
 
 def sequential_fifo_reader(
-        test_microvm,
-        fifo_index,
+        fifo_path,
         max_lines
 ):
     """Read up to `max_lines` lines from fifo `fifo_index`.
 
     :return: A list containing the read lines.
     """
-    fifo = open_microvm_fifo_nonblocking(test_microvm, fifo_index)
+    fifo = open_fifo_nonblocking(fifo_path)
     result_lines = []
     while max_lines > 0:
         data = fifo.readline()
@@ -39,8 +37,7 @@ def sequential_fifo_reader(
 
 
 def threaded_fifo_reader(
-        test_microvm,
-        fifo_index,
+        fifo_path,
         check_func,
         *args
 ):
@@ -53,8 +50,7 @@ def threaded_fifo_reader(
     metric_reader_thread = Thread(
         target=do_thread_fifo_reader, args=(
             exceptions_queue,
-            test_microvm,
-            fifo_index,
+            fifo_path,
             check_func,
             *args
         )
@@ -65,8 +61,7 @@ def threaded_fifo_reader(
 
 def do_thread_fifo_reader(
         exceptions_queue,
-        test_microvm,
-        fifo_index,
+        fifo_path,
         check_func,
         *args
 ):
@@ -77,7 +72,7 @@ def do_thread_fifo_reader(
     Failures and exceptions are propagated to the main thread
     through the `exceptions_queue`.
     """
-    fifo = open_microvm_fifo_nonblocking(test_microvm, fifo_index)
+    fifo = open_fifo_nonblocking(fifo_path)
     max_iter = 20
     while max_iter > 0:
         data = fifo.readline()
@@ -87,7 +82,21 @@ def do_thread_fifo_reader(
             check_func(
                 "{0}".format(data), *args
             )
+        # pylint: disable=broad-except
+        # We need to propagate all type of exceptions to the main thread.
         except Exception:
             exceptions_queue.put(sys.exc_info())
         max_iter = max_iter-1
     exceptions_queue.put("Done")
+
+
+def make_fifo(fifo_path):
+    """Create a new named pipe."""
+    if os.path.exists(fifo_path):
+        print(FileExistsError(
+            "Named pipe {} already exists.".format(fifo_path)
+        ))
+        return False
+    cmd = 'mkfifo ' + fifo_path
+    run(cmd, shell=True, check=True)
+    return True
