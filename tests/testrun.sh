@@ -40,7 +40,9 @@ declare -r ACTIVITY_NAME='Firecracker Testrun'
 declare -ra SUPPORTED_PLATFORMS=(Linux)
 declare -ra SUPPORTED_PKG_MANAGERS=(apt-get yum)
 
+# PyNaCl v1.3.0 install via pip appears to be broken. Forcing version 1.2.1 for now.
 declare -ra PYTHON_DEPS=( \
+     pynacl==1.2.1 \
      pytest pytest-timeout \
      boto3 \
      requests requests-unixsocket \
