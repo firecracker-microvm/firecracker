@@ -888,13 +888,11 @@ class Microvm:
         Does not issue a stop command to the guest.
         """
         if self.is_daemonized():
-            run('kill -9 {}'.format(self.jailer_clone_pid), shell=True,
-                check=True)
+            run('kill -9 {}'.format(self.jailer_clone_pid), shell=True)
         else:
             run(
                 self.fc_stop_cmd.format(session=self.session_name),
-                shell=True,
-                check=True
+                shell=True
             )
 
     def ensure_firecracker_binary(self):

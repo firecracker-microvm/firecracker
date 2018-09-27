@@ -1152,11 +1152,9 @@ impl Vmm {
         Ok(())
     }
 
-    fn stop(&mut self) -> Result<()> {
-        info!("VMM received instance stop command");
-        // Use unwrap() to crash if the other thread poisoned this lock.
-        let mut shared_info = self.shared_info.write().unwrap();
-        shared_info.state = InstanceState::Halting;
+    /// Waits for all vCPUs to exit and terminates the Firecracker process.
+    fn stop(&mut self, exit_code: i32) {
+        info!("Vmm is stopping.");
 
         if let Some(v) = self.kill_signaled.take() {
             v.store(true, Ordering::SeqCst);
@@ -1180,25 +1178,37 @@ impl Vmm {
         };
 
         if let Some(evt) = self.exit_evt.take() {
-            self.epoll_context.remove_event(evt)?;
+            if let Err(e) = self.epoll_context.remove_event(evt) {
+                warn!(
+                    "Cannot remove the exit event from the Epoll Context. {:?}",
+                    e
+                );
+            }
         }
-        self.epoll_context.disable_stdin_event()?;
-        self.legacy_device_manager
+
+        if let Err(e) = self.epoll_context.disable_stdin_event() {
+            warn!("Cannot disable the STDIN event. {:?}", e);
+        }
+
+        if let Err(e) = self
+            .legacy_device_manager
             .stdin_handle
             .lock()
             .set_canon_mode()
-            .map_err(InternalError::StdinHandle)?;
+        {
+            warn!("Cannot set canonical mode for the terminal. {:?}", e);
+        }
 
-        //TODO:
-        // - clean epoll_context:
-        //   - remove block, net
+        // Log the metrics before exiting.
+        if let Err(e) = LOGGER.log_metrics() {
+            error!("Failed to log metrics on abort. {}:?", e);
+        }
 
-        shared_info.state = InstanceState::Halted;
-
-        Ok(())
+        // Exit from Firecracker using the provided exit code.
+        std::process::exit(exit_code);
     }
 
-    fn run_control(&mut self, api_enabled: bool) -> Result<()> {
+    fn run_control(&mut self) -> Result<()> {
         const EPOLL_EVENTS_LEN: usize = 100;
 
         let mut events = Vec::<epoll::Event>::with_capacity(EPOLL_EVENTS_LEN);
@@ -1224,10 +1234,7 @@ impl Vmm {
                                 }
                                 None => warn!("leftover exit-evt in epollcontext!"),
                             }
-                            self.stop()?;
-                            if !api_enabled {
-                                break 'poll;
-                            }
+                            self.stop(0);
                         }
                         EpollDispatch::Stdin => {
                             let mut out = [0u8; 64];
@@ -1285,8 +1292,6 @@ impl Vmm {
                 }
             }
         }
-
-        Ok(())
     }
 
     fn handle_start_instance(&mut self, sender: SyncOutcomeSender) {
@@ -1605,15 +1610,10 @@ pub fn start_vmm_thread(
             // If this fails, consider it fatal. Use expect().
             let mut vmm = Vmm::new(api_shared_info, api_event_fd, from_api, seccomp_level)
                 .expect("Cannot create VMM.");
-            let r = vmm.run_control(true);
-            // Make sure we clean up when this loop breaks on error.
-            if r.is_err() {
-                // stop() is safe to call at any moment; ignore the result.
-                let _ = vmm.stop();
+            match vmm.run_control() {
+                Ok(()) => vmm.stop(0),
+                Err(_) => vmm.stop(1),
             }
-            // vmm thread errors are irrecoverable for now. Use expect().
-            r.expect("VMM thread run failed.");
-            // TODO: maybe offer through API: an instance status reporting error messages (r)
         }).expect("VMM thread spawn failed.")
 }
 
