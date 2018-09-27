@@ -1,6 +1,7 @@
 """Functionality for a shared binary build and release path for all tests."""
 
 import os
+
 from subprocess import run
 
 CARGO_BUILD_REL_PATH = 'firecracker_binaries'

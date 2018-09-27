@@ -5,10 +5,11 @@ import socket
 import struct
 import threading
 
-import paramiko
-from paramiko import SSHClient
-from retry.api import retry_call
+from subprocess import run, PIPE
+
+from paramiko import AutoAddPolicy, SSHClient, ssh_exception
 from nsenter import Namespace
+from retry.api import retry_call
 
 
 class SSHConnection:
@@ -31,7 +32,7 @@ class SSHConnection:
         """Instantiate a SSH client and connect to a microVM."""
         self.netns_file_path = ssh_config['netns_file_path']
         self.ssh_client = SSHClient()  # pylint: disable=no-value-for-parameter
-        self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        self.ssh_client.set_missing_host_key_policy(AutoAddPolicy())
         assert os.path.exists(ssh_config['ssh_key_path'])
 
         # Retry to connect to the host as long as the delay between calls
@@ -60,7 +61,7 @@ class SSHConnection:
                 'username': ssh_config['username'],
                 'key_filename': ssh_config['ssh_key_path']
             },
-            exceptions=paramiko.ssh_exception.NoValidConnectionsError,
+            exceptions=ssh_exception.NoValidConnectionsError,
             delay=1,
             backoff=2,
             max_delay=32
@@ -101,7 +102,7 @@ class SingletonReinitializationError(Exception):
 
 
 class UniqueIPv4Generator:
-    """Each microVM needs to have a unique IP on the host network."""
+    """Each microVM needs to have an unique IP on the host network."""
 
     __instance = None
 
@@ -271,3 +272,67 @@ def mac_from_ip(ip_address):
     )
 
     return "{}:{}:{}:{}:{}:{}".format(*mac_as_list)
+
+
+class Tap:
+    """Functionality for creating a tap and cleaning up after it."""
+
+    def __init__(self, name, netns, ip=None):
+        """Set up the name and network namespace for this tap interface.
+
+        It also creates a new tap device, and brings it up.
+        The function also moves the interface to the specified
+        namespace.
+        """
+        run(
+            'ip tuntap add mode tap name ' + name,
+            shell=True,
+            check=True
+        )
+        run(
+            'ip link set {} netns {}'.format(name, netns),
+            shell=True,
+            check=True
+        )
+        if ip:
+            run('ip netns exec {} ifconfig {} {} up'.format(
+                netns,
+                name,
+                ip
+            ), shell=True, check=True)
+        self._name = name
+        self._netns = netns
+
+    @property
+    def name(self):
+        """Return the name of this tap interface."""
+        return self._name
+
+    @property
+    def netns(self):
+        """Return the network namespace of this tap."""
+        return self._netns
+
+    def __del__(self):
+        """Destructor doing tap interface clean up."""
+        _ = run(
+            'ip netns exec {} ip link set {} down'.format(
+                self.netns,
+                self.name
+            ),
+            shell=True,
+            stderr=PIPE
+        )
+        _ = run(
+            'ip netns exec {} ip link delete {}'.format(self.netns, self.name),
+            shell=True,
+            stderr=PIPE
+        )
+        _ = run(
+            'ip netns exec {} ip tuntap del mode tap name {}'.format(
+                self.netns,
+                self.name
+            ),
+            shell=True,
+            stderr=PIPE
+        )

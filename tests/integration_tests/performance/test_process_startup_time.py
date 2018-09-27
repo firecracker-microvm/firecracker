@@ -3,8 +3,9 @@ Tests that ensure the process startup time up to socket bind is within spec.
 """
 
 import json
+import os
 import time
-import pytest
+
 import host_tools.logging as log_tools
 
 MAX_STARTUP_TIME_US = 80
@@ -12,24 +13,36 @@ MAX_STARTUP_TIME_US = 80
 # TODO: Keep a `current` startup time in S3 and validate we don't regress
 
 
-@pytest.mark.timeout(100)
 def test_startup_time(test_microvm_with_api):
     """Check the startup time for jailer and Firecracker up to socket bind."""
 
     microvm = test_microvm_with_api
-    microvm.basic_config(
-        vcpu_count=2,
-        mem_size_mib=1024,
-        net_iface_count=0,
-        log_enable=True
+    microvm.basic_config(vcpu_count=2, mem_size_mib=1024)
+
+    # Configure logging.
+    log_fifo_path = os.path.join(microvm.slot.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(microvm.slot.path, 'metrics_fifo')
+    assert log_tools.make_fifo(log_fifo_path)
+    assert log_tools.make_fifo(metrics_fifo_path)
+
+    response = microvm.logger.put(
+        log_fifo=microvm.slot.jailer_context.jailed_path(
+            log_fifo_path,
+            create=True
+        ),
+        metrics_fifo=microvm.slot.jailer_context.jailed_path(
+            metrics_fifo_path,
+            create=True
+        )
     )
+    assert microvm.api_session.is_good_response(response.status_code)
 
     microvm.start()
     time.sleep(0.4)
 
     # The metrics fifo should be at index 1.
     # Since metrics are flushed at InstanceStart, the first line will suffice.
-    lines = log_tools.sequential_fifo_reader(microvm, 1, 1)
+    lines = log_tools.sequential_fifo_reader(metrics_fifo_path, 1)
     metrics = json.loads(lines[0])
     startup_time = int(metrics['api_server']['process_startup_time_ms'])
 
