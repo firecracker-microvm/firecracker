@@ -6,7 +6,7 @@ The jailer is invoked in this manner:
 
 ``` bash
 jailer --id <id> --node <numa_node> --exec-file <exec_file> --uid <uid> --gid <gid> [--chroot-base-dir <chroot_base>]
-[--netns <netns>] [--daemonize]
+[--netns <netns>] [--daemonize] [--seccomp-level <level>]
 ```
 
 - `id` is the unique VM identification string, which may contain alphanumeric
@@ -24,21 +24,16 @@ jailer --id <id> --node <numa_node> --exec-file <exec_file> --uid <uid> --gid <g
   will use this to join the associated network namespace.
 - When present, the `--daemonize` flag causes the jailer to cal **setsid()** and
   redirect all three standard I/O file descriptors to `/dev/null`.
+- Possible values for `--seccomp-level` are: 0 (disabled - the default value),
+1 (basic filtering), or 2 (advanced filtering). Basic filtering simply prohibits
+syscalls not whitelisted by Firecracker, whereas advanced filtering adds further
+checks on some of the parameters of the allowed syscalls. The filters are installed
+after the jailer execs into Firecracker, but before running any customer code.
 
 ## Jailer Operation
 
 After starting, the Jailer goes through the following operations:
 
-- If the `--secomp-level` flag is set to `1`, sets up a list of seccomp
-  filters, white listing the minimum set of system calls that Firecracker
-  requires to function.
-- If the `--seccomp-level` flag is set to `2`, sets up advanced
-  seccomp filtering. The default action for a syscall is to send `SIGSYS`,
-  unless there is an added rule white listing respective syscall with the given
-  set of arguments. The added rules are the minimum set that Firecracker
-  requires to function.
-- Otherwise if `--seccomp-level` flag is not set or is set to `0`, does not use
-  seccomp filtering.
 - Validate **all provided paths** and the VM `id`.
 - Close all open file descriptors unrelated to standard input.
 - Open `/dev/kvm` as *RW*, and bind a Unix domain socket listener to
@@ -148,8 +143,9 @@ from the controlling terminal. Then, redirect standard file descriptors to `/dev
 because it is no longer necessary.
 
 Finally, the jailer switches the **uid** to ```123```, and **gid** to ```100```, and execs
-`./firecracker --jailed`. We can now use the socket at `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/api.socket`
-to interact with the VM.
+`./firecracker --jailed --seccomp-level=<level>`. We can now use the socket at
+`/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/api.socket` to
+interact with the VM.
 
 ### Observations
 
@@ -166,10 +162,6 @@ to interact with the VM.
   this involves registering handlers with the cgroup **notify_on_release**
   mechanism, while being wary about potential race conditions (the instance
   crashing before the subscription process is complete, for example).
-- Seccomp filtering is currently disabled by default and needs to be enabled by
-  setting the `USE_SECCOMP` environment variable due to a bug in the Linux
-  kernel. Enabling it might cause slowness as a result of an increased number of
-  page faults.
 - For extra resilience, the jailer expects to be spawned by the user in a new PID namespace, most likely via a
 combination of **clone()** with the **CLONE_NEWPID** flag and **exec()**. A process must be created in a new PID
 namespace in order to become a pseudo-init process, and the other option is to use a **clone()** in the jailer,

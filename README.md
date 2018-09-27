@@ -33,10 +33,11 @@ The **API endpoint** can be used to:
   - Set a CPU template (the only available template is T2 for now)
   - Enable/Disable hyperthreading (by default hyperthreading is disabled).
     The host needs to be modified before starting Firecracker as this flag
-    only changes the topology inside the microvm.
-- Add one or more network interfaces to the microVM. Firecracker is mapping
-  an existing host file as a VirtIO/block device into the microVM.
+    only changes the topology inside the microVM.
+- Add one or more network interfaces to the microVM. 
 - Add one or more read/write disks (file-backed block devices) to the microVM.
+Firecracker is mapping an existing host file as a VirtIO/block device into the
+microVM.
 - Configure the logging system by:
     - Specifying two named pipes (one for human readable logs and one for the
       metrics).
@@ -85,6 +86,13 @@ The **API endpoint** can be used to:
 ### Integration Testing
 
 - The boot-time SLA is enforced in `tests/performance/test-boottime.py`
+
+### Measuring boot time
+
+- Writing the magic value `123` to IO port `0x03f0` triggers a timestamp entry in
+the Firecracker log, which represents the time elapsed since receiving the 
+`InstanceStart` command. This mechanism can be used to measure guest boot-time by
+writing to said IO port very early (ideally as part of init) from the guest.
 
 ## Getting Started
 
