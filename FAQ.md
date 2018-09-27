@@ -12,14 +12,14 @@ Right now initrd is not supported in Firecracker. You can track the
 `Q2:`
 *Firecracker is not showing any output on the console.*  
 `A2:`
-In order to debug the issue, you will first have to check the output of the GET
-request on Instance Start. You can find examples in
+In order to debug the issue, you will first have to check the response of the
+`InstanceStart` API request. You can find examples in
 [README.md](https://github.com/aws/PRIVATE-firecracker/blob/master/README.md) in
-the "Power-On the MicroVM" section. If the result of the GET is:  
+the "Power-On the MicroVM" section. If the result is:  
 
 - **Error**: Submit a new issue with the label "Support: Failure".
-- **Success**: If the boot was successful, you should see an output like
-  `{"action_type":"InstanceStart"}`.
+- **Success**: If the boot was successful, you should get a response with 204 as
+the status code.
 
 If you have no output in the console, most likely you will have to update the
 kernel command line. By default, Firecracker starts with the serial console
