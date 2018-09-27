@@ -90,9 +90,10 @@ import uuid
 
 import pytest
 
+from framework.jailer import JailerContext
+from framework.microvm import MicrovmSlot, Microvm
+from framework.s3fetcher import MicrovmImageS3Fetcher
 from host_tools.network import UniqueIPv4Generator
-from microvm_image import MicrovmImageS3Fetcher
-from microvm import JailerContext, MicrovmSlot, Microvm
 
 
 SPEC_S3_BUCKET = 'spec.firecracker'
@@ -179,8 +180,12 @@ def microvm_slot(test_session_root_path):
         microvm_root_path=test_session_root_path
     )
     slot.setup()
+    # Jailer setup and cleanup are done independently so that we move closer
+    # towards implementing a way of reusing a test session directory.
+    slot.jailer_context.setup()
     yield slot
-    slot.teardown()
+    slot.cleanup()
+    slot.jailer_context.cleanup()
 
 
 @pytest.fixture
@@ -189,7 +194,10 @@ def microvm(microvm_slot):
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
-    vm = Microvm(microvm_slot, microvm_id=str(uuid.uuid4()))
+    vm = Microvm(
+        microvm_slot,
+        microvm_id=str(uuid.uuid4())
+    )
     vm.spawn()
     vm.wait_create()
     yield vm
@@ -239,7 +247,11 @@ def test_microvm_any(request, microvm, microvm_image_fetcher):
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
-    microvm_image_fetcher.get_microvm_image(request.param, microvm.slot)
+    microvm_image_fetcher.get_microvm_image(
+        request.param,
+        microvm,
+        microvm.slot
+    )
     yield microvm
 
 
@@ -251,7 +263,7 @@ TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (
     ")\n"
     "def test_microvm_with_CAP(request, microvm, microvm_image_fetcher):\n"
     "    microvm_image_fetcher.get_microvm_image(\n"
-    "        request.param, microvm.slot\n"
+    "        request.param, microvm, microvm.slot\n"
     "    )\n"
     "    yield microvm"
 )

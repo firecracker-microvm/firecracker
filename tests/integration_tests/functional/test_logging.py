@@ -1,8 +1,11 @@
 """Tests the format of human readable logs by checking response of the API
 config calls."""
 
+import os
 import re
+
 from time import strptime
+
 import host_tools.logging as log_tools
 
 # Array of supported log levels of the current logging system.
@@ -58,77 +61,87 @@ def check_log_message(log_str, instance_id, level, show_level, show_origin):
         assert tag_level_no <= configured_level_no
 
 
-def test_no_origin_logs(test_microvm_with_ssh, network_config):
+def test_no_origin_logs(test_microvm_with_ssh):
     """Check that logs do not contain the origin (i.e file and line number)."""
     _test_log_config(
         microvm=test_microvm_with_ssh,
-        net_config=network_config,
         show_level=True,
         show_origin=False
     )
 
 
-def test_no_level_logs(test_microvm_with_ssh, network_config):
+def test_no_level_logs(test_microvm_with_ssh):
     """Check that logs do not contain the level."""
     _test_log_config(
         microvm=test_microvm_with_ssh,
-        net_config=network_config,
         show_level=False,
         show_origin=True
     )
 
 
-def test_no_nada_logs(test_microvm_with_ssh, network_config):
+def test_no_nada_logs(test_microvm_with_ssh):
     """Check that logs do not contain either level or origin."""
     _test_log_config(
         microvm=test_microvm_with_ssh,
-        net_config=network_config,
         show_level=False,
         show_origin=False
     )
 
 
-def test_info_logs(test_microvm_with_ssh, network_config):
+def test_info_logs(test_microvm_with_ssh):
     """Check output of logs when minimum level to be displayed is info."""
-    _test_log_config(
-        microvm=test_microvm_with_ssh,
-        net_config=network_config,
-    )
+    _test_log_config(microvm=test_microvm_with_ssh)
 
 
-def test_warn_logs(test_microvm_with_ssh, network_config):
+def test_warn_logs(test_microvm_with_ssh):
     """Check output of logs when minimum level to be displayed is warning."""
     _test_log_config(
         microvm=test_microvm_with_ssh,
-        net_config=network_config,
         log_level='Warning'
     )
 
 
-def test_error_logs(test_microvm_with_ssh, network_config):
+def test_error_logs(test_microvm_with_ssh):
     """Check output of logs when minimum level of logs displayed is error."""
     _test_log_config(
         microvm=test_microvm_with_ssh,
-        net_config=network_config,
         log_level='Error'
     )
 
 
 def _test_log_config(
         microvm,
-        net_config,
         log_level='Info',
         show_level=True,
         show_origin=True
 ):
     """Exercises different scenarios for testing the logging config."""
-    microvm.basic_config(net_iface_count=0, log_enable=False)
-    microvm.basic_network_config(net_config)
-    microvm.logger_config(log_level, show_level, show_origin)
+    microvm.basic_config()
+
+    # Configure logging.
+    log_fifo_path = os.path.join(microvm.slot.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(microvm.slot.path, 'metrics_fifo')
+    assert log_tools.make_fifo(log_fifo_path)
+    assert log_tools.make_fifo(metrics_fifo_path)
+
+    response = microvm.logger.put(
+        log_fifo=microvm.slot.jailer_context.jailed_path(
+            log_fifo_path,
+            create=True
+        ),
+        metrics_fifo=microvm.slot.jailer_context.jailed_path(
+            metrics_fifo_path,
+            create=True
+        ),
+        level=log_level,
+        show_level=show_level,
+        show_log_origin=show_origin
+    )
+    assert microvm.api_session.is_good_response(response.status_code)
 
     microvm.start()
 
-    lines = log_tools.sequential_fifo_reader(microvm, 0, 20)
+    lines = log_tools.sequential_fifo_reader(log_fifo_path, 20)
     for line in lines:
         check_log_message(
             line,

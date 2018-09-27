@@ -6,6 +6,6 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 [dependencies]
 libc = ">0.2.39"
 
-seccomp = { path = "../../../seccomp" }
+seccomp = { path = "../../../../seccomp" }
 
 [workspace]

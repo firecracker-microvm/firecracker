@@ -49,7 +49,7 @@ declare -ra PYTHON_DEPS=( \
      paramiko \
      retry \
      nsenter \
-     pylint astroid pycodestyle pydocstyle flake8 \
+     pylint pycodestyle pydocstyle \
 )
 
 declare -r RUSTUP_URL=https://sh.rustup.rs

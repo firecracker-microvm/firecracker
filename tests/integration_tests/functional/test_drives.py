@@ -1,6 +1,9 @@
 """Tests for guest-side operations on /drives resources."""
 
-import host_tools.network as host  # pylint: disable=import-error
+import os
+
+import host_tools.drive as drive_tools
+import host_tools.network as net_tools  # pylint: disable=import-error
 
 
 def test_rescan(test_microvm_with_ssh, network_config):
@@ -11,38 +14,44 @@ def test_rescan(test_microvm_with_ssh, network_config):
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
     # a root file system with the rw permission. The network interface is
     # added after we get an unique MAC and IP.
-    test_microvm.basic_config(net_iface_count=0)
+    test_microvm.basic_config()
 
-    test_microvm.basic_network_config(network_config)
+    _tap = test_microvm_with_ssh.ssh_network_config(network_config, '1')
 
     # Add a scratch block device.
-    test_microvm.put_default_scratch_device()
+    fs = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.slot.fsfiles_path, 'scratch')
+    )
+    response = test_microvm.drive.put(
+        drive_id='scratch',
+        path_on_host=test_microvm.slot.jailer_context.jailed_path(
+            fs.path,
+            create=True
+        ),
+        is_root_device=False,
+        is_read_only=False
+    )
+    assert test_microvm.api_session.is_good_response(response.status_code)
 
     test_microvm.start()
 
-    ssh_connection = host.SSHConnection(test_microvm.slot.ssh_config)
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
-    _check_scratch_size(
-        ssh_connection,
-        test_microvm.slot.sizeof_fsfile('scratch')
-    )
+    _check_scratch_size(ssh_connection, fs.size())
 
     # Resize the filesystem file from 256 MiB (default) to 512 MiB.
-    test_microvm.slot.resize_fsfile('scratch', 512)
+    fs.resize(512)
 
     # Rescan operations after the guest boots are allowed.
-    response = test_microvm.api_session.put(
-        test_microvm.actions_url,
-        json={
-            'action_type': 'BlockDeviceRescan',
-            'payload': 'scratch',
-        }
+    response = test_microvm.actions.put(
+        action_type='BlockDeviceRescan',
+        payload='scratch'
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 
     _check_scratch_size(
         ssh_connection,
-        test_microvm.slot.sizeof_fsfile('scratch')
+        fs.size()
     )
 
     ssh_connection.close()
@@ -52,22 +61,25 @@ def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
     """"Test the output reported by blockdev when booting from /dev/vda."""
     test_microvm = test_microvm_with_ssh
 
-    # Sets up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
+    # Sets up the microVM with 1 vCPUs, 256 MiB of RAM, no network ifaces and
     # a root file system with the rw permission. The network interfaces is
     # added after we get an unique MAC and IP.
-    test_microvm.basic_config(vcpu_count=1, net_iface_count=0)
+    test_microvm.basic_config(vcpu_count=1)
 
-    test_microvm.basic_network_config(network_config)
+    _tap = test_microvm.ssh_network_config(network_config, '1')
 
     # Add another read-only block device.
-    response = test_microvm.api_session.put(
-        test_microvm.blk_cfg_url + '/readonly',
-        json={
-            'drive_id': 'readonly',
-            'path_on_host': test_microvm.slot.make_fsfile(name='readonly'),
-            'is_root_device': False,
-            'is_read_only': True
-        }
+    fs = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.slot.fsfiles_path, 'readonly')
+    )
+    response = test_microvm.drive.put(
+        drive_id='readonly',
+        path_on_host=test_microvm.slot.jailer_context.jailed_path(
+            fs.path,
+            create=True
+        ),
+        is_root_device=False,
+        is_read_only=True
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 
@@ -91,27 +103,23 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
     """Test the output reported by blockdev when booting with PARTUUID."""
     test_microvm = test_microvm_with_partuuid
 
-    # Set up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
+    # Set up the microVM with 1 vCPUs, 256 MiB of RAM, no network ifaces and
     # a root file system with the rw permission. The network interfaces is
     # added after we get an unique MAC and IP.
     test_microvm.basic_config(
         vcpu_count=1,
-        net_iface_count=0,
         add_root_device=False
     )
 
-    test_microvm.basic_network_config(network_config)
+    _tap = test_microvm.ssh_network_config(network_config, '1')
 
     # Add the root block device specified through PARTUUID.
-    response = test_microvm.api_session.put(
-        test_microvm.blk_cfg_url + '/rootfs',
-        json={
-            'drive_id': 'rootfs',
-            'path_on_host': test_microvm.rootfs_api_path(),
-            'is_root_device': True,
-            'partuuid': '0eaa91a0-01',
-            'is_read_only': False
-        }
+    response = test_microvm.drive.put(
+        drive_id='rootfs',
+        path_on_host=test_microvm.rootfs_api_path(),
+        is_root_device=True,
+        is_read_only=False,
+        partuuid='0eaa91a0-01'
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 
@@ -135,34 +143,27 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
     # added after we get an unique MAC and IP.
     test_microvm.basic_config(
         vcpu_count=1,
-        net_iface_count=0,
         add_root_device=False
     )
 
-    test_microvm.basic_network_config(network_config)
+    _tap = test_microvm.ssh_network_config(network_config, '1')
 
     # Add the root block device specified through PARTUUID.
-    response = test_microvm.api_session.put(
-        test_microvm.blk_cfg_url + '/rootfs',
-        json={
-            'drive_id': 'rootfs',
-            'path_on_host': test_microvm.rootfs_api_path(),
-            'is_root_device': True,
-            'partuuid': '0eaa91a0-01',
-            'is_read_only': False
-        }
+    response = test_microvm.drive.put(
+        drive_id='rootfs',
+        path_on_host=test_microvm.rootfs_api_path(),
+        is_root_device=True,
+        is_read_only=False,
+        partuuid='0eaa91a0-01'
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 
     # Update the root block device to boot from /dev/vda.
-    response = test_microvm.api_session.put(
-        test_microvm.blk_cfg_url + '/rootfs',
-        json={
-            'drive_id': 'rootfs',
-            'path_on_host': test_microvm.rootfs_api_path(),
-            'is_root_device': True,
-            'is_read_only': False
-        }
+    response = test_microvm.drive.put(
+        drive_id='rootfs',
+        path_on_host=test_microvm.rootfs_api_path(),
+        is_root_device=True,
+        is_read_only=False
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 
@@ -182,26 +183,40 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM, 1 network iface, a root
     # file system with the rw permission, and a scratch drive.
-    test_microvm.basic_config(net_iface_count=0)
-    test_microvm.basic_network_config(network_config)
-    test_microvm.put_default_scratch_device()
+    test_microvm.basic_config()
+
+    _tap = test_microvm.ssh_network_config(network_config, '1')
+
+    fs1 = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.slot.fsfiles_path, 'scratch')
+    )
+    response = test_microvm.drive.put(
+        drive_id='scratch',
+        path_on_host=test_microvm.slot.jailer_context.jailed_path(
+            fs1.path,
+            create=True
+        ),
+        is_root_device=False,
+        is_read_only=False
+    )
+    assert test_microvm.api_session.is_good_response(response.status_code)
 
     test_microvm.start()
 
     # Updates to `path_on_host` with a valid path are allowed.
-    response = test_microvm.api_session.patch(
-        test_microvm.blk_cfg_url + '/scratch',
-        json={
-            'drive_id': 'scratch',
-            'path_on_host': test_microvm.slot.make_fsfile(
-                name='otherscratch',
-                size=512
-            )
-        }
+    fs2 = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.slot.fsfiles_path, 'otherscratch'), size=512
+    )
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        path_on_host=test_microvm.slot.jailer_context.jailed_path(
+            fs2.path,
+            create=True
+        )
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 
-    ssh_connection = host.SSHConnection(test_microvm.slot.ssh_config)
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     # The `lsblk` command should output 2 lines to STDOUT: "SIZE" and the size
     # of the device, in bytes.
@@ -236,7 +251,7 @@ def _process_blockdev_output(blockdev_out, assert_dict, keys_array):
 
 
 def _check_drives(test_microvm, assert_dict, keys_array):
-    ssh_connection = host.SSHConnection(test_microvm.slot.ssh_config)
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     _, stdout, stderr = ssh_connection.execute_command('blockdev --report')
     assert stderr.read().decode('utf-8') == ''

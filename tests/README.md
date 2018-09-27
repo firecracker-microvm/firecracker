@@ -37,7 +37,7 @@ same path passed to `--local-images-path`.
 The testing system is built around [pytest](https://docs.pytest.org/en/latest/).
 Any parameters passed to `testrun.sh` are passed to the `pytest` command.
 `testrun.sh` is used to automate fetching of test dependencies (useful for
-continuos integration), and to sandbox test runs (useful for development
+continuous integration), and to sandbox test runs (useful for development
 environments). If you are not interested in these capabilities, use pytest
 directly:
 
