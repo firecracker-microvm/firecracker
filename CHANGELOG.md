@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.9.0]
+
+### Added
+
+- Seccomp filtering is configured via the `--seccomp-level` jailer parameter.
+- Firecracker logs the starting addresses of host memory areas provided as guest
+memory slots to KVM.
+- The metric `panic_count` gets incremented to signal that a panic has occurred.
+- Firecracker logs a backtrace when it crashes following a panic.
+- Added basic instrumentation support for measuring boot time. 
+
+### Changed
+
+- `StartInstance` is a synchronous API request (it used to be an asynchronous
+request).   
+
+### Fixed
+
+- Ensure that fault messages sent by the API have valid JSON bodies.
+- Use HTTP response code 500 for internal Firecracker errors, and 400 for user
+errors on InstanceStart.
+- Serialize the machine configuration fields to the correct data types (as specified
+in the Swagger definition). 
+- NUMA node assignment is properly enforced by the jailer.
+- The `is_root_device` and `is_read_only` properties are now marked as required
+in the Swagger definition of `Drive` object properties.
+
+### Removed
+
+- `GET` requests on the `/actions` API resource are no longer supported.
+- The metrics associated with asynchronous actions have been removed.
+- Remove the `action_id` parameter for `InstanceStart`, both from the URI and the
+JSON request body.
+
 ## [0.8.0]
 
 ### Added
