@@ -157,7 +157,7 @@ struct NetEpollHandler {
     // Remove once MRG_RXBUF is supported and this variable is actually used.
     #[allow(dead_code)]
     acked_features: u64,
-    mmds_ns: Option<Box<MmdsNetworkStack>>,
+    mmds_ns: Option<MmdsNetworkStack>,
 }
 
 impl NetEpollHandler {
@@ -835,7 +835,7 @@ impl VirtioDevice for Net {
                 let tx_queue_evt = queue_evts.remove(0);
                 let mut mmds_ns = None;
                 if self.allow_mmds_requests {
-                    mmds_ns = Some(Box::new(MmdsNetworkStack::new_with_defaults()));
+                    mmds_ns = Some(MmdsNetworkStack::new_with_defaults());
                 }
                 let handler = NetEpollHandler {
                     rx: RxVirtio::new(
