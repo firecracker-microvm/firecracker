@@ -95,7 +95,7 @@ impl MmdsNetworkStack {
     // This is the entry point into the MMDS network stack. The src slice should hold the contents
     // of an Ethernet frame (of that exact size, without the CRC).
     pub fn detour_frame(&mut self, src: &[u8]) -> bool {
-        // The frame cannot possibly contain an ARP request for the MMDS IPv4 addr.
+        // The frame cannot possibly contain an ARP request or IPv4 packet for the MMDS.
         if !test_speculative_tpa(src, self.ipv4_addr)
             && !test_speculative_dst_addr(src, self.ipv4_addr)
         {
@@ -136,11 +136,11 @@ impl MmdsNetworkStack {
                     if let Err(_) = self.tcp_handler.receive_packet(&ip) {
                         METRICS.mmds.rx_accepted_err.inc();
                     }
-                    return true;
                 } else {
                     // A non-TCP IPv4 packet heading towards the MMDS; we consider it unusual.
                     METRICS.mmds.rx_accepted_unusual.inc();
                 }
+                return true;
             }
         }
         false
