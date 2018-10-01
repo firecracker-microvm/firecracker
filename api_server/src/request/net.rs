@@ -1,12 +1,14 @@
 use std::result;
 
 use futures::sync::oneshot;
+use hyper::{Response, StatusCode};
 
 use super::SyncRequest;
 
 use data_model::vm::{DeviceState, RateLimiterDescription};
-use net_util::MacAddr;
-use request::ParsedRequest;
+use http_service::{json_fault_message, json_response};
+use net_util::{MacAddr, TapError};
+use request::{GenerateResponse, ParsedRequest};
 
 // This struct represents the strongly typed equivalent of the json body from net iface
 // related requests.
@@ -33,6 +35,46 @@ fn default_allow_mmds_requests() -> bool {
     false
 }
 
+pub enum NetworkInterfaceError {
+    OpenTap(TapError),
+    GuestMacAddressInUse(String),
+    UpdateNotAllowPostBoot,
+}
+
+impl GenerateResponse for NetworkInterfaceError {
+    fn generate_response(&self) -> Response {
+        use self::NetworkInterfaceError::*;
+
+        match self {
+            OpenTap(e) => {
+                // We are propagating the Tap Error. This error can contain
+                // imbricated quotes which would result in an invalid json.
+                let mut tap_err = format!("{:?}", e);
+                tap_err = tap_err.replace("\"", "");
+
+                json_response(
+                    StatusCode::BadRequest,
+                    json_fault_message(format!(
+                        "Cannot open TAP device. Invalid name/permissions. {}",
+                        tap_err
+                    )),
+                )
+            }
+            GuestMacAddressInUse(mac_addr) => json_response(
+                StatusCode::BadRequest,
+                json_fault_message(format!(
+                    "The guest MAC address {} is already in use.",
+                    mac_addr
+                )),
+            ),
+            UpdateNotAllowPostBoot => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("The update operation is not allowed after boot."),
+            ),
+        }
+    }
+}
+
 impl NetworkInterfaceBody {
     pub fn into_parsed_request(self, id_from_path: &str) -> result::Result<ParsedRequest, String> {
         if id_from_path != self.iface_id {
@@ -52,7 +94,11 @@ impl NetworkInterfaceBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use futures::{Future, Stream};
+    use hyper::{Body, Response};
     use serde_json;
+    use std;
 
     #[test]
     fn test_netif_into_parsed_request() {
@@ -119,5 +165,42 @@ mod tests {
         }"#;
 
         assert!(serde_json::from_str::<NetworkInterfaceBody>(jstr_no_mac).is_ok())
+    }
+
+    fn get_body(
+        response: Response<Body>,
+    ) -> std::result::Result<serde_json::Value, serde_json::Error> {
+        let body = response
+            .body()
+            .map_err(|_| ())
+            .fold(vec![], |mut acc, chunk| {
+                acc.extend_from_slice(&chunk);
+                Ok(acc)
+            }).and_then(|v| String::from_utf8(v).map_err(|_| ()));
+        serde_json::from_str::<serde_json::Value>(body.wait().unwrap().as_ref())
+    }
+
+    #[test]
+    fn test_generate_response_error() {
+        let ret = NetworkInterfaceError::OpenTap(TapError::OpenTun(
+            std::io::Error::from_raw_os_error(22),
+        )).generate_response();
+        assert_eq!(ret.status(), StatusCode::BadRequest);
+        assert!(get_body(ret).is_ok());
+
+        let mac_addr = MacAddr::parse_str("12:34:56:78:9a:bc").unwrap();
+        let ret =
+            NetworkInterfaceError::GuestMacAddressInUse(mac_addr.to_string()).generate_response();
+        assert_eq!(ret.status(), StatusCode::BadRequest);
+        let body = get_body(ret).unwrap();
+        let expected_body = r#"{
+            "fault_message": "The guest MAC address 12:34:56:78:9a:bc is already in use."
+        }"#;
+        let expected_body: serde_json::Value = serde_json::from_str(expected_body).unwrap();
+        assert_eq!(body, expected_body);
+
+        let ret = NetworkInterfaceError::UpdateNotAllowPostBoot.generate_response();
+        assert_eq!(ret.status(), StatusCode::BadRequest);
+        assert!(get_body(ret).is_ok());
     }
 }
