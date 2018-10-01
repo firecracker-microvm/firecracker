@@ -122,43 +122,42 @@ mod tests {
     use std::time::Duration;
     use std::{fs, thread};
 
-    struct EnterDrop {
-        log_file: String,
-    }
-
-    impl Drop for EnterDrop {
-        fn drop(&mut self) {
-            validate_backtrace(
-                &self.log_file,
-                &[
-                    // This is the assertion string. Making sure that stack backtrace is outputted
-                    // upon panic.
-                    ("[ERROR", "main.rs", "Panic occurred"),
-                    ("[ERROR", "main.rs", "stack backtrace:"),
-                    ("0:", "0x", "backtrace::"),
-                ],
-            );
-            fs::remove_file(DEFAULT_API_SOCK_PATH).expect("Failure in removing socket file.");
-        }
-    }
-
-    fn validate_backtrace(log_path: &str, expected: &[(&'static str, &'static str, &'static str)]) {
+    /// Look through the log for lines that match expectations.
+    /// expectations is a list of tuples of words we're looking for.
+    /// A tuple matches a line if all the words in the tuple can be found on that line.
+    /// For this test to pass, every tuple must match at least one line.
+    fn validate_backtrace(
+        log_path: &str,
+        expectations: &[(&'static str, &'static str, &'static str)],
+    ) {
         let f = File::open(log_path).unwrap();
-        let mut reader = BufReader::new(f);
+        let reader = BufReader::new(f);
+        let mut pass = false;
+        let mut expectation_iter = expectations.iter();
+        let mut expected_words = expectation_iter.next().unwrap();
 
-        let mut line = String::new();
-        for tuple in expected {
-            line.clear();
-            reader.read_line(&mut line).unwrap();
-            assert!(line.contains(&tuple.0));
-            assert!(line.contains(&tuple.1));
-            assert!(line.contains(&tuple.2));
+        for ln_res in reader.lines() {
+            let line = ln_res.unwrap();
+            if !(line.contains(expected_words.0)
+                && line.contains(expected_words.1)
+                && line.contains(expected_words.2))
+            {
+                continue;
+            }
+            if let Some(w) = expectation_iter.next() {
+                expected_words = w;
+                continue;
+            }
+            pass = true;
+            break;
         }
+        assert!(pass);
     }
 
     #[test]
-    #[should_panic(expected = "Test that panic outputs backtrace")]
     fn test_main() {
+        const FIRECRACKER_INIT_TIMEOUT_MILLIS: u64 = 100;
+
         // There is no reason to run this test if the default socket path exists.
         assert!(!Path::new(DEFAULT_API_SOCK_PATH).exists());
 
@@ -168,32 +167,43 @@ mod tests {
             NamedTempFile::new().expect("Failed to create temporary metrics logging file.");
         let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
 
+        // Start Firecracker in a separate thread
         thread::spawn(|| {
             main();
         });
 
-        const MAX_WAIT_ITERS: u32 = 20;
-        let mut iter_count = 0;
-        loop {
-            thread::sleep(Duration::from_secs(1));
-            if Path::new(DEFAULT_API_SOCK_PATH).exists() {
-                LOGGER
-                    .init(
-                        Some(log_file_temp.path().to_str().unwrap().to_string()),
-                        Some(metrics_file_temp.path().to_str().unwrap().to_string()),
-                    ).expect("Could not initialize logger.");
-                // EnterDrop is used here only to be able to check the content of the log file
-                // after panicking.
-                let _my_setup = EnterDrop { log_file };
+        // Wait around for a bit, so Firecracker has time to initialize and create the
+        // API socket.
+        thread::sleep(Duration::from_millis(FIRECRACKER_INIT_TIMEOUT_MILLIS));
 
-                // This string argument has to match the one from the should_panic above.
-                panic!("Test that panic outputs backtrace");
-            }
-            iter_count += 1;
-            if iter_count > MAX_WAIT_ITERS {
-                fs::remove_file(DEFAULT_API_SOCK_PATH).expect("failure in removing socket file");
-                assert!(false);
-            }
-        }
+        // If Firecracker hasn't finished initializing yet, something is really wrong!
+        assert!(Path::new(DEFAULT_API_SOCK_PATH).exists());
+
+        // Initialize the logger
+        LOGGER
+            .init(
+                Some(log_file_temp.path().to_str().unwrap().to_string()),
+                Some(metrics_file_temp.path().to_str().unwrap().to_string()),
+            ).expect("Could not initialize logger.");
+
+        // Cause some controlled panic and see if a backtrace shows up in the log,
+        // as it's supposed to.
+        let _ = panic::catch_unwind(|| {
+            panic!("Oh, noes!");
+        });
+
+        // Look for the expected backtrace inside the log
+        validate_backtrace(
+            log_file.as_str(),
+            &[
+                // Lines containing these words should have appeared in the log, in this order
+                ("ERROR", "main.rs", "Panic occurred"),
+                ("ERROR", "main.rs", "stack backtrace:"),
+                ("0:", "0x", "backtrace::"),
+            ],
+        );
+
+        // Clean up
+        fs::remove_file(DEFAULT_API_SOCK_PATH).expect("failure in removing socket file");
     }
 }
