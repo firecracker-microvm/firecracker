@@ -114,7 +114,6 @@ pub enum Error {
     GuestCIDAlreadyInUse,
     InstanceStartFailed(ErrorType, String),
     InvalidPayload,
-    MicroVMAlreadyRunning,
     OperationFailed,
     OperationNotAllowedPreBoot,
     UpdateNotAllowedPostBoot,
@@ -163,10 +162,6 @@ impl GenerateResponse for Error {
             InvalidPayload => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The request payload is invalid."),
-            ),
-            MicroVMAlreadyRunning => json_response(
-                StatusCode::Forbidden,
-                json_fault_message("The microVM is already running."),
             ),
             OperationFailed => json_response(
                 StatusCode::BadRequest,
@@ -344,10 +339,6 @@ mod tests {
 
         ret = Error::InvalidPayload.generate_response();
         assert_eq!(ret.status(), StatusCode::BadRequest);
-        assert!(get_body(ret).is_ok());
-
-        ret = Error::MicroVMAlreadyRunning.generate_response();
-        assert_eq!(ret.status(), StatusCode::Forbidden);
         assert!(get_body(ret).is_ok());
 
         ret = Error::OperationFailed.generate_response();
