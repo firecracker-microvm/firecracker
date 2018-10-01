@@ -1,7 +1,6 @@
 """Tests the format of human readable logs by checking response of the API
 config calls."""
 
-from queue import Empty
 from time import strptime
 import host_tools.logging as log_tools
 
@@ -28,19 +27,17 @@ def to_formal_log_level(log_level):
     return ""
 
 
-def check_log_message(log_str, *args):
+def check_log_message(log_str, log_level, show_level, show_origin):
     """Parse the string representing the logs and look for the parts
      that should be there.
-     args should contain 3 parts: log level, show level and show origin in
-     that order.
-     E.g: ('Info', True, True)"""
+    """
     log_str_parts = log_str.split(' ')
 
     # The timestamp is the first part of the log message always.
     timestamp = log_str_parts[0][:-10]
     strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
 
-    if not args[1] and not args[2]:
+    if not show_level and not show_origin:
         # In case the log does not contain level or origin, log message has 2
         # parts and that is the least we are checking.
         assert log_str_parts[1] != "[]"
@@ -51,13 +48,14 @@ def check_log_message(log_str, *args):
     # Make sure that the log contains at least two parts (timestamp,
     # info and log message) in case level or origin should be there.
     assert len(log_str_parts) > 2
-    if args[1]:
-        index_configured_level = LOG_LEVELS.index(to_formal_log_level(args[0]))
+    if show_level:
+        index_configured_level = LOG_LEVELS.index(
+                                    to_formal_log_level(log_level))
         index_logged_level = LOG_LEVELS.index(log_str_parts_info[0])
         assert index_logged_level <= index_configured_level
 
-    if args[2]:
-        if args[1]:
+    if show_origin:
+        if show_level:
             log_path = log_str_parts_info[1]
             log_line_number = log_str_parts_info[2]
         else:
@@ -136,28 +134,8 @@ def _test_log_config(
     microvm.basic_network_config(net_config)
     microvm.logger_config(log_level, show_level, show_origin)
 
-    exceptions_queue = log_tools.threaded_fifo_reader(
-        microvm,
-        0,
-        check_log_message,
-        log_level,
-        show_level,
-        show_origin
-    )
     microvm.start()
-    propagate_exception(exceptions_queue)
 
-
-def propagate_exception(queue):
-    """Continuously check for exception triggered in child thread."""
-    while True:
-        try:
-            outcome = queue.get()
-        except Empty:
-            pass
-        else:
-            if outcome == "Done":
-                break
-            raise Exception(
-                "Exception Thrown In Child Thread {}".format(outcome)
-            )
+    lines = log_tools.sequential_fifo_reader(microvm, 0, 20)
+    for line in lines:
+        check_log_message(line, log_level, show_level, show_origin)

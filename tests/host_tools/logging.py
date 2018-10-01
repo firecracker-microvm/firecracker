@@ -19,6 +19,25 @@ def open_microvm_fifo_nonblocking(
     return fifo
 
 
+def sequential_fifo_reader(
+        test_microvm,
+        fifo_index,
+        max_lines
+):
+    """Read up to `max_lines` lines from fifo `fifo_index`.
+
+    :return: A list containing the read lines.
+    """
+    fifo = open_microvm_fifo_nonblocking(test_microvm, fifo_index)
+    result_lines = []
+    while max_lines > 0:
+        data = fifo.readline()
+        if not data:
+            break
+        result_lines.append(data)
+    return result_lines
+
+
 def threaded_fifo_reader(
         test_microvm,
         fifo_index,
