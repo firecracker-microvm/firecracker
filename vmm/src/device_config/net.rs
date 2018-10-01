@@ -2,8 +2,7 @@ use std::mem;
 use std::rc::Rc;
 use std::result;
 
-use api_server::request::net::NetworkInterfaceBody;
-use api_server::request::{Error as SyncError, OkStatus as SyncOkStatus};
+use api_server::request::net::{NetworkInterfaceBody, NetworkInterfaceError};
 use data_model::vm::RateLimiterDescription;
 use net_util::{MacAddr, Tap, TapError};
 
@@ -73,7 +72,10 @@ impl NetworkInterfaceConfigs {
         }
     }
 
-    pub fn put(&mut self, body: NetworkInterfaceBody) -> result::Result<SyncOkStatus, SyncError> {
+    pub fn insert(
+        &mut self,
+        body: NetworkInterfaceBody,
+    ) -> result::Result<(), NetworkInterfaceError> {
         match self
             .if_list
             .iter()
@@ -88,18 +90,19 @@ impl NetworkInterfaceConfigs {
         self.if_list.iter_mut()
     }
 
-    fn create(&mut self, body: NetworkInterfaceBody) -> result::Result<SyncOkStatus, SyncError> {
+    fn create(&mut self, body: NetworkInterfaceBody) -> result::Result<(), NetworkInterfaceError> {
         self.validate_unique_mac(&body.guest_mac)?;
-        let cfg = NetworkInterfaceConfig::try_from_body(body).map_err(SyncError::OpenTap)?;
+        let cfg =
+            NetworkInterfaceConfig::try_from_body(body).map_err(NetworkInterfaceError::OpenTap)?;
         self.if_list.push(cfg);
-        Ok(SyncOkStatus::Created)
+        Ok(())
     }
 
     fn update(
         &mut self,
         index: usize,
         body: NetworkInterfaceBody,
-    ) -> result::Result<SyncOkStatus, SyncError> {
+    ) -> result::Result<(), NetworkInterfaceError> {
         if self.if_list[index].body.host_dev_name != body.host_dev_name {
             // This is a new tap device which replaces the one at the specified ID.
             self.if_list.remove(index);
@@ -109,13 +112,18 @@ impl NetworkInterfaceConfigs {
             self.validate_unique_mac(&body.guest_mac)?;
             self.if_list[index].update_from_body(body);
         }
-        Ok(SyncOkStatus::NoContent)
+        Ok(())
     }
 
-    fn validate_unique_mac(&self, mac: &Option<MacAddr>) -> result::Result<(), SyncError> {
+    fn validate_unique_mac(
+        &self,
+        mac: &Option<MacAddr>,
+    ) -> result::Result<(), NetworkInterfaceError> {
         for device_config in self.if_list.iter() {
             if mac.is_some() && mac == &device_config.body.guest_mac {
-                return Err(SyncError::GuestMacAddressInUse);
+                return Err(NetworkInterfaceError::GuestMacAddressInUse(
+                    mac.unwrap().to_string(),
+                ));
             }
         }
         Ok(())
@@ -168,12 +176,12 @@ mod tests {
 
         // Update MAC.
         netif_body.guest_mac = Some(mac2.clone());
-        assert!(netif_configs.put(netif_body).is_ok());
+        assert!(netif_configs.insert(netif_body).is_ok());
         assert_eq!(netif_configs.if_list.len(), 1);
 
         // Try to add another interface with the same MAC.
         let mut other_netif_body = make_netif("bar", "foo", mac2.clone());
-        assert!(netif_configs.put(other_netif_body.clone()).is_err());
+        assert!(netif_configs.insert(other_netif_body.clone()).is_err());
         assert_eq!(netif_configs.if_list.len(), 1);
 
         // Add another interface.
@@ -185,12 +193,12 @@ mod tests {
 
         // Try to update with an unavailable name.
         other_netif_body.host_dev_name = String::from("baz");
-        assert!(netif_configs.put(other_netif_body.clone()).is_err());
+        assert!(netif_configs.insert(other_netif_body.clone()).is_err());
         assert_eq!(netif_configs.if_list.len(), 2);
 
         // Try to update with an unavailable MAC.
         other_netif_body.guest_mac = Some(mac2);
-        assert!(netif_configs.put(other_netif_body).is_err());
+        assert!(netif_configs.insert(other_netif_body).is_err());
         assert_eq!(netif_configs.if_list.len(), 2);
     }
 }

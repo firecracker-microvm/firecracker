@@ -240,8 +240,8 @@ paths:
         schema:
           $ref: "#/definitions/NetworkInterface"
       responses:
-        201:
-          description: Network interface created
+        204:
+          description: Network interface created/updated
         400:
           description: Network interface cannot be created due to bad input
           schema:

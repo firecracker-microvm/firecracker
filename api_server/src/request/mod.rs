@@ -15,7 +15,6 @@ use hyper;
 use hyper::{Method, StatusCode};
 
 use data_model::vm::{BlockDeviceConfig, DriveError, MachineConfiguration, PatchDrivePayload};
-use net_util::TapError;
 
 use self::actions::ActionBody;
 use self::boot_source::BootSourceBody;
@@ -58,6 +57,12 @@ where
             Ok(ref v) => v.generate_response(),
             Err(ref e) => e.generate_response(),
         }
+    }
+}
+
+impl GenerateResponse for () {
+    fn generate_response(&self) -> hyper::Response {
+        empty_response(StatusCode::NoContent)
     }
 }
 
@@ -107,11 +112,9 @@ impl GenerateResponse for OkStatus {
 pub enum Error {
     DriveOperationFailed(DriveError),
     GuestCIDAlreadyInUse,
-    GuestMacAddressInUse,
     InstanceStartFailed(ErrorType, String),
     InvalidPayload,
     MicroVMAlreadyRunning,
-    OpenTap(TapError),
     OperationFailed,
     OperationNotAllowedPreBoot,
     UpdateNotAllowedPostBoot,
@@ -149,10 +152,6 @@ impl GenerateResponse for Error {
                 StatusCode::BadRequest,
                 json_fault_message("The specified guest CID is already in use."),
             ),
-            GuestMacAddressInUse => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("The specified guest MAC address is already in use."),
-            ),
             InstanceStartFailed(ref error_type, _) => {
                 let status_code = match error_type {
                     ErrorType::InternalError => StatusCode::InternalServerError,
@@ -168,10 +167,6 @@ impl GenerateResponse for Error {
             MicroVMAlreadyRunning => json_response(
                 StatusCode::Forbidden,
                 json_fault_message("The microVM is already running."),
-            ),
-            OpenTap(_) => json_response(
-                StatusCode::BadRequest,
-                json_fault_message(format!("Could not open TAP device. {}", self.to_string())),
             ),
             OperationFailed => json_response(
                 StatusCode::BadRequest,
@@ -335,10 +330,6 @@ mod tests {
         assert_eq!(ret.status(), StatusCode::BadRequest);
         assert!(get_body(ret).is_ok());
 
-        ret = Error::GuestMacAddressInUse.generate_response();
-        assert_eq!(ret.status(), StatusCode::BadRequest);
-        assert!(get_body(ret).is_ok());
-
         ret = Error::InstanceStartFailed(
             ErrorType::InternalError,
             "Dummy error message.".to_string(),
@@ -357,11 +348,6 @@ mod tests {
 
         ret = Error::MicroVMAlreadyRunning.generate_response();
         assert_eq!(ret.status(), StatusCode::Forbidden);
-        assert!(get_body(ret).is_ok());
-
-        ret = Error::OpenTap(TapError::OpenTun(std::io::Error::from_raw_os_error(22)))
-            .generate_response();
-        assert_eq!(ret.status(), StatusCode::BadRequest);
         assert!(get_body(ret).is_ok());
 
         ret = Error::OperationFailed.generate_response();

@@ -52,7 +52,7 @@ use api_server::request::logger::{APILoggerDescription, PutLoggerOutcome};
 use api_server::request::machine_configuration::{
     PutMachineConfigurationError, PutMachineConfigurationOutcome,
 };
-use api_server::request::net::NetworkInterfaceBody;
+use api_server::request::net::{NetworkInterfaceBody, NetworkInterfaceError};
 use api_server::request::{
     Error as SyncError, ErrorType, GenerateResponse, OkStatus as SyncOkStatus, SyncOutcomeSender,
     SyncRequest,
@@ -1202,11 +1202,14 @@ impl Vmm {
         Ok(())
     }
 
-    fn put_net_device(
+    fn insert_net_device(
         &mut self,
         body: NetworkInterfaceBody,
-    ) -> result::Result<SyncOkStatus, SyncError> {
-        self.network_interface_configs.put(body)
+    ) -> result::Result<(), NetworkInterfaceError> {
+        if self.is_instance_initialized() {
+            return Err(NetworkInterfaceError::UpdateNotAllowPostBoot);
+        }
+        self.network_interface_configs.insert(body)
     }
 
     fn patch_block_device(
@@ -1512,16 +1515,8 @@ impl Vmm {
         netif_body: NetworkInterfaceBody,
         sender: SyncOutcomeSender,
     ) {
-        if self.is_instance_initialized() {
-            sender
-                .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
-                .map_err(|_| ())
-                .expect("one-shot channel closed");
-            return;
-        }
-
         sender
-            .send(Box::new(self.put_net_device(netif_body)))
+            .send(Box::new(self.insert_net_device(netif_body)))
             .map_err(|_| ())
             .expect("one-shot channel closed");
     }
@@ -1801,10 +1796,7 @@ mod tests {
             tx_rate_limiter: None,
             allow_mmds_requests: false,
         };
-        match vmm.put_net_device(network_interface) {
-            Ok(outcome) => assert!(outcome == SyncOkStatus::Created),
-            Err(_) => assert!(false),
-        }
+        assert!(vmm.insert_net_device(network_interface).is_ok());
 
         if let Ok(mac) = MacAddr::parse_str("01:23:45:67:89:0A") {
             // test update network interface
@@ -1817,10 +1809,7 @@ mod tests {
                 tx_rate_limiter: None,
                 allow_mmds_requests: false,
             };
-            match vmm.put_net_device(network_interface) {
-                Ok(outcome) => assert!(outcome == SyncOkStatus::NoContent),
-                Err(_) => assert!(false),
-            }
+            assert!(vmm.insert_net_device(network_interface).is_ok());
         }
     }
 
@@ -2259,10 +2248,7 @@ mod tests {
             allow_mmds_requests: false,
         };
 
-        match vmm.put_net_device(network_interface) {
-            Ok(outcome) => assert!(outcome == SyncOkStatus::Created),
-            Err(_) => assert!(false),
-        }
+        assert!(vmm.insert_net_device(network_interface).is_ok());
 
         assert!(vmm.attach_net_devices(&mut device_manager).is_ok());
         // a second call to attach_net_devices should fail because when
