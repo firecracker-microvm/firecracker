@@ -1,8 +1,7 @@
 """Tests the format of human readable logs by checking response of the API
 config calls."""
 
-from queue import Empty, Queue
-from threading import Thread
+from queue import Empty
 from time import strptime
 import host_tools.logging as log_tools
 
@@ -128,30 +127,25 @@ def test_error_logs(test_microvm_with_ssh, network_config):
 def _test_log_config(
         microvm,
         net_config,
-        log_level: str = 'Info',
-        show_level: bool = True,
-        show_origin: bool = True
+        log_level='Info',
+        show_level=True,
+        show_origin=True
 ):
     """Exercises different scenarios for testing the logging config."""
     microvm.basic_config(net_iface_count=0, log_enable=False)
     microvm.basic_network_config(net_config)
     microvm.logger_config(log_level, show_level, show_origin)
 
-    queue = Queue()
-    metric_reader_thread = Thread(
-        target=log_tools.fifo_reader, args=(
-            microvm,
-            queue,
-            0,
-            check_log_message,
-            log_level,
-            show_level,
-            show_origin
-        )
+    exceptions_queue = log_tools.threaded_fifo_reader(
+        microvm,
+        0,
+        check_log_message,
+        log_level,
+        show_level,
+        show_origin
     )
     microvm.start()
-    metric_reader_thread.start()
-    propagate_exception(queue)
+    propagate_exception(exceptions_queue)
 
 
 def propagate_exception(queue):
