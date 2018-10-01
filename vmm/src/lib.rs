@@ -100,6 +100,8 @@ pub enum UserError {
     Drive(DriveError),
     /// The kernel path is invalid.
     InvalidKernelPath,
+    /// The start command was issued more than once.
+    MicroVMAlreadyRunning,
     /// The kernel command line is invalid.
     KernelCmdLine(kernel_cmdline::Error),
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
@@ -963,9 +965,13 @@ impl Vmm {
     }
 
     fn start_instance(&mut self) -> Result<()> {
+        START_INSTANCE_REQUEST_TS.store(time::precise_time_ns() as usize, Ordering::Release);
         info!("VMM received instance start command");
-        self.check_health()?;
+        if self.is_instance_initialized() {
+            return Err(UserError::MicroVMAlreadyRunning)?;
+        }
 
+        self.check_health()?;
         // Use unwrap() to crash if the other thread poisoned this lock.
         self.shared_info.write().unwrap().state = InstanceState::Starting;
 
@@ -1293,19 +1299,9 @@ impl Vmm {
     }
 
     fn handle_start_instance(&mut self, sender: SyncOutcomeSender) {
-        START_INSTANCE_REQUEST_TS.store(time::precise_time_ns() as usize, Ordering::Release);
-
-        if self.is_instance_initialized() {
-            sender
-                .send(Box::new(SyncError::MicroVMAlreadyRunning))
-                .map_err(|_| ())
-                .expect("one-shot channel closed");
-            return;
-        }
-
         match self.start_instance() {
             Ok(_) => sender
-                .send(Box::new(SyncOkStatus::NoContent))
+                .send(Box::new(()))
                 .map_err(|_| ())
                 .expect("one-shot channel closed"),
             Err(e) => {
