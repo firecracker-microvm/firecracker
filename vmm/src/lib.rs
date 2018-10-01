@@ -543,27 +543,6 @@ impl Vmm {
         })
     }
 
-    // Only call this function as part of the API.
-    // If the drive_id does not exist, a new Block Device Config is added to the list.
-    fn put_block_device(
-        &mut self,
-        block_device_config: BlockDeviceConfig,
-    ) -> result::Result<PutDriveOutcome, DriveError> {
-        // If the id of the drive already exists in the list, the operation is update.
-        if self
-            .block_device_configs
-            .contains_drive_id(block_device_config.drive_id.clone())
-        {
-            self.block_device_configs
-                .update(&block_device_config)
-                .map(|_| PutDriveOutcome::Updated)
-        } else {
-            self.block_device_configs
-                .add(block_device_config)
-                .map(|_| PutDriveOutcome::Created)
-        }
-    }
-
     fn rescan(&self, drive_id: &String, path_on_host: &PathBuf) -> result::Result<(), DriveError> {
         // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
         // called before the guest boots, and this function is called after boot.
@@ -586,42 +565,6 @@ impl Vmm {
                     .map_err(|_| DriveError::BlockDeviceUpdateFailed);
             }
             _ => return Err(DriveError::BlockDeviceUpdateFailed),
-        }
-    }
-
-    fn patch_block_device(
-        &mut self,
-        fields: Value,
-    ) -> result::Result<PatchDriveOutcome, DriveError> {
-        let guest_running = self.mmio_device_manager.is_some();
-
-        if let Some(Value::String(id)) = fields.get("drive_id") {
-            let mut merged_drive = self.block_device_configs.get_block_device_config(&id)?;
-            merged_drive.merge(&fields)?;
-
-            match self.block_device_configs.update(&merged_drive) {
-                Ok(Some(path)) => {
-                    // Rescan is only necessary if the guest has booted.
-                    if guest_running {
-                        // In order to update the file, the handler needs to know the path and the
-                        // permissions, regardless of whether they were sent in the PATCH request.
-                        self.update_drive_handler(
-                            &merged_drive.drive_id,
-                            serde_json::to_string(&merged_drive)
-                                .map_err(|_| DriveError::BlockDeviceUpdateFailed)?,
-                        ).and_then(|_| {
-                            self.rescan(&merged_drive.drive_id, &path)
-                                .map(|_| PatchDriveOutcome::Updated)
-                        })
-                    } else {
-                        Ok(PatchDriveOutcome::Updated)
-                    }
-                }
-                Ok(None) => Ok(PatchDriveOutcome::Updated),
-                Err(e) => Err(e),
-            }
-        } else {
-            Err(DriveError::BlockDeviceUpdateNotAllowed)
         }
     }
 
@@ -648,55 +591,6 @@ impl Vmm {
         } else {
             Err(DriveError::BlockDeviceUpdateFailed)
         }
-    }
-
-    fn put_virtual_machine_configuration(
-        &mut self,
-        machine_config: MachineConfiguration,
-    ) -> std::result::Result<(), PutMachineConfigurationError> {
-        if let Some(vcpu_count_value) = machine_config.vcpu_count {
-            // Check that the vcpu_count value is >=1.
-            if vcpu_count_value <= 0 {
-                return Err(PutMachineConfigurationError::InvalidVcpuCount);
-            }
-        }
-
-        if let Some(mem_size_mib_value) = machine_config.mem_size_mib {
-            // TODO: add other memory checks
-            if mem_size_mib_value <= 0 {
-                return Err(PutMachineConfigurationError::InvalidMemorySize);
-            }
-        }
-
-        let ht_enabled = match machine_config.ht_enabled {
-            Some(value) => value,
-            None => self.vm_config.ht_enabled.unwrap(),
-        };
-
-        let vcpu_count_value = match machine_config.vcpu_count {
-            Some(value) => value,
-            None => self.vm_config.vcpu_count.unwrap(),
-        };
-
-        // If hyperthreading is enabled or is to be enabled in this call
-        // only allow vcpu count to be 1 or even.
-        if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
-            return Err(PutMachineConfigurationError::InvalidVcpuCount);
-        }
-
-        // Update all the fields that have a new value.
-        self.vm_config.vcpu_count = Some(vcpu_count_value);
-        self.vm_config.ht_enabled = Some(ht_enabled);
-
-        if machine_config.mem_size_mib.is_some() {
-            self.vm_config.mem_size_mib = machine_config.mem_size_mib;
-        }
-
-        if machine_config.cpu_template.is_some() {
-            self.vm_config.cpu_template = machine_config.cpu_template;
-        }
-
-        Ok(())
     }
 
     // Attaches all block devices from the BlockDevicesConfig.
@@ -760,57 +654,6 @@ impl Vmm {
         }
 
         Ok(())
-    }
-
-    fn put_net_device(
-        &mut self,
-        body: NetworkInterfaceBody,
-    ) -> result::Result<SyncOkStatus, SyncError> {
-        self.network_interface_configs.put(body)
-    }
-
-    fn rescan_block_device(&mut self, body: ActionBody) -> result::Result<SyncOkStatus, SyncError> {
-        if let Some(Value::String(drive_id)) = body.payload {
-            // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
-            // called before the guest boots, and this function is called after boot.
-            let device_manager = self.mmio_device_manager.as_ref().unwrap();
-            match device_manager.get_address(&drive_id) {
-                Some(&address) => {
-                    for drive_config in self.block_device_configs.config_list.iter() {
-                        if drive_config.drive_id == *drive_id {
-                            let metadata = metadata(&drive_config.path_on_host).map_err(|_| {
-                                SyncError::DriveOperationFailed(DriveError::BlockDeviceUpdateFailed)
-                            })?;
-                            let new_size = metadata.len();
-                            if new_size % virtio::block::SECTOR_SIZE != 0 {
-                                warn!(
-                                    "Disk size {} is not a multiple of sector size {}; \
-                                     the remainder will not be visible to the guest.",
-                                    new_size,
-                                    virtio::block::SECTOR_SIZE
-                                );
-                            }
-                            return device_manager
-                                .update_drive(address, new_size)
-                                .map(|_| SyncOkStatus::NoContent)
-                                .map_err(|_| {
-                                    SyncError::DriveOperationFailed(
-                                        DriveError::BlockDeviceUpdateFailed,
-                                    )
-                                });
-                        }
-                    }
-                    Err(SyncError::DriveOperationFailed(
-                        DriveError::BlockDeviceUpdateFailed,
-                    ))
-                }
-                _ => Err(SyncError::DriveOperationFailed(
-                    DriveError::InvalidBlockDeviceID,
-                )),
-            }
-        } else {
-            Err(SyncError::InvalidPayload)
-        }
     }
 
     fn attach_net_devices(&mut self, device_manager: &mut MMIODeviceManager) -> Result<()> {
@@ -1208,6 +1051,18 @@ impl Vmm {
         std::process::exit(exit_code);
     }
 
+    fn is_instance_initialized(&self) -> bool {
+        let instance_state = {
+            // Use unwrap() to crash if the other thread poisoned this lock.
+            let shared_info = self.shared_info.read().unwrap();
+            shared_info.state.clone()
+        };
+        match instance_state {
+            InstanceState::Uninitialized => false,
+            _ => true,
+        }
+    }
+
     fn run_control(&mut self) -> Result<()> {
         const EPOLL_EVENTS_LEN: usize = 100;
 
@@ -1294,6 +1149,146 @@ impl Vmm {
         }
     }
 
+    fn set_vm_configuration(
+        &mut self,
+        machine_config: MachineConfiguration,
+    ) -> std::result::Result<(), PutMachineConfigurationError> {
+        if self.is_instance_initialized() {
+            return Err(PutMachineConfigurationError::UpdateNotAllowPostBoot);
+        }
+
+        if let Some(vcpu_count_value) = machine_config.vcpu_count {
+            // Check that the vcpu_count value is >=1.
+            if vcpu_count_value <= 0 {
+                return Err(PutMachineConfigurationError::InvalidVcpuCount);
+            }
+        }
+
+        if let Some(mem_size_mib_value) = machine_config.mem_size_mib {
+            // TODO: add other memory checks
+            if mem_size_mib_value <= 0 {
+                return Err(PutMachineConfigurationError::InvalidMemorySize);
+            }
+        }
+
+        let ht_enabled = match machine_config.ht_enabled {
+            Some(value) => value,
+            None => self.vm_config.ht_enabled.unwrap(),
+        };
+
+        let vcpu_count_value = match machine_config.vcpu_count {
+            Some(value) => value,
+            None => self.vm_config.vcpu_count.unwrap(),
+        };
+
+        // If hyperthreading is enabled or is to be enabled in this call
+        // only allow vcpu count to be 1 or even.
+        if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
+            return Err(PutMachineConfigurationError::InvalidVcpuCount);
+        }
+
+        // Update all the fields that have a new value.
+        self.vm_config.vcpu_count = Some(vcpu_count_value);
+        self.vm_config.ht_enabled = Some(ht_enabled);
+
+        if machine_config.mem_size_mib.is_some() {
+            self.vm_config.mem_size_mib = machine_config.mem_size_mib;
+        }
+
+        if machine_config.cpu_template.is_some() {
+            self.vm_config.cpu_template = machine_config.cpu_template;
+        }
+
+        Ok(())
+    }
+
+    fn put_net_device(
+        &mut self,
+        body: NetworkInterfaceBody,
+    ) -> result::Result<SyncOkStatus, SyncError> {
+        self.network_interface_configs.put(body)
+    }
+
+    fn patch_block_device(
+        &mut self,
+        fields: Value,
+    ) -> result::Result<PatchDriveOutcome, DriveError> {
+        let guest_running = self.mmio_device_manager.is_some();
+
+        if let Some(Value::String(id)) = fields.get("drive_id") {
+            let mut merged_drive = self.block_device_configs.get_block_device_config(&id)?;
+            merged_drive.merge(&fields)?;
+
+            match self.block_device_configs.update(&merged_drive) {
+                Ok(Some(path)) => {
+                    // Rescan is only necessary if the guest has booted.
+                    if guest_running {
+                        // In order to update the file, the handler needs to know the path and the
+                        // permissions, regardless of whether they were sent in the PATCH request.
+                        self.update_drive_handler(
+                            &merged_drive.drive_id,
+                            serde_json::to_string(&merged_drive)
+                                .map_err(|_| DriveError::BlockDeviceUpdateFailed)?,
+                        ).and_then(|_| {
+                            self.rescan(&merged_drive.drive_id, &path)
+                                .map(|_| PatchDriveOutcome::Updated)
+                        })
+                    } else {
+                        Ok(PatchDriveOutcome::Updated)
+                    }
+                }
+                Ok(None) => Ok(PatchDriveOutcome::Updated),
+                Err(e) => Err(e),
+            }
+        } else {
+            Err(DriveError::BlockDeviceUpdateNotAllowed)
+        }
+    }
+
+    fn rescan_block_device(&mut self, body: ActionBody) -> result::Result<SyncOkStatus, SyncError> {
+        if let Some(Value::String(drive_id)) = body.payload {
+            // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
+            // called before the guest boots, and this function is called after boot.
+            let device_manager = self.mmio_device_manager.as_ref().unwrap();
+            match device_manager.get_address(&drive_id) {
+                Some(&address) => {
+                    for drive_config in self.block_device_configs.config_list.iter() {
+                        if drive_config.drive_id == *drive_id {
+                            let metadata = metadata(&drive_config.path_on_host).map_err(|_| {
+                                SyncError::DriveOperationFailed(DriveError::BlockDeviceUpdateFailed)
+                            })?;
+                            let new_size = metadata.len();
+                            if new_size % virtio::block::SECTOR_SIZE != 0 {
+                                warn!(
+                                    "Disk size {} is not a multiple of sector size {}; \
+                                     the remainder will not be visible to the guest.",
+                                    new_size,
+                                    virtio::block::SECTOR_SIZE
+                                );
+                            }
+                            return device_manager
+                                .update_drive(address, new_size)
+                                .map(|_| SyncOkStatus::NoContent)
+                                .map_err(|_| {
+                                    SyncError::DriveOperationFailed(
+                                        DriveError::BlockDeviceUpdateFailed,
+                                    )
+                                });
+                        }
+                    }
+                    Err(SyncError::DriveOperationFailed(
+                        DriveError::BlockDeviceUpdateFailed,
+                    ))
+                }
+                _ => Err(SyncError::DriveOperationFailed(
+                    DriveError::InvalidBlockDeviceID,
+                )),
+            }
+        } else {
+            Err(SyncError::InvalidPayload)
+        }
+    }
+
     fn handle_start_instance(&mut self, sender: SyncOutcomeSender) {
         START_INSTANCE_REQUEST_TS.store(time::precise_time_ns() as usize, Ordering::Release);
 
@@ -1326,15 +1321,24 @@ impl Vmm {
         };
     }
 
-    fn is_instance_initialized(&self) -> bool {
-        let instance_state = {
-            // Use unwrap() to crash if the other thread poisoned this lock.
-            let shared_info = self.shared_info.read().unwrap();
-            shared_info.state.clone()
-        };
-        match instance_state {
-            InstanceState::Uninitialized => false,
-            _ => true,
+    // Only call this function as part of the API.
+    // If the drive_id does not exist, a new Block Device Config is added to the list.
+    fn put_block_device(
+        &mut self,
+        block_device_config: BlockDeviceConfig,
+    ) -> result::Result<PutDriveOutcome, DriveError> {
+        // If the id of the drive already exists in the list, the operation is update.
+        if self
+            .block_device_configs
+            .contains_drive_id(block_device_config.drive_id.clone())
+        {
+            self.block_device_configs
+                .update(&block_device_config)
+                .map(|_| PutDriveOutcome::Updated)
+        } else {
+            self.block_device_configs
+                .add(block_device_config)
+                .map(|_| PutDriveOutcome::Created)
         }
     }
 
@@ -1492,15 +1496,7 @@ impl Vmm {
         machine_config_body: MachineConfiguration,
         sender: SyncOutcomeSender,
     ) {
-        if self.is_instance_initialized() {
-            sender
-                .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
-                .map_err(|_| ())
-                .expect("one-shot channel closed");
-            return;
-        }
-
-        let boxed_response = match self.put_virtual_machine_configuration(machine_config_body) {
+        let boxed_response = match self.set_vm_configuration(machine_config_body) {
             Ok(_) => Box::new(PutMachineConfigurationOutcome::Updated),
             Err(e) => Box::new(PutMachineConfigurationOutcome::Error(e)),
         };
@@ -1850,10 +1846,7 @@ mod tests {
             ht_enabled: None,
             cpu_template: None,
         };
-        assert!(
-            vmm.put_virtual_machine_configuration(machine_config)
-                .is_ok()
-        );
+        assert!(vmm.set_vm_configuration(machine_config).is_ok());
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
         assert_eq!(vmm.vm_config.mem_size_mib, Some(128));
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
@@ -1865,10 +1858,7 @@ mod tests {
             ht_enabled: None,
             cpu_template: None,
         };
-        assert!(
-            vmm.put_virtual_machine_configuration(machine_config)
-                .is_ok()
-        );
+        assert!(vmm.set_vm_configuration(machine_config).is_ok());
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
         assert_eq!(vmm.vm_config.mem_size_mib, Some(256));
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
@@ -1882,8 +1872,7 @@ mod tests {
             cpu_template: None,
         };
         assert_eq!(
-            vmm.put_virtual_machine_configuration(machine_config)
-                .unwrap_err(),
+            vmm.set_vm_configuration(machine_config).unwrap_err(),
             PutMachineConfigurationError::InvalidVcpuCount
         );
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
@@ -1897,8 +1886,7 @@ mod tests {
             cpu_template: Some(CpuFeaturesTemplate::T2),
         };
         assert_eq!(
-            vmm.put_virtual_machine_configuration(machine_config)
-                .unwrap_err(),
+            vmm.set_vm_configuration(machine_config).unwrap_err(),
             PutMachineConfigurationError::InvalidMemorySize
         );
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
@@ -1916,8 +1904,7 @@ mod tests {
             cpu_template: None,
         };
         assert_eq!(
-            vmm.put_virtual_machine_configuration(machine_config)
-                .unwrap_err(),
+            vmm.set_vm_configuration(machine_config).unwrap_err(),
             PutMachineConfigurationError::InvalidVcpuCount
         );
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
@@ -1929,10 +1916,7 @@ mod tests {
             ht_enabled: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
         };
-        assert!(
-            vmm.put_virtual_machine_configuration(machine_config)
-                .is_ok()
-        );
+        assert!(vmm.set_vm_configuration(machine_config).is_ok());
         assert_eq!(vmm.vm_config.vcpu_count, Some(2));
         assert_eq!(vmm.vm_config.ht_enabled, Some(true));
         assert_eq!(vmm.vm_config.cpu_template, Some(CpuFeaturesTemplate::T2));

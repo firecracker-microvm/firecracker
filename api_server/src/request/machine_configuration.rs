@@ -11,6 +11,7 @@ use request::{GenerateResponse, IntoParsedRequest, ParsedRequest, SyncRequest};
 pub enum PutMachineConfigurationError {
     InvalidVcpuCount,
     InvalidMemorySize,
+    UpdateNotAllowPostBoot,
 }
 
 impl GenerateResponse for PutMachineConfigurationError {
@@ -28,6 +29,10 @@ impl GenerateResponse for PutMachineConfigurationError {
             InvalidMemorySize => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The memory size (MiB) is invalid."),
+            ),
+            UpdateNotAllowPostBoot => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("The update operation is not allowed after boot."),
             ),
         }
     }
@@ -110,6 +115,12 @@ mod tests {
         );
         assert_eq!(
             PutMachineConfigurationError::InvalidMemorySize
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
+        );
+        assert_eq!(
+            PutMachineConfigurationError::UpdateNotAllowPostBoot
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
