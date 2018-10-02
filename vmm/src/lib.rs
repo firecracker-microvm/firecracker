@@ -42,9 +42,7 @@ use serde_json::Value;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use api_server::request::actions::ActionBody;
-use api_server::request::boot_source::{
-    BootSourceBody, PutBootSourceConfigError, PutBootSourceOutcome,
-};
+use api_server::request::boot_source::{BootSourceBody, BootSourceConfigError};
 use api_server::request::drive::PatchDriveOutcome;
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::logger::{APILoggerDescription, PutLoggerOutcome};
@@ -1128,6 +1126,32 @@ impl Vmm {
         }
     }
 
+    fn configure_boot_source(
+        &mut self,
+        kernel_image_path: String,
+        kernel_cmdline: Option<String>,
+    ) -> std::result::Result<(), BootSourceConfigError> {
+        if self.is_instance_initialized() {
+            return Err(BootSourceConfigError::UpdateNotAllowedPostBoot);
+        }
+
+        let kernel_file =
+            File::open(kernel_image_path).map_err(|_| BootSourceConfigError::InvalidKernelPath)?;
+        let mut cmdline = kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE);
+        cmdline
+            .insert_str(kernel_cmdline.unwrap_or(String::from(DEFAULT_KERNEL_CMDLINE)))
+            .map_err(|_| BootSourceConfigError::InvalidKernelCommandLine)?;
+
+        let kernel_config = KernelConfig {
+            kernel_file,
+            cmdline,
+            cmdline_addr: GuestAddress(x86_64::layout::CMDLINE_START),
+        };
+        self.configure_kernel(kernel_config);
+
+        Ok(())
+    }
+
     fn set_vm_configuration(
         &mut self,
         machine_config: MachineConfiguration,
@@ -1396,46 +1420,15 @@ impl Vmm {
         boot_source_body: BootSourceBody,
         sender: SyncOutcomeSender,
     ) {
-        if self.is_instance_initialized() {
-            sender
-                .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
-                .map_err(|_| ())
-                .expect("one-shot channel closed");
-            return;
-        }
-
-        let box_response: Box<GenerateResponse + Send> = match boot_source_body.local_image {
-            // Check that the kernel path exists and it is valid.
-            Some(image) => match File::open(image.kernel_image_path) {
-                Ok(kernel_file) => {
-                    let mut cmdline =
-                        kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE);
-                    match cmdline.insert_str(
-                        boot_source_body
-                            .boot_args
-                            .unwrap_or(String::from(DEFAULT_KERNEL_CMDLINE)),
-                    ) {
-                        Ok(_) => {
-                            let kernel_config = KernelConfig {
-                                kernel_file,
-                                cmdline,
-                                cmdline_addr: GuestAddress(x86_64::layout::CMDLINE_START),
-                            };
-                            // If the kernel was already configured, we have an update operation.
-                            let outcome = match self.kernel_config {
-                                Some(_) => PutBootSourceOutcome::Updated,
-                                None => PutBootSourceOutcome::Created,
-                            };
-                            self.configure_kernel(kernel_config);
-                            Box::new(outcome)
-                        }
-                        Err(_) => Box::new(PutBootSourceConfigError::InvalidKernelCommandLine),
-                    }
-                }
-                Err(_e) => Box::new(PutBootSourceConfigError::InvalidKernelPath),
-            },
-            None => Box::new(PutBootSourceConfigError::InvalidKernelPath),
-        };
+        let box_response: Box<GenerateResponse + Send> =
+            match boot_source_body.local_image {
+                // Check that the kernel path exists and it is valid.
+                Some(local_image) => Box::new(self.configure_boot_source(
+                    local_image.kernel_image_path,
+                    boot_source_body.boot_args,
+                )),
+                None => Box::new(BootSourceConfigError::EmptyKernelPath),
+            };
         sender
             .send(box_response)
             .map_err(|_| ())
