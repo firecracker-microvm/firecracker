@@ -30,7 +30,6 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::{metadata, File, OpenOptions};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::path::PathBuf;
 use std::result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
@@ -54,8 +53,7 @@ use api_server::request::machine_configuration::{
 };
 use api_server::request::net::{NetworkInterfaceBody, NetworkInterfaceError};
 use api_server::request::{
-    Error as SyncError, ErrorType, GenerateResponse, OkStatus as SyncOkStatus, SyncOutcomeSender,
-    SyncRequest,
+    Error as SyncError, ErrorType, GenerateResponse, SyncOutcomeSender, SyncRequest,
 };
 use data_model::vm::{
     description_into_implementation as rate_limiter_description_into_implementation,
@@ -543,31 +541,6 @@ impl Vmm {
             write_metrics_event,
             seccomp_level,
         })
-    }
-
-    fn rescan(&self, drive_id: &String, path_on_host: &PathBuf) -> result::Result<(), DriveError> {
-        // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
-        // called before the guest boots, and this function is called after boot.
-        let device_manager = self.mmio_device_manager.as_ref().unwrap();
-        match device_manager.get_address(&drive_id) {
-            Some(&address) => {
-                let metadata =
-                    metadata(&path_on_host).map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-                let new_size = metadata.len();
-                if new_size % virtio::block::SECTOR_SIZE != 0 {
-                    warn!(
-                        "Disk size {} is not a multiple of sector size {}; \
-                         the remainder will not be visible to the guest.",
-                        new_size,
-                        virtio::block::SECTOR_SIZE
-                    );
-                }
-                return device_manager
-                    .update_drive(address, new_size)
-                    .map_err(|_| DriveError::BlockDeviceUpdateFailed);
-            }
-            _ => return Err(DriveError::BlockDeviceUpdateFailed),
-        }
     }
 
     fn update_drive_handler(
@@ -1229,7 +1202,7 @@ impl Vmm {
             merged_drive.merge(&fields)?;
 
             match self.block_device_configs.update(&merged_drive) {
-                Ok(Some(path)) => {
+                Ok(Some(_)) => {
                     // Rescan is only necessary if the guest has booted.
                     if guest_running {
                         // In order to update the file, the handler needs to know the path and the
@@ -1239,7 +1212,7 @@ impl Vmm {
                             serde_json::to_string(&merged_drive)
                                 .map_err(|_| DriveError::BlockDeviceUpdateFailed)?,
                         ).and_then(|_| {
-                            self.rescan(&merged_drive.drive_id, &path)
+                            self.rescan_block_device(merged_drive.drive_id)
                                 .map(|_| PatchDriveOutcome::Updated)
                         })
                     } else {
@@ -1254,47 +1227,38 @@ impl Vmm {
         }
     }
 
-    fn rescan_block_device(&mut self, body: ActionBody) -> result::Result<SyncOkStatus, SyncError> {
-        if let Some(Value::String(drive_id)) = body.payload {
-            // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
-            // called before the guest boots, and this function is called after boot.
-            let device_manager = self.mmio_device_manager.as_ref().unwrap();
-            match device_manager.get_address(&drive_id) {
-                Some(&address) => {
-                    for drive_config in self.block_device_configs.config_list.iter() {
-                        if drive_config.drive_id == *drive_id {
-                            let metadata = metadata(&drive_config.path_on_host).map_err(|_| {
-                                SyncError::DriveOperationFailed(DriveError::BlockDeviceUpdateFailed)
-                            })?;
-                            let new_size = metadata.len();
-                            if new_size % virtio::block::SECTOR_SIZE != 0 {
-                                warn!(
-                                    "Disk size {} is not a multiple of sector size {}; \
-                                     the remainder will not be visible to the guest.",
-                                    new_size,
-                                    virtio::block::SECTOR_SIZE
-                                );
-                            }
-                            return device_manager
-                                .update_drive(address, new_size)
-                                .map(|_| SyncOkStatus::NoContent)
-                                .map_err(|_| {
-                                    SyncError::DriveOperationFailed(
-                                        DriveError::BlockDeviceUpdateFailed,
-                                    )
-                                });
+    fn rescan_block_device(&mut self, drive_id: String) -> result::Result<(), DriveError> {
+        // Rescan can only happen after the guest is booted.
+        if !self.is_instance_initialized() {
+            return Err(DriveError::OperationNotAllowedPreBoot);
+        }
+
+        // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
+        // called before the guest boots, and this function is called after boot.
+        let device_manager = self.mmio_device_manager.as_ref().unwrap();
+        match device_manager.get_address(&drive_id) {
+            Some(&address) => {
+                for drive_config in self.block_device_configs.config_list.iter() {
+                    if drive_config.drive_id == *drive_id {
+                        let metadata = metadata(&drive_config.path_on_host)
+                            .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                        let new_size = metadata.len();
+                        if new_size % virtio::block::SECTOR_SIZE != 0 {
+                            warn!(
+                                "Disk size {} is not a multiple of sector size {}; \
+                                 the remainder will not be visible to the guest.",
+                                new_size,
+                                virtio::block::SECTOR_SIZE
+                            );
                         }
+                        return device_manager
+                            .update_drive(address, new_size)
+                            .map_err(|_| DriveError::BlockDeviceUpdateFailed);
                     }
-                    Err(SyncError::DriveOperationFailed(
-                        DriveError::BlockDeviceUpdateFailed,
-                    ))
                 }
-                _ => Err(SyncError::DriveOperationFailed(
-                    DriveError::InvalidBlockDeviceID,
-                )),
+                Err(DriveError::BlockDeviceUpdateFailed)
             }
-        } else {
-            Err(SyncError::InvalidPayload)
+            _ => Err(DriveError::InvalidBlockDeviceID),
         }
     }
 
@@ -1518,18 +1482,17 @@ impl Vmm {
     }
 
     fn handle_rescan_block_device(&mut self, req_body: ActionBody, sender: SyncOutcomeSender) {
-        if !self.is_instance_initialized() {
+        if let Some(Value::String(drive_id)) = req_body.payload {
             sender
-                .send(Box::new(SyncError::OperationNotAllowedPreBoot))
+                .send(Box::new(self.rescan_block_device(drive_id)))
                 .map_err(|_| ())
                 .expect("one-shot channel closed");
-            return;
+        } else {
+            sender
+                .send(Box::new(SyncError::InvalidPayload))
+                .map_err(|_| ())
+                .expect("one-shot channel closed");
         }
-
-        sender
-            .send(Box::new(self.rescan_block_device(req_body)))
-            .map_err(|_| ())
-            .expect("one-shot channel closed");
     }
 
     fn run_api_cmd(&mut self) -> Result<()> {
@@ -2263,7 +2226,7 @@ mod tests {
 
     #[test]
     fn test_rescan() {
-        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        let mut vmm = create_vmm_object(InstanceState::Running);
         vmm.default_kernel_config();
 
         let root_file = NamedTempFile::new().unwrap();
@@ -2308,28 +2271,21 @@ mod tests {
         vmm.mmio_device_manager = Some(device_manager);
 
         // Test valid rescan_block_device.
-        let body = serde_json::from_str::<ActionBody>(
-            "{\"action_type\": \"BlockDeviceRescan\", \"payload\": \"not_root\"}",
-        ).unwrap();
-        assert!(vmm.rescan_block_device(body).is_ok());
+        assert!(vmm.rescan_block_device("not_root".to_string()).is_ok());
 
         // Test rescan_block_device with invalid ID.
-        let body = serde_json::from_str::<ActionBody>(
-            "{\"action_type\": \"BlockDeviceRescan\", \"payload\": \"foo\"}",
-        ).unwrap();
-        assert!(vmm.rescan_block_device(body).is_err());
-
-        // Test rescan_block_device with invalid payload.
-        let body = serde_json::from_str::<ActionBody>(
-            "{\"action_type\": \"BlockDeviceRescan\", \"payload\": {}}",
-        ).unwrap();
-        assert!(vmm.rescan_block_device(body).is_err());
+        assert!(vmm.rescan_block_device("foo".to_string()).is_err());
 
         // Test rescan_block_device with invalid device address.
         vmm.remove_addr(&String::from("not_root"));
-        let body = serde_json::from_str::<ActionBody>(
-            "{\"action_type\": \"BlockDeviceRescan\", \"payload\": \"not_root\"}",
-        ).unwrap();
-        assert!(vmm.rescan_block_device(body).is_err());
+        assert!(vmm.rescan_block_device("not_root".to_string()).is_err());
+
+        // Test rescan not allowed.
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert!(vmm.put_block_device(non_root_block_device.clone()).is_ok());
+        assert_eq!(
+            vmm.rescan_block_device("not_root".to_string()).unwrap_err(),
+            DriveError::OperationNotAllowedPreBoot
+        );
     }
 }

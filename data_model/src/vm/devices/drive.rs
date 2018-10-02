@@ -19,6 +19,7 @@ pub enum DriveError {
     BlockDeviceUpdateFailed,
     BlockDeviceUpdateNotAllowed,
     NotImplemented,
+    OperationNotAllowedPreBoot,
     RootBlockDeviceAlreadyAdded,
     SerdeJson,
 }
