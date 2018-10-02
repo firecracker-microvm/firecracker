@@ -45,7 +45,7 @@ use api_server::request::actions::ActionBody;
 use api_server::request::boot_source::{
     BootSourceBody, PutBootSourceConfigError, PutBootSourceOutcome,
 };
-use api_server::request::drive::{PatchDriveOutcome, PutDriveOutcome};
+use api_server::request::drive::PatchDriveOutcome;
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::logger::{APILoggerDescription, PutLoggerOutcome};
 use api_server::request::machine_configuration::{
@@ -1262,6 +1262,30 @@ impl Vmm {
         }
     }
 
+    // Only call this function as part of the API.
+    // If the drive_id does not exist, a new Block Device Config is added to the list.
+    fn insert_block_device(
+        &mut self,
+        block_device_config: BlockDeviceConfig,
+    ) -> result::Result<(), DriveError> {
+        if self.is_instance_initialized() {
+            return Err(DriveError::UpdateNotAllowedPostBoot);
+        }
+        // If the id of the drive already exists in the list, the operation is update.
+        if self
+            .block_device_configs
+            .contains_drive_id(block_device_config.drive_id.clone())
+        {
+            self.block_device_configs
+                .update(&block_device_config)
+                .map(|_| ())
+        } else {
+            self.block_device_configs
+                .add(block_device_config)
+                .map(|_| ())
+        }
+    }
+
     fn handle_start_instance(&mut self, sender: SyncOutcomeSender) {
         match self.start_instance() {
             Ok(_) => sender
@@ -1284,41 +1308,12 @@ impl Vmm {
         };
     }
 
-    // Only call this function as part of the API.
-    // If the drive_id does not exist, a new Block Device Config is added to the list.
-    fn put_block_device(
-        &mut self,
-        block_device_config: BlockDeviceConfig,
-    ) -> result::Result<PutDriveOutcome, DriveError> {
-        // If the id of the drive already exists in the list, the operation is update.
-        if self
-            .block_device_configs
-            .contains_drive_id(block_device_config.drive_id.clone())
-        {
-            self.block_device_configs
-                .update(&block_device_config)
-                .map(|_| PutDriveOutcome::Updated)
-        } else {
-            self.block_device_configs
-                .add(block_device_config)
-                .map(|_| PutDriveOutcome::Created)
-        }
-    }
-
     fn handle_put_drive(
         &mut self,
         block_device_config: BlockDeviceConfig,
         sender: SyncOutcomeSender,
     ) {
-        if self.is_instance_initialized() {
-            sender
-                .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
-                .map_err(|_| ())
-                .expect("one-shot channel closed");
-            return;
-        }
-
-        match self.put_block_device(block_device_config) {
+        match self.insert_block_device(block_device_config) {
             Ok(ret) => sender
                 .send(Box::new(ret))
                 .map_err(|_| ())
@@ -1614,6 +1609,10 @@ mod tests {
             };
             self.configure_kernel(kernel_cfg);
         }
+
+        fn set_instance_state(&mut self, instance_state: InstanceState) {
+            self.shared_info.write().unwrap().state = instance_state;
+        }
     }
 
     struct DummyEpollHandler {
@@ -1711,10 +1710,7 @@ mod tests {
             is_read_only: false,
             rate_limiter: None,
         };
-        match vmm.put_block_device(root_block_device.clone()) {
-            Ok(outcome) => assert!(outcome == PutDriveOutcome::Created),
-            Err(_) => assert!(false),
-        };
+        assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(
             vmm.block_device_configs
                 .config_list
@@ -1730,10 +1726,7 @@ mod tests {
             is_read_only: true,
             rate_limiter: None,
         };
-        match vmm.put_block_device(root_block_device.clone()) {
-            Ok(outcome) => assert!(outcome == PutDriveOutcome::Updated),
-            Err(_) => assert!(false),
-        };
+        assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(
             vmm.block_device_configs
                 .config_list
@@ -2070,10 +2063,7 @@ mod tests {
             rate_limiter: None,
         };
         // Test that creating a new block device returns the correct output.
-        match vmm.put_block_device(root_block_device.clone()) {
-            Ok(outcome) => assert!(outcome == PutDriveOutcome::Created),
-            Err(_) => assert!(false),
-        };
+        assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
 
@@ -2097,10 +2087,7 @@ mod tests {
         };
 
         // Test that creating a new block device returns the correct output.
-        match vmm.put_block_device(root_block_device.clone()) {
-            Ok(outcome) => assert!(outcome == PutDriveOutcome::Created),
-            Err(_) => assert!(false),
-        };
+        assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
 
@@ -2127,10 +2114,10 @@ mod tests {
         };
 
         // Test that creating a new block device returns the correct output.
-        match vmm.put_block_device(non_root_block_device.clone()) {
-            Ok(outcome) => assert!(outcome == PutDriveOutcome::Created),
-            Err(_) => assert!(false),
-        };
+        assert!(
+            vmm.insert_block_device(non_root_block_device.clone())
+                .is_ok()
+        );
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
 
@@ -2226,7 +2213,7 @@ mod tests {
 
     #[test]
     fn test_rescan() {
-        let mut vmm = create_vmm_object(InstanceState::Running);
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config();
 
         let root_file = NamedTempFile::new().unwrap();
@@ -2249,8 +2236,11 @@ mod tests {
             rate_limiter: None,
         };
 
-        assert!(vmm.put_block_device(root_block_device.clone()).is_ok());
-        assert!(vmm.put_block_device(non_root_block_device.clone()).is_ok());
+        assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
+        assert!(
+            vmm.insert_block_device(non_root_block_device.clone())
+                .is_ok()
+        );
 
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
@@ -2269,6 +2259,7 @@ mod tests {
             ).unwrap();
 
         vmm.mmio_device_manager = Some(device_manager);
+        vmm.set_instance_state(InstanceState::Running);
 
         // Test valid rescan_block_device.
         assert!(vmm.rescan_block_device("not_root".to_string()).is_ok());
@@ -2282,7 +2273,10 @@ mod tests {
 
         // Test rescan not allowed.
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-        assert!(vmm.put_block_device(non_root_block_device.clone()).is_ok());
+        assert!(
+            vmm.insert_block_device(non_root_block_device.clone())
+                .is_ok()
+        );
         assert_eq!(
             vmm.rescan_block_device("not_root".to_string()).unwrap_err(),
             DriveError::OperationNotAllowedPreBoot
