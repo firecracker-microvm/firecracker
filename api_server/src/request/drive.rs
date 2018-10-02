@@ -80,6 +80,10 @@ impl GenerateResponse for DriveError {
                 StatusCode::InternalServerError,
                 json_fault_message("The operation is not implemented!"),
             ),
+            OperationNotAllowedPreBoot => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("Operation not allowed pre-boot!"),
+            ),
             RootBlockDeviceAlreadyAdded => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("A root block device already exists!"),
