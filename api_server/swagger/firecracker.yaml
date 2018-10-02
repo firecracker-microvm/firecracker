@@ -109,12 +109,10 @@ paths:
         schema:
           $ref: "#/definitions/Drive"
       responses:
-        201:
-          description: Drive created
         204:
-          description: Drive updated
+          description: Drive created/updated
         400:
-          description: Drive cannot be created due to bad input
+          description: Drive cannot be created/updated due to bad input
           schema:
             $ref: "#/definitions/Error"
         default:

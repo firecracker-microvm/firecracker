@@ -10,22 +10,6 @@ use http_service::{empty_response, json_fault_message, json_response};
 use request::{IntoParsedRequest, ParsedRequest};
 
 #[derive(PartialEq)]
-pub enum PutDriveOutcome {
-    Created,
-    Updated,
-}
-
-impl GenerateResponse for PutDriveOutcome {
-    fn generate_response(&self) -> Response {
-        use self::PutDriveOutcome::*;
-        match *self {
-            Created => empty_response(StatusCode::Created),
-            Updated => empty_response(StatusCode::NoContent),
-        }
-    }
-}
-
-#[derive(PartialEq)]
 pub enum PatchDriveOutcome {
     Updated,
 }
@@ -92,6 +76,10 @@ impl GenerateResponse for DriveError {
                 StatusCode::BadRequest,
                 json_fault_message("Invalid request body!"),
             ),
+            UpdateNotAllowedPostBoot => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("The update operation is not allowed after boot."),
+            ),
         }
     }
 }
@@ -148,17 +136,11 @@ mod tests {
             DriveError::SerdeJson.generate_response().status(),
             StatusCode::BadRequest
         );
-    }
-
-    #[test]
-    fn test_generate_response_put_drive_outcome() {
         assert_eq!(
-            PutDriveOutcome::Created.generate_response().status(),
-            StatusCode::Created
-        );
-        assert_eq!(
-            PutDriveOutcome::Updated.generate_response().status(),
-            StatusCode::NoContent
+            DriveError::UpdateNotAllowedPostBoot
+                .generate_response()
+                .status(),
+            StatusCode::BadRequest
         );
     }
 
