@@ -75,10 +75,8 @@ paths:
         schema:
           $ref: "#/definitions/BootSource"
       responses:
-        201:
-          description: Boot source created
         204:
-          description: Boot source updated
+          description: Boot source created/updated
         400:
           description: Boot source cannot be created due to bad input
           schema:

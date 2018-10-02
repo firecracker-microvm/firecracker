@@ -31,22 +31,35 @@ pub struct BootSourceBody {
 }
 
 #[derive(Debug)]
-pub enum PutBootSourceConfigError {
+pub enum BootSourceConfigError {
+    EmptyKernelPath,
     InvalidKernelPath,
     InvalidKernelCommandLine,
+    UpdateNotAllowedPostBoot,
 }
 
-impl GenerateResponse for PutBootSourceConfigError {
+impl GenerateResponse for BootSourceConfigError {
     fn generate_response(&self) -> Response {
-        use self::PutBootSourceConfigError::*;
+        use self::BootSourceConfigError::*;
         match *self {
+            EmptyKernelPath => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("No kernel path is specified."),
+            ),
             InvalidKernelPath => json_response(
                 StatusCode::BadRequest,
-                json_fault_message("The kernel path is invalid!"),
+                json_fault_message(
+                    "The kernel file cannot \
+                     be opened due to invalid kernel path or invalid permissions.",
+                ),
             ),
             InvalidKernelCommandLine => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The kernel command line is invalid!"),
+            ),
+            UpdateNotAllowedPostBoot => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("The update operation is not allowed after boot."),
             ),
         }
     }
@@ -55,7 +68,7 @@ impl GenerateResponse for PutBootSourceConfigError {
 pub enum PutBootSourceOutcome {
     Created,
     Updated,
-    Error(PutBootSourceConfigError),
+    Error(BootSourceConfigError),
 }
 
 impl GenerateResponse for PutBootSourceOutcome {
@@ -86,13 +99,13 @@ mod tests {
     #[test]
     fn test_generate_response_put_boot_source_config_error() {
         assert_eq!(
-            PutBootSourceConfigError::InvalidKernelPath
+            BootSourceConfigError::InvalidKernelPath
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
         );
         assert_eq!(
-            PutBootSourceConfigError::InvalidKernelCommandLine
+            BootSourceConfigError::InvalidKernelCommandLine
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
@@ -110,7 +123,7 @@ mod tests {
             StatusCode::NoContent
         );
         assert_eq!(
-            PutBootSourceOutcome::Error(PutBootSourceConfigError::InvalidKernelPath)
+            PutBootSourceOutcome::Error(BootSourceConfigError::InvalidKernelPath)
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
