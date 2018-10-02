@@ -20,6 +20,7 @@ pub enum DriveError {
     BlockDeviceUpdateNotAllowed,
     NotImplemented,
     OperationNotAllowedPreBoot,
+    UpdateNotAllowedPostBoot,
     RootBlockDeviceAlreadyAdded,
     SerdeJson,
 }
