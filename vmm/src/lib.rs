@@ -1395,35 +1395,7 @@ impl Vmm {
         }
     }
 
-    fn check_patch_payload_post_boot(&self, fields: &Value) -> result::Result<(), SyncError> {
-        // After guest boot, only `path_on_host` can be updated.
-        match fields {
-            Value::Object(fields_map) => {
-                for key in fields_map.keys() {
-                    if key != "drive_id" && key != "path_on_host" {
-                        return Err(SyncError::UpdateNotAllowedPostBoot);
-                    }
-                }
-                Ok(())
-            }
-            _ => Err(SyncError::OperationFailed),
-        }
-    }
-
     fn handle_patch_drive(&mut self, fields: Value, sender: SyncOutcomeSender) {
-        if self.is_instance_initialized() {
-            match self.check_patch_payload_post_boot(&fields) {
-                Ok(()) => (),
-                Err(e) => {
-                    sender
-                        .send(Box::new(e))
-                        .map_err(|_| ())
-                        .expect("one-shot channel closed");
-                    return;
-                }
-            }
-        }
-
         match self.patch_block_device(fields) {
             Ok(ret) => sender
                 .send(Box::new(ret))
