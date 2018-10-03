@@ -1,11 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
-
 use std::collections::LinkedList;
 use std::path::PathBuf;
 use std::result;
-
-use json_patch;
-use serde_json::{self, to_value, Value};
 
 use vm::RateLimiterDescription;
 
@@ -61,19 +57,6 @@ impl BlockDeviceConfig {
 
     pub fn path_on_host(&self) -> &PathBuf {
         &self.path_on_host
-    }
-
-    pub fn merge(&mut self, fields: &Value) -> Result<()> {
-        let mut self_val = to_value(&self).map_err(|_| DriveError::SerdeJson)?;
-        json_patch::merge(&mut self_val, fields);
-
-        *self = serde_json::from_str(
-            serde_json::to_string(&self_val)
-                .map_err(|_| DriveError::SerdeJson)?
-                .as_str(),
-        ).map_err(|_| DriveError::SerdeJson)?;
-
-        Ok(())
     }
 }
 
@@ -229,7 +212,6 @@ mod tests {
 
     use self::tempfile::NamedTempFile;
     use super::*;
-    use serde_json::Map;
 
     #[test]
     fn test_create_block_devices_configs() {
@@ -531,32 +513,5 @@ mod tests {
         assert!(&block_devices_configs.update(&root_block_device_old).is_ok());
         assert!(&block_devices_configs.update(&root_block_device_new).is_ok());
         assert!(block_devices_configs.has_partuuid_root);
-    }
-
-    #[test]
-    fn test_merge() {
-        let dummy_file_1 = NamedTempFile::new().unwrap();
-        let dummy_path_1 = dummy_file_1.path().to_path_buf();
-        let mut root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path_1.clone(),
-            is_root_device: true,
-            partuuid: None,
-            is_read_only: false,
-            drive_id: String::from("1"),
-            rate_limiter: None,
-        };
-        let mut fields = Map::<String, Value>::new();
-        fields.insert(String::from("drive_id"), Value::String(String::from("1")));
-        fields.insert(String::from("is_root_device"), Value::Bool(false));
-
-        assert!(
-            root_block_device
-                .merge(&Value::Object(fields.clone()))
-                .is_ok()
-        );
-        assert!(!root_block_device.is_root_device);
-
-        fields.insert(String::from("foo"), Value::Bool(true));
-        assert!(root_block_device.merge(&Value::Object(fields)).is_err());
     }
 }
