@@ -197,6 +197,8 @@ pub struct MmdsMetrics {
     pub tx_bytes: SharedMetric,
     pub tx_errors: SharedMetric,
     pub tx_frames: SharedMetric,
+    pub connections_created: SharedMetric,
+    pub connections_destroyed: SharedMetric,
 }
 
 #[derive(Default, Serialize)]
