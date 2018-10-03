@@ -7,9 +7,7 @@ extern crate byteorder;
 extern crate epoll;
 extern crate fc_util;
 extern crate libc;
-extern crate serde_json;
 
-extern crate data_model;
 extern crate dumbo;
 #[macro_use]
 extern crate logger;
