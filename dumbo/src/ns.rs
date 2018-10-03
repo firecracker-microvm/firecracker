@@ -9,7 +9,7 @@ use pdu::arp::{test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ET
 use pdu::ethernet::{Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4};
 use pdu::ipv4::{test_speculative_dst_addr, Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
 use pdu::tcp::Error as TcpSegmentError;
-use tcp::handler::{self, TcpIPv4Handler};
+use tcp::handler::{self, RecvEvent, TcpIPv4Handler, WriteEvent};
 
 const DEFAULT_MAC_ADDR: &str = "06:01:23:45:67:01";
 const DEFAULT_IPV4_ADDR: [u8; 4] = [169, 254, 169, 254];
@@ -133,8 +133,18 @@ impl MmdsNetworkStack {
             if ip.destination_address() == self.ipv4_addr {
                 if ip.protocol() == PROTOCOL_TCP {
                     self.remote_mac_addr = eth.src_mac();
-                    if let Err(_) = self.tcp_handler.receive_packet(&ip) {
-                        METRICS.mmds.rx_accepted_err.inc();
+                    match self.tcp_handler.receive_packet(&ip) {
+                        Ok(event) => match event {
+                            RecvEvent::NewConnectionSuccessful => {
+                                METRICS.mmds.connections_created.inc()
+                            }
+                            RecvEvent::NewConnectionReplacing => {
+                                METRICS.mmds.connections_created.inc();
+                                METRICS.mmds.connections_destroyed.inc();
+                            }
+                            _ => (),
+                        },
+                        Err(_) => METRICS.mmds.rx_accepted_err.inc(),
                     }
                 } else {
                     // A non-TCP IPv4 packet heading towards the MMDS; we consider it unusual.
@@ -211,9 +221,14 @@ impl MmdsNetworkStack {
             ETHERTYPE_IPV4,
         ).map_err(WritePacketError::Ethernet)?;
 
-        let (maybe_len, _event) = self
+        let (maybe_len, event) = self
             .tcp_handler
             .write_next_packet(eth_unsized.inner_mut().payload_mut())?;
+
+        match event {
+            WriteEvent::EndpointDone => METRICS.mmds.connections_destroyed.inc(),
+            _ => (),
+        }
 
         if let Some(packet_len) = maybe_len {
             return Ok(Some(
