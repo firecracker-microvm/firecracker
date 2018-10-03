@@ -13,6 +13,7 @@ type Result<T> = result::Result<T, DriveError>;
 
 #[derive(Debug, PartialEq)]
 pub enum DriveError {
+    CannotOpenBlockDevice,
     InvalidBlockDeviceID,
     InvalidBlockDevicePath,
     BlockDevicePathAlreadyExists,
@@ -52,6 +53,14 @@ impl BlockDeviceConfig {
 
     pub fn get_partuuid(&self) -> Option<&String> {
         self.partuuid.as_ref()
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.is_read_only
+    }
+
+    pub fn path_on_host(&self) -> &PathBuf {
+        &self.path_on_host
     }
 
     pub fn merge(&mut self, fields: &Value) -> Result<()> {
@@ -173,12 +182,8 @@ impl BlockDeviceConfigs {
 
     /// This function updates a Block Device Config. The update fails if it would result in two
     /// root block devices. Full updates are allowed via PUT prior to the guest boot. Partial
-    /// updates are allowed via PATCH both before and after boot.
-    /// If the update requires a rescan in order to complete, the path to the backing file on the
-    /// host is returned in the Result. Note that for the moment, partial updates after guest boot
-    /// can only change the file path, therefore PATCH operations on /drives should always contain
-    /// a new file path and should always trigger a rescan.
-    pub fn update(&mut self, block_device_config: &BlockDeviceConfig) -> Result<Option<PathBuf>> {
+    /// updates on path_on_host are allowed via PATCH both before and after boot.
+    pub fn update(&mut self, block_device_config: &BlockDeviceConfig) -> Result<()> {
         // Check if the path exists
         if !block_device_config.path_on_host.exists() {
             return Err(DriveError::InvalidBlockDevicePath);
@@ -205,17 +210,12 @@ impl BlockDeviceConfigs {
                     }
                 }
                 cfg.is_root_device = block_device_config.is_root_device;
-                let rescan_needed = cfg.path_on_host != block_device_config.path_on_host;
                 cfg.path_on_host = block_device_config.path_on_host.clone();
                 cfg.is_read_only = block_device_config.is_read_only;
                 cfg.rate_limiter = block_device_config.rate_limiter.clone();
                 cfg.partuuid = block_device_config.partuuid.clone();
 
-                if rescan_needed {
-                    return Ok(Some(cfg.path_on_host.clone()));
-                } else {
-                    return Ok(None);
-                }
+                return Ok(());
             }
         }
 

@@ -17,6 +17,8 @@ pub use self::mmio::*;
 pub use self::net::*;
 pub use self::queue::*;
 
+use super::EpollHandlerPayload;
+
 const DEVICE_ACKNOWLEDGE: u32 = 0x01;
 const DEVICE_DRIVER: u32 = 0x02;
 const DEVICE_DRIVER_OK: u32 = 0x04;

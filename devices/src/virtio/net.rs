@@ -16,7 +16,10 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::vec::Vec;
 
-use super::{ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
+use super::{
+    ActivateError, ActivateResult, EpollHandlerPayload, Queue, VirtioDevice, TYPE_NET,
+    VIRTIO_MMIO_INT_VRING,
+};
 use dumbo::ns::{DetourFrameOutcome, MmdsNetworkStack};
 use fc_util::ratelimiter::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
@@ -624,7 +627,7 @@ impl EpollHandler for NetEpollHandler {
         &mut self,
         device_event: DeviceEventT,
         event_flags: u32,
-        _: &[u8],
+        _: EpollHandlerPayload,
     ) {
         self.handle_event(device_event, event_flags);
     }

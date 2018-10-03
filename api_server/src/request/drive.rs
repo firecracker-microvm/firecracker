@@ -2,18 +2,13 @@ use std::result;
 
 use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use data_model::vm::{BlockDeviceConfig, DriveError};
 
 use super::{GenerateResponse, SyncRequest};
-use http_service::{empty_response, json_fault_message, json_response};
+use http_service::{json_fault_message, json_response};
 use request::{IntoParsedRequest, ParsedRequest};
-
-#[derive(PartialEq)]
-pub enum PatchDriveOutcome {
-    Updated,
-}
 
 #[derive(Clone)]
 pub struct PatchDrivePayload {
@@ -23,21 +18,57 @@ pub struct PatchDrivePayload {
     pub fields: Value,
 }
 
-/// Validates that only path_on_host and drive_id are present in the payload.
-fn validate_payload(fields: &Value) -> result::Result<(), String> {
-    match fields {
-        Value::Object(fields_map) => {
-            for key in fields_map.keys() {
-                if key != "drive_id" && key != "path_on_host" {
-                    return Err(format!(
-                        "Cannot update {:?} with PATCH. Only updates on path_on_host are allowed.",
-                        key
-                    ));
+impl PatchDrivePayload {
+    /// Checks that `field_key` exists and that the value has the type Value::String.
+    fn check_field_is_string(map: &Map<String, Value>, field_key: &str) -> Result<(), String> {
+        match map.get(field_key) {
+            None => {
+                return Err(format!(
+                    "Required key {} not present in the json.",
+                    field_key
+                ));
+            }
+            Some(id) => {
+                // Check that field is a string.
+                if id.as_str().is_none() {
+                    return Err(format!("Invalid type for key {}.", field_key));
                 }
             }
-            Ok(())
         }
-        _ => Err("Invalid json.".to_string()),
+        Ok(())
+    }
+
+    /// Validates that only path_on_host and drive_id are present in the payload.
+    fn validate(&self) -> result::Result<(), String> {
+        match self.fields.as_object() {
+            Some(fields_map) => {
+                // Check that field `drive_id` exists and its type is String.
+                PatchDrivePayload::check_field_is_string(fields_map, "drive_id")?;
+                // Check that field `drive_id` exists and its type is String.
+                PatchDrivePayload::check_field_is_string(fields_map, "path_on_host")?;
+
+                // Check that there are no other fields in the object.
+                if fields_map.len() > 2 {
+                    return Err(
+                        "Invalid PATCH payload. Only updates on path_on_host are allowed."
+                            .to_string(),
+                    );
+                }
+                Ok(())
+            }
+            _ => Err("Invalid json.".to_string()),
+        }
+    }
+
+    /// Returns the field specified by `field_key` as a string. This is unsafe if validate
+    /// is not called prior to calling this method.
+    fn get_string_field_unchecked(&self, field_key: &str) -> String {
+        self.fields
+            .get(field_key)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string()
     }
 }
 
@@ -45,23 +76,17 @@ impl IntoParsedRequest for PatchDrivePayload {
     fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
         match method {
             Method::Patch => {
-                validate_payload(&self.fields)?;
+                self.validate()?;
+                let drive_id: String = self.get_string_field_unchecked("drive_id");
+                let path_on_host: String = self.get_string_field_unchecked("path_on_host");
+
                 let (sender, receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    SyncRequest::PatchDrive(self.fields, sender),
+                    SyncRequest::PatchDrive(drive_id, path_on_host, sender),
                     receiver,
                 ))
             }
             _ => Err(format!("Invalid method {}!", method)),
-        }
-    }
-}
-
-impl GenerateResponse for PatchDriveOutcome {
-    fn generate_response(&self) -> Response {
-        use self::PatchDriveOutcome::*;
-        match *self {
-            Updated => empty_response(StatusCode::NoContent),
         }
     }
 }
@@ -83,6 +108,10 @@ impl GenerateResponse for DriveError {
     fn generate_response(&self) -> Response {
         use self::DriveError::*;
         match *self {
+            CannotOpenBlockDevice => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("Cannot open block device. Invalid permission/path."),
+            ),
             InvalidBlockDeviceID => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("Invalid block device ID!"),
@@ -131,7 +160,7 @@ impl GenerateResponse for DriveError {
 mod tests {
     use super::*;
 
-    use serde_json::Map;
+    use serde_json::Number;
     use std::path::PathBuf;
 
     #[test]
@@ -140,6 +169,49 @@ mod tests {
         let mut payload_map = Map::<String, Value>::new();
         payload_map.insert(String::from("drive_id"), Value::String(String::from("bar")));
         payload_map.insert(String::from("is_read_only"), Value::Bool(false));
+        let patch_payload = PatchDrivePayload {
+            fields: Value::Object(payload_map),
+        };
+        assert!(patch_payload.into_parsed_request(Method::Patch).is_err());
+
+        // PATCH with invalid types on fields. Adding a drive_id as number instead of string.
+        let mut payload_map = Map::<String, Value>::new();
+        payload_map.insert(String::from("drive_id"), Value::Number(Number::from(1000)));
+        payload_map.insert(
+            String::from("path_on_host"),
+            Value::String(String::from("dummy")),
+        );
+        let patch_payload = PatchDrivePayload {
+            fields: Value::Object(payload_map),
+        };
+        assert!(patch_payload.into_parsed_request(Method::Patch).is_err());
+
+        // PATCH with invalid types on fields. Adding a path_on_host as bool instead of string.
+        let mut payload_map = Map::<String, Value>::new();
+        payload_map.insert(
+            String::from("drive_id"),
+            Value::String(String::from("dummy_id")),
+        );
+        payload_map.insert(String::from("path_on_host"), Value::Bool(true));
+        let patch_payload = PatchDrivePayload {
+            fields: Value::Object(payload_map),
+        };
+        assert!(patch_payload.into_parsed_request(Method::Patch).is_err());
+
+        // PATCH with missing path_on_host field.
+        let mut payload_map = Map::<String, Value>::new();
+        payload_map.insert(
+            String::from("drive_id"),
+            Value::String(String::from("dummy_id")),
+        );
+        let patch_payload = PatchDrivePayload {
+            fields: Value::Object(payload_map),
+        };
+        assert!(patch_payload.into_parsed_request(Method::Patch).is_err());
+
+        // PATCH with missing drive_id field.
+        let mut payload_map = Map::<String, Value>::new();
+        payload_map.insert(String::from("path_on_host"), Value::Bool(true));
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
@@ -160,7 +232,7 @@ mod tests {
             pdp.clone()
                 .into_parsed_request(Method::Patch)
                 .eq(&Ok(ParsedRequest::Sync(
-                    SyncRequest::PatchDrive(pdp.fields.clone(), sender),
+                    SyncRequest::PatchDrive("foo".to_string(), "dummy".to_string(), sender),
                     receiver
                 )))
         );
@@ -219,14 +291,6 @@ mod tests {
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
-        );
-    }
-
-    #[test]
-    fn test_generate_response_patch_drive_outcome() {
-        assert_eq!(
-            PatchDriveOutcome::Updated.generate_response().status(),
-            StatusCode::NoContent
         );
     }
 

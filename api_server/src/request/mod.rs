@@ -70,7 +70,7 @@ impl GenerateResponse for () {
 // bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
 pub enum SyncRequest {
     GetMachineConfiguration(SyncOutcomeSender),
-    PatchDrive(Value, SyncOutcomeSender),
+    PatchDrive(String, String, SyncOutcomeSender), // drive_id, path_on_host, channel
     PutBootSource(BootSourceBody, SyncOutcomeSender),
     PutDrive(BlockDeviceConfig, SyncOutcomeSender),
     PutLogger(APILoggerDescription, SyncOutcomeSender),
@@ -201,9 +201,9 @@ mod tests {
         fn eq(&self, other: &SyncRequest) -> bool {
             match (self, other) {
                 (
-                    &SyncRequest::PatchDrive(ref payload, _),
-                    &SyncRequest::PatchDrive(ref other_payload, _),
-                ) => payload == other_payload,
+                    &SyncRequest::PatchDrive(ref drive_id, ref path_on_host, _),
+                    &SyncRequest::PatchDrive(ref other_drive_id, ref other_path_on_host, _),
+                ) => drive_id == other_drive_id && path_on_host == other_path_on_host,
                 (
                     &SyncRequest::PutBootSource(ref bsb, _),
                     &SyncRequest::PutBootSource(ref other_bsb, _),
