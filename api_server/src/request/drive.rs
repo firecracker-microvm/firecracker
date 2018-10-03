@@ -2,6 +2,7 @@ use std::result;
 
 use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
+use serde_json::Value;
 
 use data_model::vm::{BlockDeviceConfig, DriveError};
 
@@ -12,6 +13,29 @@ use request::{IntoParsedRequest, ParsedRequest};
 #[derive(PartialEq)]
 pub enum PatchDriveOutcome {
     Updated,
+}
+
+#[derive(Clone)]
+pub struct PatchDrivePayload {
+    // Leaving `fields` pub because ownership on it needs to be yielded to the
+    // Request enum object. A getter couldn't move `fields` out of the borrowed
+    // PatchDrivePayload object.
+    pub fields: Value,
+}
+
+impl IntoParsedRequest for PatchDrivePayload {
+    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
+        match method {
+            Method::Patch => {
+                let (sender, receiver) = oneshot::channel();
+                Ok(ParsedRequest::Sync(
+                    SyncRequest::PatchDrive(self.fields, sender),
+                    receiver,
+                ))
+            }
+            _ => Err(format!("Invalid method {}!", method)),
+        }
+    }
 }
 
 impl GenerateResponse for PatchDriveOutcome {
@@ -88,7 +112,30 @@ impl GenerateResponse for DriveError {
 mod tests {
     use super::*;
 
+    use serde_json::Map;
     use std::path::PathBuf;
+
+    #[test]
+    fn test_patch_into_parsed_request() {
+        let mut fields = Map::<String, Value>::new();
+        fields.insert(String::from("drive_id"), Value::String(String::from("foo")));
+        fields.insert(String::from("is_read_only"), Value::Bool(true));
+        let pdp = PatchDrivePayload {
+            fields: Value::Object(fields),
+        };
+        let (sender, receiver) = oneshot::channel();
+
+        assert!(
+            pdp.clone()
+                .into_parsed_request(Method::Patch)
+                .eq(&Ok(ParsedRequest::Sync(
+                    SyncRequest::PatchDrive(pdp.fields.clone(), sender),
+                    receiver
+                )))
+        );
+
+        assert!(pdp.into_parsed_request(Method::Put).is_err());
+    }
 
     #[test]
     fn test_generate_response_drive_error() {

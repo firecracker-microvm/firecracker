@@ -223,14 +223,6 @@ impl BlockDeviceConfigs {
     }
 }
 
-#[derive(Clone)]
-pub struct PatchDrivePayload {
-    // Leaving `fields` pub because ownership on it needs to be yielded to the
-    // Request enum object. A getter couldn't move `fields` out of the borrowed
-    // PatchDrivePayload object.
-    pub fields: Value,
-}
-
 #[cfg(test)]
 mod tests {
     extern crate tempfile;

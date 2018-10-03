@@ -14,7 +14,7 @@ use http_service::{empty_response, json_fault_message, json_response};
 use hyper;
 use hyper::{Method, StatusCode};
 
-use data_model::vm::{BlockDeviceConfig, DriveError, MachineConfiguration, PatchDrivePayload};
+use data_model::vm::{BlockDeviceConfig, DriveError, MachineConfiguration};
 
 use self::actions::ActionBody;
 use self::boot_source::BootSourceBody;
@@ -164,21 +164,6 @@ impl GenerateResponse for Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
-impl IntoParsedRequest for PatchDrivePayload {
-    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
-        match method {
-            Method::Patch => {
-                let (sender, receiver) = oneshot::channel();
-                Ok(ParsedRequest::Sync(
-                    SyncRequest::PatchDrive(self.fields, sender),
-                    receiver,
-                ))
-            }
-            _ => Err(format!("Invalid method {}!", method)),
-        }
-    }
-}
-
 #[cfg(test)]
 impl PartialEq for ParsedRequest {
     fn eq(&self, other: &ParsedRequest) -> bool {
@@ -207,7 +192,7 @@ mod tests {
 
     use futures::{Future, Stream};
     use hyper::{Body, Response};
-    use serde_json::{self, Map};
+    use serde_json;
     use std;
 
     // Implementation for the "==" operator.
@@ -247,28 +232,6 @@ mod tests {
                 _ => false,
             }
         }
-    }
-
-    #[test]
-    fn test_into_parsed_request() {
-        let mut fields = Map::<String, Value>::new();
-        fields.insert(String::from("drive_id"), Value::String(String::from("foo")));
-        fields.insert(String::from("is_read_only"), Value::Bool(true));
-        let pdp = PatchDrivePayload {
-            fields: Value::Object(fields),
-        };
-        let (sender, receiver) = oneshot::channel();
-
-        assert!(
-            pdp.clone()
-                .into_parsed_request(Method::Patch)
-                .eq(&Ok(ParsedRequest::Sync(
-                    SyncRequest::PatchDrive(pdp.fields.clone(), sender),
-                    receiver
-                )))
-        );
-
-        assert!(pdp.into_parsed_request(Method::Put).is_err());
     }
 
     fn get_body(
