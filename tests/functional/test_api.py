@@ -736,7 +736,7 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 
-    # Updates to `is_read_only` with a valid value are allowed.
+    # Updates to `is_read_only` with a valid value are not allowed.
     response = test_microvm.api_session.patch(
         test_microvm.blk_cfg_url + '/rootfs',
         json={
@@ -744,10 +744,9 @@ def test_api_patch_pre_boot(test_microvm_with_api):
             'is_read_only': True
         }
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert not test_microvm.api_session.is_good_response(response.status_code)
 
-    # Updates to `is_root_device` that would result in 2 root block devices
-    # are not allowed.
+    # Updates to `is_root_device` with a valid value are not allowed.
     response = test_microvm.api_session.patch(
         test_microvm.blk_cfg_url + '/scratch',
         json={
@@ -756,16 +755,6 @@ def test_api_patch_pre_boot(test_microvm_with_api):
         }
     )
     assert not test_microvm.api_session.is_good_response(response.status_code)
-
-    # Updates to `is_root_device` with a valid value are allowed.
-    response = test_microvm.api_session.patch(
-        test_microvm.blk_cfg_url + '/rootfs',
-        json={
-            'drive_id': 'rootfs',
-            'is_root_device': False
-        }
-    )
-    assert test_microvm.api_session.is_good_response(response.status_code)
 
 
 @pytest.mark.timeout(100)
