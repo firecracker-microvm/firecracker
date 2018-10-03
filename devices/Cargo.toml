@@ -7,9 +7,7 @@ authors = ["The Chromium OS Authors"]
 byteorder = ">=1.2.1"
 epoll = "=2.1.0"
 libc = ">=0.2.39"
-serde_json = "=1.0.9"
 
-data_model = { path = "../data_model" }
 dumbo = { path = "../dumbo" }
 fc_util = { path = "../fc_util" }
 logger = { path = "../logger" }
