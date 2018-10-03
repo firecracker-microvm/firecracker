@@ -11,10 +11,11 @@ use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 
 use data_model::mmds::Mmds;
-use data_model::vm::{BlockDeviceConfig, MachineConfiguration, PatchDrivePayload};
+use data_model::vm::{BlockDeviceConfig, MachineConfiguration};
 use logger::{Metric, METRICS};
 use request::actions::ActionBody;
 use request::boot_source::BootSourceBody;
+use request::drive::PatchDrivePayload;
 use request::instance_info::InstanceInfo;
 use request::logger::APILoggerDescription;
 use request::net::NetworkInterfaceBody;
