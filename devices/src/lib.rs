@@ -19,6 +19,8 @@ extern crate net_util;
 extern crate sys_util;
 extern crate virtio_sys;
 
+use std::fs::File;
+
 mod bus;
 pub mod legacy;
 pub mod virtio;
@@ -27,12 +29,19 @@ pub use self::bus::{Bus, BusDevice, Error as BusError};
 
 pub type DeviceEventT = u16;
 
+/// The payload is used to handle events where the internal state of the VirtIO device
+/// needs to be changed.
+pub enum EpollHandlerPayload {
+    /// DrivePayload(disk_image)
+    DrivePayload(File),
+}
+
 pub trait EpollHandler: Send {
     fn handle_event(&mut self, device_event: DeviceEventT, event_flags: u32);
     fn handle_event_with_payload(
         &mut self,
         device_event: DeviceEventT,
         event_flags: u32,
-        payload: &[u8],
+        payload: EpollHandlerPayload,
     );
 }

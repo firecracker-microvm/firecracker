@@ -2,9 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 use epoll;
-use serde_json::from_str;
 use std::cmp;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -14,10 +13,9 @@ use std::sync::mpsc;
 use std::sync::Arc;
 
 use super::{
-    ActivateError, ActivateResult, DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK,
-    VIRTIO_MMIO_INT_VRING,
+    ActivateError, ActivateResult, DescriptorChain, EpollHandlerPayload, Queue, VirtioDevice,
+    TYPE_BLOCK, VIRTIO_MMIO_INT_VRING,
 };
-use data_model::vm::BlockDeviceConfig;
 use fc_util::ratelimiter::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
@@ -347,25 +345,10 @@ impl BlockEpollHandler {
         self.rate_limiter = rate_limiter;
     }
 
-    fn update_drive(&mut self, drive_desc: String) {
-        // The unwrap()s are safe because this function is called with a serialized
-        // BlockDeviceConfig.
-        let device_cfg = from_str::<BlockDeviceConfig>(drive_desc.as_str()).unwrap();
-        match OpenOptions::new()
-            .read(true)
-            .write(!device_cfg.is_read_only)
-            .open(device_cfg.path_on_host)
-        {
-            Ok(disk_image) => {
-                self.disk_image = disk_image;
-                self.disk_image_id = build_disk_image_id(&self.disk_image);
-                METRICS.block.update_count.inc();
-            }
-            Err(e) => {
-                error!("Failed to update block device: {:?}", e);
-                METRICS.block.update_fails.inc();
-            }
-        }
+    fn update_disk_image(&mut self, disk_image: File) {
+        self.disk_image = disk_image;
+        self.disk_image_id = build_disk_image_id(&self.disk_image);
+        METRICS.block.update_count.inc();
     }
 }
 
@@ -409,10 +392,15 @@ impl EpollHandler for BlockEpollHandler {
         &mut self,
         device_event: DeviceEventT,
         event_flags: u32,
-        payload: &[u8],
+        payload: EpollHandlerPayload,
     ) {
         match device_event {
-            FS_UPDATE_EVENT => self.update_drive(String::from_utf8(payload.to_vec()).unwrap()),
+            FS_UPDATE_EVENT => {
+                let file = match payload {
+                    EpollHandlerPayload::DrivePayload(file) => file,
+                };
+                self.update_disk_image(file);
+            }
             _ => self.handle_event(device_event, event_flags),
         }
     }
@@ -682,7 +670,7 @@ mod tests {
     use super::*;
 
     use libc;
-    use std::fs::metadata;
+    use std::fs::{metadata, OpenOptions};
     use std::sync::mpsc::Receiver;
     use std::thread;
     use std::time::Duration;
@@ -1344,24 +1332,16 @@ mod tests {
                 id[i] = part_id[i];
             }
 
-            let str_block = format!(
-                "{{
-                \"drive_id\": \"bar\",
-                \"path_on_host\": \"{}\",
-                \"is_root_device\": true,
-                \"is_read_only\": true
-              }}",
-                path.to_str().unwrap()
-            );
-
-            h.handle_event_with_payload(FS_UPDATE_EVENT, 0, &str_block.as_bytes());
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)
+                .unwrap();
+            let payload = EpollHandlerPayload::DrivePayload(file);
+            h.handle_event_with_payload(FS_UPDATE_EVENT, 0, payload);
 
             assert_eq!(h.disk_image.metadata().unwrap().st_ino(), mdata.st_ino());
             assert_eq!(h.disk_image_id, id);
         }
-
-        // can be called like this for now, because it currently doesn't really do anything
-        // besides outputting some message
-        h.handle_event_with_payload(KILL_EVENT, 0, &vec![]);
     }
 }
