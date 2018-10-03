@@ -23,10 +23,29 @@ pub struct PatchDrivePayload {
     pub fields: Value,
 }
 
+/// Validates that only path_on_host and drive_id are present in the payload.
+fn validate_payload(fields: &Value) -> result::Result<(), String> {
+    match fields {
+        Value::Object(fields_map) => {
+            for key in fields_map.keys() {
+                if key != "drive_id" && key != "path_on_host" {
+                    return Err(format!(
+                        "Cannot update {:?} with PATCH. Only updates on path_on_host are allowed.",
+                        key
+                    ));
+                }
+            }
+            Ok(())
+        }
+        _ => Err("Invalid json.".to_string()),
+    }
+}
+
 impl IntoParsedRequest for PatchDrivePayload {
     fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
         match method {
             Method::Patch => {
+                validate_payload(&self.fields)?;
                 let (sender, receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
                     SyncRequest::PatchDrive(self.fields, sender),
@@ -117,11 +136,23 @@ mod tests {
 
     #[test]
     fn test_patch_into_parsed_request() {
-        let mut fields = Map::<String, Value>::new();
-        fields.insert(String::from("drive_id"), Value::String(String::from("foo")));
-        fields.insert(String::from("is_read_only"), Value::Bool(true));
+        // PATCH with invalid fields.
+        let mut payload_map = Map::<String, Value>::new();
+        payload_map.insert(String::from("drive_id"), Value::String(String::from("bar")));
+        payload_map.insert(String::from("is_read_only"), Value::Bool(false));
+        let patch_payload = PatchDrivePayload {
+            fields: Value::Object(payload_map),
+        };
+        assert!(patch_payload.into_parsed_request(Method::Patch).is_err());
+
+        let mut payload_map = Map::<String, Value>::new();
+        payload_map.insert(String::from("drive_id"), Value::String(String::from("foo")));
+        payload_map.insert(
+            String::from("path_on_host"),
+            Value::String(String::from("dummy")),
+        );
         let pdp = PatchDrivePayload {
-            fields: Value::Object(fields),
+            fields: Value::Object(payload_map),
         };
         let (sender, receiver) = oneshot::channel();
 

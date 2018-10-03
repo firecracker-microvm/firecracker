@@ -903,17 +903,21 @@ mod tests {
         );
 
         // PATCH
-        let json = "{
-                \"drive_id\": \"bar\",
-                \"is_read_only\": false
-              }";
+        let json = r#"{
+                "drive_id": "bar",
+                "path_on_host": "dummy"
+              }"#;
         let body: Chunk = Chunk::from(json);
         let mut payload_map = Map::<String, Value>::new();
         payload_map.insert(String::from("drive_id"), Value::String(String::from("bar")));
-        payload_map.insert(String::from("is_read_only"), Value::Bool(false));
+        payload_map.insert(
+            String::from("path_on_host"),
+            Value::String(String::from("dummy")),
+        );
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
+
         match patch_payload.into_parsed_request(Method::Patch) {
             Ok(pr) => {
                 match parse_drives_req(&path_tokens, &path, Method::Patch, &id_from_path, &body) {
