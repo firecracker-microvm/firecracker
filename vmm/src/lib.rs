@@ -29,6 +29,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::{metadata, File, OpenOptions};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::path::PathBuf;
 use std::result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
@@ -42,7 +43,6 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use api_server::request::actions::ActionBody;
 use api_server::request::boot_source::{BootSourceBody, BootSourceConfigError};
-use api_server::request::drive::PatchDriveOutcome;
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::logger::{APILoggerDescription, APILoggerError, APILoggerLevel};
 use api_server::request::machine_configuration::PutMachineConfigurationError;
@@ -58,7 +58,7 @@ use device_config::*;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio;
-use devices::{DeviceEventT, EpollHandler};
+use devices::{DeviceEventT, EpollHandler, EpollHandlerPayload};
 use kvm::*;
 use logger::{Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
@@ -541,7 +541,7 @@ impl Vmm {
     fn update_drive_handler(
         &mut self,
         drive_id: &String,
-        drive_details: String,
+        disk_image: File,
     ) -> result::Result<(), DriveError> {
         if let Some(device_idx) = self.drive_handler_id_map.get(drive_id) {
             match self.epoll_context.get_device_handler(*device_idx) {
@@ -549,7 +549,7 @@ impl Vmm {
                     handler.handle_event_with_payload(
                         3,
                         *device_idx as u32,
-                        drive_details.as_bytes(),
+                        EpollHandlerPayload::DrivePayload(disk_image),
                     );
                     Ok(())
                 }
@@ -1217,40 +1217,29 @@ impl Vmm {
         self.network_interface_configs.insert(body)
     }
 
-    fn patch_block_device(
+    fn set_block_device_path(
         &mut self,
-        fields: Value,
-    ) -> result::Result<PatchDriveOutcome, DriveError> {
-        let guest_running = self.mmio_device_manager.is_some();
-
-        if let Some(Value::String(id)) = fields.get("drive_id") {
-            let mut merged_drive = self.block_device_configs.get_block_device_config(&id)?;
-            merged_drive.merge(&fields)?;
-
-            match self.block_device_configs.update(&merged_drive) {
-                Ok(Some(_)) => {
-                    // Rescan is only necessary if the guest has booted.
-                    if guest_running {
-                        // In order to update the file, the handler needs to know the path and the
-                        // permissions, regardless of whether they were sent in the PATCH request.
-                        self.update_drive_handler(
-                            &merged_drive.drive_id,
-                            serde_json::to_string(&merged_drive)
-                                .map_err(|_| DriveError::BlockDeviceUpdateFailed)?,
-                        ).and_then(|_| {
-                            self.rescan_block_device(merged_drive.drive_id)
-                                .map(|_| PatchDriveOutcome::Updated)
-                        })
-                    } else {
-                        Ok(PatchDriveOutcome::Updated)
-                    }
-                }
-                Ok(None) => Ok(PatchDriveOutcome::Updated),
-                Err(e) => Err(e),
-            }
-        } else {
-            Err(DriveError::BlockDeviceUpdateNotAllowed)
+        drive_id: String,
+        path_on_host: String,
+    ) -> result::Result<(), DriveError> {
+        let mut block_device = self
+            .block_device_configs
+            .get_block_device_config(&drive_id)?;
+        block_device.path_on_host = PathBuf::from(path_on_host);
+        // Try to open the file specified by path_on_host using the permissions of the block_device.
+        let disk_file = OpenOptions::new()
+            .read(true)
+            .write(!block_device.is_read_only())
+            .open(block_device.path_on_host())
+            .map_err(|_| DriveError::CannotOpenBlockDevice)?;
+        self.block_device_configs.update(&block_device)?;
+        // When the microvm is running, we also need to update the drive handler and send a
+        // rescan command to the drive.
+        if self.is_instance_initialized() {
+            self.update_drive_handler(&drive_id, disk_file)?;
+            self.rescan_block_device(drive_id)?;
         }
+        Ok(())
     }
 
     fn rescan_block_device(&mut self, drive_id: String) -> result::Result<(), DriveError> {
@@ -1302,9 +1291,7 @@ impl Vmm {
             .block_device_configs
             .contains_drive_id(block_device_config.drive_id.clone())
         {
-            self.block_device_configs
-                .update(&block_device_config)
-                .map(|_| ())
+            self.block_device_configs.update(&block_device_config)
         } else {
             self.block_device_configs
                 .add(block_device_config)
@@ -1395,8 +1382,13 @@ impl Vmm {
         }
     }
 
-    fn handle_patch_drive(&mut self, fields: Value, sender: SyncOutcomeSender) {
-        match self.patch_block_device(fields) {
+    fn handle_patch_drive(
+        &mut self,
+        drive_id: String,
+        path_on_host: String,
+        sender: SyncOutcomeSender,
+    ) {
+        match self.set_block_device_path(drive_id, path_on_host) {
             Ok(ret) => sender
                 .send(Box::new(ret))
                 .map_err(|_| ())
@@ -1497,8 +1489,8 @@ impl Vmm {
             SyncRequest::GetMachineConfiguration(sender) => {
                 self.handle_get_machine_configuration(sender)
             }
-            SyncRequest::PatchDrive(drive_description, sender) => {
-                self.handle_patch_drive(drive_description, sender)
+            SyncRequest::PatchDrive(drive_id, path_on_host, sender) => {
+                self.handle_patch_drive(drive_id, path_on_host, sender)
             }
             SyncRequest::PutBootSource(boot_source_body, sender) => {
                 self.handle_put_boot_source(boot_source_body, sender)
@@ -1611,7 +1603,7 @@ mod tests {
     struct DummyEpollHandler {
         pub evt: Option<DeviceEventT>,
         pub flags: Option<u32>,
-        pub payload: Option<Vec<u8>>,
+        pub payload: Option<EpollHandlerPayload>,
     }
 
     impl EpollHandler for DummyEpollHandler {
@@ -1624,11 +1616,11 @@ mod tests {
             &mut self,
             device_event: DeviceEventT,
             event_flags: u32,
-            payload: &[u8],
+            payload: EpollHandlerPayload,
         ) {
             self.evt = Some(device_event);
             self.flags = Some(event_flags);
-            self.payload = Some(payload.to_vec());
+            self.payload = Some(payload);
         }
     }
 
@@ -2140,30 +2132,11 @@ mod tests {
             String::from("drive_id"),
             Value::String(String::from("not_root")),
         );
-        fields.insert(String::from("is_read_only"), Value::Bool(false));
-        assert!(
-            vmm.patch_block_device(Value::Object(fields))
-                .eq(&Ok(PatchDriveOutcome::Updated))
-        );
-        match vmm
-            .block_device_configs
-            .get_block_device_config(&String::from("not_root"))
-        {
-            Ok(block) => assert!(!block.is_read_only),
-            _ => assert!(false),
-        }
-
-        let mut fields = Map::<String, Value>::new();
-        fields.insert(
-            String::from("drive_id"),
-            Value::String(String::from("not_root")),
-        );
         let new_block = NamedTempFile::new().unwrap();
         let path = String::from(new_block.path().to_path_buf().to_str().unwrap());
-        fields.insert(String::from("path_on_host"), Value::String(path));
         assert!(
-            vmm.patch_block_device(Value::Object(fields))
-                .eq(&Ok(PatchDriveOutcome::Updated))
+            vmm.set_block_device_path("not_root".to_string(), path)
+                .is_ok()
         );
     }
 
