@@ -3,7 +3,7 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Response, StatusCode};
 
-use http_service::{empty_response, json_fault_message, json_response};
+use http_service::{json_fault_message, json_response};
 use request::{GenerateResponse, ParsedRequest, SyncRequest};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -44,21 +44,6 @@ impl GenerateResponse for APILoggerError {
     }
 }
 
-pub enum PutLoggerOutcome {
-    Initialized,
-    Error(APILoggerError),
-}
-
-impl GenerateResponse for PutLoggerOutcome {
-    fn generate_response(&self) -> Response {
-        use self::PutLoggerOutcome::*;
-        match *self {
-            Initialized => empty_response(StatusCode::Created),
-            Error(ref e) => e.generate_response(),
-        }
-    }
-}
-
 impl APILoggerDescription {
     pub fn into_parsed_request(self) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
@@ -88,21 +73,6 @@ mod tests {
                     "Could not initialize log system".to_string()
                 )
             ).contains("InitializationFailure")
-        );
-    }
-
-    #[test]
-    fn test_generate_response_put_logger_outcome() {
-        assert_eq!(
-            PutLoggerOutcome::Initialized.generate_response().status(),
-            StatusCode::Created
-        );
-        assert_eq!(
-            PutLoggerOutcome::Error(APILoggerError::InitializationFailure(
-                "Could not initialize log system".to_string()
-            )).generate_response()
-            .status(),
-            StatusCode::BadRequest
         );
     }
 

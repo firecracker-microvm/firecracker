@@ -18,7 +18,6 @@ extern crate seccomp;
 extern crate sys_util;
 extern crate x86_64;
 
-mod api_logger_config;
 pub mod default_syscalls;
 mod device_config;
 mod device_manager;
@@ -45,7 +44,7 @@ use api_server::request::actions::ActionBody;
 use api_server::request::boot_source::{BootSourceBody, BootSourceConfigError};
 use api_server::request::drive::PatchDriveOutcome;
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
-use api_server::request::logger::{APILoggerDescription, PutLoggerOutcome};
+use api_server::request::logger::{APILoggerDescription, APILoggerError, APILoggerLevel};
 use api_server::request::machine_configuration::PutMachineConfigurationError;
 use api_server::request::net::{NetworkInterfaceBody, NetworkInterfaceError};
 use api_server::request::{
@@ -61,7 +60,7 @@ use device_manager::mmio::MMIODeviceManager;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler};
 use kvm::*;
-use logger::{Metric, LOGGER, METRICS};
+use logger::{Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::{register_signal_handler, EventFd, Killable, Terminal};
 use vm_control::VmResponse;
@@ -1308,6 +1307,50 @@ impl Vmm {
         }
     }
 
+    fn init_logger(
+        &self,
+        api_logger: APILoggerDescription,
+    ) -> std::result::Result<(), APILoggerError> {
+        if self.is_instance_initialized() {
+            return Err(APILoggerError::InitializationFailure(
+                "Cannot initialize logger after boot.".to_string(),
+            ));
+        }
+
+        let instance_id;
+        {
+            let guard = self.shared_info.read().unwrap();
+            instance_id = guard.id.clone();
+        }
+
+        match api_logger.level {
+            Some(val) => match val {
+                APILoggerLevel::Error => LOGGER.set_level(Level::Error),
+                APILoggerLevel::Warning => LOGGER.set_level(Level::Warn),
+                APILoggerLevel::Info => LOGGER.set_level(Level::Info),
+                APILoggerLevel::Debug => LOGGER.set_level(Level::Debug),
+            },
+            None => (),
+        }
+
+        if let Some(val) = api_logger.show_log_origin {
+            LOGGER.set_include_origin(val, val);
+        }
+
+        if let Some(val) = api_logger.show_level {
+            LOGGER.set_include_level(val);
+        }
+
+        LOGGER
+            .init(
+                &instance_id,
+                Some(api_logger.log_fifo),
+                Some(api_logger.metrics_fifo),
+            ).map_err(|e| APILoggerError::InitializationFailure(e.to_string()))?;
+
+        Ok(())
+    }
+
     fn handle_start_instance(&mut self, sender: SyncOutcomeSender) {
         match self.start_instance() {
             Ok(_) => sender
@@ -1393,29 +1436,10 @@ impl Vmm {
         logger_description: APILoggerDescription,
         sender: SyncOutcomeSender,
     ) {
-        if self.is_instance_initialized() {
-            sender
-                .send(Box::new(SyncError::UpdateNotAllowedPostBoot))
-                .map_err(|_| ())
-                .expect("one-shot channel closed");
-            return;
-        }
-
-        let id;
-        {
-            let guard = self.shared_info.read().unwrap();
-            id = guard.id.clone();
-        }
-        match api_logger_config::init_logger(id.as_str(), logger_description) {
-            Ok(_) => sender
-                .send(Box::new(PutLoggerOutcome::Initialized))
-                .map_err(|_| ())
-                .expect("one-shot channel closed"),
-            Err(e) => sender
-                .send(Box::new(e))
-                .map_err(|_| ())
-                .expect("one-shot channel closed"),
-        }
+        sender
+            .send(Box::new(self.init_logger(logger_description)))
+            .map_err(|_| ())
+            .expect("one-shot channel closed");
     }
 
     fn handle_put_boot_source(
@@ -1560,6 +1584,7 @@ mod tests {
     use super::*;
 
     use std::fs::File;
+    use std::io::{BufRead, BufReader};
     use std::sync::atomic::AtomicUsize;
 
     use serde_json::Map;
@@ -2275,5 +2300,79 @@ mod tests {
             vmm.rescan_block_device("not_root".to_string()).unwrap_err(),
             DriveError::OperationNotAllowedPreBoot
         );
+    }
+
+    // Helper function that tests whether the log file contains the `line_tokens`
+    fn validate_logs(
+        log_path: &str,
+        line_tokens: &[(&'static str, &'static str, &'static str)],
+    ) -> bool {
+        let f = File::open(log_path).unwrap();
+        let mut reader = BufReader::new(f);
+        let mut res = true;
+        let mut line = String::new();
+        for tuple in line_tokens {
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            res &= line.contains(&tuple.0);
+            res &= line.contains(&tuple.1);
+            res &= line.contains(&tuple.2);
+        }
+        res
+    }
+
+    #[test]
+    fn test_init_logger_from_api() {
+        // Error case: update after instance is running
+        let log_file = NamedTempFile::new().unwrap();
+        let metrics_file = NamedTempFile::new().unwrap();
+        let desc = APILoggerDescription {
+            log_fifo: log_file.path().to_str().unwrap().to_string(),
+            metrics_fifo: metrics_file.path().to_str().unwrap().to_string(),
+            level: Some(APILoggerLevel::Warning),
+            show_level: Some(true),
+            show_log_origin: Some(true),
+        };
+
+        let mut vmm = create_vmm_object(InstanceState::Running);
+        assert!(vmm.init_logger(desc).is_err());
+
+        // Reset vmm state to test the other scenarios.
+        vmm.set_instance_state(InstanceState::Uninitialized);
+
+        // Error case: initializing logger with invalid pipes return error.
+        let desc = APILoggerDescription {
+            log_fifo: String::from("not_found_file_log"),
+            metrics_fifo: String::from("not_found_file_metrics"),
+            level: None,
+            show_level: None,
+            show_log_origin: None,
+        };
+        assert!(vmm.init_logger(desc).is_err());
+
+        // Initializing logger with valid pipes is ok.
+        let log_file = NamedTempFile::new().unwrap();
+        let metrics_file = NamedTempFile::new().unwrap();
+        let desc = APILoggerDescription {
+            log_fifo: log_file.path().to_str().unwrap().to_string(),
+            metrics_fifo: metrics_file.path().to_str().unwrap().to_string(),
+            level: Some(APILoggerLevel::Warning),
+            show_level: Some(true),
+            show_log_origin: Some(true),
+        };
+        assert!(vmm.init_logger(desc).is_ok());
+
+        info!("info");
+        warn!("warning");
+        error!("error");
+
+        // Assert that the log contains the error and warning.
+        assert!(validate_logs(
+            log_file.path().to_str().unwrap(),
+            &[
+                ("WARN", "vmm/src/lib.rs", "warn"),
+                ("ERROR", "vmm/src/lib.rs", "error"),
+            ]
+        ));
     }
 }
