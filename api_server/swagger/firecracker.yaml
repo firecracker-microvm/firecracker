@@ -134,7 +134,7 @@ paths:
         description: Guest drive properties
         required: true
         schema:
-          $ref: "#/definitions/Drive"
+          $ref: "#/definitions/PartialDrive"
       responses:
         204:
           description: Drive updated
@@ -289,6 +289,7 @@ definitions:
     type: object
     required:
       - drive_id
+      - path_on_host
       - is_root_device
       - is_read_only
     properties:
@@ -422,6 +423,18 @@ definitions:
         $ref: "#/definitions/RateLimiter"
       state:
         $ref: "#/definitions/DeviceState"
+
+  PartialDrive:
+    type: object
+    required:
+      - drive_id
+      - path_on_host
+    properties:
+      drive_id:
+        type: string
+      path_on_host:
+        type: string
+        description: Host level path for the guest drive
 
   RateLimiter:
     type: object

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The `path_on_host` property in the drive specification is now marked as *mandatory*.
+- PATCH drive only allows patching/changing the `path_on_host` property.
+
 ## [0.9.0]
 
 ### Added
