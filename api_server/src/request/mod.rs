@@ -16,7 +16,6 @@ use hyper::{Method, StatusCode};
 
 use data_model::vm::{BlockDeviceConfig, DriveError, MachineConfiguration};
 
-use self::actions::ActionBody;
 use self::boot_source::BootSourceBody;
 use self::logger::APILoggerDescription;
 use self::net::NetworkInterfaceBody;
@@ -76,7 +75,7 @@ pub enum SyncRequest {
     PutLogger(APILoggerDescription, SyncOutcomeSender),
     PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
     PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
-    RescanBlockDevice(ActionBody, SyncOutcomeSender),
+    RescanBlockDevice(String, SyncOutcomeSender),
     StartInstance(SyncOutcomeSender),
 }
 
