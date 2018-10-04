@@ -4,7 +4,7 @@ use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
 
 use data_model::vm::MachineConfiguration;
-use http_service::{empty_response, json_fault_message, json_response};
+use http_service::{json_fault_message, json_response};
 use request::{GenerateResponse, IntoParsedRequest, ParsedRequest, SyncRequest};
 
 #[derive(Debug, PartialEq)]
@@ -34,23 +34,6 @@ impl GenerateResponse for PutMachineConfigurationError {
                 StatusCode::BadRequest,
                 json_fault_message("The update operation is not allowed after boot."),
             ),
-        }
-    }
-}
-
-pub enum PutMachineConfigurationOutcome {
-    Created,
-    Updated,
-    Error(PutMachineConfigurationError),
-}
-
-impl GenerateResponse for PutMachineConfigurationOutcome {
-    fn generate_response(&self) -> Response {
-        use self::PutMachineConfigurationOutcome::*;
-        match *self {
-            Created => empty_response(StatusCode::Created),
-            Updated => empty_response(StatusCode::NoContent),
-            Error(ref e) => e.generate_response(),
         }
     }
 }
@@ -121,28 +104,6 @@ mod tests {
         );
         assert_eq!(
             PutMachineConfigurationError::UpdateNotAllowPostBoot
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
-    }
-
-    #[test]
-    fn test_generate_response_put_machine_configuration_outcome() {
-        assert_eq!(
-            PutMachineConfigurationOutcome::Created
-                .generate_response()
-                .status(),
-            StatusCode::Created
-        );
-        assert_eq!(
-            PutMachineConfigurationOutcome::Updated
-                .generate_response()
-                .status(),
-            StatusCode::NoContent
-        );
-        assert_eq!(
-            PutMachineConfigurationOutcome::Error(PutMachineConfigurationError::InvalidVcpuCount)
                 .generate_response()
                 .status(),
             StatusCode::BadRequest

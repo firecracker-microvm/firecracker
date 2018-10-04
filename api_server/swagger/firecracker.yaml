@@ -203,10 +203,8 @@ paths:
         schema:
           $ref: "#/definitions/MachineConfiguration"
       responses:
-        201:
-          description: Machine Configuration created
         204:
-          description: Machine Configuration updated
+          description: Machine Configuration created/updated
         400:
           description: Machine Configuration cannot be updated due to bad input
           schema:

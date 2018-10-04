@@ -46,9 +46,7 @@ use api_server::request::boot_source::{BootSourceBody, BootSourceConfigError};
 use api_server::request::drive::PatchDriveOutcome;
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::logger::{APILoggerDescription, PutLoggerOutcome};
-use api_server::request::machine_configuration::{
-    PutMachineConfigurationError, PutMachineConfigurationOutcome,
-};
+use api_server::request::machine_configuration::PutMachineConfigurationError;
 use api_server::request::net::{NetworkInterfaceBody, NetworkInterfaceError};
 use api_server::request::{
     Error as SyncError, ErrorType, GenerateResponse, SyncOutcomeSender, SyncRequest,
@@ -1452,13 +1450,8 @@ impl Vmm {
         machine_config_body: MachineConfiguration,
         sender: SyncOutcomeSender,
     ) {
-        let boxed_response = match self.set_vm_configuration(machine_config_body) {
-            Ok(_) => Box::new(PutMachineConfigurationOutcome::Updated),
-            Err(e) => Box::new(PutMachineConfigurationOutcome::Error(e)),
-        };
-
         sender
-            .send(boxed_response)
+            .send(Box::new(self.set_vm_configuration(machine_config_body)))
             .map_err(|_| ())
             .expect("one-shot channel closed");
     }
