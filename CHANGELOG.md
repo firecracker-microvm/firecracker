@@ -4,8 +4,10 @@
 
 ### Changed
 
-- The `path_on_host` property in the drive specification is now marked as *mandatory*.
+- The `path_on_host` property in the drive specification is now marked as
+*mandatory*.
 - PATCH drive only allows patching/changing the `path_on_host` property.
+- All PUT and PATCH requests return the status code 204.
 
 ## [0.9.0]
 
