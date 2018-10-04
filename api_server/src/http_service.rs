@@ -583,7 +583,6 @@ mod tests {
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use net_util::MacAddr;
-    use request::actions::ActionType;
     use request::SyncRequest;
 
     fn body_to_string(body: hyper::Body) -> String {
@@ -733,23 +732,18 @@ mod tests {
         }
 
         // PUT BlockDeviceRescan
-        let json = "{
-                \"action_type\": \"BlockDeviceRescan\",
-                \"payload\": \"foo\"
-              }";
+        let json = r#"{
+                "action_type": "BlockDeviceRescan",
+                "payload": "dummy_id"
+              }"#;
         let body: Chunk = Chunk::from(json);
         let path = "/foo";
         let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
         match parse_actions_req(&path_tokens, &path, Method::Put, &body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
-                let action_body = ActionBody {
-                    action_type: ActionType::BlockDeviceRescan,
-                    instance_device_detach_action: None,
-                    payload: Some(Value::String(String::from("foo"))),
-                };
                 assert!(pr.eq(&ParsedRequest::Sync(
-                    SyncRequest::RescanBlockDevice(action_body, sender),
+                    SyncRequest::RescanBlockDevice("dummy_id".to_string(), sender),
                     receiver
                 )));
             }
