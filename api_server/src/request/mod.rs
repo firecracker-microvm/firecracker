@@ -86,27 +86,6 @@ impl fmt::Debug for SyncRequest {
     }
 }
 
-// TODO: we should move toward having both the ok status and various possible sync request errors
-// in this file, because there are many common sync outcomes.
-
-#[derive(PartialEq)]
-pub enum OkStatus {
-    Created,
-    Ok,
-    NoContent,
-}
-
-impl GenerateResponse for OkStatus {
-    fn generate_response(&self) -> hyper::Response {
-        use self::OkStatus::*;
-        match *self {
-            Created => empty_response(StatusCode::Created),
-            Ok => empty_response(StatusCode::Ok),
-            NoContent => empty_response(StatusCode::NoContent),
-        }
-    }
-}
-
 // Potential errors associated with sync requests.
 #[derive(Debug)]
 pub enum Error {
@@ -290,15 +269,6 @@ mod tests {
         );
 
         assert!(pdp.into_parsed_request(Method::Put).is_err());
-    }
-
-    #[test]
-    fn test_generate_response_okstatus() {
-        let mut ret = OkStatus::Created.generate_response();
-        assert_eq!(ret.status(), StatusCode::Created);
-
-        ret = OkStatus::NoContent.generate_response();
-        assert_eq!(ret.status(), StatusCode::NoContent);
     }
 
     fn get_body(
