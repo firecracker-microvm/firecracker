@@ -3,7 +3,7 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Response, StatusCode};
 
-use http_service::{empty_response, json_fault_message, json_response};
+use http_service::{json_fault_message, json_response};
 use request::{GenerateResponse, ParsedRequest, SyncRequest};
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -65,23 +65,6 @@ impl GenerateResponse for BootSourceConfigError {
     }
 }
 
-pub enum PutBootSourceOutcome {
-    Created,
-    Updated,
-    Error(BootSourceConfigError),
-}
-
-impl GenerateResponse for PutBootSourceOutcome {
-    fn generate_response(&self) -> Response {
-        use self::PutBootSourceOutcome::*;
-        match *self {
-            Created => empty_response(StatusCode::Created),
-            Updated => empty_response(StatusCode::NoContent),
-            Error(ref e) => e.generate_response(),
-        }
-    }
-}
-
 impl BootSourceBody {
     pub fn into_parsed_request(self) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
@@ -106,24 +89,6 @@ mod tests {
         );
         assert_eq!(
             BootSourceConfigError::InvalidKernelCommandLine
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
-    }
-
-    #[test]
-    fn test_generate_response_put_boot_source_outcome() {
-        assert_eq!(
-            PutBootSourceOutcome::Created.generate_response().status(),
-            StatusCode::Created
-        );
-        assert_eq!(
-            PutBootSourceOutcome::Updated.generate_response().status(),
-            StatusCode::NoContent
-        );
-        assert_eq!(
-            PutBootSourceOutcome::Error(BootSourceConfigError::InvalidKernelPath)
                 .generate_response()
                 .status(),
             StatusCode::BadRequest
