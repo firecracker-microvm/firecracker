@@ -85,14 +85,18 @@ microVM.
 
 ### Integration Testing
 
-- The boot-time SLA is enforced in `tests/performance/test-boottime.py`
+- The boot-time SLA is enforced in `tests/performance/test_boottime.py`.
+- The process startup time SLA is enforced in
+ `tests/performance/test_process_startup_time.py`. This value corresponds to the
+ time elapsed between `jailer` starting and `bind` being called on the API
+ socket.
 
 ### Measuring boot time
 
-- Writing the magic value `123` to IO port `0x03f0` triggers a timestamp entry in
-the Firecracker log, which represents the time elapsed since receiving the 
-`InstanceStart` command. This mechanism can be used to measure guest boot-time by
-writing to said IO port very early (ideally as part of init) from the guest.
+- Writing the magic value `123` to IO port `0x03f0` triggers a timestamp entry
+ in the Firecracker log, which represents the time elapsed since receiving the
+ `InstanceStart` command. This mechanism can be used to measure guest boot-time
+ by writing to said IO port very early (ideally as part of init) from the guest.
 
 ## Getting Started
 
