@@ -159,7 +159,7 @@ paths:
           schema:
             $ref: "#/definitions/Logger"
         responses:
-          201:
+          204:
             description: Logger created.
           400:
             description: Logger cannot be initialized due to bad input.
