@@ -42,13 +42,43 @@ pub struct ActionBody {
     pub payload: Option<Value>,
 }
 
+fn validate_payload(action_body: &ActionBody) -> Result<(), String> {
+    match action_body.action_type {
+        ActionType::BlockDeviceRescan => {
+            match action_body.payload {
+                Some(ref payload) => {
+                    // Expecting to have drive_id as a String in the payload.
+                    if !payload.is_string() {
+                        return Err(
+                            "Invalid payload type. Expected a string representing the drive_id"
+                                .to_string(),
+                        );
+                    }
+                    Ok(())
+                }
+                None => return Err("Payload is required for block device rescan.".to_string()),
+            }
+        }
+        ActionType::InstanceStart => {
+            // InstanceStart does not have a payload
+            if !action_body.payload.is_none() {
+                return Err("InstanceStart does not support a payload.".to_string());
+            }
+            Ok(())
+        }
+    }
+}
+
 impl IntoParsedRequest for ActionBody {
     fn into_parsed_request(self, _: Method) -> result::Result<ParsedRequest, String> {
+        validate_payload(&self)?;
         match self.action_type {
             ActionType::BlockDeviceRescan => {
+                // Safe to unwrap because we validated the payload in the validate_payload func.
+                let block_device_id = self.payload.unwrap().as_str().unwrap().to_string();
                 let (sync_sender, sync_receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    SyncRequest::RescanBlockDevice(self, sync_sender),
+                    SyncRequest::RescanBlockDevice(block_device_id, sync_sender),
                     sync_receiver,
                 ))
             }
@@ -69,19 +99,57 @@ mod tests {
     use serde_json;
 
     #[test]
+    fn test_validate_payload() {
+        // Test InstanceStart.
+        let action_body = ActionBody {
+            action_type: ActionType::InstanceStart,
+            instance_device_detach_action: None,
+            payload: None,
+        };
+        assert!(validate_payload(&action_body).is_ok());
+        // Error case: InstanceStart with payload.
+        let action_body = ActionBody {
+            action_type: ActionType::InstanceStart,
+            instance_device_detach_action: None,
+            payload: Some(Value::String("dummy-payload".to_string())),
+        };
+        assert!(validate_payload(&action_body).is_err());
+
+        // Test BlockDeviceRescan
+        let action_body = ActionBody {
+            action_type: ActionType::BlockDeviceRescan,
+            instance_device_detach_action: None,
+            payload: Some(Value::String(String::from("dummy_id"))),
+        };
+        assert!(validate_payload(&action_body).is_ok());
+        // Error case: no payload.
+        let action_body = ActionBody {
+            action_type: ActionType::BlockDeviceRescan,
+            instance_device_detach_action: None,
+            payload: None,
+        };
+        assert!(validate_payload(&action_body).is_err());
+        // Error case: payload is not String.
+        let action_body = ActionBody {
+            action_type: ActionType::BlockDeviceRescan,
+            instance_device_detach_action: None,
+            payload: Some(Value::Bool(false)),
+        };
+        assert!(validate_payload(&action_body).is_err());
+    }
+
+    #[test]
     fn test_into_parsed_request() {
         {
-            let json = "{
-                \"action_type\": \"BlockDeviceRescan\",
-                \"payload\": \"foobar\"
-              }";
+            let json = r#"{
+                "action_type": "BlockDeviceRescan",
+                "payload": "dummy_id"
+              }"#;
             let (sender, receiver) = oneshot::channel();
-            let body = ActionBody {
-                action_type: ActionType::BlockDeviceRescan,
-                instance_device_detach_action: None,
-                payload: Some(Value::String(String::from("foobar"))),
-            };
-            let req = ParsedRequest::Sync(SyncRequest::RescanBlockDevice(body, sender), receiver);
+            let req = ParsedRequest::Sync(
+                SyncRequest::RescanBlockDevice("dummy_id".to_string(), sender),
+                receiver,
+            );
 
             let result: Result<ActionBody, serde_json::Error> = serde_json::from_str(json);
             assert!(result.is_ok());

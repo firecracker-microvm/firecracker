@@ -1,7 +1,5 @@
 extern crate epoll;
 extern crate libc;
-extern crate serde;
-extern crate serde_json;
 extern crate time;
 extern crate timerfd;
 
@@ -38,10 +36,8 @@ use std::thread;
 use std::time::Duration;
 
 use libc::{c_void, siginfo_t};
-use serde_json::Value;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
-use api_server::request::actions::ActionBody;
 use api_server::request::boot_source::{BootSourceBody, BootSourceConfigError};
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::logger::{APILoggerDescription, APILoggerError, APILoggerLevel};
@@ -1460,18 +1456,11 @@ impl Vmm {
             .expect("one-shot channel closed");
     }
 
-    fn handle_rescan_block_device(&mut self, req_body: ActionBody, sender: SyncOutcomeSender) {
-        if let Some(Value::String(drive_id)) = req_body.payload {
-            sender
-                .send(Box::new(self.rescan_block_device(drive_id)))
-                .map_err(|_| ())
-                .expect("one-shot channel closed");
-        } else {
-            sender
-                .send(Box::new(SyncError::InvalidPayload))
-                .map_err(|_| ())
-                .expect("one-shot channel closed");
-        }
+    fn handle_rescan_block_device(&mut self, drive_id: String, sender: SyncOutcomeSender) {
+        sender
+            .send(Box::new(self.rescan_block_device(drive_id)))
+            .map_err(|_| ())
+            .expect("one-shot channel closed");
     }
 
     fn run_api_cmd(&mut self) -> Result<()> {
@@ -1507,8 +1496,8 @@ impl Vmm {
             SyncRequest::PutNetworkInterface(netif_body, sender) => {
                 self.handle_put_network_interface(netif_body, sender)
             }
-            SyncRequest::RescanBlockDevice(req_body, sender) => {
-                self.handle_rescan_block_device(req_body, sender)
+            SyncRequest::RescanBlockDevice(drive_id, sender) => {
+                self.handle_rescan_block_device(drive_id, sender)
             }
             SyncRequest::StartInstance(sender) => self.handle_start_instance(sender),
         }
@@ -1555,8 +1544,6 @@ mod tests {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
     use std::sync::atomic::AtomicUsize;
-
-    use serde_json::Map;
 
     use self::tempfile::NamedTempFile;
     use data_model::vm::{CpuFeaturesTemplate, DeviceState};
@@ -2127,11 +2114,6 @@ mod tests {
         );
 
         // Test partial update of block devices.
-        let mut fields = Map::<String, Value>::new();
-        fields.insert(
-            String::from("drive_id"),
-            Value::String(String::from("not_root")),
-        );
         let new_block = NamedTempFile::new().unwrap();
         let path = String::from(new_block.path().to_path_buf().to_str().unwrap());
         assert!(
