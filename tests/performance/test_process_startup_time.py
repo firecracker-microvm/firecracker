@@ -7,7 +7,7 @@ import time
 import pytest
 import host_tools.logging as log_tools
 
-MAX_STARTUP_TIME_US = 70
+MAX_STARTUP_TIME_US = 80
 """ The maximum acceptable startup time in ms. """
 # TODO: Keep a `current` startup time in S3 and validate we don't regress
 
