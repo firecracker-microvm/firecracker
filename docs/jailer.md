@@ -44,7 +44,8 @@ jailer --id <id> \
 After starting, the Jailer goes through the following operations:
 
 - Validate **all provided paths** and the VM `id`.
-- Close all open file descriptors unrelated to standard input.
+- Close all open file descriptors based on `sysconf(_SC_OPEN_MAX)` except input,
+  output and error.
 - Open `/dev/kvm` as *RW*, and bind a Unix domain socket listener to
   `<chroot_base>/<exec_file_name>/<id>/api.socket`. `exec_file_name` is the
   last path component of `exec_file` (for example, that would be `firecracker`
