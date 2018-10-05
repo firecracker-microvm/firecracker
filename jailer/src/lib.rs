@@ -163,6 +163,18 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
+fn sanitize_process() {
+    // First thing to do is make sure we don't keep any inherited FDs
+    // other that IN, OUT and ERR.
+
+    // Safe because sysconf is available on all flavors of Linux.
+    let fd_size = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } as i32;
+    for i in 3..fd_size {
+        // Safe because close() cannot fail when passed a valid parameter.
+        unsafe { libc::close(i) };
+    }
+}
+
 fn open_dev_kvm() -> Result<i32> {
     // Safe because we use a constant null-terminated string and verify the result.
     let ret = unsafe { libc::open("/dev/kvm\0".as_ptr() as *const libc::c_char, libc::O_RDWR) };
@@ -185,23 +197,8 @@ pub fn run(args: ArgMatches, start_time_ms: u64) -> Result<()> {
     // TODO: can a malicious guest that takes over firecracker use its access to the KVM fd to
     // starve the host of resources? (cgroups should take care of that, but do they currently?)
 
-    if let Err(e) = open_dev_kvm() {
-        if let Error::UnexpectedKvmFd(ret) = e {
-            // The problem here might be that the customer did not close every fd > 2 before
-            // invoking the jailer (and did not open files with the O_CLOEXEC flag to begin with).
-            // Before failing, let's close all non stdio fds up to and including ret, and then try
-            // one more time.
-            for i in 3..=ret {
-                // Safe becase we're passing a valid paramter.
-                unsafe { libc::close(i) };
-            }
-
-            // Maybe now we can get the desired fd number.
-            open_dev_kvm()?;
-        } else {
-            return Err(e);
-        }
-    }
+    sanitize_process();
+    open_dev_kvm()?;
 
     let env = Env::new(args, start_time_ms)?;
 
