@@ -542,8 +542,8 @@ impl Vmm {
         if let Some(device_idx) = self.drive_handler_id_map.get(drive_id) {
             match self.epoll_context.get_device_handler(*device_idx) {
                 Ok(handler) => {
-                    handler.handle_event_with_payload(
-                        3,
+                    handler.handle_event(
+                        virtio::block::FS_UPDATE_EVENT,
                         *device_idx as u32,
                         EpollHandlerPayload::DrivePayload(disk_image),
                     );
@@ -1093,9 +1093,11 @@ impl Vmm {
                         EpollDispatch::DeviceHandler(device_idx, device_token) => {
                             METRICS.vmm.device_events.inc();
                             match self.epoll_context.get_device_handler(device_idx) {
-                                Ok(handler) => {
-                                    handler.handle_event(device_token, events[i].events().bits())
-                                }
+                                Ok(handler) => handler.handle_event(
+                                    device_token,
+                                    events[i].events().bits(),
+                                    EpollHandlerPayload::Empty,
+                                ),
                                 Err(e) => {
                                     warn!("invalid handler for device {}: {:?}", device_idx, e)
                                 }
@@ -1594,12 +1596,7 @@ mod tests {
     }
 
     impl EpollHandler for DummyEpollHandler {
-        fn handle_event(&mut self, device_event: DeviceEventT, event_flags: u32) {
-            self.evt = Some(device_event);
-            self.flags = Some(event_flags);
-        }
-
-        fn handle_event_with_payload(
+        fn handle_event(
             &mut self,
             device_event: DeviceEventT,
             event_flags: u32,
