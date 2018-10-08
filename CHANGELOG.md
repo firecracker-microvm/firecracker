@@ -6,6 +6,8 @@
 
 - Each Firecracker process has an associated microVM Metadata Store (MMDS). Its
   contents can be configured using the `/mmds` API resource.
+- New firecracker command line argument (--id), allowing the user to specify a
+  microVM ID.
 
 ### Changed
 

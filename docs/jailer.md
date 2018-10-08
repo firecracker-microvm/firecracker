@@ -76,9 +76,10 @@ After starting, the Jailer goes through the following operations:
 - If `--daemonize` is specified, call `setsid()` and redirect `STDIN`,
   `STDOUT`, and `STDERR` to `/dev/null`.
 - Drop privileges via setting the provided `uid` and `gid`.
-- Exec into `<exec_file_name> --jailed`. The `--jailed` command line argument
-  to the target binary is then interpreted by Firecracker, that realizes it’s
-  running inside a jail, and continues the execution accordingly.
+- Exec into `<exec_file_name> --jailed --id <id>`. The `--jailed` command line
+  argument to the target binary is then interpreted by Firecracker, that
+  realizes it’s running inside a jail, and continues the execution
+  accordingly.
 
 ## Example Run and Notes
 
