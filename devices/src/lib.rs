@@ -32,11 +32,12 @@ pub type DeviceEventT = u16;
 pub enum EpollHandlerPayload {
     /// DrivePayload(disk_image)
     DrivePayload(File),
+    /// Events that do not need a payload.
+    Empty,
 }
 
 pub trait EpollHandler: Send {
-    fn handle_event(&mut self, device_event: DeviceEventT, event_flags: u32);
-    fn handle_event_with_payload(
+    fn handle_event(
         &mut self,
         device_event: DeviceEventT,
         event_flags: u32,
