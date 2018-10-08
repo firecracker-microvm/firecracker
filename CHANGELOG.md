@@ -5,44 +5,45 @@
 ### Changed
 
 - The `path_on_host` property in the drive specification is now marked as
-*mandatory*.
+  *mandatory*.
 - PATCH drive only allows patching/changing the `path_on_host` property.
 - All PUT and PATCH requests return the status code 204.
-- CPUID brand string (aka model name) now includes the host CPU frequency
+- CPUID brand string (aka model name) now includes the host CPU frequency.
 
 ## [0.9.0]
 
 ### Added
 
 - Seccomp filtering is configured via the `--seccomp-level` jailer parameter.
-- Firecracker logs the starting addresses of host memory areas provided as guest
-memory slots to KVM.
-- The metric `panic_count` gets incremented to signal that a panic has occurred.
+- Firecracker logs the starting addresses of host memory areas provided as
+  guest memory slots to KVM.
+- The metric `panic_count` gets incremented to signal that a panic has
+  occurred.
 - Firecracker logs a backtrace when it crashes following a panic.
-- Added basic instrumentation support for measuring boot time. 
+- Added basic instrumentation support for measuring boot time.
 
 ### Changed
 
 - `StartInstance` is a synchronous API request (it used to be an asynchronous
-request).   
+  request).
 
 ### Fixed
 
 - Ensure that fault messages sent by the API have valid JSON bodies.
 - Use HTTP response code 500 for internal Firecracker errors, and 400 for user
-errors on InstanceStart.
-- Serialize the machine configuration fields to the correct data types (as specified
-in the Swagger definition). 
+  errors on InstanceStart.
+- Serialize the machine configuration fields to the correct data types (as
+  specified in the Swagger definition).
 - NUMA node assignment is properly enforced by the jailer.
 - The `is_root_device` and `is_read_only` properties are now marked as required
-in the Swagger definition of `Drive` object properties.
+  in the Swagger definition of `Drive` object properties.
 
 ### Removed
 
 - `GET` requests on the `/actions` API resource are no longer supported.
 - The metrics associated with asynchronous actions have been removed.
-- Remove the `action_id` parameter for `InstanceStart`, both from the URI and the
-JSON request body.
+- Remove the `action_id` parameter for `InstanceStart`, both from the URI and
+  the JSON request body.
 
 ## [0.8.0]
 
@@ -54,8 +55,8 @@ JSON request body.
 
 ## Changed
 
-- The microVM `id` supplied to the jailer may now contain alphanumeric characters
-  and hyphens, up to a maximum length of 64 characters.
+- The microVM `id` supplied to the jailer may now contain alphanumeric
+  characters and hyphens, up to a maximum length of 64 characters.
 - Replaced the `permissions` property of `/drives` resources with a boolean.
 - Removed the `state` property of `/drives` resources.
 
@@ -67,8 +68,8 @@ JSON request body.
   burst size.
 - Firecracker can now boot from an arbitrary boot partition by specifying
   its unique id in the driver's API call.
-- Block device rescan is triggered via a PUT `/actions` with the drive ID in the
-  action body's `payload` field and the `action_type` field set to
+- Block device rescan is triggered via a PUT `/actions` with the drive ID in
+  the action body's `payload` field and the `action_type` field set to
   `BlockDeviceRescan`.
 
 ### Changed
@@ -81,8 +82,8 @@ JSON request body.
 
 ### Fixed
 
-- Fixed guest instance kernel loader to accelerate vCPUs launch and consequently
-  guest kernel boot.
+- Fixed guest instance kernel loader to accelerate vCPUs launch and
+  consequently guest kernel boot.
 - Fixed network emulation to improve IO performance.
 
 ## [0.6.0]
@@ -102,12 +103,12 @@ JSON request body.
 
 ### Fixed
 
-- Fixed a bug that was causing Firecracker to panic whenever a `PUT` request was
-  sent on an existing network interface.
+- Fixed a bug that was causing Firecracker to panic whenever a `PUT` request
+  was sent on an existing network interface.
 - The `id` parameter of the `jailer` is required to be an RFC 4122-compliant
   UUID.
-- Fixed an issue which caused the network RX rate limiter to be more restrictive
-  than intended.
+- Fixed an issue which caused the network RX rate limiter to be more
+  restrictive than intended.
 - API requests which contain unknown fields will generate an error.
 - Fixed an issue related to high CPU utilization caused by improper `KVM PIT`
   configuration.
@@ -118,9 +119,9 @@ JSON request body.
 
 ### Added
 
-- Added metrics for API requests, VCPU and device actions for the serial console
-  (`UART`), keyboard (`i8042`), block and network devices. Metrics are logged
-  every 60 seconds.
+- Added metrics for API requests, VCPU and device actions for the serial
+  console (`UART`), keyboard (`i8042`), block and network devices. Metrics are
+  logged every 60 seconds.
 - A CPU features template for C3 is available, in addition to the one for T2.
 - Seccomp filters restrict Firecracker from calling any other system calls than
   the minimum set it needs to function properly. The filters are enabled by
@@ -172,8 +173,8 @@ JSON request body.
 
 ### Changed
 
-- Moved the API definition (`swagger/firecracker-beta.yaml`) to the `api_server`
-  crate.
+- Moved the API definition (`swagger/firecracker-beta.yaml`) to the
+  `api_server` crate.
 - Removed `"console=ttyS0"` and added `"8250.nr_uarts=0"` to the default kernel
   command line to decrease the boot time.
 - Changed the CPU topology to have all logical CPUs on a single socket.
@@ -212,8 +213,8 @@ JSON request body.
   size) using a `GET` request on `/machine-config`.
 - The logging system can be configured through the API using a `PUT` on
   `/logger`.
-- Block devices support live resize by calling `PUT` with the same parameters as
-  when the block was created.
+- Block devices support live resize by calling `PUT` with the same parameters
+  as when the block was created.
 - Release builds have Link Time Optimization (LTO) enabled.
 - Firecracker is built with `musl`, resulting in a statically linked binary.
 - More in-tree integration tests were added as part of the continuous
@@ -244,8 +245,8 @@ JSON request body.
 
 ### Added
 
-- Users can now interrogate Instance Information (currently just instance state)
-  through the API.
+- Users can now interrogate Instance Information (currently just instance
+  state) through the API.
 
 ### Changed
 
