@@ -38,9 +38,9 @@ const KILL_EVENT: DeviceEventT = 1;
 // Rate limiter budget is now available.
 const RATE_LIMITER_EVENT: DeviceEventT = 2;
 // Backing file on the host has changed.
-const FS_UPDATE_EVENT: DeviceEventT = 3;
+pub const FS_UPDATE_EVENT: DeviceEventT = 3;
 // Number of DeviceEventT events supported by this implementation.
-pub const BLOCK_EVENTS_COUNT: usize = 3;
+pub const BLOCK_EVENTS_COUNT: usize = 4;
 
 #[derive(Debug)]
 enum Error {
@@ -353,7 +353,7 @@ impl BlockEpollHandler {
 }
 
 impl EpollHandler for BlockEpollHandler {
-    fn handle_event(&mut self, device_event: DeviceEventT, _: u32) {
+    fn handle_event(&mut self, device_event: DeviceEventT, _: u32, payload: EpollHandlerPayload) {
         match device_event {
             QUEUE_AVAIL_EVENT => {
                 METRICS.block.queue_event_count.inc();
@@ -384,24 +384,15 @@ impl EpollHandler for BlockEpollHandler {
                     self.signal_used_queue();
                 }
             }
-            _ => panic!("Unknown event type was received."),
-        }
-    }
-
-    fn handle_event_with_payload(
-        &mut self,
-        device_event: DeviceEventT,
-        event_flags: u32,
-        payload: EpollHandlerPayload,
-    ) {
-        match device_event {
             FS_UPDATE_EVENT => {
-                let file = match payload {
-                    EpollHandlerPayload::DrivePayload(file) => file,
-                };
-                self.update_disk_image(file);
+                if let EpollHandlerPayload::DrivePayload(file) = payload {
+                    self.update_disk_image(file);
+                } else {
+                    // This path can only be reached if we have a logical problem in our code.
+                    panic!("Received update disk image event with empty payload.")
+                }
             }
-            _ => self.handle_event(device_event, event_flags),
+            _ => panic!("Unknown event type was received."),
         }
     }
 }
@@ -932,7 +923,7 @@ mod tests {
         // trigger the queue event
         h.queue_evt.write(1).unwrap();
         // handle event
-        h.handle_event(e, 0);
+        h.handle_event(e, 0, EpollHandlerPayload::Empty);
         // validate the queue operation finished successfully
         assert_eq!(h.interrupt_evt.read(), Ok(2));
     }
@@ -1210,7 +1201,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0);
+                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty);
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1228,7 +1219,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RATE_LIMITER_EVENT, 0);
+                h.handle_event(RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty);
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
                 // make sure the virtio queue operation completed this time
@@ -1269,7 +1260,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0);
+                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty);
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1285,7 +1276,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0);
+                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty);
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1303,7 +1294,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RATE_LIMITER_EVENT, 0);
+                h.handle_event(RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty);
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
                 // make sure the virtio queue operation completed this time
@@ -1338,7 +1329,7 @@ mod tests {
                 .open(path)
                 .unwrap();
             let payload = EpollHandlerPayload::DrivePayload(file);
-            h.handle_event_with_payload(FS_UPDATE_EVENT, 0, payload);
+            h.handle_event(FS_UPDATE_EVENT, 0, payload);
 
             assert_eq!(h.disk_image.metadata().unwrap().st_ino(), mdata.st_ino());
             assert_eq!(h.disk_image_id, id);
