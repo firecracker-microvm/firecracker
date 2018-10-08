@@ -141,11 +141,12 @@ security.
 Firecracker can be started outside the jail as well. To do this, run:
 
 ``` bash
-./firecracker --api-sock </path/to/unix/socket>
+./firecracker --api-sock </path/to/unix/socket> --id <microvm-id>
 ```
 
 If the api socket is not specified at startup, Firecracker will create
-`/tmp/firecracker.socket`.
+`/tmp/firecracker.socket`. Similarly, the `--id` parameter can be omitted,
+in which case, Firecracker will use `anonymous-instance` as an ID.
 
 ### Configure the MicroVM
 
