@@ -191,7 +191,7 @@ struct KvmContext {
 }
 
 impl KvmContext {
-    fn new() -> Result<Self> {
+    fn new(kvm_fd: Option<RawFd>) -> Result<Self> {
         fn check_cap(kvm: &Kvm, cap: Cap) -> std::result::Result<(), Error> {
             if !kvm.check_extension(cap) {
                 return Err(Error::KvmCap(cap));
@@ -199,7 +199,12 @@ impl KvmContext {
             Ok(())
         }
 
-        let kvm = Kvm::new().map_err(Error::Kvm)?;
+        let kvm = if let Some(fd) = kvm_fd {
+            // Safe because we expect kvm_fd to contain a valid fd number when is_some() == true.
+            unsafe { Kvm::new_with_fd_number(fd) }
+        } else {
+            Kvm::new().map_err(Error::Kvm)?
+        };
 
         if kvm.get_api_version() != kvm::KVM_API_VERSION as i32 {
             return Err(Error::KvmApiVersion(kvm.get_api_version()));
@@ -476,6 +481,7 @@ impl Vmm {
         api_event_fd: EventFd,
         from_api: Receiver<Box<VmmAction>>,
         seccomp_level: u32,
+        kvm_fd: Option<RawFd>,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
@@ -491,7 +497,7 @@ impl Vmm {
             ).expect("Cannot add write metrics TimerFd to epoll.");
 
         let block_device_configs = BlockDeviceConfigs::new();
-        let kvm = KvmContext::new()?;
+        let kvm = KvmContext::new(kvm_fd)?;
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
         Ok(Vmm {
@@ -1554,18 +1560,26 @@ impl PartialEq for VmmAction {
 /// * `seccomp_level` - The level of seccomp filtering used. Filters are loaded before executing
 ///                     guest code.
 ///                     See `seccomp::SeccompLevel` for more information about seccomp levels.
+/// * `kvm_fd` - Provides the option of supplying an already existing raw file descriptor
+///              associated with `/dev/kvm`.
 pub fn start_vmm_thread(
     api_shared_info: Arc<RwLock<InstanceInfo>>,
     api_event_fd: EventFd,
     from_api: Receiver<Box<VmmAction>>,
     seccomp_level: u32,
+    kvm_fd: Option<RawFd>,
 ) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("fc_vmm".to_string())
         .spawn(move || {
             // If this fails, consider it fatal. Use expect().
-            let mut vmm = Vmm::new(api_shared_info, api_event_fd, from_api, seccomp_level)
-                .expect("Cannot create VMM.");
+            let mut vmm = Vmm::new(
+                api_shared_info,
+                api_event_fd,
+                from_api,
+                seccomp_level,
+                kvm_fd,
+            ).expect("Cannot create VMM.");
             match vmm.run_control() {
                 Ok(()) => vmm.stop(0),
                 Err(_) => vmm.stop(1),
@@ -1685,6 +1699,7 @@ mod tests {
             EventFd::new().expect("cannot create eventFD"),
             from_api,
             seccomp::SECCOMP_LEVEL_ADVANCED,
+            None,
         ).expect("Cannot Create VMM");
         return vmm;
     }
@@ -2081,7 +2096,7 @@ mod tests {
         use std::os::unix::fs::MetadataExt;
         use std::os::unix::io::FromRawFd;
 
-        let c = KvmContext::new().unwrap();
+        let c = KvmContext::new(None).unwrap();
         let nr_vcpus = c.nr_vcpus();
         let max_vcpus = c.max_vcpus();
 
