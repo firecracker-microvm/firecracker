@@ -5,9 +5,10 @@ extern crate serde_json;
 
 extern crate api_server;
 extern crate data_model;
+extern crate fc_util;
+extern crate jailer;
 #[macro_use]
 extern crate logger;
-extern crate fc_util;
 extern crate seccomp;
 extern crate vmm;
 
@@ -18,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
-use api_server::ApiServer;
+use api_server::{ApiServer, UnixDomainSocket};
 use data_model::mmds::MMDS;
 use data_model::FirecrackerContext;
 use logger::{Metric, LOGGER, METRICS};
@@ -74,10 +75,12 @@ fn main() {
     let mut instance_id = String::from(DEFAULT_INSTANCE_ID);
     let mut seccomp_level = 0;
     let mut start_time_ms = None;
+
+    let mut is_jailed = false;
+
     if let Some(s) = cmd_arguments.value_of("context") {
         let context = serde_json::from_str::<FirecrackerContext>(s).unwrap();
-        data_model::FIRECRACKER_IS_JAILED
-            .store(context.jailed, std::sync::atomic::Ordering::Relaxed);
+        is_jailed = context.jailed;
         instance_id = context.id;
         seccomp_level = context.seccomp_level;
         start_time_ms = Some(context.start_time_ms);
@@ -94,10 +97,23 @@ fn main() {
     let api_event_fd = server
         .get_event_fd_clone()
         .expect("Cannot clone API eventFD.");
-    let _vmm_thread_handle =
-        vmm::start_vmm_thread(shared_info, api_event_fd, from_api, seccomp_level);
 
-    server.bind_and_run(bind_path, start_time_ms).unwrap();
+    let kvm_fd = if is_jailed {
+        Some(jailer::KVM_FD)
+    } else {
+        None
+    };
+
+    let _vmm_thread_handle =
+        vmm::start_vmm_thread(shared_info, api_event_fd, from_api, seccomp_level, kvm_fd);
+
+    let uds_path_or_fd = if is_jailed {
+        UnixDomainSocket::Fd(jailer::LISTENER_FD)
+    } else {
+        UnixDomainSocket::Path(bind_path)
+    };
+
+    server.bind_and_run(uds_path_or_fd, start_time_ms).unwrap();
 }
 
 #[cfg(test)]
