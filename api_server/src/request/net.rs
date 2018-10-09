@@ -3,7 +3,7 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Response, StatusCode};
 
-use super::SyncRequest;
+use super::VmmAction;
 
 use data_model::vm::{DeviceState, RateLimiterDescription};
 use http_service::{json_fault_message, json_response};
@@ -85,7 +85,7 @@ impl NetworkInterfaceBody {
 
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            SyncRequest::PutNetworkInterface(self, sender),
+            VmmAction::InsertNetworkDevice(self, sender),
             receiver,
         ))
     }
@@ -119,7 +119,7 @@ mod tests {
                 .clone()
                 .into_parsed_request("foo")
                 .eq(&Ok(ParsedRequest::Sync(
-                    SyncRequest::PutNetworkInterface(netif, sender),
+                    VmmAction::InsertNetworkDevice(netif, sender),
                     receiver
                 )))
         );

@@ -4,7 +4,7 @@ use futures::sync::oneshot;
 use hyper::{Response, StatusCode};
 
 use http_service::{json_fault_message, json_response};
-use request::{GenerateResponse, ParsedRequest, SyncRequest};
+use request::{GenerateResponse, ParsedRequest, VmmAction};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum APILoggerLevel {
@@ -48,7 +48,7 @@ impl APILoggerDescription {
     pub fn into_parsed_request(self) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            SyncRequest::PutLogger(self, sender),
+            VmmAction::ConfigureLogger(self, sender),
             receiver,
         ))
     }
@@ -93,7 +93,7 @@ mod tests {
                 .clone()
                 .into_parsed_request()
                 .eq(&Ok(ParsedRequest::Sync(
-                    SyncRequest::PutLogger(desc, sender),
+                    VmmAction::ConfigureLogger(desc, sender),
                     receiver
                 )))
         );

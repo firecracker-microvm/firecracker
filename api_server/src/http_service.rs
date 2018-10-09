@@ -19,7 +19,7 @@ use request::drive::PatchDrivePayload;
 use request::instance_info::InstanceInfo;
 use request::logger::APILoggerDescription;
 use request::net::NetworkInterfaceBody;
-use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
+use request::{IntoParsedRequest, ParsedRequest, VmmAction};
 use sys_util::EventFd;
 
 fn build_response_base<B: Into<hyper::Body>>(
@@ -399,8 +399,8 @@ fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, 
 // A helper function which is always used when a message is placed into the communication channel
 // with the VMM (so we don't forget to write to the EventFd).
 fn send_to_vmm(
-    req: SyncRequest,
-    sender: &mpsc::Sender<Box<SyncRequest>>,
+    req: VmmAction,
+    sender: &mpsc::Sender<Box<VmmAction>>,
     send_event: &EventFd,
 ) -> result::Result<(), ()> {
     sender.send(Box::new(req)).map_err(|_| ())?;
@@ -417,7 +417,7 @@ pub struct ApiServerHttpService {
     // This allows sending messages to the VMM thread. It makes sense to use a Rc for the sender
     // (instead of cloning) because everything happens on a single thread, so there's no risk of
     // having races (if that was even a problem to begin with).
-    api_request_sender: Rc<mpsc::Sender<Box<SyncRequest>>>,
+    api_request_sender: Rc<mpsc::Sender<Box<VmmAction>>>,
     // We write to this EventFd to let the VMM know about new messages.
     vmm_send_event: Rc<EventFd>,
 }
@@ -426,7 +426,7 @@ impl ApiServerHttpService {
     pub fn new(
         mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_request_sender: Rc<mpsc::Sender<Box<SyncRequest>>>,
+        api_request_sender: Rc<mpsc::Sender<Box<VmmAction>>>,
         vmm_send_event: Rc<EventFd>,
     ) -> Self {
         ApiServerHttpService {
@@ -583,7 +583,7 @@ mod tests {
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use net_util::MacAddr;
-    use request::SyncRequest;
+    use request::VmmAction;
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret = body
@@ -724,7 +724,7 @@ mod tests {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
-                    SyncRequest::StartInstance(sender),
+                    VmmAction::StartMicroVm(sender),
                     receiver
                 )));
             }
@@ -743,7 +743,7 @@ mod tests {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
-                    SyncRequest::RescanBlockDevice("dummy_id".to_string(), sender),
+                    VmmAction::RescanBlockDevice("dummy_id".to_string(), sender),
                     receiver
                 )));
             }
@@ -807,7 +807,7 @@ mod tests {
                     Ok(pr) => {
                         let (sender, receiver) = oneshot::channel();
                         assert!(pr.eq(&ParsedRequest::Sync(
-                            SyncRequest::PutBootSource(boot_source_body, sender),
+                            VmmAction::ConfigureBootSource(boot_source_body, sender),
                             receiver,
                         )));
                     }
@@ -1011,7 +1011,7 @@ mod tests {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
-                    SyncRequest::PutLogger(logger_body, sender),
+                    VmmAction::ConfigureLogger(logger_body, sender),
                     receiver,
                 )));
             }

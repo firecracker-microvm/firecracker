@@ -20,8 +20,8 @@ use self::boot_source::BootSourceBody;
 use self::logger::APILoggerDescription;
 use self::net::NetworkInterfaceBody;
 
-pub type SyncOutcomeSender = oneshot::Sender<Box<GenerateResponse + Send>>;
-pub type SyncOutcomeReceiver = oneshot::Receiver<Box<GenerateResponse + Send>>;
+pub type OutcomeSender = oneshot::Sender<Box<GenerateResponse + Send>>;
+pub type OutcomeReceiver = oneshot::Receiver<Box<GenerateResponse + Send>>;
 
 pub enum ParsedRequest {
     Dummy,
@@ -29,7 +29,7 @@ pub enum ParsedRequest {
     GetMMDS,
     PatchMMDS(Value),
     PutMMDS(Value),
-    Sync(SyncRequest, SyncOutcomeReceiver),
+    Sync(VmmAction, OutcomeReceiver),
 }
 
 pub trait IntoParsedRequest {
@@ -67,21 +67,21 @@ impl GenerateResponse for () {
 
 // This enum contains messages for the VMM which represent sync requests. They each contain various
 // bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
-pub enum SyncRequest {
-    GetMachineConfiguration(SyncOutcomeSender),
-    PatchDrive(String, String, SyncOutcomeSender), // drive_id, path_on_host, channel
-    PutBootSource(BootSourceBody, SyncOutcomeSender),
-    PutDrive(BlockDeviceConfig, SyncOutcomeSender),
-    PutLogger(APILoggerDescription, SyncOutcomeSender),
-    PutMachineConfiguration(MachineConfiguration, SyncOutcomeSender),
-    PutNetworkInterface(NetworkInterfaceBody, SyncOutcomeSender),
-    RescanBlockDevice(String, SyncOutcomeSender),
-    StartInstance(SyncOutcomeSender),
+pub enum VmmAction {
+    ConfigureBootSource(BootSourceBody, OutcomeSender),
+    ConfigureLogger(APILoggerDescription, OutcomeSender),
+    GetMachineConfiguration(OutcomeSender),
+    InsertBlockDevice(BlockDeviceConfig, OutcomeSender),
+    InsertNetworkDevice(NetworkInterfaceBody, OutcomeSender),
+    RescanBlockDevice(String, OutcomeSender),
+    StartMicroVm(OutcomeSender),
+    SetVmConfiguration(MachineConfiguration, OutcomeSender),
+    UpdateDrivePath(String, String, OutcomeSender), // drive_id, path_on_host, channel
 }
 
-impl fmt::Debug for SyncRequest {
+impl fmt::Debug for VmmAction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "SyncRequest")
+        write!(f, "VmmActions")
     }
 }
 
@@ -196,38 +196,38 @@ mod tests {
 
     // Implementation for the "==" operator.
     // Can't derive PartialEq directly because the sender members can't be compared.
-    impl PartialEq for SyncRequest {
-        fn eq(&self, other: &SyncRequest) -> bool {
+    impl PartialEq for VmmAction {
+        fn eq(&self, other: &VmmAction) -> bool {
             match (self, other) {
                 (
-                    &SyncRequest::PatchDrive(ref drive_id, ref path_on_host, _),
-                    &SyncRequest::PatchDrive(ref other_drive_id, ref other_path_on_host, _),
+                    &VmmAction::UpdateDrivePath(ref drive_id, ref path_on_host, _),
+                    &VmmAction::UpdateDrivePath(ref other_drive_id, ref other_path_on_host, _),
                 ) => drive_id == other_drive_id && path_on_host == other_path_on_host,
                 (
-                    &SyncRequest::PutBootSource(ref bsb, _),
-                    &SyncRequest::PutBootSource(ref other_bsb, _),
+                    &VmmAction::ConfigureBootSource(ref bsb, _),
+                    &VmmAction::ConfigureBootSource(ref other_bsb, _),
                 ) => bsb == other_bsb,
                 (
-                    &SyncRequest::PutDrive(ref ddesc, _),
-                    &SyncRequest::PutDrive(ref other_ddesc, _),
+                    &VmmAction::InsertBlockDevice(ref ddesc, _),
+                    &VmmAction::InsertBlockDevice(ref other_ddesc, _),
                 ) => ddesc == other_ddesc,
                 (
-                    &SyncRequest::PutLogger(ref logdesc, _),
-                    &SyncRequest::PutLogger(ref other_logdesc, _),
+                    &VmmAction::ConfigureLogger(ref logdesc, _),
+                    &VmmAction::ConfigureLogger(ref other_logdesc, _),
                 ) => logdesc == other_logdesc,
                 (
-                    &SyncRequest::PutMachineConfiguration(ref mcb, _),
-                    &SyncRequest::PutMachineConfiguration(ref other_mcb, _),
+                    &VmmAction::SetVmConfiguration(ref mcb, _),
+                    &VmmAction::SetVmConfiguration(ref other_mcb, _),
                 ) => mcb == other_mcb,
                 (
-                    &SyncRequest::PutNetworkInterface(ref netif, _),
-                    &SyncRequest::PutNetworkInterface(ref other_netif, _),
+                    &VmmAction::InsertNetworkDevice(ref netif, _),
+                    &VmmAction::InsertNetworkDevice(ref other_netif, _),
                 ) => netif == other_netif,
                 (
-                    &SyncRequest::RescanBlockDevice(ref req, _),
-                    &SyncRequest::RescanBlockDevice(ref other_req, _),
+                    &VmmAction::RescanBlockDevice(ref req, _),
+                    &VmmAction::RescanBlockDevice(ref other_req, _),
                 ) => req == other_req,
-                (&SyncRequest::StartInstance(_), &SyncRequest::StartInstance(_)) => true,
+                (&VmmAction::StartMicroVm(_), &VmmAction::StartMicroVm(_)) => true,
                 _ => false,
             }
         }
