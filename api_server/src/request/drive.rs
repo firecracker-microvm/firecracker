@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 
 use data_model::vm::{BlockDeviceConfig, DriveError};
 
-use super::{GenerateResponse, SyncRequest};
+use super::{GenerateResponse, VmmAction};
 use http_service::{json_fault_message, json_response};
 use request::{IntoParsedRequest, ParsedRequest};
 
@@ -82,7 +82,7 @@ impl IntoParsedRequest for PatchDrivePayload {
 
                 let (sender, receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    SyncRequest::PatchDrive(drive_id, path_on_host, sender),
+                    VmmAction::UpdateDrivePath(drive_id, path_on_host, sender),
                     receiver,
                 ))
             }
@@ -96,7 +96,7 @@ impl IntoParsedRequest for BlockDeviceConfig {
         let (sender, receiver) = oneshot::channel();
         match method {
             Method::Put => Ok(ParsedRequest::Sync(
-                SyncRequest::PutDrive(self, sender),
+                VmmAction::InsertBlockDevice(self, sender),
                 receiver,
             )),
             _ => Ok(ParsedRequest::Dummy),
@@ -232,7 +232,7 @@ mod tests {
             pdp.clone()
                 .into_parsed_request(Method::Patch)
                 .eq(&Ok(ParsedRequest::Sync(
-                    SyncRequest::PatchDrive("foo".to_string(), "dummy".to_string(), sender),
+                    VmmAction::UpdateDrivePath("foo".to_string(), "dummy".to_string(), sender),
                     receiver
                 )))
         );
@@ -317,7 +317,7 @@ mod tests {
                 .clone()
                 .into_parsed_request(Method::Put)
                 .eq(&Ok(ParsedRequest::Sync(
-                    SyncRequest::PutDrive(desc, sender),
+                    VmmAction::InsertBlockDevice(desc, sender),
                     receiver
                 )))
         );

@@ -44,7 +44,7 @@ use api_server::request::logger::{APILoggerDescription, APILoggerError, APILogge
 use api_server::request::machine_configuration::PutMachineConfigurationError;
 use api_server::request::net::{NetworkInterfaceBody, NetworkInterfaceError};
 use api_server::request::{
-    Error as SyncError, ErrorType, GenerateResponse, SyncOutcomeSender, SyncRequest,
+    Error as SyncError, ErrorType, GenerateResponse, OutcomeSender, VmmAction,
 };
 use data_model::vm::{
     description_into_implementation as rate_limiter_description_into_implementation,
@@ -260,7 +260,7 @@ enum EpollDispatch {
     Exit,
     Stdin,
     DeviceHandler(usize, DeviceEventT),
-    ApiRequest,
+    VmmActionRequest,
     WriteMetrics,
 }
 
@@ -476,7 +476,7 @@ pub struct Vmm {
 
     // api resources
     api_event: EpollEvent<EventFd>,
-    from_api: Receiver<Box<SyncRequest>>,
+    from_api: Receiver<Box<VmmAction>>,
 
     write_metrics_event: EpollEvent<TimerFd>,
 
@@ -489,13 +489,13 @@ impl Vmm {
     fn new(
         api_shared_info: Arc<RwLock<InstanceInfo>>,
         api_event_fd: EventFd,
-        from_api: Receiver<Box<SyncRequest>>,
+        from_api: Receiver<Box<VmmAction>>,
         seccomp_level: u32,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
         let api_event = epoll_context
-            .add_event(api_event_fd, EpollDispatch::ApiRequest)
+            .add_event(api_event_fd, EpollDispatch::VmmActionRequest)
             .expect("Cannot add API eventfd to epoll.");
 
         let write_metrics_event = epoll_context
@@ -1103,9 +1103,9 @@ impl Vmm {
                                 }
                             }
                         }
-                        EpollDispatch::ApiRequest => {
+                        EpollDispatch::VmmActionRequest => {
                             self.api_event.fd.read().map_err(InternalError::EventFd)?;
-                            self.run_api_cmd().unwrap_or_else(|_| {
+                            self.run_vmm_action().unwrap_or_else(|_| {
                                 warn!("got spurious notification from api thread");
                                 ()
                             });
@@ -1341,7 +1341,7 @@ impl Vmm {
         Ok(())
     }
 
-    fn handle_start_instance(&mut self, sender: SyncOutcomeSender) {
+    fn handle_start_microvm(&mut self, sender: OutcomeSender) {
         match self.start_instance() {
             Ok(_) => sender
                 .send(Box::new(()))
@@ -1363,11 +1363,7 @@ impl Vmm {
         };
     }
 
-    fn handle_put_drive(
-        &mut self,
-        block_device_config: BlockDeviceConfig,
-        sender: SyncOutcomeSender,
-    ) {
+    fn handle_put_drive(&mut self, block_device_config: BlockDeviceConfig, sender: OutcomeSender) {
         match self.insert_block_device(block_device_config) {
             Ok(ret) => sender
                 .send(Box::new(ret))
@@ -1384,7 +1380,7 @@ impl Vmm {
         &mut self,
         drive_id: String,
         path_on_host: String,
-        sender: SyncOutcomeSender,
+        sender: OutcomeSender,
     ) {
         match self.set_block_device_path(drive_id, path_on_host) {
             Ok(ret) => sender
@@ -1401,7 +1397,7 @@ impl Vmm {
     fn handle_put_logger(
         &mut self,
         logger_description: APILoggerDescription,
-        sender: SyncOutcomeSender,
+        sender: OutcomeSender,
     ) {
         sender
             .send(Box::new(self.init_logger(logger_description)))
@@ -1409,11 +1405,7 @@ impl Vmm {
             .expect("one-shot channel closed");
     }
 
-    fn handle_put_boot_source(
-        &mut self,
-        boot_source_body: BootSourceBody,
-        sender: SyncOutcomeSender,
-    ) {
+    fn handle_put_boot_source(&mut self, boot_source_body: BootSourceBody, sender: OutcomeSender) {
         let box_response: Box<GenerateResponse + Send> =
             match boot_source_body.local_image {
                 // Check that the kernel path exists and it is valid.
@@ -1429,7 +1421,7 @@ impl Vmm {
             .expect("one-shot channel closed");
     }
 
-    fn handle_get_machine_configuration(&self, sender: SyncOutcomeSender) {
+    fn handle_get_machine_configuration(&self, sender: OutcomeSender) {
         sender
             .send(Box::new(self.vm_config.clone()))
             .map_err(|_| ())
@@ -1439,7 +1431,7 @@ impl Vmm {
     fn handle_put_machine_configuration(
         &mut self,
         machine_config_body: MachineConfiguration,
-        sender: SyncOutcomeSender,
+        sender: OutcomeSender,
     ) {
         sender
             .send(Box::new(self.set_vm_configuration(machine_config_body)))
@@ -1450,7 +1442,7 @@ impl Vmm {
     fn handle_put_network_interface(
         &mut self,
         netif_body: NetworkInterfaceBody,
-        sender: SyncOutcomeSender,
+        sender: OutcomeSender,
     ) {
         sender
             .send(Box::new(self.insert_net_device(netif_body)))
@@ -1458,14 +1450,14 @@ impl Vmm {
             .expect("one-shot channel closed");
     }
 
-    fn handle_rescan_block_device(&mut self, drive_id: String, sender: SyncOutcomeSender) {
+    fn handle_rescan_block_device(&mut self, drive_id: String, sender: OutcomeSender) {
         sender
             .send(Box::new(self.rescan_block_device(drive_id)))
             .map_err(|_| ())
             .expect("one-shot channel closed");
     }
 
-    fn run_api_cmd(&mut self) -> Result<()> {
+    fn run_vmm_action(&mut self) -> Result<()> {
         let request = match self.from_api.try_recv() {
             Ok(t) => *t,
             Err(TryRecvError::Empty) => {
@@ -1477,31 +1469,31 @@ impl Vmm {
         };
 
         match request {
-            SyncRequest::GetMachineConfiguration(sender) => {
-                self.handle_get_machine_configuration(sender)
-            }
-            SyncRequest::PatchDrive(drive_id, path_on_host, sender) => {
-                self.handle_patch_drive(drive_id, path_on_host, sender)
-            }
-            SyncRequest::PutBootSource(boot_source_body, sender) => {
+            VmmAction::ConfigureBootSource(boot_source_body, sender) => {
                 self.handle_put_boot_source(boot_source_body, sender)
             }
-            SyncRequest::PutDrive(block_device_config, sender) => {
-                self.handle_put_drive(block_device_config, sender)
-            }
-            SyncRequest::PutLogger(logger_description, sender) => {
+            VmmAction::ConfigureLogger(logger_description, sender) => {
                 self.handle_put_logger(logger_description, sender)
             }
-            SyncRequest::PutMachineConfiguration(machine_config_body, sender) => {
-                self.handle_put_machine_configuration(machine_config_body, sender)
+            VmmAction::GetMachineConfiguration(sender) => {
+                self.handle_get_machine_configuration(sender)
             }
-            SyncRequest::PutNetworkInterface(netif_body, sender) => {
+            VmmAction::InsertBlockDevice(block_device_config, sender) => {
+                self.handle_put_drive(block_device_config, sender)
+            }
+            VmmAction::InsertNetworkDevice(netif_body, sender) => {
                 self.handle_put_network_interface(netif_body, sender)
             }
-            SyncRequest::RescanBlockDevice(drive_id, sender) => {
+            VmmAction::RescanBlockDevice(drive_id, sender) => {
                 self.handle_rescan_block_device(drive_id, sender)
             }
-            SyncRequest::StartInstance(sender) => self.handle_start_instance(sender),
+            VmmAction::StartMicroVm(sender) => self.handle_start_microvm(sender),
+            VmmAction::SetVmConfiguration(machine_config_body, sender) => {
+                self.handle_put_machine_configuration(machine_config_body, sender)
+            }
+            VmmAction::UpdateDrivePath(drive_id, path_on_host, sender) => {
+                self.handle_patch_drive(drive_id, path_on_host, sender)
+            }
         }
 
         Ok(())
@@ -1521,7 +1513,7 @@ impl Vmm {
 pub fn start_vmm_thread(
     api_shared_info: Arc<RwLock<InstanceInfo>>,
     api_event_fd: EventFd,
-    from_api: Receiver<Box<SyncRequest>>,
+    from_api: Receiver<Box<VmmAction>>,
     seccomp_level: u32,
 ) -> thread::JoinHandle<()> {
     thread::Builder::new()
