@@ -6,7 +6,7 @@ use futures::sync::oneshot;
 use hyper::Method;
 use serde_json::Value;
 
-use request::{IntoParsedRequest, ParsedRequest, SyncRequest};
+use request::{IntoParsedRequest, ParsedRequest, VmmAction};
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed
@@ -78,14 +78,14 @@ impl IntoParsedRequest for ActionBody {
                 let block_device_id = self.payload.unwrap().as_str().unwrap().to_string();
                 let (sync_sender, sync_receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    SyncRequest::RescanBlockDevice(block_device_id, sync_sender),
+                    VmmAction::RescanBlockDevice(block_device_id, sync_sender),
                     sync_receiver,
                 ))
             }
             ActionType::InstanceStart => {
                 let (sync_sender, sync_receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    SyncRequest::StartInstance(sync_sender),
+                    VmmAction::StartMicroVm(sync_sender),
                     sync_receiver,
                 ))
             }
@@ -147,7 +147,7 @@ mod tests {
               }"#;
             let (sender, receiver) = oneshot::channel();
             let req = ParsedRequest::Sync(
-                SyncRequest::RescanBlockDevice("dummy_id".to_string(), sender),
+                VmmAction::RescanBlockDevice("dummy_id".to_string(), sender),
                 receiver,
             );
 
@@ -171,8 +171,7 @@ mod tests {
                     \"force\": true}
               }";
             let (sender, receiver) = oneshot::channel();
-            let req: ParsedRequest =
-                ParsedRequest::Sync(SyncRequest::StartInstance(sender), receiver);
+            let req: ParsedRequest = ParsedRequest::Sync(VmmAction::StartMicroVm(sender), receiver);
             let result: Result<ActionBody, serde_json::Error> = serde_json::from_str(json);
             assert!(result.is_ok());
             assert!(

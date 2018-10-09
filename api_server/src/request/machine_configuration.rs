@@ -5,7 +5,7 @@ use hyper::{Method, Response, StatusCode};
 
 use data_model::vm::MachineConfiguration;
 use http_service::{json_fault_message, json_response};
-use request::{GenerateResponse, IntoParsedRequest, ParsedRequest, SyncRequest};
+use request::{GenerateResponse, IntoParsedRequest, ParsedRequest, VmmAction};
 
 #[derive(Debug, PartialEq)]
 pub enum PutMachineConfigurationError {
@@ -62,7 +62,7 @@ impl IntoParsedRequest for MachineConfiguration {
         let (sender, receiver) = oneshot::channel();
         match method {
             Method::Get => Ok(ParsedRequest::Sync(
-                SyncRequest::GetMachineConfiguration(sender),
+                VmmAction::GetMachineConfiguration(sender),
                 receiver,
             )),
             Method::Put => {
@@ -74,7 +74,7 @@ impl IntoParsedRequest for MachineConfiguration {
                     return Err(String::from("Empty request."));
                 }
                 Ok(ParsedRequest::Sync(
-                    SyncRequest::PutMachineConfiguration(self, sender),
+                    VmmAction::SetVmConfiguration(self, sender),
                     receiver,
                 ))
             }
@@ -123,7 +123,7 @@ mod tests {
             body.clone()
                 .into_parsed_request(Method::Put)
                 .eq(&Ok(ParsedRequest::Sync(
-                    SyncRequest::PutMachineConfiguration(body, sender),
+                    VmmAction::SetVmConfiguration(body, sender),
                     receiver
                 )))
         );

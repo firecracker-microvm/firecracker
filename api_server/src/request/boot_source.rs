@@ -4,7 +4,7 @@ use futures::sync::oneshot;
 use hyper::{Response, StatusCode};
 
 use http_service::{json_fault_message, json_response};
-use request::{GenerateResponse, ParsedRequest, SyncRequest};
+use request::{GenerateResponse, ParsedRequest, VmmAction};
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum BootSourceType {
@@ -69,7 +69,7 @@ impl BootSourceBody {
     pub fn into_parsed_request(self) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            SyncRequest::PutBootSource(self, sender),
+            VmmAction::ConfigureBootSource(self, sender),
             receiver,
         ))
     }
@@ -115,7 +115,7 @@ mod tests {
         };
         let (sender, receiver) = oneshot::channel();
         assert!(body.into_parsed_request().eq(&Ok(ParsedRequest::Sync(
-            SyncRequest::PutBootSource(same_body, sender),
+            VmmAction::ConfigureBootSource(same_body, sender),
             receiver
         ))))
     }
