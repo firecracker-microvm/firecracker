@@ -1364,16 +1364,10 @@ impl Vmm {
     }
 
     fn handle_put_drive(&mut self, block_device_config: BlockDeviceConfig, sender: OutcomeSender) {
-        match self.insert_block_device(block_device_config) {
-            Ok(ret) => sender
-                .send(Box::new(ret))
-                .map_err(|_| ())
-                .expect("one-shot channel closed"),
-            Err(e) => sender
-                .send(Box::new(e))
-                .map_err(|_| ())
-                .expect("one-shot channel closed"),
-        }
+        sender
+            .send(Box::new(self.insert_block_device(block_device_config)))
+            .map_err(|_| ())
+            .expect("one-shot channel closed");
     }
 
     fn handle_patch_drive(
@@ -1382,16 +1376,10 @@ impl Vmm {
         path_on_host: String,
         sender: OutcomeSender,
     ) {
-        match self.set_block_device_path(drive_id, path_on_host) {
-            Ok(ret) => sender
-                .send(Box::new(ret))
-                .map_err(|_| ())
-                .expect("one-shot channel closed"),
-            Err(e) => sender
-                .send(Box::new(e))
-                .map_err(|_| ())
-                .expect("one-shot channel closed"),
-        }
+        sender
+            .send(Box::new(self.set_block_device_path(drive_id, path_on_host)))
+            .map_err(|_| ())
+            .expect("one-shot channel closed");
     }
 
     fn handle_put_logger(
