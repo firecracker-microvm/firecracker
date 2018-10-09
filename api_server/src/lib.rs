@@ -10,11 +10,10 @@ extern crate tokio_uds;
 
 extern crate data_model;
 extern crate fc_util;
-extern crate jailer;
-extern crate vmm;
 #[macro_use]
 extern crate logger;
 extern crate sys_util;
+extern crate vmm;
 
 mod http_service;
 pub mod request;
@@ -42,6 +41,11 @@ use vmm::VmmAction;
 pub enum Error {
     Io(io::Error),
     Eventfd(sys_util::Error),
+}
+
+pub enum UnixDomainSocket<P> {
+    Path(P),
+    Fd(i32),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -73,22 +77,22 @@ impl ApiServer {
     // TODO: does tokio_uds also support abstract domain sockets?
     pub fn bind_and_run<P: AsRef<Path>>(
         &self,
-        uds_path: P,
+        path_or_fd: UnixDomainSocket<P>,
         jailer_start_time_ms: Option<u64>,
     ) -> Result<()> {
         let mut core = Core::new().map_err(Error::Io)?;
         let handle = Rc::new(core.handle());
 
-        let listener = if data_model::FIRECRACKER_IS_JAILED
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            // This is a UnixListener of the tokio_uds variety. Using fd inherited from the jailer.
-            UnixListener::from_listener(
-                unsafe { std::os::unix::net::UnixListener::from_raw_fd(jailer::LISTENER_FD) },
-                &handle,
-            ).map_err(Error::Io)?
-        } else {
-            UnixListener::bind(uds_path, &handle).map_err(Error::Io)?
+        let listener = match path_or_fd {
+            UnixDomainSocket::Path(path) => UnixListener::bind(path, &handle).map_err(Error::Io)?,
+            UnixDomainSocket::Fd(fd) => {
+                // Safe because we assume fd is a valid file descriptor number, associated with a
+                // previously bound UnixListener.
+                UnixListener::from_listener(
+                    unsafe { std::os::unix::net::UnixListener::from_raw_fd(fd) },
+                    &handle,
+                ).map_err(Error::Io)?
+            }
         };
 
         if let Some(start_time_ms) = jailer_start_time_ms {
