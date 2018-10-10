@@ -118,7 +118,7 @@ fn parse_actions_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(method)
+                })?.into_parsed_request(None, method)
                 .map_err(|msg| {
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::Generic(StatusCode::BadRequest, msg)
@@ -132,10 +132,13 @@ fn parse_actions_req<'a>(
                 METRICS.put_api_requests.actions_fails.inc();
                 Error::SerdeJson(e)
             })?;
-            let parsed_req = body.clone().into_parsed_request(method).map_err(|msg| {
-                METRICS.put_api_requests.actions_fails.inc();
-                Error::Generic(StatusCode::BadRequest, msg)
-            })?;
+            let parsed_req = body
+                .clone()
+                .into_parsed_request(None, method)
+                .map_err(|msg| {
+                    METRICS.put_api_requests.actions_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, msg)
+                })?;
             Ok(parsed_req)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -217,7 +220,7 @@ fn parse_drives_req<'a>(
                 METRICS.put_api_requests.drive_fails.inc();
                 Error::Generic(StatusCode::BadRequest, format!("{:?}", s))
             })?;
-            Ok(device_cfg.into_parsed_request(method).map_err(|s| {
+            Ok(device_cfg.into_parsed_request(None, method).map_err(|s| {
                 METRICS.put_api_requests.drive_fails.inc();
                 Error::Generic(StatusCode::BadRequest, s)
             })?)
@@ -231,7 +234,7 @@ fn parse_drives_req<'a>(
                     METRICS.patch_api_requests.drive_fails.inc();
                     Error::SerdeJson(e)
                 })?,
-            }.into_parsed_request(method)
+            }.into_parsed_request(None, method)
             .map_err(|s| {
                 METRICS.patch_api_requests.drive_fails.inc();
                 Error::Generic(StatusCode::BadRequest, s)
@@ -285,7 +288,7 @@ fn parse_machine_config_req<'a>(
                 cpu_template: None,
             };
             Ok(empty_machine_config
-                .into_parsed_request(method)
+                .into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.get_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -298,7 +301,7 @@ fn parse_machine_config_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(method)
+                })?.into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -870,7 +873,7 @@ mod tests {
             rate_limiter: None,
         };
 
-        match drive_desc.into_parsed_request(Method::Put) {
+        match drive_desc.into_parsed_request(None, Method::Put) {
             Ok(pr) => match parse_drives_req(
                 &"/foo/bar"[1..].split_terminator('/').collect(),
                 &"/foo/bar",
@@ -910,7 +913,7 @@ mod tests {
             fields: Value::Object(payload_map),
         };
 
-        match patch_payload.into_parsed_request(Method::Patch) {
+        match patch_payload.into_parsed_request(None, Method::Patch) {
             Ok(pr) => {
                 match parse_drives_req(&path_tokens, &path, Method::Patch, &id_from_path, &body) {
                     Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
@@ -1061,7 +1064,7 @@ mod tests {
             cpu_template: Some(CpuFeaturesTemplate::T2),
         };
 
-        match mcb.into_parsed_request(Method::Put) {
+        match mcb.into_parsed_request(None, Method::Put) {
             Ok(pr) => match parse_machine_config_req(&path_tokens, &path, Method::Put, &body) {
                 Ok(pr_mcb) => assert!(pr.eq(&pr_mcb)),
                 _ => assert!(false),
