@@ -1,10 +1,10 @@
 use std::result;
 
 use futures::sync::oneshot;
-use hyper::{Response, StatusCode};
+use hyper::{Method, Response, StatusCode};
 
 use http_service::{json_fault_message, json_response};
-use request::{GenerateResponse, ParsedRequest, VmmAction};
+use request::{GenerateResponse, IntoParsedRequest, ParsedRequest, VmmAction};
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -44,8 +44,12 @@ impl GenerateResponse for BootSourceConfigError {
     }
 }
 
-impl BootSourceConfig {
-    pub fn into_parsed_request(self) -> result::Result<ParsedRequest, String> {
+impl IntoParsedRequest for BootSourceConfig {
+    fn into_parsed_request(
+        self,
+        _: Option<String>,
+        _: Method,
+    ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
             VmmAction::ConfigureBootSource(self, sender),
@@ -85,9 +89,12 @@ mod tests {
             boot_args: Some(String::from("foobar")),
         };
         let (sender, receiver) = oneshot::channel();
-        assert!(body.into_parsed_request().eq(&Ok(ParsedRequest::Sync(
-            VmmAction::ConfigureBootSource(same_body, sender),
-            receiver
-        ))))
+        assert!(
+            body.into_parsed_request(None, Method::Put)
+                .eq(&Ok(ParsedRequest::Sync(
+                    VmmAction::ConfigureBootSource(same_body, sender),
+                    receiver
+                )))
+        )
     }
 }

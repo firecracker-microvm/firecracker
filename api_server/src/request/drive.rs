@@ -98,9 +98,15 @@ impl IntoParsedRequest for PatchDrivePayload {
 impl IntoParsedRequest for BlockDeviceConfig {
     fn into_parsed_request(
         self,
-        _: Option<String>,
+        id_from_path: Option<String>,
         method: Method,
     ) -> result::Result<ParsedRequest, String> {
+        let id_from_path = id_from_path.unwrap_or(String::new());
+        if id_from_path != self.drive_id {
+            return Err(String::from(
+                "The id from the path does not match the id from the body!",
+            ));
+        }
         let (sender, receiver) = oneshot::channel();
         match method {
             Method::Put => Ok(ParsedRequest::Sync(
@@ -336,14 +342,14 @@ mod tests {
         assert!(
             &desc
                 .clone()
-                .into_parsed_request(None, Method::Options)
+                .into_parsed_request(Some(String::from("foo")), Method::Options)
                 .eq(&Ok(ParsedRequest::Dummy))
         );
         let (sender, receiver) = oneshot::channel();
         assert!(
             &desc
                 .clone()
-                .into_parsed_request(None, Method::Put)
+                .into_parsed_request(Some(String::from("foo")), Method::Put)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::InsertBlockDevice(desc, sender),
                     receiver

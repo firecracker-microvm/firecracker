@@ -161,7 +161,7 @@ fn parse_boot_source_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request()
+                })?.into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -210,20 +210,19 @@ fn parse_drives_req<'a>(
         1 if method == Method::Get => Ok(ParsedRequest::Dummy),
 
         1 if method == Method::Put => {
+            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
             METRICS.put_api_requests.drive_count.inc();
 
             let device_cfg = serde_json::from_slice::<BlockDeviceConfig>(body).map_err(|e| {
                 METRICS.put_api_requests.drive_fails.inc();
                 Error::SerdeJson(e)
             })?;
-            device_cfg.check_id(id_from_path.unwrap()).map_err(|s| {
-                METRICS.put_api_requests.drive_fails.inc();
-                Error::Generic(StatusCode::BadRequest, format!("{:?}", s))
-            })?;
-            Ok(device_cfg.into_parsed_request(None, method).map_err(|s| {
-                METRICS.put_api_requests.drive_fails.inc();
-                Error::Generic(StatusCode::BadRequest, s)
-            })?)
+            Ok(device_cfg
+                .into_parsed_request(Some(unwrapped_id.to_string()), method)
+                .map_err(|s| {
+                    METRICS.put_api_requests.drive_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
         }
 
         1 if method == Method::Patch => {
@@ -261,7 +260,7 @@ fn parse_logger_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.logger_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request()
+                })?.into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.logger_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -332,7 +331,7 @@ fn parse_netif_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.network_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(unwrapped_id)
+                })?.into_parsed_request(Some(unwrapped_id.to_string()), method)
                 .map_err(|s| {
                     METRICS.put_api_requests.network_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -873,7 +872,7 @@ mod tests {
             rate_limiter: None,
         };
 
-        match drive_desc.into_parsed_request(None, Method::Put) {
+        match drive_desc.into_parsed_request(Some(String::from("bar")), Method::Put) {
             Ok(pr) => match parse_drives_req(
                 &"/foo/bar"[1..].split_terminator('/').collect(),
                 &"/foo/bar",
@@ -1142,7 +1141,7 @@ mod tests {
             allow_mmds_requests: false,
         };
 
-        match netif.into_parsed_request("bar") {
+        match netif.into_parsed_request(Some(String::from("bar")), Method::Put) {
             Ok(pr) => match parse_netif_req(
                 &"/foo/bar"[1..].split_terminator('/').collect(),
                 &"/foo/bar",

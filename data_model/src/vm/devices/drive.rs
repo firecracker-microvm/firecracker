@@ -37,16 +37,6 @@ pub struct BlockDeviceConfig {
 }
 
 impl BlockDeviceConfig {
-    pub fn check_id(&self, id: &str) -> result::Result<(), String> {
-        if self.drive_id != String::from(id) {
-            Err(String::from(
-                "The id from the path does not match the id from the body!",
-            ))
-        } else {
-            Ok(())
-        }
-    }
-
     pub fn get_partuuid(&self) -> Option<&String> {
         self.partuuid.as_ref()
     }

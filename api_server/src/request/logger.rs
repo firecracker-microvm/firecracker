@@ -1,10 +1,10 @@
 use std::result;
 
 use futures::sync::oneshot;
-use hyper::{Response, StatusCode};
+use hyper::{Method, Response, StatusCode};
 
 use http_service::{json_fault_message, json_response};
-use request::{GenerateResponse, ParsedRequest, VmmAction};
+use request::{GenerateResponse, IntoParsedRequest, ParsedRequest, VmmAction};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum APILoggerLevel {
@@ -44,8 +44,12 @@ impl GenerateResponse for APILoggerError {
     }
 }
 
-impl APILoggerDescription {
-    pub fn into_parsed_request(self) -> result::Result<ParsedRequest, String> {
+impl IntoParsedRequest for APILoggerDescription {
+    fn into_parsed_request(
+        self,
+        _: Option<String>,
+        _: Method,
+    ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
             VmmAction::ConfigureLogger(self, sender),
@@ -86,12 +90,12 @@ mod tests {
             show_log_origin: None,
         };
         format!("{:?}", desc);
-        assert!(&desc.clone().into_parsed_request().is_ok());
+        assert!(&desc.clone().into_parsed_request(None, Method::Put).is_ok());
         let (sender, receiver) = oneshot::channel();
         assert!(
             &desc
                 .clone()
-                .into_parsed_request()
+                .into_parsed_request(None, Method::Put)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::ConfigureLogger(desc, sender),
                     receiver
