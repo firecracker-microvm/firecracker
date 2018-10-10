@@ -20,3 +20,4 @@ jailer = { path = "../jailer" }
 logger = { path = "../logger" }
 net_util = { path = "../net_util" }
 sys_util = { path = "../sys_util" }
+vmm = { path = "../vmm" }

@@ -1,14 +1,13 @@
 use std::result;
 
 use futures::sync::oneshot;
-use hyper::{Method, Response, StatusCode};
+use hyper::Method;
 use serde_json::{Map, Value};
 
-use data_model::vm::{BlockDeviceConfig, DriveError};
+use data_model::vm::BlockDeviceConfig;
 
-use super::{GenerateResponse, VmmAction};
-use http_service::{json_fault_message, json_response};
 use request::{IntoParsedRequest, ParsedRequest};
+use vmm::VmmAction;
 
 #[derive(Clone)]
 pub struct PatchDrivePayload {
@@ -86,7 +85,7 @@ impl IntoParsedRequest for PatchDrivePayload {
 
                 let (sender, receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    VmmAction::UpdateDrivePath(drive_id, path_on_host, sender),
+                    VmmAction::UpdateBlockDevicePath(drive_id, path_on_host, sender),
                     receiver,
                 ))
             }
@@ -114,58 +113,6 @@ impl IntoParsedRequest for BlockDeviceConfig {
                 receiver,
             )),
             _ => Ok(ParsedRequest::Dummy),
-        }
-    }
-}
-
-impl GenerateResponse for DriveError {
-    fn generate_response(&self) -> Response {
-        use self::DriveError::*;
-        match *self {
-            CannotOpenBlockDevice => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("Cannot open block device. Invalid permission/path."),
-            ),
-            InvalidBlockDeviceID => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("Invalid block device ID!"),
-            ),
-            InvalidBlockDevicePath => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("Invalid block device path!"),
-            ),
-            BlockDevicePathAlreadyExists => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("The block device path was already added to a different drive!"),
-            ),
-            BlockDeviceUpdateFailed => json_response(
-                StatusCode::InternalServerError,
-                json_fault_message("The update operation failed!"),
-            ),
-            BlockDeviceUpdateNotAllowed => json_response(
-                StatusCode::Forbidden,
-                json_fault_message("The block device update operation is not allowed!"),
-            ),
-            NotImplemented => json_response(
-                StatusCode::InternalServerError,
-                json_fault_message("The operation is not implemented!"),
-            ),
-            OperationNotAllowedPreBoot => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("Operation not allowed pre-boot!"),
-            ),
-            RootBlockDeviceAlreadyAdded => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("A root block device already exists!"),
-            ),
-            SerdeJson => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("Invalid request body!"),
-            ),
-            UpdateNotAllowedPostBoot => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("The update operation is not allowed after boot."),
-            ),
         }
     }
 }
@@ -266,66 +213,16 @@ mod tests {
             pdp.clone()
                 .into_parsed_request(None, Method::Patch)
                 .eq(&Ok(ParsedRequest::Sync(
-                    VmmAction::UpdateDrivePath("foo".to_string(), "dummy".to_string(), sender),
+                    VmmAction::UpdateBlockDevicePath(
+                        "foo".to_string(),
+                        "dummy".to_string(),
+                        sender
+                    ),
                     receiver
                 )))
         );
 
         assert!(pdp.into_parsed_request(None, Method::Put).is_err());
-    }
-
-    #[test]
-    fn test_generate_response_drive_error() {
-        assert_eq!(
-            DriveError::InvalidBlockDeviceID
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
-        assert_eq!(
-            DriveError::InvalidBlockDevicePath
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
-        assert_eq!(
-            DriveError::BlockDevicePathAlreadyExists
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
-        assert_eq!(
-            DriveError::BlockDeviceUpdateFailed
-                .generate_response()
-                .status(),
-            StatusCode::InternalServerError
-        );
-        assert_eq!(
-            DriveError::BlockDeviceUpdateNotAllowed
-                .generate_response()
-                .status(),
-            StatusCode::Forbidden
-        );
-        assert_eq!(
-            DriveError::NotImplemented.generate_response().status(),
-            StatusCode::InternalServerError
-        );
-        assert_eq!(
-            DriveError::RootBlockDeviceAlreadyAdded
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
-        assert_eq!(
-            DriveError::SerdeJson.generate_response().status(),
-            StatusCode::BadRequest
-        );
-        assert_eq!(
-            DriveError::UpdateNotAllowedPostBoot
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
     }
 
     #[test]

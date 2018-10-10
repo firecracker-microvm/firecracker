@@ -3,42 +3,12 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
 
-use data_model::vm::MachineConfiguration;
-use http_service::{json_fault_message, json_response};
-use request::{GenerateResponse, IntoParsedRequest, ParsedRequest, VmmAction};
+use data_model::vm::VmConfig;
+use http_service::json_response;
+use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
+use vmm::VmmAction;
 
-#[derive(Debug, PartialEq)]
-pub enum PutMachineConfigurationError {
-    InvalidVcpuCount,
-    InvalidMemorySize,
-    UpdateNotAllowPostBoot,
-}
-
-impl GenerateResponse for PutMachineConfigurationError {
-    fn generate_response(&self) -> Response {
-        use self::PutMachineConfigurationError::*;
-
-        match self {
-            InvalidVcpuCount => json_response(
-                StatusCode::BadRequest,
-                json_fault_message(
-                    "The vCPU number is invalid! The vCPU number can only \
-                     be 1 or an even number when hyperthreading is enabled.",
-                ),
-            ),
-            InvalidMemorySize => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("The memory size (MiB) is invalid."),
-            ),
-            UpdateNotAllowPostBoot => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("The update operation is not allowed after boot."),
-            ),
-        }
-    }
-}
-
-impl GenerateResponse for MachineConfiguration {
+impl GenerateHyperResponse for VmConfig {
     fn generate_response(&self) -> Response {
         let vcpu_count = self.vcpu_count.unwrap_or(1);
         let mem_size = self.mem_size_mib.unwrap_or(128);
@@ -57,7 +27,7 @@ impl GenerateResponse for MachineConfiguration {
     }
 }
 
-impl IntoParsedRequest for MachineConfiguration {
+impl IntoParsedRequest for VmConfig {
     fn into_parsed_request(
         self,
         _: Option<String>,
@@ -66,7 +36,7 @@ impl IntoParsedRequest for MachineConfiguration {
         let (sender, receiver) = oneshot::channel();
         match method {
             Method::Get => Ok(ParsedRequest::Sync(
-                VmmAction::GetMachineConfiguration(sender),
+                VmmAction::GetVmConfiguration(sender),
                 receiver,
             )),
             Method::Put => {
@@ -93,30 +63,8 @@ mod tests {
     use data_model::vm::CpuFeaturesTemplate;
 
     #[test]
-    fn test_generate_response_put_machine_configuration_error() {
-        assert_eq!(
-            PutMachineConfigurationError::InvalidVcpuCount
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
-        assert_eq!(
-            PutMachineConfigurationError::InvalidMemorySize
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
-        assert_eq!(
-            PutMachineConfigurationError::UpdateNotAllowPostBoot
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
-    }
-
-    #[test]
     fn test_into_parsed_request() {
-        let body = MachineConfiguration {
+        let body = VmConfig {
             vcpu_count: Some(8),
             mem_size_mib: Some(1024),
             ht_enabled: Some(true),
@@ -131,7 +79,7 @@ mod tests {
                     receiver
                 )))
         );
-        let uninitialized = MachineConfiguration {
+        let uninitialized = VmConfig {
             vcpu_count: None,
             mem_size_mib: None,
             ht_enabled: None,

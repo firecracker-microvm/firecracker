@@ -6,7 +6,8 @@ use futures::sync::oneshot;
 use hyper::Method;
 use serde_json::Value;
 
-use request::{IntoParsedRequest, ParsedRequest, VmmAction};
+use request::{IntoParsedRequest, ParsedRequest};
+use vmm::VmmAction;
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed
@@ -22,15 +23,6 @@ pub enum DeviceType {
     Drive,
 }
 
-// Represents the associated json block from the sync request body.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct InstanceDeviceDetachAction {
-    pub device_type: DeviceType,
-    pub device_resource_id: String,
-    pub force: bool,
-}
-
 // The model of the json body from a sync request. We use Serde to transform each associated
 // json body into this.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -38,7 +30,6 @@ pub struct InstanceDeviceDetachAction {
 pub struct ActionBody {
     pub action_type: ActionType,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instance_device_detach_action: Option<InstanceDeviceDetachAction>,
     pub payload: Option<Value>,
 }
 
@@ -107,14 +98,12 @@ mod tests {
         // Test InstanceStart.
         let action_body = ActionBody {
             action_type: ActionType::InstanceStart,
-            instance_device_detach_action: None,
             payload: None,
         };
         assert!(validate_payload(&action_body).is_ok());
         // Error case: InstanceStart with payload.
         let action_body = ActionBody {
             action_type: ActionType::InstanceStart,
-            instance_device_detach_action: None,
             payload: Some(Value::String("dummy-payload".to_string())),
         };
         assert!(validate_payload(&action_body).is_err());
@@ -122,21 +111,18 @@ mod tests {
         // Test BlockDeviceRescan
         let action_body = ActionBody {
             action_type: ActionType::BlockDeviceRescan,
-            instance_device_detach_action: None,
             payload: Some(Value::String(String::from("dummy_id"))),
         };
         assert!(validate_payload(&action_body).is_ok());
         // Error case: no payload.
         let action_body = ActionBody {
             action_type: ActionType::BlockDeviceRescan,
-            instance_device_detach_action: None,
             payload: None,
         };
         assert!(validate_payload(&action_body).is_err());
         // Error case: payload is not String.
         let action_body = ActionBody {
             action_type: ActionType::BlockDeviceRescan,
-            instance_device_detach_action: None,
             payload: Some(Value::Bool(false)),
         };
         assert!(validate_payload(&action_body).is_err());
@@ -167,13 +153,10 @@ mod tests {
         }
 
         {
-            let json = "{
-                \"action_type\": \"InstanceStart\",
-                \"instance_device_detach_action\": {\
-                    \"device_type\": \"Drive\",
-                    \"device_resource_id\": \"dummy\",
-                    \"force\": true}
-              }";
+            let json = r#"{
+                "action_type": "InstanceStart"
+            }"#;
+
             let (sender, receiver) = oneshot::channel();
             let req: ParsedRequest = ParsedRequest::Sync(VmmAction::StartMicroVm(sender), receiver);
             let result: Result<ActionBody, serde_json::Error> = serde_json::from_str(json);

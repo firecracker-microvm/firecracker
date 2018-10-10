@@ -1,5 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+use std;
 use std::collections::LinkedList;
+use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::result;
 
@@ -14,12 +16,32 @@ pub enum DriveError {
     InvalidBlockDevicePath,
     BlockDevicePathAlreadyExists,
     BlockDeviceUpdateFailed,
-    BlockDeviceUpdateNotAllowed,
-    NotImplemented,
     OperationNotAllowedPreBoot,
     UpdateNotAllowedPostBoot,
     RootBlockDeviceAlreadyAdded,
-    SerdeJson,
+}
+
+impl Display for DriveError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use self::DriveError::*;
+        match *self {
+            CannotOpenBlockDevice => {
+                write!(f, "Cannot open block device. Invalid permission/path.")
+            }
+            InvalidBlockDeviceID => write!(f, "Invalid block device ID!"),
+            InvalidBlockDevicePath => write!(f, "Invalid block device path!"),
+            BlockDevicePathAlreadyExists => write!(
+                f,
+                "The block device path was already added to a different drive!"
+            ),
+            BlockDeviceUpdateFailed => write!(f, "The update operation failed!"),
+            OperationNotAllowedPreBoot => write!(f, "Operation not allowed pre-boot!"),
+            RootBlockDeviceAlreadyAdded => write!(f, "A root block device already exists!"),
+            UpdateNotAllowedPostBoot => {
+                write!(f, "The update operation is not allowed after boot.")
+            }
+        }
+    }
 }
 
 /// Use this structure to set up the Block Device before booting the kernel
