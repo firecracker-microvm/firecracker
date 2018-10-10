@@ -1,14 +1,14 @@
 use std::result;
 
 use futures::sync::oneshot;
-use hyper::{Response, StatusCode};
+use hyper::{Method, Response, StatusCode};
 
 use super::VmmAction;
 
 use data_model::vm::{DeviceState, RateLimiterDescription};
 use http_service::{json_fault_message, json_response};
 use net_util::{MacAddr, TapError};
-use request::{GenerateResponse, ParsedRequest};
+use request::{GenerateResponse, IntoParsedRequest, ParsedRequest};
 
 // This struct represents the strongly typed equivalent of the json body from net iface
 // related requests.
@@ -75,8 +75,13 @@ impl GenerateResponse for NetworkInterfaceError {
     }
 }
 
-impl NetworkInterfaceBody {
-    pub fn into_parsed_request(self, id_from_path: &str) -> result::Result<ParsedRequest, String> {
+impl IntoParsedRequest for NetworkInterfaceBody {
+    fn into_parsed_request(
+        self,
+        id_from_path: Option<String>,
+        _: Method,
+    ) -> result::Result<ParsedRequest, String> {
+        let id_from_path = id_from_path.unwrap_or(String::new());
         if id_from_path != self.iface_id {
             return Err(String::from(
                 "The id from the path does not match the id from the body!",
@@ -112,12 +117,17 @@ mod tests {
             allow_mmds_requests: false,
         };
 
-        assert!(netif.clone().into_parsed_request("bar").is_err());
+        assert!(
+            netif
+                .clone()
+                .into_parsed_request(Some(String::from("bar")), Method::Put)
+                .is_err()
+        );
         let (sender, receiver) = oneshot::channel();
         assert!(
             netif
                 .clone()
-                .into_parsed_request("foo")
+                .into_parsed_request(Some(String::from("foo")), Method::Put)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::InsertNetworkDevice(netif, sender),
                     receiver
