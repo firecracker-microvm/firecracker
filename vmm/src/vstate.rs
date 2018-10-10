@@ -4,7 +4,7 @@ extern crate x86_64;
 
 use std::result;
 
-use data_model::vm::MachineConfiguration;
+use data_model::vm::VmConfig;
 use kvm::*;
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
@@ -157,7 +157,7 @@ impl Vcpu {
     /// nr cpus is required for checking populating the kvm_cpuid2 entry for ebx and edx registers
     pub fn configure(
         &mut self,
-        machine_config: &MachineConfiguration,
+        machine_config: &VmConfig,
         kernel_start_addr: GuestAddress,
         vm: &Vm,
     ) -> Result<()> {

@@ -11,6 +11,7 @@ extern crate tokio_uds;
 extern crate data_model;
 extern crate fc_util;
 extern crate jailer;
+extern crate vmm;
 #[macro_use]
 extern crate logger;
 extern crate net_util;
@@ -34,9 +35,9 @@ use tokio_uds::UnixListener;
 use data_model::mmds::Mmds;
 use http_service::ApiServerHttpService;
 use logger::{Metric, METRICS};
-use request::instance_info::InstanceInfo;
-use request::VmmAction;
 use sys_util::EventFd;
+use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::VmmAction;
 
 #[derive(Debug)]
 pub enum Error {

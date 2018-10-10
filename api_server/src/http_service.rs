@@ -11,16 +11,17 @@ use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 
 use data_model::mmds::Mmds;
-use data_model::vm::{BlockDeviceConfig, MachineConfiguration};
+use data_model::vm::{BlockDeviceConfig, VmConfig};
 use logger::{Metric, METRICS};
 use request::actions::ActionBody;
-use request::boot_source::BootSourceConfig;
 use request::drive::PatchDrivePayload;
-use request::instance_info::InstanceInfo;
-use request::logger::APILoggerDescription;
-use request::net::NetworkInterfaceBody;
-use request::{IntoParsedRequest, ParsedRequest, VmmAction};
+use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
+use vmm::vmm_config::boot_source::BootSourceConfig;
+use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::vmm_config::logger::LoggerConfig;
+use vmm::vmm_config::net::NetworkInterfaceBody;
+use vmm::VmmAction;
 
 fn build_response_base<B: Into<hyper::Body>>(
     status: StatusCode,
@@ -256,7 +257,7 @@ fn parse_logger_req<'a>(
 
         0 if method == Method::Put => {
             METRICS.put_api_requests.logger_count.inc();
-            Ok(serde_json::from_slice::<APILoggerDescription>(body)
+            Ok(serde_json::from_slice::<LoggerConfig>(body)
                 .map_err(|e| {
                     METRICS.put_api_requests.logger_fails.inc();
                     Error::SerdeJson(e)
@@ -280,7 +281,7 @@ fn parse_machine_config_req<'a>(
     match path_tokens[1..].len() {
         0 if method == Method::Get => {
             METRICS.get_api_requests.machine_cfg_count.inc();
-            let empty_machine_config = MachineConfiguration {
+            let empty_machine_config = VmConfig {
                 vcpu_count: None,
                 mem_size_mib: None,
                 ht_enabled: None,
@@ -296,7 +297,7 @@ fn parse_machine_config_req<'a>(
 
         0 if method == Method::Put => {
             METRICS.put_api_requests.machine_cfg_count.inc();
-            Ok(serde_json::from_slice::<MachineConfiguration>(body)
+            Ok(serde_json::from_slice::<VmConfig>(body)
                 .map_err(|e| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::SerdeJson(e)
@@ -580,12 +581,13 @@ mod tests {
     use serde_json::{Map, Value};
     use std::path::PathBuf;
 
-    use data_model::vm::{CpuFeaturesTemplate, DeviceState};
+    use data_model::vm::CpuFeaturesTemplate;
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use net_util::MacAddr;
-    use request::VmmAction;
+    use vmm::vmm_config::DeviceState;
+    use vmm::VmmAction;
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret = body
@@ -1006,7 +1008,7 @@ mod tests {
 
         // PUT
         let logger_body =
-            serde_json::from_slice::<APILoggerDescription>(&body).expect("deserialization failed");
+            serde_json::from_slice::<LoggerConfig>(&body).expect("deserialization failed");
         match parse_logger_req(&path_tokens, &path, Method::Put, &body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
@@ -1056,18 +1058,20 @@ mod tests {
         );
 
         // PUT
-        let mcb = MachineConfiguration {
+        let vm_config = VmConfig {
             vcpu_count: Some(42),
             mem_size_mib: Some(1025),
             ht_enabled: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
         };
 
-        match mcb.into_parsed_request(None, Method::Put) {
-            Ok(pr) => match parse_machine_config_req(&path_tokens, &path, Method::Put, &body) {
-                Ok(pr_mcb) => assert!(pr.eq(&pr_mcb)),
-                _ => assert!(false),
-            },
+        match vm_config.into_parsed_request(None, Method::Put) {
+            Ok(parsed_req) => {
+                match parse_machine_config_req(&path_tokens, &path, Method::Put, &body) {
+                    Ok(other_parsed_req) => assert!(parsed_req.eq(&other_parsed_req)),
+                    _ => assert!(false),
+                }
+            }
             _ => assert!(false),
         }
 

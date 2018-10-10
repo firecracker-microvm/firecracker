@@ -1,10 +1,72 @@
+use std::fmt::{Display, Formatter, Result};
 use std::mem;
 use std::rc::Rc;
 use std::result;
 
-use api_server::request::net::{NetworkInterfaceBody, NetworkInterfaceError};
+use super::DeviceState;
 use data_model::vm::RateLimiterDescription;
 use net_util::{MacAddr, Tap, TapError};
+
+// This struct represents the strongly typed equivalent of the json body from net iface
+// related requests.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkInterfaceBody {
+    pub iface_id: String,
+    pub state: DeviceState,
+    pub host_dev_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest_mac: Option<MacAddr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rx_rate_limiter: Option<RateLimiterDescription>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_rate_limiter: Option<RateLimiterDescription>,
+    #[serde(default = "default_allow_mmds_requests")]
+    pub allow_mmds_requests: bool,
+}
+
+// Serde does not allow specifying a default value for a field
+// that is not required. The workaround is to specify a function
+// that returns the value.
+fn default_allow_mmds_requests() -> bool {
+    false
+}
+
+#[derive(Debug)]
+pub enum NetworkInterfaceError {
+    GuestMacAddressInUse(String),
+    OpenTap(TapError),
+    UpdateNotAllowedPostBoot,
+}
+
+impl Display for NetworkInterfaceError {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        use self::NetworkInterfaceError::*;
+        match *self {
+            GuestMacAddressInUse(ref mac_addr) => write!(
+                f,
+                "{}",
+                format!("The guest MAC address {} is already in use.", mac_addr)
+            ),
+            OpenTap(ref e) => {
+                // We are propagating the Tap Error. This error can contain
+                // imbricated quotes which would result in an invalid json.
+                let mut tap_err = format!("{:?}", e);
+                tap_err = tap_err.replace("\"", "");
+
+                write!(
+                    f,
+                    "{}{}",
+                    "Cannot open TAP device. Invalid name/permissions. ".to_string(),
+                    tap_err
+                )
+            }
+            UpdateNotAllowedPostBoot => {
+                write!(f, "The update operation is not allowed after boot.",)
+            }
+        }
+    }
+}
 
 pub struct NetworkInterfaceConfig {
     // The request body received from the API side.
@@ -133,7 +195,6 @@ impl NetworkInterfaceConfigs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data_model::vm::DeviceState;
     use net_util::MacAddr;
 
     fn make_netif(id: &str, name: &str, mac: MacAddr) -> NetworkInterfaceBody {

@@ -18,11 +18,11 @@ use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
-use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::ApiServer;
 use data_model::mmds::MMDS;
 use data_model::FirecrackerContext;
 use logger::{Metric, LOGGER, METRICS};
+use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
