@@ -102,7 +102,7 @@ class SingletonReinitializationError(Exception):
 
 
 class UniqueIPv4Generator:
-    """Each microVM needs to have an unique IP on the host network."""
+    """Each microVM needs to have a unique IP on the host network."""
 
     __instance = None
 

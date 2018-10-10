@@ -9,6 +9,7 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 def test_reboot(test_microvm_with_ssh, network_config):
     """Test reboot from guest kernel."""
     test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
 
     # We don't need to monitor the memory for this test because we are
     # just rebooting and the process dies before pmap gets the RSS.
@@ -16,7 +17,7 @@ def test_reboot(test_microvm_with_ssh, network_config):
 
     # Set up the microVM with 4 vCPUs, 256 MiB of RAM, 0 network ifaces, and
     # a root file system with the rw permission. The network interfaces is
-    # added after we get an unique MAC and IP.
+    # added after we get a unique MAC and IP.
     test_microvm.basic_config(vcpu_count=4)
     _tap = test_microvm.ssh_network_config(network_config, '1')
 
@@ -24,7 +25,7 @@ def test_reboot(test_microvm_with_ssh, network_config):
 
     # Get Firecracker PID so we can count the number of threads.
     cmd = 'lsof -U | grep {} | awk \'{{print $2}}\''.format(
-        test_microvm.api_usocket_full_name
+        test_microvm.api_socket
     )
     process = run(cmd, stdout=PIPE, stderr=PIPE, shell=True, check=True)
     firecracker_pid = process.stdout.decode('utf-8').rstrip()

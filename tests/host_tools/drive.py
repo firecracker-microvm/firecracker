@@ -9,6 +9,7 @@ class FilesystemFile:
     """Facility for creating and working with filesystem files."""
 
     KNOWN_FILEFS_FORMATS = {'ext4'}
+    path = None
 
     def __init__(self, path: str, size: int = 256, fs_format: str = 'ext4'):
         """Create a new file system in a file.

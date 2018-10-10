@@ -29,6 +29,7 @@ MAX_TIME_DIFF = 25
 def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
     """Run iperf tx with and without rate limiting; check limiting effect."""
     test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
 
     test_microvm.basic_config()
 
@@ -38,12 +39,12 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
     # 3. Rate limiting with burst
     host_ips = ['', '', '']
     guest_ips = ['', '', '']
-    iface_id = '1'
 
+    iface_id = '1'
     # Create tap before configuring interface.
-    tapname = test_microvm.slot.slot_id[:8] + 'tap' + iface_id
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
     (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap1 = net_tools.Tap(tapname, test_microvm.slot.netns(), ip="{}/{}".format(
+    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
         host_ip,
         network_config.get_netmask_len()
     ))
@@ -59,11 +60,9 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
     host_ips[0] = host_ip
 
     iface_id = '2'
-
-    # Create tap before configuring interface.
-    tapname = test_microvm.slot.slot_id[:8] + 'tap' + iface_id
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
     (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap2 = net_tools.Tap(tapname, test_microvm.slot.netns(), ip="{}/{}".format(
+    tap2 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
         host_ip,
         network_config.get_netmask_len()
     ))
@@ -85,16 +84,13 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
     host_ips[1] = host_ip
 
     iface_id = '3'
-
-    # Create tap before configuring interface.
-    tapname = test_microvm.slot.slot_id[:8] + 'tap' + iface_id
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
     (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap3 = net_tools.Tap(tapname, test_microvm.slot.netns(), ip="{}/{}".format(
+    tap3 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
         host_ip,
         network_config.get_netmask_len()
     ))
     guest_mac = net_tools.mac_from_ip(guest_ip)
-
     response = test_microvm.network.put(
         iface_id=iface_id,
         host_dev_name=tap3.name,
@@ -110,7 +106,7 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
     assert test_microvm.api_session.is_good_response(response.status_code)
     guest_ips[2] = guest_ip
     host_ips[2] = host_ip
-    # Start the microvm.
+
     test_microvm.start()
 
     _check_tx_rate_limiting(test_microvm, guest_ips, host_ips)
@@ -119,6 +115,7 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
 def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
     """Run iperf rx with and without rate limiting; check limiting effect."""
     test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
 
     test_microvm.basic_config()
 
@@ -128,17 +125,16 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
     # 3. Rate limiting with burst
     host_ips = ['', '', '']
     guest_ips = ['', '', '']
-    iface_id = '1'
 
+    iface_id = '1'
     # Create tap before configuring interface.
-    tapname = test_microvm.slot.slot_id[:8] + 'tap' + iface_id
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
     (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap1 = net_tools.Tap(tapname, test_microvm.slot.netns(), ip="{}/{}".format(
+    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
         host_ip,
         network_config.get_netmask_len()
     ))
     guest_mac = net_tools.mac_from_ip(guest_ip)
-
     response = test_microvm.network.put(
         iface_id=iface_id,
         host_dev_name=tap1.name,
@@ -149,16 +145,13 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
     host_ips[0] = host_ip
 
     iface_id = '2'
-
-    # Create tap before configuring interface.
-    tapname = test_microvm.slot.slot_id[:8] + 'tap' + iface_id
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
     (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap2 = net_tools.Tap(tapname, test_microvm.slot.netns(), ip="{}/{}".format(
+    tap2 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
         host_ip,
         network_config.get_netmask_len()
     ))
     guest_mac = net_tools.mac_from_ip(guest_ip)
-
     response = test_microvm.network.put(
         iface_id=iface_id,
         host_dev_name=tap2.name,
@@ -175,16 +168,13 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
     host_ips[1] = host_ip
 
     iface_id = '3'
-
-    # Create tap before configuring interface.
-    tapname = test_microvm.slot.slot_id[:8] + 'tap' + iface_id
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
     (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap3 = net_tools.Tap(tapname, test_microvm.slot.netns(), ip="{}/{}".format(
+    tap3 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
         host_ip,
         network_config.get_netmask_len()
     ))
     guest_mac = net_tools.mac_from_ip(guest_ip)
-
     response = test_microvm.network.put(
         iface_id=iface_id,
         host_dev_name=tap3.name,
@@ -210,7 +200,7 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
 def _check_tx_rate_limiting(test_microvm, guest_ips, host_ips):
     """Check that the transmit rate is within expectations."""
     # Start iperf on the host as this is the tx rate limiting test.
-    _start_local_iperf(test_microvm.slot.netns_cmd_prefix())
+    _start_local_iperf(test_microvm.jailer.netns_cmd_prefix())
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf; 1000 converts to Bytes.
@@ -308,7 +298,7 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf; 1000 converts to Bytes.
     iperf_cmd = '{} {} -c {} -t{} -f KBytes'.format(
-        test_microvm.slot.netns_cmd_prefix(),
+        test_microvm.jailer.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ips[0],
         IPERF_TRANSMIT_TIME
@@ -327,7 +317,7 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
     # Use iperf for 2 seconds to get the number of bytes it sent with rate
     # limiting on.
     iperf_cmd = '{} {} -c {} -t{} -f KBytes'.format(
-        test_microvm.slot.netns_cmd_prefix(),
+        test_microvm.jailer.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ips[1],
         IPERF_TRANSMIT_TIME
@@ -353,7 +343,7 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
     # Use iperf to obtain the time interval that a BURST_SIZE (way larger
     # than the bucket's size) can be sent over the network.
     iperf_cmd = '{} {} -c {} -n{} -f KBytes'.format(
-        test_microvm.slot.netns_cmd_prefix(),
+        test_microvm.jailer.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ips[2],
         BURST_SIZE)
@@ -368,7 +358,7 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
     # We are sending the amount of bytes that can be sent in 1 sec with rate
     # rate limiting enabled.
     iperf_cmd = '{} {} -c {} -n{} -f KBytes'.format(
-        test_microvm.slot.netns_cmd_prefix(),
+        test_microvm.jailer.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ips[2],
         rate_limit_bps

@@ -8,26 +8,23 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 
 def test_rescan(test_microvm_with_ssh, network_config):
     """Verify that a block device rescan has guest seeing changes."""
-
     test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
     # a root file system with the rw permission. The network interface is
-    # added after we get an unique MAC and IP.
+    # added after we get a unique MAC and IP.
     test_microvm.basic_config()
 
     _tap = test_microvm_with_ssh.ssh_network_config(network_config, '1')
 
     # Add a scratch block device.
     fs = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'scratch')
+        os.path.join(test_microvm.fsfiles, 'scratch')
     )
     response = test_microvm.drive.put(
         drive_id='scratch',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs.path,
-            create=True
-        ),
+        path_on_host=test_microvm.create_jailed_resource(fs.path),
         is_root_device=False,
         is_read_only=False
     )
@@ -60,24 +57,22 @@ def test_rescan(test_microvm_with_ssh, network_config):
 def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
     """"Test the output reported by blockdev when booting from /dev/vda."""
     test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
 
     # Sets up the microVM with 1 vCPUs, 256 MiB of RAM, no network ifaces and
     # a root file system with the rw permission. The network interfaces is
-    # added after we get an unique MAC and IP.
+    # added after we get a unique MAC and IP.
     test_microvm.basic_config(vcpu_count=1)
 
     _tap = test_microvm.ssh_network_config(network_config, '1')
 
     # Add another read-only block device.
     fs = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'readonly')
+        os.path.join(test_microvm.fsfiles, 'readonly')
     )
     response = test_microvm.drive.put(
         drive_id='readonly',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs.path,
-            create=True
-        ),
+        path_on_host=test_microvm.create_jailed_resource(fs.path),
         is_root_device=False,
         is_read_only=True
     )
@@ -102,10 +97,11 @@ def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
 def test_partuuid_boot(test_microvm_with_partuuid, network_config):
     """Test the output reported by blockdev when booting with PARTUUID."""
     test_microvm = test_microvm_with_partuuid
+    test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM, no network ifaces and
     # a root file system with the rw permission. The network interfaces is
-    # added after we get an unique MAC and IP.
+    # added after we get a unique MAC and IP.
     test_microvm.basic_config(
         vcpu_count=1,
         add_root_device=False
@@ -116,7 +112,9 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
     # Add the root block device specified through PARTUUID.
     response = test_microvm.drive.put(
         drive_id='rootfs',
-        path_on_host=test_microvm.rootfs_api_path(),
+        path_on_host=test_microvm.create_jailed_resource(
+            test_microvm.rootfs_file
+        ),
         is_root_device=True,
         is_read_only=False,
         partuuid='0eaa91a0-01'
@@ -137,10 +135,11 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
 def test_partuuid_update(test_microvm_with_ssh, network_config):
     """Test successful switching from PARTUUID boot to /dev/vda boot."""
     test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
     # a root file system with the rw permission. The network interfaces is
-    # added after we get an unique MAC and IP.
+    # added after we get a unique MAC and IP.
     test_microvm.basic_config(
         vcpu_count=1,
         add_root_device=False
@@ -151,7 +150,9 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
     # Add the root block device specified through PARTUUID.
     response = test_microvm.drive.put(
         drive_id='rootfs',
-        path_on_host=test_microvm.rootfs_api_path(),
+        path_on_host=test_microvm.create_jailed_resource(
+            test_microvm.rootfs_file
+        ),
         is_root_device=True,
         is_read_only=False,
         partuuid='0eaa91a0-01'
@@ -161,7 +162,9 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
     # Update the root block device to boot from /dev/vda.
     response = test_microvm.drive.put(
         drive_id='rootfs',
-        path_on_host=test_microvm.rootfs_api_path(),
+        path_on_host=test_microvm.create_jailed_resource(
+            test_microvm.rootfs_file
+        ),
         is_root_device=True,
         is_read_only=False
     )
@@ -180,6 +183,7 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
 def test_patch_drive(test_microvm_with_ssh, network_config):
     """Test replacing the backing filesystem file after guest boot works."""
     test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM, 1 network iface, a root
     # file system with the rw permission, and a scratch drive.
@@ -188,14 +192,11 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
     _tap = test_microvm.ssh_network_config(network_config, '1')
 
     fs1 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'scratch')
+        os.path.join(test_microvm.fsfiles, 'scratch')
     )
     response = test_microvm.drive.put(
         drive_id='scratch',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs1.path,
-            create=True
-        ),
+        path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False
     )
@@ -205,14 +206,11 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
 
     # Updates to `path_on_host` with a valid path are allowed.
     fs2 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'otherscratch'), size=512
+        os.path.join(test_microvm.fsfiles, 'otherscratch'), size=512
     )
     response = test_microvm.drive.patch(
         drive_id='scratch',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs2.path,
-            create=True
-        )
+        path_on_host=test_microvm.create_jailed_resource(fs2.path)
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 

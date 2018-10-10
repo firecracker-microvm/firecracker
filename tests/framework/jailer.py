@@ -17,16 +17,16 @@ class JailerContext:
 
     def __init__(
             self,
-            microvm_slot_id: str,
-            numa_node: int,
-            uid: int,
-            gid: int,
-            chroot_base: str,
-            netns: str,
-            daemonize: bool
+            jailer_id,
+            numa_node,
+            uid,
+            gid,
+            chroot_base,
+            netns,
+            daemonize
     ):
         """Set up jailer fields."""
-        self.microvm_slot_id = microvm_slot_id
+        self.jailer_id = jailer_id
         self.numa_node = numa_node
         self.uid = uid
         self.gid = gid
@@ -34,16 +34,20 @@ class JailerContext:
         self.netns = netns
         self.daemonize = daemonize
 
+    def __del__(self):
+        """Cleanup this jailer context."""
+        self.cleanup()
+
     @staticmethod
-    def default_with_id(slot_id: str):
+    def default_with_id(jailer_id):
         """Create a default jailer with a given ID."""
         return JailerContext(
-            microvm_slot_id=slot_id,
+            jailer_id=jailer_id,
             numa_node=0,
             uid=1234,
             gid=1234,
             chroot_base='/srv/jailer',
-            netns=slot_id,
+            netns=jailer_id,
             daemonize=True
         )
 
@@ -52,7 +56,7 @@ class JailerContext:
         return os.path.join(
             self.chroot_base,
             FC_BINARY_NAME,
-            self.microvm_slot_id
+            self.jailer_id
         )
 
     def api_socket_path(self):
@@ -91,6 +95,12 @@ class JailerContext:
             return '/var/run/netns/{}'.format(self.netns)
         return None
 
+    def netns_cmd_prefix(self):
+        """Return the jailer context netns file prefix."""
+        if self.netns:
+            return 'ip netns exec {} '.format(self.netns)
+        return ''
+
     def setup(self):
         """Set up this jailer context."""
         run('mkdir -p {}'.format(self.chroot_base), shell=True, check=True)
@@ -99,27 +109,9 @@ class JailerContext:
 
     def cleanup(self):
         """Clean up this jailer context."""
-        # We can't delete the entire folder tree here, because other slots
-        # might still be running ?!
-        shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
-
-        # Remove the cgroup folders. This is a hacky solution, which assumes
-        # cgroup controllers are mounted as they are right now in AL2.
-        # TODO: better solution at some point?
-        # The base /sys/fs/cgroup/<controller>/firecracker folder will remain,
-        # because we can't remove it unless we're sure there's no other running
-        # slot/microVM.
-        # TODO: better solution at some point?
         sleep(1)
-        controllers = ('cpu', 'cpuset', 'pids')
-        for controller in controllers:
-            run_command = 'rmdir /sys/fs/cgroup/{}/{}/{}'.format(
-                controller,
-                FC_BINARY_NAME,
-                self.microvm_slot_id
-            )
-            # TODO: temporary solution; read tasks file and kill the tasks
-            _ = run(run_command, shell=True, stderr=PIPE)
+
+        shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
         if self.netns:
             _ = run(
@@ -127,3 +119,20 @@ class JailerContext:
                 shell=True,
                 stderr=PIPE
             )
+
+        # Remove the cgroup folders. This is a hacky solution, which assumes
+        # cgroup controllers are mounted as they are right now in AL2.
+        # TODO: better solution at some point?
+        # The base /sys/fs/cgroup/<controller>/firecracker folder will remain,
+        # because we can't remove it unless we're sure there's no other running
+        # microVM.
+        # TODO: better solution at some point?
+        controllers = ('cpu', 'cpuset', 'pids')
+        for controller in controllers:
+            run_command = 'rmdir /sys/fs/cgroup/{}/{}/{}'.format(
+                controller,
+                FC_BINARY_NAME,
+                self.jailer_id
+            )
+            # TODO: temporary solution; read tasks file and kill the tasks
+            _ = run(run_command, shell=True, stderr=PIPE)
