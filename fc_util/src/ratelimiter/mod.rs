@@ -146,43 +146,6 @@ impl TokenBucket {
             self.budget = super::std::cmp::min(self.budget + tokens, self.total_capacity);
         }
     }
-
-    /// Resets the token bucket: budget set to max capacity and last-updated set to now.
-    #[cfg(test)]
-    fn reset(&mut self) {
-        self.budget = self.total_capacity;
-        self.last_update = time::precise_time_ns();
-    }
-
-    #[cfg(test)]
-    pub fn get_capacity(&self) -> u64 {
-        self.total_capacity
-    }
-
-    #[cfg(test)]
-    pub fn get_current_budget(&self) -> u64 {
-        self.budget
-    }
-
-    #[cfg(test)]
-    pub fn get_last_update(&self) -> u64 {
-        self.last_update
-    }
-
-    #[cfg(test)]
-    pub fn get_processed_capacity(&self) -> u64 {
-        self.processed_capacity
-    }
-
-    #[cfg(test)]
-    pub fn get_processed_refill_time(&self) -> u64 {
-        self.processed_refill_time
-    }
-
-    #[cfg(test)]
-    pub fn get_one_time_burst(&self) -> u64 {
-        self.one_time_burst
-    }
 }
 
 pub enum TokenType {
@@ -368,6 +331,38 @@ mod tests {
     use super::*;
     use std::thread;
     use std::time::Duration;
+
+    impl TokenBucket {
+        /// Resets the token bucket: budget set to max capacity and last-updated set to now.
+        fn reset(&mut self) {
+            self.budget = self.total_capacity;
+            self.last_update = time::precise_time_ns();
+        }
+
+        fn get_capacity(&self) -> u64 {
+            self.total_capacity
+        }
+
+        fn get_current_budget(&self) -> u64 {
+            self.budget
+        }
+
+        fn get_last_update(&self) -> u64 {
+            self.last_update
+        }
+
+        fn get_processed_capacity(&self) -> u64 {
+            self.processed_capacity
+        }
+
+        fn get_processed_refill_time(&self) -> u64 {
+            self.processed_refill_time
+        }
+
+        fn get_one_time_burst(&self) -> u64 {
+            self.one_time_burst
+        }
+    }
 
     #[test]
     fn test_token_bucket_create() {
