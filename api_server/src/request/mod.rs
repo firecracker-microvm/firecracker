@@ -33,7 +33,11 @@ pub enum ParsedRequest {
 }
 
 pub trait IntoParsedRequest {
-    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String>;
+    fn into_parsed_request(
+        self,
+        resource_id: Option<String>,
+        method: Method,
+    ) -> result::Result<ParsedRequest, String>;
 }
 
 // Sync requests have outcomes which implement this trait. The idea is for each outcome to be a

@@ -73,7 +73,11 @@ impl PatchDrivePayload {
 }
 
 impl IntoParsedRequest for PatchDrivePayload {
-    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
+    fn into_parsed_request(
+        self,
+        _: Option<String>,
+        method: Method,
+    ) -> result::Result<ParsedRequest, String> {
         match method {
             Method::Patch => {
                 self.validate()?;
@@ -92,7 +96,11 @@ impl IntoParsedRequest for PatchDrivePayload {
 }
 
 impl IntoParsedRequest for BlockDeviceConfig {
-    fn into_parsed_request(self, method: Method) -> result::Result<ParsedRequest, String> {
+    fn into_parsed_request(
+        self,
+        _: Option<String>,
+        method: Method,
+    ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         match method {
             Method::Put => Ok(ParsedRequest::Sync(
@@ -172,7 +180,11 @@ mod tests {
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
-        assert!(patch_payload.into_parsed_request(Method::Patch).is_err());
+        assert!(
+            patch_payload
+                .into_parsed_request(None, Method::Patch)
+                .is_err()
+        );
 
         // PATCH with invalid types on fields. Adding a drive_id as number instead of string.
         let mut payload_map = Map::<String, Value>::new();
@@ -184,7 +196,11 @@ mod tests {
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
-        assert!(patch_payload.into_parsed_request(Method::Patch).is_err());
+        assert!(
+            patch_payload
+                .into_parsed_request(None, Method::Patch)
+                .is_err()
+        );
 
         // PATCH with invalid types on fields. Adding a path_on_host as bool instead of string.
         let mut payload_map = Map::<String, Value>::new();
@@ -196,7 +212,11 @@ mod tests {
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
-        assert!(patch_payload.into_parsed_request(Method::Patch).is_err());
+        assert!(
+            patch_payload
+                .into_parsed_request(None, Method::Patch)
+                .is_err()
+        );
 
         // PATCH with missing path_on_host field.
         let mut payload_map = Map::<String, Value>::new();
@@ -207,7 +227,11 @@ mod tests {
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
-        assert!(patch_payload.into_parsed_request(Method::Patch).is_err());
+        assert!(
+            patch_payload
+                .into_parsed_request(None, Method::Patch)
+                .is_err()
+        );
 
         // PATCH with missing drive_id field.
         let mut payload_map = Map::<String, Value>::new();
@@ -215,7 +239,11 @@ mod tests {
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
-        assert!(patch_payload.into_parsed_request(Method::Patch).is_err());
+        assert!(
+            patch_payload
+                .into_parsed_request(None, Method::Patch)
+                .is_err()
+        );
 
         let mut payload_map = Map::<String, Value>::new();
         payload_map.insert(String::from("drive_id"), Value::String(String::from("foo")));
@@ -230,14 +258,14 @@ mod tests {
 
         assert!(
             pdp.clone()
-                .into_parsed_request(Method::Patch)
+                .into_parsed_request(None, Method::Patch)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::UpdateDrivePath("foo".to_string(), "dummy".to_string(), sender),
                     receiver
                 )))
         );
 
-        assert!(pdp.into_parsed_request(Method::Put).is_err());
+        assert!(pdp.into_parsed_request(None, Method::Put).is_err());
     }
 
     #[test]
@@ -308,14 +336,14 @@ mod tests {
         assert!(
             &desc
                 .clone()
-                .into_parsed_request(Method::Options)
+                .into_parsed_request(None, Method::Options)
                 .eq(&Ok(ParsedRequest::Dummy))
         );
         let (sender, receiver) = oneshot::channel();
         assert!(
             &desc
                 .clone()
-                .into_parsed_request(Method::Put)
+                .into_parsed_request(None, Method::Put)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::InsertBlockDevice(desc, sender),
                     receiver
