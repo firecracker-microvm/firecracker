@@ -1363,7 +1363,7 @@ impl Vmm {
             VmmAction::ConfigureBootSource(boot_source_body, sender) => {
                 let boxed_response = Box::new(self.configure_boot_source(
                     boot_source_body.kernel_image_path,
-                    boot_source_body.boot_args
+                    boot_source_body.boot_args,
                 ));
                 Vmm::send_response(boxed_response, sender);
             }
