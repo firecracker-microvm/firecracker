@@ -70,7 +70,11 @@ fn validate_payload(action_body: &ActionBody) -> Result<(), String> {
 }
 
 impl IntoParsedRequest for ActionBody {
-    fn into_parsed_request(self, _: Method) -> result::Result<ParsedRequest, String> {
+    fn into_parsed_request(
+        self,
+        _: Option<String>,
+        _: Method,
+    ) -> result::Result<ParsedRequest, String> {
         validate_payload(&self)?;
         match self.action_type {
             ActionType::BlockDeviceRescan => {
@@ -156,7 +160,7 @@ mod tests {
             assert!(
                 result
                     .unwrap()
-                    .into_parsed_request(Method::Put)
+                    .into_parsed_request(None, Method::Put)
                     .unwrap()
                     .eq(&req)
             );
@@ -177,7 +181,7 @@ mod tests {
             assert!(
                 result
                     .unwrap()
-                    .into_parsed_request(Method::Put)
+                    .into_parsed_request(None, Method::Put)
                     .unwrap()
                     .eq(&req)
             );
