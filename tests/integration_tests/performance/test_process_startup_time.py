@@ -17,23 +17,19 @@ def test_startup_time(test_microvm_with_api):
     """Check the startup time for jailer and Firecracker up to socket bind."""
 
     microvm = test_microvm_with_api
+    microvm.spawn()
+
     microvm.basic_config(vcpu_count=2, mem_size_mib=1024)
 
     # Configure logging.
-    log_fifo_path = os.path.join(microvm.slot.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(microvm.slot.path, 'metrics_fifo')
+    log_fifo_path = os.path.join(microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
     assert log_tools.make_fifo(log_fifo_path)
     assert log_tools.make_fifo(metrics_fifo_path)
 
     response = microvm.logger.put(
-        log_fifo=microvm.slot.jailer_context.jailed_path(
-            log_fifo_path,
-            create=True
-        ),
-        metrics_fifo=microvm.slot.jailer_context.jailed_path(
-            metrics_fifo_path,
-            create=True
-        )
+        log_fifo=microvm.create_jailed_resource(log_fifo_path),
+        metrics_fifo=microvm.create_jailed_resource(metrics_fifo_path)
     )
     assert microvm.api_session.is_good_response(response.status_code)
 

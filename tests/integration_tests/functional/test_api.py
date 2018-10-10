@@ -11,6 +11,7 @@ def test_api_happy_start(test_microvm_with_api):
     """Test a regular microvm API start sequence."""
 
     test_microvm = test_microvm_with_api
+    test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM and
     # a root file system with the rw permission.
@@ -23,20 +24,18 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     """Test that PUT updates are allowed before the microvm boots."""
 
     test_microvm = test_microvm_with_api
+    test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM  and
     # a root file system with the rw permission.
     test_microvm.basic_config()
 
     fs1 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'scratch')
+        os.path.join(test_microvm.fsfiles, 'scratch')
     )
     response = test_microvm.drive.put(
         drive_id='scratch',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs1.path,
-            create=True
-        ),
+        path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False
     )
@@ -52,7 +51,9 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 
     # Updates to `kernel_image_path` with a valid path are allowed.
     response = test_microvm.boot.put(
-        kernel_image_path=test_microvm.kernel_api_path()
+        kernel_image_path=test_microvm.get_jailed_resource(
+            test_microvm.kernel_file
+        )
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 
@@ -70,10 +71,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     # allowed.
     response = test_microvm.drive.put(
         drive_id='scratch',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs1.path,
-            create=True
-        ),
+        path_on_host=test_microvm.get_jailed_resource(fs1.path),
         is_read_only=False,
         is_root_device=True
     )
@@ -82,14 +80,11 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 
     # Valid updates to `path_on_host` and `is_read_only` are allowed.
     fs2 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'otherscratch')
+        os.path.join(test_microvm.fsfiles, 'otherscratch')
     )
     response = test_microvm.drive.put(
         drive_id='scratch',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs2.path,
-            create=True
-        ),
+        path_on_host=test_microvm.create_jailed_resource(fs2.path),
         is_read_only=True,
         is_root_device=False
     )
@@ -130,9 +125,10 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 def test_net_api_put_update_pre_boot(test_microvm_with_api):
     """Test PUT updates on network configurations before the microvm boots."""
     test_microvm = test_microvm_with_api
+    test_microvm.spawn()
 
-    tap1 = net_tools.Tap('first_tap', test_microvm.slot.netns())
-
+    first_if_name = 'first_tap'
+    tap1 = net_tools.Tap(first_if_name, test_microvm.jailer.netns)
     response = test_microvm.network.put(
         iface_id='1',
         guest_mac='06:00:00:00:00:01',
@@ -142,8 +138,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
 
     # Adding new network interfaces is allowed.
     second_if_name = 'second_tap'
-    tap2 = net_tools.Tap(second_if_name, test_microvm.slot.netns())
-
+    tap2 = net_tools.Tap(second_if_name, test_microvm.jailer.netns)
     response = test_microvm.network.put(
         iface_id='2',
         guest_mac='07:00:00:00:00:01',
@@ -183,10 +178,9 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
 
     # Updates to a network interface with an available name are allowed.
     iface_id = '1'
-    tapname = test_microvm.microvm_id[:8] + 'tap' + iface_id
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
 
-    tap3 = net_tools.Tap(tapname, test_microvm.slot.netns())
-
+    tap3 = net_tools.Tap(tapname, test_microvm.jailer.netns)
     response = test_microvm.network.put(
         iface_id=iface_id,
         host_dev_name=tap3.name,
@@ -197,9 +191,10 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
 
 def test_api_put_machine_config(test_microvm_with_api):
     """Test /machine_config PUT scenarios that unit tests can't cover."""
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
 
     # Test invalid vcpu count < 0.
-    test_microvm = test_microvm_with_api
     response = test_microvm.machine_cfg.put(
         vcpu_count='-2'
     )
@@ -226,21 +221,16 @@ def test_api_put_machine_config(test_microvm_with_api):
 
 def test_api_put_update_post_boot(test_microvm_with_api):
     """Test that PUT updates are rejected after the microvm boots."""
-
     test_microvm = test_microvm_with_api
+    test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM  and
     # a root file system with the rw permission.
     test_microvm.basic_config()
 
     iface_id = '1'
-    tapname = test_microvm.microvm_id[:8] + 'tap' + iface_id
-
-    tap1 = net_tools.Tap(
-        tapname,
-        test_microvm.slot.netns()
-    )
-
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
+    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns)
     response = test_microvm.network.put(
         iface_id=iface_id,
         host_dev_name=tap1.name,
@@ -252,7 +242,9 @@ def test_api_put_update_post_boot(test_microvm_with_api):
 
     # Valid updates to `kernel_image_path` are not allowed after boot.
     response = test_microvm.boot.put(
-        kernel_image_path=test_microvm.kernel_api_path()
+        kernel_image_path=test_microvm.get_jailed_resource(
+            test_microvm.kernel_file
+        )
     )
     assert not test_microvm.api_session.is_good_response(response.status_code)
     assert "The update operation is not allowed after boot" in response.text
@@ -276,9 +268,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
     # Block device update is not allowed after boot.
     response = test_microvm.drive.put(
         drive_id='rootfs',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            test_microvm.slot.rootfs_file
-        ),
+        path_on_host=test_microvm.jailer.jailed_path(test_microvm.rootfs_file),
         is_read_only=False,
         is_root_device=True
     )
@@ -289,19 +279,15 @@ def test_api_put_update_post_boot(test_microvm_with_api):
 def test_rate_limiters_api_config(test_microvm_with_api):
     """Test the Firecracker IO rate limiter API."""
     test_microvm = test_microvm_with_api
+    test_microvm.spawn()
 
     # Test the DRIVE rate limiting API.
 
     # Test drive with bw rate-limiting.
-    fs1 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'bw')
-    )
+    fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, 'bw'))
     response = test_microvm.drive.put(
         drive_id='bw',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs1.path,
-            create=True
-        ),
+        path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_read_only=False,
         is_root_device=False,
         rate_limiter={
@@ -314,15 +300,10 @@ def test_rate_limiters_api_config(test_microvm_with_api):
     assert test_microvm.api_session.is_good_response(response.status_code)
 
     # Test drive with ops rate-limiting.
-    fs2 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'ops')
-    )
+    fs2 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, 'ops'))
     response = test_microvm.drive.put(
         drive_id='ops',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs2.path,
-            create=True
-        ),
+        path_on_host=test_microvm.create_jailed_resource(fs2.path),
         is_read_only=False,
         is_root_device=False,
         rate_limiter={
@@ -336,14 +317,11 @@ def test_rate_limiters_api_config(test_microvm_with_api):
 
     # Test drive with bw and ops rate-limiting.
     fs3 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'bwops')
+        os.path.join(test_microvm.fsfiles, 'bwops')
     )
     response = test_microvm.drive.put(
         drive_id='bwops',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs3.path,
-            create=True
-        ),
+        path_on_host=test_microvm.create_jailed_resource(fs3.path),
         is_read_only=False,
         is_root_device=False,
         rate_limiter={
@@ -360,15 +338,12 @@ def test_rate_limiters_api_config(test_microvm_with_api):
     assert test_microvm.api_session.is_good_response(response.status_code)
 
     # Test drive with 'empty' rate-limiting (same as not specifying the field)
-    fs4 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'nada')
-    )
+    fs4 = drive_tools.FilesystemFile(os.path.join(
+        test_microvm.fsfiles, 'nada'
+    ))
     response = test_microvm.drive.put(
         drive_id='nada',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs4.path,
-            create=True
-        ),
+        path_on_host=test_microvm.create_jailed_resource(fs4.path),
         is_read_only=False,
         is_root_device=False,
         rate_limiter={}
@@ -379,8 +354,8 @@ def test_rate_limiters_api_config(test_microvm_with_api):
 
     # Test network with tx bw rate-limiting.
     iface_id = '1'
-    tapname = test_microvm.microvm_id[:8] + 'tap' + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.slot.netns())
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
+    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns)
 
     response = test_microvm.network.put(
         iface_id=iface_id,
@@ -397,10 +372,8 @@ def test_rate_limiters_api_config(test_microvm_with_api):
 
     # Test network with rx bw rate-limiting.
     iface_id = '2'
-    tapname = test_microvm.microvm_id[:8] + 'tap' + iface_id
-
-    tap2 = net_tools.Tap(tapname, test_microvm.slot.netns())
-
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
+    tap2 = net_tools.Tap(tapname, test_microvm.jailer.netns)
     response = test_microvm.network.put(
         iface_id=iface_id,
         guest_mac='06:00:00:00:00:02',
@@ -416,10 +389,8 @@ def test_rate_limiters_api_config(test_microvm_with_api):
 
     # Test network with tx and rx bw and ops rate-limiting.
     iface_id = '3'
-    tapname = test_microvm.microvm_id[:8] + 'tap' + iface_id
-
-    tap3 = net_tools.Tap(tapname, test_microvm.slot.netns())
-
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
+    tap3 = net_tools.Tap(tapname, test_microvm.jailer.netns)
     response = test_microvm.network.put(
         iface_id=iface_id,
         guest_mac='06:00:00:00:00:03',
@@ -450,35 +421,39 @@ def test_rate_limiters_api_config(test_microvm_with_api):
 
 def test_api_patch_pre_boot(test_microvm_with_api):
     """Tests PATCH updates before the microvm boots."""
-
     test_microvm = test_microvm_with_api
+    test_microvm.spawn()
 
     # Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface, a
     # root file system with the rw permission and logging enabled.
     test_microvm.basic_config()
 
+    fs1 = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, 'scratch')
+    )
+    response = test_microvm.drive.put(
+        drive_id='scratch',
+        path_on_host=test_microvm.create_jailed_resource(fs1.path),
+        is_root_device=False,
+        is_read_only=False
+    )
+    assert test_microvm.api_session.is_good_response(response.status_code)
+
     # Configure logging.
-    log_fifo_path = os.path.join(test_microvm.slot.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(test_microvm.slot.path, 'metrics_fifo')
-    assert log_tools.make_fifo(log_fifo_path)
-    assert log_tools.make_fifo(metrics_fifo_path)
+    log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    log_tools.make_fifo(log_fifo_path)
+    log_tools.make_fifo(metrics_fifo_path)
 
     response = test_microvm.logger.put(
-        log_fifo=test_microvm.slot.jailer_context.jailed_path(
-            log_fifo_path,
-            create=True
-        ),
-        metrics_fifo=test_microvm.slot.jailer_context.jailed_path(
-            metrics_fifo_path,
-            create=True
-        )
+        log_fifo=test_microvm.create_jailed_resource(log_fifo_path),
+        metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo_path)
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 
     iface_id = '1'
-    tapname = test_microvm.microvm_id[:8] + 'tap' + iface_id
-    tap1 = net_tools.Tap(tapname, test_microvm.slot.netns())
-
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
+    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns)
     response = test_microvm.network.put(
         iface_id=iface_id,
         host_dev_name=tap1.name,
@@ -514,36 +489,39 @@ def test_api_patch_pre_boot(test_microvm_with_api):
 
 def test_api_patch_post_boot(test_microvm_with_api):
     """Test PATCH updates after the microvm boots."""
-
     test_microvm = test_microvm_with_api
+    test_microvm.spawn()
 
     # Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface and
     # a root file system with the rw permission.
     test_microvm.basic_config()
 
+    fs1 = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, 'scratch')
+    )
+    response = test_microvm.drive.put(
+        drive_id='scratch',
+        path_on_host=test_microvm.create_jailed_resource(fs1.path),
+        is_root_device=False,
+        is_read_only=False
+    )
+    assert test_microvm.api_session.is_good_response(response.status_code)
+
     # Configure logging.
-    log_fifo_path = os.path.join(test_microvm.slot.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(test_microvm.slot.path, 'metrics_fifo')
-    assert log_tools.make_fifo(log_fifo_path)
-    assert log_tools.make_fifo(metrics_fifo_path)
+    log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    log_tools.make_fifo(log_fifo_path)
+    log_tools.make_fifo(metrics_fifo_path)
 
     response = test_microvm.logger.put(
-        log_fifo=test_microvm.slot.jailer_context.jailed_path(
-            log_fifo_path,
-            create=True
-        ),
-        metrics_fifo=test_microvm.slot.jailer_context.jailed_path(
-            metrics_fifo_path,
-            create=True
-        )
+        log_fifo=test_microvm.create_jailed_resource(log_fifo_path),
+        metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo_path)
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 
     iface_id = '1'
-    tapname = test_microvm.microvm_id[:8] + 'tap' + iface_id
-
-    tap1 = net_tools.Tap(tapname, test_microvm.slot.netns())
-
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
+    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns)
     response = test_microvm.network.put(
         iface_id=iface_id,
         host_dev_name=tap1.name,
@@ -582,6 +560,7 @@ def test_api_patch_post_boot(test_microvm_with_api):
 def test_drive_patch(test_microvm_with_api):
     """Test drive PATCH before and after boot."""
     test_microvm = test_microvm_with_api
+    test_microvm.spawn()
 
     # Sets up the microVM with 2 vCPUs, 256 MiB of RAM and
     # a root file system with the rw permission.
@@ -589,14 +568,11 @@ def test_drive_patch(test_microvm_with_api):
 
     # The drive to be patched.
     fs = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'scratch')
+        os.path.join(test_microvm.fsfiles, 'scratch')
     )
     response = test_microvm.drive.put(
         drive_id='scratch',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs.path,
-            create=True
-        ),
+        path_on_host=test_microvm.create_jailed_resource(fs.path),
         is_root_device=False,
         is_read_only=False
     )
@@ -612,20 +588,18 @@ def test_drive_patch(test_microvm_with_api):
 def test_api_actions(test_microvm_with_api):
     """Test PUTs to /actions beyond InstanceStart and InstanceHalt."""
     test_microvm = test_microvm_with_api
+    test_microvm.spawn()
 
     # Sets up the microVM with 2 vCPUs, 256 MiB of RAM and
     # a root file system with the rw permission.
     test_microvm.basic_config()
 
     fs = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'scratch')
+        os.path.join(test_microvm.fsfiles, 'scratch')
     )
     response = test_microvm.drive.put(
         drive_id='scratch',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs.path,
-            create=True
-        ),
+        path_on_host=test_microvm.create_jailed_resource(fs.path),
         is_root_device=False,
         is_read_only=False
     )
@@ -697,14 +671,11 @@ def _drive_patch(test_microvm):
            in response.text
 
     fs = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.slot.fsfiles_path, 'scratch_new')
+        os.path.join(test_microvm.fsfiles, 'scratch_new')
     )
     # Updates to `path_on_host` with a valid path are allowed.
     response = test_microvm.drive.patch(
         drive_id='scratch',
-        path_on_host=test_microvm.slot.jailer_context.jailed_path(
-            fs.path,
-            create=True
-        )
+        path_on_host=test_microvm.create_jailed_resource(fs.path)
     )
     assert test_microvm.api_session.is_good_response(response.status_code)

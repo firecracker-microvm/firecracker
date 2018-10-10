@@ -1,7 +1,7 @@
 """Classes for working with microVMs.
 
-This module defines `MicrovmSlot` and `Microvm`, which can be used together
-to create, test drive, and destroy microvms (based on microvm images).
+This module defines `Microvm`, which can be used to create, test drive, and
+destroy microvms.
 
 # TODO
 
@@ -11,152 +11,31 @@ to create, test drive, and destroy microvms (based on microvm images).
 import ctypes
 import ctypes.util
 import os
-import shutil
+import time
+
 from subprocess import run, PIPE
 from threading import Thread
-import time
-import urllib
+
+from retry import retry
 
 import requests_unixsocket
 
 import host_tools.network as net_tools
-import host_tools.cargo_build as build_tools
 
-from framework.defs import FC_BINARY_NAME, \
-    JAILER_BINARY_NAME, API_USOCKET_URL_PREFIX
+from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
 from framework.jailer import JailerContext
 from framework.resources import Actions, BootSource, Drive, Logger, MMDS, \
     MachineConfigure, Network
 
 
-class MicrovmSlot:
-    """A microvm slot with everything that's needed for a Firecracker microvm.
-
-    Contains:
-    - A location for kernel, rootfs, and other fsfiles.
-    - The ability to create and keep track of additional fsfiles.
-    - The ability to create and keep track of tap devices.
-
-    `setup()` and `teardown()` handle the lifecycle of these resources.
-
-    # Microvm Slot Layout
-
-    There is a fixed tree layout for a microvm slot:
-
-    ``` file_tree
-    <microvm_slot_name>/
-        kernel/
-            <kernel_file_n>
-            ....
-        fsfiles/
-            <fsfile_n>
-            <ssh_key_n>
-            ...
-    ```
-
-    Creating a microvm slot does *not* make a microvm image available, or any
-    other microvm resources. A microvm image must be added to the microvm slot.
-    MicrovmSlot methods can be used to create tap devices and fsfiles.
-    """
-
-    DEFAULT_MICROVM_ROOT_PATH = '/tmp/firecracker/'
-    """Default path on the system where microvm slots will be created."""
-
-    MICROVM_SLOT_DIR_PREFIX = 'microvm_slot_'
-
-    MICROVM_SLOT_KERNEL_RELPATH = 'kernel/'
-    """Relative path to the root of a slot for kernel files."""
-
-    MICROVM_SLOT_FSFILES_RELPATH = 'fsfiles/'
-    """Relative path to the root of a slot for filesystem files."""
-
-    created_microvm_root_path = False
-    """Keep track if the root path ws created here, so we can clean up."""
-
-    def __init__(
-        self,
-        jailer_context: JailerContext,
-        slot_id: str = "firecracker_slot",
-        microvm_root_path=DEFAULT_MICROVM_ROOT_PATH
-    ):
-        """Set up microVM slot paths and data structures."""
-        self.jailer_context = jailer_context
-        self.slot_id = slot_id
-        self.microvm_root_path = microvm_root_path
-        self.path = os.path.join(
-            microvm_root_path,
-            self.MICROVM_SLOT_DIR_PREFIX + self.slot_id
-        )
-        self.kernel_path = os.path.join(
-            self.path,
-            self.MICROVM_SLOT_KERNEL_RELPATH
-        )
-        self.fsfiles_path = os.path.join(
-            self.path,
-            self.MICROVM_SLOT_FSFILES_RELPATH
-        )
-
-        self.kernel_file = ''
-        """Assigned once an microvm image populates this slot."""
-        self.rootfs_file = ''
-        """ Assigned once an microvm image populates this slot. """
-
-    def say(self, message: str):
-        """Return a message from your microVM slot."""
-        return "Microvm slot " + self.slot_id + ": " + message
-
-    def setup(self):
-        """Create a microvm slot on the host.
-
-        The slot path is `<self.microvm_root_path>/<self.path>/`. Also creates
-        `self.microvm_root_path` if it does not exist.
-        """
-        if not os.path.exists(self.microvm_root_path):
-            os.makedirs(self.microvm_root_path)
-            self.created_microvm_root_path = True
-
-        os.makedirs(self.path, exist_ok=True)
-        os.makedirs(self.kernel_path, exist_ok=True)
-        os.makedirs(self.fsfiles_path, exist_ok=True)
-
-    def netns(self):
-        """Return the jailer context netns."""
-        return self.jailer_context.netns
-
-    def netns_file_path(self):
-        """Return the jailer context netns file path."""
-        return self.jailer_context.netns_file_path()
-
-    def netns_cmd_prefix(self):
-        """Return the jailer context netns file prefix."""
-        if self.netns():
-            return 'ip netns exec {} '.format(self.netns())
-        return ''
-
-    def cleanup(self):
-        """Delete a local microvm slot.
-
-        Also delete `[self.microvm_root_path]` if it has no other
-        subdirectories, and it was created by this class.
-        """
-        shutil.rmtree(self.path)
-        if (
-            not os.listdir(self.microvm_root_path) and
-            self.created_microvm_root_path
-        ):
-            os.rmdir(self.microvm_root_path)
-
-
 class Microvm:
-    """A Firecracker microvm. It goes into a microvm slot.
+    """Class to represent a Firecracker microvm.
 
+    A microvm is described by a unique identifier, a path to all the resources
+    it needs in order to be able to start and the binaries used to spawn it.
     Besides keeping track of microvm resources and exposing microvm API
     methods, `spawn()` and `kill()` can be used to start/end the microvm
     process.
-
-    # TODO
-    - Use the Firecracker Open API spec to populate Microvm API resource URLs.
-    - Get the API paths from the Firecracker API definition.
     """
 
     MAX_MEMORY = 5 * 1024
@@ -164,43 +43,184 @@ class Microvm:
 
     def __init__(
         self,
-        microvm_slot: MicrovmSlot,
-        microvm_id: str = "firecracker_microvm",
-        fc_binary_rel_path=os.path.join(
-            build_tools.CARGO_RELEASE_REL_PATH,
-            build_tools.RELEASE_BINARIES_REL_PATH
-        ),
+        resource_path,
+        fc_binary_path,
+        jailer_binary_path,
+        microvm_id,
         monitor_memory=True
     ):
         """Set up microVM attributes, paths, and data structures."""
-        self.slot = microvm_slot
+        # Unique identifier for this machine.
+        self._microvm_id = microvm_id
 
-        self.microvm_id = microvm_id
-        self.fc_binary_path = os.path.join(
-            microvm_slot.microvm_root_path,
-            fc_binary_rel_path
-        )
-        self.jailer_clone_pid = None
+        # Compose the paths to the resources specific to this microvm.
+        self._path = os.path.join(resource_path, microvm_id)
+        self._kernel_path = os.path.join(self._path, MICROVM_KERNEL_RELPATH)
+        self._fsfiles_path = os.path.join(self._path, MICROVM_FSFILES_RELPATH)
+        self._kernel_file = ''
+        self._rootfs_file = ''
 
-        self.session_name = FC_BINARY_NAME + '-' + self.microvm_id
+        # The binaries this microvm will use to start.
+        self._fc_binary_path = fc_binary_path
+        self._jailer_binary_path = jailer_binary_path
 
-        self.api_usocket_full_name = \
-            self.slot.jailer_context.api_socket_path()
-        url_encoded_path = urllib.parse.quote_plus(self.api_usocket_full_name)
-        self.api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        # Create the jailer context associated with this microvm.
+        self._jailer = JailerContext.default_with_id(self._microvm_id)
+        self._jailer_clone_pid = None
+
+        # Now deal with the things specific to the api session used to
+        # communicate with this machine.
+        self._api_session = None
+        self._api_socket = None
+
+        # Session name is composed of the last part of the temporary path
+        # allocated by the current test session and the unique id of this
+        # microVM. It should be unique.
+        self._session_name = os.path.basename(os.path.normpath(
+            resource_path
+        )) + self._microvm_id
+
+        # nice-to-have: Put these in a dictionary.
+        self.actions = None
+        self.boot = None
+        self.drive = None
+        self.logger = None
+        self.mmds = None
+        self.network = None
+        self.machine_cfg = None
 
         # The ssh config dictionary is populated with information about how
-        # to connect to microvm that has ssh capability. The path of the
+        # to connect to a microVM that has ssh capability. The path of the
         # private key is populated by microvms with ssh capabilities and the
-        # hostname is set from the MAC address used to configure the VM.
-        self.ssh_config = {
+        # hostname is set from the MAC address used to configure the microVM.
+        self._ssh_config = {
             'username': 'root',
-            'netns_file_path': self.slot.jailer_context.netns_file_path()
+            'netns_file_path': self._jailer.netns_file_path()
         }
 
+        # Deal with memory monitoring.
         self.memory_cop_thread = None
         self.mem_size_mib = None
         self.monitor_memory = monitor_memory
+
+    def kill(self):
+        """All clean up associated with this microVM should go here."""
+        if self._jailer.daemonize:
+            if self._jailer_clone_pid:
+                run('kill -9 {}'.format(self._jailer_clone_pid), shell=True)
+        else:
+            run(
+                'screen -XS {} kill'.format(self._session_name),
+                shell=True
+            )
+
+    @property
+    def api_session(self):
+        """Return the api session associated with this microVM."""
+        return self._api_session
+
+    @property
+    def api_socket(self):
+        """Return the socket used by this api session."""
+        # TODO: this methods is only used as a workaround for getting
+        # firecracker PID. We should not be forced to make this public.
+        return self._api_socket
+
+    @property
+    def path(self):
+        """Return the path on disk used that represents this microVM."""
+        return self._path
+
+    @property
+    def id(self):
+        """Return the unique identifier of this microVM."""
+        return self._microvm_id
+
+    @property
+    def jailer(self):
+        """Return the jailer context associated with this microVM."""
+        return self._jailer
+
+    @jailer.setter
+    def jailer(self, jailer):
+        """Setter for associating a different jailer to the default one."""
+        self._jailer = jailer
+
+    @property
+    def kernel_file(self):
+        """Return the name of the kernel file used by this microVM to boot."""
+        return self._kernel_file
+
+    @kernel_file.setter
+    def kernel_file(self, path):
+        """Set the path to the kernel file."""
+        self._kernel_file = path
+
+    @property
+    def rootfs_file(self):
+        """Return the path to the image this microVM can boot into."""
+        return self._rootfs_file
+
+    @rootfs_file.setter
+    def rootfs_file(self, path):
+        """Set the path to the image associated."""
+        self._rootfs_file = path
+
+    @property
+    def fsfiles(self):
+        """Path to filesystem used by this microvm to attach new drives."""
+        return self._fsfiles_path
+
+    @property
+    def ssh_config(self):
+        """Get the ssh configuration used to ssh into some microVMs."""
+        return self._ssh_config
+
+    @ssh_config.setter
+    def ssh_config(self, key, value):
+        """Set the dict values inside this configuration."""
+        self._ssh_config.__setattr__(key, value)
+
+    def create_jailed_resource(self, path):
+        """Create a hard link to some resource inside this microvm."""
+        return self.jailer.jailed_path(path, create=True)
+
+    def get_jailed_resource(self, path):
+        """Get the jailed path to a resource."""
+        return self.jailer.jailed_path(path, create=False)
+
+    def setup(self):
+        """Create a microvm associated folder on the host.
+
+        The root path of some microvm is `self._path`.
+        Also creates the where essential resources (i.e. kernel and root
+        filesystem) will reside.
+
+         # Microvm Folder Layout
+
+             There is a fixed tree layout for a microvm related folder:
+
+             ``` file_tree
+             <microvm_uuid>/
+                 kernel/
+                     <kernel_file_n>
+                     ....
+                 fsfiles/
+                     <fsfile_n>
+                     <ssh_key_n>
+                     <other fsfiles>
+                     ...
+                  ...
+             ```
+        """
+        os.makedirs(self._path, exist_ok=True)
+        os.makedirs(self._kernel_path, exist_ok=True)
+        os.makedirs(self._fsfiles_path, exist_ok=True)
+
+    def spawn(self):
+        """Start a microVM as a daemon or in a screen session."""
+        self._jailer.setup()
+        self._api_socket = self._jailer.api_socket_path()
 
         def start_api_session():
             """Return a unixsocket-capable http session object."""
@@ -212,71 +232,25 @@ class Microvm:
             session.is_good_response = is_good_response
             return session
 
-        self.api_session = start_api_session()
-        self.actions = Actions(self.api_usocket_full_name, self.api_session)
-        self.boot = BootSource(self.api_usocket_full_name, self.api_session)
-        self.drive = Drive(self.api_usocket_full_name, self.api_session)
-        self.logger = Logger(self.api_usocket_full_name, self.api_session)
-        self.mmds = MMDS(self.api_usocket_full_name, self.api_session)
-        self.network = Network(self.api_usocket_full_name, self.api_session)
+        self._api_session = start_api_session()
+
+        self.actions = Actions(self._api_socket, self._api_session)
+        self.boot = BootSource(self._api_socket, self._api_session)
+        self.drive = Drive(self._api_socket, self._api_session)
+        self.logger = Logger(self._api_socket, self._api_session)
+        self.mmds = MMDS(self._api_socket, self._api_session)
+        self.network = Network(self._api_socket, self._api_session)
         self.machine_cfg = MachineConfigure(
-            self.api_usocket_full_name,
-            self.api_session
+            self._api_socket,
+            self._api_session
         )
 
-    def say(self, message: str):
-        """Return a message from your microVM slot."""
-        return "Microvm " + self.microvm_id + ": " + message
-
-    def kernel_api_path(self, create=False):
-        """Return the kernel image path."""
-        # TODO: this function and the next are both returning the path to the
-        #       kernel/filesystem image, and setting up the links inside the
-        #       jail (when necessary). This is more or less a hack until we
-        #       move to making API requests via helper methods. We assume they
-        #       are only going to be invoked while building the bodies for
-        #       requests which are about to be sent to the API server.
-        return self.slot.jailer_context.jailed_path(
-            self.slot.kernel_file,
-            create=create
-        )
-
-    def rootfs_api_path(self):
-        """Return the root filesystem path."""
-        return self.slot.jailer_context.jailed_path(
-            self.slot.rootfs_file,
-            create=True
-        )
-
-    def chroot_path(self):
-        """Return the jail chroot path."""
-        return self.slot.jailer_context.chroot_path()
-
-    def is_daemonized(self):
-        """Return the daemonization status of the jail."""
-        return self.slot.jailer_context.daemonize
-
-    def spawn(self):
-        """Start a microVM in a screen session, using an existing microVM slot.
-
-        Returns the API socket URL.
-        """
-        self.ensure_firecracker_binary()
-
-        fc_binary = os.path.join(self.fc_binary_path, FC_BINARY_NAME)
-
-        context = self.slot.jailer_context
-
-        jailer_binary = os.path.join(
-            self.fc_binary_path,
-            JAILER_BINARY_NAME
-        )
-
+        context = self._jailer
         jailer_params_list = [
             '--id',
-            str(context.microvm_slot_id),
+            str(context.jailer_id),
             '--exec-file',
-            fc_binary,
+            self._fc_binary_path,
             '--uid',
             str(context.uid),
             '--gid',
@@ -294,13 +268,12 @@ class Microvm:
         # forward, we'll probably switch to this method for running
         # Firecracker in general, because it represents the way it's meant
         # to be run by customers (together with CLONE_NEWPID flag).
-
         if context.daemonize:
             jailer_params_list = ['jailer'] + jailer_params_list
             jailer_params_list.append('--daemonize')
 
             def exec_func():
-                os.execv(jailer_binary, jailer_params_list)
+                os.execv(self._jailer_binary_path, jailer_params_list)
                 return -1
 
             libc = ctypes.CDLL(ctypes.util.find_library('c'))
@@ -318,43 +291,31 @@ class Microvm:
             # Don't know how to refer to defines with ctypes & libc.
             clone_newpid = 0x20000000
 
-            self.jailer_clone_pid = libc.clone(
+            self._jailer_clone_pid = libc.clone(
                 exec_func_c,
                 stack_top,
                 clone_newpid
             )
-            return self.api_url
+        else:
+            start_cmd = 'screen -dmS {session} {binary} {params}'
+            start_cmd = start_cmd.format(
+                session=self._session_name,
+                binary=self._jailer_binary_path,
+                params=' '.join(jailer_params_list)
+            )
 
-        start_cmd = 'screen -dmS {session} {binary} {params}'
-        start_cmd = start_cmd.format(
-            session=self.session_name,
-            binary=jailer_binary,
-            params=' '.join(jailer_params_list)
-        )
+            run(start_cmd, shell=True, check=True)
 
-        run(start_cmd, shell=True, check=True)
-        return self.api_url
+        # Wait for the jailer to create resources needed.
+        # We expect the jailer to start within 80 ms. However, we wait for
+        # 1 sec since we are rechecking the existence of the socket 500 times
+        # and leave 0.002 delay between them.
+        self._wait_create()
 
-    def wait_create(self):
-        """Wait until the API socket and chroot folder are available.
-
-        The chroot folder is only applicable when running jailed.
-        """
-        # TODO: if appears that, since this function is used somewhere in
-        # fixture setup logic or something like that, it's not subject to
-        # timeout restrictions. If this loops forever because, for example the
-        # jailer is not started properly and does not get to create the
-        # resources we are looking for, the whole test suite will hang.
-        # Is this observation correct? If so, fix at some point.
-
-        while True:
-            time.sleep(0.001)
-            # TODO: Switch to getting notified somehow when things get created?
-            if not os.path.exists(self.api_usocket_full_name):
-                continue
-            if self.chroot_path() and not os.path.exists(self.chroot_path()):
-                continue
-            break
+    @retry(delay=0.002, tries=500)
+    def _wait_create(self):
+        """Wait until the API socket and chroot folder are available."""
+        os.stat(self._jailer.api_socket_path())
 
     def basic_config(
         self,
@@ -363,12 +324,12 @@ class Microvm:
         mem_size_mib: int = 256,
         add_root_device: bool = True
     ):
-        """Shortcut for quickly configuring a spawned microvm.
+        """Shortcut for quickly configuring a microVM.
 
         It handles:
         - CPU and memory.
-        - Kernel image (will load the one in the microvm slot).
-        - Root File System (will use the one in the microvm slot).
+        - Kernel image (will load the one in the microVM allocated path).
+        - Root File System (will use the one in the microVM allocated path).
         - Does not start the microvm.
 
         The function checks the response status code and asserts that
@@ -379,7 +340,7 @@ class Microvm:
             ht_enabled=ht_enabled,
             mem_size_mib=mem_size_mib
         )
-        assert self.api_session.is_good_response(response.status_code)
+        assert self._api_session.is_good_response(response.status_code)
 
         if self.monitor_memory:
             self.mem_size_mib = mem_size_mib
@@ -390,19 +351,19 @@ class Microvm:
 
         # Add a kernel to start booting from.
         response = self.boot.put(
-            kernel_image_path=self.kernel_api_path(create=True)
+            kernel_image_path=self.create_jailed_resource(self.kernel_file)
         )
-        assert self.api_session.is_good_response(response.status_code)
+        assert self._api_session.is_good_response(response.status_code)
 
         if add_root_device:
             # Add the root file system with rw permissions.
             response = self.drive.put(
                 drive_id='rootfs',
-                path_on_host=self.rootfs_api_path(),
+                path_on_host=self.create_jailed_resource(self.rootfs_file),
                 is_root_device=True,
                 is_read_only=False
             )
-            assert self.api_session.is_good_response(response.status_code)
+            assert self._api_session.is_good_response(response.status_code)
 
     def ssh_network_config(self, network_config, iface_id,
                            allow_mmds_requests=False):
@@ -420,12 +381,11 @@ class Microvm:
         cleanup is desired.
         """
         # Create tap before configuring interface.
-        tapname = self.slot.slot_id[:8] + 'tap' + iface_id
-
+        tapname = self.id[:8] + 'tap' + iface_id
         (host_ip, guest_ip) = network_config.get_next_available_ips(2)
         tap = net_tools.Tap(
             tapname,
-            self.slot.netns(),
+            self._jailer.netns,
             ip="{}/{}".format(
                 host_ip,
                 network_config.get_netmask_len()
@@ -439,7 +399,7 @@ class Microvm:
             guest_mac=guest_mac,
             allow_mmds_requests=allow_mmds_requests
         )
-        assert self.api_session.is_good_response(response.status_code)
+        assert self._api_session.is_good_response(response.status_code)
 
         self.ssh_config['hostname'] = guest_ip
         return tap
@@ -449,44 +409,8 @@ class Microvm:
 
         This function has asserts to validate that the microvm boot success.
         """
-        # Start the microvm.
         response = self.actions.put(action_type='InstanceStart')
-        assert self.api_session.is_good_response(response.status_code)
-
-    def kill(self):
-        """Kill a Firecracker microVM process.
-
-        Does not issue a stop command to the guest.
-        """
-        if self.is_daemonized():
-            run('kill -9 {}'.format(self.jailer_clone_pid), shell=True)
-        else:
-            run(
-                'screen -XS {} kill'.format(self.session_name),
-                shell=True
-            )
-
-    def ensure_firecracker_binary(self):
-        """Build a Firecracker and Jailer binaries if they don't exist."""
-        fc_binary_path = os.path.join(self.fc_binary_path, FC_BINARY_NAME)
-        jailer_binary_path = os.path.join(
-            self.fc_binary_path,
-            JAILER_BINARY_NAME
-        )
-        if (
-            not os.path.isfile(fc_binary_path)
-            or
-            not os.path.isfile(jailer_binary_path)
-        ):
-            build_path = os.path.join(
-                self.slot.microvm_root_path,
-                build_tools.CARGO_RELEASE_REL_PATH
-            )
-            build_tools.cargo_build(
-                build_path,
-                flags='--release',
-                extra_args='>/dev/null 2>&1'
-            )
+        assert self._api_session.is_good_response(response.status_code)
 
     def _memory_cop(self):
         """Monitor memory consumption.
@@ -498,14 +422,14 @@ class Microvm:
         Firecracker's pid is required for this functionality, therefore this
         thread will only run when jailed.
         """
-        if not self.jailer_clone_pid or not self.mem_size_mib:
+        if not self._jailer_clone_pid or not self.mem_size_mib:
             # TODO Grep the log for the guest's memory space offset in order to
             # identify its memory regions, instead of relying on the configured
             # memory size as this may cause false positives. This will be fixed
             # when the logging flushing issues are. See #468.
             return
 
-        pmap_cmd = 'pmap -xq {}'.format(self.jailer_clone_pid)
+        pmap_cmd = 'pmap -xq {}'.format(self._jailer_clone_pid)
 
         while True:
             mem_total = 0

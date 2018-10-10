@@ -8,8 +8,6 @@ from typing import List
 
 import boto3
 
-from framework.microvm import MicrovmSlot
-
 
 class MicrovmImageS3Fetcher:
     """A borg class for fetching Firecracker microvm images from s3.
@@ -95,30 +93,26 @@ class MicrovmImageS3Fetcher:
             self.map_bucket()
         assert self.microvm_images and self.microvm_images_by_cap
 
-    def get_microvm_image(
-        self,
-        microvm_image_name,
-        microvm,
-        microvm_slot: MicrovmSlot
-    ):
-        """Fetch a microvm image into an existing microvm local slot.
+    def get_microvm_image(self, microvm_image_name, microvm):
+        """Populate the microvm resource path with the associated image.
 
-        Assumes the correct microvm image/slot structure, and copies all
-        microvm image resources into the microvm slot.
+        Assumes the correct microvm image structure, and copies all
+        microvm image resources into the microvm resource path.
         """
         for resource_key in self.microvm_images[microvm_image_name]:
             if resource_key in [
                 self.MICROVM_IMAGE_KERNEL_RELPATH,
                 self.MICROVM_IMAGE_BLOCKDEV_RELPATH
             ]:
-                # Kernel and blockdev dirs already exist in microvm_slot.
+                # Kernel and blockdev dirs already exist in the microvm's
+                # allocated resources.
                 continue
 
-            slot_dest_path = os.path.join(microvm_slot.path, resource_key)
+            microvm_dest_path = os.path.join(microvm.path, resource_key)
 
             if resource_key.endswith('/'):
-                # Create a new microvm_slot dir if one is encountered.
-                os.mkdir(slot_dest_path)
+                # Create a new microvm_directory if one is encountered.
+                os.mkdir(microvm_dest_path)
                 continue
 
             image_rel_path = os.path.join(
@@ -139,7 +133,7 @@ class MicrovmImageS3Fetcher:
                 )
             else:
                 # Use a root path in the temporary test session directory.
-                resource_root_path = microvm_slot.microvm_root_path
+                resource_root_path = microvm.path
 
             # Local path of a microvm resource. Used for downloading resources
             # only once.
@@ -160,20 +154,20 @@ class MicrovmImageS3Fetcher:
                     resource_rel_path,
                     resource_local_path)
 
-            if not os.path.exists(slot_dest_path):
-                copyfile(resource_local_path, slot_dest_path)
+            if not os.path.exists(microvm_dest_path):
+                copyfile(resource_local_path, microvm_dest_path)
 
             if resource_key.endswith(self.MICROVM_IMAGE_KERNEL_FILE_SUFFIX):
-                microvm_slot.kernel_file = slot_dest_path
+                microvm.kernel_file = microvm_dest_path
 
             if resource_key.endswith(self.MICROVM_IMAGE_ROOTFS_FILE_SUFFIX):
-                microvm_slot.rootfs_file = slot_dest_path
+                microvm.rootfs_file = microvm_dest_path
 
             if resource_key.endswith(self.MICROVM_IMAGE_SSH_KEY_SUFFIX):
                 # Add the key path to the config dictionary and set
                 # permissions.
-                microvm.ssh_config['ssh_key_path'] = slot_dest_path
-                os.chmod(slot_dest_path, 400)
+                microvm.ssh_config['ssh_key_path'] = microvm_dest_path
+                os.chmod(microvm_dest_path, 400)
 
     def list_microvm_images(self, capability_filter: List[str] = None):
         """Return microvm images with the specified capabilities."""

@@ -10,7 +10,7 @@ designed with the following goals in mind:
 
 # Solution
 
-- Keep microvm test images in an s3 bucket, structured as follows:
+- Keep microvm test images in an S3 bucket, structured as follows:
 
 ``` tree
 s3://<bucket-url>/microvm-images/
@@ -34,12 +34,12 @@ TagSet = [{"key": "capability:<cap_name>", "value": ""}, ...]
 
 - Make available fixtures that expose microvms based on any given capability.
   For example, a test function using the fixture `test_microvm_any` should run
-  on all microvm images in the s3 bucket, while a test using the fixture
+  on all microvm images in the S3 bucket, while a test using the fixture
   `test_microvm_with_net` should only run on the microvm images tagged with
   `capability:net`. Note that a test function that uses a parameterized fixture
   will yield one test case for every possible parameter of that fixture. For
   example, using `test_microvm_any` in a test will create as many test cases
-  as there are microvm images in the s3 bucket.
+  as there are microvm images in the S3 bucket.
 
 - Provide fixtures that simplify other common testing operations, like http
   over local unix domain sockets.
@@ -90,10 +90,11 @@ import uuid
 
 import pytest
 
-from framework.jailer import JailerContext
-from framework.microvm import MicrovmSlot, Microvm
+import host_tools.cargo_build as build_tools
+import host_tools.network as net_tools
+
+from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
-from host_tools.network import UniqueIPv4Generator
 
 
 SPEC_S3_BUCKET = 'spec.firecracker'
@@ -168,38 +169,27 @@ def test_session_tmp_path(test_session_root_path):
 
 
 @pytest.fixture
-def microvm_slot(test_session_root_path):
-    """Yield a microvm slot with an UUID as the slot id."""
+def microvm(test_session_root_path):
+    """Instantiate a microvm."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
-    microvm_slot_id = str(uuid.uuid4())
-    slot = MicrovmSlot(
-        jailer_context=JailerContext.default_with_id(microvm_slot_id),
-        slot_id=microvm_slot_id,
-        microvm_root_path=test_session_root_path
+    # Make sure the necessary binaries are there before instantiating the
+    # microvm.
+    fc_binary, jailer_binary = build_tools.get_firecracker_binaries(
+        test_session_root_path
     )
-    slot.setup()
-    # Jailer setup and cleanup are done independently so that we move closer
-    # towards implementing a way of reusing a test session directory.
-    slot.jailer_context.setup()
-    yield slot
-    slot.cleanup()
-    slot.jailer_context.cleanup()
 
-
-@pytest.fixture
-def microvm(microvm_slot):
-    """Yield a spawned microvm in a given microvm slot."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
+    microvm_id = str(uuid.uuid4())
 
     vm = Microvm(
-        microvm_slot,
-        microvm_id=str(uuid.uuid4())
+        resource_path=test_session_root_path,
+        fc_binary_path=fc_binary,
+        jailer_binary_path=jailer_binary,
+        microvm_id=microvm_id
     )
-    vm.spawn()
-    vm.wait_create()
+    vm.setup()
+
     yield vm
     vm.kill()
 
@@ -208,7 +198,7 @@ def microvm(microvm_slot):
 def network_config():
     """Yield a UniqueIPv4Generator."""
     with IP4_GENERATOR_CREATE_LOCK:
-        ipv4_generator = UniqueIPv4Generator.get_instance()
+        ipv4_generator = net_tools.UniqueIPv4Generator.get_instance()
     yield ipv4_generator
 
 
@@ -235,23 +225,19 @@ def microvm_image_fetcher():
 def test_microvm_any(request, microvm, microvm_image_fetcher):
     """Yield a microvm that can have any image in the spec bucket.
 
-    A test case using this fixture will run for every microvm_image.
+    A test case using this fixture will run for every microvm image.
 
     When using a pytest parameterized fixture, a test case is created for each
     parameter in the list. We generate the list dynamically based on the
     capability filter. This will result in
     `len(microvm_image_fetcher.list_microvm_images(capability_filter=['*']))`
     test cases for each test that depends on this fixture, each receiving a
-    microvm slot with a different microvm image.
+    microvm instance with a different microvm image.
     """
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
-    microvm_image_fetcher.get_microvm_image(
-        request.param,
-        microvm,
-        microvm.slot
-    )
+    microvm_image_fetcher.get_microvm_image(request.param, microvm)
     yield microvm
 
 
@@ -263,7 +249,7 @@ TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (
     ")\n"
     "def test_microvm_with_CAP(request, microvm, microvm_image_fetcher):\n"
     "    microvm_image_fetcher.get_microvm_image(\n"
-    "        request.param, microvm, microvm.slot\n"
+    "        request.param, microvm\n"
     "    )\n"
     "    yield microvm"
 )
