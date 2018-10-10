@@ -40,9 +40,10 @@ def _test_microvm_boottime(
         net_config
 ):
     """
-    Assert that we meet the minimum boot time. Should use a Microvm with the
+    Assert that we meet the minimum boot time. Should use a microVM with the
     `boottime` capability.
     """
+    microvm.spawn()
 
     microvm.basic_config(
         vcpu_count=2,
@@ -52,20 +53,14 @@ def _test_microvm_boottime(
         _tap = microvm.ssh_network_config(net_config, '1')
 
     # Configure logging.
-    log_fifo_path = os.path.join(microvm.slot.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(microvm.slot.path, 'metrics_fifo')
-    assert log_tools.make_fifo(log_fifo_path)
-    assert log_tools.make_fifo(metrics_fifo_path)
+    log_fifo_path = os.path.join(microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
+    log_tools.make_fifo(log_fifo_path)
+    log_tools.make_fifo(metrics_fifo_path)
 
     response = microvm.logger.put(
-        log_fifo=microvm.slot.jailer_context.jailed_path(
-            log_fifo_path,
-            create=True
-        ),
-        metrics_fifo=microvm.slot.jailer_context.jailed_path(
-            metrics_fifo_path,
-            create=True
-        ),
+        log_fifo=microvm.create_jailed_resource(log_fifo_path),
+        metrics_fifo=microvm.create_jailed_resource(metrics_fifo_path),
         level='Warning',
         show_level=False,
         show_log_origin=False

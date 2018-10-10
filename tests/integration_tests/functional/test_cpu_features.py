@@ -7,17 +7,16 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 
 def test_1vcpu(test_microvm_with_ssh, network_config):
     """Test CPU feature emulation with 1 vCPU."""
-
     test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM, no network ifaces, and
     # a root file system with the rw permission. The network interfaces is
-    # added after we get an unique MAC and IP.
+    # added after we get a unique MAC and IP.
     test_microvm.basic_config(vcpu_count=1)
 
     _tap = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.start()
-
     expected_cpu_topology = {
         "CPU(s)": "1",
         "On-line CPU(s) list": "0",
@@ -31,12 +30,12 @@ def test_1vcpu(test_microvm_with_ssh, network_config):
 
 def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Test CPU feature emulation with 2 vCPUs, and no hyperthreading."""
-
     test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM, 0 network ifaces, and
     # a root file system with the rw permission. The network interfaces is
-    # added after we get an unique MAC and IP.
+    # added after we get a unique MAC and IP.
     test_microvm.basic_config(vcpu_count=2, ht_enabled=False)
 
     _tap = test_microvm.ssh_network_config(network_config, '1')
@@ -103,6 +102,8 @@ def test_brand_string(test_microvm_with_ssh, network_config):
     assert host_brand_string is not None
 
     test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
     test_microvm.basic_config(vcpu_count=1)
     _tap = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.start()

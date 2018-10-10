@@ -116,23 +116,19 @@ def _test_log_config(
         show_origin=True
 ):
     """Exercises different scenarios for testing the logging config."""
+    microvm.spawn()
+
     microvm.basic_config()
 
     # Configure logging.
-    log_fifo_path = os.path.join(microvm.slot.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(microvm.slot.path, 'metrics_fifo')
-    assert log_tools.make_fifo(log_fifo_path)
-    assert log_tools.make_fifo(metrics_fifo_path)
+    log_fifo_path = os.path.join(microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
+    log_tools.make_fifo(log_fifo_path)
+    log_tools.make_fifo(metrics_fifo_path)
 
     response = microvm.logger.put(
-        log_fifo=microvm.slot.jailer_context.jailed_path(
-            log_fifo_path,
-            create=True
-        ),
-        metrics_fifo=microvm.slot.jailer_context.jailed_path(
-            metrics_fifo_path,
-            create=True
-        ),
+        log_fifo=microvm.create_jailed_resource(log_fifo_path),
+        metrics_fifo=microvm.create_jailed_resource(metrics_fifo_path),
         level=log_level,
         show_level=show_level,
         show_log_origin=show_origin
@@ -145,7 +141,7 @@ def _test_log_config(
     for line in lines:
         check_log_message(
             line,
-            microvm.slot.jailer_context.microvm_slot_id,
+            microvm.id,
             log_level,
             show_level,
             show_origin

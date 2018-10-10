@@ -19,6 +19,7 @@ def _assert_out_multiple(stdout, stderr, lines):
 def test_mmds(test_microvm_with_ssh, network_config):
     """Test the API and guest facing features of the Micro MetaData Service."""
     test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
 
     # The MMDS is empty at this point.
     response = test_microvm.mmds.get()
@@ -109,7 +110,7 @@ def test_mmds(test_microvm_with_ssh, network_config):
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM, no network ifaces, and
     # a root file system with the rw permission. The network interface is
-    # added after we get an unique MAC and IP.
+    # added after we get a unique MAC and IP.
     test_microvm.basic_config(vcpu_count=1)
     _tap = test_microvm.ssh_network_config(network_config, '1', True)
 
