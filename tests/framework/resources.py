@@ -85,19 +85,13 @@ class BootSource:
 
     @staticmethod
     def create_json(
-            boot_source_id=None,
-            source_type=None,
-            local_image=None,
-            boot_args=None
+            boot_args=None,
+            kernel_image_path=None
     ):
         """Compose the json associated to this type of API request."""
         datax = {}
-        if boot_source_id is not None:
-            datax['boot_source_id'] = boot_source_id
-        if source_type is not None:
-            datax['source_type'] = source_type
-        if local_image is not None:
-            datax['local_image'] = local_image
+        if kernel_image_path is not None:
+            datax['kernel_image_path'] = kernel_image_path
         if boot_args is not None:
             datax['boot_args'] = boot_args
         return datax

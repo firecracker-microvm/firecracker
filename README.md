@@ -179,12 +179,8 @@ curl --unix-socket ${socket} -i  \
      -H "accept: application/json" \
      -H "Content-Type: application/json" \
      -d "{
-           \"boot_source_id\": \"linux_kernel\",
-           \"source_type\": \"LocalImage\",
-           \"local_image\":
-                {
-                    \"kernel_image_path\": \"${kernel_path}\"
-                }
+            \"kernel_image_path\": \"${kernel_path}\",
+            \"boot_args\": \"reboot=k panic=1 pci=off nomodules console=ttyS0\"
         }"
 ```
 

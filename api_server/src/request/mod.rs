@@ -16,7 +16,7 @@ use hyper::{Method, StatusCode};
 
 use data_model::vm::{BlockDeviceConfig, DriveError, MachineConfiguration};
 
-use self::boot_source::BootSourceBody;
+use self::boot_source::BootSourceConfig;
 use self::logger::APILoggerDescription;
 use self::net::NetworkInterfaceBody;
 
@@ -68,7 +68,7 @@ impl GenerateResponse for () {
 // This enum contains messages for the VMM which represent sync requests. They each contain various
 // bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
 pub enum VmmAction {
-    ConfigureBootSource(BootSourceBody, OutcomeSender),
+    ConfigureBootSource(BootSourceConfig, OutcomeSender),
     ConfigureLogger(APILoggerDescription, OutcomeSender),
     GetMachineConfiguration(OutcomeSender),
     InsertBlockDevice(BlockDeviceConfig, OutcomeSender),

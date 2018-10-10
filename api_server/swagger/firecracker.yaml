@@ -303,20 +303,14 @@ paths:
 definitions:
   BootSource:
     type: object
+    required:
+      - kernel_image_path
     description:
-      Boot source descriptor. The only supported boot source type is the Local Image.
-      Network Boot and Drive Boot will be added in future releases.
+      Boot source descriptor.
     properties:
-      boot_source_id:
-        type: string
-        description: Unique identifier for the boot source
-      source_type:
-        type: string
-        description: Type of boot source
-        enum:
-        - LocalImage
-      local_image:
-        $ref: "#/definitions/LocalImage"
+    kernel_image_path:
+            type: string
+            description: Host level path to the kernel image used to boot the guest
       boot_args:
         type: string
         description: Kernel boot arguments
@@ -401,15 +395,6 @@ definitions:
           - Running
           - Halting
           - Halted
-
-  LocalImage:
-    type: object
-    description:
-      Locations for local kernel image.
-    properties:
-      kernel_image_path:
-        type: string
-        description: Host level path to the kernel image used to boot the guest
 
   Logger:
     type: object
