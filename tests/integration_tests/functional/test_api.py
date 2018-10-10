@@ -44,9 +44,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 
     # Updates to `kernel_image_path` with an invalid path are not allowed.
     response = test_microvm.boot.put(
-        boot_source_id='1',
-        source_type='LocalImage',
-        local_image={'kernel_image_path': 'foo.bar'}
+        kernel_image_path='foo.bar'
     )
     assert not test_microvm.api_session.is_good_response(response.status_code)
     assert "The kernel file cannot be opened due to invalid kernel path or " \
@@ -54,9 +52,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 
     # Updates to `kernel_image_path` with a valid path are allowed.
     response = test_microvm.boot.put(
-        boot_source_id='1',
-        source_type='LocalImage',
-        local_image={'kernel_image_path': test_microvm.kernel_api_path()}
+        kernel_image_path=test_microvm.kernel_api_path()
     )
     assert test_microvm.api_session.is_good_response(response.status_code)
 
@@ -255,9 +251,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
 
     # Valid updates to `kernel_image_path` are not allowed after boot.
     response = test_microvm.boot.put(
-        boot_source_id='1',
-        source_type='LocalImage',
-        local_image={'kernel_image_path': test_microvm.kernel_api_path()}
+        kernel_image_path=test_microvm.kernel_api_path()
     )
     assert not test_microvm.api_session.is_good_response(response.status_code)
     assert "The update operation is not allowed after boot" in response.text
@@ -493,8 +487,7 @@ def test_api_patch_pre_boot(test_microvm_with_api):
 
     # Partial updates to the boot source are not allowed.
     response = test_microvm.boot.patch(
-        boot_source_id='1',
-        local_image={'kernel_image_path': 'otherfile'}
+        kernel_image_path='otherfile'
     )
     assert not test_microvm.api_session.is_good_response(response.status_code)
     assert "Invalid request method" in response.text
@@ -561,8 +554,7 @@ def test_api_patch_post_boot(test_microvm_with_api):
 
     # Partial updates to the boot source are not allowed.
     response = test_microvm.boot.patch(
-        boot_source_id='1',
-        local_image={'kernel_image_path': 'otherfile'}
+        kernel_image_path='otherfile'
     )
     assert not test_microvm.api_session.is_good_response(response.status_code)
     assert "Invalid request method" in response.text

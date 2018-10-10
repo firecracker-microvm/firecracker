@@ -11,6 +11,8 @@
 
 ### Changed
 
+- The boot source is specified only with the `kernel_image_path` and
+  the optional parameter `boot_args`. All other fields are removed.
 - The `path_on_host` property in the drive specification is now marked as
   *mandatory*.
 - PATCH drive only allows patching/changing the `path_on_host` property.
