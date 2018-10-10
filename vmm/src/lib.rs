@@ -38,7 +38,7 @@ use std::time::Duration;
 use libc::{c_void, siginfo_t};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
-use api_server::request::boot_source::{BootSourceBody, BootSourceConfigError};
+use api_server::request::boot_source::BootSourceConfigError;
 use api_server::request::instance_info::{InstanceInfo, InstanceState};
 use api_server::request::logger::{APILoggerDescription, APILoggerError, APILoggerLevel};
 use api_server::request::machine_configuration::PutMachineConfigurationError;
@@ -1341,106 +1341,9 @@ impl Vmm {
         Ok(())
     }
 
-    fn handle_start_microvm(&mut self, sender: OutcomeSender) {
-        match self.start_instance() {
-            Ok(_) => sender
-                .send(Box::new(()))
-                .map_err(|_| ())
-                .expect("one-shot channel closed"),
-            Err(e) => {
-                let err_type = match e {
-                    Error::User(_) => ErrorType::UserError,
-                    Error::Internal(_) => ErrorType::InternalError,
-                };
-
-                sender
-                    .send(Box::new(SyncError::InstanceStartFailed(
-                        err_type,
-                        format!("Failed to start microVM. {:?}", e),
-                    ))).map_err(|_| ())
-                    .expect("one-shot channel closed")
-            }
-        };
-    }
-
-    fn handle_put_drive(&mut self, block_device_config: BlockDeviceConfig, sender: OutcomeSender) {
+    fn send_response(response: Box<GenerateResponse + Send>, sender: OutcomeSender) {
         sender
-            .send(Box::new(self.insert_block_device(block_device_config)))
-            .map_err(|_| ())
-            .expect("one-shot channel closed");
-    }
-
-    fn handle_patch_drive(
-        &mut self,
-        drive_id: String,
-        path_on_host: String,
-        sender: OutcomeSender,
-    ) {
-        sender
-            .send(Box::new(self.set_block_device_path(drive_id, path_on_host)))
-            .map_err(|_| ())
-            .expect("one-shot channel closed");
-    }
-
-    fn handle_put_logger(
-        &mut self,
-        logger_description: APILoggerDescription,
-        sender: OutcomeSender,
-    ) {
-        sender
-            .send(Box::new(self.init_logger(logger_description)))
-            .map_err(|_| ())
-            .expect("one-shot channel closed");
-    }
-
-    fn handle_put_boot_source(&mut self, boot_source_body: BootSourceBody, sender: OutcomeSender) {
-        let box_response: Box<GenerateResponse + Send> =
-            match boot_source_body.local_image {
-                // Check that the kernel path exists and it is valid.
-                Some(local_image) => Box::new(self.configure_boot_source(
-                    local_image.kernel_image_path,
-                    boot_source_body.boot_args,
-                )),
-                None => Box::new(BootSourceConfigError::EmptyKernelPath),
-            };
-        sender
-            .send(box_response)
-            .map_err(|_| ())
-            .expect("one-shot channel closed");
-    }
-
-    fn handle_get_machine_configuration(&self, sender: OutcomeSender) {
-        sender
-            .send(Box::new(self.vm_config.clone()))
-            .map_err(|_| ())
-            .expect("one-shot channel closed");
-    }
-
-    fn handle_put_machine_configuration(
-        &mut self,
-        machine_config_body: MachineConfiguration,
-        sender: OutcomeSender,
-    ) {
-        sender
-            .send(Box::new(self.set_vm_configuration(machine_config_body)))
-            .map_err(|_| ())
-            .expect("one-shot channel closed");
-    }
-
-    fn handle_put_network_interface(
-        &mut self,
-        netif_body: NetworkInterfaceBody,
-        sender: OutcomeSender,
-    ) {
-        sender
-            .send(Box::new(self.insert_net_device(netif_body)))
-            .map_err(|_| ())
-            .expect("one-shot channel closed");
-    }
-
-    fn handle_rescan_block_device(&mut self, drive_id: String, sender: OutcomeSender) {
-        sender
-            .send(Box::new(self.rescan_block_device(drive_id)))
+            .send(response)
             .map_err(|_| ())
             .expect("one-shot channel closed");
     }
@@ -1458,31 +1361,64 @@ impl Vmm {
 
         match request {
             VmmAction::ConfigureBootSource(boot_source_body, sender) => {
-                self.handle_put_boot_source(boot_source_body, sender)
+                let boxed_response = match boot_source_body.local_image {
+                    // Check that the kernel path exists and it is valid.
+                    Some(local_image) => Box::new(self.configure_boot_source(
+                        local_image.kernel_image_path,
+                        boot_source_body.boot_args,
+                    )),
+                    None => Box::new(Err(BootSourceConfigError::EmptyKernelPath)),
+                };
+                Vmm::send_response(boxed_response, sender);
             }
             VmmAction::ConfigureLogger(logger_description, sender) => {
-                self.handle_put_logger(logger_description, sender)
+                Vmm::send_response(Box::new(self.init_logger(logger_description)), sender);
             }
             VmmAction::GetMachineConfiguration(sender) => {
-                self.handle_get_machine_configuration(sender)
+                Vmm::send_response(Box::new(self.vm_config.clone()), sender);
             }
             VmmAction::InsertBlockDevice(block_device_config, sender) => {
-                self.handle_put_drive(block_device_config, sender)
+                Vmm::send_response(
+                    Box::new(self.insert_block_device(block_device_config)),
+                    sender,
+                );
             }
             VmmAction::InsertNetworkDevice(netif_body, sender) => {
-                self.handle_put_network_interface(netif_body, sender)
+                Vmm::send_response(Box::new(self.insert_net_device(netif_body)), sender);
             }
             VmmAction::RescanBlockDevice(drive_id, sender) => {
-                self.handle_rescan_block_device(drive_id, sender)
+                Vmm::send_response(Box::new(self.rescan_block_device(drive_id)), sender);
             }
-            VmmAction::StartMicroVm(sender) => self.handle_start_microvm(sender),
+            VmmAction::StartMicroVm(sender) => {
+                let boxed_response = match self.start_instance() {
+                    Ok(_) => Box::new(Ok(())),
+                    Err(e) => {
+                        let err_type = match e {
+                            Error::User(_) => ErrorType::UserError,
+                            Error::Internal(_) => ErrorType::InternalError,
+                        };
+
+                        Box::new(Err(SyncError::InstanceStartFailed(
+                            err_type,
+                            format!("Failed to start microVM. {:?}", e),
+                        )))
+                    }
+                };
+                Vmm::send_response(boxed_response, sender);
+            }
             VmmAction::SetVmConfiguration(machine_config_body, sender) => {
-                self.handle_put_machine_configuration(machine_config_body, sender)
+                Vmm::send_response(
+                    Box::new(self.set_vm_configuration(machine_config_body)),
+                    sender,
+                );
             }
             VmmAction::UpdateDrivePath(drive_id, path_on_host, sender) => {
-                self.handle_patch_drive(drive_id, path_on_host, sender)
+                Vmm::send_response(
+                    Box::new(self.set_block_device_path(drive_id, path_on_host)),
+                    sender,
+                );
             }
-        }
+        };
 
         Ok(())
     }
