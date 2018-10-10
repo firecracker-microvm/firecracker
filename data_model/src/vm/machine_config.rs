@@ -1,8 +1,32 @@
-use std::fmt;
+use std::fmt::{Display, Formatter, Result};
+
+#[derive(Debug, PartialEq)]
+pub enum VmConfigError {
+    InvalidVcpuCount,
+    InvalidMemorySize,
+    UpdateNotAllowedPostBoot,
+}
+
+impl Display for VmConfigError {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        use self::VmConfigError::*;
+        match *self {
+            InvalidVcpuCount => write!(
+                f,
+                "The vCPU number is invalid! The vCPU number can only \
+                 be 1 or an even number when hyperthreading is enabled.",
+            ),
+            InvalidMemorySize => write!(f, "The memory size (MiB) is invalid.",),
+            UpdateNotAllowedPostBoot => {
+                write!(f, "The update operation is not allowed after boot.")
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct MachineConfiguration {
+pub struct VmConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vcpu_count: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -13,9 +37,9 @@ pub struct MachineConfiguration {
     pub cpu_template: Option<CpuFeaturesTemplate>,
 }
 
-impl Default for MachineConfiguration {
+impl Default for VmConfig {
     fn default() -> Self {
-        MachineConfiguration {
+        VmConfig {
             vcpu_count: Some(1),
             mem_size_mib: Some(128),
             ht_enabled: Some(false),
@@ -30,8 +54,8 @@ pub enum CpuFeaturesTemplate {
     T2,
 }
 
-impl fmt::Display for CpuFeaturesTemplate {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for CpuFeaturesTemplate {
+    fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
             CpuFeaturesTemplate::C3 => write!(f, "C3"),
             CpuFeaturesTemplate::T2 => write!(f, "T2"),

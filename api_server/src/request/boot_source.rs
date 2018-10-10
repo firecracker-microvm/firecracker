@@ -1,48 +1,11 @@
 use std::result;
 
 use futures::sync::oneshot;
-use hyper::{Method, Response, StatusCode};
+use hyper::Method;
 
-use http_service::{json_fault_message, json_response};
-use request::{GenerateResponse, IntoParsedRequest, ParsedRequest, VmmAction};
-
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct BootSourceConfig {
-    pub kernel_image_path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub boot_args: Option<String>,
-}
-
-#[derive(Debug)]
-pub enum BootSourceConfigError {
-    InvalidKernelPath,
-    InvalidKernelCommandLine,
-    UpdateNotAllowedPostBoot,
-}
-
-impl GenerateResponse for BootSourceConfigError {
-    fn generate_response(&self) -> Response {
-        use self::BootSourceConfigError::*;
-        match *self {
-            InvalidKernelPath => json_response(
-                StatusCode::BadRequest,
-                json_fault_message(
-                    "The kernel file cannot \
-                     be opened due to invalid kernel path or invalid permissions.",
-                ),
-            ),
-            InvalidKernelCommandLine => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("The kernel command line is invalid!"),
-            ),
-            UpdateNotAllowedPostBoot => json_response(
-                StatusCode::BadRequest,
-                json_fault_message("The update operation is not allowed after boot."),
-            ),
-        }
-    }
-}
+use request::{IntoParsedRequest, ParsedRequest};
+use vmm::vmm_config::boot_source::BootSourceConfig;
+use vmm::VmmAction;
 
 impl IntoParsedRequest for BootSourceConfig {
     fn into_parsed_request(
@@ -61,22 +24,6 @@ impl IntoParsedRequest for BootSourceConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_generate_response_put_boot_source_config_error() {
-        assert_eq!(
-            BootSourceConfigError::InvalidKernelPath
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
-        assert_eq!(
-            BootSourceConfigError::InvalidKernelCommandLine
-                .generate_response()
-                .status(),
-            StatusCode::BadRequest
-        );
-    }
 
     #[test]
     fn test_into_parsed_request() {
