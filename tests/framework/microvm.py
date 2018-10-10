@@ -390,11 +390,7 @@ class Microvm:
 
         # Add a kernel to start booting from.
         response = self.boot.put(
-            boot_source_id='1',
-            source_type='LocalImage',
-            local_image={'kernel_image_path': self.kernel_api_path(
-                create=True
-            )}
+            kernel_image_path=self.kernel_api_path(create=True)
         )
         assert self.api_session.is_good_response(response.status_code)
 

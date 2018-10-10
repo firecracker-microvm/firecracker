@@ -1361,14 +1361,10 @@ impl Vmm {
 
         match request {
             VmmAction::ConfigureBootSource(boot_source_body, sender) => {
-                let boxed_response = match boot_source_body.local_image {
-                    // Check that the kernel path exists and it is valid.
-                    Some(local_image) => Box::new(self.configure_boot_source(
-                        local_image.kernel_image_path,
-                        boot_source_body.boot_args,
-                    )),
-                    None => Box::new(Err(BootSourceConfigError::EmptyKernelPath)),
-                };
+                let boxed_response = Box::new(self.configure_boot_source(
+                    boot_source_body.kernel_image_path,
+                    boot_source_body.boot_args
+                ));
                 Vmm::send_response(boxed_response, sender);
             }
             VmmAction::ConfigureLogger(logger_description, sender) => {

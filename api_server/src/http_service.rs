@@ -14,7 +14,7 @@ use data_model::mmds::Mmds;
 use data_model::vm::{BlockDeviceConfig, MachineConfiguration};
 use logger::{Metric, METRICS};
 use request::actions::ActionBody;
-use request::boot_source::BootSourceBody;
+use request::boot_source::BootSourceConfig;
 use request::drive::PatchDrivePayload;
 use request::instance_info::InstanceInfo;
 use request::logger::APILoggerDescription;
@@ -154,7 +154,7 @@ fn parse_boot_source_req<'a>(
 
         0 if method == Method::Put => {
             METRICS.put_api_requests.boot_source_count.inc();
-            Ok(serde_json::from_slice::<BootSourceBody>(body)
+            Ok(serde_json::from_slice::<BootSourceConfig>(body)
                 .map_err(|e| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::SerdeJson(e)
@@ -782,12 +782,10 @@ mod tests {
     fn test_parse_boot_source_req() {
         let path = "/foo";
         let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-        let json = "{
-                \"boot_source_id\": \"bar\",
-                \"source_type\": \"LocalImage\",
-                \"local_image\": {\"kernel_image_path\": \"/foo/bar\"},
-                \"boot_args\": \"baz\"
-              }";
+        let json = r#"{
+                "kernel_image_path": "/foo/bar",
+                "boot_args": "baz"
+              }"#;
         let body: Chunk = Chunk::from(json);
 
         // GET
@@ -800,7 +798,7 @@ mod tests {
         // Falling back to json deserialization for constructing the "correct" request because not
         // all of BootSourceBody's members are accessible. Rather than making them all public just
         // for the purpose of unit tests, it's preferable to trust the deserialization.
-        let res_bsb = serde_json::from_slice::<BootSourceBody>(&body);
+        let res_bsb = serde_json::from_slice::<BootSourceConfig>(&body);
         match res_bsb {
             Ok(boot_source_body) => {
                 match parse_boot_source_req(&path_tokens, &path, Method::Put, &body) {
