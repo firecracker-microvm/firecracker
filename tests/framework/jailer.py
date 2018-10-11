@@ -6,7 +6,8 @@ import shutil
 from subprocess import run, PIPE
 from time import sleep
 
-from framework.defs import FC_BINARY_NAME
+from framework.defs import API_USOCKET_NAME, FC_BINARY_NAME, \
+    JAILER_DEFAULT_CHROOT
 
 
 class JailerContext:
@@ -33,7 +34,7 @@ class JailerContext:
             numa_node=0,
             uid=1234,
             gid=1234,
-            chroot_base='/srv/jailer',
+            chroot_base=JAILER_DEFAULT_CHROOT,
             netns=None,
             daemonize=True,
             seccomp_level=0
@@ -62,8 +63,8 @@ class JailerContext:
         """Create the list of parameters we want the jailer to start with.
 
         We want to be able to vary any parameter even the required ones as we
-        might want to add integration tests that exercise exactly the level
-        of 'mandatori-ness' (what is the word for that?).
+        might want to add integration tests that validate the enforcement of
+        mandatory arguments.
         """
         jailer_params_list = []
 
@@ -84,7 +85,7 @@ class JailerContext:
             )
         if self.netns is not None:
             jailer_params_list.extend(['--netns', str(self.netns_file_path())])
-        if self.daemonize is not None:
+        if self.daemonize:
             jailer_params_list = ['jailer'] + jailer_params_list
             jailer_params_list.append('--daemonize')
         if self.seccomp_level is not None:
@@ -96,14 +97,15 @@ class JailerContext:
     def chroot_base_with_id(self):
         """Return the MicroVM chroot base + MicroVM ID."""
         return os.path.join(
-            self.chroot_base,
+            self.chroot_base if self.chroot_base is not None
+            else JAILER_DEFAULT_CHROOT,
             FC_BINARY_NAME,
             self.jailer_id
         )
 
     def api_socket_path(self):
         """Return the MicroVM API socket path."""
-        return os.path.join(self.chroot_base_with_id(), 'api.socket')
+        return os.path.join(self.chroot_base_with_id(), API_USOCKET_NAME)
 
     def chroot_path(self):
         """Return the MicroVM chroot path."""
@@ -145,7 +147,11 @@ class JailerContext:
 
     def setup(self):
         """Set up this jailer context."""
-        run('mkdir -p {}'.format(self.chroot_base), shell=True, check=True)
+        os.makedirs(
+            self.chroot_base if self.chroot_base is not None
+            else JAILER_DEFAULT_CHROOT,
+            exist_ok=True
+        )
         if self.netns:
             run('ip netns add {}'.format(self.netns), shell=True, check=True)
 

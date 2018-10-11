@@ -7,6 +7,8 @@ FC_BINARY_NAME = 'firecracker'
 """Firecracker's binary name."""
 JAILER_BINARY_NAME = 'jailer'
 """Jailer's binary name."""
+JAILER_DEFAULT_CHROOT = '/srv/jailer'
+"""The default location for the chroot."""
 MICROVM_KERNEL_RELPATH = 'kernel/'
 """Relative path to the location of the kernel file."""
 MICROVM_FSFILES_RELPATH = 'fsfiles/'
