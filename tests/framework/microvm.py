@@ -11,15 +11,13 @@ destroy microvms.
 import ctypes
 import ctypes.util
 import os
-import time
-
-from subprocess import run, PIPE
-from threading import Thread
+from subprocess import run
 
 from retry import retry
 
 import requests_unixsocket
 
+import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 
 from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
@@ -37,9 +35,6 @@ class Microvm:
     methods, `spawn()` and `kill()` can be used to start/end the microvm
     process.
     """
-
-    MAX_MEMORY = 5 * 1024
-    MEMORY_COP_TIMEOUT = 1
 
     def __init__(
         self,
@@ -102,8 +97,6 @@ class Microvm:
         }
 
         # Deal with memory monitoring.
-        self.memory_cop_thread = None
-        self.mem_size_mib = None
         self.monitor_memory = monitor_memory
 
     def kill(self):
@@ -345,11 +338,10 @@ class Microvm:
         assert self._api_session.is_good_response(response.status_code)
 
         if self.monitor_memory:
-            self.mem_size_mib = mem_size_mib
-            # The memory monitor thread uses the configured size of the guest's
-            # memory region to exclude it from the total vss.
-            self.memory_cop_thread = Thread(target=self._memory_cop)
-            self.memory_cop_thread.start()
+            mem_tools.threaded_memory_monitor(
+                mem_size_mib,
+                self._jailer_clone_pid
+            )
 
         # Add a kernel to start booting from.
         response = self.boot.put(
@@ -413,66 +405,3 @@ class Microvm:
         """
         response = self.actions.put(action_type='InstanceStart')
         assert self._api_session.is_good_response(response.status_code)
-
-    def _memory_cop(self):
-        """Monitor memory consumption.
-
-        `pmap` is used to compute Firecracker's memory overhead. If it exceeds
-        the maximum value, the process exits immediately, failing any running
-        test.
-
-        Firecracker's pid is required for this functionality, therefore this
-        thread will only run when jailed.
-        """
-        if not self._jailer_clone_pid or not self.mem_size_mib:
-            # TODO Grep the log for the guest's memory space offset in order to
-            # identify its memory regions, instead of relying on the configured
-            # memory size as this may cause false positives. This will be fixed
-            # when the logging flushing issues are. See #468.
-            return
-
-        pmap_cmd = 'pmap -xq {}'.format(self._jailer_clone_pid)
-
-        while True:
-            mem_total = 0
-            pmap_out = run(
-                pmap_cmd,
-                shell=True,
-                check=True,
-                stdout=PIPE
-            ).stdout.decode('utf-8').split('\n')
-
-            for line in pmap_out:
-                tokens = line.split()
-                if not tokens:
-                    # This should occur when Firecracker exited cleanly and
-                    # `pmap` isn't writing anything to `stdout` anymore.
-                    # However, in the current state of things, Firecracker
-                    # (at least sometimes) remains as a zombie, and `pmap`
-                    # always outputs, even though memory consumption is 0.
-                    break
-                total_size = 0
-                rss = 0
-                try:
-                    total_size = int(tokens[1])
-                    rss = int(tokens[2])
-                except ValueError:
-                    # This line doesn't contain memory related information.
-                    continue
-                if total_size == self.mem_size_mib * 1024:
-                    # This is the guest's memory region.
-                    # TODO Check for the address of the guest's memory instead.
-                    continue
-                mem_total += rss
-
-            if mem_total > self.MAX_MEMORY:
-                print('ERROR! Memory usage exceeded limit: {}'
-                      .format(mem_total))
-                exit(-1)
-
-            if not mem_total:
-                # Until we have a reliable way to a) kill Firecracker, b) know
-                # Firecracker is dead, this will have to do.
-                return
-
-            time.sleep(self.MEMORY_COP_TIMEOUT)
