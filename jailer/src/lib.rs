@@ -92,13 +92,6 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
         .author(crate_authors!())
         .about("Jail a microVM.")
         .arg(
-            Arg::with_name("numa_node")
-                .long("node")
-                .help("NUMA node to assign this microVM to.")
-                .required(true)
-                .takes_value(true),
-        )
-        .arg(
             Arg::with_name("id")
                 .long("id")
                 .help("Jail ID")
@@ -113,16 +106,23 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("numa_node")
+                .long("node")
+                .help("NUMA node to assign this microVM to.")
+                .required(true)
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("uid")
                 .long("uid")
-                .help("Chroot uid")
+                .help("The user identifier the jailer switches to after exec.")
                 .required(true)
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("gid")
                 .long("gid")
-                .help("Chroot gid")
+                .help("The group identifier the jailer switches to after exec.")
                 .required(true)
                 .takes_value(true),
         )
