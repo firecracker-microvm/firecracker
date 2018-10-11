@@ -12,4 +12,4 @@ JAILER_DEFAULT_CHROOT = '/srv/jailer'
 MICROVM_KERNEL_RELPATH = 'kernel/'
 """Relative path to the location of the kernel file."""
 MICROVM_FSFILES_RELPATH = 'fsfiles/'
-"""Relative path to the location of the filesystem files."""
+"""Relative path to the location of the filesystems."""

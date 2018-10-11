@@ -6,7 +6,7 @@ from subprocess import run
 
 
 class FilesystemFile:
-    """Facility for creating and working with filesystem files."""
+    """Facility for creating and working with filesystems."""
 
     KNOWN_FILEFS_FORMATS = {'ext4'}
     path = None
@@ -38,7 +38,7 @@ class FilesystemFile:
         self.path = path
 
     def resize(self, new_size):
-        """Resize the filesystem file."""
+        """Resize the filesystem."""
         run(
             'truncate --size ' + str(new_size) + 'M ' + self.path,
             shell=True,
@@ -47,7 +47,7 @@ class FilesystemFile:
         run('resize2fs ' + self.path, shell=True, check=True)
 
     def size(self):
-        """Return the size of the filesystem file."""
+        """Return the size of the filesystem."""
         return os.stat(self.path).st_size
 
     def __del__(self):
