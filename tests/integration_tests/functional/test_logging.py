@@ -123,12 +123,12 @@ def _test_log_config(
     # Configure logging.
     log_fifo_path = os.path.join(microvm.path, 'log_fifo')
     metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
-    log_tools.make_fifo(log_fifo_path)
-    log_tools.make_fifo(metrics_fifo_path)
+    log_fifo = log_tools.Fifo(log_fifo_path)
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = microvm.logger.put(
-        log_fifo=microvm.create_jailed_resource(log_fifo_path),
-        metrics_fifo=microvm.create_jailed_resource(metrics_fifo_path),
+        log_fifo=microvm.create_jailed_resource(log_fifo.path),
+        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
         level=log_level,
         show_level=show_level,
         show_log_origin=show_origin
@@ -137,7 +137,7 @@ def _test_log_config(
 
     microvm.start()
 
-    lines = log_tools.sequential_fifo_reader(log_fifo_path, 20)
+    lines = log_fifo.sequential_fifo_reader(20)
     for line in lines:
         check_log_message(
             line,

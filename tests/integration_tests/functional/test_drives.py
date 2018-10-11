@@ -36,7 +36,7 @@ def test_rescan(test_microvm_with_ssh, network_config):
 
     _check_scratch_size(ssh_connection, fs.size())
 
-    # Resize the filesystem file from 256 MiB (default) to 512 MiB.
+    # Resize the filesystem from 256 MiB (default) to 512 MiB.
     fs.resize(512)
 
     # Rescan operations after the guest boots are allowed.
@@ -181,7 +181,7 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
 
 
 def test_patch_drive(test_microvm_with_ssh, network_config):
-    """Test replacing the backing filesystem file after guest boot works."""
+    """Test replacing the backing filesystem after guest boot works."""
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 

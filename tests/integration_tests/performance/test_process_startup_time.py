@@ -24,12 +24,12 @@ def test_startup_time(test_microvm_with_api):
     # Configure logging.
     log_fifo_path = os.path.join(microvm.path, 'log_fifo')
     metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
-    assert log_tools.make_fifo(log_fifo_path)
-    assert log_tools.make_fifo(metrics_fifo_path)
+    log_fifo = log_tools.Fifo(log_fifo_path)
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = microvm.logger.put(
-        log_fifo=microvm.create_jailed_resource(log_fifo_path),
-        metrics_fifo=microvm.create_jailed_resource(metrics_fifo_path)
+        log_fifo=microvm.create_jailed_resource(log_fifo.path),
+        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert microvm.api_session.is_good_response(response.status_code)
 
@@ -38,7 +38,7 @@ def test_startup_time(test_microvm_with_api):
 
     # The metrics fifo should be at index 1.
     # Since metrics are flushed at InstanceStart, the first line will suffice.
-    lines = log_tools.sequential_fifo_reader(metrics_fifo_path, 1)
+    lines = metrics_fifo.sequential_fifo_reader(1)
     metrics = json.loads(lines[0])
     startup_time_us = metrics['api_server']['process_startup_time_us']
     cpu_startup_time_us = metrics['api_server']['process_startup_time_cpu_us']
