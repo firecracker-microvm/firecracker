@@ -65,7 +65,10 @@ class Microvm:
         self._jailer_binary_path = jailer_binary_path
 
         # Create the jailer context associated with this microvm.
-        self._jailer = JailerContext.default_with_id(self._microvm_id)
+        self._jailer = JailerContext(
+            jailer_id=self._microvm_id,
+            exec_file=self._fc_binary_path
+        )
         self._jailer_clone_pid = None
 
         # Now deal with the things specific to the api session used to
@@ -263,15 +266,14 @@ class Microvm:
             jailer_params_list.append('--netns')
             jailer_params_list.append(context.netns_file_path())
 
+        jailer_params_list = self._jailer.construct_param_list()
+
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell. Going
         # forward, we'll probably switch to this method for running
         # Firecracker in general, because it represents the way it's meant
         # to be run by customers (together with CLONE_NEWPID flag).
-        if context.daemonize:
-            jailer_params_list = ['jailer'] + jailer_params_list
-            jailer_params_list.append('--daemonize')
-
+        if self._jailer.daemonize:
             def exec_func():
                 os.execv(self._jailer_binary_path, jailer_params_list)
                 return -1

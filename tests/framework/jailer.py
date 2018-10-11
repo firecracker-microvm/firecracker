@@ -15,41 +15,83 @@ class JailerContext:
     Each microvm will have a jailer configuration associated with it.
     """
 
+    # Keep in sync with parameters from code base.
+    jailer_id = None
+    exec_file = None
+    numa_node = None
+    uid = None
+    gid = None
+    chroot_base = None
+    netns = None
+    daemonize = None
+    seccomp_level = None
+
     def __init__(
             self,
             jailer_id,
-            numa_node,
-            uid,
-            gid,
-            chroot_base,
-            netns,
-            daemonize
+            exec_file,
+            numa_node=0,
+            uid=1234,
+            gid=1234,
+            chroot_base='/srv/jailer',
+            netns=None,
+            daemonize=True,
+            seccomp_level=0
     ):
-        """Set up jailer fields."""
+        """Set up jailer fields.
+
+        This plays the role of a default constructor as it populates
+        the jailer's fields with some default values. Each field can be
+        further adjusted by each test even with None values.
+        """
         self.jailer_id = jailer_id
+        self.exec_file = exec_file
         self.numa_node = numa_node
         self.uid = uid
         self.gid = gid
         self.chroot_base = chroot_base
-        self.netns = netns
+        self.netns = netns if netns is not None else jailer_id
         self.daemonize = daemonize
+        self.seccomp_level = seccomp_level
 
     def __del__(self):
         """Cleanup this jailer context."""
         self.cleanup()
 
-    @staticmethod
-    def default_with_id(jailer_id):
-        """Create a default jailer with a given ID."""
-        return JailerContext(
-            jailer_id=jailer_id,
-            numa_node=0,
-            uid=1234,
-            gid=1234,
-            chroot_base='/srv/jailer',
-            netns=jailer_id,
-            daemonize=True
-        )
+    def construct_param_list(self):
+        """Create the list of parameters we want the jailer to start with.
+
+        We want to be able to vary any parameter even the required ones as we
+        might want to add integration tests that exercise exactly the level
+        of 'mandatori-ness' (what is the word for that?).
+        """
+        jailer_params_list = []
+
+        # Pretty please, try to keep the same order as in the code base.
+        if self.jailer_id is not None:
+            jailer_params_list.extend(['--id', str(self.jailer_id)])
+        if self.exec_file is not None:
+            jailer_params_list.extend(['--exec-file', str(self.exec_file)])
+        if self.numa_node is not None:
+            jailer_params_list.extend(['--node', str(self.numa_node)])
+        if self.uid is not None:
+            jailer_params_list.extend(['--uid', str(self.uid)])
+        if self.gid is not None:
+            jailer_params_list.extend(['--gid', str(self.gid)])
+        if self.chroot_base is not None:
+            jailer_params_list.extend(
+                ['--chroot-base-dir', str(self.chroot_base)]
+            )
+        if self.netns is not None:
+            jailer_params_list.extend(['--netns', str(self.netns_file_path())])
+        if self.daemonize is not None:
+            jailer_params_list = ['jailer'] + jailer_params_list
+            jailer_params_list.append('--daemonize')
+        if self.seccomp_level is not None:
+            jailer_params_list.extend(
+                ['--seccomp-level', str(self.seccomp_level)]
+            )
+        return jailer_params_list
 
     def chroot_base_with_id(self):
         """Return the MicroVM chroot base + MicroVM ID."""
