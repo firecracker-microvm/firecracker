@@ -16,8 +16,9 @@ virtual machine manager based on Linux's Kernel-based Virtual Machine (KVM),
 the state of art for Linux virtualization. Firecracker provides the minimal
 required device emulation to the guest operating system while excluding non-
 essential functionality to enable faster startup time and a reduced memory
-footprint. The Firecracker process also provides a control API, enforces
-microVM sandboxing, and handles resource rate limiting for microVMs.
+footprint. The Firecracker process also provides a control API, a metadata
+store, enforces microVM sandboxing, and handles resource rate limiting for
+microVMs.
 
 ## What's Included
 
@@ -331,6 +332,21 @@ curl --unix-socket ${socket} -i \
 ```
 
 After the rescan, the filesystem can be safely remounted in the guest.
+
+### Configure the microVM Metadata Store (MMDS)
+
+Each Firecracker process has an associated MMDS, which is essentially a
+treelike key-value store backed by a JSON representation. We strive to provide
+a guest facing experience which closely resembles the behavior of the EC2 IMDS,
+documented [here](
+https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
+).
+
+MMDS contents are initialized using `PUT` requests to the `/mmds` `API`
+resource. Updates are possible via `PATCH` requests. Both use cases are
+illustrated in the `test_mmds` function from
+[tests/integration_tests/functional/test_mmds.py](
+tests/integration_tests/functional/test_mmds.py). 
 
 ### Power-On the MicroVM
 

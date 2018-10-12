@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Each Firecracker process has an associated microVM Metadata Store (MMDS). Its
+  contents can be configured using the `/mmds` API resource.
+
 ### Changed
 
 - The `path_on_host` property in the drive specification is now marked as
@@ -9,6 +14,8 @@
 - PATCH drive only allows patching/changing the `path_on_host` property.
 - All PUT and PATCH requests return the status code 204.
 - CPUID brand string (aka model name) now includes the host CPU frequency.
+- API requests which add guest network interfaces have an additional parameter,
+  `allow_mmds_requests` which defaults to `false`.
 
 ## [0.9.0]
 
