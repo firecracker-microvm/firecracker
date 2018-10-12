@@ -214,6 +214,61 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /mmds:
+    put:
+      summary: Creates a MMDS (Microvm Metadata Service) data store.
+      parameters:
+        - name: body
+          in: body
+          description: The MMDS data store as JSON.
+          schema:
+            type: object
+      responses:
+        204:
+          description: MMDS data store created/updated.
+        400:
+          description: MMDS data store cannot be created due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    patch:
+      summary: Updates the MMDS data store.
+      parameters:
+        - name: body
+          in: body
+          description: The MMDS data store patch JSON.
+          schema:
+            type: object
+      responses:
+        204:
+          description: MMDS data store updated.
+        400:
+          description: MMDS data store cannot be updated due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    get:
+      summary: Get the MMDS data store.
+      responses:
+        200:
+          description: The MMDS data store JSON.
+          schema:
+            type: object
+        400:
+          description: Cannot get the MMDS data store due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /network-interfaces/{iface_id}:
     put:
       summary: Creates a network interface.
