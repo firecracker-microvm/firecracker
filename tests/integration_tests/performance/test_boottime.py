@@ -50,7 +50,7 @@ def _test_microvm_boottime(
         mem_size_mib=1024
     )
     if net_config:
-        _tap = microvm.ssh_network_config(net_config, '1')
+        _tap, _, _ = microvm.ssh_network_config(net_config, '1')
 
     # Configure logging.
     log_fifo_path = os.path.join(microvm.path, 'log_fifo')

@@ -15,7 +15,7 @@ def test_1vcpu(test_microvm_with_ssh, network_config):
     # added after we get a unique MAC and IP.
     test_microvm.basic_config(vcpu_count=1)
 
-    _tap = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.start()
     expected_cpu_topology = {
         "CPU(s)": "1",
@@ -38,7 +38,7 @@ def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     # added after we get a unique MAC and IP.
     test_microvm.basic_config(vcpu_count=2, ht_enabled=False)
 
-    _tap = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
 
     test_microvm.start()
 
@@ -105,7 +105,7 @@ def test_brand_string(test_microvm_with_ssh, network_config):
     test_microvm.spawn()
 
     test_microvm.basic_config(vcpu_count=1)
-    _tap = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.start()
 
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)

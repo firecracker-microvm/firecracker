@@ -16,7 +16,7 @@ def test_rescan(test_microvm_with_ssh, network_config):
     # added after we get a unique MAC and IP.
     test_microvm.basic_config()
 
-    _tap = test_microvm_with_ssh.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
 
     # Add a scratch block device.
     fs = drive_tools.FilesystemFile(
@@ -64,7 +64,7 @@ def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
     # added after we get a unique MAC and IP.
     test_microvm.basic_config(vcpu_count=1)
 
-    _tap = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
 
     # Add another read-only block device.
     fs = drive_tools.FilesystemFile(
@@ -107,7 +107,7 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
         add_root_device=False
     )
 
-    _tap = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
 
     # Add the root block device specified through PARTUUID.
     response = test_microvm.drive.put(
@@ -145,7 +145,7 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
         add_root_device=False
     )
 
-    _tap = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
 
     # Add the root block device specified through PARTUUID.
     response = test_microvm.drive.put(
@@ -189,7 +189,7 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
     # file system with the rw permission, and a scratch drive.
     test_microvm.basic_config()
 
-    _tap = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
 
     fs1 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, 'scratch')

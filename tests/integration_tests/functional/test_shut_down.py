@@ -19,7 +19,7 @@ def test_reboot(test_microvm_with_ssh, network_config):
     # a root file system with the rw permission. The network interfaces is
     # added after we get a unique MAC and IP.
     test_microvm.basic_config(vcpu_count=4)
-    _tap = test_microvm.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
 
     test_microvm.start()
 
