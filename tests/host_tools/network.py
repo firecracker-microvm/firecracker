@@ -280,7 +280,10 @@ class Tap:
     def __init__(self, name, netns, ip=None):
         """Set up the name and network namespace for this tap interface.
 
-        It also creates a new tap device, and brings it up.
+        It also creates a new tap device, and brings it up. The tap will
+        stay on the host as long as the object obtained by instantiating this
+        class will be in scope. Once it goes out of scope, its destructor will
+        get called and the tap interface will get removed.
         The function also moves the interface to the specified
         namespace.
         """

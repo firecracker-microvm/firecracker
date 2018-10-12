@@ -112,7 +112,11 @@ def test_mmds(test_microvm_with_ssh, network_config):
     # a root file system with the rw permission. The network interface is
     # added after we get a unique MAC and IP.
     test_microvm.basic_config(vcpu_count=1)
-    _tap = test_microvm.ssh_network_config(network_config, '1', True)
+    _tap = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True
+    )
 
     test_microvm.start()
 

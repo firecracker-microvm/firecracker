@@ -42,68 +42,41 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
 
     iface_id = '1'
     # Create tap before configuring interface.
-    tapname = test_microvm.id[:8] + 'tap' + iface_id
-    (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
-        host_ip,
-        network_config.get_netmask_len()
-    ))
-    guest_mac = net_tools.mac_from_ip(guest_ip)
-
-    response = test_microvm.network.put(
-        iface_id=iface_id,
-        host_dev_name=tap1.name,
-        guest_mac=guest_mac
+    _tap1, host_ip, guest_ip = test_microvm.ssh_network_config(
+        network_config,
+        iface_id
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
     guest_ips[0] = guest_ip
     host_ips[0] = host_ip
 
     iface_id = '2'
-    tapname = test_microvm.id[:8] + 'tap' + iface_id
-    (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap2 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
-        host_ip,
-        network_config.get_netmask_len()
-    ))
-    guest_mac = net_tools.mac_from_ip(guest_ip)
-
-    response = test_microvm.network.put(
-        iface_id=iface_id,
-        host_dev_name=tap2.name,
-        guest_mac=guest_mac,
-        tx_rate_limiter={
-            'bandwidth': {
-                'size': RATE_LIMIT_BYTES,
-                'refill_time': RATE_LIMIT_REFILL_TIME
-            }
+    tx_rate_limiter_no_burst = {
+        'bandwidth': {
+            'size': RATE_LIMIT_BYTES,
+            'refill_time': RATE_LIMIT_REFILL_TIME
         }
+    }
+    _tap2, host_ip, guest_ip = test_microvm.ssh_network_config(
+        network_config,
+        iface_id,
+        tx_rate_limiter=tx_rate_limiter_no_burst
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
     guest_ips[1] = guest_ip
     host_ips[1] = host_ip
 
     iface_id = '3'
-    tapname = test_microvm.id[:8] + 'tap' + iface_id
-    (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap3 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
-        host_ip,
-        network_config.get_netmask_len()
-    ))
-    guest_mac = net_tools.mac_from_ip(guest_ip)
-    response = test_microvm.network.put(
-        iface_id=iface_id,
-        host_dev_name=tap3.name,
-        guest_mac=guest_mac,
-        tx_rate_limiter={
-            'bandwidth': {
-                'size': RATE_LIMIT_BYTES,
-                'one_time_burst': BURST_SIZE,
-                'refill_time': RATE_LIMIT_REFILL_TIME
-            }
+    tx_rate_limiter_with_burst = {
+        'bandwidth': {
+            'size': RATE_LIMIT_BYTES,
+            'one_time_burst': BURST_SIZE,
+            'refill_time': RATE_LIMIT_REFILL_TIME
         }
+    }
+    _tap3, host_ip, guest_ip = test_microvm.ssh_network_config(
+        network_config,
+        iface_id,
+        tx_rate_limiter=tx_rate_limiter_with_burst
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
     guest_ips[2] = guest_ip
     host_ips[2] = host_ip
 
@@ -128,66 +101,41 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
 
     iface_id = '1'
     # Create tap before configuring interface.
-    tapname = test_microvm.id[:8] + 'tap' + iface_id
-    (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
-        host_ip,
-        network_config.get_netmask_len()
-    ))
-    guest_mac = net_tools.mac_from_ip(guest_ip)
-    response = test_microvm.network.put(
-        iface_id=iface_id,
-        host_dev_name=tap1.name,
-        guest_mac=guest_mac
+    _tap1, host_ip, guest_ip = test_microvm.ssh_network_config(
+        network_config,
+        iface_id
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
     guest_ips[0] = guest_ip
     host_ips[0] = host_ip
 
     iface_id = '2'
-    tapname = test_microvm.id[:8] + 'tap' + iface_id
-    (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap2 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
-        host_ip,
-        network_config.get_netmask_len()
-    ))
-    guest_mac = net_tools.mac_from_ip(guest_ip)
-    response = test_microvm.network.put(
-        iface_id=iface_id,
-        host_dev_name=tap2.name,
-        guest_mac=guest_mac,
-        rx_rate_limiter={
-                     'bandwidth': {
-                         'size': RATE_LIMIT_BYTES,
-                         'refill_time': RATE_LIMIT_REFILL_TIME
-                     }
-                 }
+    rx_rate_limiter_no_burst = {
+        'bandwidth': {
+            'size': RATE_LIMIT_BYTES,
+            'refill_time': RATE_LIMIT_REFILL_TIME
+        }
+    }
+    _tap2, host_ip, guest_ip = test_microvm.ssh_network_config(
+        network_config,
+        iface_id,
+        rx_rate_limiter=rx_rate_limiter_no_burst
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
     guest_ips[1] = guest_ip
     host_ips[1] = host_ip
 
     iface_id = '3'
-    tapname = test_microvm.id[:8] + 'tap' + iface_id
-    (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-    tap3 = net_tools.Tap(tapname, test_microvm.jailer.netns, ip="{}/{}".format(
-        host_ip,
-        network_config.get_netmask_len()
-    ))
-    guest_mac = net_tools.mac_from_ip(guest_ip)
-    response = test_microvm.network.put(
-        iface_id=iface_id,
-        host_dev_name=tap3.name,
-        guest_mac=guest_mac,
-        rx_rate_limiter={
-            'bandwidth': {
-                'size': RATE_LIMIT_BYTES,
-                'one_time_burst': BURST_SIZE,
-                'refill_time': RATE_LIMIT_REFILL_TIME
-            }
+    rx_rate_limiter_no_burst = {
+        'bandwidth': {
+            'size': RATE_LIMIT_BYTES,
+            'one_time_burst': BURST_SIZE,
+            'refill_time': RATE_LIMIT_REFILL_TIME
         }
+    }
+    _tap3, host_ip, guest_ip = test_microvm.ssh_network_config(
+        network_config,
+        iface_id,
+        rx_rate_limiter=rx_rate_limiter_no_burst
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
     guest_ips[2] = guest_ip
     host_ips[2] = host_ip
 

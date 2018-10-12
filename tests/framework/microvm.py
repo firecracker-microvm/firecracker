@@ -359,8 +359,14 @@ class Microvm:
             )
             assert self._api_session.is_good_response(response.status_code)
 
-    def ssh_network_config(self, network_config, iface_id,
-                           allow_mmds_requests=False):
+    def ssh_network_config(
+            self,
+            network_config,
+            iface_id,
+            allow_mmds_requests=False,
+            tx_rate_limiter=None,
+            rx_rate_limiter=None
+    ):
         """Create a host tap device and a guest network interface.
 
         'network_config' is used to generate 2 IPs: one for the tap device
@@ -371,8 +377,10 @@ class Microvm:
         :param allow_mmds_requests: specifies whether requests sent from
         the guest on this interface towards the MMDS address are
         intercepted and processed by the device model.
+        :param tx_rate_limiter: limit the tx rate
+        :param rx_rate_limiter: limit the rx rate
         :return: an instance of the tap which needs to be kept around until
-        cleanup is desired.
+        cleanup is desired, the configured guest and host ips, respectively.
         """
         # Create tap before configuring interface.
         tapname = self.id[:8] + 'tap' + iface_id
@@ -391,12 +399,14 @@ class Microvm:
             iface_id=iface_id,
             host_dev_name=tapname,
             guest_mac=guest_mac,
-            allow_mmds_requests=allow_mmds_requests
+            allow_mmds_requests=allow_mmds_requests,
+            tx_rate_limiter=tx_rate_limiter,
+            rx_rate_limiter=rx_rate_limiter
         )
         assert self._api_session.is_good_response(response.status_code)
 
         self.ssh_config['hostname'] = guest_ip
-        return tap
+        return tap, host_ip, guest_ip
 
     def start(self):
         """Start the microvm.
