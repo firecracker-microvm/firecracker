@@ -408,7 +408,8 @@ class Microvm:
             )
             assert self.api_session.is_good_response(response.status_code)
 
-    def ssh_network_config(self, network_config, iface_id):
+    def ssh_network_config(self, network_config, iface_id,
+                           allow_mmds_requests=False):
         """Create a host tap device and a guest network interface.
 
         'network_config' is used to generate 2 IPs: one for the tap device
@@ -416,6 +417,9 @@ class Microvm:
         ssh_config dictionary.
         :param network_config: UniqueIPv4Generator instance
         :param iface_id: the interface id for the API request
+        :param allow_mmds_requests: specifies whether requests sent from
+        the guest on this interface towards the MMDS address are
+        intercepted and processed by the device model.
         :return: an instance of the tap which needs to be kept around until
         cleanup is desired.
         """
@@ -436,7 +440,8 @@ class Microvm:
         response = self.network.put(
             iface_id=iface_id,
             host_dev_name=tapname,
-            guest_mac=guest_mac
+            guest_mac=guest_mac,
+            allow_mmds_requests=allow_mmds_requests
         )
         assert self.api_session.is_good_response(response.status_code)
 
