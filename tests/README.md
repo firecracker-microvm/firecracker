@@ -11,7 +11,7 @@ To run all tests:
 ./testrun.sh
 ```
 
-This will download test microvm images from the default test resource s3 bucket,
+This will download test microvm images from the default test resource S3 bucket,
 and run all available tests.
 
 To run tests from specific directories and/or files:
@@ -21,16 +21,16 @@ To run tests from specific directories and/or files:
 ```
 
 To run all tests using a local directory for microvm images (as opposed to
-downloading them from the s3 bucket):
+downloading them from the S3 bucket):
 
 ``` sh
 ./testrun.sh --local-images-path <microvm_images_path>
 ```
 
-In the example above, if `<microvm_images_path>` needs to mirror the structure
-of the [s3 test resource bucket](#adding-microvm-images). However, if
+In the example above, `<microvm_images_path>` needs to mirror the structure of
+the [s3 test resource bucket](#adding-microvm-images). However, if
 `<microvm_images_path>` does not exist, it will be created, and the resources
-from the s3 testing bucket will be downloaded there. This means that to run
+from the S3 testing bucket will be downloaded there. This means that to run
 with a local directory for microvm images, you can simply run twice with the
 same path passed to `--local-images-path`.
 
@@ -60,7 +60,7 @@ For help on usage, see `./testrun.sh (-h|--help)`
 - Several basic GNU/Linux utilities: `curl`, `getopt`, `date`.
 - Root mode.
 
-Each testrun will create a temporary sandbox and install all other required
+Each test session will create a temporary sandbox and install all other required
 dependencies.
 
 ### Caveats
@@ -78,24 +78,19 @@ named `test_*.py`.
 Fixtures can be used to quickly build Firecracker microvm integration tests
 that run on all microvm images in `s3://spec.firecracker/microvm-images/`.
 
-For example, the test below makes use of the `test_microvm_any` test microvm
-fixture, this test will be run on on every microvm image in the bucket, each as
-a separate test case.
+For example, the test below makes use of the `test_microvm_any` fixture and will
+be run on every microvm image in the bucket, each as a separate test case.
 
 ``` python
 def test_with_any_microvm(test_microvm_any):
-    response = test_microvm_any.api_session.put(
-        test_microvm_any.microvm_cfg_url,
-        json={'vcpu_count': 2}
+    response = test_microvm_any.machine_cfg.put(
+        vcpu_count=2
     )
     assert(test_microvm_any.api_session.is_good_response(response.status_code))
 
     # [...]
 
-    response = test_microvm_any.api_session.put(
-        test_microvm_any.actions_url,
-        json={'action_type': 'InstanceStart'}
-    )
+    response = test_microvm_any.actions.put(action_type='InstanceStart')
     assert(test_microvm_any.api_session.is_good_response(response.status_code))
 ```
 
