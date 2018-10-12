@@ -47,21 +47,17 @@ TagSet = [{"key": "capability:<cap_name>", "value": ""}, ...]
 # Example
 
 ```
-def test_with_any_microvm(test_microvm_any, uhttp):
+def test_with_any_microvm(test_microvm_any):
 
-    response = uhttp.put(
-        test_microvm_any.microvm_cfg_url,
-        json={'vcpu_count': 2}
+    response = test_microvm_any.machine_cfg.put(
+        vcpu_count=8
     )
-    assert(uhttp.is_good_response(response.status_code))
+    assert(test_microvm_any.api_session.is_good_response(response.status_code))
 
     # [...]
 
-    response = uhttp.put(
-        test_microvm_any.actions_url,
-        json={'action_type': 'InstanceStart'}
-    )
-    assert(uhttp.is_good_response(response.status_code))
+    response = test_microvm_any.actions.put(action_type='InstanceStart')
+    assert(test_microvm_any.api_session.is_good_response(response.status_code))
 ```
 
 The test above makes use of the "any" test microvm fixture, so this test will
@@ -76,7 +72,6 @@ be run on every microvm image in the bucket, each as a separate test case.
 - A fixture that wraps `subprocess.run('<command>, shell=True, check=True)`,
   and also controls output verbosity by appending `>/dev/null [&2>1]`.
 - A fixture that allows per-test-function dependency installation.
-- Monitor of socket file creation via inotify.
 - Support generating fixtures with more than one capability. This is supported
   by the MicrovmImageFetcher, but not by the fixture template.
 """
@@ -258,9 +253,6 @@ TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (
 # capabilities present in the test microvm images bucket. `pytest` doesn't
 # provide a way to do that outright, but luckily all of python is just lists of
 # of lists and a cursor, so exec() works fine here.
-#
-# TODO: Support generating fixtures with more than one capability. This is
-# supported by the MicrovmImageFetcher, but not by the fixture template.
 for capability in microvm_image_fetcher().enum_capabilities():
     test_microvm_cap_fixture = (
         TEST_MICROVM_CAP_FIXTURE_TEMPLATE.replace('CAP', capability)
