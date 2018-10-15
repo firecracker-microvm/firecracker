@@ -15,12 +15,11 @@ from subprocess import run
 
 from retry import retry
 
-import requests_unixsocket
-
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 
 from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
+from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import Actions, BootSource, Drive, Logger, MMDS, \
     MachineConfigure, Network
@@ -217,18 +216,7 @@ class Microvm:
         """Start a microVM as a daemon or in a screen session."""
         self._jailer.setup()
         self._api_socket = self._jailer.api_socket_path()
-
-        def start_api_session():
-            """Return a unixsocket-capable http session object."""
-            def is_good_response(response: int):
-                """Return `True` for all HTTP 2xx response codes."""
-                return 200 <= response < 300
-
-            session = requests_unixsocket.Session()
-            session.is_good_response = is_good_response
-            return session
-
-        self._api_session = start_api_session()
+        self._api_session = Session()
 
         self.actions = Actions(self._api_socket, self._api_session)
         self.boot = BootSource(self._api_socket, self._api_session)
