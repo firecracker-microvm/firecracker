@@ -1,3 +1,46 @@
+//! # Rate Limiter
+//!
+//! Provides a rate limiter written in Rust useful for IO operations that need to
+//! be throttled.
+//!
+//! ## Behavior
+//!
+//! The rate limiter starts off as 'unblocked' with two token buckets configured
+//! with the values passed in the `RateLimiter::new()` constructor.
+//! All subsequent accounting is done independently for each token bucket based
+//! on the `TokenType` used. If any of the buckets runs out of budget, the limiter
+//! goes in the 'blocked' state. At this point an internal timer is set up which
+//! will later 'wake up' the user in order to retry sending data. The 'wake up'
+//! notification will be dispatched as an event on the FD provided by the `AsRawFD`
+//! trait implementation.
+//!
+//! The contract is that the user shall also call the `event_handler()` method on
+//! receipt of such an event.
+//!
+//! The token buckets are replenished every time a `consume()` is called, before
+//! actually trying to consume the requested amount of tokens. The amount of tokens
+//! replenished is automatically calculated to respect the `complete_refill_time`
+//! configuration parameter provided by the user. The token buckets will never
+//! replenish above their respective `total_capacity`.
+//!
+//! Each token bucket can start off with a `one_time_burst` initial capacity larger
+//! than their `total_capacity`. This initial extra credit does not replenish and
+//! can be used for an initial burst of data.
+//!
+//! The granularity for 'wake up' events when the rate limiter is blocked is
+//! currently hardcoded to `100 milliseconds`.
+//!
+//! ## Limitations
+//!
+//! This rate limiter implementation relies on the *Linux kernel's timerfd* so its
+//! usage is limited to Linux systems.
+//!
+//! Another particularity of this implementation is that it is not self-driving.
+//! It is meant to be used in an external event loop and thus implements the `AsRawFd`
+//! trait and provides an *event-handler* as part of its API. This *event-handler*
+//! needs to be called by the user on every event on the rate limiter's `AsRawFd` FD.
+//!
+
 extern crate time;
 extern crate timerfd;
 
@@ -8,6 +51,7 @@ use std::time::Duration;
 
 #[derive(Debug)]
 pub enum Error {
+    /// The event handler was called spuriously.
     SpuriousRateLimiterEvent(&'static str),
 }
 
@@ -28,6 +72,8 @@ fn gcd(x: u64, y: u64) -> u64 {
     x
 }
 
+/// TokenBucket provides a lower level interface to rate limiting with a
+/// configurable capacity, refill-rate and initial burst.
 struct TokenBucket {
     // Bucket defining traits.
     total_capacity: u64,
@@ -45,6 +91,8 @@ struct TokenBucket {
 impl TokenBucket {
     /// Creates a TokenBucket
     ///  @total_capacity: the total capacity of the token bucket
+    ///  @one_time_burst: the initial capacity of the token bucket, this can be larger than the
+    ///                   total_capacity, thus allowing for an initial burst
     ///  @complete_refill_time_ms: number of milliseconds for the token bucket to
     ///                            go from zero tokens to total capacity.
     fn new(total_capacity: u64, one_time_burst: u64, complete_refill_time_ms: u64) -> Self {
@@ -148,20 +196,30 @@ impl TokenBucket {
     }
 }
 
+/// Enum that describes the type of token used.
+///
+/// `TokenType::Bytes` tokens are used for bandwidth limiting, while
+/// `TokenType::Ops` tokens are used for operations/second limiting.
 pub enum TokenType {
     Bytes,
     Ops,
 }
 
-/// Rate Limiter that works on both bandwidth and ops/s limiting;
-/// bytes/s and ops/s limiting can be used at the same time or individually.
+/// Rate Limiter that works on both bandwidth and ops/s limiting
+///
+/// Bandwidth (bytes/s) and ops/s limiting can be used at the same time or individually.
+///
 /// Implementation uses a single timer through TimerFd to refresh either or
 /// both token buckets.
 ///
 /// Its internal buckets are 'passively' replenished as they're being used (as
-/// part of consume() operations).
+/// part of `consume()` operations).
 /// A timer is enabled and used to 'actively' replenish the token buckets when
-/// limiting is in effect and consume() operations are disabled.
+/// limiting is in effect and `consume()` operations are disabled.
+///
+/// RateLimiters will generate events on the FDs provided by their `AsRawFd` trait
+/// implementation. These events are meant to be consumed by the user of this struct.
+/// On each such event, the user must call the `event_handler()` method.
 pub struct RateLimiter {
     bytes_token_bucket: Option<TokenBucket>,
     ops_token_bucket: Option<TokenBucket>,
@@ -174,8 +232,26 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     /// Creates a new Rate Limiter that can limit on both bytes/s and ops/s.
-    /// If either bytes/ops capacity or refill_time are 0, the limiter is 'disabled'
-    /// on that respective token type.
+    ///
+    /// # Params
+    ///
+    /// * `bytes_total_capacity` - the total capacity of the `TokenType::Bytes` token bucket.
+    /// * `bytes_one_time_burst` - the initial capacity of the `TokenType::Bytes` token bucket,
+    /// this can be larger than the `bytes_total_capacity` thus allowing for an initial burst.
+    /// * `bytes_complete_refill_time_ms` - number of milliseconds for the `TokenType::Bytes`
+    /// token bucket to go from zero Bytes to `bytes_total_capacity` Bytes.
+    /// * `ops_total_capacity` - the total capacity of the `TokenType::Ops` token bucket.
+    /// * `ops_one_time_burst` - the initial capacity of the `TokenType::Ops` token bucket,
+    /// this can be larger than the `ops_total_capacity`, thus allowing for an initial burst.
+    /// * `ops_complete_refill_time_ms` - number of milliseconds for the `TokenType::Ops` token
+    /// bucket to go from zero Ops to `ops_total_capacity` Ops.
+    ///
+    /// If either bytes/ops *total_capacity* or *refill_time* are **zero**, the limiter
+    /// is **disabled** for that respective token type.
+    ///
+    /// # Errors
+    ///
+    /// If the timerfd creation fails, an error is returned.
     pub fn new(
         bytes_total_capacity: u64,
         bytes_one_time_burst: u64,
@@ -228,6 +304,8 @@ impl RateLimiter {
     }
 
     /// Attempts to consume tokens and returns whether that is possible.
+    ///
+    /// If rate limiting is disabled on provided `token_type`, this function will always succeed.
     pub fn consume(&mut self, tokens: u64, token_type: TokenType) -> bool {
         // Identify the required token bucket.
         let token_bucket = match token_type {
@@ -256,7 +334,10 @@ impl RateLimiter {
         success
     }
 
-    /// Adds tokens to their respective bucket.
+    /// Adds tokens of `token_type` to their respective bucket.
+    ///
+    /// Can be used to *manually* add tokens to a bucket. Useful for reverting a
+    /// `consume()` if needed.
     pub fn manual_replenish(&mut self, tokens: u64, token_type: TokenType) {
         // Identify the required token bucket.
         let token_bucket = match token_type {
@@ -270,14 +351,20 @@ impl RateLimiter {
     }
 
     /// Returns whether this rate limiter is blocked.
-    /// The limiter 'blocks' when a consume() operation fails because there is not enough
-    /// budget for it. The internal timer will 'unblock' it when it expires.
+    ///
+    /// The limiter 'blocks' when a `consume()` operation fails because there was not enough
+    /// budget for it.
+    /// An event will be generated on the exported FD when the limiter 'unblocks'.
     pub fn is_blocked(&self) -> bool {
         self.timer_active
     }
 
     /// This function needs to be called every time there is an event on the
-    /// FD provided by this object's AsRawFd trait implementation.
+    /// FD provided by this object's `AsRawFd` trait implementation.
+    ///
+    /// # Errors
+    ///
+    /// If the rate limiter is disabled or is not blocked, an error is returned.
     pub fn event_handler(&mut self) -> Result<(), Error> {
         match self.timer_fd.as_mut() {
             Some(timer_fd) => {
@@ -308,9 +395,12 @@ impl RateLimiter {
 }
 
 impl AsRawFd for RateLimiter {
-    /// Provides a FD which needs to be monitored for POLLIN events;
-    /// this object's .event_handler() must be called on such events.
-    /// Will return a negative value if rate limiter is disabled.
+    /// Provides a FD which needs to be monitored for POLLIN events.
+    ///
+    /// This object's `event_handler()` method must be called on such events.
+    ///
+    /// Will return a negative value if rate limiting is disabled on both
+    /// token types.
     fn as_raw_fd(&self) -> RawFd {
         match self.timer_fd.as_ref() {
             Some(timer_fd) => timer_fd.as_raw_fd(),
@@ -320,6 +410,7 @@ impl AsRawFd for RateLimiter {
 }
 
 impl Default for RateLimiter {
+    /// Default RateLimiter is a no-op limiter with infinite budget.
     fn default() -> Self {
         // Safe to unwrap since this will not attempt to create timer_fd.
         RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap()
@@ -333,7 +424,7 @@ mod tests {
     use std::time::Duration;
 
     impl TokenBucket {
-        /// Resets the token bucket: budget set to max capacity and last-updated set to now.
+        // Resets the token bucket: budget set to max capacity and last-updated set to now.
         fn reset(&mut self) {
             self.budget = self.total_capacity;
             self.last_update = time::precise_time_ns();
