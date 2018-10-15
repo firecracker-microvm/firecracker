@@ -18,6 +18,12 @@ data_model = { path = "../data_model" }
 fc_util = { path = "../fc_util" }
 jailer = { path = "../jailer" }
 logger = { path = "../logger" }
-net_util = { path = "../net_util" }
 sys_util = { path = "../sys_util" }
 vmm = { path = "../vmm" }
+
+[dev-dependencies]
+devices = { path = "../devices" }
+kernel_loader = { path = "../kernel_loader" }
+memory_model = { path = "../memory_model" }
+net_util = { path = "../net_util" }
+x86_64 = { path = "../x86_64" }
