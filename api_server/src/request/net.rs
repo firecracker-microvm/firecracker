@@ -30,14 +30,15 @@ impl IntoParsedRequest for NetworkInterfaceBody {
 
 #[cfg(test)]
 mod tests {
+    extern crate net_util;
+
+    use self::net_util::MacAddr;
     use super::*;
 
     use serde_json;
 
     use data_model::vm::RateLimiterDescription;
     use vmm::vmm_config::DeviceState;
-
-    use net_util::MacAddr;
 
     #[test]
     fn test_netif_into_parsed_request() {
