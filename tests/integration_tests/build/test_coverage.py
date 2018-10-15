@@ -22,7 +22,7 @@ COVERAGE_TARGET_PCT = 72.0
 
 CARGO_KCOV_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, 'kcov')
 
-KCOV_COVERAGE_FILE = 'index.json'
+KCOV_COVERAGE_FILE = 'index.js'
 """kcov will aggregate coverage data in this file."""
 
 KCOV_COVERAGE_REGEX = r'"covered":"(\d+\.\d)"'
