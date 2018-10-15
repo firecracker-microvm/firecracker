@@ -576,6 +576,9 @@ fn describe(method: &Method, path: &String, body: &String) -> String {
 
 #[cfg(test)]
 mod tests {
+    extern crate net_util;
+
+    use self::net_util::MacAddr;
     use super::*;
 
     use serde_json::{Map, Value};
@@ -585,7 +588,6 @@ mod tests {
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
-    use net_util::MacAddr;
     use vmm::vmm_config::DeviceState;
     use vmm::VmmAction;
 

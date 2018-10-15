@@ -14,7 +14,6 @@ extern crate jailer;
 extern crate vmm;
 #[macro_use]
 extern crate logger;
-extern crate net_util;
 extern crate sys_util;
 
 mod http_service;
