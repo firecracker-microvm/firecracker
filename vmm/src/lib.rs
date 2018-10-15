@@ -1706,10 +1706,10 @@ mod tests {
     }
 
     #[test]
-    fn test_put_block_device() {
+    fn test_insert_block_device() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         let f = NamedTempFile::new().unwrap();
-        // Test that creating a new block device returns the correct output (i.e. "Created").
+        // Test that creating a new block device returns the correct output.
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
             path_on_host: f.path().to_path_buf(),
@@ -1725,7 +1725,7 @@ mod tests {
                 .contains(&root_block_device)
         );
 
-        // Test that updating a block device returns the correct output (i.e. "Updated").
+        // Test that updating a block device returns the correct output.
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
             path_on_host: f.path().to_path_buf(),
@@ -1740,10 +1740,58 @@ mod tests {
                 .config_list
                 .contains(&root_block_device)
         );
+
+        // Test insert second drive with the same path fails.
+        let root_block_device = BlockDeviceConfig {
+            drive_id: String::from("dummy_dev"),
+            path_on_host: f.path().to_path_buf(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: true,
+            rate_limiter: None,
+        };
+        assert!(vmm.insert_block_device(root_block_device.clone()).is_err());
+
+        // Test inserting a second drive is ok.
+        let f = NamedTempFile::new().unwrap();
+        // Test that creating a new block device returns the correct output.
+        let non_root = BlockDeviceConfig {
+            drive_id: String::from("non_root"),
+            path_on_host: f.path().to_path_buf(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            rate_limiter: None,
+        };
+        assert!(vmm.insert_block_device(non_root).is_ok());
+
+        // Test that making the second device root fails (it would result in 2 root block
+        // devices.
+        let non_root = BlockDeviceConfig {
+            drive_id: String::from("non_root"),
+            path_on_host: f.path().to_path_buf(),
+            is_root_device: true,
+            partuuid: None,
+            is_read_only: false,
+            rate_limiter: None,
+        };
+        assert!(vmm.insert_block_device(non_root).is_err());
+
+        // Test update after boot.
+        vmm.set_instance_state(InstanceState::Running);
+        let root_block_device = BlockDeviceConfig {
+            drive_id: String::from("root"),
+            path_on_host: f.path().to_path_buf(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: true,
+            rate_limiter: None,
+        };
+        assert!(vmm.insert_block_device(root_block_device).is_err())
     }
 
     #[test]
-    fn test_put_net_device() {
+    fn test_insert_net_device() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
 
         // test create network interface
@@ -1758,19 +1806,43 @@ mod tests {
         };
         assert!(vmm.insert_net_device(network_interface).is_ok());
 
-        if let Ok(mac) = MacAddr::parse_str("01:23:45:67:89:0A") {
-            // test update network interface
-            let network_interface = NetworkInterfaceBody {
-                iface_id: String::from("netif"),
-                state: DeviceState::Attached,
-                host_dev_name: String::from("hostname2"),
-                guest_mac: Some(mac),
-                rx_rate_limiter: None,
-                tx_rate_limiter: None,
-                allow_mmds_requests: false,
-            };
-            assert!(vmm.insert_net_device(network_interface).is_ok());
-        }
+        let mac = MacAddr::parse_str("01:23:45:67:89:0A").unwrap();
+        // test update network interface
+        let network_interface = NetworkInterfaceBody {
+            iface_id: String::from("netif"),
+            state: DeviceState::Attached,
+            host_dev_name: String::from("hostname2"),
+            guest_mac: Some(mac.clone()),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+            allow_mmds_requests: false,
+        };
+        assert!(vmm.insert_net_device(network_interface).is_ok());
+
+        // Test insert new net device with same mac fails.
+        let network_interface = NetworkInterfaceBody {
+            iface_id: String::from("netif2"),
+            state: DeviceState::Attached,
+            host_dev_name: String::from("hostname3"),
+            guest_mac: Some(mac),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+            allow_mmds_requests: false,
+        };
+        assert!(vmm.insert_net_device(network_interface).is_err());
+
+        // Test that update post-boot fails.
+        vmm.set_instance_state(InstanceState::Running);
+        let network_interface = NetworkInterfaceBody {
+            iface_id: String::from("netif"),
+            state: DeviceState::Attached,
+            host_dev_name: String::from("hostname2"),
+            guest_mac: None,
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+            allow_mmds_requests: false,
+        };
+        assert!(vmm.insert_net_device(network_interface).is_err());
     }
 
     #[test]
@@ -1860,6 +1932,16 @@ mod tests {
         assert_eq!(vmm.vm_config.vcpu_count, Some(2));
         assert_eq!(vmm.vm_config.ht_enabled, Some(true));
         assert_eq!(vmm.vm_config.cpu_template, Some(CpuFeaturesTemplate::T2));
+
+        // 3. Test update vm configuration after boot.
+        vmm.set_instance_state(InstanceState::Running);
+        let machine_config = VmConfig {
+            vcpu_count: Some(2),
+            mem_size_mib: None,
+            ht_enabled: Some(true),
+            cpu_template: Some(CpuFeaturesTemplate::T2),
+        };
+        assert!(vmm.set_vm_configuration(machine_config).is_err());
     }
 
     #[test]
@@ -2144,6 +2226,12 @@ mod tests {
             vmm.set_block_device_path("not_root".to_string(), path)
                 .is_ok()
         );
+
+        // Test partial update of block device fails due to invalid file.
+        assert!(
+            vmm.set_block_device_path("not_root".to_string(), String::from("dummy_path"))
+                .is_err()
+        );
     }
 
     #[test]
@@ -2184,6 +2272,41 @@ mod tests {
         assert!(vmm.init_guest_memory().is_ok());
 
         assert!(vmm.init_devices().is_ok());
+    }
+
+    #[test]
+    fn test_configure_boot_source() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+
+        // Test invalid kernel path.
+        assert!(
+            vmm.configure_boot_source(String::from("dummy-path"), None)
+                .is_err()
+        );
+
+        // Test valid kernel path and invalid cmdline.
+        let kernel_file = NamedTempFile::new().expect("Failed to create temporary kernel file.");
+        let kernel_path = String::from(kernel_file.path().to_path_buf().to_str().unwrap());
+        let invalid_cmdline =
+            String::from_utf8(vec![b'X'; x86_64::layout::CMDLINE_MAX_SIZE + 1]).unwrap();
+        assert!(
+            vmm.configure_boot_source(kernel_path.clone(), Some(invalid_cmdline))
+                .is_err()
+        );
+
+        // Test valid configuration.
+        assert!(vmm.configure_boot_source(kernel_path.clone(), None).is_ok());
+        assert!(
+            vmm.configure_boot_source(kernel_path.clone(), Some(String::from("reboot=k")))
+                .is_ok()
+        );
+
+        // Test valid configuration after boot (should fail).
+        vmm.set_instance_state(InstanceState::Running);
+        assert!(
+            vmm.configure_boot_source(kernel_path.clone(), None)
+                .is_err()
+        );
     }
 
     #[test]
