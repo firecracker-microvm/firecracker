@@ -4,7 +4,8 @@ import os
 import shutil
 
 from subprocess import run, PIPE
-from time import sleep
+
+from retry.api import retry_call
 
 from framework.defs import API_USOCKET_NAME, FC_BINARY_NAME, \
     JAILER_DEFAULT_CHROOT
@@ -157,8 +158,6 @@ class JailerContext:
 
     def cleanup(self):
         """Clean up this jailer context."""
-        sleep(1)
-
         shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
         if self.netns:
@@ -168,19 +167,67 @@ class JailerContext:
                 stderr=PIPE
             )
 
-        # Remove the cgroup folders. This is a hacky solution, which assumes
-        # cgroup controllers are mounted as they are right now in AL2.
-        # TODO: better solution at some point?
+        # Remove the cgroup folders associated with this microvm.
         # The base /sys/fs/cgroup/<controller>/firecracker folder will remain,
         # because we can't remove it unless we're sure there's no other running
         # microVM.
-        # TODO: better solution at some point?
+
+        # Firecracker is interested in these 3 cgroups for the moment.
         controllers = ('cpu', 'cpuset', 'pids')
         for controller in controllers:
-            run_command = 'rmdir /sys/fs/cgroup/{}/{}/{}'.format(
+            # Obtain the tasks from each cgroup and wait on them before
+            # removing the microvm's associated cgroup folder.
+            try:
+                retry_call(
+                    f=self._kill_crgoup_tasks,
+                    fargs=[controller],
+                    exceptions=TimeoutError,
+                    max_delay=5
+                )
+            except TimeoutError:
+                pass
+
+            # As the files inside a cgroup aren't real, they can't need
+            # to be removed, that is why 'rm -rf' and 'rmdir' fail.
+            # We only need to remove the cgroup directories. The "-depth"
+            # argument tells find to do a depth first recursion, so that
+            # we remove any sub cgroups first if they are there.
+            back_cmd = r'-depth -type d -exec rmdir {} \;'
+            cmd = 'find /sys/fs/cgroup/{}/{}/{} {}'.format(
                 controller,
                 FC_BINARY_NAME,
-                self.jailer_id
+                self.jailer_id,
+                back_cmd
             )
-            # TODO: temporary solution; read tasks file and kill the tasks
-            _ = run(run_command, shell=True, stderr=PIPE)
+            # We do not need to know if it succeeded or not; afterall, we are
+            # trying to clean up resources created by the jailer itself not
+            # the testing system.
+            _ = run(cmd, shell=True, stderr=PIPE)
+
+    def _kill_crgoup_tasks(self, controller):
+        """Simulate wait on pid.
+
+        Read the tasks file and stay there until /proc/{pid}
+        disappears. The retry function that calls this code makes
+        sure we do not timeout.
+        """
+        tasks_file = '/sys/fs/cgroup/{}/{}/{}/tasks'.format(
+            controller,
+            FC_BINARY_NAME,
+            self.jailer_id
+        )
+
+        # If tests do not call start on machines, the cgroups will not be
+        # created.
+        if not os.path.exists(tasks_file):
+            return True
+
+        cmd = 'cat {}'.format(tasks_file)
+        tasks = run(cmd, shell=True, stdout=PIPE).stdout.decode('utf-8')
+
+        tasks_split = tasks.splitlines()
+        for task in tasks_split:
+            if os.path.exists("/proc/{}".format(task)):
+                raise TimeoutError
+            else:
+                return True
