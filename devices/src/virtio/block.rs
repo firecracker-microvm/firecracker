@@ -25,8 +25,9 @@ use virtio_sys::virtio_blk::*;
 use virtio_sys::virtio_config::*;
 use {DeviceEventT, EpollHandler};
 
+const CONFIG_SPACE_SIZE: usize = 8;
 const SECTOR_SHIFT: u8 = 9;
-pub const SECTOR_SIZE: u64 = 0x01 << SECTOR_SHIFT;
+pub const SECTOR_SIZE: u64 = (0x01 as u64) << SECTOR_SHIFT;
 const QUEUE_SIZE: u16 = 256;
 const NUM_QUEUES: usize = 1;
 const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
@@ -436,7 +437,7 @@ pub fn build_config_space(disk_size: u64) -> Vec<u8> {
     // We only support disk size, which uses the first two words of the configuration space.
     // If the image is not a multiple of the sector size, the tail bits are not exposed.
     // The config space is little endian.
-    let mut config = Vec::with_capacity(8);
+    let mut config = Vec::with_capacity(CONFIG_SPACE_SIZE);
     let num_sectors = disk_size >> SECTOR_SHIFT;
     for i in 0..8 {
         config.push((num_sectors >> (8 * i)) as u8);
@@ -665,6 +666,7 @@ mod tests {
     use std::sync::mpsc::Receiver;
     use std::thread;
     use std::time::Duration;
+    use std::u32;
 
     use virtio::queue::tests::*;
 
@@ -675,7 +677,7 @@ mod tests {
     }
 
     impl DummyBlock {
-        fn new() -> Self {
+        fn new(is_disk_read_only: bool) -> Self {
             let epoll_raw_fd = epoll::create(true).unwrap();
             let (sender, _receiver) = mpsc::channel();
 
@@ -687,7 +689,7 @@ mod tests {
             // Rate limiting is enabled but with a high operation rate (10 million ops/s).
             let rate_limiter = RateLimiter::new(0, 0, 0, 100000, 0, 10).unwrap();
             DummyBlock {
-                block: Block::new(f, false, epoll_config, Some(rate_limiter)).unwrap(),
+                block: Block::new(f, is_disk_read_only, epoll_config, Some(rate_limiter)).unwrap(),
                 epoll_raw_fd,
                 _receiver,
             }
@@ -702,6 +704,76 @@ mod tests {
         fn drop(&mut self) {
             unsafe { libc::close(self.epoll_raw_fd) };
         }
+    }
+
+    fn check_metric_after_fn<F: FnOnce()>(metric: &Metric, delta: usize, f: F) {
+        let before = metric.count();
+        f();
+        assert_eq!(metric.count(), before + delta);
+    }
+
+    fn default_test_blockepollhandler<'a>(
+        mem: &'a GuestMemory,
+    ) -> (BlockEpollHandler, VirtQueue<'a>) {
+        let mut dummy = DummyBlock::new(false);
+        let b = dummy.block();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+
+        assert!(vq.end().0 < 0x1000);
+
+        let queues = vec![vq.create_queue()];
+        let disk_image = b.disk_image.take().unwrap();
+        let status = Arc::new(AtomicUsize::new(0));
+        let interrupt_evt = EventFd::new().unwrap();
+        let queue_evt = EventFd::new().unwrap();
+
+        let disk_image_id_str = build_device_id(&disk_image).unwrap();
+        let mut disk_image_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
+        let disk_image_id_bytes = disk_image_id_str.as_bytes();
+        let bytes_to_copy = cmp::min(disk_image_id_bytes.len(), VIRTIO_BLK_ID_BYTES as usize);
+        for i in 0..bytes_to_copy {
+            disk_image_id[i] = disk_image_id_bytes[i];
+        }
+        (
+            BlockEpollHandler {
+                queues,
+                mem: mem.clone(),
+                disk_image,
+                interrupt_status: status,
+                interrupt_evt,
+                queue_evt,
+                rate_limiter: RateLimiter::default(),
+                disk_image_id,
+            },
+            vq,
+        )
+    }
+
+    // Helper function for varying the parameters of the function activating a block device.
+    fn activate_block_with_modifiers(
+        b: &mut Block,
+        bad_qlen: bool,
+        bad_evtlen: bool,
+    ) -> ActivateResult {
+        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let ievt = EventFd::new().unwrap();
+        let stat = Arc::new(AtomicUsize::new(0));
+
+        let vq = VirtQueue::new(GuestAddress(0), &m, 16);
+        let mut queues = vec![vq.create_queue()];
+        let mut queue_evts = vec![EventFd::new().unwrap()];
+
+        // Invalidate queues list to test this failure case.
+        if bad_qlen {
+            queues.pop();
+        }
+
+        // Invalidate queue-events list to test this failure case.
+        if bad_evtlen {
+            queue_evts.pop();
+        }
+
+        b.activate(m.clone(), ievt, stat, queues, queue_evts)
     }
 
     #[test]
@@ -865,11 +937,15 @@ mod tests {
 
     #[test]
     fn test_virtio_device() {
-        let mut dummy = DummyBlock::new();
+        let mut dummy = DummyBlock::new(true);
         let b = dummy.block();
 
-        assert_eq!(b.device_type(), TYPE_BLOCK);
+        // Test `device_type()`.
+        {
+            assert_eq!(b.device_type(), TYPE_BLOCK);
+        }
 
+        // Test `queue_max_sizes()`.
         {
             let x = b.queue_max_sizes();
             assert_eq!(x, QUEUE_SIZES);
@@ -880,39 +956,91 @@ mod tests {
             }
         }
 
-        let mut num_sectors = [0u8; 4];
-        b.read_config(0, &mut num_sectors);
-        // size is 0x1000, so num_sectors is 8 (4096/512).
-        assert_eq!([0x08, 0x00, 0x00, 0x00], num_sectors);
-        let mut msw_sectors = [0u8; 4];
-        b.read_config(4, &mut msw_sectors);
-        // size is 0x1000, so msw_sectors is 0.
-        assert_eq!([0x00, 0x00, 0x00, 0x00], msw_sectors);
+        // Test `read_config()`.
+        {
+            let mut num_sectors = [0u8; 4];
+            b.read_config(0, &mut num_sectors);
+            // size is 0x1000, so num_sectors is 8 (4096/512).
+            assert_eq!([0x08, 0x00, 0x00, 0x00], num_sectors);
+            let mut msw_sectors = [0u8; 4];
+            b.read_config(4, &mut msw_sectors);
+            // size is 0x1000, so msw_sectors is 0.
+            assert_eq!([0x00, 0x00, 0x00, 0x00], msw_sectors);
 
-        // test activate
-        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let ievt = EventFd::new().unwrap();
-        let stat = Arc::new(AtomicUsize::new(0));
+            // Invalid read.
+            num_sectors = [0xd, 0xe, 0xa, 0xd];
+            check_metric_after_fn(&METRICS.block.cfg_fails, 1, || {
+                b.read_config(CONFIG_SPACE_SIZE as u64 + 1, &mut num_sectors);
+            });
+            // Validate read failed.
+            assert_eq!(num_sectors, [0xd, 0xe, 0xa, 0xd]);
+        }
 
-        let vq = VirtQueue::new(GuestAddress(0), &m, 16);
-        let queues = vec![vq.create_queue()];
-        let queue_evts = vec![EventFd::new().unwrap()];
+        // Test `features()` and `ack_features()`.
+        {
+            let features: u64 = 1u64 << VIRTIO_BLK_F_RO | 1u64 << VIRTIO_F_VERSION_1;
 
-        let result = b.activate(m.clone(), ievt, stat, queues, queue_evts);
+            assert_eq!(b.features(0), features as u32);
+            assert_eq!(b.features(1), (features >> 32) as u32);
+            for i in 2..10 {
+                assert_eq!(b.features(i), 0u32);
+            }
 
-        assert!(result.is_ok());
+            for i in 0..10 {
+                b.ack_features(i, u32::MAX);
+            }
+            assert_eq!(b.acked_features, features);
+        }
 
-        // test write config
-        let new_config: [u8; 8] = [0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-        b.write_config(0, &new_config);
-        let mut new_config_read = [0u8; 8];
-        b.read_config(0, &mut new_config_read);
-        assert_eq!(new_config, new_config_read);
-        // invalid write
-        b.write_config(5, &new_config);
-        new_config_read = [0u8; 8];
-        b.read_config(0, &mut new_config_read);
-        assert_eq!(new_config, new_config_read);
+        // Test `activate()`.
+        {
+            // It should fail when not enough queues and/or evts are provided.
+            check_metric_after_fn(&METRICS.block.activate_fails, 1, || {
+                assert!(match activate_block_with_modifiers(b, true, false) {
+                    Err(ActivateError::BadActivate) => true,
+                    _ => false,
+                });
+            });
+            check_metric_after_fn(&METRICS.block.activate_fails, 1, || {
+                assert!(match activate_block_with_modifiers(b, false, true) {
+                    Err(ActivateError::BadActivate) => true,
+                    _ => false,
+                });
+            });
+            check_metric_after_fn(&METRICS.block.activate_fails, 1, || {
+                assert!(match activate_block_with_modifiers(b, true, true) {
+                    Err(ActivateError::BadActivate) => true,
+                    _ => false,
+                });
+            });
+            // Otherwise, it should be ok.
+            assert!(activate_block_with_modifiers(b, false, false).is_ok());
+
+            // Second activate shouldn't be ok anymore.
+            check_metric_after_fn(&METRICS.block.activate_fails, 1, || {
+                assert!(match activate_block_with_modifiers(b, false, false) {
+                    Err(ActivateError::BadActivate) => true,
+                    _ => false,
+                });
+            });
+        }
+
+        // Test `write_config()`.
+        {
+            let new_config: [u8; 8] = [0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+            b.write_config(0, &new_config);
+            let mut new_config_read = [0u8; 8];
+            b.read_config(0, &mut new_config_read);
+            assert_eq!(new_config, new_config_read);
+            // Invalid write.
+            check_metric_after_fn(&METRICS.block.cfg_fails, 1, || {
+                b.write_config(5, &new_config);
+            });
+            // Make sure nothing got written.
+            new_config_read = [0u8; 8];
+            b.read_config(0, &mut new_config_read);
+            assert_eq!(new_config, new_config_read);
+        }
     }
 
     /// FIXME: this function takes any event as parameter, but is actually
@@ -929,39 +1057,33 @@ mod tests {
     }
 
     #[test]
-    fn test_handler() {
-        let mut dummy = DummyBlock::new();
-        let b = dummy.block();
+    #[should_panic]
+    fn test_invalid_event_handler() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), &m, 16);
+        let (mut h, _vq) = default_test_blockepollhandler(&m);
+        // This should panic because the event is invalid.
+        h.handle_event(
+            BLOCK_EVENTS_COUNT as DeviceEventT,
+            0,
+            EpollHandlerPayload::Empty,
+        );
+    }
 
-        assert!(vq.end().0 < 0x1000);
+    #[test]
+    #[should_panic]
+    fn test_fs_update_event_error() {
+        let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let (mut h, _vq) = default_test_blockepollhandler(&m);
+        // This should panic because payload is empty for event type FS_UPDATE_EVENT.
+        h.handle_event(FS_UPDATE_EVENT, 0, EpollHandlerPayload::Empty);
+    }
 
-        let queues = vec![vq.create_queue()];
-        let mem = m.clone();
-        let disk_image = b.disk_image.take().unwrap();
-        let blk_metadata = disk_image.metadata();
-        let status = Arc::new(AtomicUsize::new(0));
-        let interrupt_evt = EventFd::new().unwrap();
-        let queue_evt = EventFd::new().unwrap();
+    #[test]
+    fn test_handler() {
+        let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let (mut h, vq) = default_test_blockepollhandler(&m);
 
-        let disk_image_id_str = build_device_id(&disk_image).unwrap();
-        let mut disk_image_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
-        let disk_image_id_bytes = disk_image_id_str.as_bytes();
-        let bytes_to_copy = cmp::min(disk_image_id_bytes.len(), VIRTIO_BLK_ID_BYTES as usize);
-        for i in 0..bytes_to_copy {
-            disk_image_id[i] = disk_image_id_bytes[i];
-        }
-        let mut h = BlockEpollHandler {
-            queues,
-            mem,
-            disk_image,
-            interrupt_status: status,
-            interrupt_evt,
-            queue_evt,
-            rate_limiter: RateLimiter::default(),
-            disk_image_id,
-        };
+        let blk_metadata = h.disk_image.metadata();
 
         for i in 0..3 {
             vq.avail.ring[i].set(i as u16);
