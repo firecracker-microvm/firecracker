@@ -337,15 +337,13 @@ impl NetEpollHandler {
                 Err(e) => {
                     // The tap device is non-blocking, so any error aside from EAGAIN is
                     // unexpected.
-                    if let Some(err) = e.raw_os_error() {
-                        if err != EAGAIN {
+                    match e.raw_os_error() {
+                        Some(err) if err == EAGAIN => (),
+                        _ => {
                             error!("Failed to read tap: {:?}", e);
                             METRICS.net.rx_fails.inc();
-                        }
-                    } else {
-                        error!("Failed to read tap: {:?}", e);
-                        METRICS.net.rx_fails.inc();
-                    }
+                        },
+                    };
                     break;
                 }
             }
@@ -483,52 +481,9 @@ impl NetEpollHandler {
         }
     }
 
-    #[cfg(test)]
-    fn rx_single_frame_no_irq_coalescing(&mut self) -> bool {
-        let ret = self.rx_single_frame();
-        if self.rx.deferred_irqs {
-            self.rx.deferred_irqs = false;
-            self.signal_used_queue();
-        }
-        ret
-    }
-
-    #[cfg(test)]
-    fn get_rx_rate_limiter(&self) -> &RateLimiter {
-        &self.rx.rate_limiter
-    }
-
-    #[cfg(test)]
-    fn get_tx_rate_limiter(&self) -> &RateLimiter {
-        &self.tx.rate_limiter
-    }
-
-    #[cfg(test)]
-    fn set_rx_rate_limiter(&mut self, rx_rate_limiter: RateLimiter) {
-        self.rx.rate_limiter = rx_rate_limiter;
-    }
-
-    #[cfg(test)]
-    fn set_tx_rate_limiter(&mut self, tx_rate_limiter: RateLimiter) {
-        self.tx.rate_limiter = tx_rate_limiter;
-    }
-
     #[cfg(not(test))]
     fn read_tap(&mut self) -> io::Result<usize> {
         self.tap.read(&mut self.rx.frame_buf)
-    }
-
-    #[cfg(test)]
-    fn read_tap(&mut self) -> io::Result<usize> {
-        use std::cmp::min;
-
-        let count = min(1234, self.rx.frame_buf.len());
-
-        for i in 0..count {
-            self.rx.frame_buf[i] = 5;
-        }
-
-        Ok(count)
     }
 }
 
@@ -683,7 +638,7 @@ impl Net {
             net_sys::TUN_F_CSUM | net_sys::TUN_F_UFO | net_sys::TUN_F_TSO4 | net_sys::TUN_F_TSO6,
         ).map_err(Error::TapSetOffload)?;
 
-        let vnet_hdr_size = mem::size_of::<virtio_net_hdr_v1>() as i32;
+        let vnet_hdr_size = vnet_hdr_len() as i32;
         tap.set_vnet_hdr_size(vnet_hdr_size)
             .map_err(Error::TapSetVnetHdrSize)?;
 
@@ -1014,6 +969,46 @@ mod tests {
         }
     }
 
+    impl NetEpollHandler {
+        fn get_rx_rate_limiter(&self) -> &RateLimiter {
+            &self.rx.rate_limiter
+        }
+
+        fn get_tx_rate_limiter(&self) -> &RateLimiter {
+            &self.tx.rate_limiter
+        }
+
+        // This needs to be public to be accessible from the non-cfg-test `impl NetEpollHandler`.
+        pub fn read_tap(&mut self) -> io::Result<usize> {
+            use std::cmp::min;
+
+            let count = min(1234, self.rx.frame_buf.len());
+
+            for i in 0..count {
+                self.rx.frame_buf[i] = 5;
+            }
+
+            Ok(count)
+        }
+
+        fn rx_single_frame_no_irq_coalescing(&mut self) -> bool {
+            let ret = self.rx_single_frame();
+            if self.rx.deferred_irqs {
+                self.rx.deferred_irqs = false;
+                self.signal_used_queue();
+            }
+            ret
+        }
+
+        fn set_rx_rate_limiter(&mut self, rx_rate_limiter: RateLimiter) {
+            self.rx.rate_limiter = rx_rate_limiter;
+        }
+
+        fn set_tx_rate_limiter(&mut self, tx_rate_limiter: RateLimiter) {
+            self.tx.rate_limiter = tx_rate_limiter;
+        }
+    }
+
     fn activate_some_net(n: &mut Net, bad_qlen: bool, bad_evtlen: bool) -> ActivateResult {
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let interrupt_evt = EventFd::new().unwrap();
@@ -1036,6 +1031,40 @@ mod tests {
         }
 
         n.activate(mem.clone(), interrupt_evt, status, queues, queue_evts)
+    }
+
+    fn default_test_netepollhandler<'a>(
+        mem: &'a GuestMemory,
+    ) -> (NetEpollHandler, VirtQueue<'a>, VirtQueue<'a>) {
+        let mut dummy = DummyNet::new();
+        let n = dummy.net();
+
+        let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let txq = VirtQueue::new(GuestAddress(0x1000), &mem, 16);
+
+        assert!(rxq.end().0 < txq.start().0);
+
+        let rx_queue = rxq.create_queue();
+        let tx_queue = txq.create_queue();
+        let interrupt_status = Arc::new(AtomicUsize::new(0));
+        let interrupt_evt = EventFd::new().unwrap();
+        let rx_queue_evt = EventFd::new().unwrap();
+        let tx_queue_evt = EventFd::new().unwrap();
+
+        (
+            NetEpollHandler {
+                rx: RxVirtio::new(rx_queue, rx_queue_evt, RateLimiter::default()),
+                tap: n.tap.take().unwrap(),
+                mem: mem.clone(),
+                tx: TxVirtio::new(tx_queue, tx_queue_evt, RateLimiter::default()),
+                interrupt_status,
+                interrupt_evt,
+                acked_features: n.acked_features,
+                mmds_ns: None,
+            },
+            txq,
+            rxq,
+        )
     }
 
     #[test]
@@ -1082,33 +1111,8 @@ mod tests {
 
     #[test]
     fn test_handler() {
-        let mut dummy = DummyNet::new();
-        let n = dummy.net();
-
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-
-        let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        let txq = VirtQueue::new(GuestAddress(0x1000), &mem, 16);
-
-        assert!(rxq.end().0 < txq.start().0);
-
-        let rx_queue = rxq.create_queue();
-        let tx_queue = txq.create_queue();
-        let interrupt_status = Arc::new(AtomicUsize::new(0));
-        let interrupt_evt = EventFd::new().unwrap();
-        let rx_queue_evt = EventFd::new().unwrap();
-        let tx_queue_evt = EventFd::new().unwrap();
-
-        let mut h = NetEpollHandler {
-            rx: RxVirtio::new(rx_queue, rx_queue_evt, RateLimiter::default()),
-            tap: n.tap.take().unwrap(),
-            mem: mem.clone(),
-            tx: TxVirtio::new(tx_queue, tx_queue_evt, RateLimiter::default()),
-            interrupt_status,
-            interrupt_evt,
-            acked_features: n.acked_features,
-            mmds_ns: None,
-        };
+        let (mut h, txq, rxq) = default_test_netepollhandler(&mem);
 
         let daddr = 0x2000;
         assert!(daddr as usize > txq.end().0);
@@ -1237,33 +1241,8 @@ mod tests {
 
     #[test]
     fn test_bandwidth_rate_limiter() {
-        let mut dummy = DummyNet::new();
-        let n = dummy.net();
-
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-
-        let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        let txq = VirtQueue::new(GuestAddress(0x1000), &mem, 16);
-
-        assert!(rxq.end().0 < txq.start().0);
-
-        let rx_queue = rxq.create_queue();
-        let tx_queue = txq.create_queue();
-        let interrupt_status = Arc::new(AtomicUsize::new(0));
-        let interrupt_evt = EventFd::new().unwrap();
-        let rx_queue_evt = EventFd::new().unwrap();
-        let tx_queue_evt = EventFd::new().unwrap();
-
-        let mut h = NetEpollHandler {
-            rx: RxVirtio::new(rx_queue, rx_queue_evt, RateLimiter::default()),
-            tap: n.tap.take().unwrap(),
-            mem: mem.clone(),
-            tx: TxVirtio::new(tx_queue, tx_queue_evt, RateLimiter::default()),
-            interrupt_status,
-            interrupt_evt,
-            acked_features: n.acked_features,
-            mmds_ns: None,
-        };
+        let (mut h, txq, rxq) = default_test_netepollhandler(&mem);
 
         let daddr = 0x2000;
         assert!(daddr as usize > txq.end().0);
@@ -1365,33 +1344,8 @@ mod tests {
 
     #[test]
     fn test_ops_rate_limiter() {
-        let mut dummy = DummyNet::new();
-        let n = dummy.net();
-
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-
-        let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        let txq = VirtQueue::new(GuestAddress(0x1000), &mem, 16);
-
-        assert!(rxq.end().0 < txq.start().0);
-
-        let rx_queue = rxq.create_queue();
-        let tx_queue = txq.create_queue();
-        let interrupt_status = Arc::new(AtomicUsize::new(0));
-        let interrupt_evt = EventFd::new().unwrap();
-        let rx_queue_evt = EventFd::new().unwrap();
-        let tx_queue_evt = EventFd::new().unwrap();
-
-        let mut h = NetEpollHandler {
-            rx: RxVirtio::new(rx_queue, rx_queue_evt, RateLimiter::default()),
-            tap: n.tap.take().unwrap(),
-            mem: mem.clone(),
-            tx: TxVirtio::new(tx_queue, tx_queue_evt, RateLimiter::default()),
-            interrupt_status,
-            interrupt_evt,
-            acked_features: n.acked_features,
-            mmds_ns: None,
-        };
+        let (mut h, txq, rxq) = default_test_netepollhandler(&mem);
 
         let daddr = 0x2000;
         assert!(daddr as usize > txq.end().0);
