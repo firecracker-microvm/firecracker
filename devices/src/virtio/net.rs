@@ -158,6 +158,9 @@ struct NetEpollHandler {
     #[allow(dead_code)]
     acked_features: u64,
     mmds_ns: Option<MmdsNetworkStack>,
+
+    #[cfg(test)]
+    test_mutators: tests::TestMutators,
 }
 
 impl NetEpollHandler {
@@ -342,7 +345,7 @@ impl NetEpollHandler {
                         _ => {
                             error!("Failed to read tap: {:?}", e);
                             METRICS.net.rx_fails.inc();
-                        },
+                        }
                     };
                     break;
                 }
@@ -829,6 +832,9 @@ impl VirtioDevice for Net {
                     interrupt_evt,
                     acked_features: self.acked_features,
                     mmds_ns,
+
+                    #[cfg(test)]
+                    test_mutators: tests::TestMutators::default(),
                 };
 
                 let tap_raw_fd = handler.tap.as_raw_fd();
@@ -925,6 +931,18 @@ mod tests {
     use memory_model::GuestAddress;
     use virtio::queue::tests::*;
 
+    pub struct TestMutators {
+        pub tap_read_fail: bool,
+    }
+
+    impl Default for TestMutators {
+        fn default() -> TestMutators {
+            TestMutators {
+                tap_read_fail: false,
+            }
+        }
+    }
+
     struct DummyNet {
         net: Net,
         epoll_raw_fd: i32,
@@ -932,7 +950,7 @@ mod tests {
     }
 
     impl DummyNet {
-        fn new() -> Self {
+        fn new(guest_mac: Option<&MacAddr>) -> Self {
             let epoll_raw_fd = epoll::create(true).unwrap();
             let (sender, _receiver) = mpsc::channel();
             let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
@@ -941,7 +959,7 @@ mod tests {
                 net: Net::new(
                     "192.168.249.1".parse().unwrap(),
                     "255.255.255.0".parse().unwrap(),
-                    None,
+                    guest_mac,
                     epoll_config,
                     // rate limiters present but with _very high_ allowed rate
                     Some(
@@ -988,7 +1006,11 @@ mod tests {
                 self.rx.frame_buf[i] = 5;
             }
 
-            Ok(count)
+            if self.test_mutators.tap_read_fail {
+                Err(io::Error::new(io::ErrorKind::Other, "oh no!"))
+            } else {
+                Ok(count)
+            }
         }
 
         fn rx_single_frame_no_irq_coalescing(&mut self) -> bool {
@@ -1007,6 +1029,12 @@ mod tests {
         fn set_tx_rate_limiter(&mut self, tx_rate_limiter: RateLimiter) {
             self.tx.rate_limiter = tx_rate_limiter;
         }
+    }
+
+    fn check_metric_after_fn<F: FnOnce()>(metric: &Metric, delta: usize, f: F) {
+        let before = metric.count();
+        f();
+        assert_eq!(metric.count(), before + delta);
     }
 
     fn activate_some_net(n: &mut Net, bad_qlen: bool, bad_evtlen: bool) -> ActivateResult {
@@ -1035,8 +1063,9 @@ mod tests {
 
     fn default_test_netepollhandler<'a>(
         mem: &'a GuestMemory,
+        test_mutators: TestMutators,
     ) -> (NetEpollHandler, VirtQueue<'a>, VirtQueue<'a>) {
-        let mut dummy = DummyNet::new();
+        let mut dummy = DummyNet::new(None);
         let n = dummy.net();
 
         let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1061,6 +1090,7 @@ mod tests {
                 interrupt_evt,
                 acked_features: n.acked_features,
                 mmds_ns: None,
+                test_mutators,
             },
             txq,
             rxq,
@@ -1068,51 +1098,217 @@ mod tests {
     }
 
     #[test]
+    fn test_vnet_helpers() {
+        let mut frame_buf: [u8; MAX_BUFFER_SIZE] = [42u8; MAX_BUFFER_SIZE];
+
+        let vnet_hdr_len_ = mem::size_of::<virtio_net_hdr_v1>();
+        assert_eq!(vnet_hdr_len_, vnet_hdr_len());
+
+        init_vnet_hdr(&mut frame_buf);
+        let zero_vnet_hdr = vec![0u8; vnet_hdr_len_];
+        assert_eq!(zero_vnet_hdr, &frame_buf[..vnet_hdr_len_]);
+
+        let payload = vec![42u8; MAX_BUFFER_SIZE - vnet_hdr_len_];
+        assert_eq!(payload, frame_bytes_from_buf(&frame_buf));
+
+        {
+            let payload = frame_bytes_from_buf_mut(&mut frame_buf);
+            payload[0] = 15;
+        }
+        assert_eq!(frame_buf[vnet_hdr_len_], 15);
+    }
+
+    #[test]
     fn test_virtio_device() {
-        let mut dummy = DummyNet::new();
+        let mac = MacAddr::parse_str("11:22:33:44:55:66").unwrap();
+        let mut dummy = DummyNet::new(Some(&mac));
         let n = dummy.net();
 
-        assert_eq!(n.device_type(), TYPE_NET);
-        assert_eq!(n.queue_max_sizes(), QUEUE_SIZES);
-
-        let features = 1 << VIRTIO_NET_F_GUEST_CSUM
-            | 1 << VIRTIO_NET_F_CSUM
-            | 1 << VIRTIO_NET_F_GUEST_TSO4
-            | 1 << VIRTIO_NET_F_GUEST_UFO
-            | 1 << VIRTIO_NET_F_HOST_TSO4
-            | 1 << VIRTIO_NET_F_HOST_UFO
-            | 1 << VIRTIO_F_VERSION_1;
-
-        assert_eq!(n.features(0), features as u32);
-        assert_eq!(n.features(1), (features >> 32) as u32);
-        for i in 2..10 {
-            assert_eq!(n.features(i), 0u32);
+        // Test `device_type()`.
+        {
+            assert_eq!(n.device_type(), TYPE_NET);
         }
 
-        for i in 0..10 {
-            n.ack_features(i, u32::MAX);
+        // Test `queue_max_sizes()`.
+        {
+            let x = n.queue_max_sizes();
+            assert_eq!(x, QUEUE_SIZES);
+
+            // power of 2?
+            for &y in x {
+                assert!(y > 0 && y & (y - 1) == 0);
+            }
         }
 
-        assert_eq!(n.acked_features, features);
+        // Test `features()` and `ack_features()`.
+        {
+            let features = 1 << VIRTIO_NET_F_GUEST_CSUM
+                | 1 << VIRTIO_NET_F_CSUM
+                | 1 << VIRTIO_NET_F_GUEST_TSO4
+                | 1 << VIRTIO_NET_F_MAC
+                | 1 << VIRTIO_NET_F_GUEST_UFO
+                | 1 << VIRTIO_NET_F_HOST_TSO4
+                | 1 << VIRTIO_NET_F_HOST_UFO
+                | 1 << VIRTIO_F_VERSION_1;
+
+            assert_eq!(n.features(0), features as u32);
+            assert_eq!(n.features(1), (features >> 32) as u32);
+            for i in 2..10 {
+                assert_eq!(n.features(i), 0u32);
+            }
+
+            for i in 0..10 {
+                n.ack_features(i, u32::MAX);
+            }
+
+            assert_eq!(n.acked_features, features);
+        }
+
+        // Test `read_config()`. This also validates the MAC was properly configured.
+        {
+            let mut config_mac = [0u8; MAC_ADDR_LEN];
+            n.read_config(0, &mut config_mac);
+            assert_eq!(config_mac, mac.get_bytes());
+
+            // Invalid read.
+            config_mac = [0u8; MAC_ADDR_LEN];
+            check_metric_after_fn(&METRICS.net.cfg_fails, 1, || {
+                n.read_config(MAC_ADDR_LEN as u64 + 1, &mut config_mac);
+            });
+            assert_eq!(config_mac, [0u8, 0u8, 0u8, 0u8, 0u8, 0u8]);
+        }
 
         // Let's test the activate function.
+        {
+            // It should fail when not enough queues and/or evts are provided.
+            check_metric_after_fn(&METRICS.net.activate_fails, 1, || {
+                assert!(activate_some_net(n, true, false).is_err());
+            });
 
-        // It should fail when not enough queues and/or evts are provided.
-        assert!(activate_some_net(n, true, false).is_err());
-        assert!(activate_some_net(n, false, true).is_err());
-        assert!(activate_some_net(n, true, true).is_err());
+            check_metric_after_fn(&METRICS.net.activate_fails, 1, || {
+                assert!(activate_some_net(n, false, true).is_err());
+            });
 
-        // Otherwise, it should be ok.
-        assert!(activate_some_net(n, false, false).is_ok());
+            check_metric_after_fn(&METRICS.net.activate_fails, 1, || {
+                assert!(activate_some_net(n, true, true).is_err());
+            });
 
-        // Second activate shouldn't be ok anymore.
-        assert!(activate_some_net(n, false, false).is_err());
+            // Otherwise, it should be ok.
+            check_metric_after_fn(&METRICS.net.activate_fails, 0, || {
+                assert!(activate_some_net(n, false, false).is_ok());
+            });
+
+            // Second activate shouldn't be ok anymore.
+            check_metric_after_fn(&METRICS.net.activate_fails, 1, || {
+                assert!(activate_some_net(n, false, false).is_err());
+            });
+        }
+
+        // Test writing another config.
+        {
+            let new_config: [u8; 6] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
+            n.write_config(0, &new_config);
+            let mut new_config_read = [0u8; 6];
+            n.read_config(0, &mut new_config_read);
+            assert_eq!(new_config, new_config_read);
+
+            // Invalid write.
+            check_metric_after_fn(&METRICS.net.cfg_fails, 1, || {
+                n.write_config(5, &new_config);
+            });
+            // Verify old config was untouched.
+            new_config_read = [0u8; 6];
+            n.read_config(0, &mut new_config_read);
+            assert_eq!(new_config, new_config_read);
+        }
+    }
+
+    #[test]
+    fn test_error_tap_set_ip() {
+        let epoll_raw_fd = epoll::create(true).unwrap();
+        let (sender, _receiver) = mpsc::channel();
+        let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
+
+        match Net::new(
+            "255.255.255.255".parse().unwrap(),
+            "0.0.0.0".parse().unwrap(),
+            None,
+            epoll_config,
+            None,
+            None,
+        ) {
+            Err(Error::TapSetIp(_)) => (),
+            _ => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_error_tap_set_netmask() {
+        let epoll_raw_fd = epoll::create(true).unwrap();
+        let (sender, _receiver) = mpsc::channel();
+        let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
+
+        match Net::new(
+            "0.0.0.0".parse().unwrap(),
+            "0.0.0.255".parse().unwrap(),
+            None,
+            epoll_config,
+            None,
+            None,
+        ) {
+            Err(Error::TapSetNetmask(_)) => (),
+            _ => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_rx_error() {
+        let test_mutators = TestMutators {
+            tap_read_fail: true,
+        };
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, test_mutators);
+
+        check_metric_after_fn(&METRICS.net.rx_fails, 1, || {
+            h.process_rx();
+        });
+    }
+
+    #[test]
+    fn test_handler_error_cases() {
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
+
+        // RX rate limiter events should error since the limiter is not blocked.
+        // Validate that the event failed and failure was properly accounted for.
+        check_metric_after_fn(&METRICS.net.event_fails, 1, || {
+            h.handle_event(RX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty);
+        });
+
+        // TX rate limiter events should error since the limiter is not blocked.
+        // Validate that the event failed and failure was properly accounted for.
+        check_metric_after_fn(&METRICS.net.event_fails, 1, || {
+            h.handle_event(TX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty);
+        });
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_event_handler() {
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
+        // This should panic because the event is invalid.
+        h.handle_event(
+            NET_EVENTS_COUNT as DeviceEventT,
+            0,
+            EpollHandlerPayload::Empty,
+        );
     }
 
     #[test]
     fn test_handler() {
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let (mut h, txq, rxq) = default_test_netepollhandler(&mem);
+        let (mut h, txq, rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 
         let daddr = 0x2000;
         assert!(daddr as usize > txq.end().0);
@@ -1242,7 +1438,7 @@ mod tests {
     #[test]
     fn test_bandwidth_rate_limiter() {
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let (mut h, txq, rxq) = default_test_netepollhandler(&mem);
+        let (mut h, txq, rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 
         let daddr = 0x2000;
         assert!(daddr as usize > txq.end().0);
@@ -1345,7 +1541,7 @@ mod tests {
     #[test]
     fn test_ops_rate_limiter() {
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let (mut h, txq, rxq) = default_test_netepollhandler(&mem);
+        let (mut h, txq, rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 
         let daddr = 0x2000;
         assert!(daddr as usize > txq.end().0);
