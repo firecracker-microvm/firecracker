@@ -17,7 +17,7 @@ import pytest
 import host_tools.cargo_build as host  # pylint: disable=import-error
 
 
-COVERAGE_TARGET_PCT = 72.0
+COVERAGE_TARGET_PCT = 78.0
 # TODO: Put the coverage in s3 and update it automatically.
 
 CARGO_KCOV_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, 'kcov')
