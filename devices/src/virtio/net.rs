@@ -1421,6 +1421,15 @@ mod tests {
                 assert_eq!(h.interrupt_evt.read(), Ok(1));
                 // make sure the data is still queued for processing
                 assert_eq!(rxq.used.idx.get(), 0);
+
+                // leave at least one event here so that reading it later won't block
+                h.interrupt_evt.write(1).unwrap();
+                // trigger the RX handler again, this time it should do the limiter fast path exit
+                h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty);
+                // assert that no operation actually completed, that the limiter blocked it
+                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                // make sure the data is still queued for processing
+                assert_eq!(rxq.used.idx.get(), 0);
             }
 
             // wait for 100ms to give the rate-limiter timer a chance to replenish
