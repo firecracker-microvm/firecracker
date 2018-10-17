@@ -101,7 +101,7 @@ impl PartialEq for ParsedRequest {
 #[cfg(test)]
 mod tests {
     extern crate devices;
-    extern crate kernel_loader;
+    extern crate kernel;
     extern crate memory_model;
     extern crate net_util;
     extern crate x86_64;
@@ -303,7 +303,7 @@ mod tests {
         check_error_response(vmm_resp, StatusCode::InternalServerError);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
-            StartMicrovmError::Loader(kernel_loader::Error::BigEndianElfOnLittle),
+            StartMicrovmError::Loader(kernel::loader::Error::BigEndianElfOnLittle),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp =

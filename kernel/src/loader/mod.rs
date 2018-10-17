@@ -1,16 +1,14 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-extern crate memory_model;
-extern crate sys_util;
-extern crate x86_64;
-
+use std;
 use std::ffi::CStr;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
 use memory_model::{GuestAddress, GuestMemory};
+use sys_util;
+use x86_64;
 
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]

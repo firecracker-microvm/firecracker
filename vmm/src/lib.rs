@@ -9,7 +9,7 @@ extern crate timerfd;
 
 extern crate data_model;
 extern crate devices;
-extern crate kernel_loader;
+extern crate kernel;
 extern crate kvm;
 #[macro_use]
 extern crate logger;
@@ -51,6 +51,7 @@ use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler, EpollHandlerPayload};
+use kernel::loader as kernel_loader;
 use kvm::*;
 use logger::{Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
