@@ -21,7 +21,6 @@ extern crate x86_64;
 
 pub mod default_syscalls;
 mod device_manager;
-pub mod kernel_cmdline;
 mod vm_control;
 pub mod vmm_config;
 mod vstate;
@@ -51,6 +50,7 @@ use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler, EpollHandlerPayload};
+use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use kvm::*;
 use logger::{Level, Metric, LOGGER, METRICS};
