@@ -10,10 +10,7 @@ use memory_model::{GuestAddress, GuestMemory};
 use sys_util;
 use x86_64;
 
-#[allow(dead_code)]
 #[allow(non_camel_case_types)]
-#[allow(non_snake_case)]
-#[allow(non_upper_case_globals)]
 mod elf;
 
 #[derive(Debug, PartialEq)]
