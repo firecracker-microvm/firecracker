@@ -607,6 +607,7 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
     )?)
 }
 
+#[cfg(test)]
 mod tests {
     extern crate libc;
     extern crate seccomp;
