@@ -91,8 +91,8 @@ The **API endpoint** can be used to:
 - The boot-time SLA is enforced in `tests/performance/test_boottime.py`.
 - The process startup time SLA is enforced in
   `tests/performance/test_process_startup_time.py`. This value corresponds to
-  the time elapsed between `jailer` starting and `bind` being called on the API
-  socket.
+  the CPU time (time that the process actually spent on the CPU) elapsed
+  between `jailer` starting and `bind` being called on the API socket.
 
 ### Measuring boot time
 
