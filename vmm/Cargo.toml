@@ -15,7 +15,7 @@ timerfd = ">=1.0"
 
 data_model = { path = "../data_model" }
 devices = { path = "../devices" }
-kernel_loader = { path = "../kernel_loader" }
+kernel = { path = "../kernel" }
 kvm = { path = "../kvm" }
 logger = { path = "../logger" }
 memory_model = { path = "../memory_model" }
