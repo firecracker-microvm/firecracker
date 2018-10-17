@@ -43,11 +43,12 @@ pub struct Env {
     netns: Option<String>,
     daemonize: bool,
     seccomp_level: u32,
-    start_time_ms: u64,
+    start_time_us: u64,
+    start_time_cpu_us: u64,
 }
 
 impl Env {
-    pub fn new(args: ArgMatches, start_time_ms: u64) -> Result<Self> {
+    pub fn new(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Result<Self> {
         // All arguments are either mandatory, or have default values, so the unwraps
         // should not fail.
         let id = args.value_of("id").unwrap();
@@ -117,7 +118,8 @@ impl Env {
             netns,
             daemonize,
             seccomp_level,
-            start_time_ms,
+            start_time_us,
+            start_time_cpu_us,
         })
     }
 
@@ -271,7 +273,8 @@ impl Env {
             id: self.id.clone(),
             jailed: true,
             seccomp_level: self.seccomp_level,
-            start_time_ms: self.start_time_ms,
+            start_time_us: self.start_time_us,
+            start_time_cpu_us: self.start_time_cpu_us,
         };
 
         Err(Error::Exec(
@@ -358,6 +361,7 @@ mod tests {
                 true,
             ),
             0,
+            0,
         ).expect("This new environment should be created successfully.");
 
         let mut chroot_dir = PathBuf::from(chroot_base);
@@ -374,6 +378,7 @@ mod tests {
         let another_good_env = Env::new(
             make_args(node, id, exec_file, uid, gid, chroot_base, None, false),
             0,
+            0,
         ).expect("This another new environment should be created successfully.");
         assert!(!another_good_env.daemonize);
 
@@ -381,7 +386,8 @@ mod tests {
         assert!(
             Env::new(
                 make_args("zzz", id, exec_file, uid, gid, chroot_base, None, true),
-                0
+                0,
+                0,
             ).is_err()
         );
 
@@ -398,6 +404,7 @@ mod tests {
                     None,
                     true
                 ),
+                0,
                 0
             ).is_err()
         );
@@ -415,6 +422,7 @@ mod tests {
                     None,
                     true
                 ),
+                0,
                 0
             ).is_err()
         );
@@ -423,6 +431,7 @@ mod tests {
         assert!(
             Env::new(
                 make_args(node, id, exec_file, "zzz", gid, chroot_base, None, true),
+                0,
                 0
             ).is_err()
         );
@@ -431,6 +440,7 @@ mod tests {
         assert!(
             Env::new(
                 make_args(node, id, exec_file, uid, "zzz", chroot_base, None, true),
+                0,
                 0
             ).is_err()
         );
