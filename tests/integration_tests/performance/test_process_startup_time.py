@@ -8,8 +8,8 @@ import time
 
 import host_tools.logging as log_tools
 
-MAX_STARTUP_TIME_US = 80
-""" The maximum acceptable startup time in ms. """
+MAX_STARTUP_TIME_CPU_US = 8000
+""" The maximum acceptable startup time in CPU us. """
 # TODO: Keep a `current` startup time in S3 and validate we don't regress
 
 
@@ -44,9 +44,11 @@ def test_startup_time(test_microvm_with_api):
     # Since metrics are flushed at InstanceStart, the first line will suffice.
     lines = log_tools.sequential_fifo_reader(metrics_fifo_path, 1)
     metrics = json.loads(lines[0])
-    startup_time = int(metrics['api_server']['process_startup_time_ms'])
+    startup_time_us = metrics['api_server']['process_startup_time_us']
+    cpu_startup_time_us = metrics['api_server']['process_startup_time_cpu_us']
 
-    print('Process startup time is: {} ms'.format(startup_time))
+    print('Process startup time is: {} us ({} CPU us)'
+          .format(startup_time_us, cpu_startup_time_us))
 
-    assert startup_time > 0
-    assert startup_time <= MAX_STARTUP_TIME_US
+    assert cpu_startup_time_us > 0
+    assert cpu_startup_time_us <= MAX_STARTUP_TIME_CPU_US

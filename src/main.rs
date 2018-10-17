@@ -74,8 +74,8 @@ fn main() {
 
     let mut instance_id = String::from(DEFAULT_INSTANCE_ID);
     let mut seccomp_level = 0;
-    let mut start_time_ms = None;
-
+    let mut start_time_us = None;
+    let mut start_time_cpu_us = None;
     let mut is_jailed = false;
 
     if let Some(s) = cmd_arguments.value_of("context") {
@@ -83,7 +83,8 @@ fn main() {
         is_jailed = context.jailed;
         instance_id = context.id;
         seccomp_level = context.seccomp_level;
-        start_time_ms = Some(context.start_time_ms);
+        start_time_us = Some(context.start_time_us);
+        start_time_cpu_us = Some(context.start_time_cpu_us);
     }
 
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
@@ -113,7 +114,9 @@ fn main() {
         UnixDomainSocket::Path(bind_path)
     };
 
-    server.bind_and_run(uds_path_or_fd, start_time_ms).unwrap();
+    server
+        .bind_and_run(uds_path_or_fd, start_time_us, start_time_cpu_us)
+        .unwrap();
 }
 
 #[cfg(test)]
