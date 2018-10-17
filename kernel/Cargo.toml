@@ -1,5 +1,5 @@
 [package]
-name = "kernel_loader"
+name = "kernel"
 version = "0.1.0"
 
 [dependencies]

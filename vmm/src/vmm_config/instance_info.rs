@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter, Result};
 
 use device_manager;
 use devices;
-use kernel_loader;
+use kernel::loader as kernel_loader;
 use memory_model::GuestMemoryError;
 use sys_util;
 use vstate;
