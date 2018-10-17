@@ -76,7 +76,7 @@ static START_INSTANCE_REQUEST_TS: AtomicUsize = ATOMIC_USIZE_INIT;
 /// input, but can result from bad configuration of the host (for example if Firecracker doesn't
 /// have permissions to open the KVM fd).
 #[derive(Debug)]
-pub enum Error {
+enum Error {
     /// Cannot receive message from the API.
     ApiChannel,
     /// Legacy devices work with Event file descriptors and the creation can fail because
@@ -306,7 +306,7 @@ impl EpollContext {
         })
     }
 
-    pub fn enable_stdin_event(&mut self) -> Result<()> {
+    fn enable_stdin_event(&mut self) -> Result<()> {
         if let Err(e) = epoll::ctl(
             self.epoll_raw_fd,
             epoll::EPOLL_CTL_ADD,
@@ -433,13 +433,13 @@ impl Drop for EpollContext {
     }
 }
 
-pub struct KernelConfig {
+struct KernelConfig {
     cmdline: kernel_cmdline::Cmdline,
     kernel_file: File,
     cmdline_addr: GuestAddress,
 }
 
-pub struct Vmm {
+struct Vmm {
     _kvm: KvmContext,
 
     vm_config: VmConfig,
@@ -1512,8 +1512,9 @@ impl Vmm {
     }
 }
 
-// Implementation for the "==" operator.
 // Can't derive PartialEq directly because the sender members can't be compared.
+// This implementation is only used in tests, but cannot be moved to mod tests,
+// because it is used in tests outside of the vmm crate (api_server).
 impl PartialEq for VmmAction {
     fn eq(&self, other: &VmmAction) -> bool {
         match (self, other) {

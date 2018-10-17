@@ -141,14 +141,6 @@ impl Vcpu {
         })
     }
 
-    /// Returns a clone of the CPUID entries of this vCPU
-    /// For now this function is only used for testing; the cfg(test) should be removed when
-    /// this function will be used for configuring the cpu features
-    #[cfg(test)]
-    pub fn get_cpuid(&self) -> CpuId {
-        return self.cpuid.clone();
-    }
-
     /// /// Configures the vcpu and should be called once per vcpu from the vcpu's thread.
     ///
     /// # Arguments
@@ -206,6 +198,16 @@ impl Vcpu {
 
 #[cfg(test)]
 mod tests {
+
+    impl Vcpu {
+        /// Returns a clone of the CPUID entries of this vCPU
+        /// For now this function is only used for testing; the cfg(test) should be removed when
+        /// this function will be used for configuring the cpu features
+        pub fn get_cpuid(&self) -> CpuId {
+            return self.cpuid.clone();
+        }
+    }
+
     use super::*;
     use data_model::vm::CpuFeaturesTemplate;
 
