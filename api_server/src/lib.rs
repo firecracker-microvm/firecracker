@@ -78,7 +78,8 @@ impl ApiServer {
     pub fn bind_and_run<P: AsRef<Path>>(
         &self,
         path_or_fd: UnixDomainSocket<P>,
-        jailer_start_time_ms: Option<u64>,
+        start_time_us: Option<u64>,
+        start_time_cpu_us: Option<u64>,
     ) -> Result<()> {
         let mut core = Core::new().map_err(Error::Io)?;
         let handle = Rc::new(core.handle());
@@ -95,12 +96,20 @@ impl ApiServer {
             }
         };
 
-        if let Some(start_time_ms) = jailer_start_time_ms {
-            let delta = (chrono::Utc::now().timestamp_millis() as u64) - start_time_ms;
+        if let Some(start_time) = start_time_us {
+            let delta_us = (chrono::Utc::now().timestamp_nanos() / 1000) as u64 - start_time;
             METRICS
                 .api_server
-                .process_startup_time_ms
-                .add(delta as usize);
+                .process_startup_time_us
+                .add(delta_us as usize);
+        }
+
+        if let Some(cpu_start_time) = start_time_cpu_us {
+            let delta_us = fc_util::now_cputime_us() - cpu_start_time;
+            METRICS
+                .api_server
+                .process_startup_time_cpu_us
+                .add(delta_us as usize);
         }
 
         let http: Http<hyper::Chunk> = Http::new();
