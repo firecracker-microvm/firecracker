@@ -1,6 +1,4 @@
 use std::fmt::{Display, Formatter, Result};
-use std::mem;
-use std::rc::Rc;
 use std::result;
 
 use super::DeviceState;
@@ -9,9 +7,9 @@ use net_util::{MacAddr, Tap, TapError};
 
 // This struct represents the strongly typed equivalent of the json body from net iface
 // related requests.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct NetworkInterfaceBody {
+pub struct NetworkInterfaceConfig {
     pub iface_id: String,
     pub state: DeviceState,
     pub host_dev_name: String,
@@ -23,6 +21,8 @@ pub struct NetworkInterfaceBody {
     pub tx_rate_limiter: Option<RateLimiterDescription>,
     #[serde(default = "default_allow_mmds_requests")]
     pub allow_mmds_requests: bool,
+    #[serde(skip_deserializing, skip_serializing)]
+    pub tap: Option<Tap>,
 }
 
 // Serde does not allow specifying a default value for a field
@@ -32,9 +32,24 @@ fn default_allow_mmds_requests() -> bool {
     false
 }
 
+impl NetworkInterfaceConfig {
+    pub fn take_tap(&mut self) -> Option<Tap> {
+        self.tap.take()
+    }
+
+    pub fn guest_mac(&self) -> Option<&MacAddr> {
+        self.guest_mac.as_ref()
+    }
+
+    pub fn allow_mmds_requests(&self) -> bool {
+        self.allow_mmds_requests
+    }
+}
+
 #[derive(Debug)]
 pub enum NetworkInterfaceError {
     GuestMacAddressInUse(String),
+    HostDeviceNameInUse(String),
     OpenTap(TapError),
     UpdateNotAllowedPostBoot,
 }
@@ -47,6 +62,11 @@ impl Display for NetworkInterfaceError {
                 f,
                 "{}",
                 format!("The guest MAC address {} is already in use.", mac_addr)
+            ),
+            HostDeviceNameInUse(ref host_dev_name) => write!(
+                f,
+                "{}",
+                format!("The host device name {} is already in use.", host_dev_name)
             ),
             OpenTap(ref e) => {
                 // We are propagating the Tap Error. This error can contain
@@ -68,83 +88,15 @@ impl Display for NetworkInterfaceError {
     }
 }
 
-pub struct NetworkInterfaceConfig {
-    // The request body received from the API side.
-    body: NetworkInterfaceBody,
-    // We extract the id from the body and hold it as a reference counted String. This should
-    // come in handy later on, when we'll need the id to appear in a number of data structures
-    // to implement efficient lookup, update, deletion, etc.
-    id: Rc<String>,
-    // We open the tap that will be associated with the virtual device as soon as the PUT request
-    // arrives from the API. We want to see if there are any errors associated with the operation,
-    // and if so, we want to report the failure back to the API caller immediately. This is an
-    // option, because the inner value will be moved to the actual virtio net device before boot.
-    pub tap: Option<Tap>,
-    pub rx_rate_limiter: Option<RateLimiterDescription>,
-    pub tx_rate_limiter: Option<RateLimiterDescription>,
-}
-
-impl NetworkInterfaceConfig {
-    pub fn try_from_body(mut body: NetworkInterfaceBody) -> result::Result<Self, TapError> {
-        let id = Rc::new(mem::replace(&mut body.iface_id, String::new()));
-
-        // TODO: rework net_util stuff such that references would suffice here, instead
-        // of having to move things around.
-        let tap = Tap::open_named(body.host_dev_name.as_str())?;
-
-        let rx_rate_limiter = body.rx_rate_limiter.take();
-        let tx_rate_limiter = body.tx_rate_limiter.take();
-        Ok(NetworkInterfaceConfig {
-            body,
-            id,
-            tap: Some(tap),
-            rx_rate_limiter,
-            tx_rate_limiter,
-        })
-    }
-
-    fn update_from_body(&mut self, mut body: NetworkInterfaceBody) {
-        self.id = Rc::new(mem::replace(&mut body.iface_id, String::new()));
-        self.rx_rate_limiter = body.rx_rate_limiter.take();
-        self.tx_rate_limiter = body.tx_rate_limiter.take();
-        self.body = body;
-    }
-
-    pub fn take_tap(&mut self) -> Option<Tap> {
-        self.tap.take()
-    }
-
-    pub fn guest_mac(&self) -> Option<&MacAddr> {
-        self.body.guest_mac.as_ref()
-    }
-
-    pub fn allow_mmds_requests(&self) -> bool {
-        self.body.allow_mmds_requests
-    }
-}
-
 pub struct NetworkInterfaceConfigs {
     if_list: Vec<NetworkInterfaceConfig>,
 }
 
 impl NetworkInterfaceConfigs {
+    /// Creates an empty list of NetworkInterfaceConfig.
     pub fn new() -> Self {
         NetworkInterfaceConfigs {
             if_list: Vec::new(),
-        }
-    }
-
-    pub fn insert(
-        &mut self,
-        body: NetworkInterfaceBody,
-    ) -> result::Result<(), NetworkInterfaceError> {
-        match self
-            .if_list
-            .iter()
-            .position(|netif| netif.id.as_str() == body.iface_id.as_str())
-        {
-            Some(index) => self.update(index, body),
-            None => self.create(body),
         }
     }
 
@@ -152,114 +104,270 @@ impl NetworkInterfaceConfigs {
         self.if_list.iter_mut()
     }
 
-    fn create(&mut self, body: NetworkInterfaceBody) -> result::Result<(), NetworkInterfaceError> {
-        self.validate_unique_mac(&body.guest_mac)?;
-        let cfg =
-            NetworkInterfaceConfig::try_from_body(body).map_err(NetworkInterfaceError::OpenTap)?;
-        self.if_list.push(cfg);
+    /// Inserts `netif_config` in the network interface configuration list.
+    /// If an entry with the same id already exists, it will update the existing
+    /// entry.
+    pub fn insert(
+        &mut self,
+        netif_config: NetworkInterfaceConfig,
+    ) -> result::Result<(), NetworkInterfaceError> {
+        match self.if_list.iter().position(|netif_from_list| {
+            netif_from_list.iface_id.as_str() == netif_config.iface_id.as_str()
+        }) {
+            Some(index) => self.update(index, netif_config),
+            None => self.create(netif_config),
+        }
+    }
+
+    fn get_index_of_mac(&self, mac: &MacAddr) -> Option<usize> {
+        return self
+            .if_list
+            .iter()
+            .position(|netif| netif.guest_mac == Some(*mac));
+    }
+
+    fn get_index_of_dev_name(&self, host_dev_name: &String) -> Option<usize> {
+        return self
+            .if_list
+            .iter()
+            .position(|netif| &netif.host_dev_name == host_dev_name);
+    }
+
+    fn validate_update(
+        &self,
+        index: usize,
+        new_config: &NetworkInterfaceConfig,
+    ) -> result::Result<(), NetworkInterfaceError> {
+        // Check that the mac address is unique. In order to do so, we search for the
+        // network interface that has the same mac address as the one specified in new_config.
+        // If the same mac is used in another network interface config, return error.
+        if new_config.guest_mac.is_some() {
+            let mac_index = self.get_index_of_mac(&new_config.guest_mac.unwrap());
+            if mac_index.is_some() && mac_index.unwrap() != index {
+                return Err(NetworkInterfaceError::GuestMacAddressInUse(
+                    new_config.guest_mac.unwrap().to_string(),
+                ));
+            }
+        }
+        // Check that the host_dev_name is unique.
+        let dev_name_index = self.get_index_of_dev_name(&new_config.host_dev_name);
+        if dev_name_index.is_some() && dev_name_index.unwrap() != index {
+            return Err(NetworkInterfaceError::HostDeviceNameInUse(
+                new_config.host_dev_name.clone(),
+            ));
+        }
+
         Ok(())
     }
 
     fn update(
         &mut self,
         index: usize,
-        body: NetworkInterfaceBody,
+        mut updated_netif_config: NetworkInterfaceConfig,
     ) -> result::Result<(), NetworkInterfaceError> {
-        if self.if_list[index].body.host_dev_name != body.host_dev_name {
-            // This is a new tap device which replaces the one at the specified ID.
-            self.if_list.remove(index);
-            self.create(body)?;
-        } else {
-            // The same tap device is being updated.
-            self.validate_unique_mac(&body.guest_mac)?;
-            self.if_list[index].update_from_body(body);
-        }
+        self.validate_update(index, &updated_netif_config)?;
+
+        // We are ignoring the tap field of the network interface we want to update. We are
+        // manually seting this field to a newly created tap (corresponding to the host_dev_name)
+        // or to the old tap device of the network interface we are trying to update.
+        updated_netif_config.tap =
+            if self.if_list[index].host_dev_name != updated_netif_config.host_dev_name {
+                Some(
+                    Tap::open_named(&updated_netif_config.host_dev_name.as_str())
+                        .map_err(NetworkInterfaceError::OpenTap)?,
+                )
+            } else {
+                self.if_list[index].tap.take()
+            };
+        self.if_list[index] = updated_netif_config;
+
         Ok(())
     }
 
-    fn validate_unique_mac(
+    fn validate_create(
         &self,
-        mac: &Option<MacAddr>,
+        new_config: &NetworkInterfaceConfig,
     ) -> result::Result<(), NetworkInterfaceError> {
-        for device_config in self.if_list.iter() {
-            if mac.is_some() && mac == &device_config.body.guest_mac {
-                return Err(NetworkInterfaceError::GuestMacAddressInUse(
-                    mac.unwrap().to_string(),
-                ));
-            }
+        // Check that there is no other interface in the list that has the same mac.
+        if new_config.guest_mac.is_some() && self
+            .get_index_of_mac(&new_config.guest_mac.unwrap())
+            .is_some()
+        {
+            return Err(NetworkInterfaceError::GuestMacAddressInUse(
+                new_config.guest_mac.unwrap().to_string(),
+            ));
         }
+
+        // Check that there is no other interface in the list that has the same host_dev_name.
+        if self
+            .get_index_of_dev_name(&new_config.host_dev_name)
+            .is_some()
+        {
+            return Err(NetworkInterfaceError::HostDeviceNameInUse(
+                new_config.host_dev_name.clone(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn create(
+        &mut self,
+        netif_config: NetworkInterfaceConfig,
+    ) -> result::Result<(), NetworkInterfaceError> {
+        self.validate_create(&netif_config)?;
+        let tap = Tap::open_named(netif_config.host_dev_name.as_str())
+            .map_err(NetworkInterfaceError::OpenTap)?;
+        self.if_list.push(netif_config);
+
+        let index = self.if_list.len() - 1;
+        self.if_list[index].tap = Some(tap);
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::str;
+
     use super::*;
     use net_util::MacAddr;
 
-    fn make_netif(id: &str, name: &str, mac: MacAddr) -> NetworkInterfaceBody {
-        NetworkInterfaceBody {
+    fn create_netif(id: &str, name: &str, mac: &str) -> NetworkInterfaceConfig {
+        NetworkInterfaceConfig {
             iface_id: String::from(id),
             state: DeviceState::Attached,
             host_dev_name: String::from(name),
-            guest_mac: Some(mac),
+            guest_mac: Some(MacAddr::parse_str(mac).unwrap()),
             rx_rate_limiter: Some(RateLimiterDescription::default()),
             tx_rate_limiter: Some(RateLimiterDescription::default()),
             allow_mmds_requests: false,
+            tap: None,
         }
     }
 
-    fn make_netif_cfg(body: NetworkInterfaceBody, id: &str) -> NetworkInterfaceConfig {
-        NetworkInterfaceConfig {
-            body: body,
-            id: Rc::new(String::from(id)),
-            tap: None,
-            tx_rate_limiter: None,
-            rx_rate_limiter: None,
+    // This implementation is used only in tests. We cannot directly derive clone because
+    // Tap does not implement clone.
+    impl Clone for NetworkInterfaceConfig {
+        fn clone(&self) -> Self {
+            NetworkInterfaceConfig {
+                iface_id: self.iface_id.clone(),
+                state: self.state.clone(),
+                host_dev_name: self.host_dev_name.clone(),
+                guest_mac: self.guest_mac.clone(),
+                rx_rate_limiter: self.rx_rate_limiter.clone(),
+                tx_rate_limiter: self.tx_rate_limiter.clone(),
+                allow_mmds_requests: self.allow_mmds_requests.clone(),
+                tap: None,
+            }
         }
     }
 
     #[test]
-    fn test_put() {
+    fn test_insert() {
         let mut netif_configs = NetworkInterfaceConfigs::new();
-        assert!(netif_configs.if_list.is_empty());
 
-        let mac1 = MacAddr::parse_str("01:23:45:67:89:0A").unwrap();
-        let mac2 = MacAddr::parse_str("23:45:67:89:0A:01").unwrap();
-        let mac3 = MacAddr::parse_str("45:67:89:0A:01:23").unwrap();
+        let id_1 = "id_1";
+        let mut host_dev_name_1 = "dev1";
+        let mut guest_mac_1 = "01:23:45:67:89:0a";
 
-        // Add an interface.
-        let mut netif_body = make_netif("foo", "bar", mac1);
-        netif_configs
-            .if_list
-            .push(make_netif_cfg(netif_body.clone(), "foo"));
+        // Test create.
+        let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
+        assert!(netif_configs.insert(netif_1).is_ok());
         assert_eq!(netif_configs.if_list.len(), 1);
 
-        // Update MAC.
-        netif_body.guest_mac = Some(mac2.clone());
-        assert!(netif_configs.insert(netif_body).is_ok());
+        // Test update mac address (this test does not modify the tap).
+        guest_mac_1 = "01:23:45:67:89:0b";
+        let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
+
+        assert!(netif_configs.insert(netif_1.clone()).is_ok());
         assert_eq!(netif_configs.if_list.len(), 1);
 
-        // Try to add another interface with the same MAC.
-        let mut other_netif_body = make_netif("bar", "foo", mac2.clone());
-        assert!(netif_configs.insert(other_netif_body.clone()).is_err());
+        // Test update host_dev_name (the tap will be updated).
+        host_dev_name_1 = "dev2";
+        let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
+        assert!(netif_configs.insert(netif_1.clone()).is_ok());
+        assert_eq!(netif_configs.if_list.len(), 1);
+    }
+
+    #[test]
+    fn test_insert_error_cases() {
+        let mut netif_configs = NetworkInterfaceConfigs::new();
+
+        let id_1 = "id_1";
+        let host_dev_name_1 = "dev3";
+        let guest_mac_1 = "01:23:45:67:89:0a";
+
+        // Adding the first valid network config.
+        let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
+        assert!(netif_configs.insert(netif_1.clone()).is_ok());
+
+        // Error Cases for CREATE
+        // Error Case: Add new network config with the same mac as netif_1.
+        let id_2 = "id_2";
+        let host_dev_name_2 = "dev4";
+        let guest_mac_2 = "01:23:45:67:89:0b";
+
+        let netif_2 = create_netif(id_2, host_dev_name_2, guest_mac_1);
+        let expected_error = format!(
+            "The guest MAC address {} is already in use.",
+            guest_mac_1.to_string()
+        );
+        assert_eq!(
+            netif_configs
+                .insert(netif_2.clone())
+                .unwrap_err()
+                .to_string(),
+            expected_error
+        );
         assert_eq!(netif_configs.if_list.len(), 1);
 
-        // Add another interface.
-        other_netif_body.guest_mac = Some(mac3);
-        netif_configs
-            .if_list
-            .push(make_netif_cfg(other_netif_body.clone(), "foo"));
-        assert_eq!(netif_configs.if_list.len(), 2);
+        // Error Case: Add new network config with the same dev_host_name as netif_1.
+        let netif_2 = create_netif(id_2, host_dev_name_1, guest_mac_2);
+        let expected_error = format!(
+            "The host device name {} is already in use.",
+            netif_2.host_dev_name
+        );
+        assert_eq!(
+            netif_configs
+                .insert(netif_2.clone())
+                .unwrap_err()
+                .to_string(),
+            expected_error
+        );
+        assert_eq!(netif_configs.if_list.len(), 1);
 
-        // Try to update with an unavailable name.
-        other_netif_body.host_dev_name = String::from("baz");
-        assert!(netif_configs.insert(other_netif_body.clone()).is_err());
-        assert_eq!(netif_configs.if_list.len(), 2);
+        // Adding the second valid network config.
+        let netif_2 = create_netif(id_2, host_dev_name_2, guest_mac_2);
+        assert!(netif_configs.insert(netif_2.clone()).is_ok());
 
-        // Try to update with an unavailable MAC.
-        other_netif_body.guest_mac = Some(mac2);
-        assert!(netif_configs.insert(other_netif_body).is_err());
-        assert_eq!(netif_configs.if_list.len(), 2);
+        // Error Cases for UPDATE
+        // Error Case: Update netif_2 mac using the same mac as netif_1.
+        let netif_2 = create_netif(id_2, host_dev_name_2, guest_mac_1);
+        let expected_error = format!(
+            "The guest MAC address {} is already in use.",
+            guest_mac_1.to_string()
+        );
+        assert_eq!(
+            netif_configs
+                .insert(netif_2.clone())
+                .unwrap_err()
+                .to_string(),
+            expected_error
+        );
+
+        // Error Case: Update netif_2 dev_host_name using the same dev_host_name as netif_1.
+        let netif_2 = create_netif(id_2, host_dev_name_1, guest_mac_2);
+        let expected_error = format!(
+            "The host device name {} is already in use.",
+            netif_2.host_dev_name
+        );
+        assert_eq!(
+            netif_configs
+                .insert(netif_2.clone())
+                .unwrap_err()
+                .to_string(),
+            expected_error
+        );
     }
 }

@@ -63,7 +63,7 @@ use vm_control::VmResponse;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
 use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel};
-use vmm_config::net::{NetworkInterfaceBody, NetworkInterfaceError};
+use vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceError};
 use vmm_config::*;
 use vstate::{Vcpu, Vm};
 
@@ -166,7 +166,7 @@ pub enum VmmAction {
     ConfigureLogger(LoggerConfig, OutcomeSender),
     GetVmConfiguration(OutcomeSender),
     InsertBlockDevice(BlockDeviceConfig, OutcomeSender),
-    InsertNetworkDevice(NetworkInterfaceBody, OutcomeSender),
+    InsertNetworkDevice(NetworkInterfaceConfig, OutcomeSender),
     RescanBlockDevice(String, OutcomeSender),
     SetVmConfiguration(VmConfig, OutcomeSender),
     StartMicroVm(OutcomeSender),
@@ -1282,7 +1282,7 @@ impl Vmm {
 
     fn insert_net_device(
         &mut self,
-        body: NetworkInterfaceBody,
+        body: NetworkInterfaceConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
         if self.is_instance_initialized() {
             return Err(VmmActionError::NetworkConfig(
@@ -1830,7 +1830,7 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
 
         // test create network interface
-        let network_interface = NetworkInterfaceBody {
+        let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
             state: DeviceState::Attached,
             host_dev_name: String::from("hostname"),
@@ -1838,12 +1838,13 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            tap: None,
         };
         assert!(vmm.insert_net_device(network_interface).is_ok());
 
         let mac = MacAddr::parse_str("01:23:45:67:89:0A").unwrap();
         // test update network interface
-        let network_interface = NetworkInterfaceBody {
+        let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
             state: DeviceState::Attached,
             host_dev_name: String::from("hostname2"),
@@ -1851,11 +1852,12 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            tap: None,
         };
         assert!(vmm.insert_net_device(network_interface).is_ok());
 
         // Test insert new net device with same mac fails.
-        let network_interface = NetworkInterfaceBody {
+        let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif2"),
             state: DeviceState::Attached,
             host_dev_name: String::from("hostname3"),
@@ -1863,12 +1865,13 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            tap: None,
         };
         assert!(vmm.insert_net_device(network_interface).is_err());
 
         // Test that update post-boot fails.
         vmm.set_instance_state(InstanceState::Running);
-        let network_interface = NetworkInterfaceBody {
+        let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
             state: DeviceState::Attached,
             host_dev_name: String::from("hostname2"),
@@ -1876,6 +1879,7 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            tap: None,
         };
         assert!(vmm.insert_net_device(network_interface).is_err());
     }
@@ -2282,7 +2286,7 @@ mod tests {
             MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
         // test create network interface
-        let network_interface = NetworkInterfaceBody {
+        let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
             state: DeviceState::Attached,
             host_dev_name: String::from("hostname3"),
@@ -2290,6 +2294,7 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            tap: None,
         };
 
         assert!(vmm.insert_net_device(network_interface).is_ok());
