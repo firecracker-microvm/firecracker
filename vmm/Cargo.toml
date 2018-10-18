@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
+chrono = ">=0.4"
 libc = ">=0.2.39"
 epoll = "=2.1.0"
 futures = ">=0.1.18"
@@ -15,6 +16,7 @@ timerfd = ">=1.0"
 
 data_model = { path = "../data_model" }
 devices = { path = "../devices" }
+fc_util = { path = "../fc_util" }
 kernel = { path = "../kernel" }
 kvm = { path = "../kvm" }
 logger = { path = "../logger" }
