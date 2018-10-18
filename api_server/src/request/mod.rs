@@ -234,6 +234,11 @@ mod tests {
             NetworkInterfaceError::UpdateNotAllowedPostBoot,
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::NetworkConfig(
+            ErrorKind::User,
+            NetworkInterfaceError::HostDeviceNameInUse(String::from("tap_name")),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
 
         // Tests for MicrovmStart Errors.
         // RegisterBlockDevice, RegisterNetDevice, and LegacyIOBus cannot be tested because the
