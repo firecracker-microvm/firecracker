@@ -4,7 +4,7 @@ info:
   description: RESTful public-facing API.
                The API is accessible through HTTP calls on specific URLs carrying JSON modeled data.
                The transport medium is a Unix Domain Socket.
-  version: 0.9.0
+  version: 0.10.0
   termsOfService: ""
   contact:
     email: "compute-capsule@amazon.com"
