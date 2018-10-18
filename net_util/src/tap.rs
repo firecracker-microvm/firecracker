@@ -40,6 +40,12 @@ pub struct Tap {
     if_name: [u8; 16usize],
 }
 
+impl PartialEq for Tap {
+    fn eq(&self, other: &Tap) -> bool {
+        return self.if_name == other.if_name;
+    }
+}
+
 // Returns a byte vector representing the contents of a null terminated C string which
 // contains if_name.
 fn build_terminated_if_name(if_name: &str) -> Result<Vec<u8>> {

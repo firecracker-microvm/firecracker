@@ -4,10 +4,10 @@ use futures::sync::oneshot;
 use hyper::Method;
 
 use request::{IntoParsedRequest, ParsedRequest};
-use vmm::vmm_config::net::NetworkInterfaceBody;
+use vmm::vmm_config::net::NetworkInterfaceConfig;
 use vmm::VmmAction;
 
-impl IntoParsedRequest for NetworkInterfaceBody {
+impl IntoParsedRequest for NetworkInterfaceConfig {
     fn into_parsed_request(
         self,
         id_from_path: Option<String>,
@@ -40,31 +40,53 @@ mod tests {
     use data_model::vm::RateLimiterDescription;
     use vmm::vmm_config::DeviceState;
 
-    #[test]
-    fn test_netif_into_parsed_request() {
-        let netif = NetworkInterfaceBody {
-            iface_id: String::from("foo"),
+    fn get_dummy_netif(
+        iface_id: String,
+        host_dev_name: String,
+        mac: &str,
+    ) -> NetworkInterfaceConfig {
+        NetworkInterfaceConfig {
+            iface_id,
             state: DeviceState::Attached,
-            host_dev_name: String::from("bar"),
-            guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
+            host_dev_name,
+            guest_mac: Some(MacAddr::parse_str(mac).unwrap()),
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
-        };
+            tap: None,
+        }
+    }
 
+    #[test]
+    fn test_netif_into_parsed_request() {
+        let netif = get_dummy_netif(
+            String::from("foo"),
+            String::from("bar"),
+            "12:34:56:78:9A:BC",
+        );
         assert!(
             netif
-                .clone()
                 .into_parsed_request(Some(String::from("bar")), Method::Put)
                 .is_err()
         );
+
         let (sender, receiver) = oneshot::channel();
+        let netif = get_dummy_netif(
+            String::from("foo"),
+            String::from("bar"),
+            "12:34:56:78:9A:BC",
+        );
+        // NetworkInterfaceConfig does not implement clone, let's create the same object again.
+        let netif_clone = get_dummy_netif(
+            String::from("foo"),
+            String::from("bar"),
+            "12:34:56:78:9A:BC",
+        );
         assert!(
             netif
-                .clone()
                 .into_parsed_request(Some(String::from("foo")), Method::Put)
                 .eq(&Ok(ParsedRequest::Sync(
-                    VmmAction::InsertNetworkDevice(netif, sender),
+                    VmmAction::InsertNetworkDevice(netif_clone, sender),
                     receiver
                 )))
         );
@@ -72,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_network_interface_body_serialization_and_deserialization() {
-        let netif = NetworkInterfaceBody {
+        let netif = NetworkInterfaceConfig {
             iface_id: String::from("foo"),
             state: DeviceState::Attached,
             host_dev_name: String::from("bar"),
@@ -80,6 +102,7 @@ mod tests {
             rx_rate_limiter: Some(RateLimiterDescription::default()),
             tx_rate_limiter: Some(RateLimiterDescription::default()),
             allow_mmds_requests: true,
+            tap: None,
         };
 
         // This is the json encoding of the netif variable.
@@ -109,6 +132,6 @@ mod tests {
             "state": "Attached"
         }"#;
 
-        assert!(serde_json::from_str::<NetworkInterfaceBody>(jstr_no_mac).is_ok())
+        assert!(serde_json::from_str::<NetworkInterfaceConfig>(jstr_no_mac).is_ok())
     }
 }

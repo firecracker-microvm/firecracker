@@ -20,7 +20,7 @@ use sys_util::EventFd;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::logger::LoggerConfig;
-use vmm::vmm_config::net::NetworkInterfaceBody;
+use vmm::vmm_config::net::NetworkInterfaceConfig;
 use vmm::VmmAction;
 
 fn build_response_base<B: Into<hyper::Body>>(
@@ -297,7 +297,7 @@ fn parse_netif_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a
         1 if method == Method::Put => {
             METRICS.put_api_requests.network_count.inc();
 
-            Ok(serde_json::from_slice::<NetworkInterfaceBody>(body)
+            Ok(serde_json::from_slice::<NetworkInterfaceConfig>(body)
                 .map_err(|e| {
                     METRICS.put_api_requests.network_fails.inc();
                     Error::SerdeJson(e)
@@ -1038,7 +1038,7 @@ mod tests {
         let body: Chunk = Chunk::from(json);
 
         // PUT
-        let netif = NetworkInterfaceBody {
+        let netif = NetworkInterfaceConfig {
             iface_id: net_id.clone(),
             state: DeviceState::Attached,
             host_dev_name: String::from("foo"),
@@ -1046,6 +1046,7 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            tap: None,
         };
 
         match netif.into_parsed_request(Some(net_id), Method::Put) {
