@@ -1,13 +1,11 @@
 # Changelog
 
-## Unreleased
+## [0.10.0]
 
 ### Added
 
 - Each Firecracker process has an associated microVM Metadata Store (MMDS). Its
   contents can be configured using the `/mmds` API resource.
-- New firecracker command line argument (--id), allowing the user to specify a
-  microVM ID.
 
 ### Changed
 
@@ -20,6 +18,13 @@
 - CPUID brand string (aka model name) now includes the host CPU frequency.
 - API requests which add guest network interfaces have an additional parameter,
   `allow_mmds_requests` which defaults to `false`.
+- Stopping the guest (e.g. using the `reboot` command) also terminates the
+  Firecracker process. When the Firecracker process ends for any reason,
+  (other than `kill -9`), metrics are flushed at the very end.
+- On startup `jailer` closes all inherited file descriptors based on
+  `sysconf(_SC_OPEN_MAX)` except input, output and error.
+- The microVM ID prefixes each Firecracker log line. This ID also appears
+  in the process `cmdline` so it's now possible to `ps | grep <ID>` for it.
 
 ## [0.9.0]
 
