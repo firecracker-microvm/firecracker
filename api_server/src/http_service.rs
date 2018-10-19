@@ -112,8 +112,8 @@ fn parse_actions_req<'a>(
     method: Method,
     body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
-    match path_tokens[1..].len() {
-        0 if method == Method::Put => {
+    match path_tokens.len() {
+        1 if method == Method::Put => {
             METRICS.put_api_requests.actions_count.inc();
             Ok(serde_json::from_slice::<ActionBody>(body.as_ref())
                 .map_err(|e| {
@@ -124,23 +124,6 @@ fn parse_actions_req<'a>(
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::Generic(StatusCode::BadRequest, msg)
                 })?)
-        }
-
-        1 if method == Method::Put => {
-            METRICS.put_api_requests.actions_count.inc();
-
-            let body: ActionBody = serde_json::from_slice(body.as_ref()).map_err(|e| {
-                METRICS.put_api_requests.actions_fails.inc();
-                Error::SerdeJson(e)
-            })?;
-            let parsed_req = body
-                .clone()
-                .into_parsed_request(None, method)
-                .map_err(|msg| {
-                    METRICS.put_api_requests.actions_fails.inc();
-                    Error::Generic(StatusCode::BadRequest, msg)
-                })?;
-            Ok(parsed_req)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -583,6 +566,7 @@ mod tests {
 
     use serde_json::{Map, Value};
     use std::path::PathBuf;
+    use std::result;
 
     use data_model::vm::CpuFeaturesTemplate;
     use futures::sync::oneshot;
@@ -590,6 +574,25 @@ mod tests {
     use hyper::Body;
     use vmm::vmm_config::DeviceState;
     use vmm::VmmAction;
+
+    impl<'a> PartialEq for Error<'a> {
+        fn eq(&self, other: &Error<'a>) -> bool {
+            use super::Error::*;
+
+            match (self, other) {
+                (Generic(sts, err), Generic(other_sts, other_err)) => {
+                    sts == other_sts && err == other_err
+                }
+                (InvalidID, InvalidID) => true,
+                (InvalidPathMethod(path, method), InvalidPathMethod(other_path, other_method)) => {
+                    path == other_path && method == other_method
+                }
+                // Serde Errors do not implement PartialEq.
+                (SerdeJson(_), SerdeJson(_)) => true,
+                _ => false,
+            }
+        }
+    }
 
     fn body_to_string(body: hyper::Body) -> String {
         let ret = body
@@ -700,7 +703,6 @@ mod tests {
         match res {
             Ok(_) => {}
             Err(e) => {
-                println!("{:?}", &e);
                 response = Error::SerdeJson(e).into();
                 assert_eq!(response.status(), StatusCode::BadRequest);
                 assert_eq!(
@@ -758,29 +760,63 @@ mod tests {
 
         // Error cases
 
-        let path = "/foo/bar";
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-
-        // PUT action with invalid body
-        assert!(parse_actions_req(&path_tokens, &path, Method::Put, &Chunk::from("foo"),).is_err());
-
+        // Test PUT with invalid path.
+        let path = "/foo/bar/baz";
+        let expected_err = Error::InvalidPathMethod(path, Method::Put);
         assert!(
             parse_actions_req(
-                &"/foo/bar/baz"[1..].split_terminator('/').collect(),
-                &"/foo/bar/baz",
+                &path[1..].split_terminator('/').collect(),
+                &path,
                 Method::Put,
                 &Chunk::from("foo"),
-            ).is_err()
+            ) == Err(expected_err)
         );
 
-        // Test PUT with invalid action body.
+        // Test PUT with invalid action body (serde erorr).
+        let actions_path = "/actions";
+        // Fake a serde json error so we can use it to test that the error returned from
+        // parse_actions_req comes from serde.
+        let serde_json_err: result::Result<serde_json::Value, serde_json::Error> =
+            serde_json::from_str("{");
+        let serde_json_err: serde_json::Error = serde_json_err.unwrap_err();
         assert!(
             parse_actions_req(
-                &"/foo".split_terminator('/').collect(),
-                &"/foo",
+                &actions_path[1..].split_terminator('/').collect(),
+                &actions_path,
                 Method::Put,
-                &Chunk::from("{\"action_type\": \"foo\"}"),
-            ).is_err()
+                &Chunk::from("foo"),
+            ) == Err(Error::SerdeJson(serde_json_err))
+        );
+
+        // Test PUT BadRequest due to invalid payload.
+        let expected_err = Error::Generic(
+            StatusCode::BadRequest,
+            "InstanceStart does not support a payload.".to_string(),
+        );
+        let body = r#"{
+            "action_type": "InstanceStart",
+            "payload": {
+                "foo": "bar"
+            }
+        }"#;
+        assert!(
+            parse_actions_req(
+                &actions_path[1..].split_terminator('/').collect(),
+                &actions_path,
+                Method::Put,
+                &Chunk::from(body)
+            ) == Err(expected_err)
+        );
+
+        // Test invalid method.
+        let expected_err = Error::InvalidPathMethod(actions_path, Method::Post);
+        assert!(
+            parse_actions_req(
+                &actions_path.split_terminator('/').collect(),
+                &actions_path,
+                Method::Post,
+                &Chunk::from("{\"action_type\": \"InstanceStart\"}")
+            ) == Err(expected_err)
         );
     }
 
