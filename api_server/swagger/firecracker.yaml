@@ -308,9 +308,9 @@ definitions:
     description:
       Boot source descriptor.
     properties:
-    kernel_image_path:
-            type: string
-            description: Host level path to the kernel image used to boot the guest
+      kernel_image_path:
+        type: string
+        description: Host level path to the kernel image used to boot the guest
       boot_args:
         type: string
         description: Kernel boot arguments
