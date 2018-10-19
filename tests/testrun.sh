@@ -50,6 +50,7 @@ declare -ra PYTHON_DEPS=( \
      retry \
      nsenter \
      pylint pycodestyle pydocstyle \
+     pyyaml \
 )
 
 declare -r RUSTUP_URL=https://sh.rustup.rs

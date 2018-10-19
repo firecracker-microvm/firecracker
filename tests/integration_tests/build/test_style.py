@@ -2,7 +2,10 @@
 
 from subprocess import run, PIPE
 
+import os
+
 import pytest
+import yaml
 
 
 SUCCESS_CODE = 0
@@ -76,3 +79,16 @@ def test_python_style():
         shell=True,
         check=True
     )
+
+
+def test_yaml_style():
+    """Fail if our swagger specification is malformed."""
+    yaml_spec = os.path.normpath(
+         os.path.join(os.getcwd(), '../api_server/swagger/firecracker.yaml')
+     )
+    with open(yaml_spec, 'r') as file_stream:
+        try:
+            yaml.safe_load(file_stream)
+        # pylint: disable=broad-except
+        except Exception as exception:
+            print(str(exception))
