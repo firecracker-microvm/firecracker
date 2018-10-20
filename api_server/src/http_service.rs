@@ -137,8 +137,6 @@ fn parse_boot_source_req<'a>(
     body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
-        0 if method == Method::Get => Ok(ParsedRequest::Dummy),
-
         0 if method == Method::Put => {
             METRICS.put_api_requests.boot_source_count.inc();
             Ok(serde_json::from_slice::<BootSourceConfig>(body)
@@ -604,6 +602,14 @@ mod tests {
         String::from_utf8_lossy(&ret.wait().unwrap()).into()
     }
 
+    fn get_dummy_serde_error() -> serde_json::Error {
+        // Returns a dummy serde error. This is used for testing that the errors returned
+        // by parsing requests are SerdeJson(SerdeError(..)).
+        let serde_json_err: result::Result<serde_json::Value, serde_json::Error> =
+            serde_json::from_str("{");
+        serde_json_err.unwrap_err()
+    }
+
     #[derive(Serialize, Deserialize)]
     struct Foo {
         bar: u32,
@@ -774,18 +780,13 @@ mod tests {
 
         // Test PUT with invalid action body (serde erorr).
         let actions_path = "/actions";
-        // Fake a serde json error so we can use it to test that the error returned from
-        // parse_actions_req comes from serde.
-        let serde_json_err: result::Result<serde_json::Value, serde_json::Error> =
-            serde_json::from_str("{");
-        let serde_json_err: serde_json::Error = serde_json_err.unwrap_err();
         assert!(
             parse_actions_req(
                 &actions_path[1..].split_terminator('/').collect(),
                 &actions_path,
                 Method::Put,
                 &Chunk::from("foo"),
-            ) == Err(Error::SerdeJson(serde_json_err))
+            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Test PUT BadRequest due to invalid payload.
@@ -822,53 +823,62 @@ mod tests {
 
     #[test]
     fn test_parse_boot_source_req() {
-        let path = "/foo";
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-        let json = r#"{
+        let boot_source_path = "/boot-source";
+        let path_tokens: Vec<&str> = boot_source_path[1..].split_terminator('/').collect();
+        let boot_source_json = r#"{
                 "kernel_image_path": "/foo/bar",
                 "boot_args": "baz"
               }"#;
-        let body: Chunk = Chunk::from(json);
-
-        // GET
-        match parse_boot_source_req(&path_tokens, &path, Method::Get, &body) {
-            Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false),
-        }
+        let body: Chunk = Chunk::from(boot_source_json);
 
         // PUT
         // Falling back to json deserialization for constructing the "correct" request because not
         // all of BootSourceBody's members are accessible. Rather than making them all public just
         // for the purpose of unit tests, it's preferable to trust the deserialization.
-        let res_bsb = serde_json::from_slice::<BootSourceConfig>(&body);
-        match res_bsb {
-            Ok(boot_source_body) => {
-                match parse_boot_source_req(&path_tokens, &path, Method::Put, &body) {
-                    Ok(pr) => {
-                        let (sender, receiver) = oneshot::channel();
-                        assert!(pr.eq(&ParsedRequest::Sync(
-                            VmmAction::ConfigureBootSource(boot_source_body, sender),
-                            receiver,
-                        )));
-                    }
-                    _ => assert!(false),
-                }
+        let boot_source_cfg = serde_json::from_slice::<BootSourceConfig>(&body).unwrap();
+        match parse_boot_source_req(&path_tokens, &boot_source_path, Method::Put, &body) {
+            Ok(pr) => {
+                let (sender, receiver) = oneshot::channel();
+                assert!(pr.eq(&ParsedRequest::Sync(
+                    VmmAction::ConfigureBootSource(boot_source_cfg, sender),
+                    receiver,
+                )));
             }
             _ => assert!(false),
         }
 
         // Error cases
-        assert!(
-            parse_boot_source_req(&path_tokens, &path, Method::Put, &Chunk::from("foo")).is_err()
-        );
-
+        // Test case for invalid path.
+        let dummy_path = "/boot-source/dummy";
+        let expected_err = Error::InvalidPathMethod(dummy_path, Method::Put);
         assert!(
             parse_boot_source_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
+                &dummy_path.split_terminator('/').collect(),
+                &dummy_path,
                 Method::Put,
-                &Chunk::from("foo")
-            ).is_err()
+                &Chunk::from(boot_source_json)
+            ) == Err(expected_err)
+        );
+
+        // Test case for invalid method (GET).
+        let expected_err = Error::InvalidPathMethod(boot_source_path, Method::Get);
+        assert!(
+            parse_boot_source_req(
+                &path_tokens,
+                &boot_source_path,
+                Method::Get,
+                &Chunk::from("{}")
+            ) == Err(expected_err)
+        );
+
+        // Test case for invalid body (serde  error).
+        assert!(
+            parse_boot_source_req(
+                &path_tokens,
+                &boot_source_path,
+                Method::Put,
+                &Chunk::from("foo"),
+            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
     }
 
@@ -1337,7 +1347,6 @@ mod tests {
             "/machine-config",
             "/network-interfaces",
         ] {
-            assert!(parse_request(Method::Get, path, &body).is_ok());
             for method in &all_methods {
                 if *method != Method::Get && *method != Method::Put {
                     assert!(parse_request(method.clone(), path, &body).is_err());
