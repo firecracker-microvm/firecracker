@@ -296,10 +296,6 @@ fn parse_netif_req<'a>(
     body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
-        0 if method == Method::Get => Ok(ParsedRequest::Dummy),
-
-        1 if method == Method::Get => Ok(ParsedRequest::Dummy),
-
         1 if method == Method::Put => {
             let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
             METRICS.put_api_requests.network_count.inc();
@@ -1146,37 +1142,21 @@ mod tests {
 
     #[test]
     fn test_parse_netif_req() {
-        let path = "/foo/bar";
+        let path = "/network-interfaces/id_1";
         let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
         let id_from_path = Some(path_tokens[1]);
+        let net_id = String::from("id_1");
         let json = "{
-                \"iface_id\": \"bar\",
+                \"iface_id\": \"id_1\",
                 \"state\": \"Attached\",
                 \"host_dev_name\": \"foo\",
                 \"guest_mac\": \"12:34:56:78:9a:BC\"
               }";
         let body: Chunk = Chunk::from(json);
 
-        // GET
-        match parse_netif_req(
-            &"/foo"[1..].split_terminator('/').collect(),
-            &"/foo",
-            Method::Get,
-            &None,
-            &body,
-        ) {
-            Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false),
-        }
-
-        match parse_netif_req(&path_tokens, &path, Method::Get, &id_from_path, &body) {
-            Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false),
-        }
-
         // PUT
         let netif = NetworkInterfaceBody {
-            iface_id: String::from("bar"),
+            iface_id: net_id.clone(),
             state: DeviceState::Attached,
             host_dev_name: String::from("foo"),
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9a:BC").unwrap()),
@@ -1185,14 +1165,9 @@ mod tests {
             allow_mmds_requests: false,
         };
 
-        match netif.into_parsed_request(Some(String::from("bar")), Method::Put) {
-            Ok(pr) => match parse_netif_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
-                Method::Put,
-                &Some("bar"),
-                &body,
-            ) {
+        match netif.into_parsed_request(Some(net_id), Method::Put) {
+            Ok(pr) => match parse_netif_req(&path_tokens, &path, Method::Put, &id_from_path, &body)
+            {
                 Ok(pr_netif) => assert!(pr.eq(&pr_netif)),
                 _ => assert!(false),
             },
@@ -1200,45 +1175,32 @@ mod tests {
         }
 
         // Error cases
-        assert!(
-            parse_netif_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
-                Method::Put,
-                &Some("barr"),
-                &body
-            ).is_err()
-        );
+        // Error Case: The id from the path does not match the id from the body.
+        let expected_err = Err(Error::Generic(
+            StatusCode::BadRequest,
+            String::from("The id from the path does not match the id from the body!"),
+        ));
 
         assert!(
+            parse_netif_req(&path_tokens, &path, Method::Put, &Some("barr"), &body) == expected_err
+        );
+
+        // Error Case: Invalid payload (cannot deserialize the body into a NetworkInterfaceBody object).
+        assert!(
             parse_netif_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
+                &path_tokens,
+                &path,
                 Method::Put,
-                &Some("bar"),
+                &id_from_path,
                 &Chunk::from("foo bar")
-            ).is_err()
+            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
+        // Error Case: Invalid Path.
         assert!(
-            parse_netif_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
-                Method::Put,
-                &Some("bar"),
-                &Chunk::from("{\"foo\": \"bar\"}")
-            ).is_err()
-        );
-
-        assert!(
-            parse_netif_req(
-                &"/foo"[1..].split_terminator('/').collect(),
-                &"/foo",
-                Method::Put,
-                &None,
-                &body
-            ).is_err()
-        );
+            parse_netif_req(&path_tokens, &path, Method::Patch, &id_from_path, &body,)
+                == Err(Error::InvalidPathMethod(path, Method::Patch))
+        )
     }
 
     #[test]
