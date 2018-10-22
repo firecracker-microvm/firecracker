@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.1]
+
+### Fixed
+
+- The Swagger definition was corrected.
+
 ## [0.10.0]
 
 ### Added
