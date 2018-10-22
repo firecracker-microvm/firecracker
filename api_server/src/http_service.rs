@@ -231,8 +231,6 @@ fn parse_logger_req<'a>(
     body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
-        0 if method == Method::Get => Ok(ParsedRequest::Dummy),
-
         0 if method == Method::Put => {
             METRICS.put_api_requests.logger_count.inc();
             Ok(serde_json::from_slice::<LoggerConfig>(body)
@@ -1035,8 +1033,8 @@ mod tests {
 
     #[test]
     fn test_parse_logger_source_req() {
-        let path = "/foo";
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+        let logger_path = "/logger";
+        let logger_path_tokens: Vec<&str> = logger_path[1..].split_terminator('/').collect();
         let json = "{
                 \"log_fifo\": \"tmp1\",
                 \"metrics_fifo\": \"tmp2\",
@@ -1044,22 +1042,16 @@ mod tests {
                 \"show_level\": true,
                 \"show_log_origin\": true
               }";
-        let body: Chunk = Chunk::from(json);
-
-        // GET
-        match parse_logger_req(&path_tokens, &path, Method::Get, &body) {
-            Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false),
-        }
+        let logger_body: Chunk = Chunk::from(json);
 
         // PUT
-        let logger_body =
-            serde_json::from_slice::<LoggerConfig>(&body).expect("deserialization failed");
-        match parse_logger_req(&path_tokens, &path, Method::Put, &body) {
+        let logger_config =
+            serde_json::from_slice::<LoggerConfig>(&logger_body).expect("deserialization failed");
+        match parse_logger_req(&logger_path_tokens, &logger_path, Method::Put, &logger_body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
-                    VmmAction::ConfigureLogger(logger_body, sender),
+                    VmmAction::ConfigureLogger(logger_config, sender),
                     receiver,
                 )));
             }
@@ -1067,15 +1059,25 @@ mod tests {
         }
 
         // Error cases
-        assert!(parse_logger_req(&path_tokens, &path, Method::Put, &Chunk::from("foo")).is_err());
+        // Error Case: Serde Deserialization fails due to invalid payload.
+        assert!(
+            parse_logger_req(
+                &logger_path_tokens,
+                logger_path,
+                Method::Put,
+                &Chunk::from("foo")
+            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
+        );
 
+        // Error Case: Invalid path.
+        let expected_err = Err(Error::InvalidPathMethod("/foo/bar", Method::Put));
         assert!(
             parse_logger_req(
                 &"/foo/bar"[1..].split_terminator('/').collect(),
                 &"/foo/bar",
                 Method::Put,
                 &Chunk::from("foo")
-            ).is_err()
+            ) == expected_err
         );
     }
 
