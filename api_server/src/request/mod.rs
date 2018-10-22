@@ -69,12 +69,6 @@ impl GenerateHyperResponse for VmmActionError {
     }
 }
 
-impl GenerateHyperResponse for () {
-    fn generate_response(&self) -> hyper::Response {
-        empty_response(StatusCode::NoContent)
-    }
-}
-
 #[cfg(test)]
 impl PartialEq for ParsedRequest {
     fn eq(&self, other: &ParsedRequest) -> bool {
