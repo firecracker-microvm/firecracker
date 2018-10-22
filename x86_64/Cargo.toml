@@ -11,3 +11,6 @@ kvm_sys = { path = "../kvm_sys" }
 kvm = { path = "../kvm" }
 memory_model = { path = "../memory_model" }
 sys_util = { path = "../sys_util" }
+
+[dev-dependencies]
+rand = ">=0.5.5"
