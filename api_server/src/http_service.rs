@@ -1083,7 +1083,7 @@ mod tests {
 
     #[test]
     fn test_parse_machine_config_req() {
-        let path = "/foo";
+        let path = "/machine-config";
         let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
         let json = "{
                 \"vcpu_count\": 42,
@@ -1096,13 +1096,16 @@ mod tests {
         // GET
         assert!(parse_machine_config_req(&path_tokens, &path, Method::Get, &body).is_ok());
 
+        // Error Cases
+        // Error Case: Invalid Path.
+        let expected_err = Err(Error::InvalidPathMethod("/foo/bar", Method::Get));
         assert!(
             parse_machine_config_req(
                 &"/foo/bar"[1..].split_terminator('/').collect(),
                 &"/foo/bar",
                 Method::Get,
                 &body
-            ).is_err()
+            ) == expected_err
         );
 
         // PUT
@@ -1124,31 +1127,20 @@ mod tests {
         }
 
         // Error cases
+        // Error Case: Invalid payload (cannot deserialize the body into a VmConfig object).
         assert!(
             parse_machine_config_req(&path_tokens, &path, Method::Put, &Chunk::from("foo bar"))
-                .is_err()
+                == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
+        // Error Case: Invalid payload (payload is empty).
+        let expected_err = Err(Error::Generic(
+            StatusCode::BadRequest,
+            String::from("Empty request."),
+        ));
         assert!(
-            parse_machine_config_req(
-                &path_tokens,
-                &path,
-                Method::Put,
-                &Chunk::from("{\"foo\": \"bar\"}")
-            ).is_err()
-        );
-
-        assert!(
-            parse_machine_config_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
-                Method::Put,
-                &Chunk::from("{\"foo\": \"bar\"")
-            ).is_err()
-        );
-
-        assert!(
-            parse_machine_config_req(&path_tokens, &path, Method::Put, &Chunk::from("{}")).is_err()
+            parse_machine_config_req(&path_tokens, &path, Method::Put, &Chunk::from("{}"))
+                == expected_err
         );
     }
 
