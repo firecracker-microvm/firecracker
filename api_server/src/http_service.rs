@@ -1247,17 +1247,24 @@ mod tests {
         // Test for invalid json on PUT
         let invalid_json = "\"latest\": {}}";
         let body = Chunk::from(invalid_json);
-        assert!(parse_mmds_request(&path_tokens, path, Method::Put, &body).is_err());
+        assert!(
+            parse_mmds_request(&path_tokens, path, Method::Put, &body)
+                == Err(Error::SerdeJson(get_dummy_serde_error()))
+        );
 
         // Test for invalid json on PATCH
         let invalid_json = "\"latest\": {}}";
         let body = Chunk::from(invalid_json);
-        assert!(parse_mmds_request(&path_tokens, path, Method::Patch, &body).is_err());
+        assert!(
+            parse_mmds_request(&path_tokens, path, Method::Patch, &body)
+                == Err(Error::SerdeJson(get_dummy_serde_error()))
+        );
 
         // Test for invalid path
         let path = "/mmds/something";
+        let expected_err = Err(Error::InvalidPathMethod(path, Method::Get));
         let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-        assert!(parse_mmds_request(&path_tokens, path, Method::Get, &body).is_err());
+        assert!(parse_mmds_request(&path_tokens, path, Method::Get, &body) == expected_err);
     }
 
     #[test]
