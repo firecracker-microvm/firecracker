@@ -442,8 +442,6 @@ impl hyper::server::Service for ApiServerHttpService {
             // When this will be executed, the body is available. We start by parsing the request.
             match parse_request(method, path.as_ref(), &b) {
                 Ok(parsed_req) => match parsed_req {
-                    // TODO: remove this when all actions are implemented.
-                    Dummy => Either::A(future::ok(json_response(StatusCode::Ok, "I'm a dummy."))),
                     GetInstanceInfo => {
                         METRICS.get_api_requests.instance_info_count.inc();
 

@@ -52,7 +52,7 @@ impl IntoParsedRequest for VmConfig {
                     receiver,
                 ))
             }
-            _ => Ok(ParsedRequest::Dummy),
+            _ => Err(String::from("Invalid method.")),
         }
     }
 }
@@ -95,7 +95,7 @@ mod tests {
             uninitialized
                 .clone()
                 .into_parsed_request(None, Method::Patch)
-                .eq(&Ok(ParsedRequest::Dummy))
+                .is_err()
         );
 
         match uninitialized.into_parsed_request(None, Method::Put) {
