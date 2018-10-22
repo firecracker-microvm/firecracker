@@ -119,7 +119,7 @@ impl IntoParsedRequest for BlockDeviceConfig {
                 VmmAction::InsertBlockDevice(self, sender),
                 receiver,
             )),
-            _ => Ok(ParsedRequest::Dummy),
+            _ => Err(String::from("Invalid method.")),
         }
     }
 }
@@ -247,7 +247,7 @@ mod tests {
             &desc
                 .clone()
                 .into_parsed_request(Some(String::from("foo")), Method::Options)
-                .eq(&Ok(ParsedRequest::Dummy))
+                .is_err()
         );
         let (sender, receiver) = oneshot::channel();
         assert!(

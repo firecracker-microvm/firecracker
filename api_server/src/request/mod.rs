@@ -15,7 +15,6 @@ use http_service::{empty_response, json_fault_message, json_response};
 use vmm::{ErrorKind, OutcomeReceiver, VmmAction, VmmActionError, VmmData};
 
 pub enum ParsedRequest {
-    Dummy,
     GetInstanceInfo,
     GetMMDS,
     PatchMMDS(Value),
@@ -84,7 +83,6 @@ impl PartialEq for ParsedRequest {
                 &ParsedRequest::Sync(ref sync_req, _),
                 &ParsedRequest::Sync(ref other_sync_req, _),
             ) => sync_req == other_sync_req,
-            (&ParsedRequest::Dummy, &ParsedRequest::Dummy) => true,
             (&ParsedRequest::GetInstanceInfo, &ParsedRequest::GetInstanceInfo) => true,
             (&ParsedRequest::GetMMDS, &ParsedRequest::GetMMDS) => true,
             (&ParsedRequest::PutMMDS(ref val), &ParsedRequest::PutMMDS(ref other_val)) => {
