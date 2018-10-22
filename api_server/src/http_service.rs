@@ -187,10 +187,6 @@ fn parse_drives_req<'a>(
     body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
     match path_tokens[1..].len() {
-        0 if method == Method::Get => Ok(ParsedRequest::Dummy),
-
-        1 if method == Method::Get => Ok(ParsedRequest::Dummy),
-
         1 if method == Method::Put => {
             let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
             METRICS.put_api_requests.drive_count.inc();
@@ -208,6 +204,7 @@ fn parse_drives_req<'a>(
         }
 
         1 if method == Method::Patch => {
+            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
             METRICS.patch_api_requests.drive_count.inc();
 
             Ok(PatchDrivePayload {
@@ -215,7 +212,7 @@ fn parse_drives_req<'a>(
                     METRICS.patch_api_requests.drive_fails.inc();
                     Error::SerdeJson(e)
                 })?,
-            }.into_parsed_request(None, method)
+            }.into_parsed_request(Some(unwrapped_id.to_string()), method)
             .map_err(|s| {
                 METRICS.patch_api_requests.drive_fails.inc();
                 Error::Generic(StatusCode::BadRequest, s)
@@ -884,37 +881,21 @@ mod tests {
 
     #[test]
     fn test_parse_drives_req() {
-        let path = "/foo/bar";
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-        let id_from_path = Some(path_tokens[1]);
+        let valid_drive_path = "/drives/id_1";
+        let valid_drive_path_tokens: Vec<&str> =
+            valid_drive_path[1..].split_terminator('/').collect();
+        let valid_drive_id = Some(valid_drive_path_tokens[1]);
         let json = "{
-                \"drive_id\": \"bar\",
+                \"drive_id\": \"id_1\",
                 \"path_on_host\": \"/foo/bar\",
                 \"is_root_device\": true,
                 \"is_read_only\": true
               }";
         let body: Chunk = Chunk::from(json);
 
-        // GET
-        match parse_drives_req(
-            &"/foo"[1..].split_terminator('/').collect(),
-            &"/foo",
-            Method::Get,
-            &None,
-            &body,
-        ) {
-            Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false),
-        }
-
-        match parse_drives_req(&path_tokens, &path, Method::Get, &id_from_path, &body) {
-            Ok(pr_dummy) => assert!(pr_dummy.eq(&ParsedRequest::Dummy)),
-            _ => assert!(false),
-        }
-
         // PUT
         let drive_desc = BlockDeviceConfig {
-            drive_id: String::from("bar"),
+            drive_id: String::from("id_1"),
             path_on_host: PathBuf::from(String::from("/foo/bar")),
             is_root_device: true,
             partuuid: None,
@@ -922,12 +903,12 @@ mod tests {
             rate_limiter: None,
         };
 
-        match drive_desc.into_parsed_request(Some(String::from("bar")), Method::Put) {
+        match drive_desc.into_parsed_request(Some(String::from("id_1")), Method::Put) {
             Ok(pr) => match parse_drives_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
+                &valid_drive_path_tokens,
+                &valid_drive_path,
                 Method::Put,
-                &Some("bar"),
+                &valid_drive_id,
                 &body,
             ) {
                 Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
@@ -936,6 +917,32 @@ mod tests {
             _ => assert!(false),
         }
 
+        // Error Cases
+        // Test Case for invalid payload (id from path does not match the id from the body).
+        let expected_error = Err(Error::Generic(
+            StatusCode::BadRequest,
+            String::from("The id from the path does not match the id from the body!"),
+        ));
+        let path = "/drives/invalid_id";
+        let path_tokens: Vec<&str> = valid_drive_path[1..].split_terminator('/').collect();
+        assert!(
+            parse_drives_req(&path_tokens, path, Method::Put, &Some("invalid_id"), &body)
+                == expected_error
+        );
+
+        // Serde Error: Payload does not serialize to BlockDeviceConfig struct.
+        assert!(
+            parse_drives_req(
+                &valid_drive_path_tokens,
+                &valid_drive_path,
+                Method::Put,
+                &valid_drive_id,
+                &Chunk::from("dummy_payload")
+            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
+        );
+
+        // Test Case for invalid path (path does not contain the id).
+        let expected_error = Error::InvalidPathMethod("/foo", Method::Put);
         assert!(
             parse_drives_req(
                 &"/foo"[1..].split_terminator('/').collect(),
@@ -943,17 +950,20 @@ mod tests {
                 Method::Put,
                 &None,
                 &body
-            ).is_err()
+            ) == Err(expected_error)
         );
 
         // PATCH
         let json = r#"{
-                "drive_id": "bar",
+                "drive_id": "id_1",
                 "path_on_host": "dummy"
               }"#;
-        let body: Chunk = Chunk::from(json);
+        let valid_body: Chunk = Chunk::from(json);
         let mut payload_map = Map::<String, Value>::new();
-        payload_map.insert(String::from("drive_id"), Value::String(String::from("bar")));
+        payload_map.insert(
+            String::from("drive_id"),
+            Value::String(String::from("id_1")),
+        );
         payload_map.insert(
             String::from("path_on_host"),
             Value::String(String::from("dummy")),
@@ -962,67 +972,55 @@ mod tests {
             fields: Value::Object(payload_map),
         };
 
-        match patch_payload.into_parsed_request(None, Method::Patch) {
-            Ok(pr) => {
-                match parse_drives_req(&path_tokens, &path, Method::Patch, &id_from_path, &body) {
-                    Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
-                    _ => assert!(false),
-                }
-            }
+        match patch_payload.into_parsed_request(Some("id_1".to_string()), Method::Patch) {
+            Ok(pr) => match parse_drives_req(
+                &valid_drive_path_tokens,
+                &valid_drive_path,
+                Method::Patch,
+                &valid_drive_id,
+                &valid_body,
+            ) {
+                Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
+                _ => assert!(false),
+            },
             _ => assert!(false),
         }
 
         // Test case where id from path is different.
+        let expected_error = Err(Error::Generic(
+            StatusCode::BadRequest,
+            String::from("The id from the path does not match the id from the body!"),
+        ));
+
         assert!(
             parse_drives_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
-                Method::Put,
+                &valid_drive_path_tokens,
+                &valid_drive_path,
+                Method::Patch,
                 &Some("barr"),
-                &body
-            ).is_err()
+                &valid_body
+            ) == expected_error
         );
 
-        // Test case where the id of the request body is different.
-        let json = "{
-                \"drive_id\": \"barr\",
-                \"path_on_host\": \"/foo/bar\",
-                \"is_root_device\": true,
-                \"is_read_only\": true
-              }";
-        let body: Chunk = Chunk::from(json);
+        // Serde Error: Payload is an invalid JSON object.
         assert!(
             parse_drives_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
-                Method::Put,
-                &Some("bar"),
-                &body
-            ).is_err()
+                &valid_drive_path_tokens,
+                &valid_drive_path,
+                Method::Patch,
+                &Some("id_1"),
+                &Chunk::from("{drive_id: 1234}")
+            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Deserializing to a BlockDeviceConfig should fail when mandatory fields are missing.
         let json = "{
-                \"drive_id\": \"bar\",
-                \"path_on_host\": \"/foo/bar\",
-                \"is_read_only\": true
+                \"drive_id\": \"bar\"
               }";
-        let body: Chunk = Chunk::from(json);
-        assert!(
-            parse_drives_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
-                Method::Put,
-                &Some("bar"),
-                &body
-            ).is_err()
-        );
-
-        // Test case where the PATCH payload is invalid.
-        let json = "{
-                \"drive_id\": \"bar\",
-                \"foo\"
-              }";
+        let expected_error = Err(Error::Generic(
+            StatusCode::BadRequest,
+            String::from("Required key path_on_host not present in the json."),
+        ));
         let body: Chunk = Chunk::from(json);
         assert!(
             parse_drives_req(
@@ -1031,7 +1029,7 @@ mod tests {
                 Method::Patch,
                 &Some("bar"),
                 &body
-            ).is_err()
+            ) == expected_error
         );
     }
 

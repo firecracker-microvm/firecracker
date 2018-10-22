@@ -74,7 +74,7 @@ impl PatchDrivePayload {
 impl IntoParsedRequest for PatchDrivePayload {
     fn into_parsed_request(
         self,
-        _: Option<String>,
+        id_from_path: Option<String>,
         method: Method,
     ) -> result::Result<ParsedRequest, String> {
         match method {
@@ -82,6 +82,13 @@ impl IntoParsedRequest for PatchDrivePayload {
                 self.validate()?;
                 let drive_id: String = self.get_string_field_unchecked("drive_id");
                 let path_on_host: String = self.get_string_field_unchecked("path_on_host");
+
+                let id_from_path = id_from_path.unwrap_or(String::new());
+                if id_from_path != drive_id {
+                    return Err(String::from(
+                        "The id from the path does not match the id from the body!",
+                    ));
+                }
 
                 let (sender, receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
@@ -211,7 +218,7 @@ mod tests {
 
         assert!(
             pdp.clone()
-                .into_parsed_request(None, Method::Patch)
+                .into_parsed_request(Some("foo".to_string()), Method::Patch)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::UpdateBlockDevicePath(
                         "foo".to_string(),
