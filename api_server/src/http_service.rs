@@ -67,7 +67,7 @@ enum Error<'a> {
     // A generic error, with a given status code and message to be turned into a fault message.
     Generic(StatusCode, String),
     // The resource ID is invalid.
-    InvalidID,
+    EmptyID,
     // The HTTP method & request path combination is not valid.
     InvalidPathMethod(&'a str, Method),
     // An error occurred when deserializing the json body of a request.
@@ -79,9 +79,10 @@ impl<'a> Into<hyper::Response> for Error<'a> {
     fn into(self) -> hyper::Response {
         match self {
             Error::Generic(status, msg) => json_response(status, json_fault_message(msg)),
-            Error::InvalidID => {
-                json_response(StatusCode::BadRequest, json_fault_message("Invalid ID"))
-            }
+            Error::EmptyID => json_response(
+                StatusCode::BadRequest,
+                json_fault_message("The ID cannot be empty."),
+            ),
             Error::InvalidPathMethod(path, method) => json_response(
                 StatusCode::BadRequest,
                 json_fault_message(format!(
@@ -98,20 +99,10 @@ impl<'a> Into<hyper::Response> for Error<'a> {
 
 type Result<'a, T> = result::Result<T, Error<'a>>;
 
-// This function is supposed to do id validation for requests.
-fn checked_id(id: &str) -> Result<&str> {
-    // todo: are there any checks we want to do on id's?
-    // not allow them to be empty strings maybe?
-    Ok(id)
-}
-
 // Turns a GET/PUT /actions HTTP request into a ParsedRequest
-fn parse_actions_req<'a>(
-    path_tokens: &Vec<&str>,
-    path: &'a str,
-    method: Method,
-    body: &Chunk,
-) -> Result<'a, ParsedRequest> {
+fn parse_actions_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a, ParsedRequest> {
+    let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+
     match path_tokens.len() {
         1 if method == Method::Put => {
             METRICS.put_api_requests.actions_count.inc();
@@ -129,13 +120,21 @@ fn parse_actions_req<'a>(
     }
 }
 
+// This function is supposed to do id validation for requests.
+fn checked_id(id: &str) -> Result<&str> {
+    // todo: are there any checks we want to do on id's?
+    // not allow them to be empty strings maybe?
+    Ok(id)
+}
+
 // Turns a GET/PUT /boot-source HTTP request into a ParsedRequest
 fn parse_boot_source_req<'a>(
-    path_tokens: &Vec<&str>,
     path: &'a str,
     method: Method,
     body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
+    let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+
     match path_tokens[1..].len() {
         0 if method == Method::Put => {
             METRICS.put_api_requests.boot_source_count.inc();
@@ -157,11 +156,12 @@ fn parse_boot_source_req<'a>(
 // This is a rather dummy method with the purpose of keeping the same code structure as before.
 // We will need to refactor this as some point.
 fn parse_mmds_request<'a>(
-    path_tokens: &Vec<&str>,
     path: &'a str,
     method: Method,
     body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
+    let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::GetMMDS),
         0 if method == Method::Put => {
@@ -179,16 +179,16 @@ fn parse_mmds_request<'a>(
 }
 
 // Turns a GET/PUT /drives HTTP request into a ParsedRequest
-fn parse_drives_req<'a>(
-    path_tokens: &Vec<&str>,
-    path: &'a str,
-    method: Method,
-    id_from_path: &Option<&str>,
-    body: &Chunk,
-) -> Result<'a, ParsedRequest> {
+fn parse_drives_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a, ParsedRequest> {
+    let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+    let id_from_path = if path_tokens.len() > 1 {
+        checked_id(path_tokens[1])?
+    } else {
+        return Err(Error::EmptyID);
+    };
+
     match path_tokens[1..].len() {
         1 if method == Method::Put => {
-            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
             METRICS.put_api_requests.drive_count.inc();
 
             let device_cfg = serde_json::from_slice::<BlockDeviceConfig>(body).map_err(|e| {
@@ -196,7 +196,7 @@ fn parse_drives_req<'a>(
                 Error::SerdeJson(e)
             })?;
             Ok(device_cfg
-                .into_parsed_request(Some(unwrapped_id.to_string()), method)
+                .into_parsed_request(Some(id_from_path.to_string()), method)
                 .map_err(|s| {
                     METRICS.put_api_requests.drive_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -204,7 +204,6 @@ fn parse_drives_req<'a>(
         }
 
         1 if method == Method::Patch => {
-            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
             METRICS.patch_api_requests.drive_count.inc();
 
             Ok(PatchDrivePayload {
@@ -212,7 +211,7 @@ fn parse_drives_req<'a>(
                     METRICS.patch_api_requests.drive_fails.inc();
                     Error::SerdeJson(e)
                 })?,
-            }.into_parsed_request(Some(unwrapped_id.to_string()), method)
+            }.into_parsed_request(Some(id_from_path.to_string()), method)
             .map_err(|s| {
                 METRICS.patch_api_requests.drive_fails.inc();
                 Error::Generic(StatusCode::BadRequest, s)
@@ -224,12 +223,9 @@ fn parse_drives_req<'a>(
 }
 
 // Turns a GET/PUT /logger HTTP request into a ParsedRequest
-fn parse_logger_req<'a>(
-    path_tokens: &Vec<&str>,
-    path: &'a str,
-    method: Method,
-    body: &Chunk,
-) -> Result<'a, ParsedRequest> {
+fn parse_logger_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a, ParsedRequest> {
+    let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+
     match path_tokens[1..].len() {
         0 if method == Method::Put => {
             METRICS.put_api_requests.logger_count.inc();
@@ -249,11 +245,12 @@ fn parse_logger_req<'a>(
 
 // Turns a GET/PUT /machine-config HTTP request into a ParsedRequest
 fn parse_machine_config_req<'a>(
-    path_tokens: &Vec<&str>,
     path: &'a str,
     method: Method,
     body: &Chunk,
 ) -> Result<'a, ParsedRequest> {
+    let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+
     match path_tokens[1..].len() {
         0 if method == Method::Get => {
             METRICS.get_api_requests.machine_cfg_count.inc();
@@ -288,23 +285,23 @@ fn parse_machine_config_req<'a>(
 }
 
 // Turns a GET/PUT /network-interfaces HTTP request into a ParsedRequest
-fn parse_netif_req<'a>(
-    path_tokens: &Vec<&str>,
-    path: &'a str,
-    method: Method,
-    id_from_path: &Option<&str>,
-    body: &Chunk,
-) -> Result<'a, ParsedRequest> {
+fn parse_netif_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a, ParsedRequest> {
+    let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+    let id_from_path = if path_tokens.len() > 1 {
+        checked_id(path_tokens[1])?
+    } else {
+        return Err(Error::EmptyID);
+    };
+
     match path_tokens[1..].len() {
         1 if method == Method::Put => {
-            let unwrapped_id = id_from_path.ok_or(Error::InvalidID)?;
             METRICS.put_api_requests.network_count.inc();
 
             Ok(serde_json::from_slice::<NetworkInterfaceBody>(body)
                 .map_err(|e| {
                     METRICS.put_api_requests.network_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(Some(unwrapped_id.to_string()), method)
+                })?.into_parsed_request(Some(id_from_path.to_string()), method)
                 .map_err(|s| {
                     METRICS.put_api_requests.network_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -343,14 +340,6 @@ fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, 
     // We use path[1..] here to skip the initial '/'.
     let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
 
-    // The unwraps on id_from_path in later code should not panic because they are only
-    // called when path_tokens.len() > 1.
-    let id_from_path = if path_tokens.len() > 1 {
-        Some(checked_id(path_tokens[1])?)
-    } else {
-        None
-    };
-
     if path_tokens.len() == 0 {
         if method == Method::Get {
             return Ok(ParsedRequest::GetInstanceInfo);
@@ -360,13 +349,13 @@ fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, 
     }
 
     match path_tokens[0] {
-        "actions" => parse_actions_req(&path_tokens, path, method, body),
-        "boot-source" => parse_boot_source_req(&path_tokens, path, method, body),
-        "drives" => parse_drives_req(&path_tokens, path, method, &id_from_path, body),
-        "logger" => parse_logger_req(&path_tokens, path, method, body),
-        "machine-config" => parse_machine_config_req(&path_tokens, path, method, body),
-        "network-interfaces" => parse_netif_req(&path_tokens, path, method, &id_from_path, body),
-        "mmds" => parse_mmds_request(&path_tokens, path, method, body),
+        "actions" => parse_actions_req(path, method, body),
+        "boot-source" => parse_boot_source_req(path, method, body),
+        "drives" => parse_drives_req(path, method, body),
+        "logger" => parse_logger_req(path, method, body),
+        "machine-config" => parse_machine_config_req(path, method, body),
+        "network-interfaces" => parse_netif_req(path, method, body),
+        "mmds" => parse_mmds_request(path, method, body),
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -570,7 +559,7 @@ mod tests {
                 (Generic(sts, err), Generic(other_sts, other_err)) => {
                     sts == other_sts && err == other_err
                 }
-                (InvalidID, InvalidID) => true,
+                (EmptyID, EmptyID) => true,
                 (InvalidPathMethod(path, method), InvalidPathMethod(other_path, other_method)) => {
                     path == other_path && method == other_method
                 }
@@ -672,8 +661,8 @@ mod tests {
         );
         assert_eq!(body_to_string(response.body()), err_message);
 
-        response = Error::InvalidID.into();
-        let json_err_val = "Invalid ID";
+        response = Error::EmptyID.into();
+        let json_err_val = "The ID cannot be empty.";
         let err_message = format!("{{\n  \"{}\": \"{}\"\n}}", &json_err_key, &json_err_val);
         assert_eq!(response.status(), StatusCode::BadRequest);
         assert_eq!(
@@ -721,9 +710,8 @@ mod tests {
               }";
         let body: Chunk = Chunk::from(json);
         let path = "/foo";
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
 
-        match parse_actions_req(&path_tokens, &path, Method::Put, &body) {
+        match parse_actions_req(path, Method::Put, &body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
@@ -741,8 +729,7 @@ mod tests {
               }"#;
         let body: Chunk = Chunk::from(json);
         let path = "/foo";
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-        match parse_actions_req(&path_tokens, &path, Method::Put, &body) {
+        match parse_actions_req(path, Method::Put, &body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
@@ -758,24 +745,13 @@ mod tests {
         // Test PUT with invalid path.
         let path = "/foo/bar/baz";
         let expected_err = Error::InvalidPathMethod(path, Method::Put);
-        assert!(
-            parse_actions_req(
-                &path[1..].split_terminator('/').collect(),
-                &path,
-                Method::Put,
-                &Chunk::from("foo"),
-            ) == Err(expected_err)
-        );
+        assert!(parse_actions_req(path, Method::Put, &Chunk::from("foo")) == Err(expected_err));
 
         // Test PUT with invalid action body (serde erorr).
         let actions_path = "/actions";
         assert!(
-            parse_actions_req(
-                &actions_path[1..].split_terminator('/').collect(),
-                &actions_path,
-                Method::Put,
-                &Chunk::from("foo"),
-            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
+            parse_actions_req(actions_path, Method::Put, &Chunk::from("foo"))
+                == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Test PUT BadRequest due to invalid payload.
@@ -790,20 +766,14 @@ mod tests {
             }
         }"#;
         assert!(
-            parse_actions_req(
-                &actions_path[1..].split_terminator('/').collect(),
-                &actions_path,
-                Method::Put,
-                &Chunk::from(body)
-            ) == Err(expected_err)
+            parse_actions_req(actions_path, Method::Put, &Chunk::from(body)) == Err(expected_err)
         );
 
         // Test invalid method.
         let expected_err = Error::InvalidPathMethod(actions_path, Method::Post);
         assert!(
             parse_actions_req(
-                &actions_path.split_terminator('/').collect(),
-                &actions_path,
+                actions_path,
                 Method::Post,
                 &Chunk::from("{\"action_type\": \"InstanceStart\"}")
             ) == Err(expected_err)
@@ -813,7 +783,6 @@ mod tests {
     #[test]
     fn test_parse_boot_source_req() {
         let boot_source_path = "/boot-source";
-        let path_tokens: Vec<&str> = boot_source_path[1..].split_terminator('/').collect();
         let boot_source_json = r#"{
                 "kernel_image_path": "/foo/bar",
                 "boot_args": "baz"
@@ -825,7 +794,7 @@ mod tests {
         // all of BootSourceBody's members are accessible. Rather than making them all public just
         // for the purpose of unit tests, it's preferable to trust the deserialization.
         let boot_source_cfg = serde_json::from_slice::<BootSourceConfig>(&body).unwrap();
-        match parse_boot_source_req(&path_tokens, &boot_source_path, Method::Put, &body) {
+        match parse_boot_source_req(boot_source_path, Method::Put, &body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
@@ -841,42 +810,27 @@ mod tests {
         let dummy_path = "/boot-source/dummy";
         let expected_err = Error::InvalidPathMethod(dummy_path, Method::Put);
         assert!(
-            parse_boot_source_req(
-                &dummy_path.split_terminator('/').collect(),
-                &dummy_path,
-                Method::Put,
-                &Chunk::from(boot_source_json)
-            ) == Err(expected_err)
+            parse_boot_source_req(dummy_path, Method::Put, &Chunk::from(boot_source_json))
+                == Err(expected_err)
         );
 
         // Test case for invalid method (GET).
         let expected_err = Error::InvalidPathMethod(boot_source_path, Method::Get);
         assert!(
-            parse_boot_source_req(
-                &path_tokens,
-                &boot_source_path,
-                Method::Get,
-                &Chunk::from("{}")
-            ) == Err(expected_err)
+            parse_boot_source_req(boot_source_path, Method::Get, &Chunk::from("{}"))
+                == Err(expected_err)
         );
 
         // Test case for invalid body (serde  error).
         assert!(
-            parse_boot_source_req(
-                &path_tokens,
-                &boot_source_path,
-                Method::Put,
-                &Chunk::from("foo"),
-            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
+            parse_boot_source_req(boot_source_path, Method::Put, &Chunk::from("foo"))
+                == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
     }
 
     #[test]
     fn test_parse_drives_req() {
         let valid_drive_path = "/drives/id_1";
-        let valid_drive_path_tokens: Vec<&str> =
-            valid_drive_path[1..].split_terminator('/').collect();
-        let valid_drive_id = Some(valid_drive_path_tokens[1]);
         let json = "{
                 \"drive_id\": \"id_1\",
                 \"path_on_host\": \"/foo/bar\",
@@ -896,13 +850,7 @@ mod tests {
         };
 
         match drive_desc.into_parsed_request(Some(String::from("id_1")), Method::Put) {
-            Ok(pr) => match parse_drives_req(
-                &valid_drive_path_tokens,
-                &valid_drive_path,
-                Method::Put,
-                &valid_drive_id,
-                &body,
-            ) {
+            Ok(pr) => match parse_drives_req(valid_drive_path, Method::Put, &body) {
                 Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
                 _ => assert!(false),
             },
@@ -916,34 +864,21 @@ mod tests {
             String::from("The id from the path does not match the id from the body!"),
         ));
         let path = "/drives/invalid_id";
-        let path_tokens: Vec<&str> = valid_drive_path[1..].split_terminator('/').collect();
-        assert!(
-            parse_drives_req(&path_tokens, path, Method::Put, &Some("invalid_id"), &body)
-                == expected_error
-        );
+        assert!(parse_drives_req(path, Method::Put, &body) == expected_error);
 
         // Serde Error: Payload does not serialize to BlockDeviceConfig struct.
         assert!(
-            parse_drives_req(
-                &valid_drive_path_tokens,
-                &valid_drive_path,
-                Method::Put,
-                &valid_drive_id,
-                &Chunk::from("dummy_payload")
-            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
+            parse_drives_req(valid_drive_path, Method::Put, &Chunk::from("dummy_payload"))
+                == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Test Case for invalid path (path does not contain the id).
-        let expected_error = Error::InvalidPathMethod("/foo", Method::Put);
-        assert!(
-            parse_drives_req(
-                &"/foo"[1..].split_terminator('/').collect(),
-                &"/foo",
-                Method::Put,
-                &None,
-                &body
-            ) == Err(expected_error)
-        );
+        assert!(parse_drives_req("/foo", Method::Put, &body) == Err(Error::EmptyID));
+
+        // Test Case for invalid path (more than 2 tokens in path).
+        let path = "/a/b/c";
+        let expected_error = Err(Error::InvalidPathMethod(path, Method::Put));
+        assert!(parse_drives_req(path, Method::Put, &body) == expected_error);
 
         // PATCH
         let json = r#"{
@@ -951,7 +886,7 @@ mod tests {
                 "path_on_host": "dummy"
               }"#;
         let valid_body: Chunk = Chunk::from(json);
-        let mut payload_map = Map::<String, Value>::new();
+        let mut payload_map = Map::new();
         payload_map.insert(
             String::from("drive_id"),
             Value::String(String::from("id_1")),
@@ -965,13 +900,7 @@ mod tests {
         };
 
         match patch_payload.into_parsed_request(Some("id_1".to_string()), Method::Patch) {
-            Ok(pr) => match parse_drives_req(
-                &valid_drive_path_tokens,
-                &valid_drive_path,
-                Method::Patch,
-                &valid_drive_id,
-                &valid_body,
-            ) {
+            Ok(pr) => match parse_drives_req(valid_drive_path, Method::Patch, &valid_body) {
                 Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
                 _ => assert!(false),
             },
@@ -983,24 +912,15 @@ mod tests {
             StatusCode::BadRequest,
             String::from("The id from the path does not match the id from the body!"),
         ));
+        let path = "/drives/invalid_id";
 
-        assert!(
-            parse_drives_req(
-                &valid_drive_path_tokens,
-                &valid_drive_path,
-                Method::Patch,
-                &Some("barr"),
-                &valid_body
-            ) == expected_error
-        );
+        assert!(parse_drives_req(path, Method::Patch, &valid_body) == expected_error);
 
         // Serde Error: Payload is an invalid JSON object.
         assert!(
             parse_drives_req(
-                &valid_drive_path_tokens,
-                &valid_drive_path,
+                valid_drive_path,
                 Method::Patch,
-                &Some("id_1"),
                 &Chunk::from("{drive_id: 1234}")
             ) == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
@@ -1014,21 +934,12 @@ mod tests {
             String::from("Required key path_on_host not present in the json."),
         ));
         let body: Chunk = Chunk::from(json);
-        assert!(
-            parse_drives_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
-                Method::Patch,
-                &Some("bar"),
-                &body
-            ) == expected_error
-        );
+        assert!(parse_drives_req("/foo/bar", Method::Patch, &body) == expected_error);
     }
 
     #[test]
     fn test_parse_logger_source_req() {
         let logger_path = "/logger";
-        let logger_path_tokens: Vec<&str> = logger_path[1..].split_terminator('/').collect();
         let json = "{
                 \"log_fifo\": \"tmp1\",
                 \"metrics_fifo\": \"tmp2\",
@@ -1041,7 +952,7 @@ mod tests {
         // PUT
         let logger_config =
             serde_json::from_slice::<LoggerConfig>(&logger_body).expect("deserialization failed");
-        match parse_logger_req(&logger_path_tokens, &logger_path, Method::Put, &logger_body) {
+        match parse_logger_req(logger_path, Method::Put, &logger_body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
@@ -1055,30 +966,18 @@ mod tests {
         // Error cases
         // Error Case: Serde Deserialization fails due to invalid payload.
         assert!(
-            parse_logger_req(
-                &logger_path_tokens,
-                logger_path,
-                Method::Put,
-                &Chunk::from("foo")
-            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
+            parse_logger_req(logger_path, Method::Put, &Chunk::from("foo"))
+                == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Error Case: Invalid path.
         let expected_err = Err(Error::InvalidPathMethod("/foo/bar", Method::Put));
-        assert!(
-            parse_logger_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
-                Method::Put,
-                &Chunk::from("foo")
-            ) == expected_err
-        );
+        assert!(parse_logger_req(&"/foo/bar", Method::Put, &Chunk::from("foo")) == expected_err);
     }
 
     #[test]
     fn test_parse_machine_config_req() {
         let path = "/machine-config";
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
         let json = "{
                 \"vcpu_count\": 42,
                 \"mem_size_mib\": 1025,
@@ -1088,19 +987,12 @@ mod tests {
         let body: Chunk = Chunk::from(json);
 
         // GET
-        assert!(parse_machine_config_req(&path_tokens, &path, Method::Get, &body).is_ok());
+        assert!(parse_machine_config_req(path, Method::Get, &body).is_ok());
 
         // Error Cases
         // Error Case: Invalid Path.
         let expected_err = Err(Error::InvalidPathMethod("/foo/bar", Method::Get));
-        assert!(
-            parse_machine_config_req(
-                &"/foo/bar"[1..].split_terminator('/').collect(),
-                &"/foo/bar",
-                Method::Get,
-                &body
-            ) == expected_err
-        );
+        assert!(parse_machine_config_req("/foo/bar", Method::Get, &body) == expected_err);
 
         // PUT
         let vm_config = VmConfig {
@@ -1111,19 +1003,17 @@ mod tests {
         };
 
         match vm_config.into_parsed_request(None, Method::Put) {
-            Ok(parsed_req) => {
-                match parse_machine_config_req(&path_tokens, &path, Method::Put, &body) {
-                    Ok(other_parsed_req) => assert!(parsed_req.eq(&other_parsed_req)),
-                    _ => assert!(false),
-                }
-            }
+            Ok(parsed_req) => match parse_machine_config_req(&path, Method::Put, &body) {
+                Ok(other_parsed_req) => assert!(parsed_req.eq(&other_parsed_req)),
+                _ => assert!(false),
+            },
             _ => assert!(false),
         }
 
         // Error cases
         // Error Case: Invalid payload (cannot deserialize the body into a VmConfig object).
         assert!(
-            parse_machine_config_req(&path_tokens, &path, Method::Put, &Chunk::from("foo bar"))
+            parse_machine_config_req(path, Method::Put, &Chunk::from("foo bar"))
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
@@ -1132,17 +1022,12 @@ mod tests {
             StatusCode::BadRequest,
             String::from("Empty request."),
         ));
-        assert!(
-            parse_machine_config_req(&path_tokens, &path, Method::Put, &Chunk::from("{}"))
-                == expected_err
-        );
+        assert!(parse_machine_config_req(path, Method::Put, &Chunk::from("{}")) == expected_err);
     }
 
     #[test]
     fn test_parse_netif_req() {
         let path = "/network-interfaces/id_1";
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-        let id_from_path = Some(path_tokens[1]);
         let net_id = String::from("id_1");
         let json = "{
                 \"iface_id\": \"id_1\",
@@ -1164,8 +1049,7 @@ mod tests {
         };
 
         match netif.into_parsed_request(Some(net_id), Method::Put) {
-            Ok(pr) => match parse_netif_req(&path_tokens, &path, Method::Put, &id_from_path, &body)
-            {
+            Ok(pr) => match parse_netif_req(&path, Method::Put, &body) {
                 Ok(pr_netif) => assert!(pr.eq(&pr_netif)),
                 _ => assert!(false),
             },
@@ -1178,25 +1062,19 @@ mod tests {
             StatusCode::BadRequest,
             String::from("The id from the path does not match the id from the body!"),
         ));
+        let path = "/network-interfaces/invalid_id";
 
-        assert!(
-            parse_netif_req(&path_tokens, &path, Method::Put, &Some("barr"), &body) == expected_err
-        );
+        assert!(parse_netif_req(path, Method::Put, &body) == expected_err);
 
         // Error Case: Invalid payload (cannot deserialize the body into a NetworkInterfaceBody object).
         assert!(
-            parse_netif_req(
-                &path_tokens,
-                &path,
-                Method::Put,
-                &id_from_path,
-                &Chunk::from("foo bar")
-            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
+            parse_netif_req(path, Method::Put, &Chunk::from("foo bar"))
+                == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Error Case: Invalid Path.
         assert!(
-            parse_netif_req(&path_tokens, &path, Method::Patch, &id_from_path, &body,)
+            parse_netif_req(path, Method::Patch, &body,)
                 == Err(Error::InvalidPathMethod(path, Method::Patch))
         )
     }
@@ -1204,12 +1082,11 @@ mod tests {
     #[test]
     fn test_parse_mmds_request() {
         let path = "/mmds";
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
         let empty_json = "{}";
         let body = Chunk::from(empty_json);
 
         // Test for GET request
-        match parse_mmds_request(&path_tokens, path, Method::Get, &body) {
+        match parse_mmds_request(path, Method::Get, &body) {
             Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::GetMMDS)),
             Err(_) => assert!(false),
         };
@@ -1225,7 +1102,7 @@ mod tests {
 
         // Test for PUT request
         let body = Chunk::from(dummy_json);
-        match parse_mmds_request(&path_tokens, path, Method::Put, &body) {
+        match parse_mmds_request(path, Method::Put, &body) {
             Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::PutMMDS(
                 serde_json::from_slice(&body).unwrap()
             ))),
@@ -1235,7 +1112,7 @@ mod tests {
         // Test for PATCH request
         let patch_json = "{\"user-data\": 15}";
         let body = Chunk::from(patch_json);
-        match parse_mmds_request(&path_tokens, path, Method::Patch, &body) {
+        match parse_mmds_request(path, Method::Patch, &body) {
             Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::PatchMMDS(
                 serde_json::from_slice(&body).unwrap()
             ))),
@@ -1246,7 +1123,7 @@ mod tests {
         let invalid_json = "\"latest\": {}}";
         let body = Chunk::from(invalid_json);
         assert!(
-            parse_mmds_request(&path_tokens, path, Method::Put, &body)
+            parse_mmds_request(path, Method::Put, &body)
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
@@ -1254,15 +1131,14 @@ mod tests {
         let invalid_json = "\"latest\": {}}";
         let body = Chunk::from(invalid_json);
         assert!(
-            parse_mmds_request(&path_tokens, path, Method::Patch, &body)
+            parse_mmds_request(path, Method::Patch, &body)
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Test for invalid path
         let path = "/mmds/something";
         let expected_err = Err(Error::InvalidPathMethod(path, Method::Get));
-        let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-        assert!(parse_mmds_request(&path_tokens, path, Method::Get, &body) == expected_err);
+        assert!(parse_mmds_request(path, Method::Get, &body) == expected_err);
     }
 
     #[test]
