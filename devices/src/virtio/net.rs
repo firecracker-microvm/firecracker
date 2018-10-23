@@ -271,6 +271,43 @@ impl NetEpollHandler {
         }
     }
 
+    // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on the host TAP.
+    //
+    // `frame_buf` should contain the frame bytes in a slice of exact length.
+    // Returns whether MMDS consumed the frame.
+    fn write_to_mmds_or_tap(
+        mmds_ns: Option<&mut MmdsNetworkStack>,
+        rate_limiter: &mut RateLimiter,
+        frame_buf: &[u8],
+        tap: &mut Tap,
+    ) -> bool {
+        if let Some(ns) = mmds_ns {
+            if ns.detour_frame(frame_bytes_from_buf(frame_buf)) {
+                METRICS.mmds.rx_accepted.inc();
+
+                // MMDS frames are not accounted by the rate limiter.
+                rate_limiter.manual_replenish(frame_buf.len() as u64, TokenType::Bytes);
+                rate_limiter.manual_replenish(1, TokenType::Ops);
+
+                // MMDS consumed the frame.
+                return true;
+            }
+        }
+        // This frame goes to the TAP.
+        let write_result = tap.write(frame_buf);
+        match write_result {
+            Ok(_) => {
+                METRICS.net.tx_bytes_count.add(frame_buf.len());
+                METRICS.net.tx_packets_count.inc();
+            }
+            Err(e) => {
+                error!("Failed to write to tap: {:?}", e);
+                METRICS.net.tx_fails.inc();
+            }
+        };
+        false
+    }
+
     // We currently prioritize packets from the MMDS over regular network packets.
     fn read_from_mmds_or_tap(&mut self) -> io::Result<usize> {
         if let Some(ns) = self.mmds_ns.as_mut() {
@@ -344,8 +381,6 @@ impl NetEpollHandler {
         let mut process_rx_for_mmds = false;
 
         for avail_desc in self.tx.queue.iter(&self.mem) {
-            let mut frame_went_to_imds = false;
-
             // If limiter.consume() fails it means there is no more TokenType::Ops
             // budget and rate limiting is in effect.
             if !self.tx.rate_limiter.consume(1, TokenType::Ops) {
@@ -389,8 +424,6 @@ impl NetEpollHandler {
                 break;
             }
 
-            let byte_tokens_consumed = read_count as u64;
-
             read_count = 0;
             // Copy buffer from across multiple descriptors.
             // TODO(performance - Issue #420): change this to use `writev()` instead of `write()`
@@ -414,37 +447,15 @@ impl NetEpollHandler {
                 }
             }
 
-            // Check if the frame should be heading towards the MMDS.
-            if let Some(ns) = self.mmds_ns.as_mut() {
-                if ns.detour_frame(frame_bytes_from_buf(&self.tx.frame_buf[..read_count])) {
-                    METRICS.mmds.rx_accepted.inc();
-
-                    // hacky hacky
-                    self.tx
-                        .rate_limiter
-                        .manual_replenish(byte_tokens_consumed, TokenType::Bytes);
-                    self.tx.rate_limiter.manual_replenish(1, TokenType::Ops);
-
-                    if !self.rx.deferred_frame {
-                        process_rx_for_mmds = true;
-                    }
-
-                    frame_went_to_imds = true;
-                }
-            }
-
-            if !frame_went_to_imds {
-                let write_result = self.tap.write(&self.tx.frame_buf[..read_count as usize]);
-                match write_result {
-                    Ok(_) => {
-                        METRICS.net.tx_bytes_count.add(read_count);
-                        METRICS.net.tx_packets_count.inc();
-                    }
-                    Err(e) => {
-                        error!("Failed to write to tap: {:?}", e);
-                        METRICS.net.tx_fails.inc();
-                    }
-                };
+            if Self::write_to_mmds_or_tap(
+                self.mmds_ns.as_mut(),
+                &mut self.tx.rate_limiter,
+                &mut self.tx.frame_buf[..read_count],
+                &mut self.tap,
+            ) && !self.rx.deferred_frame
+            {
+                // MMDS consumed this frame/request, let's also try to process the response.
+                process_rx_for_mmds = true;
             }
 
             self.tx.used_desc_heads[used_count] = head_index;
@@ -460,6 +471,7 @@ impl NetEpollHandler {
             // TODO(performance - Issue #425): find a way around RUST mutability enforcements to
             // allow calling queue.add_used() inside the loop. This would lead to better distribution
             // of descriptor usage between the firecracker thread and the guest tx thread.
+            // One option to do this is to call queue.add_used() from a static function.
             for &desc_index in &self.tx.used_desc_heads[..used_count] {
                 self.tx.queue.add_used(&self.mem, desc_index, 0);
             }
