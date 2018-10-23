@@ -689,6 +689,7 @@ impl Net {
         epoll_config: EpollConfig,
         rx_rate_limiter: Option<RateLimiter>,
         tx_rate_limiter: Option<RateLimiter>,
+        allow_mmds_requests: bool,
     ) -> Result<Self> {
         let tap = Tap::new().map_err(Error::TapOpen)?;
         tap.set_ip_addr(ip_addr).map_err(Error::TapSetIp)?;
@@ -701,7 +702,7 @@ impl Net {
             epoll_config,
             rx_rate_limiter,
             tx_rate_limiter,
-            false,
+            allow_mmds_requests,
         )
     }
 }
@@ -931,6 +932,8 @@ mod tests {
     use memory_model::GuestAddress;
     use virtio::queue::tests::*;
 
+    use dumbo::pdu::{arp, ethernet};
+
     pub struct TestMutators {
         pub tap_read_fail: bool,
     }
@@ -970,6 +973,7 @@ mod tests {
                         RateLimiter::new(u64::max_value(), 0, 1000, u64::max_value(), 0, 1000)
                             .unwrap(),
                     ),
+                    true,
                 ).unwrap(),
                 epoll_raw_fd,
                 _receiver,
@@ -1089,7 +1093,7 @@ mod tests {
                 interrupt_status,
                 interrupt_evt,
                 acked_features: n.acked_features,
-                mmds_ns: None,
+                mmds_ns: Some(MmdsNetworkStack::new_with_defaults()),
                 test_mutators,
             },
             txq,
@@ -1236,6 +1240,7 @@ mod tests {
             epoll_config,
             None,
             None,
+            false,
         ) {
             Err(Error::TapSetIp(_)) => (),
             _ => assert!(false),
@@ -1255,10 +1260,67 @@ mod tests {
             epoll_config,
             None,
             None,
+            false,
         ) {
             Err(Error::TapSetNetmask(_)) => (),
             _ => assert!(false),
         };
+    }
+
+    #[test]
+    fn test_mmds_detour_and_injection() {
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
+
+        let sha = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
+        let spa = Ipv4Addr::new(10, 1, 2, 3);
+        let tha = MacAddr::parse_str("22:22:22:22:22:22").unwrap();
+        let tpa = Ipv4Addr::new(169, 254, 169, 254);
+
+        let packet_len;
+        {
+            // Create an ethernet frame.
+            let eth_frame_i = ethernet::EthernetFrame::write_incomplete(
+                frame_bytes_from_buf_mut(&mut h.tx.frame_buf),
+                tha,
+                sha,
+                ethernet::ETHERTYPE_ARP,
+            ).ok()
+            .unwrap();
+            // Set its length to hold an ARP request.
+            let mut eth_frame_complete = eth_frame_i.with_payload_len(arp::ETH_IPV4_FRAME_LEN);
+
+            // Save the total frame length.
+            packet_len =
+                vnet_hdr_len() + eth_frame_complete.payload_offset() + arp::ETH_IPV4_FRAME_LEN;
+
+            // Create the ARP request.
+            let arp_req = arp::EthIPv4ArpFrame::write_request(
+                eth_frame_complete.payload_mut(),
+                sha,
+                spa,
+                tha,
+                tpa,
+            );
+            // Validate success.
+            assert!(arp_req.is_ok());
+        }
+
+        // Call the code which sends the packet to the host or MMDS.
+        // Validate the frame was consumed by MMDS and that the metrics reflect that.
+        check_metric_after_fn(&METRICS.mmds.rx_accepted, 1, || {
+            assert!(NetEpollHandler::write_to_mmds_or_tap(
+                h.mmds_ns.as_mut(),
+                &mut h.tx.rate_limiter,
+                &h.tx.frame_buf[..packet_len],
+                &mut h.tap,
+            ));
+        });
+
+        // Validate that MMDS has a response and we can retrieve it.
+        check_metric_after_fn(&METRICS.mmds.tx_frames, 1, || {
+            h.read_from_mmds_or_tap().unwrap();
+        });
     }
 
     #[test]
