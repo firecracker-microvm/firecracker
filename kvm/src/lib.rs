@@ -193,7 +193,7 @@ impl VmFd {
     ) -> Result<()> {
         let region = kvm_userspace_memory_region {
             slot,
-            flags: flags,
+            flags,
             guest_phys_addr: guest_addr,
             memory_size,
             userspace_addr,
@@ -320,6 +320,48 @@ impl VmFd {
         let ret = unsafe { ioctl_with_ref(self, KVM_IRQFD(), &irqfd) };
         if ret == 0 {
             Ok(())
+        } else {
+            errno_result()
+        }
+    }
+
+    // Get a vector containing the bitmap of dirty pages (as tracked by the dirty log feature of
+    //  KVM). As a side-effect, this also resets the bitmap inside the kernel.
+    // Because this method has side-effects, it's only usable from one place in the code. Right now,
+    //  that's just the dirty page count metrics, but if it's needed in other places then some
+    //  scheme for buffering the results is needed.
+    pub fn get_and_reset_dirty_page_bitmap(
+        &self,
+        slot: u32,
+        memory_size: usize,
+    ) -> Result<Vec<u64>> {
+        // Assert that the memory size is a multiple of 128k (which it must be, because the config
+        //  is in megabytes)
+        assert!(
+            memory_size % (4096 * 64) == 0,
+            "memory size {} is not a multiple of 128kB",
+            memory_size
+        );
+        // Create a vec with at least one bit per page of guest memory in this slot
+        let bitmap_size = memory_size / (4096 * 64);
+        let mut bitmap = Vec::with_capacity(bitmap_size);
+        bitmap.resize(bitmap_size, 0);
+
+        let b_data = bitmap.as_mut_ptr() as *mut c_void;
+
+        let dirtylog = kvm_dirty_log {
+            slot: slot,
+            padding1: 0,
+            __bindgen_anon_1: kvm_dirty_log__bindgen_ty_1 {
+                dirty_bitmap: b_data,
+            },
+            ..Default::default()
+        };
+        // Safe because we know that our file is a VM fd, and we know that the amount of memory
+        //  we allocated for the bitmap is at least one bit per page.
+        let ret = unsafe { ioctl_with_ref(self, KVM_GET_DIRTY_LOG(), &dirtylog) };
+        if ret == 0 {
+            Ok(bitmap)
         } else {
             errno_result()
         }
@@ -1097,6 +1139,80 @@ mod tests {
                 r => panic!("unexpected exit reason: {:?}", r),
             }
         }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn run_code_with_dirty_log_test() {
+        use memory_model::{GuestAddress, GuestMemory};
+
+        // This example based on https://lwn.net/Articles/658511/
+        // Dirties the page at 0x2000 by doing a write to it
+        let code = [
+            0xb8, 0x00, 0x02, //mov $0x2000, %ax
+            0x8e, 0xd8, //mov %ax, %ds
+            0xc7, 0x00, 0x64, 0x00, // mov $0x64, ($ax)
+            0xf4, /* hlt */
+        ];
+
+        let mem_size = 0x80000;
+        let load_addr = GuestAddress(0x1000);
+        let mem = GuestMemory::new(&vec![(load_addr, mem_size)]).unwrap();
+
+        let kvm = Kvm::new().expect("new Kvm failed");
+
+        let vm_fd = VmFd::new(&kvm).expect("new VmFd failed");
+        mem.with_regions(|index, guest_addr, size, host_addr| {
+            // Safe because the guest regions are guaranteed not to overlap.
+            vm_fd.set_user_memory_region(
+                index as u32,
+                guest_addr.offset() as u64,
+                size as u64,
+                host_addr as u64,
+                0x1,
+            )
+        }).expect("Cannot configure guest memory");
+        mem.write_slice_at_addr(&code, load_addr)
+            .expect("Writing code to memory failed");
+
+        let vcpu_fd = VcpuFd::new(0, &vm_fd).expect("new VcpuFd failed");
+
+        let mut vcpu_sregs = vcpu_fd.get_sregs().expect("get sregs failed");
+        assert_ne!(vcpu_sregs.cs.base, 0);
+        assert_ne!(vcpu_sregs.cs.selector, 0);
+        vcpu_sregs.cs.base = 0;
+        vcpu_sregs.cs.selector = 0;
+        vcpu_fd.set_sregs(&vcpu_sregs).expect("set sregs failed");
+
+        let mut vcpu_regs = vcpu_fd.get_regs().expect("get regs failed");
+        vcpu_regs.rip = 0x1000;
+        vcpu_regs.rax = 2;
+        vcpu_regs.rbx = 3;
+        vcpu_regs.rflags = 2;
+        vcpu_fd.set_regs(&vcpu_regs).expect("set regs failed");
+
+        loop {
+            match vcpu_fd.run().expect("run failed") {
+                VcpuExit::Hlt => {
+                    break;
+                }
+                r => panic!("unexpected exit reason: {:?}", r),
+            }
+        }
+
+        let dirty_map = vm_fd
+            .get_and_reset_dirty_page_bitmap(0, mem_size)
+            .expect("get dirty bitmap failed");
+        assert!(dirty_map.len() == 2, "dirty map is {:?}", dirty_map);
+        let dirty_pages = dirty_map
+            .iter()
+            .fold(0, |init, page| init + page.count_ones());
+        // Two pages dirtied, one by copying in the code, and one by running it
+        assert!(
+            dirty_pages == 2,
+            "{} dirty pages reported when code should dirty 2 pages",
+            dirty_pages
+        );
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

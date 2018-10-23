@@ -16,12 +16,13 @@ impl GenerateHyperResponse for VmConfig {
         let cpu_template = self
             .cpu_template
             .map_or("Uninitialized".to_string(), |c| c.to_string());
+        let log_dirty_pages = self.log_dirty_pages.unwrap_or(false);
 
         json_response(
             StatusCode::Ok,
             format!(
-                "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?},  \"ht_enabled\": {:?},  \"cpu_template\": {:?} }}",
-                vcpu_count, mem_size, ht_enabled, cpu_template
+                "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?},  \"ht_enabled\": {:?},  \"cpu_template\": {:?}, \"log_dirty_pages\": {:?} }}",
+                vcpu_count, mem_size, ht_enabled, cpu_template, log_dirty_pages
             ),
         )
     }
@@ -44,6 +45,7 @@ impl IntoParsedRequest for VmConfig {
                     && self.mem_size_mib.is_none()
                     && self.cpu_template.is_none()
                     && self.ht_enabled.is_none()
+                    && self.log_dirty_pages.is_none()
                 {
                     return Err(String::from("Empty request."));
                 }
@@ -69,6 +71,7 @@ mod tests {
             mem_size_mib: Some(1024),
             ht_enabled: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
+            log_dirty_pages: Some(false),
         };
         let (sender, receiver) = oneshot::channel();
         assert!(
@@ -84,6 +87,7 @@ mod tests {
             mem_size_mib: None,
             ht_enabled: None,
             cpu_template: None,
+            log_dirty_pages: None,
         };
         assert!(
             uninitialized

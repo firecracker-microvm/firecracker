@@ -35,6 +35,8 @@ pub struct VmConfig {
     pub ht_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cpu_template: Option<CpuFeaturesTemplate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_dirty_pages: Option<bool>,
 }
 
 impl Default for VmConfig {
@@ -44,6 +46,7 @@ impl Default for VmConfig {
             mem_size_mib: Some(128),
             ht_enabled: Some(false),
             cpu_template: None,
+            log_dirty_pages: Some(false),
         }
     }
 }

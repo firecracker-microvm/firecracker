@@ -260,6 +260,7 @@ fn parse_machine_config_req<'a>(
                 mem_size_mib: None,
                 ht_enabled: None,
                 cpu_template: None,
+                log_dirty_pages: None,
             };
             Ok(empty_machine_config
                 .into_parsed_request(None, method)
@@ -978,7 +979,8 @@ mod tests {
                 \"vcpu_count\": 42,
                 \"mem_size_mib\": 1025,
                 \"ht_enabled\": true,
-                \"cpu_template\": \"T2\"
+                \"cpu_template\": \"T2\",
+                \"log_dirty_pages\": true
               }";
         let body: Chunk = Chunk::from(json);
 
@@ -996,6 +998,7 @@ mod tests {
             mem_size_mib: Some(1025),
             ht_enabled: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
+            log_dirty_pages: Some(true),
         };
 
         match vm_config.into_parsed_request(None, Method::Put) {

@@ -718,6 +718,7 @@ impl Vmm {
                     .ok_or(StartMicrovmError::GuestMemory(
                         memory_model::GuestMemoryError::MemoryNotInitialized,
                     ))?,
+                self.vm_config.log_dirty_pages.unwrap(),
             ).map_err(|e| StartMicrovmError::ConfigureVm(e))?;
         self.vm
             .setup_irqchip(
@@ -1164,18 +1165,54 @@ impl Vmm {
                             });
                         }
                         EpollDispatch::WriteMetrics => {
-                            self.write_metrics_event.fd.read();
-
-                            // Please note that, since LOGGER has no output file configured yet,
-                            // it will write to stdout, so metric logging will interfere with
-                            // console output.
-                            if let Err(e) = LOGGER.log_metrics() {
-                                error!("Failed to log metrics: {}", e);
-                            }
+                            self.write_metrics();
                         }
                     }
                 }
             }
+        }
+    }
+
+    // Count the number of pages dirtied since the last call to this function.
+    // Because this is used for metrics, it swallows most errors and simply doesn't count dirty
+    //  pages if the KVM operation fails.
+    fn get_dirty_page_count(&mut self) -> usize {
+        if let Some(ref mem) = self.guest_memory {
+            let dirty_pages = mem.map_and_fold(
+                0,
+                |(slot, memory_region)| {
+                    let bitmap = self
+                        .vm
+                        .get_fd()
+                        .get_and_reset_dirty_page_bitmap(slot as u32, memory_region.size());
+                    match bitmap {
+                        Ok(v) => v
+                            .iter()
+                            .fold(0, |init, page| init + page.count_ones() as usize),
+                        Err(_e) => 0,
+                    }
+                },
+                |dirty_pages, region_dirty_pages| dirty_pages + region_dirty_pages,
+            );
+            return dirty_pages;
+        }
+        0
+    }
+
+    fn write_metrics(&mut self) {
+        self.write_metrics_event.fd.read();
+
+        // If we're logging dirty pages, post the metrics on how many dirty pages there are.
+        //  Unwrap is safe because log_dirty_pages is always set to Some(..) by set_vm_configuration.
+        if self.vm_config.log_dirty_pages.unwrap() {
+            METRICS.memory.dirty_pages.add(self.get_dirty_page_count());
+        }
+
+        // Please note that, since LOGGER has no output file configured yet,
+        // it will write to stdout, so metric logging will interfere with
+        // console output.
+        if let Err(e) = LOGGER.log_metrics() {
+            error!("Failed to log metrics: {}", e);
         }
     }
 
@@ -1255,6 +1292,11 @@ impl Vmm {
             None => self.vm_config.vcpu_count.unwrap(),
         };
 
+        let log_dirty_pages = match machine_config.log_dirty_pages {
+            Some(value) => value,
+            None => self.vm_config.log_dirty_pages.unwrap(),
+        };
+
         // If hyperthreading is enabled or is to be enabled in this call
         // only allow vcpu count to be 1 or even.
         if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
@@ -1267,6 +1309,7 @@ impl Vmm {
         // Update all the fields that have a new value.
         self.vm_config.vcpu_count = Some(vcpu_count_value);
         self.vm_config.ht_enabled = Some(ht_enabled);
+        self.vm_config.log_dirty_pages = Some(log_dirty_pages);
 
         if machine_config.mem_size_mib.is_some() {
             self.vm_config.mem_size_mib = machine_config.mem_size_mib;
@@ -1905,11 +1948,13 @@ mod tests {
             mem_size_mib: None,
             ht_enabled: None,
             cpu_template: None,
+            log_dirty_pages: None,
         };
         assert!(vmm.set_vm_configuration(machine_config).is_ok());
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
         assert_eq!(vmm.vm_config.mem_size_mib, Some(128));
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
+        assert_eq!(vmm.vm_config.log_dirty_pages, Some(false));
 
         // test put machine configuration for mem size with valid value
         let machine_config = VmConfig {
@@ -1917,11 +1962,13 @@ mod tests {
             mem_size_mib: Some(256),
             ht_enabled: None,
             cpu_template: None,
+            log_dirty_pages: None,
         };
         assert!(vmm.set_vm_configuration(machine_config).is_ok());
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
         assert_eq!(vmm.vm_config.mem_size_mib, Some(256));
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
+        assert_eq!(vmm.vm_config.log_dirty_pages, Some(false));
 
         // Test Error cases for put_machine_configuration with invalid value for vcpu_count
         // Test that the put method return error & that the vcpu value is not changed
@@ -1930,6 +1977,7 @@ mod tests {
             mem_size_mib: None,
             ht_enabled: None,
             cpu_template: None,
+            log_dirty_pages: None,
         };
         assert!(vmm.set_vm_configuration(machine_config).is_err());
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
@@ -1941,11 +1989,13 @@ mod tests {
             mem_size_mib: Some(0),
             ht_enabled: Some(false),
             cpu_template: Some(CpuFeaturesTemplate::T2),
+            log_dirty_pages: None,
         };
         assert!(vmm.set_vm_configuration(machine_config).is_err());
         assert_eq!(vmm.vm_config.vcpu_count, Some(3));
         assert_eq!(vmm.vm_config.mem_size_mib, Some(256));
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
+        assert_eq!(vmm.vm_config.log_dirty_pages, Some(false));
         assert!(vmm.vm_config.cpu_template.is_none());
 
         // 2. Test with hyperthreading enabled
@@ -1956,6 +2006,7 @@ mod tests {
             mem_size_mib: None,
             ht_enabled: Some(true),
             cpu_template: None,
+            log_dirty_pages: None,
         };
         assert!(vmm.set_vm_configuration(machine_config).is_err());
         assert_eq!(vmm.vm_config.ht_enabled, Some(false));
@@ -1966,11 +2017,13 @@ mod tests {
             mem_size_mib: None,
             ht_enabled: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
+            log_dirty_pages: Some(true),
         };
         assert!(vmm.set_vm_configuration(machine_config).is_ok());
         assert_eq!(vmm.vm_config.vcpu_count, Some(2));
         assert_eq!(vmm.vm_config.ht_enabled, Some(true));
         assert_eq!(vmm.vm_config.cpu_template, Some(CpuFeaturesTemplate::T2));
+        assert_eq!(vmm.vm_config.log_dirty_pages, Some(true));
 
         // 3. Test update vm configuration after boot.
         vmm.set_instance_state(InstanceState::Running);
@@ -1979,6 +2032,7 @@ mod tests {
             mem_size_mib: None,
             ht_enabled: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
+            log_dirty_pages: Some(false),
         };
         assert!(vmm.set_vm_configuration(machine_config).is_err());
     }

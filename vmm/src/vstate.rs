@@ -12,6 +12,7 @@ use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
 use x86_64::{interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
+pub const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
 
 #[derive(Debug)]
 pub enum Error {
@@ -69,16 +70,21 @@ impl Vm {
     }
 
     /// Currently this is x86 specific (because of the TSS address setup)
-    pub fn memory_init(&mut self, guest_mem: GuestMemory) -> Result<()> {
+    pub fn memory_init(&mut self, guest_mem: GuestMemory, log_dirty_pages: bool) -> Result<()> {
         guest_mem.with_regions(|index, guest_addr, size, host_addr| {
             info!("Guest memory starts at {:x?}", host_addr);
+            let flags = if log_dirty_pages {
+                KVM_MEM_LOG_DIRTY_PAGES
+            } else {
+                0
+            };
             // Safe because the guest regions are guaranteed not to overlap.
             self.fd.set_user_memory_region(
                 index as u32,
                 guest_addr.offset() as u64,
                 size as u64,
                 host_addr as u64,
-                0,
+                flags,
             )
         })?;
         self.guest_mem = Some(guest_mem);
@@ -223,7 +229,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(&kvm).expect("new vm failed");
-        assert!(vm.memory_init(gm).is_ok());
+        assert!(vm.memory_init(gm, false).is_ok());
     }
 
     #[test]
@@ -231,7 +237,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(&kvm).expect("new vm failed");
-        assert!(vm.memory_init(gm).is_ok());
+        assert!(vm.memory_init(gm, false).is_ok());
         let obj_addr = GuestAddress(0xf0);
         vm.get_memory()
             .unwrap()
@@ -250,7 +256,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(&kvm).expect("new vm failed");
-        assert!(vm.memory_init(gm).is_ok());
+        assert!(vm.memory_init(gm, false).is_ok());
         Vcpu::new(0, &mut vm).unwrap();
     }
 
@@ -284,13 +290,13 @@ mod tests {
             0xf4,       /* hlt */
         ];
 
-        let mem_size = 0x1000;
+        let mem_size = 0x40000;
         let load_addr = GuestAddress(0x1000);
         let mem = GuestMemory::new(&vec![(load_addr, mem_size)]).unwrap();
 
         let kvm = Kvm::new().expect("new kvm failed");
         let mut vm = Vm::new(&kvm).expect("new vm failed");
-        assert!(vm.memory_init(mem).is_ok());
+        assert!(vm.memory_init(mem, true).is_ok());
         vm.get_memory()
             .unwrap()
             .write_slice_at_addr(&code, load_addr)
@@ -325,5 +331,18 @@ mod tests {
                 r => panic!("unexpected exit reason: {:?}", r),
             }
         }
+
+        let dirty_map = vm
+            .get_fd()
+            .get_and_reset_dirty_page_bitmap(0, mem_size)
+            .expect("get dirty bitmap failed");
+        let dirty_pages = dirty_map
+            .iter()
+            .fold(0, |init, page| init + page.count_ones());
+        assert!(
+            dirty_pages == 1,
+            "{} dirty pages reported when code should dirty 1 page",
+            dirty_pages
+        );
     }
 }
