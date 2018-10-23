@@ -140,11 +140,8 @@ mod tests {
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
-        assert!(
-            patch_payload
-                .into_parsed_request(None, Method::Patch)
-                .is_err()
-        );
+        let expected_err = Err("Required key path_on_host not present in the json.".to_string());
+        assert!(patch_payload.into_parsed_request(None, Method::Patch) == expected_err);
 
         // PATCH with invalid types on fields. Adding a drive_id as number instead of string.
         let mut payload_map = Map::<String, Value>::new();
@@ -156,11 +153,8 @@ mod tests {
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
-        assert!(
-            patch_payload
-                .into_parsed_request(None, Method::Patch)
-                .is_err()
-        );
+        let expected_err = Err("Invalid type for key drive_id.".to_string());
+        assert!(patch_payload.into_parsed_request(None, Method::Patch) == expected_err);
 
         // PATCH with invalid types on fields. Adding a path_on_host as bool instead of string.
         let mut payload_map = Map::<String, Value>::new();
@@ -187,11 +181,8 @@ mod tests {
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
-        assert!(
-            patch_payload
-                .into_parsed_request(None, Method::Patch)
-                .is_err()
-        );
+        let expected_err = Err("Required key path_on_host not present in the json.".to_string());
+        assert!(patch_payload.into_parsed_request(None, Method::Patch) == expected_err);
 
         // PATCH with missing drive_id field.
         let mut payload_map = Map::<String, Value>::new();
@@ -199,10 +190,35 @@ mod tests {
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
+        let expected_err = Err("Required key drive_id not present in the json.".to_string());
+        assert!(patch_payload.into_parsed_request(None, Method::Patch) == expected_err);
+
+        // PATCH that tries to update something else other than path_on_host.
+        let mut payload_map = Map::new();
+        payload_map.insert(
+            String::from("drive_id"),
+            Value::String(String::from("1234")),
+        );
+        payload_map.insert(
+            String::from("path_on_host"),
+            Value::String(String::from("dummy")),
+        );
+        payload_map.insert(String::from("is_read_only"), Value::Bool(false));
+
+        let patch_payload = PatchDrivePayload {
+            fields: Value::Object(payload_map),
+        };
+        let expected_err =
+            Err("Invalid PATCH payload. Only updates on path_on_host are allowed.".to_string());
+        assert!(patch_payload.into_parsed_request(None, Method::Patch) == expected_err);
+
+        // PATCH with payload that is not a json.
+        let patch_payload = PatchDrivePayload {
+            fields: Value::String(String::from("dummy_payload")),
+        };
         assert!(
-            patch_payload
-                .into_parsed_request(None, Method::Patch)
-                .is_err()
+            patch_payload.into_parsed_request(None, Method::Patch)
+                == Err("Invalid json.".to_string())
         );
 
         let mut payload_map = Map::<String, Value>::new();
@@ -229,7 +245,9 @@ mod tests {
                 )))
         );
 
-        assert!(pdp.into_parsed_request(None, Method::Put).is_err());
+        assert!(
+            pdp.into_parsed_request(None, Method::Put) == Err(String::from("Invalid method PUT!"))
+        );
     }
 
     #[test]
@@ -247,7 +265,7 @@ mod tests {
             &desc
                 .clone()
                 .into_parsed_request(Some(String::from("foo")), Method::Options)
-                .is_err()
+                == &Err(String::from("Invalid method."))
         );
         let (sender, receiver) = oneshot::channel();
         assert!(
