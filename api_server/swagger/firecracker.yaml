@@ -435,6 +435,9 @@ definitions:
         description: Flag for enabling/disabling Hyperthreading
       cpu_template:
         $ref: "#/definitions/CpuTemplate"
+      log_dirty_pages:
+        type: boolean
+        description: Enable logging of dirty pages, and periodic generation of dirty page metrics.
 
   NetworkInterface:
     type: object

@@ -260,6 +260,12 @@ pub struct VcpuMetrics {
     pub failures: SharedMetric,
 }
 
+// Memory usage metrics
+#[derive(Default, Serialize)]
+pub struct MemoryMetrics {
+    pub dirty_pages: SharedMetric,
+}
+
 #[derive(Default, Serialize)]
 pub struct VmmMetrics {
     pub device_events: SharedMetric,
@@ -290,6 +296,7 @@ pub struct FirecrackerMetrics {
     pub put_api_requests: PutRequestsMetrics,
     pub seccomp: SeccompMetrics,
     pub vcpu: VcpuMetrics,
+    pub memory: MemoryMetrics,
     pub vmm: VmmMetrics,
     pub uart: SerialDeviceMetrics,
 }

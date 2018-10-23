@@ -23,9 +23,15 @@ pub enum Error {
 }
 type Result<T> = result::Result<T, Error>;
 
-struct MemoryRegion {
+pub struct MemoryRegion {
     mapping: MemoryMapping,
     guest_base: GuestAddress,
+}
+
+impl MemoryRegion {
+    pub fn size(&self) -> usize {
+        self.mapping.size()
+    }
 }
 
 fn region_end(region: &MemoryRegion) -> GuestAddress {
@@ -105,6 +111,14 @@ impl GuestMemory {
     /// Returns the size of the memory region in bytes.
     pub fn num_regions(&self) -> usize {
         self.regions.len()
+    }
+
+    pub fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
+    where
+        F: Fn((usize, &MemoryRegion)) -> T,
+        G: Fn(T, T) -> T
+    {
+        self.regions.iter().enumerate().map(mapf).fold(init, foldf)
     }
 
     /// Perform the specified action on each region's addresses.

@@ -11,6 +11,7 @@ use sys_util::EventFd;
 use x86_64::{cpuid, interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
+pub const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
 
 #[derive(Debug)]
 pub enum Error {
@@ -68,16 +69,20 @@ impl Vm {
     }
 
     /// Currently this is x86 specific (because of the TSS address setup)
-    pub fn memory_init(&mut self, guest_mem: GuestMemory) -> Result<()> {
+    pub fn memory_init(&mut self, guest_mem: GuestMemory, log_dirty_pages: bool) -> Result<()> {
         guest_mem.with_regions(|index, guest_addr, size, host_addr| {
             info!("Guest memory starts at {:x?}", host_addr);
+            let mut flags = 0;
+            if log_dirty_pages {
+                flags |= KVM_MEM_LOG_DIRTY_PAGES;
+            }
             // Safe because the guest regions are guaranteed not to overlap.
             self.fd.set_user_memory_region(
                 index as u32,
                 guest_addr.offset() as u64,
                 size as u64,
                 host_addr as u64,
-                0,
+                flags,
             )
         })?;
         self.guest_mem = Some(guest_mem);

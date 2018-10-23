@@ -719,6 +719,7 @@ impl Vmm {
                     .ok_or(StartMicrovmError::GuestMemory(
                         memory_model::GuestMemoryError::MemoryNotInitialized,
                     ))?,
+                self.vm_config.log_dirty_pages.unwrap(),
             ).map_err(|e| StartMicrovmError::ConfigureVm(e))?;
         self.vm
             .setup_irqchip(
@@ -1165,18 +1166,46 @@ impl Vmm {
                             });
                         }
                         EpollDispatch::WriteMetrics => {
-                            self.write_metrics_event.fd.read();
-
-                            // Please note that, since LOGGER has no output file configured yet,
-                            // it will write to stdout, so metric logging will interfere with
-                            // console output.
-                            if let Err(e) = LOGGER.log_metrics() {
-                                error!("Failed to log metrics: {}", e);
-                            }
+                            self.write_metrics();
                         }
                     }
                 }
             }
+        }
+    }
+
+    // Count the number of pages dirtied since the last call to this function.
+    // Because this is used for metrics, it swallows most errors and simply doesn't count dirty
+    //  pages if the KVM operation fails.
+    fn get_dirty_page_count(&mut self) -> usize {
+        if let Some(ref mem) = self.guest_memory {
+            let dirty_pages = mem.map_and_fold(0,
+            |r| {
+                let bitmap = self.vm.get_fd().get_and_reset_dirty_page_bitmap(r.0, r.1.size());
+                match bitmap {
+                    Ok(v) => v.iter().fold(0, |i, b| { i + b.count_ones() as usize }),
+                    Err(_e) => 0,
+                }
+            },
+            |a, b| { a + b });
+            return dirty_pages
+        }
+        0
+    }
+
+    fn write_metrics(&mut self) {
+        self.write_metrics_event.fd.read();
+
+        // If we're logging dirty pages, post the metrics on how many dirty pages there are.
+        if self.vm_config.log_dirty_pages.unwrap() {
+            METRICS.memory.dirty_pages.add(self.get_dirty_page_count());
+        }
+
+        // Please note that, since LOGGER has no output file configured yet,
+        // it will write to stdout, so metric logging will interfere with
+        // console output.
+        if let Err(e) = LOGGER.log_metrics() {
+            error!("Failed to log metrics: {}", e);
         }
     }
 
@@ -1256,6 +1285,11 @@ impl Vmm {
             None => self.vm_config.vcpu_count.unwrap(),
         };
 
+        let log_dirty_pages = match machine_config.log_dirty_pages {
+            Some(value) => value,
+            None => self.vm_config.log_dirty_pages.unwrap(),
+        };
+
         // If hyperthreading is enabled or is to be enabled in this call
         // only allow vcpu count to be 1 or even.
         if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
@@ -1268,6 +1302,7 @@ impl Vmm {
         // Update all the fields that have a new value.
         self.vm_config.vcpu_count = Some(vcpu_count_value);
         self.vm_config.ht_enabled = Some(ht_enabled);
+        self.vm_config.log_dirty_pages = Some(log_dirty_pages);
 
         if machine_config.mem_size_mib.is_some() {
             self.vm_config.mem_size_mib = machine_config.mem_size_mib;

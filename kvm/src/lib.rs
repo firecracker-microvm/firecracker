@@ -328,6 +328,31 @@ impl VmFd {
             errno_result()
         }
     }
+
+    // Get a vector containing the bitmap of dirty pages (as tracked by the dirty log feature of
+    //  KVM). As a side-effect, this also resets the bitmap inside the kernel.
+    // Because this method has side-effects, it's only usable from one place in the code. Right now,
+    //  that's just the dirty page count metrics, but if it's needed in other places then some
+    //  scheme for buffering the results is needed.
+    pub fn get_and_reset_dirty_page_bitmap(&self, slot: usize, memory_size: usize) -> Result<Vec<u8>> {
+        // TODO: Handle page size correctly
+        let mut bitmap : Vec<u8> = Vec::with_capacity(memory_size / (4096 * 8));
+        let b_data : *mut c_void = bitmap.as_mut_ptr() as *mut c_void;
+
+        let dirtylog = kvm_dirty_log {
+            slot: slot as u32,
+            padding1: 0,
+            __bindgen_anon_1: kvm_dirty_log__bindgen_ty_1 {
+                dirty_bitmap: b_data,
+            }
+        };
+        let ret = unsafe{ ioctl_with_ref(self, KVM_GET_DIRTY_LOG(), &dirtylog) };
+        if ret == 0 {
+            Ok(bitmap)
+        } else {
+            errno_result()
+        }
+    }
 }
 
 impl AsRawFd for VmFd {
