@@ -177,6 +177,31 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
         Ok(frame)
     }
 
+    /// Attempts to write an ARP request to buf.
+    ///
+    /// ARP request is based on the specified hardware and protocol addresses.
+    #[inline]
+    pub fn write_request(
+        buf: T,
+        sha: MacAddr,
+        spa: Ipv4Addr,
+        tha: MacAddr,
+        tpa: Ipv4Addr,
+    ) -> Result<Self, Error> {
+        Self::write_raw(
+            buf,
+            HTYPE_ETHERNET,
+            ETHERTYPE_IPV4,
+            MAC_ADDR_LEN as u8,
+            IPV4_ADDR_LEN as u8,
+            OPER_REQUEST,
+            sha,
+            spa,
+            tha,
+            tpa,
+        )
+    }
+
     #[inline]
     pub fn write_reply(
         buf: T,
