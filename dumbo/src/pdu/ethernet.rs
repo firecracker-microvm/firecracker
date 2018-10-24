@@ -1,5 +1,6 @@
-#[cfg(test)]
-use std::fmt;
+//! Contains support for parsing and writing Ethernet frames. Does not currently offer support for
+//! 802.1Q tags.
+
 use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
@@ -15,19 +16,30 @@ const ETHERTYPE_OFFSET: usize = 12;
 // for ARP and IPv4.
 pub(super) const PAYLOAD_OFFSET: usize = 14;
 
+/// Ethertype value for ARP frames.
 pub const ETHERTYPE_ARP: u16 = 0x0806;
+/// Ethertype value for IPv4 packets.
 pub const ETHERTYPE_IPV4: u16 = 0x0800;
 
+/// Describes the errors which may occur when handling Ethernet frames.
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum Error {
+    /// The specified byte sequence is shorter than the Ethernet header length.
     SliceTooShort,
 }
 
+/// Interprets the inner bytes as an Ethernet frame.
 pub struct EthernetFrame<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
+    /// Interprets `bytes` as an Ethernet frame without any validity checks.
+    ///
+    /// # Panics
+    ///
+    ///  This method does not panic, but further method calls on the resulting object may panic if
+    /// `bytes` contains invalid input.
     #[inline]
     pub fn from_bytes_unchecked(bytes: T) -> Self {
         EthernetFrame {
@@ -35,6 +47,7 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
         }
     }
 
+    /// Checks whether the specified byte sequence can be interpreted as an Ethernet frame.
     #[inline]
     pub fn from_bytes(bytes: T) -> Result<Self, Error> {
         if bytes.len() < PAYLOAD_OFFSET {
@@ -44,31 +57,37 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
         Ok(EthernetFrame::from_bytes_unchecked(bytes))
     }
 
+    /// Returns the destination MAC address.
     #[inline]
     pub fn dst_mac(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[DST_MAC_OFFSET..SRC_MAC_OFFSET])
     }
 
+    /// Returns the source MAC address.
     #[inline]
     pub fn src_mac(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[SRC_MAC_OFFSET..ETHERTYPE_OFFSET])
     }
 
+    /// Returns the ethertype of the frame.
     #[inline]
     pub fn ethertype(&self) -> u16 {
         self.bytes.ntohs_unchecked(ETHERTYPE_OFFSET)
     }
 
+    /// Returns the offset of the payload within the frame.
     #[inline]
     pub fn payload_offset(&self) -> usize {
         PAYLOAD_OFFSET
     }
 
+    /// Returns the payload of the frame as an `[&u8]` slice.
     #[inline]
     pub fn payload(&self) -> &[u8] {
         self.bytes.split_at(self.payload_offset()).1
     }
 
+    /// Returns the length of the frame.
     #[inline]
     pub fn len(&self) -> usize {
         self.bytes.len()
@@ -76,6 +95,7 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
 }
 
 impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
+    /// Attempts to write an Ethernet frame using the given header fields to `buf`.
     fn new_with_header(
         buf: T,
         dst_mac: MacAddr,
@@ -95,6 +115,8 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
         Ok(frame)
     }
 
+    /// Attempts to write an incomplete Ethernet frame (whose length is currently unknown) to `buf`,
+    /// using the specified header fields.
     #[inline]
     pub fn write_incomplete(
         buf: T,
@@ -107,21 +129,25 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
         )?))
     }
 
+    /// Sets the destination MAC address.
     #[inline]
     pub fn set_dst_mac(&mut self, addr: MacAddr) {
         self.bytes[DST_MAC_OFFSET..SRC_MAC_OFFSET].copy_from_slice(addr.get_bytes());
     }
 
+    /// Sets the source MAC address.
     #[inline]
     pub fn set_src_mac(&mut self, addr: MacAddr) {
         self.bytes[SRC_MAC_OFFSET..ETHERTYPE_OFFSET].copy_from_slice(addr.get_bytes());
     }
 
+    /// Sets the ethertype of the frame.
     #[inline]
     pub fn set_ethertype(&mut self, value: u16) {
         self.bytes.htons_unchecked(ETHERTYPE_OFFSET, value);
     }
 
+    /// Returns the payload of the frame as a `&mut [u8]` slice.
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         // We need this let to avoid confusing the borrow checker.
@@ -131,6 +157,13 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
 }
 
 impl<'a, T: NetworkBytes> Incomplete<EthernetFrame<'a, T>> {
+    /// Completes the inner frame by shrinking it to its actual length.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if `len` is greater than the length of the inner byte sequence.
+    // TODO: rename this to with_payload_len_unchecked after making sure this doesn't create issues
+    // for other existing PRs.
     #[inline]
     pub fn with_payload_len(mut self, payload_len: usize) -> EthernetFrame<'a, T> {
         let payload_offset = self.inner.payload_offset();
@@ -142,15 +175,16 @@ impl<'a, T: NetworkBytes> Incomplete<EthernetFrame<'a, T>> {
 }
 
 #[cfg(test)]
-impl<'a, T: NetworkBytes> fmt::Debug for EthernetFrame<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(Ethernet frame)")
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::fmt;
+
+    impl<'a, T: NetworkBytes> fmt::Debug for EthernetFrame<'a, T> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "(Ethernet frame)")
+        }
+    }
 
     #[test]
     fn test_ethernet_frame() {
