@@ -10,8 +10,8 @@ use tcp::RstConfig;
 
 // TODO: This is currently IPv4 specific. Maybe change it to a more generic implementation.
 
-// When sending or receiving segments, we may encounter events such connections being added or
-// removed, or others. The following two enums represent any such occurrences when receiving
+// When sending or receiving segments, we may encounter events such as connections being added or
+// removed, and others. The following two enums represent any such occurrences when receiving
 // or writing segments.
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum RecvEvent {

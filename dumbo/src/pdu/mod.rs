@@ -1,8 +1,8 @@
-//! A module for interpreting byte slices as `PDU`s.
+//! A module for interpreting byte slices as protocol data units (PDUs).
 //!
-//! PDU stands for protocol data unit, and represents data transmitted as a single unit during
-//! communication using a specific protocol. Ethernet frames, IP packets, and TCP segments are all
-//! example of protocol data units.
+//! A PDU represents data transmitted as a single unit during communication using a specific
+//! protocol. Ethernet frames, IP packets, and TCP segments are all examples of protocol data
+//! units.
 
 pub mod arp;
 pub mod bytes;
@@ -22,7 +22,6 @@ pub enum Error {
 /// underlying slice to be equal to the size of the PDU, so whenever a variable-length payload is
 /// involved, we'll want to shrink the slice to an exact fit. The particular ways of completing an
 /// Incomplete<T> are implemented by each specific PDU.
-
 pub struct Incomplete<T> {
     inner: T,
 }
@@ -33,11 +32,13 @@ impl<T> Incomplete<T> {
         Incomplete { inner }
     }
 
+    /// Returns a reference to the wrapped object.
     #[inline]
     pub fn inner(&self) -> &T {
         &self.inner
     }
 
+    /// Returns a mutable reference to the wrapped object.
     #[inline]
     pub fn inner_mut(&mut self) -> &mut T {
         &mut self.inner

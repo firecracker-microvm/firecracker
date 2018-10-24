@@ -1,3 +1,9 @@
+//! Contains support for parsing and writing IPv4 packets.
+//!
+//! A picture of the IPv4 packet header can be found [here] (watch out for the MSB 0 bit numbering).
+//!
+//! [here]: https://en.wikipedia.org/wiki/IPv4#Packet_structure
+
 use std::convert::From;
 use std::net::Ipv4Addr;
 use std::result::Result;
@@ -21,25 +27,35 @@ const OPTIONS_OFFSET: usize = 20;
 const IPV4_VERSION: u8 = 0x04;
 const DEFAULT_TTL: u8 = 200;
 
+/// The IP protocol number associated with TCP.
 pub const PROTOCOL_TCP: u8 = 0x06;
 
+/// Describes the errors which may occur while handling IPv4 packets.
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum Error {
+    /// The header checksum is invalid.
     Checksum,
+    /// The header length is invalid.
     HeaderLen,
+    /// The total length of the packet is invalid.
     InvalidTotalLen,
+    /// The length of the given slice does not match the length of the packet.
     SliceExactLength,
+    /// The length of the given slice is less than the IPv4 header length.
     SliceTooShort,
+    /// The version header field is invalid.
     Version,
 }
 
+/// Interprets the inner bytes as an IPv4 packet.
 pub struct IPv4Packet<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     /// Interpret `bytes` as an IPv4Packet without checking the validity of the header fields, and
-    /// the length of the inner byte sequence.
+    /// the length of the inner byte sequence. Calling accessor methods on the result may lead to
+    /// panics if `bytes` contains invalid input data.
     #[inline]
     pub fn from_bytes_unchecked(bytes: T) -> Self {
         IPv4Packet {
@@ -87,10 +103,6 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
         Ok(packet)
     }
-
-    // A picture of the IPv4 packet header can be found here:
-    // https://en.wikipedia.org/wiki/IPv4#Packet_structure
-    // (watch out for the stupid MSB 0 bit numbering)
 
     /// Returns the value of the `version` header field, and the header length (the actual length
     /// in bytes, not the value of the `ihl` header field).
@@ -185,11 +197,11 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
         self.bytes.len()
     }
 
-    /// Computes and returns the packet header checksum using the provided header length. May panic
-    /// for invalid values of `header_len`.
-
-    // A nice description of how this works can be found at
-    // https://en.wikipedia.org/wiki/IPv4_header_checksum
+    /// Computes and returns the packet header checksum using the provided header length. A nice
+    /// description of how this works can be found [here]. May panic for invalid values of
+    /// `header_len`.
+    ///
+    /// [here]: https://en.wikipedia.org/wiki/IPv4_header_checksum
     pub fn compute_checksum_unchecked(&self, header_len: usize) -> u16 {
         let mut sum = 0u32;
         for i in 0..header_len / 2 {
