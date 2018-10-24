@@ -1,3 +1,10 @@
+//! Contains logic that helps with handling ARP frames over Ethernet, which encapsulate requests
+//! or replies related to IPv4 addresses.
+//!
+//! A more detailed view of an ARP frame can be found [here].
+//!
+//! [here]: https://en.wikipedia.org/wiki/Address_Resolution_Protocol
+
 use std::convert::From;
 #[cfg(test)]
 use std::fmt;
@@ -7,9 +14,6 @@ use std::result::Result;
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::ethernet::{self, ETHERTYPE_IPV4};
 use net_util::{MacAddr, MAC_ADDR_LEN};
-
-// A more detailed view into an ARP frame can be found here:
-// https://en.wikipedia.org/wiki/Address_Resolution_Protocol
 
 const HTYPE_OFFSET: usize = 0;
 const HTYPE_ETHERNET: u16 = 0x0001;
@@ -32,35 +36,53 @@ const ETH_IPV4_TPA_OFFSET: usize = 24;
 
 const IPV4_ADDR_LEN: usize = 4;
 
+/// The length of an ARP frame for IPv4 over Ethernet.
 pub const ETH_IPV4_FRAME_LEN: usize = 28;
 
+/// Represents errors which may occur while parsing or writing a frame.
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum Error {
+    /// Invalid hardware address length.
     HLen,
+    /// Invalid hardware type.
     HType,
+    /// Invalid operation.
     Operation,
+    /// Invalid protocol address length.
     PLen,
+    /// Invalid protocol type.
     PType,
+    /// The provided slice does not fit the size of a frame.
     SliceLength,
 }
 
-// ARP is a generic protocol as far as data link layer and network layer protocols go, but we're
-// specifically interested in ARP frames related to IPv4 over Ethernet.
+/// The inner bytes will be interpreted as an ARP frame.
+///
+/// ARP is a generic protocol as far as data
+/// link layer and network layer protocols go, but this particular implementation is concerned with
+/// ARP frames related to IPv4 over Ethernet.
 pub struct EthIPv4ArpFrame<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
+    /// Interprets the given bytes as an ARP frame, without doing any validity checks beforehand.
+    ///
+    ///  # Panics
+    ///
+    /// This method does not panic, but further method calls on the resulting object may panic if
+    /// `bytes` contains invalid input.
     #[inline]
-    fn from_bytes_unchecked(bytes: T) -> Self {
+    pub fn from_bytes_unchecked(bytes: T) -> Self {
         EthIPv4ArpFrame {
             bytes: InnerBytes::new(bytes),
         }
     }
 
-    // Tries to interpret a byte slice as a valid Ethernet + IPv4 ARP request. It guarantees we can
-    // safely call the accesor methods (which make use of various `_unchecked` functions), because
-    // all predefined offsets will be valid.
+    /// Tries to interpret a byte slice as a valid IPv4 over Ethernet ARP request.
+    ///
+    /// If no error occurs, it guarantees accessor methods (which make use of various `_unchecked`
+    /// functions) are safe to call on the result, because all predefined offsets will be valid.
     pub fn request_from_bytes(bytes: T) -> Result<Self, Error> {
         // This kind of frame has a fixed length, so we know what to expect.
         if bytes.len() != ETH_IPV4_FRAME_LEN {
@@ -93,53 +115,65 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
         Ok(maybe)
     }
 
+    /// Returns the hardware type of the frame.
     #[inline]
     pub fn htype(&self) -> u16 {
         self.bytes.ntohs_unchecked(HTYPE_OFFSET)
     }
 
+    /// Returns the protocol type of the frame.
     #[inline]
     pub fn ptype(&self) -> u16 {
         self.bytes.ntohs_unchecked(PTYPE_OFFSET)
     }
 
+    /// Returns the hardware address length of the frame.
     #[inline]
     pub fn hlen(&self) -> u8 {
         self.bytes[HLEN_OFFSET]
     }
 
+    /// Returns the protocol address length of the frame.
     #[inline]
     pub fn plen(&self) -> u8 {
         self.bytes[PLEN_OFFSET]
     }
 
+    /// Returns the type of operation within the frame.
     #[inline]
     pub fn operation(&self) -> u16 {
         self.bytes.ntohs_unchecked(OPER_OFFSET)
     }
 
+    /// Returns the sender hardware address.
     #[inline]
     pub fn sha(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[SHA_OFFSET..ETH_IPV4_SPA_OFFSET])
     }
 
+    /// Returns the sender protocol address.
     #[inline]
     pub fn spa(&self) -> Ipv4Addr {
         Ipv4Addr::from(self.bytes.ntohl_unchecked(ETH_IPV4_SPA_OFFSET))
     }
 
+    /// Returns the target hardware address.
     #[inline]
     pub fn tha(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[ETH_IPV4_THA_OFFSET..ETH_IPV4_TPA_OFFSET])
     }
 
+    /// Returns the target protocol address.
     #[inline]
     pub fn tpa(&self) -> Ipv4Addr {
         Ipv4Addr::from(self.bytes.ntohl_unchecked(ETH_IPV4_TPA_OFFSET))
     }
 
+    /// Returns the length of the frame.
     #[inline]
     pub fn len(&self) -> usize {
+        // This might as well return ETH_IPV4_FRAME_LEN directly, since we check this is the actual
+        // length in request_from_bytes(). For some reason it seems nicer leaving it as is.
         self.bytes.len()
     }
 }
@@ -177,9 +211,8 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
         Ok(frame)
     }
 
-    /// Attempts to write an ARP request to buf.
-    ///
-    /// ARP request is based on the specified hardware and protocol addresses.
+    /// Attempts to write an ARP request to `buf`, based on the specified hardware and protocol
+    /// addresses.
     #[inline]
     pub fn write_request(
         buf: T,
@@ -202,6 +235,8 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
         )
     }
 
+    /// Attempts to write an ARP reply to `buf`, based on the specified hardware and protocol
+    /// addresses.
     #[inline]
     pub fn write_reply(
         buf: T,
@@ -224,47 +259,56 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
         )
     }
 
+    /// Sets the hardware type of the frame.
     #[inline]
     pub fn set_htype(&mut self, value: u16) {
         self.bytes.htons_unchecked(HTYPE_OFFSET, value);
     }
 
+    /// Sets the protocol type of the frame.
     #[inline]
     pub fn set_ptype(&mut self, value: u16) {
         self.bytes.htons_unchecked(PTYPE_OFFSET, value);
     }
 
+    /// Sets the hardware address length of the frame.
     #[inline]
     pub fn set_hlen(&mut self, value: u8) {
         self.bytes[HLEN_OFFSET] = value;
     }
 
+    /// Sets the protocol address length of the frame.
     #[inline]
     pub fn set_plen(&mut self, value: u8) {
         self.bytes[PLEN_OFFSET] = value;
     }
 
+    /// Sets the operation within the frame.
     #[inline]
     pub fn set_operation(&mut self, value: u16) {
         self.bytes.htons_unchecked(OPER_OFFSET, value);
     }
 
+    /// Sets the sender hardware address.
     #[inline]
     pub fn set_sha(&mut self, addr: MacAddr) {
         self.bytes[SHA_OFFSET..ETH_IPV4_SPA_OFFSET].copy_from_slice(addr.get_bytes());
     }
 
+    /// Sets the sender protocol address.
     #[inline]
     pub fn set_spa(&mut self, addr: Ipv4Addr) {
         self.bytes
             .htonl_unchecked(ETH_IPV4_SPA_OFFSET, u32::from(addr));
     }
 
+    /// Sets the target hardware address.
     #[inline]
     pub fn set_tha(&mut self, addr: MacAddr) {
         self.bytes[ETH_IPV4_THA_OFFSET..ETH_IPV4_TPA_OFFSET].copy_from_slice(addr.get_bytes());
     }
 
+    /// Sets the target protocol address.
     #[inline]
     pub fn set_tpa(&mut self, addr: Ipv4Addr) {
         self.bytes
@@ -279,8 +323,8 @@ impl<'a, T: NetworkBytes> fmt::Debug for EthIPv4ArpFrame<'a, T> {
     }
 }
 
-/// This function checks if `buf` may hold an Ethernet frame which encapsulates an EthIPv4ArpRequest
-/// for the given address. Cannot produce false negatives.
+/// This function checks if `buf` may hold an Ethernet frame which encapsulates an
+/// `EthIPv4ArpRequest` for the given address. Cannot produce false negatives.
 #[inline]
 pub fn test_speculative_tpa(buf: &[u8], addr: Ipv4Addr) -> bool {
     // The unchecked methods are safe because we actually check the buffer length beforehand.

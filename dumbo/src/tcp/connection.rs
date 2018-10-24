@@ -337,6 +337,7 @@ impl Connection {
         self.highest_ack_received
     }
 
+    // TODO: return the actual advance value here
     #[inline]
     pub fn advance_local_rwnd_edge(&mut self, value: u32) {
         let v = Wrapping(value);

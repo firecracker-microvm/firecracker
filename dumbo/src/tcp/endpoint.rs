@@ -79,6 +79,7 @@ impl Endpoint {
         connection_rto_period: NonZeroU64,
         connection_rto_count_max: NonZeroU16,
     ) -> Result<Self, PassiveOpenError> {
+        // TODO: mention this in doc comment for function
         // This simplifies things, and is a very reasonable assumption.
         assert!(RCV_BUF_MAX_SIZE <= MAX_WINDOW_SIZE as usize);
 

@@ -1,8 +1,8 @@
-//! A module for interpreting byte slices as `PDU`s.
+//! A module for interpreting byte slices as protocol data units (PDUs).
 //!
-//! PDU stands for protocol data unit, and represents data transmitted as a single unit during
-//! communication using a specific protocol. Ethernet frames, IP packets, and TCP segments are all
-//! example of protocol data units.
+//! A PDU represents data transmitted as a single unit during communication using a specific
+//! protocol. Ethernet frames, IP packets, and TCP segments are all examples of protocol data
+//! units.
 
 pub mod arp;
 pub mod bytes;
@@ -16,13 +16,14 @@ pub enum Error {
     Ethernet(ethernet::Error),
 }
 
-/// This is the baseline definition of the Incomplete struct, which wraps a PDU that does not have
-/// everything filled in. It's mostly important when writing PDUs, because fields like checksum
-/// can only be calculated after the payload becomes known. Also, we want the length of the
-/// underlying slice to be equal to the size of the PDU, so whenever a variable-length payload is
-/// involved, we'll want to shrink the slice to an exact fit. The particular ways of completing an
-/// Incomplete<T> are implemented by each specific PDU.
-
+/// This is the baseline definition of the `Incomplete` struct, which wraps a PDU that does is
+/// still missing some values or content.
+///
+/// It's mostly important when writing PDUs, because fields like checksum
+/// can only be computed after the payload becomes known. Also, the length of the underlying slice
+/// should be equal to the actual size for a complete PDU. To that end, whenever a variable-length
+/// payload is involved, the slice is shrunk to an exact fit. The particular ways of completing an
+/// `Incomplete<T>` are implemented for each specific PDU.
 pub struct Incomplete<T> {
     inner: T,
 }
@@ -33,11 +34,13 @@ impl<T> Incomplete<T> {
         Incomplete { inner }
     }
 
+    /// Returns a reference to the wrapped object.
     #[inline]
     pub fn inner(&self) -> &T {
         &self.inner
     }
 
+    /// Returns a mutable reference to the wrapped object.
     #[inline]
     pub fn inner_mut(&mut self) -> &mut T {
         &mut self.inner

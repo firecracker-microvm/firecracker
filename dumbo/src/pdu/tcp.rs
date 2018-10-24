@@ -1,3 +1,9 @@
+//! Contains support for parsing and writing TCP segments.
+//!
+//! [Here]'s a useful depiction of the TCP header layout (watch out for the MSB 0 bit numbering.)
+//!
+//! [Here]: https://en.wikipedia.org/wiki/Transmission_Control_Protocol#TCP_segment_structure
+
 use std::cmp::min;
 use std::convert::From;
 use std::net::Ipv4Addr;
@@ -32,62 +38,85 @@ const OPTION_LEN_MSS: usize = 0x04;
 const MSS_MIN: u16 = 100;
 
 bitflags! {
-    // These values are pretty much only valid in conjunction with the flags_after_ns() function,
-    // which returns the byte containing every other flag except NS.
+    /// Represents the TCP header flags, with the exception of `NS`.
+    ///
+    /// These values are only valid in conjunction with the [`flags_after_ns()`] method (and its
+    /// associated setter method), which operates on the header byte containing every other flag
+    /// besides `NS`.
+    ///
+    /// [`flags_after_ns()`]: struct.TcpSegment.html#method.flags_after_ns
     pub struct Flags: u8 {
+        /// Congestion window reduced.
         const CWR = 1 << 7;
+        /// ECN-echo.
         const ECE = 1 << 6;
+        /// Urgent pointer.
         const URG = 1 << 5;
+        /// The acknowledgement number field is valid.
         const ACK = 1 << 4;
+        /// Push flag.
         const PSH = 1 << 3;
+        /// Reset the connection.
         const RST = 1 << 2;
+        /// SYN flag.
         const SYN = 1 << 1;
+        /// FIN flag.
         const FIN = 1 << 0;
     }
 }
 
+/// Describes the errors which may occur while handling TCP segments.
 #[derive(Debug, PartialEq)]
 pub enum Error {
+    /// Invalid checksum.
     Checksum,
+    /// A payload has been specified for the segment, but the maximum readable length is 0.
     EmptyPayload,
+    /// Invalid header length.
     HeaderLen,
+    /// The MSS option contains an invalid value.
     MssOption,
+    /// The remaining segment length cannot accommodate the MSS option.
     MssRemaining,
+    /// The specified slice is shorter than the header length.
     SliceTooShort,
 }
 
 // TODO: The implementation of TcpSegment is IPv4 specific in regard to checksum computation. Maybe
 // make it more generic at some point.
 
+/// Interprets the inner bytes as a TCP segment.
 pub struct TcpSegment<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
 impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
-    // Here's a useful depiction of the TCP header layout:
-    // https://en.wikipedia.org/wiki/Transmission_Control_Protocol#TCP_segment_structure
-    // (watch out for the stupid MSB 0 bit numbering, which isn't even stated this time)
-
+    /// Returns the source port.
     #[inline]
     pub fn source_port(&self) -> u16 {
         self.bytes.ntohs_unchecked(SOURCE_PORT_OFFSET)
     }
 
+    /// Returns the destination port.
     #[inline]
     pub fn destination_port(&self) -> u16 {
         self.bytes.ntohs_unchecked(DESTINATION_PORT_OFFSET)
     }
 
+    /// Returns the sequence number.
     #[inline]
     pub fn sequence_number(&self) -> u32 {
         self.bytes.ntohl_unchecked(SEQ_NUMBER_OFFSET)
     }
 
+    /// Returns the acknowledgement number (only valid if the `ACK` flag is set).
     #[inline]
     pub fn ack_number(&self) -> u32 {
         self.bytes.ntohl_unchecked(ACK_NUMBER_OFFSET)
     }
 
+    /// Returns the header length, the value of the reserved bits, and whether the `NS` flag
+    /// is set or not.
     #[inline]
     pub fn header_len_rsvd_ns(&self) -> (usize, u8, bool) {
         let value = self.bytes[DATAOFF_RSVD_NS_OFFSET];
@@ -98,58 +127,80 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
         (header_len, rsvd, ns)
     }
 
+    /// Returns the length of the header.
     #[inline]
     pub fn header_len(&self) -> usize {
         self.header_len_rsvd_ns().0
     }
 
+    /// Returns the TCP header flags, with the exception of `NS`.
     #[inline]
     pub fn flags_after_ns(&self) -> Flags {
         Flags::from_bits_truncate(self.bytes[FLAGS_AFTER_NS_OFFSET])
     }
 
+    /// Returns the value of the `window size` header field.
     #[inline]
     pub fn window_size(&self) -> u16 {
         self.bytes.ntohs_unchecked(WINDOW_SIZE_OFFSET)
     }
 
+    /// Returns the value of the `checksum` header field.
     #[inline]
     pub fn checksum(&self) -> u16 {
         self.bytes.ntohs_unchecked(CHECKSUM_OFFSET)
     }
 
+    /// Returns the value of the `urgent pointer` header field (only valid if the
+    /// `URG` flag is set).
     #[inline]
     pub fn urgent_pointer(&self) -> u16 {
         self.bytes.ntohs_unchecked(URG_POINTER_OFFSET)
     }
 
+    /// Returns the TCP header options as an `[&u8]` slice.
+    ///
+    /// # Panics
+    ///
+    /// This method may panic if the value of `header_len` is invalid.
     #[inline]
     pub fn options_unchecked(&self, header_len: usize) -> &[u8] {
         &self.bytes[OPTIONS_OFFSET..header_len]
     }
 
+    /// Returns a slice which contains the payload of the segment. May panic if the value of
+    /// `header_len` is invalid.
+    ///
+    /// # Panics
+    ///
+    /// This method may panic if the value of `header_len` is invalid.
     #[inline]
     pub fn payload_unchecked(&self, header_len: usize) -> &[u8] {
         self.bytes.split_at(header_len).1
     }
 
+    /// Returns the length of the segment.
     #[inline]
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
 
+    /// Returns a slice which contains the payload of the segment.
     #[inline]
     pub fn payload(&self) -> &[u8] {
         self.payload_unchecked(self.header_len())
     }
 
+    /// Returns the length of the payload.
     #[inline]
     pub fn payload_len(&self) -> usize {
         self.len() - self.header_len()
     }
 
-    // More details about TCP checksum computation can be found here:
-    // https://en.wikipedia.org/wiki/Transmission_Control_Protocol#Checksum_computation
+    /// Computes the TCP checksum of the segment. More details about TCP checksum computation can
+    /// be found [here].
+    ///
+    /// [here]: https://en.wikipedia.org/wiki/Transmission_Control_Protocol#Checksum_computation
     pub fn compute_checksum(&self, src_addr: Ipv4Addr, dst_addr: Ipv4Addr) -> u16 {
         // TODO: Is u32 enough to prevent overflow for the code in this function? I think so, but it
         // would be nice to double-check.
@@ -182,15 +233,25 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
         !(sum as u16)
     }
 
-    // We only care about the MSS option right now (and only for incoming SYNs, btw). At some point
-    // we might want to have a more general parsing framework.
-    // All TCP options (besides EOL and NOP) are encoded using x bytes (x >= 2), where the first
-    // byte represents the option kind, the second is the option length (including these first two
-    // bytes), and finally the next x - 2 bytes represent option data. The length of the MSS option
-    // is 4, so the option data encodes an u16 in network order.
+    /// Parses TCP header options (only `MSS` is supported for now).
+    ///
+    /// If no error is encountered, returns the `MSS` value, or `None` if the option is not
+    /// present.
+    ///
+    /// # Panics
+    ///
+    /// This method may panic if the value of `header_len` is invalid.
+    // TODO: rename this to parse_mss_option_unchecked, after making sure this doesn't interfere
+    // with other existing PRs.
     pub fn parse_mss_option(&self, header_len: usize) -> Result<Option<NonZeroU16>, Error> {
         let b = self.options_unchecked(header_len);
         let mut i = 0;
+
+        // All TCP options (besides EOL and NOP) are encoded using x bytes (x >= 2), where the first
+        // byte represents the option kind, the second is the option length (including these first two
+        // bytes), and finally the next x - 2 bytes represent option data. The length of the MSS option
+        // is 4, so the option data encodes an u16 in network order.
+
         // The MSS option is 4 bytes wide, so we need at least 4 more bytes to look for it.
         while i + 3 < b.len() {
             match b[i] {
@@ -220,14 +281,23 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
         Ok(None)
     }
 
+    /// Interprets `bytes` as a TCP segment without any validity checks.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic, but further method calls on the resulting object may panic if
+    /// `bytes` contains invalid input.
     #[inline]
-    fn from_bytes_unchecked(bytes: T) -> Self {
+    pub fn from_bytes_unchecked(bytes: T) -> Self {
         TcpSegment {
             bytes: InnerBytes::new(bytes),
         }
     }
 
-    // If we want to verify the checksum, we need to provide the src and dst IPv4 addresses.
+    /// Attempts to interpret `bytes` as a TCP segment, checking the validity of the header fields.
+    ///
+    /// The `verify_checksum` parameter must contain the source and destination addresses from the
+    /// enclosing IPv4 packet if the TCP checksum must be validated.
     #[inline]
     pub fn from_bytes(
         bytes: T,
@@ -258,31 +328,36 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
 }
 
 impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
+    /// Sets the source port.
     #[inline]
     pub fn set_source_port(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(SOURCE_PORT_OFFSET, value);
         self
     }
 
+    /// Sets the destination port.
     #[inline]
     pub fn set_destination_port(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(DESTINATION_PORT_OFFSET, value);
         self
     }
 
+    /// Sets the value of the sequence number field.
     #[inline]
     pub fn set_sequence_number(&mut self, value: u32) -> &mut Self {
         self.bytes.htonl_unchecked(SEQ_NUMBER_OFFSET, value);
         self
     }
 
+    /// Sets the value of the acknowledgement number field.
     #[inline]
     pub fn set_ack_number(&mut self, value: u32) -> &mut Self {
         self.bytes.htonl_unchecked(ACK_NUMBER_OFFSET, value);
         self
     }
 
-    // Header_len should be a multiple of 4. Reserved is implicitly set to 0b000.
+    /// Sets the value of the `ihl` header field based on `header_len` (which should be a multiple
+    /// of 4), clears the reserved bits, and sets the `NS` flag according to the last parameter.
     // TODO: Check that header_len | 0b11 == 0 and the resulting data_offset is valid?
     #[inline]
     pub fn set_header_len_rsvd_ns(&mut self, header_len: usize, ns: bool) -> &mut Self {
@@ -294,42 +369,71 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
         self
     }
 
+    /// Sets the value of the header byte containing every TCP flag except `NS`.
     #[inline]
     pub fn set_flags_after_ns(&mut self, flags: Flags) -> &mut Self {
         self.bytes[FLAGS_AFTER_NS_OFFSET] = flags.bits();
         self
     }
 
+    /// Sets the value of the `window size` field.
     #[inline]
     pub fn set_window_size(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(WINDOW_SIZE_OFFSET, value);
         self
     }
 
+    /// Sets the value of the `checksum` field.
     #[inline]
     pub fn set_checksum(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(CHECKSUM_OFFSET, value);
         self
     }
 
+    /// Sets the value of the `urgent pointer` field.
     #[inline]
     pub fn set_urgent_pointer(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(URG_POINTER_OFFSET, value);
         self
     }
 
+    /// Returns a mutable slice containing the segment payload.
+    ///
+    /// # Panics
+    ///
+    /// This method may panic if the value of `header_len` is invalid.
     #[inline]
     pub fn payload_mut_unchecked(&mut self, header_len: usize) -> &mut [u8] {
         self.bytes.split_at_mut(header_len).1
     }
 
+    /// Returns a mutable slice containing the segment payload.
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let header_len = self.header_len();
         self.payload_mut_unchecked(header_len)
     }
 
-    // This writes an entire segment.
+    /// Writes a complete TCP segment.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - Write the segment to this buffer.
+    /// * `src_port` - Source port.
+    /// * `dst_port` - Destination port.
+    /// * `seq_number` - Sequence number.
+    /// * `ack_number` - Acknowledgement number.
+    /// * `flags_after_ns` - TCP flags to set (except `NS`, which is always set to 0).
+    /// * `window_size` - Value to write in the `window size` field.
+    /// * `mss_option` - When a value is specified, use it to add a TCP MSS option to the header.
+    /// * `mss_remaining` - Represents an upper bound on the payload length (the number of bytes
+    ///    used up by things like IP options have to be subtracted from the MSS). There is some
+    ///    redundancy looking at this argument and the next one, so we might end up removing
+    ///    or changing something.
+    /// * `payload` - May contain a buffer which holds payload data and the maximum amount of bytes
+    ///    we should read from that buffer. When `None`, the TCP segment will carry no payload.
+    /// * `compute_checksum` - May contain the pair addresses from the enclosing IPv4 packet, which
+    ///    are required for TCP checksum computation. Skip the checksum altogether when `None`.
     #[inline]
     pub fn write_segment<R: ByteBuffer + ?Sized>(
         buf: T,
@@ -356,26 +460,28 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
         )?.finalize(src_port, dst_port, compute_checksum))
     }
 
-    /*
-     An incomplete segment is missing the source port, destination port, and checksum fields (which
-     are often available at lower levels in the stack). This function writes the rest of the
-     segment, including data (when available). Since we only support the MSS option for now, we're
-     not terribly generic in that regard. The NS flag and urgent pointer are set to 0 (we don't have
-     any plans of using the URG flag either). A few words about the less self-explanatory
-     parameters:
-     - When mss_option.is_some(), we write a MSS option with the specified value to the header.
-     - When payload.is_some(), we attempt to write as much data as possible into the payload. The
-     parameter is a tuple containing a buffer we can read from, and the maximum allowed size of the
-     payload (restricted by factors such as flow control).
-     - mss_remaining represents how much bytes we can use for the TCP header + data. We need this
-     parameter because the MSS definition is a bit tricky; its value represents the largest amount
-     of data allowed to be sent on a single TCP segment. However, if any IP or TCP options are
-     present, we have to subtract their combined length from the MSS. Thus, mss_remaining represents
-     the remaining MSS after IP options are considered (it will be equal to the original MSS
-     pretty much every time; as someone once said, "IP options are not an option").
-    */
-
-    // This is marked inline because a lot of code vanishes after constant folding when
+    /// Writes an incomplete TCP segment, which is missing the `source port`, `destination port`,
+    /// and `checksum` fields.
+    ///
+    /// This method writes the rest of the segment, including data (when available). Only the `MSS`
+    /// option is supported for now. The `NS` flag, `URG` flag, and `urgent pointer` field are set
+    /// to 0.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - Write the segment to this buffer.
+    /// * `seq_number` - Sequence number.
+    /// * `ack_number` - Acknowledgement number.
+    /// * `flags_after_ns` - TCP flags to set (except `NS`, which is always set to 0).
+    /// * `window_size` - Value to write in the `window size` field.
+    /// * `mss_option` - When a value is specified, use it to add a TCP MSS option to the header.
+    /// * `mss_remaining` - Represents an upper bound on the payload length (the number of bytes
+    ///    used up by things like IP options have to be subtracted from the MSS). There is some
+    ///    redundancy looking at this argument and the next one, so we might end up removing
+    ///    or changing something.
+    /// * `payload` - May contain a buffer which holds payload data and the maximum amount of bytes
+    ///    we should read from that buffer. When `None`, the TCP segment will carry no payload.
+    // Marked inline because a lot of code vanishes after constant folding when
     // we don't add TCP options, or when mss_remaining is actually a constant, etc.
     #[inline]
     pub fn write_incomplete_segment<R: ByteBuffer + ?Sized>(
@@ -457,7 +563,8 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
 }
 
 impl<'a, T: NetworkBytesMut> Incomplete<TcpSegment<'a, T>> {
-    // We skip checksum computation if compute_checksum == None.
+    /// Transforms `self` into a `TcpSegment<T>` by specifying values for the `source port`,
+    /// `destination port`, and (optionally) the information required to compute the TCP checksum.
     pub fn finalize(
         mut self,
         src_port: u16,
