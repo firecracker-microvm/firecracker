@@ -501,15 +501,10 @@ impl hyper::server::Service for ApiServerHttpService {
                                         describe(&method_copy, &path_copy, &b_str)
                                     );
                                     x.generate_response()
-                                })
-                                .map_err(move |_| {
+                                }).map_err(move |_| {
                                     info!(
                                         "Received Error on {}",
-                                        describe(
-                                            &method_copy_err,
-                                            &path_copy_err,
-                                            &b_str_err
-                                        )
+                                        describe(&method_copy_err, &path_copy_err, &b_str_err)
                                     );
                                     METRICS.api_server.sync_outcome_fails.inc();
                                     hyper::Error::Timeout
