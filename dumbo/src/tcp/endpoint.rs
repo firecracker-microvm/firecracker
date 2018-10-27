@@ -17,7 +17,7 @@ use pdu::bytes::NetworkBytes;
 use pdu::tcp::TcpSegment;
 use pdu::Incomplete;
 use tcp::connection::{Connection, PassiveOpenError, RecvStatusFlags};
-use tcp::MAX_WINDOW_SIZE;
+use tcp::{seq_after, NextSegmentStatus, MAX_WINDOW_SIZE};
 
 // TODO: These are currently expressed in cycles. Normally, they would be the equivalent of a
 // certain duration, depending on the frequency of the CPU, but we still have a bit to go until
@@ -93,6 +93,9 @@ impl Endpoint {
             receive_buf: [0u8; RCV_BUF_MAX_SIZE],
             receive_buf_left: 0,
             response_buf: Vec::new(),
+            // TODO: Using first_not_sent() makes sense here because a connection is currently
+            // created via passive open only, so this points to the sequence number right after
+            // the SYNACK. It might stop working like that if/when the implementation changes.
             response_seq: connection.first_not_sent(),
             connection,
             last_segment_received_timestamp: timestamp_cycles(),
@@ -272,6 +275,19 @@ impl Endpoint {
             > self.eviction_threshold
     }
 
+    pub fn next_segment_status(&self) -> NextSegmentStatus {
+        let can_send_new_data = !self.response_buf.is_empty() && seq_after(
+            self.connection.remote_rwnd_edge(),
+            self.connection.first_not_sent(),
+        );
+
+        if can_send_new_data || self.connection.dup_ack_pending() {
+            NextSegmentStatus::Available
+        } else {
+            self.connection.control_segment_or_timeout_status()
+        }
+    }
+
     #[inline]
     pub fn connection(&self) -> &Connection {
         &self.connection
@@ -319,6 +335,7 @@ mod tests {
 
         // Let's complete the three-way handshake. The next segment sent by the endpoint should
         // be a SYNACK.
+        assert_eq!(e.next_segment_status(), NextSegmentStatus::Available);
         let endpoint_isn = {
             // We need this block to delimit the mut borrow of write_buf.
             let s = e
@@ -328,6 +345,16 @@ mod tests {
             s.inner().sequence_number()
         };
 
+        // A RTO should be pending until the SYNACK is ACKed.
+        if let NextSegmentStatus::Timeout(_) = e.next_segment_status() {
+            assert_eq!(
+                e.next_segment_status(),
+                e.connection().control_segment_or_timeout_status()
+            );
+        } else {
+            panic!("dude, where's my endpoint timeout");
+        }
+
         // And now we ACK the SYNACK.
         let mut ctrl = t.write_ctrl(buf2.as_mut());
         ctrl.set_flags_after_ns(TcpFlags::ACK);
@@ -335,6 +362,9 @@ mod tests {
         assert!(!e.connection.is_established());
         e.receive_segment(&ctrl);
         assert!(e.connection.is_established());
+
+        // Also, there should be nothing to send now anymore, nor any timeout pending.
+        assert_eq!(e.next_segment_status(), NextSegmentStatus::Nothing);
 
         // Incomplete because it's missing the newlines at the end.
         let incomplete_request = b"GET http://169.254.169.255/asdfghjkl HTTP/1.1";
