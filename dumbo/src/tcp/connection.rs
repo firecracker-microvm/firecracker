@@ -9,10 +9,10 @@ use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 // but that has some potential robustness implications which I don't want to think about right now).
 use rand::random;
 
-use super::{seq_after, seq_at_or_after, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT};
 use pdu::bytes::NetworkBytes;
 use pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
 use pdu::Incomplete;
+use tcp::{seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT};
 use ByteBuffer;
 
 bitflags! {
@@ -107,9 +107,6 @@ pub struct Connection {
     // When rto_count reaches this value, the next retransmission will actually reset the
     // connection.
     rto_count_max: u16,
-    // We've got a duplicate ACK, so we'll retransmit the specified sequence number at the first
-    // opportunity. Unlike regular TCP, we retransmit after the first duplicate ACK.
-    dup_ack: Option<Wrapping<u32>>,
     // Set to the FIN sequence number received from the other endpoint.
     fin_received: Option<Wrapping<u32>>,
     // When set, it represents the sequence number of the FIN byte which closes our end of the
@@ -124,6 +121,9 @@ pub struct Connection {
     // If true, send an ACK segment at the first opportunity. ACKs can piggyback data segments, so
     // we'll only send an empty ACK segment if we can't transmit any data.
     pending_ack: bool,
+    // We've got a duplicate ACK, so we'll retransmit the highest ACKed sequence number at the
+    // first opportunity. Unlike regular TCP, we retransmit after the first duplicate ACK.
+    dup_ack: bool,
     status_flags: ConnStatusFlags,
 }
 
@@ -180,12 +180,12 @@ impl Connection {
             rto_period: rto_period.get(),
             rto_count: 0,
             rto_count_max: rto_count_max.get(),
-            dup_ack: None,
             fin_received: None,
             send_fin: None,
             send_rst: None,
             mss,
             pending_ack: false,
+            dup_ack: false,
             status_flags: ConnStatusFlags::SYN_RECEIVED,
         })
     }
@@ -251,7 +251,7 @@ impl Connection {
     }
 
     fn rto_expired(&self, now: u64) -> bool {
-        now.wrapping_sub(self.rto_start) >= self.rto_period
+        now - self.rto_start >= self.rto_period
     }
 
     // We send a FIN control segment if every data byte up to the self.send_fin sequence number
@@ -364,6 +364,30 @@ impl Connection {
         self.remote_rwnd_edge
     }
 
+    #[inline]
+    pub fn dup_ack_pending(&self) -> bool {
+        self.dup_ack
+    }
+
+    // This function does not tell whether any data segments can/will be sent, because the
+    // Connection itself does not control the send buffer. Thus the information returned here
+    // only pertains to control segments and timeout expiry. Data segment related status will be
+    // reported by higher level components, such as an Endpoint.
+    #[inline]
+    pub fn control_segment_or_timeout_status(&self) -> NextSegmentStatus {
+        if self.synack_pending()
+            || self.rst_pending()
+            || self.can_send_first_fin()
+            || self.pending_ack
+        {
+            NextSegmentStatus::Available
+        } else if self.highest_ack_received != self.first_not_sent {
+            NextSegmentStatus::Timeout(self.rto_start + self.rto_period)
+        } else {
+            NextSegmentStatus::Nothing
+        }
+    }
+
     // We use this helper method to set up self.send_rst and prepare a return value in one go. It's
     // only used by the receive_segment() method.
     fn reset_for_segment_helper<T: NetworkBytes>(
@@ -457,7 +481,7 @@ impl Connection {
                     }
                     // Duplicate ACKs can only increase in sequence number, so there's no need
                     // to check if this one is older than self.dup_ack.
-                    self.dup_ack = Some(ack);
+                    self.dup_ack = true;
                     recv_status_flags |= RecvStatusFlags::DUP_ACK;
                 } else {
                     // We're making progress. We should also reset rto_start in this case.
@@ -727,37 +751,36 @@ impl Connection {
             let mut rto_triggered = false;
 
             // Decide what sequence number to send next. Check out if a timeout expired first.
-            let seq_to_send = if seq_after(self.first_not_sent, self.highest_ack_received)
-                && self.rto_expired(now)
-            {
-                self.rto_count += 1;
-                if self.rto_count >= self.rto_count_max {
-                    self.reset();
-                    return self.write_next_segment(buf, mss_reserved, payload_src, now);
-                }
-
-                if let Some(fin_seq) = self.send_fin {
-                    if self.highest_ack_received == fin_seq {
-                        // We're in the relatively unlikely situation where our FIN got lost.
-                        // Simply calling write_control_segment() will retransmit it.
-                        let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
-                        self.rto_start = now;
-                        return Ok(Some(segment));
+            let seq_to_send =
+                if self.highest_ack_received != self.first_not_sent && self.rto_expired(now) {
+                    self.rto_count += 1;
+                    if self.rto_count >= self.rto_count_max {
+                        self.reset();
+                        return self.write_next_segment(buf, mss_reserved, payload_src, now);
                     }
-                }
 
-                // We have to remember this is a retransmission for later.
-                rto_triggered = true;
-                self.highest_ack_received
-            } else if let Some(seq) = self.dup_ack {
-                // We retransmit an older segment if a DUPACK is recorded. We'll clear
-                // self.dup_ack after we make sure the segment has been successfully written.
-                seq
-            } else {
-                // Otherwise, we send some data (if possible) starting with the first byte not
-                // yet sent.
-                self.first_not_sent
-            };
+                    if let Some(fin_seq) = self.send_fin {
+                        if self.highest_ack_received == fin_seq {
+                            // We're in the relatively unlikely situation where our FIN got lost.
+                            // Simply calling write_control_segment() will retransmit it.
+                            let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+                            self.rto_start = now;
+                            return Ok(Some(segment));
+                        }
+                    }
+
+                    // We have to remember this is a retransmission for later.
+                    rto_triggered = true;
+                    self.highest_ack_received
+                } else if self.dup_ack {
+                    // We retransmit an older segment if a DUPACK is recorded. We'll clear
+                    // self.dup_ack after we make sure the segment has been successfully written.
+                    self.highest_ack_received
+                } else {
+                    // Otherwise, we send some data (if possible) starting with the first byte not
+                    // yet sent.
+                    self.first_not_sent
+                };
 
             // The payload buffer begins after the first sequence number we are trying to send
             // (or the payload_seq is totally off).
@@ -799,8 +822,9 @@ impl Connection {
                     Some((read_buf, max_payload_len)),
                 )?;
 
-                // If self.dup_ack was Some(_), we've just written the retransmission segment.
-                self.dup_ack = None;
+                // If self.dup_ack was Some(_), we've just written the retransmission segment,
+                // either directly or via the RTO timer expiring.
+                self.dup_ack = false;
 
                 let payload_len = segment.inner().payload().len();
                 let mut first_seq_after = seq_to_send + Wrapping(payload_len as u32);
@@ -885,7 +909,7 @@ pub(crate) mod tests {
         pub mss_reserved: u16,
         local_rwnd_size: u32,
         remote_isn: u32,
-        rto_period: u64,
+        pub rto_period: u64,
         rto_count_max: u16,
         now: u64,
     }
@@ -1146,6 +1170,12 @@ pub(crate) mod tests {
         );
         check_syn_received(&c);
 
+        // There's a SYNACK to send.
+        assert_eq!(
+            c.control_segment_or_timeout_status(),
+            NextSegmentStatus::Available
+        );
+
         let mut c_clone = c.clone();
 
         // While the connection is in this state, we send another SYN, with a different ISN.
@@ -1174,9 +1204,20 @@ pub(crate) mod tests {
         // Calling write_next_segment again should not send anything else.
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 
+        // Also, we now have a RTO pending.
+        assert_eq!(
+            c.control_segment_or_timeout_status(),
+            NextSegmentStatus::Timeout(t.rto_period)
+        );
+
         // However, if we advance the time until just after the RTO, a SYNACK is retransmitted.
         t.now += t.rto_period;
         t.check_synack_is_next(&mut c);
+
+        assert_eq!(
+            c.control_segment_or_timeout_status(),
+            NextSegmentStatus::Timeout(2 * t.rto_period)
+        );
 
         // Re-receiving a valid SYN moves the connection back to SYN_RECEIVED.
         assert_eq!(
@@ -1418,6 +1459,7 @@ pub(crate) mod tests {
             t.receive_segment(&mut c, &ctrl).unwrap(),
             (None, RecvStatusFlags::DUP_ACK)
         );
+        assert!(c.dup_ack_pending());
 
         // Let's check that we indeed get a single retransmitted segment.
         {
@@ -1509,7 +1551,7 @@ pub(crate) mod tests {
             )
         );
         // Let's clear the DUP_ACK related state.
-        c.dup_ack = None;
+        c.dup_ack = false;
 
         // Now let try some invalid ACKs. This one is an older ACK.
         ctrl.set_ack_number(c.highest_ack_received.0.wrapping_sub(1));
