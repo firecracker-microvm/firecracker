@@ -16,6 +16,17 @@ pub const MAX_WINDOW_SIZE: u32 = 1_073_725_440;
 /// The default MSS value, used when no MSS information is carried over the initial handshake.
 pub const MSS_DEFAULT: u16 = 536;
 
+// Describes whether a particular entity (a Connection for example) has segments to send.
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub enum NextSegmentStatus {
+    // Segments are available immediately.
+    Available,
+    // There's nothing to send.
+    Nothing,
+    // A RTO will fire at the specified point in time.
+    Timeout(u64),
+}
+
 // Represents the configuration of the sequence number and ACK fields for outgoing RST segments.
 #[derive(Clone, Copy)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
