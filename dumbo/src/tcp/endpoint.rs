@@ -237,17 +237,6 @@ impl Endpoint {
         buf: &'a mut [u8],
         mss_reserved: u16,
     ) -> Option<Incomplete<TcpSegment<'a, &'a mut [u8]>>> {
-        // TODO: This is a quick and dirty fix for the case where an idle connection can hang
-        // around indefinitely, which would not be that big of a deal in general, but we currently
-        // iterate through every connection which is still alive whenever we try to send a packet.
-        // Will fix before open sourcing.
-        if timestamp_cycles().wrapping_sub(self.last_segment_received_timestamp)
-            > self.eviction_threshold * 20
-        {
-            // This causes both an outgoing RESET to be sent, and is_done(&self) to return true.
-            self.connection.reset();
-        }
-
         let tcp_payload_src = if !self.response_buf.is_empty() {
             Some((self.response_buf.as_slice(), self.response_seq))
         } else {
