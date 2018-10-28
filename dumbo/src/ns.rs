@@ -3,6 +3,7 @@ use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 use std::result::Result;
 
+use fc_util::timestamp_cycles;
 use logger::{Metric, METRICS};
 use net_util::MacAddr;
 use pdu::arp::{test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
@@ -10,6 +11,7 @@ use pdu::ethernet::{Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, E
 use pdu::ipv4::{test_speculative_dst_addr, Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
 use pdu::tcp::Error as TcpSegmentError;
 use tcp::handler::{self, RecvEvent, TcpIPv4Handler, WriteEvent};
+use tcp::NextSegmentStatus;
 
 const DEFAULT_MAC_ADDR: &str = "06:01:23:45:67:01";
 const DEFAULT_IPV4_ADDR: [u8; 4] = [169, 254, 169, 254];
@@ -170,14 +172,22 @@ impl MmdsNetworkStack {
                     None
                 }
             };
-        } else if self.tcp_handler.has_active_connections() {
-            return match self.write_packet(buf) {
-                Ok(something) => something,
-                Err(_) => {
-                    METRICS.mmds.tx_errors.inc();
-                    None
-                }
+        } else {
+            let call_write = match self.tcp_handler.next_segment_status() {
+                NextSegmentStatus::Available => true,
+                NextSegmentStatus::Timeout(value) => timestamp_cycles() >= value,
+                NextSegmentStatus::Nothing => false,
             };
+
+            if call_write {
+                return match self.write_packet(buf) {
+                    Ok(something) => something,
+                    Err(_) => {
+                        METRICS.mmds.tx_errors.inc();
+                        None
+                    }
+                };
+            }
         }
         None
     }
