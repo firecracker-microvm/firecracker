@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 
@@ -9,7 +9,7 @@ use pdu::bytes::NetworkBytes;
 use pdu::ipv4::{Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
 use pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
 use tcp::endpoint::Endpoint;
-use tcp::RstConfig;
+use tcp::{NextSegmentStatus, RstConfig};
 
 // TODO: This is currently IPv4 specific. Maybe change it to a more generic implementation.
 
@@ -49,6 +49,7 @@ pub enum WriteNextError {
 // dst_addr, dst_port). However, the IPv4 address and TCP port of the MMDS endpoint are fixed, so
 // we can get away with uniquely identifying connections using just the remote address and port.
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
+#[cfg_attr(test, derive(Debug))]
 struct ConnectionTuple {
     remote_addr: Ipv4Addr,
     remote_port: u16,
@@ -70,10 +71,24 @@ pub struct TcpIPv4Handler {
     connections: HashMap<ConnectionTuple, Endpoint>,
     // Maximum number of concurrent connections we are willing to handle.
     max_connections: usize,
+    // Holds connections which are able to send segments immediately.
+    active_connections: HashSet<ConnectionTuple>,
+    // Remembers the closest timestamp into the future when one of the connections has to deal
+    // with a RTO trigger.
+    next_timeout: Option<(u64, ConnectionTuple)>,
     // RST segments awaiting to be sent.
     rst_queue: Vec<(ConnectionTuple, RstConfig)>,
     // Maximum size of the RST queue.
     max_pending_resets: usize,
+}
+
+// Only used locally, in the receive_packet method, to differentiate between different outcomes
+// associated with processing incoming packets.
+enum RecvSegmentOutcome {
+    EndpointDone,
+    EndpointRunning(NextSegmentStatus),
+    NewConnection,
+    UnexpectedSegment(bool),
 }
 
 impl TcpIPv4Handler {
@@ -93,6 +108,8 @@ impl TcpIPv4Handler {
             local_port,
             connections: HashMap::with_capacity(max_connections),
             max_connections,
+            active_connections: HashSet::with_capacity(max_connections),
+            next_timeout: None,
             rst_queue: Vec::with_capacity(max_pending_resets),
             max_pending_resets,
         }
@@ -113,72 +130,137 @@ impl TcpIPv4Handler {
         }
 
         let tuple = ConnectionTuple::new(packet.source_address(), segment.source_port());
-        let mut new_connection = false;
-        let mut endpoint_is_done = false;
-        // This is an Option<bool>; when Some(true) we also attempt to enqueue a RST.
-        let mut unexpected_segment = None;
 
-        if let Some(endpoint) = self.connections.get_mut(&tuple) {
+        let outcome = if let Some(endpoint) = self.connections.get_mut(&tuple) {
             endpoint.receive_segment(&segment);
             if endpoint.is_done() {
-                // We only set this boolean variable here, instead of actually having the logic
-                // which depends on it, because the borrow checker starts complaining.
-                endpoint_is_done = true;
+                RecvSegmentOutcome::EndpointDone
+            } else {
+                RecvSegmentOutcome::EndpointRunning(endpoint.next_segment_status())
             }
         } else if segment.flags_after_ns() == TcpFlags::SYN {
-            // Same as above.
-            new_connection = true;
+            RecvSegmentOutcome::NewConnection
         } else {
             // We should send a RST for every non-RST unexpected segment we receive.
-            unexpected_segment = Some(!segment.flags_after_ns().intersects(TcpFlags::RST));
-        }
+            RecvSegmentOutcome::UnexpectedSegment(
+                !segment.flags_after_ns().intersects(TcpFlags::RST),
+            )
+        };
 
-        if let Some(enqueue_rst) = unexpected_segment {
-            if enqueue_rst {
-                self.enqueue_rst(&tuple, &segment);
+        match outcome {
+            RecvSegmentOutcome::EndpointDone => {
+                self.remove_connection(&tuple);
+                return Ok(RecvEvent::EndpointDone);
             }
-            return Ok(RecvEvent::UnexpectedSegment);
-        }
-
-        if endpoint_is_done {
-            self.remove_connection(&tuple);
-            return Ok(RecvEvent::EndpointDone);
-        } else if new_connection {
-            let endpoint = match Endpoint::new_with_defaults(&segment) {
-                Ok(endpoint) => endpoint,
-                Err(_) => return Ok(RecvEvent::FailedNewConnection),
-            };
-
-            if self.connections.len() >= self.max_connections {
-                if let Some(evict_tuple) = self.find_evictable_connection() {
-                    // The unwrap() is safe because evict_tuple must be present as a key.
-                    let rst_config = self
-                        .connections
-                        .get(&evict_tuple)
-                        .unwrap()
-                        .connection()
-                        .make_rst_config();
-                    self.enqueue_rst_config(&evict_tuple, rst_config);
-                    self.remove_connection(&evict_tuple);
-                    self.connections.insert(tuple, endpoint);
-                    return Ok(RecvEvent::NewConnectionReplacing);
-                } else {
-                    // No room to accept the new connection. Try to enqueue a RST, and forget
-                    // about it.
-                    self.enqueue_rst(&tuple, &segment);
-                    return Ok(RecvEvent::NewConnectionDropped);
+            RecvSegmentOutcome::EndpointRunning(status) => {
+                if !self.check_next_segment_status(&tuple, status) {
+                    // The connection may not have been a member of active_connection, but it's
+                    // more straightforward to cover both cases this way.
+                    self.active_connections.remove(&tuple);
                 }
-            } else {
-                self.connections.insert(tuple, endpoint);
-                return Ok(RecvEvent::NewConnectionSuccessful);
+                return Ok(RecvEvent::Nothing);
             }
-        } else {
-            return Ok(RecvEvent::Nothing);
+            RecvSegmentOutcome::NewConnection => {
+                let endpoint = match Endpoint::new_with_defaults(&segment) {
+                    Ok(endpoint) => endpoint,
+                    Err(_) => return Ok(RecvEvent::FailedNewConnection),
+                };
+
+                if self.connections.len() >= self.max_connections {
+                    if let Some(evict_tuple) = self.find_evictable_connection() {
+                        // The unwrap() is safe because evict_tuple must be present as a key.
+                        let rst_config = self
+                            .connections
+                            .get(&evict_tuple)
+                            .unwrap()
+                            .connection()
+                            .make_rst_config();
+                        self.enqueue_rst_config(&evict_tuple, rst_config);
+                        self.remove_connection(&evict_tuple);
+                        self.add_connection(tuple, endpoint);
+                        return Ok(RecvEvent::NewConnectionReplacing);
+                    } else {
+                        // No room to accept the new connection. Try to enqueue a RST, and forget
+                        // about it.
+                        self.enqueue_rst(&tuple, &segment);
+                        return Ok(RecvEvent::NewConnectionDropped);
+                    }
+                } else {
+                    self.add_connection(tuple, endpoint);
+                    return Ok(RecvEvent::NewConnectionSuccessful);
+                }
+            }
+            RecvSegmentOutcome::UnexpectedSegment(enqueue_rst) => {
+                if enqueue_rst {
+                    self.enqueue_rst(&tuple, &segment);
+                }
+                return Ok(RecvEvent::UnexpectedSegment);
+            }
         }
     }
 
+    fn check_timeout(&mut self, value: u64, tuple: &ConnectionTuple) {
+        match self.next_timeout {
+            Some((t, _)) if t > value => self.next_timeout = Some((value, *tuple)),
+            None => self.next_timeout = Some((value, *tuple)),
+            _ => (),
+        };
+    }
+
+    fn find_next_timeout(&mut self) {
+        let mut next_timeout = None;
+        for (tuple, endpoint) in self.connections.iter() {
+            if let NextSegmentStatus::Timeout(value) = endpoint.next_segment_status() {
+                if let Some((t, _)) = next_timeout {
+                    if t > value {
+                        next_timeout = Some((value, *tuple));
+                    }
+                } else {
+                    next_timeout = Some((value, *tuple));
+                }
+            }
+        }
+        self.next_timeout = next_timeout;
+    }
+
+    // Returns true if the endpoint has been added to the set of active connections (it may have
+    // been there already).
+    fn check_next_segment_status(
+        &mut self,
+        tuple: &ConnectionTuple,
+        status: NextSegmentStatus,
+    ) -> bool {
+        if let Some((_, timeout_tuple)) = self.next_timeout {
+            if *tuple == timeout_tuple {
+                self.find_next_timeout();
+            }
+        }
+        match status {
+            NextSegmentStatus::Available => {
+                self.active_connections.insert(*tuple);
+                return true;
+            }
+            NextSegmentStatus::Timeout(value) => self.check_timeout(value, tuple),
+            NextSegmentStatus::Nothing => (),
+        };
+        false
+    }
+
+    fn add_connection(&mut self, tuple: ConnectionTuple, endpoint: Endpoint) {
+        self.check_next_segment_status(&tuple, endpoint.next_segment_status());
+        self.connections.insert(tuple, endpoint);
+    }
+
     fn remove_connection(&mut self, tuple: &ConnectionTuple) {
+        // Just in case it's in there somewhere.
+        self.active_connections.remove(tuple);
         self.connections.remove(tuple);
+
+        if let Some((_, timeout_tuple)) = self.next_timeout {
+            if timeout_tuple == *tuple {
+                self.find_next_timeout();
+            }
+        }
     }
 
     // TODO: I guess this should be refactored at some point to also remove the endpoint if found.
@@ -207,7 +289,7 @@ impl TcpIPv4Handler {
         buf: &mut [u8],
     ) -> Result<(Option<NonZeroUsize>, WriteEvent), WriteNextError> {
         let mut len = None;
-        let mut endpoint_is_done = None;
+        let mut writer_status = None;
         let mut event = WriteEvent::Nothing;
 
         // We use self.local_addr for the dst_addr parameter also just as a placeholder value. The
@@ -250,7 +332,14 @@ impl TcpIPv4Handler {
             ));
         }
 
-        for (tuple, endpoint) in self.connections.iter_mut() {
+        for tuple in self
+            .active_connections
+            .iter()
+            .chain(self.next_timeout.as_ref().map(|(_, x)| x))
+        {
+            // Tuples in self.active_connection or self.next_timeout should also appear as keys
+            // in self.connections.
+            let endpoint = self.connections.get_mut(tuple).unwrap();
             // We need this block to clearly delimit the lifetime of the mutable borrow started by
             // the following packet.inner_mut().
             let segment_len = {
@@ -277,24 +366,39 @@ impl TcpIPv4Handler {
             // The unwrap is safe because ip_len > 0.
             len = Some(NonZeroUsize::new(ip_len).unwrap());
 
-            if endpoint.is_done() {
-                endpoint_is_done = Some(*tuple)
-            }
+            writer_status = Some((*tuple, endpoint.is_done()));
 
             break;
         }
 
-        if let Some(tuple) = endpoint_is_done {
-            self.remove_connection(&tuple);
-            event = WriteEvent::EndpointDone;
+        if let Some((tuple, is_done)) = writer_status {
+            if is_done {
+                self.remove_connection(&tuple);
+                event = WriteEvent::EndpointDone;
+            } else {
+                // The unwrap is safe because tuple is present as a key in self.connections if we
+                // got here.
+                let status = self.connections.get(&tuple).unwrap().next_segment_status();
+                if !self.check_next_segment_status(&tuple, status) {
+                    self.active_connections.remove(&tuple);
+                }
+            }
         }
 
         Ok((len, event))
     }
 
     #[inline]
-    pub fn has_active_connections(&self) -> bool {
-        !self.connections.is_empty()
+    pub fn next_segment_status(&self) -> NextSegmentStatus {
+        if !self.active_connections.is_empty() || !self.rst_queue.is_empty() {
+            return NextSegmentStatus::Available;
+        }
+
+        if let Some((value, _)) = self.next_timeout {
+            return NextSegmentStatus::Timeout(value);
+        }
+
+        NextSegmentStatus::Nothing
     }
 }
 
@@ -380,6 +484,8 @@ mod tests {
         let mut p =
             IPv4Packet::write_header(buf.as_mut(), PROTOCOL_TCP, remote_addr, local_addr).unwrap();
 
+        let seq_number = 123;
+
         let s_len = {
             // We're going to use this simple segment to test stuff.
             let s = TcpSegment::write_segment::<[u8]>(
@@ -387,7 +493,7 @@ mod tests {
                 remote_port,
                 // We use the wrong port here initially, to trigger an error.
                 local_port + 1,
-                123,
+                seq_number,
                 456,
                 TcpFlags::empty(),
                 10000,
@@ -400,6 +506,7 @@ mod tests {
         };
 
         // The handler should have nothing to send at this point.
+        assert_eq!(h.next_segment_status(), NextSegmentStatus::Nothing);
         assert_eq!(drain_packets(&mut h), Ok(0));
 
         let mut p = p.with_payload_len_unchecked(s_len, false);
@@ -411,6 +518,7 @@ mod tests {
         inner_tcp_mut(&mut p).set_destination_port(local_port);
         assert_eq!(h.receive_packet(&p), Ok(RecvEvent::UnexpectedSegment));
         assert_eq!(h.rst_queue.len(), 1);
+        assert_eq!(h.next_segment_status(), NextSegmentStatus::Available);
         {
             let s = next_written_segment(&mut h, buf2.as_mut(), WriteEvent::Nothing);
             assert!(s.flags_after_ns().intersects(TcpFlags::RST));
@@ -418,6 +526,7 @@ mod tests {
         }
 
         assert_eq!(h.rst_queue.len(), 0);
+        assert_eq!(h.next_segment_status(), NextSegmentStatus::Nothing);
 
         // Let's check we can only enqueue max_pending_resets resets.
         assert_eq!(h.receive_packet(&p), Ok(RecvEvent::UnexpectedSegment));
@@ -427,16 +536,50 @@ mod tests {
         assert_eq!(h.receive_packet(&p), Ok(RecvEvent::UnexpectedSegment));
         assert_eq!(h.rst_queue.len(), 2);
 
-        // "Send" the resets.
+        // Drain the resets.
+        assert_eq!(h.next_segment_status(), NextSegmentStatus::Available);
         assert_eq!(drain_packets(&mut h), Ok(2));
+        assert_eq!(h.next_segment_status(), NextSegmentStatus::Nothing);
 
         // Ok now let's send a valid SYN.
         assert_eq!(h.connections.len(), 0);
         inner_tcp_mut(&mut p).set_flags_after_ns(TcpFlags::SYN);
         assert_eq!(h.receive_packet(&p), Ok(RecvEvent::NewConnectionSuccessful));
         assert_eq!(h.connections.len(), 1);
+        assert_eq!(h.active_connections.len(), 1);
+
+        // Let's immediately send a RST to the newly initiated connection. This should
+        // terminate it.
+        inner_tcp_mut(&mut p)
+            .set_flags_after_ns(TcpFlags::RST)
+            .set_sequence_number(seq_number.wrapping_add(1));
+        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::EndpointDone));
+        assert_eq!(h.connections.len(), 0);
+        assert_eq!(h.active_connections.len(), 0);
+
+        // Now, let's restore the previous SYN, and resend it to initiate a connection.
+        inner_tcp_mut(&mut p)
+            .set_flags_after_ns(TcpFlags::SYN)
+            .set_sequence_number(seq_number);
+        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::NewConnectionSuccessful));
+        assert_eq!(h.connections.len(), 1);
+        assert_eq!(h.active_connections.len(), 1);
+
         // There will be a SYNACK in response.
+        assert_eq!(h.next_segment_status(), NextSegmentStatus::Available);
         assert_eq!(drain_packets(&mut h), Ok(1));
+
+        let remote_tuple = ConnectionTuple::new(remote_addr, remote_port);
+        let remote_tuple2 = ConnectionTuple::new(remote_addr, remote_port + 1);
+
+        // Also, there should be a retransmission timer associated with the previous SYNACK now.
+        assert_eq!(h.active_connections.len(), 0);
+        let old_timeout_value = if let Some((t, tuple)) = h.next_timeout {
+            assert_eq!(tuple, remote_tuple);
+            t
+        } else {
+            panic!("missing first expected timeout");
+        };
 
         // Using the same SYN again will route the packet to the previous connection, and not
         // create a new one.
@@ -445,13 +588,56 @@ mod tests {
         // SYNACK retransmission.
         assert_eq!(drain_packets(&mut h), Ok(1));
 
+        // The timeout value should've gotten updated.
+        assert_eq!(h.active_connections.len(), 0);
+        if let Some((t, tuple)) = h.next_timeout {
+            assert_eq!(tuple, remote_tuple);
+            // The current Endpoint implementation gets timestamps using timestamp_cycles(), which
+            // increases VERY fast so the following inequality is guaranteed to be true. If the
+            // timestamp source gets coarser at some point, we might need an explicit wait before
+            // the previous h.receive_packet() :-s
+            assert!(t > old_timeout_value);
+        } else {
+            panic!("missing second expected timeout");
+        };
+
+        // Let's ACK the SYNACK.
+        {
+            let seq = h
+                .connections
+                .get(&remote_tuple)
+                .unwrap()
+                .connection()
+                .first_not_sent()
+                .0;
+            inner_tcp_mut(&mut p)
+                .set_flags_after_ns(TcpFlags::ACK)
+                .set_ack_number(seq);
+            assert_eq!(h.receive_packet(&p), Ok(RecvEvent::Nothing));
+        }
+
+        // There should be no more active connections now, and also no pending timeout.
+        assert_eq!(h.active_connections.len(), 0);
+        assert_eq!(h.next_timeout, None);
+
+        // Make p a SYN packet again.
+        inner_tcp_mut(&mut p).set_flags_after_ns(TcpFlags::SYN);
+
         // Create a new connection, from a different remote_port.
         inner_tcp_mut(&mut p).set_source_port(remote_port + 1);
         assert_eq!(h.receive_packet(&p), Ok(RecvEvent::NewConnectionSuccessful));
         assert_eq!(h.connections.len(), 2);
+        assert_eq!(h.active_connections.len(), 1);
         // SYNACK
         assert_eq!(drain_packets(&mut h), Ok(1));
 
+        // The timeout associated with the SYNACK of the second connection should be next.
+        assert_eq!(h.active_connections.len(), 0);
+        if let Some((_, tuple)) = h.next_timeout {
+            assert_ne!(tuple, ConnectionTuple::new(remote_addr, remote_port));
+        } else {
+            panic!("missing third expected timeout");
+        }
         // No more room for another one.
         {
             let port = remote_port + 2;
@@ -466,19 +652,31 @@ mod tests {
             assert_eq!(s.destination_port(), port);
         }
 
-        // Let's make one of the endpoints evictable.
-        for e in h.connections.values_mut() {
-            e.set_eviction_threshold(0);
-            break;
-        }
+        // Let's make the second endpoint evictable.
+        h.connections
+            .get_mut(&remote_tuple2)
+            .unwrap()
+            .set_eviction_threshold(0);
 
         // The new connection will replace the old one.
         assert_eq!(h.receive_packet(&p), Ok(RecvEvent::NewConnectionReplacing));
         assert_eq!(h.connections.len(), 2);
+        assert_eq!(h.active_connections.len(), 1);
 
         // One SYNACK for the new connection, and one RST for the old one.
         assert_eq!(h.rst_queue.len(), 1);
         assert_eq!(drain_packets(&mut h), Ok(2));
         assert_eq!(h.rst_queue.len(), 0);
+        assert_eq!(h.active_connections.len(), 0);
+
+        // Let's send another SYN to the first connection. This should make it reappear among the
+        // active connections (because it will have a RST to send), and then cause it to be removed
+        // altogether after sending the RST (because is_done() will be true).
+        inner_tcp_mut(&mut p).set_source_port(remote_port);
+        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::Nothing));
+        assert_eq!(h.active_connections.len(), 1);
+        assert_eq!(drain_packets(&mut h), Ok(1));
+        assert_eq!(h.connections.len(), 1);
+        assert_eq!(h.active_connections.len(), 0);
     }
 }
