@@ -1,14 +1,5 @@
-use std::sync::{Arc, Mutex};
-
 use json_patch::merge;
 use serde_json::Value;
-
-lazy_static! {
-    // A static reference to a global Mmds instance. We currently use this for ease of access during
-    // prototyping. We'll consider something like passing Arc<Mutex<Mmds>> references to the
-    // appropriate threads in the future.
-    pub static ref MMDS: Arc<Mutex<Mmds>> = Arc::new(Mutex::new(Mmds::default()));
-}
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
 #[derive(Clone)]

@@ -9,6 +9,7 @@ extern crate fc_util;
 extern crate jailer;
 #[macro_use]
 extern crate logger;
+extern crate mmds;
 extern crate seccomp;
 extern crate vmm;
 
@@ -20,9 +21,9 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
 use api_server::{ApiServer, UnixDomainSocket};
-use data_model::mmds::MMDS;
 use data_model::FirecrackerContext;
 use logger::{Metric, LOGGER, METRICS};
+use mmds::MMDS;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";

@@ -21,6 +21,7 @@ kernel = { path = "../kernel" }
 kvm = { path = "../kvm" }
 logger = { path = "../logger" }
 memory_model = { path = "../memory_model" }
+mmds = { path = "../mmds" }
 net_util = { path = "../net_util"}
 seccomp = { path = "../seccomp" }
 sys_util = { path = "../sys_util" }
