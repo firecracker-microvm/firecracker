@@ -45,8 +45,8 @@ use libc::{c_void, siginfo_t};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use data_model::vm::{
-    description_into_implementation as rate_limiter_description_into_implementation,
-    BlockDeviceConfig, BlockDeviceConfigs, DriveError, VmConfig, VmConfigError,
+    description_into_implementation as rate_limiter_description_into_implementation, VmConfig,
+    VmConfigError,
 };
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -61,10 +61,10 @@ use memory_model::{GuestAddress, GuestMemory};
 use sys_util::{register_signal_handler, EventFd, Killable, Terminal};
 use vm_control::VmResponse;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
+use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
 use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
 use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel};
-use vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceError};
-use vmm_config::*;
+use vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError};
 use vstate::{Vcpu, Vm};
 
 const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u16 = 0x03f0;
@@ -1621,6 +1621,7 @@ mod tests {
     use data_model::vm::CpuFeaturesTemplate;
     use devices::virtio::ActivateResult;
     use net_util::MacAddr;
+    use vmm_config::DeviceState;
 
     impl Vmm {
         fn get_kernel_cmdline_str(&self) -> &str {
