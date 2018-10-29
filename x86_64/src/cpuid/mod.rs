@@ -1,14 +1,13 @@
 use std::result;
 
 use cpuid::cpu_leaf::*;
-use data_model::vm::CpuFeaturesTemplate;
 use kvm::CpuId;
 
 mod cpu_leaf;
 
 mod brand_string;
-mod c3_template;
-mod t2_template;
+pub mod c3_template;
+pub mod t2_template;
 
 use self::brand_string::BrandString;
 use self::brand_string::Reg as BsReg;
@@ -41,14 +40,6 @@ fn get_max_addressable_lprocessors(cpu_count: u8) -> result::Result<u8, Error> {
         return Err(Error::VcpuCountOverflow);
     }
     Ok(max_addressable_lcpu as u8)
-}
-
-pub fn set_cpuid_template(template: CpuFeaturesTemplate, kvm_cpuid: &mut CpuId) {
-    let entries = kvm_cpuid.mut_entries_slice();
-    match template {
-        CpuFeaturesTemplate::T2 => t2_template::set_cpuid_entries(entries),
-        CpuFeaturesTemplate::C3 => c3_template::set_cpuid_entries(entries),
-    }
 }
 
 /// Sets up the cpuid entries for the given vcpu
@@ -264,8 +255,6 @@ mod tests {
             Ok(_) => (),
             _ => assert!(false),
         };
-
-        set_cpuid_template(CpuFeaturesTemplate::T2, &mut kvm_cpuid);
 
         let entries = kvm_cpuid.mut_entries_slice();
         // TODO: This should be tested as part of the CI; only check that the function result is ok
