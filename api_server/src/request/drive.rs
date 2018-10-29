@@ -4,10 +4,10 @@ use futures::sync::oneshot;
 use hyper::Method;
 use serde_json::{Map, Value};
 
-use data_model::vm::BlockDeviceConfig;
+use vmm::vmm_config::drive::BlockDeviceConfig;
+use vmm::VmmAction;
 
 use request::{IntoParsedRequest, ParsedRequest};
-use vmm::VmmAction;
 
 #[derive(Clone)]
 pub struct PatchDrivePayload {
