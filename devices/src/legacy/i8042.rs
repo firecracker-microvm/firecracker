@@ -53,31 +53,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn i8042_read_and_write() {
-        let reset_evt = EventFd::new().unwrap();
-        let mut i8042 = I8042Device::new(reset_evt.try_clone().unwrap());
+    fn test_i8042_read_write_and_event() {
+        let mut i8042 = I8042Device::new(EventFd::new().unwrap());
+        let reset_evt = i8042.get_eventfd_clone().unwrap();
 
-        // check if reading in a 2-length array doesn't have side effects
+        // Check if reading in a 2-length array doesn't have side effects.
         let mut data = [1, 2];
         i8042.read(0, &mut data);
         assert_eq!(data, [1, 2]);
         i8042.read(1, &mut data);
         assert_eq!(data, [1, 2]);
 
-        // check if reset works
-        // write 1 to the reset event fd, so that read doesn't block in case the event fd
-        // counter doesn't change (for 0 it blocks)
+        // Check if reset works.
+        // Write 1 to the reset event fd, so that read doesn't block in case the event fd
+        // counter doesn't change (for 0 it blocks).
         assert!(reset_evt.write(1).is_ok());
         let mut data = [RESET_CMD];
         i8042.write(0, &mut data);
         assert_eq!(reset_evt.read(), Ok(2));
 
-        // check if reading with offset 1 doesn't have side effects
+        // Check if reading with offset 1 doesn't have side effects.
         i8042.read(1, &mut data);
         assert_eq!(data[0], RESET_CMD);
 
-        // check if reading in a 1-length array with offset 0 returns [0]
+        // Check if reading in a 1-length array with offset 0 returns [0].
         i8042.read(0, &mut data);
         assert_eq!(data[0], 0);
+
+        // Check invalid `write`s.
+        let before = METRICS.i8042.missed_write_count.count();
+        // offset != 0.
+        i8042.write(1, &mut data);
+        // data != RESET_CMD
+        data[0] = RESET_CMD + 1;
+        i8042.write(1, &mut data);
+        // data.len() != 1
+        let mut data = [RESET_CMD; 2];
+        i8042.write(1, &mut data);
+        assert_eq!(METRICS.i8042.missed_write_count.count(), before + 3);
     }
 }
