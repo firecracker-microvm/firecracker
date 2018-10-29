@@ -3,10 +3,9 @@ use std::result;
 use cpuid::cpu_leaf::*;
 use kvm::CpuId;
 
-mod cpu_leaf;
-
 mod brand_string;
 pub mod c3_template;
+mod cpu_leaf;
 pub mod t2_template;
 
 use self::brand_string::BrandString;
@@ -42,6 +41,33 @@ fn get_max_addressable_lprocessors(cpu_count: u8) -> result::Result<u8, Error> {
     Ok(max_addressable_lcpu as u8)
 }
 
+/// Generate the emulated brand string.
+/// TODO: Add non-Intel CPU support
+///
+/// For non-Intel CPUs, we'll just expose DEFAULT_BRAND_STRING
+///
+/// For Intel CPUs, the brand string we expose will be:
+///    "Intel(R) Xeon(R) Processor @ {host freq}"
+/// where {host freq} is the CPU frequency, as present in the
+/// host brand string (e.g. 4.01GHz).
+///
+/// This is safe because we know DEFAULT_BRAND_STRING to hold valid data
+/// (allowed length and holding only valid ASCII chars).
+fn get_brand_string() -> BrandString {
+    let mut bstr = BrandString::from_bytes_unchecked(DEFAULT_BRAND_STRING);
+    if let Ok(host_bstr) = BrandString::from_host_cpuid() {
+        if host_bstr.starts_with(b"Intel") {
+            if let Some(freq) = host_bstr.find_freq() {
+                let mut v3 = vec![];
+                v3.extend_from_slice(" @ ".as_bytes());
+                v3.extend_from_slice(freq);
+                bstr.push_bytes(&v3);
+            }
+        }
+    }
+    bstr
+}
+
 /// Sets up the cpuid entries for the given vcpu
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn filter_cpuid(
@@ -53,33 +79,7 @@ pub fn filter_cpuid(
     let entries = kvm_cpuid.mut_entries_slice();
     let max_addr_cpu = get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
 
-    // TODO: Add non-Intel CPU support
-    // Generate the emulated brand string.
-    //
-    // For non-Intel CPUs, we'll just expose DEFAULT_BRAND_STRING
-    //
-    // For Intel CPUs, the brand string we expose will be:
-    //    "Intel(R) Xeon(R) Processor @ {host freq}"
-    // where {host freq} is the CPU frequency, as present in the
-    // host brand string (e.g. 4.01GHz).
-    //
-    // This is safe because we know DEFAULT_BRAND_STRING to hold valid data
-    // (allowed length and holding only valid ASCII chars).
-    let mut bstr = BrandString::from_bytes_unchecked(DEFAULT_BRAND_STRING);
-    if let Ok(host_bstr) = BrandString::from_host_cpuid() {
-        if host_bstr.starts_with(b"Intel") {
-            if let Some(freq) = host_bstr.find_freq() {
-                // It's safe to unwrap here, because push_bytes() only fails if the internal
-                // buffer overflows. DEFAULT_BRAND_STRING + b" @ " cannot cause that.
-                bstr.push_bytes(b" @ ").unwrap();
-                if bstr.push_bytes(freq).is_err() {
-                    // The frequency string should never be long enough for push_bytes() to fail,
-                    // but let's fall back to our default string if the unthinkable happens.
-                    bstr = BrandString::from_bytes_unchecked(DEFAULT_BRAND_STRING);
-                }
-            }
-        }
-    }
+    let bstr = get_brand_string();
 
     for entry in entries.iter_mut() {
         match entry.function {
@@ -173,7 +173,7 @@ pub fn filter_cpuid(
                             if ht_enabled {
                                 // When HT is enabled, there are 2 logical cores at this level
                                 // To get the next level APIC ID, shift right with 1 because we have
-                                // maximum 2 hyperthreads per core that can be represented with 1 bit
+                                // maximum 2 hyperthreads per core that can be represented by 1 bit.
                                 entry.eax = 1;
                                 entry.ebx = 2;
                             } else {
@@ -251,24 +251,24 @@ mod tests {
     fn test_cpuid() {
         let kvm = Kvm::new().unwrap();
         let mut kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
-        match filter_cpuid(0, 1, true, &mut kvm_cpuid) {
-            Ok(_) => (),
-            _ => assert!(false),
-        };
+        filter_cpuid(0, 1, true, &mut kvm_cpuid).unwrap();
 
         let entries = kvm_cpuid.mut_entries_slice();
         // TODO: This should be tested as part of the CI; only check that the function result is ok
-        // after moving this to the CI
-        // Test the extended topology
-        // See https://www.scss.tcd.ie/~jones/CS4021/processor-identification-cpuid-instruction-note.pdf
+        // after moving this to the CI.
+        // Test the extended topology. See:
+        // https://www.scss.tcd.ie/~jones/CS4021/processor-identification-cpuid-instruction-note.pdf
         let leaf11_index0 = kvm_cpuid_entry2 {
             function: 11,
             index: 0,
             flags: 1,
             eax: 0,
-            ebx: 1, // nr of hyperthreads/core
-            ecx: leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT, // ECX[15:8] = 2 (Core Level)
-            edx: 0,                                                            // EDX = APIC ID = 0
+            // no of hyperthreads/core
+            ebx: 1,
+            // ECX[15:8] = 2 (Core Level)
+            ecx: leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            // EDX = APIC ID = 0
+            edx: 0,
             padding: [0, 0, 0],
         };
         assert!(entries.contains(&leaf11_index0));
@@ -294,5 +294,903 @@ mod tests {
             padding: [0, 0, 0],
         };
         assert!(entries.contains(&leaf11_index2));
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn test_filter_cpuid_1vcpu_ht_off() {
+        let mut kvm_cpuid = CpuId::new(11);
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[0].function = 0x1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[1].function = 0x4;
+            entries[1].eax = 0b10000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[2].function = 0x4;
+            entries[2].eax = 0b100000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[3].function = 0x4;
+            entries[3].eax = 0b1000000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[4].function = 0x4;
+            entries[4].eax = 0b1100000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[5].function = 0x6;
+            entries[5].eax = 1;
+            entries[5].ecx = 1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[6].function = 0xA;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[7].function = 0xB;
+            entries[7].index = 0;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[8].function = 0xB;
+            entries[8].index = 1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[9].function = 0xB;
+            entries[9].index = 2;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[10].function = 0x80000003;
+        }
+        filter_cpuid(0, 1, false, &mut kvm_cpuid).unwrap();
+        let max_addr_cpu = get_max_addressable_lprocessors(1).unwrap() as u32;
+
+        let cpuid_f1 = kvm_cpuid_entry2 {
+            function: 1,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_SHIFT)
+                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_SHIFT,
+            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_SHIFT
+                | 1 << leaf_0x1::ecx::HYPERVISOR_SHIFT,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[0], cpuid_f1);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b10000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[1], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[2], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b1000000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[3], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b1100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[4], cpuid_f4);
+        }
+        let cpuid_f6 = kvm_cpuid_entry2 {
+            function: 0x6,
+            index: 0,
+            flags: 0,
+            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_SHIFT),
+            ebx: 0,
+            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_SHIFT),
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[5], cpuid_f6);
+        }
+        let cpuid_fa = kvm_cpuid_entry2 {
+            function: 0xA,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[6], cpuid_fa);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: 1,
+            ecx: leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[7], cpuid_fb);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 1,
+            flags: 0,
+            eax: LEAFBH_INDEX1_APICID_SHIFT,
+            ebx: 0,
+            ecx: 1 | (leaf_0xb::LEVEL_TYPE_INVALID << leaf_0xb::ecx::LEVEL_TYPE_SHIFT),
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[8], cpuid_fb);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 2,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 2,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[9], cpuid_fb);
+        }
+        let bstr = get_brand_string();
+        let cpuid_fother = kvm_cpuid_entry2 {
+            function: 0x80000003,
+            index: 0,
+            flags: 0,
+            eax: bstr.get_reg_for_leaf(0x80000003, BsReg::EAX),
+            ebx: bstr.get_reg_for_leaf(0x80000003, BsReg::EBX),
+            ecx: bstr.get_reg_for_leaf(0x80000003, BsReg::ECX),
+            edx: bstr.get_reg_for_leaf(0x80000003, BsReg::EDX),
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[10], cpuid_fother);
+        }
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn test_filter_cpuid_multiple_vcpu_ht_off() {
+        let mut kvm_cpuid = CpuId::new(11);
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[0].function = 0x1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[1].function = 0x4;
+            entries[1].eax = 0b10000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[2].function = 0x4;
+            entries[2].eax = 0b100000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[3].function = 0x4;
+            entries[3].eax = 0b1000000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[4].function = 0x4;
+            entries[4].eax = 0b1100000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[5].function = 0x6;
+            entries[5].eax = 1;
+            entries[5].ecx = 1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[6].function = 0xA;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[7].function = 0xB;
+            entries[7].index = 0;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[8].function = 0xB;
+            entries[8].index = 1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[9].function = 0xB;
+            entries[9].index = 2;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[10].function = 0x80000003;
+        }
+        let cpu_count = 3;
+        filter_cpuid(0, cpu_count, false, &mut kvm_cpuid).unwrap();
+        let max_addr_cpu = get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
+
+        let cpuid_f1 = kvm_cpuid_entry2 {
+            function: 1,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_SHIFT)
+                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_SHIFT,
+            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_SHIFT
+                | 1 << leaf_0x1::ecx::HYPERVISOR_SHIFT,
+            edx: 1 << leaf_0x1::edx::HTT_SHIFT,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[0], cpuid_f1);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b10000 & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
+                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[1], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b100000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
+                & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
+                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[2], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b1000000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
+                & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
+                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[3], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b1100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
+                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE
+                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
+                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[4], cpuid_f4);
+        }
+        let cpuid_f6 = kvm_cpuid_entry2 {
+            function: 0x6,
+            index: 0,
+            flags: 0,
+            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_SHIFT),
+            ebx: 0,
+            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_SHIFT),
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[5], cpuid_f6);
+        }
+        let cpuid_fa = kvm_cpuid_entry2 {
+            function: 0xA,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[6], cpuid_fa);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: 1,
+            ecx: leaf_0xb::LEVEL_TYPE_THREAD << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[7], cpuid_fb);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 1,
+            flags: 0,
+            eax: LEAFBH_INDEX1_APICID_SHIFT,
+            ebx: cpu_count as u32,
+            ecx: 1 | leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[8], cpuid_fb);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 2,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 2,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[9], cpuid_fb);
+        }
+        let bstr = get_brand_string();
+        let cpuid_fother = kvm_cpuid_entry2 {
+            function: 0x80000003,
+            index: 0,
+            flags: 0,
+            eax: bstr.get_reg_for_leaf(0x80000003, BsReg::EAX),
+            ebx: bstr.get_reg_for_leaf(0x80000003, BsReg::EBX),
+            ecx: bstr.get_reg_for_leaf(0x80000003, BsReg::ECX),
+            edx: bstr.get_reg_for_leaf(0x80000003, BsReg::EDX),
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[10], cpuid_fother);
+        }
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn test_filter_cpuid_1vcpu_ht_on() {
+        let mut kvm_cpuid = CpuId::new(11);
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[0].function = 0x1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[1].function = 0x4;
+            entries[1].eax = 0b10000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[2].function = 0x4;
+            entries[2].eax = 0b100000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[3].function = 0x4;
+            entries[3].eax = 0b1000000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[4].function = 0x4;
+            entries[4].eax = 0b1100000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[5].function = 0x6;
+            entries[5].eax = 1;
+            entries[5].ecx = 1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[6].function = 0xA;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[7].function = 0xB;
+            entries[7].index = 0;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[8].function = 0xB;
+            entries[8].index = 1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[9].function = 0xB;
+            entries[9].index = 2;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[10].function = 0x80000003;
+        }
+        filter_cpuid(0, 1, true, &mut kvm_cpuid).unwrap();
+        let max_addr_cpu = get_max_addressable_lprocessors(1).unwrap() as u32;
+
+        let cpuid_f1 = kvm_cpuid_entry2 {
+            function: 1,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_SHIFT)
+                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_SHIFT,
+            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_SHIFT
+                | 1 << leaf_0x1::ecx::HYPERVISOR_SHIFT,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[0], cpuid_f1);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b10000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[1], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[2], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b1000000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[3], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b1100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[4], cpuid_f4);
+        }
+        let cpuid_f6 = kvm_cpuid_entry2 {
+            function: 0x6,
+            index: 0,
+            flags: 0,
+            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_SHIFT),
+            ebx: 0,
+            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_SHIFT),
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[5], cpuid_f6);
+        }
+        let cpuid_fa = kvm_cpuid_entry2 {
+            function: 0xA,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[6], cpuid_fa);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: 1,
+            ecx: leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[7], cpuid_fb);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 1,
+            flags: 0,
+            eax: LEAFBH_INDEX1_APICID_SHIFT,
+            ebx: 0,
+            ecx: 1 | (leaf_0xb::LEVEL_TYPE_INVALID << leaf_0xb::ecx::LEVEL_TYPE_SHIFT),
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[8], cpuid_fb);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 2,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 2,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[9], cpuid_fb);
+        }
+        let bstr = get_brand_string();
+        let cpuid_fother = kvm_cpuid_entry2 {
+            function: 0x80000003,
+            index: 0,
+            flags: 0,
+            eax: bstr.get_reg_for_leaf(0x80000003, BsReg::EAX),
+            ebx: bstr.get_reg_for_leaf(0x80000003, BsReg::EBX),
+            ecx: bstr.get_reg_for_leaf(0x80000003, BsReg::ECX),
+            edx: bstr.get_reg_for_leaf(0x80000003, BsReg::EDX),
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[10], cpuid_fother);
+        }
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn test_filter_cpuid_multiple_vcpu_ht_on() {
+        let mut kvm_cpuid = CpuId::new(11);
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[0].function = 0x1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[1].function = 0x4;
+            entries[1].eax = 0b10000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[2].function = 0x4;
+            entries[2].eax = 0b100000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[3].function = 0x4;
+            entries[3].eax = 0b1000000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[4].function = 0x4;
+            entries[4].eax = 0b1100000;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[5].function = 0x6;
+            entries[5].eax = 1;
+            entries[5].ecx = 1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[6].function = 0xA;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[7].function = 0xB;
+            entries[7].index = 0;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[8].function = 0xB;
+            entries[8].index = 1;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[9].function = 0xB;
+            entries[9].index = 2;
+        }
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            entries[10].function = 0x80000003;
+        }
+        let cpu_count = 3;
+        filter_cpuid(0, cpu_count, true, &mut kvm_cpuid).unwrap();
+        let max_addr_cpu = get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
+
+        let cpuid_f1 = kvm_cpuid_entry2 {
+            function: 1,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_SHIFT)
+                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_SHIFT,
+            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_SHIFT
+                | 1 << leaf_0x1::ecx::HYPERVISOR_SHIFT,
+            edx: 1 << leaf_0x1::edx::HTT_SHIFT,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[0], cpuid_f1);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b10000 & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
+                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[1], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
+                | 1 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE
+                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
+                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[2], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b1000000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
+                | 1 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE
+                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
+                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[3], cpuid_f4);
+        }
+        let cpuid_f4 = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 0,
+            eax: 0b1100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
+                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE
+                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
+                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[4], cpuid_f4);
+        }
+        let cpuid_f6 = kvm_cpuid_entry2 {
+            function: 0x6,
+            index: 0,
+            flags: 0,
+            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_SHIFT),
+            ebx: 0,
+            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_SHIFT),
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[5], cpuid_f6);
+        }
+        let cpuid_fa = kvm_cpuid_entry2 {
+            function: 0xA,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[6], cpuid_fa);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 0,
+            flags: 0,
+            eax: 1,
+            ebx: 2,
+            ecx: leaf_0xb::LEVEL_TYPE_THREAD << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[7], cpuid_fb);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 1,
+            flags: 0,
+            eax: LEAFBH_INDEX1_APICID_SHIFT,
+            ebx: cpu_count as u32,
+            ecx: 1 | leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[8], cpuid_fb);
+        }
+        let cpuid_fb = kvm_cpuid_entry2 {
+            function: 0xB,
+            index: 2,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 2,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[9], cpuid_fb);
+        }
+        let bstr = get_brand_string();
+        let cpuid_fother = kvm_cpuid_entry2 {
+            function: 0x80000003,
+            index: 0,
+            flags: 0,
+            eax: bstr.get_reg_for_leaf(0x80000003, BsReg::EAX),
+            ebx: bstr.get_reg_for_leaf(0x80000003, BsReg::EBX),
+            ecx: bstr.get_reg_for_leaf(0x80000003, BsReg::ECX),
+            edx: bstr.get_reg_for_leaf(0x80000003, BsReg::EDX),
+            padding: [0, 0, 0],
+        };
+        {
+            let entries = kvm_cpuid.mut_entries_slice();
+            assert_eq!(entries[10], cpuid_fother);
+        }
     }
 }
