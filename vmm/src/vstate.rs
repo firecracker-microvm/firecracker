@@ -4,10 +4,11 @@ extern crate x86_64;
 
 use std::result;
 
-use data_model::vm::VmConfig;
 use kvm::*;
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
+use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
+use x86_64::cpuid::{c3_template, t2_template};
 use x86_64::{cpuid, interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
@@ -161,7 +162,14 @@ impl Vcpu {
             &mut self.cpuid,
         ).map_err(|e| Error::CpuId(e))?;
         match machine_config.cpu_template {
-            Some(template) => cpuid::set_cpuid_template(template, &mut self.cpuid),
+            Some(template) => match template {
+                CpuFeaturesTemplate::T2 => {
+                    t2_template::set_cpuid_entries(self.cpuid.mut_entries_slice())
+                }
+                CpuFeaturesTemplate::C3 => {
+                    c3_template::set_cpuid_entries(self.cpuid.mut_entries_slice())
+                }
+            },
             None => (),
         }
 
@@ -209,7 +217,6 @@ mod tests {
     }
 
     use super::*;
-    use data_model::vm::CpuFeaturesTemplate;
 
     #[test]
     fn create_vm() {
@@ -256,10 +263,10 @@ mod tests {
         assert_eq!(vcpu.get_cpuid(), vm.fd.get_supported_cpuid());
         assert!(cpuid::filter_cpuid(0, 1, true, &mut vcpu.cpuid).is_ok());
         // Test using the T2 template
-        cpuid::set_cpuid_template(CpuFeaturesTemplate::T2, &mut vcpu.cpuid);
+        t2_template::set_cpuid_entries(vcpu.cpuid.mut_entries_slice());
         assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
         // Test using the C3 template
-        cpuid::set_cpuid_template(CpuFeaturesTemplate::C3, &mut vcpu.cpuid);
+        c3_template::set_cpuid_entries(vcpu.cpuid.mut_entries_slice());
         assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
     }
 
