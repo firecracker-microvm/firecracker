@@ -17,6 +17,7 @@ tokio-io = "=0.1.5"
 data_model = { path = "../data_model" }
 fc_util = { path = "../fc_util" }
 logger = { path = "../logger" }
+mmds = { path = "../mmds" }
 sys_util = { path = "../sys_util" }
 vmm = { path = "../vmm" }
 

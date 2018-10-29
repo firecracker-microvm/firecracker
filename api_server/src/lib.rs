@@ -12,6 +12,7 @@ extern crate data_model;
 extern crate fc_util;
 #[macro_use]
 extern crate logger;
+extern crate mmds;
 extern crate sys_util;
 extern crate vmm;
 
@@ -30,9 +31,9 @@ use hyper::server::Http;
 use tokio_core::reactor::Core;
 use tokio_uds::UnixListener;
 
-use data_model::mmds::Mmds;
 use http_service::ApiServerHttpService;
 use logger::{Metric, METRICS};
+use mmds::data_store::Mmds;
 use sys_util::EventFd;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::VmmAction;

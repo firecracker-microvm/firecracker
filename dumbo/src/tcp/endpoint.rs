@@ -12,7 +12,7 @@ use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 
 use fc_util::timestamp_cycles;
 use logger::{Metric, METRICS};
-use mmds_glue::parse_request;
+use mmds::parse_request;
 use pdu::bytes::NetworkBytes;
 use pdu::tcp::TcpSegment;
 use pdu::Incomplete;
