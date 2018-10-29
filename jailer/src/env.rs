@@ -1,4 +1,3 @@
-extern crate data_model;
 extern crate serde_json;
 
 use std::ffi::CStr;

@@ -1,5 +1,5 @@
 [package]
-name = "data_model"
+name = "rate_limiter"
 version = "0.1.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
@@ -11,4 +11,3 @@ fc_util = { path = "../fc_util" }
 
 [dev-dependencies]
 serde_json = ">=1.0.9"
-tempfile = ">=3.0.2"

@@ -1,4 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+
+extern crate fc_util;
 
 use std::io;
 

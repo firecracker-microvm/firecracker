@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::result;
 
-use data_model::vm::RateLimiterDescription;
+use rate_limiter::RateLimiterDescription;
 
 type Result<T> = result::Result<T, DriveError>;
 
