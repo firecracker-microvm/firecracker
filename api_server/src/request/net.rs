@@ -31,13 +31,14 @@ impl IntoParsedRequest for NetworkInterfaceConfig {
 #[cfg(test)]
 mod tests {
     extern crate net_util;
+    extern crate rate_limiter;
 
     use self::net_util::MacAddr;
     use super::*;
 
     use serde_json;
 
-    use data_model::vm::RateLimiterDescription;
+    use self::rate_limiter::RateLimiterDescription;
     use vmm::vmm_config::DeviceState;
 
     fn get_dummy_netif(

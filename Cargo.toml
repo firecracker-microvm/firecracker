@@ -10,7 +10,6 @@ clap = "=2.27.1"
 serde_json = ">=1.0.9"
 
 api_server = { path = "api_server" }
-data_model = { path = "data_model" }
 jailer = { path = "jailer" }
 logger = { path = "logger"}
 mmds = { path = "mmds" }

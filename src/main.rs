@@ -4,7 +4,6 @@ extern crate clap;
 extern crate serde_json;
 
 extern crate api_server;
-extern crate data_model;
 extern crate fc_util;
 extern crate jailer;
 #[macro_use]
