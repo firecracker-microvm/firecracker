@@ -1,8 +1,23 @@
-extern crate data_model;
+extern crate json_patch;
+#[macro_use]
+extern crate lazy_static;
+extern crate serde_json;
+
 extern crate micro_http;
 
-use data_model::mmds::{Error as MmdsError, MMDS};
+pub mod data_store;
+
+use std::sync::{Arc, Mutex};
+
+use data_store::{Error as MmdsError, Mmds};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
+
+lazy_static! {
+    // A static reference to a global Mmds instance. We currently use this for ease of access during
+    // prototyping. We'll consider something like passing Arc<Mutex<Mmds>> references to the
+    // appropriate threads in the future.
+    pub static ref MMDS: Arc<Mutex<Mmds>> = Arc::new(Mutex::new(Mmds::default()));
+}
 
 fn build_response(http_version: Version, status_code: StatusCode, body: Body) -> Response {
     let mut response = Response::new(http_version, status_code);

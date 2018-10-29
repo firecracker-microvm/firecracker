@@ -10,9 +10,9 @@ use futures::{Future, Stream};
 use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 
-use data_model::mmds::Mmds;
 use data_model::vm::{BlockDeviceConfig, VmConfig};
 use logger::{Metric, METRICS};
+use mmds::data_store::Mmds;
 use request::actions::ActionBody;
 use request::drive::PatchDrivePayload;
 use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
