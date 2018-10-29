@@ -2,8 +2,8 @@ use std::fmt::{Display, Formatter, Result};
 use std::result;
 
 use super::DeviceState;
-use data_model::vm::RateLimiterDescription;
 use net_util::{MacAddr, Tap, TapError};
+use rate_limiter::RateLimiterDescription;
 
 // This struct represents the strongly typed equivalent of the json body from net iface
 // related requests.
