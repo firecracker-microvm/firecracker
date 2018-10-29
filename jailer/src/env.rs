@@ -15,7 +15,7 @@ use cgroup::Cgroup;
 use chroot::chroot;
 use fc_util::validators;
 use sys_util;
-use {Error, Result};
+use {Error, FirecrackerContext, Result};
 
 const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
@@ -269,7 +269,7 @@ impl Env {
             }
         }
 
-        let context = data_model::FirecrackerContext {
+        let context = FirecrackerContext {
             id: self.id.clone(),
             jailed: true,
             seccomp_level: self.seccomp_level,

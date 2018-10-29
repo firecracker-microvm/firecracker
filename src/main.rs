@@ -21,7 +21,7 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
 use api_server::{ApiServer, UnixDomainSocket};
-use data_model::FirecrackerContext;
+use jailer::FirecrackerContext;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
