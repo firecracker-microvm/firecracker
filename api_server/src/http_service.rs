@@ -10,7 +10,7 @@ use futures::{Future, Stream};
 use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 
-use data_model::vm::{BlockDeviceConfig, VmConfig};
+use data_model::vm::VmConfig;
 use logger::{Metric, METRICS};
 use mmds::data_store::Mmds;
 use request::actions::ActionBody;
@@ -18,6 +18,7 @@ use request::drive::PatchDrivePayload;
 use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
 use vmm::vmm_config::boot_source::BootSourceConfig;
+use vmm::vmm_config::drive::BlockDeviceConfig;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::logger::LoggerConfig;
 use vmm::vmm_config::net::NetworkInterfaceConfig;
