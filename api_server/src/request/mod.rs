@@ -103,12 +103,12 @@ mod tests {
     use self::net_util::TapError;
     use super::*;
 
-    use data_model::vm::{VmConfig, VmConfigError};
     use sys_util;
     use vmm::vmm_config::boot_source::BootSourceConfigError;
     use vmm::vmm_config::drive::DriveError;
     use vmm::vmm_config::instance_info::StartMicrovmError;
     use vmm::vmm_config::logger::LoggerConfigError;
+    use vmm::vmm_config::machine_config::{VmConfig, VmConfigError};
     use vmm::vmm_config::net::NetworkInterfaceError;
 
     use futures::{Future, Stream};

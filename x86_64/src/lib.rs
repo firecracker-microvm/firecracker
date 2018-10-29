@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 extern crate byteorder;
-extern crate data_model;
 extern crate kvm;
 extern crate kvm_sys;
 extern crate libc;

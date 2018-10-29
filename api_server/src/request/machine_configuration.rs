@@ -3,9 +3,9 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
 
-use data_model::vm::VmConfig;
 use http_service::json_response;
 use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
+use vmm::vmm_config::machine_config::VmConfig;
 use vmm::VmmAction;
 
 impl GenerateHyperResponse for VmConfig {
@@ -60,7 +60,7 @@ impl IntoParsedRequest for VmConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data_model::vm::CpuFeaturesTemplate;
+    use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
 
     #[test]
     fn test_into_parsed_request() {

@@ -10,7 +10,6 @@ use futures::{Future, Stream};
 use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 
-use data_model::vm::VmConfig;
 use logger::{Metric, METRICS};
 use mmds::data_store::Mmds;
 use request::actions::ActionBody;
@@ -21,6 +20,7 @@ use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::drive::BlockDeviceConfig;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::logger::LoggerConfig;
+use vmm::vmm_config::machine_config::VmConfig;
 use vmm::vmm_config::net::NetworkInterfaceConfig;
 use vmm::VmmAction;
 
@@ -540,10 +540,10 @@ mod tests {
     use std::path::PathBuf;
     use std::result;
 
-    use data_model::vm::CpuFeaturesTemplate;
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
+    use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm::vmm_config::DeviceState;
     use vmm::VmmAction;
 
