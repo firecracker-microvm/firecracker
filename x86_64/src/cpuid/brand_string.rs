@@ -4,7 +4,6 @@ use std::slice;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     NotSupported,
-    BufferOverflow,
 }
 
 /// Register designations used to get/set specific register values
@@ -141,19 +140,24 @@ impl BrandString {
         }
     }
 
-    /// Appends src to the brand string.
-    /// If there isn't enough room to append src, Error::BufferOverflow is returned.
+    /// Asserts whether or not there is enough room to append src to the brand string.
     ///
-    pub fn push_bytes(&mut self, src: &[u8]) -> Result<(), Error> {
-        if src.len() > Self::MAX_LEN - self.len {
+    fn check_push(&mut self, src: &[u8]) -> bool {
+        !(src.len() > Self::MAX_LEN - self.len)
+    }
+
+    /// Appends src to the brand string if there is enough room to append it.
+    ///
+    pub fn push_bytes(&mut self, src: &[u8]) {
+        if !self.check_push(src) {
             // No room to push all of src.
-            return Err(Error::BufferOverflow);
+            error!("Appending to the brand string failed.");
+            return;
         }
         let start = self.len;
         let count = src.len();
         self.len += count;
         self.as_bytes_mut()[start..(start + count)].copy_from_slice(src);
-        Ok(())
     }
 
     /// Checks if src is a prefix of the brand string
@@ -167,7 +171,7 @@ impl BrandString {
 
     /// Searches the brand string for the CPU frequency data it may contain (e.g. 4.01GHz),
     /// and, if found, returns it as an u8 slice.
-    /// Basically, we're implementing a search for this regex: [0-9.]+[MG]Hz
+    /// Basically, we're implementing a search for this regex: "([0-9]+\.[0-9]+[MG]Hz)"
     ///
     pub fn find_freq(&self) -> Option<&[u8]> {
         let mut it = self
@@ -217,6 +221,8 @@ impl BrandString {
 
 #[cfg(test)]
 mod tests {
+    use std::iter::repeat;
+
     use super::*;
 
     #[test]
@@ -270,26 +276,33 @@ mod tests {
         bstr.set_reg_for_leaf(0x80000003, Reg::ECX, pack_u32(b"GHz "));
         assert_eq!(bstr.find_freq().unwrap(), b"5.20GHz");
 
+        let _overflow: [u8; 50] = [b'a'; 50];
+
         // Test BrandString::starts_with()
         //
         assert_eq!(bstr.starts_with(b"012345"), true);
         assert_eq!(bstr.starts_with(b"01234X"), false);
         assert_eq!(bstr.starts_with(b"X01234"), false);
+        assert_eq!(bstr.starts_with(&_overflow), false);
+
+        // Test BrandString::check_push()
+        //
+        bstr = BrandString::new();
+        assert!(bstr.check_push(b"Hello"));
+        bstr.push_bytes(b"Hello");
+        assert!(bstr.check_push(b", world!"));
+        bstr.push_bytes(b", world!");
+        assert!(bstr.starts_with(b"Hello, world!"));
+
+        assert!(!bstr.check_push(&_overflow));
 
         // Test BrandString::push_bytes()
         //
-        bstr = BrandString::new();
-        bstr.push_bytes(b"Hello").unwrap();
-        bstr.push_bytes(b", world!").unwrap();
-        assert!(bstr.starts_with(b"Hello, world!"));
-
-        // Test BrandString::push_bytes() failure path
-        //
-        let _overflow: [u8; 50] = [b'a'; 50];
-        assert_eq!(
-            bstr.push_bytes(&_overflow).unwrap_err(),
-            Error::BufferOverflow
-        );
+        let actual_len = bstr.as_bytes().len();
+        let mut old_bytes: Vec<u8> = repeat(0).take(actual_len).collect();
+        old_bytes.copy_from_slice(bstr.as_bytes());
+        bstr.push_bytes(&_overflow);
+        assert!(bstr.as_bytes().to_vec() == old_bytes);
 
         // Test BrandString::from_host_cpuid() and get_reg_for_leaf()
         //
@@ -309,7 +322,34 @@ mod tests {
                 let host_regs = unsafe { host_cpuid(0x80000000) };
                 assert!(host_regs.eax < 0x80000004);
             }
-            Err(_) => assert!(false),
         }
+    }
+
+    #[test]
+    fn test_find_freq_fails() {
+        // As per
+        // https://www.intel.com/content/dam/www/public/us/en/documents/manuals/
+        // 64-ia-32-architectures-software-developer-instruction-set-reference-manual-325383.pdf
+        // this test should pass for THz and does not. Uncomment when issue solved.
+        // let mut bstr_thz = BrandString::from_bytes_unchecked(b"5.20THz ");
+        // assert_eq!(bstr_thz.find_freq().unwrap(), b"5.20THz");
+
+        let bstr_unused_end = BrandString::from_bytes_unchecked(b"AAA5.2MHzXz");
+        assert_eq!(bstr_unused_end.find_freq().unwrap(), b"5.2MHz");
+
+        let bstr_faulty_unit = BrandString::from_bytes_unchecked(b"5.20BHz ");
+        assert!(bstr_faulty_unit.find_freq().is_none());
+
+        let short_bstr = BrandString::from_bytes_unchecked(b"z");
+        assert!(short_bstr.find_freq().is_none());
+
+        let skip_from_unit = BrandString::from_bytes_unchecked(b"Mz");
+        assert!(skip_from_unit.find_freq().is_none());
+
+        let short_bstr = BrandString::from_bytes_unchecked(b"Hz");
+        assert!(short_bstr.find_freq().is_none());
+
+        let short_bstr = BrandString::from_bytes_unchecked(b"GHz");
+        assert!(short_bstr.find_freq().is_none());
     }
 }

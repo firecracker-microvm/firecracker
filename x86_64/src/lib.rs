@@ -6,6 +6,8 @@ extern crate byteorder;
 extern crate kvm;
 extern crate kvm_sys;
 extern crate libc;
+#[macro_use]
+extern crate logger;
 extern crate memory_model;
 extern crate sys_util;
 
