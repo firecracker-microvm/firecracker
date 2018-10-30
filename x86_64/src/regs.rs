@@ -17,118 +17,31 @@ use sys_util;
 
 #[derive(Debug)]
 pub enum Error {
-    /// Setting up msrs failed.
-    MsrIoctlFailed(sys_util::Error),
     /// Failed to configure the FPU.
-    FpuIoctlFailed(sys_util::Error),
-    /// Failed to set base registers for this cpu.
-    SettingRegistersIoctl(sys_util::Error),
-    /// Failed to set sregs for this cpu.
-    SRegsIoctlFailed(sys_util::Error),
+    ConfigureFPU(sys_util::Error),
+    /// Failed to set base registers for this CPU.
+    ConfigureBaseRegisters(sys_util::Error),
+    /// Setting up MSRs failed.
+    ConfigureMSRs(sys_util::Error),
+    /// Failed to set SREGs for this CPU.
+    ConfigureSREGs(sys_util::Error),
     /// Writing the GDT to RAM failed.
-    WriteGDTFailure,
+    WriteGDT,
     /// Writing the IDT to RAM failed.
-    WriteIDTFailure,
-    /// Writing PML4 to RAM failed.
-    WritePML4Address,
+    WriteIDT,
     /// Writing PDPTE to RAM failed.
     WritePDPTEAddress,
+    /// Writing PML4 to RAM failed.
+    WritePML4Address,
 }
+
 pub type Result<T> = result::Result<T, Error>;
 
-fn create_msr_entries() -> Vec<kvm_msr_entry> {
-    let mut entries = Vec::<kvm_msr_entry>::new();
-
-    entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_IA32_SYSENTER_CS,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_IA32_SYSENTER_ESP,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_IA32_SYSENTER_EIP,
-        data: 0x0,
-        ..Default::default()
-    });
-    // x86_64 specific msrs, we only run on x86_64 not x86
-    entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_STAR,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_CSTAR,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_KERNEL_GS_BASE,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_SYSCALL_MASK,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_LSTAR,
-        data: 0x0,
-        ..Default::default()
-    });
-    // end of x86_64 specific code
-    entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_IA32_TSC,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_IA32_MISC_ENABLE,
-        data: ::msr_index::MSR_IA32_MISC_ENABLE_FAST_STRING as u64,
-        ..Default::default()
-    });
-
-    entries
-}
-
-/// Configure Model specific registers for x86
+/// Configure Floating-Point Unit (FPU) registers for a given CPU.
 ///
 /// # Arguments
 ///
-/// * `vcpu` - Structure for the vcpu that holds the vcpu fd.
-pub fn setup_msrs(vcpu: &kvm::VcpuFd) -> Result<()> {
-    let entry_vec = create_msr_entries();
-    let vec_size_bytes =
-        mem::size_of::<kvm_msrs>() + (entry_vec.len() * mem::size_of::<kvm_msr_entry>());
-    let vec: Vec<u8> = Vec::with_capacity(vec_size_bytes);
-    let msrs: &mut kvm_msrs = unsafe {
-        // Converting the vector's memory to a struct is unsafe.  Carefully using the read-only
-        // vector to size and set the members ensures no out-of-bounds erros below.
-        &mut *(vec.as_ptr() as *mut kvm_msrs)
-    };
-
-    unsafe {
-        // Mapping the unsized array to a slice is unsafe becase the length isn't known.  Providing
-        // the length used to create the struct guarantees the entire slice is valid.
-        let entries: &mut [kvm_msr_entry] = msrs.entries.as_mut_slice(entry_vec.len());
-        entries.copy_from_slice(&entry_vec);
-    }
-    msrs.nmsrs = entry_vec.len() as u32;
-
-    vcpu.set_msrs(msrs).map_err(Error::MsrIoctlFailed)?;
-
-    Ok(())
-}
-
-/// Configure FPU registers for x86
-///
-/// # Arguments
-///
-/// * `vcpu` - Structure for the vcpu that holds the vcpu fd.
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 pub fn setup_fpu(vcpu: &kvm::VcpuFd) -> Result<()> {
     let fpu: kvm_fpu = kvm_fpu {
         fcw: 0x37f,
@@ -136,16 +49,41 @@ pub fn setup_fpu(vcpu: &kvm::VcpuFd) -> Result<()> {
         ..Default::default()
     };
 
-    vcpu.set_fpu(&fpu).map_err(Error::FpuIoctlFailed)?;
-
-    Ok(())
+    vcpu.set_fpu(&fpu).map_err(Error::ConfigureFPU)
 }
 
-/// Configure base registers for x86
+/// Configure Model Specific Registers (MSRs) for a given CPU.
 ///
 /// # Arguments
 ///
-/// * `vcpu` - Structure for the vcpu that holds the vcpu fd.
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+pub fn setup_msrs(vcpu: &kvm::VcpuFd) -> Result<()> {
+    let entry_vec = create_msr_entries();
+    let vec_size_bytes =
+        mem::size_of::<kvm_msrs>() + (entry_vec.len() * mem::size_of::<kvm_msr_entry>());
+    let vec: Vec<u8> = Vec::with_capacity(vec_size_bytes);
+    let msrs: &mut kvm_msrs = unsafe {
+        // Converting the vector's memory to a struct is unsafe.  Carefully using the read-only
+        // vector to size and set the members ensures no out-of-bounds errors below.
+        &mut *(vec.as_ptr() as *mut kvm_msrs)
+    };
+
+    unsafe {
+        // Mapping the unsized array to a slice is unsafe becase the length isn't known.
+        // Providing the length used to create the struct guarantees the entire slice is valid.
+        let entries: &mut [kvm_msr_entry] = msrs.entries.as_mut_slice(entry_vec.len());
+        entries.copy_from_slice(&entry_vec);
+    }
+    msrs.nmsrs = entry_vec.len() as u32;
+
+    vcpu.set_msrs(msrs).map_err(Error::ConfigureMSRs)
+}
+
+/// Configure base registers for a given CPU.
+///
+/// # Arguments
+///
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `boot_ip` - Starting instruction pointer.
 /// * `boot_sp` - Starting stack pointer.
 /// * `boot_si` - Must point to zero page address per Linux ABI.
@@ -159,32 +97,45 @@ pub fn setup_regs(vcpu: &kvm::VcpuFd, boot_ip: u64, boot_sp: u64, boot_si: u64) 
         ..Default::default()
     };
 
-    vcpu.set_regs(&regs).map_err(Error::SettingRegistersIoctl)?;
-
-    Ok(())
+    vcpu.set_regs(&regs).map_err(Error::ConfigureBaseRegisters)
 }
 
-const X86_CR0_PE: u64 = 0x1;
-const X86_CR0_PG: u64 = 0x80000000;
-const X86_CR4_PAE: u64 = 0x20;
+/// Configures the segment registers and system page tables for a given CPU.
+///
+/// # Arguments
+///
+/// * `mem` - The memory that will be passed to the guest.
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+pub fn setup_sregs(mem: &GuestMemory, vcpu: &kvm::VcpuFd) -> Result<()> {
+    let mut sregs: kvm_sregs = vcpu.get_sregs().map_err(Error::ConfigureSREGs)?;
 
-const EFER_LMA: u64 = 0x400;
-const EFER_LME: u64 = 0x100;
+    configure_segments_and_sregs(mem, &mut sregs)?;
+    setup_page_tables(mem, &mut sregs)?; // TODO(dgreid) - Can this be done once per system instead?
+
+    vcpu.set_sregs(&sregs).map_err(Error::ConfigureSREGs)
+}
 
 const BOOT_GDT_OFFSET: usize = 0x500;
 const BOOT_IDT_OFFSET: usize = 0x520;
 
 const BOOT_GDT_MAX: usize = 4;
 
+const EFER_LMA: u64 = 0x400;
+const EFER_LME: u64 = 0x100;
+
+const X86_CR0_PE: u64 = 0x1;
+const X86_CR0_PG: u64 = 0x80000000;
+const X86_CR4_PAE: u64 = 0x20;
+
 fn write_gdt_table(table: &[u64], guest_mem: &GuestMemory) -> Result<()> {
     let boot_gdt_addr = GuestAddress(BOOT_GDT_OFFSET);
     for (index, entry) in table.iter().enumerate() {
         let addr = guest_mem
             .checked_offset(boot_gdt_addr, index * mem::size_of::<u64>())
-            .ok_or(Error::WriteGDTFailure)?;
+            .ok_or(Error::WriteGDT)?;
         guest_mem
             .write_obj_at_addr(*entry, addr)
-            .map_err(|_| Error::WriteGDTFailure)?;
+            .map_err(|_| Error::WriteGDT)?;
     }
     Ok(())
 }
@@ -193,7 +144,7 @@ fn write_idt_value(val: u64, guest_mem: &GuestMemory) -> Result<()> {
     let boot_idt_addr = GuestAddress(BOOT_IDT_OFFSET);
     guest_mem
         .write_obj_at_addr(val, boot_idt_addr)
-        .map_err(|_| Error::WriteIDTFailure)
+        .map_err(|_| Error::WriteIDT)
 }
 
 fn configure_segments_and_sregs(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
@@ -247,21 +198,63 @@ fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
     Ok(())
 }
 
-/// Configures the segment registers and system page tables for a given CPU.
-///
-/// # Arguments
-///
-/// * `mem` - The memory that will be passed to the guest.
-/// * `vcpu_fd` - The FD returned from the KVM_CREATE_VCPU ioctl.
-pub fn setup_sregs(mem: &GuestMemory, vcpu: &kvm::VcpuFd) -> Result<()> {
-    let mut sregs: kvm_sregs = vcpu.get_sregs().map_err(Error::SRegsIoctlFailed)?;
+fn create_msr_entries() -> Vec<kvm_msr_entry> {
+    let mut entries = Vec::<kvm_msr_entry>::new();
 
-    configure_segments_and_sregs(mem, &mut sregs)?;
-    setup_page_tables(mem, &mut sregs)?; // TODO(dgreid) - Can this be done once per system instead?
+    entries.push(kvm_msr_entry {
+        index: ::msr_index::MSR_IA32_SYSENTER_CS,
+        data: 0x0,
+        ..Default::default()
+    });
+    entries.push(kvm_msr_entry {
+        index: ::msr_index::MSR_IA32_SYSENTER_ESP,
+        data: 0x0,
+        ..Default::default()
+    });
+    entries.push(kvm_msr_entry {
+        index: ::msr_index::MSR_IA32_SYSENTER_EIP,
+        data: 0x0,
+        ..Default::default()
+    });
+    // x86_64 specific msrs, we only run on x86_64 not x86.
+    entries.push(kvm_msr_entry {
+        index: ::msr_index::MSR_STAR,
+        data: 0x0,
+        ..Default::default()
+    });
+    entries.push(kvm_msr_entry {
+        index: ::msr_index::MSR_CSTAR,
+        data: 0x0,
+        ..Default::default()
+    });
+    entries.push(kvm_msr_entry {
+        index: ::msr_index::MSR_KERNEL_GS_BASE,
+        data: 0x0,
+        ..Default::default()
+    });
+    entries.push(kvm_msr_entry {
+        index: ::msr_index::MSR_SYSCALL_MASK,
+        data: 0x0,
+        ..Default::default()
+    });
+    entries.push(kvm_msr_entry {
+        index: ::msr_index::MSR_LSTAR,
+        data: 0x0,
+        ..Default::default()
+    });
+    // end of x86_64 specific code
+    entries.push(kvm_msr_entry {
+        index: ::msr_index::MSR_IA32_TSC,
+        data: 0x0,
+        ..Default::default()
+    });
+    entries.push(kvm_msr_entry {
+        index: ::msr_index::MSR_IA32_MISC_ENABLE,
+        data: ::msr_index::MSR_IA32_MISC_ENABLE_FAST_STRING as u64,
+        ..Default::default()
+    });
 
-    vcpu.set_sregs(&sregs).map_err(Error::SRegsIoctlFailed)?;
-
-    Ok(())
+    entries
 }
 
 #[cfg(test)]
