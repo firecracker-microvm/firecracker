@@ -16,19 +16,6 @@ extern crate sys_util;
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
 mod bootparam;
-// Bindgen didn't implement copy for boot_params because edid_info contains an array with len > 32.
-impl Copy for bootparam::edid_info {}
-impl Clone for bootparam::edid_info {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl Copy for bootparam::boot_params {}
-impl Clone for bootparam::boot_params {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
 // boot_params is just a series of ints, it is safe to initialize it.
 unsafe impl memory_model::DataInit for bootparam::boot_params {}
 
@@ -69,23 +56,23 @@ pub use regs::Error as RegError;
 
 #[derive(Debug)]
 pub enum Error {
-    /// Error writing MP table to memory.
-    MpTableSetup(MpTableError),
-    /// Error writing the zero page of guest memory.
-    ZeroPageSetup,
-    /// The zero page extends past the end of guest_mem.
-    ZeroPagePastRamEnd,
     /// Invalid e820 setup params.
     E820Configuration,
+    /// Error writing MP table to memory.
+    MpTableSetup(MpTableError),
+    /// The zero page extends past the end of guest_mem.
+    ZeroPagePastRamEnd,
+    /// Error writing the zero page of guest memory.
+    ZeroPageSetup,
 }
 pub type Result<T> = result::Result<T, Error>;
 
-const MEM_32BIT_GAP_SIZE: usize = (768 << 20);
 const FIRST_ADDR_PAST_32BITS: usize = (1 << 32);
+const MEM_32BIT_GAP_SIZE: usize = (768 << 20);
 
 /// Returns a Vec of the valid memory addresses.
-/// These should be used to configure the GuestMemory structure for the platfrom.
-/// For x86_64 all addresses are valid from the start of the kenel except a
+/// These should be used to configure the GuestMemory structure for the platform.
+/// For x86_64 all addresses are valid from the start of the kernel except a
 /// carve out at the end of 32bit address space.
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     let memory_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
@@ -109,6 +96,8 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     regions
 }
 
+/// X86 specific memory hole/ memory mapped devices/ reserved area.
+///
 pub fn get_32bit_gap_start() -> usize {
     FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE
 }
@@ -132,7 +121,8 @@ pub fn configure_system(
     const KERNEL_LOADER_OTHER: u8 = 0xff;
     const KERNEL_MIN_ALIGNMENT_BYTES: u32 = 0x1000000; // Must be non-zero.
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
-    let end_32bit_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
+    let end_32bit_gap_start = GuestAddress(get_32bit_gap_start());
+
     let himem_start = GuestAddress(layout::HIMEM_START);
 
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
@@ -203,6 +193,7 @@ fn add_e820_entry(params: &mut boot_params, addr: u64, size: u64, mem_type: u32)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bootparam::e820entry;
 
     #[test]
     fn regions_lt_4gb() {
@@ -218,5 +209,78 @@ mod tests {
         assert_eq!(2, regions.len());
         assert_eq!(GuestAddress(0), regions[0].0);
         assert_eq!(GuestAddress(1usize << 32), regions[1].0);
+    }
+
+    #[test]
+    fn test_32bit_gap() {
+        assert_eq!(
+            get_32bit_gap_start(),
+            FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE
+        );
+    }
+
+    #[test]
+    fn test_system_configuration() {
+        let no_vcpus = 4;
+        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        assert!(configure_system(&gm, GuestAddress(0), 0, 1).is_err());
+
+        // Now assigning some memory that falls before the 32bit memory hole.
+        let mem_size = 128 << 20;
+        let arch_mem_regions = arch_memory_regions(mem_size);
+        let gm = GuestMemory::new(&arch_mem_regions).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
+
+        // Now assigning some memory that is equal to the start of the 32bit memory hole.
+        let mem_size = 3328 << 20;
+        let arch_mem_regions = arch_memory_regions(mem_size);
+        let gm = GuestMemory::new(&arch_mem_regions).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
+
+        // Now assigning some memory that falls after the 32bit memory hole.
+        let mem_size = 3330 << 20;
+        let arch_mem_regions = arch_memory_regions(mem_size);
+        let gm = GuestMemory::new(&arch_mem_regions).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
+    }
+
+    #[test]
+    fn test_add_e820_entry() {
+        let e820_map = [(e820entry {
+            addr: 0x1,
+            size: 4,
+            type_: 1,
+        }); 128];
+
+        let expected_params = boot_params {
+            e820_map,
+            e820_entries: 1,
+            ..Default::default()
+        };
+
+        let mut params: boot_params = Default::default();
+        add_e820_entry(
+            &mut params,
+            e820_map[0].addr,
+            e820_map[0].size,
+            e820_map[0].type_,
+        ).unwrap();
+        assert_eq!(
+            format!("{:?}", params.e820_map[0]),
+            format!("{:?}", expected_params.e820_map[0])
+        );
+        assert_eq!(params.e820_entries, expected_params.e820_entries);
+
+        // Exercise the scenario where the field storing the length of the e820 entry table is
+        // is bigger than the allocated memory.
+        params.e820_entries = params.e820_map.len() as u8 + 1;
+        assert!(
+            add_e820_entry(
+                &mut params,
+                e820_map[0].addr,
+                e820_map[0].size,
+                e820_map[0].type_
+            ).is_err()
+        );
     }
 }
