@@ -1077,7 +1077,7 @@ impl Default for kvm_ioapic_state {
     }
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct kvm_regs {
     pub rax: __u64,
     pub rbx: __u64,
@@ -1142,7 +1142,7 @@ impl Default for kvm_lapic_state {
     }
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct kvm_segment {
     pub base: __u64,
     pub limit: __u32,
@@ -1172,7 +1172,7 @@ fn bindgen_test_layout_kvm_segment() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct kvm_dtable {
     pub base: __u64,
     pub limit: __u16,
@@ -1192,7 +1192,7 @@ fn bindgen_test_layout_kvm_dtable() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct kvm_sregs {
     pub cs: kvm_segment,
     pub ds: kvm_segment,
@@ -1227,7 +1227,7 @@ fn bindgen_test_layout_kvm_sregs() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct kvm_fpu {
     pub fpr: [[__u8; 16usize]; 8usize],
     pub fcw: __u16,
