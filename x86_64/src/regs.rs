@@ -69,7 +69,7 @@ pub fn setup_msrs(vcpu: &kvm::VcpuFd) -> Result<()> {
     };
 
     unsafe {
-        // Mapping the unsized array to a slice is unsafe becase the length isn't known.
+        // Mapping the unsized array to a slice is unsafe because the length isn't known.
         // Providing the length used to create the struct guarantees the entire slice is valid.
         let entries: &mut [kvm_msr_entry] = msrs.entries.as_mut_slice(entry_vec.len());
         entries.copy_from_slice(&entry_vec);
@@ -260,6 +260,7 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kvm::{Kvm, VcpuFd, VmFd};
     use memory_model::{GuestAddress, GuestMemory};
 
     fn create_guest_mem() -> GuestMemory {
@@ -308,5 +309,110 @@ mod tests {
         assert_eq!(layout::PML4_START as u64, sregs.cr3);
         assert_eq!(X86_CR4_PAE, sregs.cr4);
         assert_eq!(X86_CR0_PG, sregs.cr0);
+    }
+
+    #[test]
+    fn test_setup_fpu() {
+        let kvm = Kvm::new().unwrap();
+        let vm = VmFd::new(&kvm).unwrap();
+        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        setup_fpu(&vcpu).unwrap();
+
+        let expected_fpu: kvm_fpu = kvm_fpu {
+            fcw: 0x37f,
+            mxcsr: 0x1f80,
+            ..Default::default()
+        };
+        let actual_fpu: kvm_fpu = vcpu.get_fpu().unwrap();
+        // TODO: auto-generate kvm related structures with PartialEq on.
+        assert_eq!(expected_fpu.fcw, actual_fpu.fcw);
+        // Setting the mxcsr register from kvm_fpu inside setup_fpu does not influence anything.
+        // See 'kvm_arch_vcpu_ioctl_set_fpu' from arch/x86/kvm/x86.c.
+        // The mxcsr will stay 0 and the assert below fails. Decide whether or not we should
+        // remove it at all.
+        // assert!(expected_fpu.mxcsr == actual_fpu.mxcsr);
+    }
+
+    #[test]
+    fn test_setup_msrs() {
+        let kvm = Kvm::new().unwrap();
+        let vm = VmFd::new(&kvm).unwrap();
+        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        setup_msrs(&vcpu).unwrap();
+
+        // This test will check against the last MSR entry configured (the tenth one).
+        // See create_msr_entries for details.
+        let test_kvm_msrs_entry = [kvm_msr_entry {
+            index: ::msr_index::MSR_IA32_MISC_ENABLE,
+            ..Default::default()
+        }];
+        let vec_size_bytes = mem::size_of::<kvm_msrs>() + mem::size_of::<kvm_msr_entry>();
+        let vec: Vec<u8> = Vec::with_capacity(vec_size_bytes);
+        let mut msrs: &mut kvm_msrs = unsafe {
+            // Converting the vector's memory to a struct is unsafe.  Carefully using the read-only
+            // vector to size and set the members ensures no out-of-bounds errors below.
+            &mut *(vec.as_ptr() as *mut kvm_msrs)
+        };
+
+        unsafe {
+            let entries: &mut [kvm_msr_entry] = msrs.entries.as_mut_slice(1);
+            entries.copy_from_slice(&test_kvm_msrs_entry);
+        }
+
+        msrs.nmsrs = 1;
+        // get_msrs returns the number of msrs that it succeed in reading. We only want to read 1
+        // in this test case scenario.
+        let read_msrs = vcpu.get_msrs(&mut msrs).unwrap();
+        assert_eq!(read_msrs, 1);
+
+        // Official entries that were setup when we did setup_msrs. We need to assert that the
+        // tenth one (i.e the one with index ::msr_index::MSR_IA32_MISC_ENABLE has the data we
+        // expect.
+        let entry_vec = create_msr_entries();
+        unsafe {
+            assert_eq!(entry_vec[9], msrs.entries.as_slice(1)[0]);
+        }
+    }
+
+    #[test]
+    fn test_setup_regs() {
+        let kvm = Kvm::new().unwrap();
+        let vm = VmFd::new(&kvm).unwrap();
+        let vcpu = VcpuFd::new(0, &vm).unwrap();
+
+        let expected_regs: kvm_regs = kvm_regs {
+            rflags: 0x0000000000000002u64,
+            rip: 1,
+            rsp: 2,
+            rbp: 2,
+            rsi: 3,
+            ..Default::default()
+        };
+
+        setup_regs(
+            &vcpu,
+            expected_regs.rip,
+            expected_regs.rsp,
+            expected_regs.rsi,
+        ).unwrap();
+
+        let actual_regs: kvm_regs = vcpu.get_regs().unwrap();
+        assert_eq!(actual_regs, expected_regs);
+    }
+
+    #[test]
+    fn test_setup_sregs() {
+        let kvm = Kvm::new().unwrap();
+        let vm = VmFd::new(&kvm).unwrap();
+        let vcpu = VcpuFd::new(0, &vm).unwrap();
+
+        let mut expected_sregs: kvm_sregs = vcpu.get_sregs().unwrap();
+        let gm = create_guest_mem();
+        configure_segments_and_sregs(&gm, &mut expected_sregs).unwrap();
+        setup_page_tables(&gm, &mut expected_sregs).unwrap();
+
+        setup_sregs(&gm, &vcpu).unwrap();
+        let actual_sregs: kvm_sregs = vcpu.get_sregs().unwrap();
+        assert_eq!(expected_sregs, actual_sregs);
     }
 }
