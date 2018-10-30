@@ -1,0 +1,64 @@
+From cee0f2ec507f3e5f51db58f49640fdf6a89ce987 Mon Sep 17 00:00:00 2001
+From: Diana Popa <dpopa@amazon.com>
+Date: Tue, 30 Oct 2018 10:32:59 -0500
+Subject: [PATCH] kvm_sys: implement PartialEq for register...
+
+related structures.
+
+Signed-off-by: Diana Popa <dpopa@amazon.com>
+---
+ kvm_sys/src/x86/bindings.rs | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/kvm_sys/src/x86/bindings.rs b/kvm_sys/src/x86/bindings.rs
+index 4efc89d..94e07f6 100644
+--- a/kvm_sys/src/x86/bindings.rs
++++ b/kvm_sys/src/x86/bindings.rs
+@@ -1077,7 +1077,7 @@ impl Default for kvm_ioapic_state {
+     }
+ }
+ #[repr(C)]
+-#[derive(Debug, Default, Copy, Clone)]
++#[derive(Debug, Default, Copy, Clone, PartialEq)]
+ pub struct kvm_regs {
+     pub rax: __u64,
+     pub rbx: __u64,
+@@ -1142,7 +1142,7 @@ impl Default for kvm_lapic_state {
+     }
+ }
+ #[repr(C)]
+-#[derive(Debug, Default, Copy, Clone)]
++#[derive(Debug, Default, Copy, Clone, PartialEq)]
+ pub struct kvm_segment {
+     pub base: __u64,
+     pub limit: __u32,
+@@ -1172,7 +1172,7 @@ fn bindgen_test_layout_kvm_segment() {
+     );
+ }
+ #[repr(C)]
+-#[derive(Debug, Default, Copy, Clone)]
++#[derive(Debug, Default, Copy, Clone, PartialEq)]
+ pub struct kvm_dtable {
+     pub base: __u64,
+     pub limit: __u16,
+@@ -1192,7 +1192,7 @@ fn bindgen_test_layout_kvm_dtable() {
+     );
+ }
+ #[repr(C)]
+-#[derive(Debug, Default, Copy, Clone)]
++#[derive(Debug, Default, Copy, Clone, PartialEq)]
+ pub struct kvm_sregs {
+     pub cs: kvm_segment,
+     pub ds: kvm_segment,
+@@ -1227,7 +1227,7 @@ fn bindgen_test_layout_kvm_sregs() {
+     );
+ }
+ #[repr(C)]
+-#[derive(Debug, Default, Copy, Clone)]
++#[derive(Debug, Default, Copy, Clone, PartialEq)]
+ pub struct kvm_fpu {
+     pub fpr: [[__u8; 16usize]; 8usize],
+     pub fcw: __u16,
+-- 
+2.7.4
+
