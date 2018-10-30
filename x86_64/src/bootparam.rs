@@ -2729,6 +2729,7 @@ impl Clone for ist_info {
     }
 }
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct edid_info {
     pub dummy: [::std::os::raw::c_uchar; 128usize],
 }
@@ -3487,6 +3488,7 @@ impl Clone for efi_info {
     }
 }
 #[repr(C, packed)]
+#[derive(Copy, Clone)]
 pub struct boot_params {
     pub screen_info: screen_info,
     pub apm_bios_info: apm_bios_info,
