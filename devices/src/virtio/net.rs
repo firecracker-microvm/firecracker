@@ -26,7 +26,7 @@ use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use net_sys;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
-use sys_util::{Error as SysError, EventFd};
+use sys_util::EventFd;
 use virtio_sys::virtio_config::*;
 use virtio_sys::virtio_net::*;
 use {DeviceEventT, EpollHandler};
@@ -45,21 +45,15 @@ const RX_TAP_EVENT: DeviceEventT = 0;
 const RX_QUEUE_EVENT: DeviceEventT = 1;
 // The transmit queue has a frame that is ready to send from the guest.
 const TX_QUEUE_EVENT: DeviceEventT = 2;
-// Device shutdown has been requested.
-const KILL_EVENT: DeviceEventT = 3;
 // rx rate limiter budget is now available.
-const RX_RATE_LIMITER_EVENT: DeviceEventT = 4;
+const RX_RATE_LIMITER_EVENT: DeviceEventT = 3;
 // tx rate limiter budget is now available.
-const TX_RATE_LIMITER_EVENT: DeviceEventT = 5;
+const TX_RATE_LIMITER_EVENT: DeviceEventT = 4;
 // Number of DeviceEventT events supported by this implementation.
-pub const NET_EVENTS_COUNT: usize = 6;
+pub const NET_EVENTS_COUNT: usize = 5;
 
 #[derive(Debug)]
 pub enum Error {
-    /// Creating kill eventfd failed.
-    CreateKillEventFd(SysError),
-    /// Cloning kill eventfd failed.
-    CloneKillEventFd(SysError),
     /// Open tap device failed.
     TapOpen(TapError),
     /// Setting tap IP failed.
@@ -540,10 +534,6 @@ impl EpollHandler for NetEpollHandler {
                     self.process_tx();
                 }
             }
-            KILL_EVENT => {
-                info!("virtio net device killed")
-                // TODO: device should be removed from epoll
-            }
             RX_RATE_LIMITER_EVENT => {
                 METRICS.net.rx_event_rate_limiter_count.inc();
                 // Upon rate limiter event, call the rate limiter handler
@@ -583,7 +573,6 @@ pub struct EpollConfig {
     rx_tap_token: u64,
     rx_queue_token: u64,
     tx_queue_token: u64,
-    kill_token: u64,
     rx_rate_limiter_token: u64,
     tx_rate_limiter_token: u64,
     epoll_raw_fd: RawFd,
@@ -600,7 +589,6 @@ impl EpollConfig {
             rx_tap_token: first_token + RX_TAP_EVENT as u64,
             rx_queue_token: first_token + RX_QUEUE_EVENT as u64,
             tx_queue_token: first_token + TX_QUEUE_EVENT as u64,
-            kill_token: first_token + KILL_EVENT as u64,
             rx_rate_limiter_token: first_token + RX_RATE_LIMITER_EVENT as u64,
             tx_rate_limiter_token: first_token + TX_RATE_LIMITER_EVENT as u64,
             epoll_raw_fd,
@@ -610,8 +598,6 @@ impl EpollConfig {
 }
 
 pub struct Net {
-    workers_kill_evt: Option<EventFd>,
-    kill_evt: EventFd,
     tap: Option<Tap>,
     avail_features: u64,
     acked_features: u64,
@@ -634,8 +620,6 @@ impl Net {
         tx_rate_limiter: Option<RateLimiter>,
         allow_mmds_requests: bool,
     ) -> Result<Self> {
-        let kill_evt = EventFd::new().map_err(Error::CreateKillEventFd)?;
-
         // Set offload flags to match the virtio features below.
         tap.set_offload(
             net_sys::TUN_F_CSUM | net_sys::TUN_F_UFO | net_sys::TUN_F_TSO4 | net_sys::TUN_F_TSO6,
@@ -667,8 +651,6 @@ impl Net {
         }
 
         Ok(Net {
-            workers_kill_evt: Some(kill_evt.try_clone().map_err(Error::CloneKillEventFd)?),
-            kill_evt,
             tap: Some(tap),
             avail_features,
             acked_features: 0u64,
@@ -704,18 +686,6 @@ impl Net {
             tx_rate_limiter,
             allow_mmds_requests,
         )
-    }
-}
-
-impl Drop for Net {
-    fn drop(&mut self) {
-        // Only kill the child if it claimed its eventfd.
-        if self.workers_kill_evt.is_none() {
-            if let Err(e) = self.kill_evt.write(1) {
-                warn!("Failed to trigger kill event: {:?}", e);
-                METRICS.net.event_fails.inc();
-            }
-        }
     }
 }
 
@@ -805,114 +775,100 @@ impl VirtioDevice for Net {
         }
 
         if let Some(tap) = self.tap.take() {
-            if let Some(kill_evt) = self.workers_kill_evt.take() {
-                let kill_raw_fd = kill_evt.as_raw_fd();
-
-                let rx_queue = queues.remove(0);
-                let tx_queue = queues.remove(0);
-                let rx_queue_evt = queue_evts.remove(0);
-                let tx_queue_evt = queue_evts.remove(0);
-                let mut mmds_ns = None;
-                if self.allow_mmds_requests {
-                    mmds_ns = Some(MmdsNetworkStack::new_with_defaults());
-                }
-                let handler = NetEpollHandler {
-                    rx: RxVirtio::new(
-                        rx_queue,
-                        rx_queue_evt,
-                        self.rx_rate_limiter.take().unwrap_or_default(),
-                    ),
-                    tap,
-                    mem,
-                    tx: TxVirtio::new(
-                        tx_queue,
-                        tx_queue_evt,
-                        self.tx_rate_limiter.take().unwrap_or_default(),
-                    ),
-                    interrupt_status: status,
-                    interrupt_evt,
-                    acked_features: self.acked_features,
-                    mmds_ns,
-
-                    #[cfg(test)]
-                    test_mutators: tests::TestMutators::default(),
-                };
-
-                let tap_raw_fd = handler.tap.as_raw_fd();
-                let rx_queue_raw_fd = handler.rx.queue_evt.as_raw_fd();
-                let tx_queue_raw_fd = handler.tx.queue_evt.as_raw_fd();
-
-                let rx_rate_limiter_rawfd = handler.rx.rate_limiter.as_raw_fd();
-                let tx_rate_limiter_rawfd = handler.tx.rate_limiter.as_raw_fd();
-
-                //channel should be open and working
-                self.epoll_config
-                    .sender
-                    .send(Box::new(handler))
-                    .expect("Failed to send through the channel");
-
-                //TODO: barrier needed here maybe?
-
-                epoll::ctl(
-                    self.epoll_config.epoll_raw_fd,
-                    epoll::EPOLL_CTL_ADD,
-                    tap_raw_fd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_tap_token),
-                ).map_err(|e| {
-                    METRICS.net.activate_fails.inc();
-                    ActivateError::EpollCtl(e)
-                })?;
-
-                epoll::ctl(
-                    self.epoll_config.epoll_raw_fd,
-                    epoll::EPOLL_CTL_ADD,
-                    rx_queue_raw_fd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_queue_token),
-                ).map_err(|e| {
-                    METRICS.net.activate_fails.inc();
-                    ActivateError::EpollCtl(e)
-                })?;
-
-                epoll::ctl(
-                    self.epoll_config.epoll_raw_fd,
-                    epoll::EPOLL_CTL_ADD,
-                    tx_queue_raw_fd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_queue_token),
-                ).map_err(|e| {
-                    METRICS.net.activate_fails.inc();
-                    ActivateError::EpollCtl(e)
-                })?;
-
-                epoll::ctl(
-                    self.epoll_config.epoll_raw_fd,
-                    epoll::EPOLL_CTL_ADD,
-                    kill_raw_fd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token),
-                ).map_err(|e| {
-                    METRICS.net.activate_fails.inc();
-                    ActivateError::EpollCtl(e)
-                })?;
-
-                if rx_rate_limiter_rawfd != -1 {
-                    epoll::ctl(
-                        self.epoll_config.epoll_raw_fd,
-                        epoll::EPOLL_CTL_ADD,
-                        rx_rate_limiter_rawfd,
-                        epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_rate_limiter_token),
-                    ).map_err(ActivateError::EpollCtl)?;
-                }
-
-                if tx_rate_limiter_rawfd != -1 {
-                    epoll::ctl(
-                        self.epoll_config.epoll_raw_fd,
-                        epoll::EPOLL_CTL_ADD,
-                        tx_rate_limiter_rawfd,
-                        epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_rate_limiter_token),
-                    ).map_err(ActivateError::EpollCtl)?;
-                }
-
-                return Ok(());
+            let rx_queue = queues.remove(0);
+            let tx_queue = queues.remove(0);
+            let rx_queue_evt = queue_evts.remove(0);
+            let tx_queue_evt = queue_evts.remove(0);
+            let mut mmds_ns = None;
+            if self.allow_mmds_requests {
+                mmds_ns = Some(MmdsNetworkStack::new_with_defaults());
             }
+            let handler = NetEpollHandler {
+                rx: RxVirtio::new(
+                    rx_queue,
+                    rx_queue_evt,
+                    self.rx_rate_limiter.take().unwrap_or_default(),
+                ),
+                tap,
+                mem,
+                tx: TxVirtio::new(
+                    tx_queue,
+                    tx_queue_evt,
+                    self.tx_rate_limiter.take().unwrap_or_default(),
+                ),
+                interrupt_status: status,
+                interrupt_evt,
+                acked_features: self.acked_features,
+                mmds_ns,
+
+                #[cfg(test)]
+                test_mutators: tests::TestMutators::default(),
+            };
+
+            let tap_raw_fd = handler.tap.as_raw_fd();
+            let rx_queue_raw_fd = handler.rx.queue_evt.as_raw_fd();
+            let tx_queue_raw_fd = handler.tx.queue_evt.as_raw_fd();
+
+            let rx_rate_limiter_rawfd = handler.rx.rate_limiter.as_raw_fd();
+            let tx_rate_limiter_rawfd = handler.tx.rate_limiter.as_raw_fd();
+
+            //channel should be open and working
+            self.epoll_config
+                .sender
+                .send(Box::new(handler))
+                .expect("Failed to send through the channel");
+
+            //TODO: barrier needed here maybe?
+
+            epoll::ctl(
+                self.epoll_config.epoll_raw_fd,
+                epoll::EPOLL_CTL_ADD,
+                tap_raw_fd,
+                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_tap_token),
+            ).map_err(|e| {
+                METRICS.net.activate_fails.inc();
+                ActivateError::EpollCtl(e)
+            })?;
+
+            epoll::ctl(
+                self.epoll_config.epoll_raw_fd,
+                epoll::EPOLL_CTL_ADD,
+                rx_queue_raw_fd,
+                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_queue_token),
+            ).map_err(|e| {
+                METRICS.net.activate_fails.inc();
+                ActivateError::EpollCtl(e)
+            })?;
+
+            epoll::ctl(
+                self.epoll_config.epoll_raw_fd,
+                epoll::EPOLL_CTL_ADD,
+                tx_queue_raw_fd,
+                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_queue_token),
+            ).map_err(|e| {
+                METRICS.net.activate_fails.inc();
+                ActivateError::EpollCtl(e)
+            })?;
+
+            if rx_rate_limiter_rawfd != -1 {
+                epoll::ctl(
+                    self.epoll_config.epoll_raw_fd,
+                    epoll::EPOLL_CTL_ADD,
+                    rx_rate_limiter_rawfd,
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_rate_limiter_token),
+                ).map_err(ActivateError::EpollCtl)?;
+            }
+
+            if tx_rate_limiter_rawfd != -1 {
+                epoll::ctl(
+                    self.epoll_config.epoll_raw_fd,
+                    epoll::EPOLL_CTL_ADD,
+                    tx_rate_limiter_rawfd,
+                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_rate_limiter_token),
+                ).map_err(ActivateError::EpollCtl)?;
+            }
+
+            return Ok(());
         }
         METRICS.net.activate_fails.inc();
         Err(ActivateError::BadActivate)
@@ -1489,11 +1445,6 @@ mod tests {
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(RX_QUEUE_EVENT, 0, EpollHandlerPayload::Empty);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
-        }
-
-        {
-            // does nothing currently
-            h.handle_event(KILL_EVENT, 0, EpollHandlerPayload::Empty);
         }
     }
 

@@ -34,14 +34,12 @@ const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
 
 // New descriptors are pending on the virtio queue.
 const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
-// Device shutdown has been requested.
-const KILL_EVENT: DeviceEventT = 1;
 // Rate limiter budget is now available.
-const RATE_LIMITER_EVENT: DeviceEventT = 2;
+const RATE_LIMITER_EVENT: DeviceEventT = 1;
 // Backing file on the host has changed.
-pub const FS_UPDATE_EVENT: DeviceEventT = 3;
+pub const FS_UPDATE_EVENT: DeviceEventT = 2;
 // Number of DeviceEventT events supported by this implementation.
-pub const BLOCK_EVENTS_COUNT: usize = 4;
+pub const BLOCK_EVENTS_COUNT: usize = 3;
 
 #[derive(Debug)]
 enum Error {
@@ -373,10 +371,6 @@ impl EpollHandler for BlockEpollHandler {
                     self.signal_used_queue();
                 }
             }
-            KILL_EVENT => {
-                //TODO: Change this when implementing device removal and add metric for it.
-                info!("Received kill signal.")
-            }
             RATE_LIMITER_EVENT => {
                 METRICS.block.rate_limiter_event_count.inc();
                 // Upon rate limiter event, call the rate limiter handler
@@ -400,7 +394,6 @@ impl EpollHandler for BlockEpollHandler {
 
 pub struct EpollConfig {
     q_avail_token: u64,
-    kill_token: u64,
     rate_limiter_token: u64,
     epoll_raw_fd: RawFd,
     sender: mpsc::Sender<Box<EpollHandler>>,
@@ -414,7 +407,6 @@ impl EpollConfig {
     ) -> Self {
         EpollConfig {
             q_avail_token: first_token + QUEUE_AVAIL_EVENT as u64,
-            kill_token: first_token + KILL_EVENT as u64,
             rate_limiter_token: first_token + RATE_LIMITER_EVENT as u64,
             epoll_raw_fd,
             sender,
@@ -424,7 +416,6 @@ impl EpollConfig {
 
 /// Virtio device for exposing block level read/write operations on a host file.
 pub struct Block {
-    kill_evt: Option<EventFd>,
     disk_image: Option<File>,
     avail_features: u64,
     acked_features: u64,
@@ -471,7 +462,6 @@ impl Block {
         };
 
         Ok(Block {
-            kill_evt: None,
             disk_image: Some(disk_image),
             avail_features,
             acked_features: 0u64,
@@ -479,18 +469,6 @@ impl Block {
             epoll_config,
             rate_limiter,
         })
-    }
-}
-
-impl Drop for Block {
-    fn drop(&mut self) {
-        if let Some(kill_evt) = self.kill_evt.take() {
-            if let Err(e) = kill_evt.write(1) {
-                // Momentarily, this is not an error as no hot plugging is available yet.
-                warn!("Failed to trigger kill event: {:?}", e);
-                METRICS.block.event_fails.inc();
-            }
-        }
     }
 }
 
@@ -581,16 +559,6 @@ impl VirtioDevice for Block {
             return Err(ActivateError::BadActivate);
         }
 
-        let kill_evt = EventFd::new().map_err(|e| {
-            error!("Failed to create kill event: {:?}", e);
-            METRICS.block.activate_fails.inc();
-            METRICS.block.event_fails.inc();
-            ActivateError::BadActivate
-        })?;
-
-        let kill_evt_raw_fd = kill_evt.as_raw_fd();
-        self.kill_evt = Some(kill_evt);
-
         if let Some(disk_image) = self.disk_image.take() {
             let queue_evt = queue_evts.remove(0);
             let queue_evt_raw_fd = queue_evt.as_raw_fd();
@@ -620,16 +588,6 @@ impl VirtioDevice for Block {
                 epoll::EPOLL_CTL_ADD,
                 queue_evt_raw_fd,
                 epoll::Event::new(epoll::EPOLLIN, self.epoll_config.q_avail_token),
-            ).map_err(|e| {
-                METRICS.block.activate_fails.inc();
-                ActivateError::EpollCtl(e)
-            })?;
-
-            epoll::ctl(
-                self.epoll_config.epoll_raw_fd,
-                epoll::EPOLL_CTL_ADD,
-                kill_evt_raw_fd,
-                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.kill_token),
             ).map_err(|e| {
                 METRICS.block.activate_fails.inc();
                 ActivateError::EpollCtl(e)
