@@ -776,6 +776,17 @@ mod tests {
         b.activate(m.clone(), ievt, stat, queues, queue_evts)
     }
 
+    fn invoke_handler_for_queue_event(h: &mut BlockEpollHandler) {
+        // leave at least one event here so that reading it later won't block
+        h.interrupt_evt.write(1).unwrap();
+        // trigger the queue event
+        h.queue_evt.write(1).unwrap();
+        // handle event
+        h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty);
+        // validate the queue operation finished successfully
+        assert_eq!(h.interrupt_evt.read(), Ok(2));
+    }
+
     #[test]
     fn test_request_type() {
         let m = &GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
@@ -1043,19 +1054,6 @@ mod tests {
         }
     }
 
-    /// FIXME: this function takes any event as parameter, but is actually
-    /// only equipped to handle the queue event.
-    fn invoke_handler(h: &mut BlockEpollHandler, e: DeviceEventT) {
-        // leave at least one event here so that reading it later won't block
-        h.interrupt_evt.write(1).unwrap();
-        // trigger the queue event
-        h.queue_evt.write(1).unwrap();
-        // handle event
-        h.handle_event(e, 0, EpollHandlerPayload::Empty);
-        // validate the queue operation finished successfully
-        assert_eq!(h.interrupt_evt.read(), Ok(2));
-    }
-
     #[test]
     #[should_panic]
     fn test_invalid_event_handler() {
@@ -1115,7 +1113,7 @@ mod tests {
             m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
                 .unwrap();
 
-            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            invoke_handler_for_queue_event(&mut h);
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
@@ -1135,7 +1133,7 @@ mod tests {
             m.write_obj_at_addr::<u64>(0xfffffffff, GuestAddress(0x1000 + 8))
                 .unwrap();
 
-            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            invoke_handler_for_queue_event(&mut h);
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
@@ -1154,7 +1152,7 @@ mod tests {
             m.write_obj_at_addr::<u64>(10, GuestAddress(0x1000 + 8))
                 .unwrap();
 
-            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            invoke_handler_for_queue_event(&mut h);
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
@@ -1179,7 +1177,7 @@ mod tests {
             m.write_obj_at_addr::<u32>(16, GuestAddress(0x1000))
                 .unwrap();
 
-            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            invoke_handler_for_queue_event(&mut h);
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
@@ -1205,7 +1203,7 @@ mod tests {
             vq.dtable[1].len.set(8);
             m.write_obj_at_addr::<u64>(123456789, data_addr).unwrap();
 
-            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            invoke_handler_for_queue_event(&mut h);
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
@@ -1227,7 +1225,7 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
 
-            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            invoke_handler_for_queue_event(&mut h);
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, vq.dtable[1].len.get());
@@ -1247,7 +1245,7 @@ mod tests {
             m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH, GuestAddress(0x1000))
                 .unwrap();
 
-            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            invoke_handler_for_queue_event(&mut h);
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
@@ -1266,7 +1264,7 @@ mod tests {
             m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
                 .unwrap();
 
-            invoke_handler(&mut h, QUEUE_AVAIL_EVENT);
+            invoke_handler_for_queue_event(&mut h);
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
