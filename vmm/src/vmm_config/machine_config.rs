@@ -62,3 +62,30 @@ impl Display for CpuFeaturesTemplate {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_display_cpu_features_template() {
+        assert_eq!(CpuFeaturesTemplate::C3.to_string(), "C3".to_string());
+        assert_eq!(CpuFeaturesTemplate::T2.to_string(), "T2".to_string());
+    }
+
+    #[test]
+    fn test_display_vm_config_error() {
+        let expected_str = "The vCPU number is invalid! The vCPU number can only \
+                            be 1 or an even number when hyperthreading is enabled.";
+        assert_eq!(VmConfigError::InvalidVcpuCount.to_string(), expected_str);
+
+        let expected_str = "The memory size (MiB) is invalid.";
+        assert_eq!(VmConfigError::InvalidMemorySize.to_string(), expected_str);
+
+        let expected_str = "The update operation is not allowed after boot.";
+        assert_eq!(
+            VmConfigError::UpdateNotAllowedPostBoot.to_string(),
+            expected_str
+        );
+    }
+}

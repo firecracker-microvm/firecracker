@@ -216,6 +216,9 @@ mod tests {
         let vmm_resp =
             VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::InvalidMemorySize);
         check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp =
+            VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::UpdateNotAllowedPostBoot);
+        check_error_response(vmm_resp, StatusCode::BadRequest);
 
         // Tests for NetworkConfig Errors.
         let vmm_resp = VmmActionError::NetworkConfig(
