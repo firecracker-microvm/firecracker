@@ -9,7 +9,6 @@ libc = ">=0.2.39"
 
 kvm_sys = { path = "../kvm_sys" }
 kvm = { path = "../kvm" }
-logger = { path = "../logger" }
 memory_model = { path = "../memory_model" }
 sys_util = { path = "../sys_util" }
 

@@ -8,6 +8,7 @@ extern crate serde_derive;
 extern crate time;
 extern crate timerfd;
 
+extern crate cpuid;
 extern crate devices;
 extern crate fc_util;
 extern crate kernel;
