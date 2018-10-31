@@ -6,8 +6,6 @@ extern crate byteorder;
 extern crate kvm;
 extern crate kvm_sys;
 extern crate libc;
-#[macro_use]
-extern crate logger;
 extern crate memory_model;
 extern crate sys_util;
 
@@ -36,7 +34,6 @@ unsafe impl memory_model::DataInit for mpspec::mpc_table {}
 unsafe impl memory_model::DataInit for mpspec::mpc_lintsrc {}
 unsafe impl memory_model::DataInit for mpspec::mpf_intel {}
 
-pub mod cpuid;
 mod gdt;
 pub mod interrupts;
 pub mod layout;

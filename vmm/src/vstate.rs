@@ -4,19 +4,19 @@ extern crate x86_64;
 
 use std::result;
 
+use cpuid::{c3_template, filter_cpuid, t2_template};
 use kvm::*;
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
-use x86_64::cpuid::{c3_template, t2_template};
-use x86_64::{cpuid, interrupts, regs};
+use x86_64::{interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
 
 #[derive(Debug)]
 pub enum Error {
     AlreadyRunning,
-    CpuId(x86_64::cpuid::Error),
+    CpuId(cpuid::Error),
     GuestMemory(GuestMemoryError),
     Kvm(sys_util::Error),
     VmFd(sys_util::Error),
@@ -155,7 +155,7 @@ impl Vcpu {
         vm: &Vm,
     ) -> Result<()> {
         // the MachineConfiguration has defaults for ht_enabled and vcpu_count hence it is safe to unwrap
-        cpuid::filter_cpuid(
+        filter_cpuid(
             self.id,
             machine_config.vcpu_count.unwrap(),
             machine_config.ht_enabled.unwrap(),
@@ -261,7 +261,7 @@ mod tests {
         let mut vm = Vm::new(&kvm).unwrap();
         let mut vcpu = Vcpu::new(0, &mut vm).unwrap();
         assert_eq!(vcpu.get_cpuid(), vm.fd.get_supported_cpuid());
-        assert!(cpuid::filter_cpuid(0, 1, true, &mut vcpu.cpuid).is_ok());
+        assert!(filter_cpuid(0, 1, true, &mut vcpu.cpuid).is_ok());
         // Test using the T2 template
         t2_template::set_cpuid_entries(vcpu.cpuid.mut_entries_slice());
         assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
