@@ -11,15 +11,25 @@ import host_tools.cargo_build as host  # pylint:disable=import-error
 
 
 @pytest.fixture
-def tmp_jailer(test_session_root_path):
-    """Build and returns the path to a binary using the `seccomp` crate."""
+def tmp_basic_jailer(test_session_root_path):
+    """
 
-    jailer_srcdir = os.path.normpath(
-        os.path.join(os.getcwd(), '../src/bin/demo_jailer/')
+    Build `demo_basic_jailer`, required for the basic seccomp tests.
+    :return: The paths of the built binary.
+    """
+    binaries_srcdir = os.path.normpath(
+        os.path.join(
+            os.getcwd(),
+            'integration_tests/security/demo_advanced_seccomp/'
+        )
     )
+    build_path = os.path.join(
+        test_session_root_path,
+        host.CARGO_RELEASE_REL_PATH
+    )
+    run("cd {} && CARGO_TARGET_DIR={} cargo build --release".format(
+        binaries_srcdir, build_path), shell=True, check=True)
 
-    # The release binary path is created inside the testsession path as
-    # `firecracker_binaries/release/x86_64-unknown-linux-musl/release/`
     release_binaries_path = os.path.join(
         host.CARGO_RELEASE_REL_PATH,
         host.RELEASE_BINARIES_REL_PATH
@@ -28,32 +38,16 @@ def tmp_jailer(test_session_root_path):
         test_session_root_path,
         release_binaries_path
     )
-    jailer_bin_path = os.path.normpath(
+    demo_basic_jailer = os.path.normpath(
         os.path.join(
             release_binaries_path,
-            'demo_jailer'
+            'demo_basic_jailer'
         )
     )
 
-    os.makedirs(jailer_srcdir)
-    with open(os.path.join(jailer_srcdir, 'main.rs'), 'w') as jailer_src:
-        jailer_src.write("""
-            extern crate seccomp;
-            extern crate vmm;
-            use std::env::args;
-            use std::os::unix::process::CommandExt;
-            use std::process::{Command, Stdio};
-            fn main() {
-                let args: Vec<String> = args().collect();
-                let exec_file = &args[1];
-                seccomp::setup_seccomp(seccomp::SeccompLevel::Basic(vmm::default_syscalls::ALLOWED_SYSCALLS)).unwrap();
-                Command::new(exec_file).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).exec();
-            }
-            """)
-    yield jailer_bin_path
+    yield demo_basic_jailer
 
-    shutil.rmtree(jailer_srcdir)
-    os.remove(jailer_bin_path)
+    os.remove(demo_basic_jailer)
 
 
 @pytest.fixture
@@ -115,7 +109,7 @@ def tmp_advanced_seccomp_binaries(test_session_root_path):
     os.remove(demo_malicious_firecracker)
 
 
-def test_seccomp_ls(test_session_root_path, tmp_jailer):
+def test_seccomp_ls(test_session_root_path, tmp_basic_jailer):
     """Assert that the seccomp filters deny a blacklisted syscall."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
@@ -123,19 +117,12 @@ def test_seccomp_ls(test_session_root_path, tmp_jailer):
     # Path to the `ls` binary, which attempts to execute `SYS_access`,
     # blacklisted for Firecracker.
     ls_command_path = '/bin/ls'
-    build_path = os.path.join(
-        test_session_root_path,
-        host.CARGO_RELEASE_REL_PATH
-    )
-    host.cargo_build(
-        build_path,
-        flags='--release --bin',
-        extra_args='demo_jailer'
-    )
-    assert os.path.exists(tmp_jailer)
+    demo_jailer = tmp_basic_jailer
+
+    assert os.path.exists(demo_jailer)
 
     # Compile the mini jailer.
-    outcome = run([tmp_jailer, ls_command_path])
+    outcome = run([demo_jailer, ls_command_path])
 
     # The seccomp filters should send SIGSYS (31) to the binary. `ls` doesn't
     # handle it, so it will exit with error.
