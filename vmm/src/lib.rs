@@ -21,7 +21,7 @@ extern crate seccomp;
 extern crate sys_util;
 extern crate x86_64;
 
-pub mod default_syscalls;
+mod default_syscalls;
 mod device_manager;
 mod vm_control;
 pub mod vmm_config;
