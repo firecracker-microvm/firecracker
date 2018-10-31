@@ -1326,14 +1326,14 @@ impl Vmm {
         if self.is_instance_initialized() {
             self.update_drive_handler(&drive_id, disk_file)
                 .map_err(|e| VmmActionError::DriveConfig(ErrorKind::User, e))?;
-            self.rescan_block_device(drive_id)?;
+            self.rescan_block_device(&drive_id)?;
         }
         Ok(VmmData::Empty)
     }
 
     fn rescan_block_device(
         &mut self,
-        drive_id: String,
+        drive_id: &String,
     ) -> std::result::Result<VmmData, VmmActionError> {
         // Rescan can only happen after the guest is booted.
         if !self.is_instance_initialized() {
@@ -1346,7 +1346,7 @@ impl Vmm {
         // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
         // called before the guest boots, and this function is called after boot.
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
-        match device_manager.get_address(&drive_id) {
+        match device_manager.get_address(drive_id) {
             Some(&address) => {
                 for drive_config in self.block_device_configs.config_list.iter() {
                     if drive_config.drive_id == *drive_id {
@@ -1512,7 +1512,7 @@ impl Vmm {
                 Vmm::send_response(self.insert_net_device(netif_body), sender);
             }
             VmmAction::RescanBlockDevice(drive_id, sender) => {
-                Vmm::send_response(self.rescan_block_device(drive_id), sender);
+                Vmm::send_response(self.rescan_block_device(&drive_id), sender);
             }
             VmmAction::StartMicroVm(sender) => {
                 Vmm::send_response(self.start_microvm(), sender);
@@ -1656,6 +1656,24 @@ mod tests {
 
         fn set_instance_state(&mut self, instance_state: InstanceState) {
             self.shared_info.write().unwrap().state = instance_state;
+        }
+
+        fn update_block_device_path(&mut self, block_device_id: &str, new_path: PathBuf) {
+            for config in self.block_device_configs.config_list.iter_mut() {
+                if config.drive_id == block_device_id {
+                    config.path_on_host = new_path;
+                    break;
+                }
+            }
+        }
+
+        fn change_id(&mut self, prev_id: &str, new_id: &str) {
+            for config in self.block_device_configs.config_list.iter_mut() {
+                if config.drive_id == prev_id {
+                    config.drive_id = new_id.to_string();
+                    break;
+                }
+            }
         }
     }
 
@@ -2371,6 +2389,7 @@ mod tests {
 
         let root_file = NamedTempFile::new().unwrap();
         let scratch_file = NamedTempFile::new().unwrap();
+        let scratch_id = "not_root".to_string();
 
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
@@ -2381,7 +2400,7 @@ mod tests {
             rate_limiter: None,
         };
         let non_root_block_device = BlockDeviceConfig {
-            drive_id: String::from("not_root"),
+            drive_id: scratch_id.clone(),
             path_on_host: scratch_file.path().to_path_buf(),
             is_root_device: false,
             partuuid: None,
@@ -2403,26 +2422,61 @@ mod tests {
             MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
 
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
-        // use a dummy command line as it is not used in this test.
+        // Use a dummy command line as it is not used in this test.
         let _addr = device_manager
             .register_device(
                 dummy_box,
                 &mut kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE),
-                Some(String::from("not_root")),
+                Some(scratch_id.clone()),
             ).unwrap();
 
         vmm.mmio_device_manager = Some(device_manager);
         vmm.set_instance_state(InstanceState::Running);
 
         // Test valid rescan_block_device.
-        assert!(vmm.rescan_block_device("not_root".to_string()).is_ok());
+        assert!(vmm.rescan_block_device(&scratch_id).is_ok());
+
+        // Test rescan block device with size not a multiple of sector size.
+        let new_size = 10 * virtio::block::SECTOR_SIZE + 1;
+        scratch_file.as_file().set_len(new_size).unwrap();
+        assert!(vmm.rescan_block_device(&scratch_id).is_ok());
+
+        // Test rescan block device with invalid path.
+        let prev_path = non_root_block_device.path_on_host().clone();
+        vmm.update_block_device_path(&scratch_id, PathBuf::from("foo"));
+        match vmm.rescan_block_device(&scratch_id) {
+            Err(VmmActionError::DriveConfig(
+                ErrorKind::User,
+                DriveError::BlockDeviceUpdateFailed,
+            )) => (),
+            _ => assert!(false),
+        }
+        vmm.update_block_device_path(&scratch_id, prev_path);
 
         // Test rescan_block_device with invalid ID.
-        assert!(vmm.rescan_block_device("foo".to_string()).is_err());
+        match vmm.rescan_block_device(&"foo".to_string()) {
+            Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
+                ()
+            }
+            _ => assert!(false),
+        }
+        vmm.change_id(&scratch_id, "scratch");
+        match vmm.rescan_block_device(&scratch_id) {
+            Err(VmmActionError::DriveConfig(
+                ErrorKind::User,
+                DriveError::BlockDeviceUpdateFailed,
+            )) => (),
+            _ => assert!(false),
+        }
 
         // Test rescan_block_device with invalid device address.
-        vmm.remove_addr(&String::from("not_root"));
-        assert!(vmm.rescan_block_device("not_root".to_string()).is_err());
+        vmm.remove_addr(&scratch_id);
+        match vmm.rescan_block_device(&scratch_id) {
+            Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
+                ()
+            }
+            _ => assert!(false),
+        }
 
         // Test rescan not allowed.
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
@@ -2430,7 +2484,13 @@ mod tests {
             vmm.insert_block_device(non_root_block_device.clone())
                 .is_ok()
         );
-        assert!(vmm.rescan_block_device("not_root".to_string()).is_err());
+        match vmm.rescan_block_device(&scratch_id) {
+            Err(VmmActionError::DriveConfig(
+                ErrorKind::User,
+                DriveError::OperationNotAllowedPreBoot,
+            )) => (),
+            _ => assert!(false),
+        }
     }
 
     // Helper function that tests whether the log file contains the `line_tokens`
