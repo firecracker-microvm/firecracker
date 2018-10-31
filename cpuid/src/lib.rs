@@ -1,6 +1,10 @@
+extern crate kvm;
+extern crate kvm_sys;
+#[macro_use]
+extern crate logger;
+
 use std::result;
 
-use cpuid::cpu_leaf::*;
 use kvm::CpuId;
 
 mod brand_string;
@@ -8,65 +12,16 @@ pub mod c3_template;
 mod cpu_leaf;
 pub mod t2_template;
 
-use self::brand_string::BrandString;
-use self::brand_string::Reg as BsReg;
-
-// constants for setting the fields of kvm_cpuid2 structures
-// CPUID bits in ebx, ecx, and edx.
-const EBX_CLFLUSH_CACHELINE: u32 = 8; // Flush a cache line size.
-
-// The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to get a
-// unique topology of the next level. This allows 64 logical processors/package.
-const LEAFBH_INDEX1_APICID_SHIFT: u32 = 6;
-
-const DEFAULT_BRAND_STRING: &[u8] = b"Intel(R) Xeon(R) Processor";
-
-pub type Result<T> = result::Result<T, Error>;
+use brand_string::BrandString;
+use brand_string::Reg as BsReg;
+use cpu_leaf::*;
 
 #[derive(Debug)]
 pub enum Error {
     VcpuCountOverflow,
 }
 
-/// This function is used for setting leaf 01H EBX[23-16]
-/// The maximum number of addressable logical CPUs is computed as the closest power of 2
-/// higher or equal to the CPU count configured by the user
-fn get_max_addressable_lprocessors(cpu_count: u8) -> result::Result<u8, Error> {
-    let mut max_addressable_lcpu = (cpu_count as f64).log2().ceil();
-    max_addressable_lcpu = (2 as f64).powf(max_addressable_lcpu);
-    // check that this number is still an u8
-    if max_addressable_lcpu > u8::max_value().into() {
-        return Err(Error::VcpuCountOverflow);
-    }
-    Ok(max_addressable_lcpu as u8)
-}
-
-/// Generate the emulated brand string.
-/// TODO: Add non-Intel CPU support
-///
-/// For non-Intel CPUs, we'll just expose DEFAULT_BRAND_STRING
-///
-/// For Intel CPUs, the brand string we expose will be:
-///    "Intel(R) Xeon(R) Processor @ {host freq}"
-/// where {host freq} is the CPU frequency, as present in the
-/// host brand string (e.g. 4.01GHz).
-///
-/// This is safe because we know DEFAULT_BRAND_STRING to hold valid data
-/// (allowed length and holding only valid ASCII chars).
-fn get_brand_string() -> BrandString {
-    let mut bstr = BrandString::from_bytes_unchecked(DEFAULT_BRAND_STRING);
-    if let Ok(host_bstr) = BrandString::from_host_cpuid() {
-        if host_bstr.starts_with(b"Intel") {
-            if let Some(freq) = host_bstr.find_freq() {
-                let mut v3 = vec![];
-                v3.extend_from_slice(" @ ".as_bytes());
-                v3.extend_from_slice(freq);
-                bstr.push_bytes(&v3);
-            }
-        }
-    }
-    bstr
-}
+pub type Result<T> = result::Result<T, Error>;
 
 /// Sets up the cpuid entries for the given vcpu
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -228,6 +183,56 @@ pub fn filter_cpuid(
     }
 
     Ok(())
+}
+
+// constants for setting the fields of kvm_cpuid2 structures
+// CPUID bits in ebx, ecx, and edx.
+const EBX_CLFLUSH_CACHELINE: u32 = 8; // Flush a cache line size.
+
+// The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to get a
+// unique topology of the next level. This allows 64 logical processors/package.
+const LEAFBH_INDEX1_APICID_SHIFT: u32 = 6;
+
+const DEFAULT_BRAND_STRING: &[u8] = b"Intel(R) Xeon(R) Processor";
+
+/// This function is used for setting leaf 01H EBX[23-16]
+/// The maximum number of addressable logical CPUs is computed as the closest power of 2
+/// higher or equal to the CPU count configured by the user
+fn get_max_addressable_lprocessors(cpu_count: u8) -> result::Result<u8, Error> {
+    let mut max_addressable_lcpu = (cpu_count as f64).log2().ceil();
+    max_addressable_lcpu = (2 as f64).powf(max_addressable_lcpu);
+    // check that this number is still an u8
+    if max_addressable_lcpu > u8::max_value().into() {
+        return Err(Error::VcpuCountOverflow);
+    }
+    Ok(max_addressable_lcpu as u8)
+}
+
+/// Generate the emulated brand string.
+/// TODO: Add non-Intel CPU support
+///
+/// For non-Intel CPUs, we'll just expose DEFAULT_BRAND_STRING
+///
+/// For Intel CPUs, the brand string we expose will be:
+///    "Intel(R) Xeon(R) Processor @ {host freq}"
+/// where {host freq} is the CPU frequency, as present in the
+/// host brand string (e.g. 4.01GHz).
+///
+/// This is safe because we know DEFAULT_BRAND_STRING to hold valid data
+/// (allowed length and holding only valid ASCII chars).
+fn get_brand_string() -> BrandString {
+    let mut bstr = BrandString::from_bytes_unchecked(DEFAULT_BRAND_STRING);
+    if let Ok(host_bstr) = BrandString::from_host_cpuid() {
+        if host_bstr.starts_with(b"Intel") {
+            if let Some(freq) = host_bstr.find_freq() {
+                let mut v3 = vec![];
+                v3.extend_from_slice(" @ ".as_bytes());
+                v3.extend_from_slice(freq);
+                bstr.push_bytes(&v3);
+            }
+        }
+    }
+    bstr
 }
 
 #[cfg(test)]

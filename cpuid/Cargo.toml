@@ -1,0 +1,9 @@
+[package]
+name = "cpuid"
+version = "0.1.0"
+authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+kvm = { path = "../kvm" }
+kvm_sys = { path = "../kvm_sys" }
+logger = { path = "../logger" }
