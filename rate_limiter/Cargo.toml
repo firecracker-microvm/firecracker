@@ -4,10 +4,13 @@ version = "0.1.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
+libc = ">=0.2.39"
+time = ">=0.1.39"
+timerfd = "1.0"
 serde = ">=1.0.27"
 serde_derive = "=1.0.27"
 
-fc_util = { path = "../fc_util" }
+logger = { path = "../logger" }
 
 [dev-dependencies]
 serde_json = ">=1.0.9"
