@@ -260,20 +260,33 @@ mod tests {
             partuuid: None,
             rate_limiter: None,
         };
-
         assert!(
-            &desc
-                .clone()
-                .into_parsed_request(Some(String::from("foo")), Method::Options)
+            &desc.into_parsed_request(Some(String::from("foo")), Method::Options)
                 == &Err(String::from("Invalid method."))
         );
+
+        // BlockDeviceConfig doesn't implement Clone so we have to define multiple identical vars.
+        let desc = BlockDeviceConfig {
+            drive_id: String::from("foo"),
+            path_on_host: PathBuf::from(String::from("/foo/bar")),
+            is_root_device: true,
+            is_read_only: true,
+            partuuid: None,
+            rate_limiter: None,
+        };
+        let same_desc = BlockDeviceConfig {
+            drive_id: String::from("foo"),
+            path_on_host: PathBuf::from(String::from("/foo/bar")),
+            is_root_device: true,
+            is_read_only: true,
+            partuuid: None,
+            rate_limiter: None,
+        };
         let (sender, receiver) = oneshot::channel();
         assert!(
-            &desc
-                .clone()
-                .into_parsed_request(Some(String::from("foo")), Method::Put)
+            desc.into_parsed_request(Some(String::from("foo")), Method::Put)
                 .eq(&Ok(ParsedRequest::Sync(
-                    VmmAction::InsertBlockDevice(desc, sender),
+                    VmmAction::InsertBlockDevice(same_desc, sender),
                     receiver
                 )))
         );
