@@ -1,9 +1,5 @@
 extern crate libc;
 
-#[macro_use]
-extern crate logger;
-
-pub mod ratelimiter;
 pub mod validators;
 
 #[cfg(target_arch = "x86_64")]
