@@ -222,10 +222,7 @@ impl KvmContext {
         check_cap(&kvm, Cap::UserMemory)?;
 
         let nr_vcpus = kvm.get_nr_vcpus();
-        let max_vcpus = match kvm.check_extension_int(Cap::MaxVcpus) {
-            0 => nr_vcpus,
-            x => x as usize,
-        };
+        let max_vcpus = kvm.get_max_vcpus();
 
         Ok(KvmContext {
             kvm,

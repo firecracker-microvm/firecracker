@@ -68,7 +68,7 @@ impl Kvm {
     }
 
     /// Query the availability of a particular kvm capability
-    pub fn check_extension_int(&self, c: Cap) -> i32 {
+    fn check_extension_int(&self, c: Cap) -> i32 {
         // Safe because we know that our file is a KVM fd and that the extension is one of the ones
         // defined by kernel.
         unsafe { ioctl_with_val(self, KVM_CHECK_EXTENSION(), c as c_ulong) }
@@ -92,11 +92,19 @@ impl Kvm {
         }
     }
 
-    /// Gets the recommended maximum number of VCPUs per VM.
+    /// Gets the recommended number of VCPUs per VM.
     pub fn get_nr_vcpus(&self) -> usize {
         match self.check_extension_int(Cap::NrVcpus) {
             x if x > 0 => x as usize,
             _ => 4,
+        }
+    }
+
+    /// Gets the recommended maximum number of VCPUs per VM.
+    pub fn get_max_vcpus(&self) -> usize {
+        match self.check_extension_int(Cap::MaxVcpus) {
+            0 => self.get_nr_vcpus(),
+            x => x as usize,
         }
     }
 
