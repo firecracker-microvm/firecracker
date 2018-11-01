@@ -135,9 +135,11 @@ impl NetworkInterfaceConfigs {
         &mut self,
         netif_config: NetworkInterfaceConfig,
     ) -> result::Result<(), NetworkInterfaceError> {
-        match self.if_list.iter().position(|netif_from_list| {
-            netif_from_list.iface_id.as_str() == netif_config.iface_id.as_str()
-        }) {
+        match self
+            .if_list
+            .iter()
+            .position(|netif_from_list| netif_from_list.iface_id == netif_config.iface_id)
+        {
             Some(index) => self.update(index, netif_config),
             None => self.create(netif_config),
         }
@@ -192,7 +194,7 @@ impl NetworkInterfaceConfigs {
         self.validate_update(index, &updated_netif_config)?;
 
         // We are ignoring the tap field of the network interface we want to update. We are
-        // manually seting this field to a newly created tap (corresponding to the host_dev_name)
+        // manually setting this field to a newly created tap (corresponding to the host_dev_name)
         // or to the old tap device of the network interface we are trying to update.
         updated_netif_config.tap =
             if self.if_list[index].host_dev_name != updated_netif_config.host_dev_name {
@@ -271,7 +273,7 @@ mod tests {
     }
 
     // This implementation is used only in tests. We cannot directly derive clone because
-    // Tap does not implement clone.
+    // Tap and RateLimiter do not implement clone.
     impl Clone for NetworkInterfaceConfig {
         fn clone(&self) -> Self {
             NetworkInterfaceConfig {
@@ -279,8 +281,8 @@ mod tests {
                 state: self.state.clone(),
                 host_dev_name: self.host_dev_name.clone(),
                 guest_mac: self.guest_mac.clone(),
-                rx_rate_limiter: self.rx_rate_limiter.clone(),
-                tx_rate_limiter: self.tx_rate_limiter.clone(),
+                rx_rate_limiter: None,
+                tx_rate_limiter: None,
                 allow_mmds_requests: self.allow_mmds_requests.clone(),
                 tap: None,
             }

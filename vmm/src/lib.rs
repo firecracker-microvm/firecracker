@@ -1336,25 +1336,26 @@ impl Vmm {
         path_on_host: String,
     ) -> std::result::Result<VmmData, VmmActionError> {
         // Get the block device configuration specified by drive_id.
-        let mut block_device = self
+        let block_device_index = self
             .block_device_configs
-            .get_block_device_config(&drive_id)
-            .map_err(|e| VmmActionError::DriveConfig(ErrorKind::User, e))?;
-        block_device.path_on_host = PathBuf::from(path_on_host);
+            .get_index_of_drive_id(&drive_id)
+            .ok_or(VmmActionError::DriveConfig(
+                ErrorKind::User,
+                DriveError::InvalidBlockDeviceID,
+            ))?;
 
+        let file_path = PathBuf::from(path_on_host);
         // Try to open the file specified by path_on_host using the permissions of the block_device.
         let disk_file = OpenOptions::new()
             .read(true)
-            .write(!block_device.is_read_only())
-            .open(block_device.path_on_host())
+            .write(!self.block_device_configs.config_list[block_device_index].is_read_only())
+            .open(&file_path)
             .map_err(|_| {
                 VmmActionError::DriveConfig(ErrorKind::User, DriveError::CannotOpenBlockDevice)
             })?;
 
-        // Update the path of the block device with the specifed path_on_host.
-        self.block_device_configs
-            .update(&block_device)
-            .map_err(|e| VmmActionError::DriveConfig(ErrorKind::User, e))?;
+        // Update the path of the block device with the specified path_on_host.
+        self.block_device_configs.config_list[block_device_index].path_on_host = file_path;
 
         // When the microvm is running, we also need to update the drive handler and send a
         // rescan command to the drive.
@@ -1435,21 +1436,11 @@ impl Vmm {
                 DriveError::UpdateNotAllowedPostBoot,
             ));
         }
-        // If the id of the drive already exists in the list, the operation is update.
-        if self
-            .block_device_configs
-            .contains_drive_id(block_device_config.drive_id.clone())
-        {
-            self.block_device_configs
-                .update(&block_device_config)
-                .map(|_| VmmData::Empty)
-                .map_err(|e| VmmActionError::DriveConfig(ErrorKind::User, e))
-        } else {
-            self.block_device_configs
-                .add(block_device_config)
-                .map(|_| VmmData::Empty)
-                .map_err(|e| VmmActionError::DriveConfig(ErrorKind::User, e))
-        }
+
+        self.block_device_configs
+            .insert(block_device_config)
+            .map(|_| VmmData::Empty)
+            .map_err(|e| VmmActionError::DriveConfig(ErrorKind::User, e))
     }
 
     fn init_logger(
