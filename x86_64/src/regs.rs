@@ -260,7 +260,7 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kvm::{Kvm, VcpuFd, VmFd};
+    use kvm::Kvm;
     use memory_model::{GuestAddress, GuestMemory};
 
     fn create_guest_mem() -> GuestMemory {
@@ -314,8 +314,8 @@ mod tests {
     #[test]
     fn test_setup_fpu() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
-        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         setup_fpu(&vcpu).unwrap();
 
         let expected_fpu: kvm_fpu = kvm_fpu {
@@ -336,8 +336,8 @@ mod tests {
     #[test]
     fn test_setup_msrs() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
-        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         setup_msrs(&vcpu).unwrap();
 
         // This test will check against the last MSR entry configured (the tenth one).
@@ -377,8 +377,8 @@ mod tests {
     #[test]
     fn test_setup_regs() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
-        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
 
         let expected_regs: kvm_regs = kvm_regs {
             rflags: 0x0000000000000002u64,
@@ -403,8 +403,8 @@ mod tests {
     #[test]
     fn test_setup_sregs() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
-        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
 
         let mut expected_sregs: kvm_sregs = vcpu.get_sregs().unwrap();
         let gm = create_guest_mem();
