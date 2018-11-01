@@ -245,29 +245,33 @@ mod tests {
         assert_eq!(read_val, 67u8);
     }
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
-    fn create_vcpu() {
+    fn test_configure_vcpu() {
         let kvm = Kvm::new().unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(&kvm).expect("new vm failed");
         assert!(vm.memory_init(gm).is_ok());
-        Vcpu::new(0, &mut vm).unwrap();
-    }
+        let dummy_eventfd_1 = EventFd::new().unwrap();
+        let dummy_eventfd_2 = EventFd::new().unwrap();
 
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    #[test]
-    fn test_cpuid() {
-        let kvm = Kvm::new().unwrap();
-        let mut vm = Vm::new(&kvm).unwrap();
-        let mut vcpu = Vcpu::new(0, &mut vm).unwrap();
-        assert_eq!(vcpu.get_cpuid(), vm.fd.get_supported_cpuid());
-        assert!(filter_cpuid(0, 1, true, &mut vcpu.cpuid).is_ok());
-        // Test using the T2 template
-        t2_template::set_cpuid_entries(vcpu.cpuid.mut_entries_slice());
-        assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
-        // Test using the C3 template
-        c3_template::set_cpuid_entries(vcpu.cpuid.mut_entries_slice());
-        assert!(vcpu.fd.set_cpuid2(&vcpu.cpuid).is_ok());
+        vm.setup_irqchip(&dummy_eventfd_1, &dummy_eventfd_2)
+            .unwrap();
+        vm.create_pit().unwrap();
+
+        let mut vcpu = Vcpu::new(1, &vm).unwrap();
+        let vm_config = VmConfig::default();
+        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
+
+        // Test configure while using the T2 template.
+        let mut vm_config = VmConfig::default();
+        vm_config.cpu_template = Some(CpuFeaturesTemplate::T2);
+        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
+
+        // Test configure while using the C3 template.
+        let mut vm_config = VmConfig::default();
+        vm_config.cpu_template = Some(CpuFeaturesTemplate::C3);
+        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
     }
 
     #[test]
