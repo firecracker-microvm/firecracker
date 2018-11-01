@@ -1,10 +1,10 @@
+#![warn(missing_docs)]
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 //! A safe wrapper around the kernel's KVM interface.
 
-extern crate byteorder;
 extern crate libc;
 
 extern crate kvm_sys;
@@ -34,14 +34,13 @@ pub const MAX_KVM_CPUID_ENTRIES: usize = 80;
 
 /// A wrapper around opening and using `/dev/kvm`.
 ///
-/// Useful for querying extensions and basic values from the KVM backend. A `Kvm` is required to
-/// create a `Vm` object.
+/// The handle is used to issue system iocts.
 pub struct Kvm {
     kvm: File,
 }
 
 impl Kvm {
-    /// Opens `/dev/kvm/` and returns a Kvm object on success.
+    /// Opens `/dev/kvm/` and returns a `Kvm` object on success.
     pub fn new() -> Result<Self> {
         // Safe because we give a constant nul-terminated string and verify the result.
         let ret = unsafe { open("/dev/kvm\0".as_ptr() as *const c_char, O_RDWR) };
@@ -61,13 +60,15 @@ impl Kvm {
         }
     }
 
+    /// Returns the KVM API version.
     pub fn get_api_version(&self) -> i32 {
         // Safe because we know that our file is a KVM fd and that the request is one of the ones
         // defined by kernel.
         unsafe { ioctl(self, KVM_GET_API_VERSION()) }
     }
 
-    /// Query the availability of a particular kvm capability
+    /// Query the availability of a particular kvm capability.
+    /// Returns 0 if the capability is not available and > 0 otherwise.
     fn check_extension_int(&self, c: Cap) -> i32 {
         // Safe because we know that our file is a KVM fd and that the extension is one of the ones
         // defined by kernel.
@@ -108,19 +109,17 @@ impl Kvm {
         }
     }
 
-    /// X86 specific call to get the system supported CPUID values
-    ///
-    /// # Arguments
-    ///
-    /// * `max_cpus` - Maximum number of cpuid entries to return.
+    /// X86 specific call to get the system supported CPUID values. The function
+    /// returns at most `max_entries_count` CPUID entries. It can return less than
+    /// `max_entries_count` when the hardware does not support so many CPUID entries.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_supported_cpuid(&self, max_cpus: usize) -> Result<CpuId> {
-        let mut cpuid = CpuId::new(max_cpus);
+    pub fn get_supported_cpuid(&self, max_entries_count: usize) -> Result<CpuId> {
+        let mut cpuid = CpuId::new(max_entries_count);
 
         let ret = unsafe {
             // ioctl is unsafe. The kernel is trusted not to write beyond the bounds of the memory
             // allocated for the struct. The limit is read from nent, which is set to the allocated
-            // size(max_cpus) above.
+            // size(max_entries_count) above.
             ioctl_with_mut_ptr(self, KVM_GET_SUPPORTED_CPUID(), cpuid.as_mut_ptr())
         };
         if ret < 0 {
@@ -162,7 +161,9 @@ impl AsRawFd for Kvm {
 /// An address either in programmable I/O space or in memory mapped I/O space.
 #[derive(Copy, Clone)]
 pub enum IoeventAddress {
+    /// Representation of an programmable I/O address.
     Pio(u64),
+    /// Representation of an memory mapped I/O address.
     Mmio(u64),
 }
 
@@ -187,19 +188,19 @@ impl VmFd {
         self.supported_cpuid.clone()
     }
 
-    /// Creates/modifies a guest physical memory slot
+    /// Creates/modifies a guest physical memory slot using KVM_SET_USER_MEMORY_REGION.
     pub fn set_user_memory_region(
         &self,
         slot: u32,
-        guest_addr: u64,
+        guest_phys_addr: u64,
         memory_size: u64,
         userspace_addr: u64,
         flags: u32,
     ) -> Result<()> {
         let region = kvm_userspace_memory_region {
             slot,
-            flags: flags,
-            guest_phys_addr: guest_addr,
+            flags,
+            guest_phys_addr,
             memory_size,
             userspace_addr,
         };
@@ -360,7 +361,8 @@ impl AsRawFd for VmFd {
     }
 }
 
-/// A reason why a VCPU exited.
+/// Reasons for vcpu exits. The exit reasons are mapped to the `KVM_EXIT_*` defines
+/// from `include/uapi/linux/kvm.h`.
 #[derive(Debug)]
 pub enum VcpuExit<'a> {
     /// An out port instruction was run on the given port with the given data.
@@ -375,31 +377,57 @@ pub enum VcpuExit<'a> {
     MmioRead(u64 /* address */, &'a mut [u8]),
     /// A write instruction was run against the given MMIO address with the given data.
     MmioWrite(u64 /* address */, &'a [u8]),
+    /// Corresponds to KVM_EXIT_UNKNOWN.
     Unknown,
+    /// Corresponds to KVM_EXIT_EXCEPTION.
     Exception,
+    /// Corresponds to KVM_EXIT_HYPERCALL.
     Hypercall,
+    /// Corresponds to KVM_EXIT_DEBUG.
     Debug,
+    /// Corresponds to KVM_EXIT_HLT.
     Hlt,
+    /// Corresponds to KVM_EXIT_IRQ_WINDOW_OPEN.
     IrqWindowOpen,
+    /// Corresponds to KVM_EXIT_SHUTDOWN.
     Shutdown,
+    /// Corresponds to KVM_EXIT_FAIL_ENTRY.
     FailEntry,
+    /// Corresponds to KVM_EXIT_INTR.
     Intr,
+    /// Corresponds to KVM_EXIT_SET_TPR.
     SetTpr,
+    /// Corresponds to KVM_EXIT_TPR_ACCESS.
     TprAccess,
+    /// Corresponds to KVM_EXIT_S390_SIEIC.
     S390Sieic,
+    /// Corresponds to KVM_EXIT_S390_RESET.
     S390Reset,
+    /// Corresponds to KVM_EXIT_DCR.
     Dcr,
+    /// Corresponds to KVM_EXIT_NMI.
     Nmi,
+    /// Corresponds to KVM_EXIT_INTERNAL_ERROR.
     InternalError,
+    /// Corresponds to KVM_EXIT_OSI.
     Osi,
+    /// Corresponds to KVM_EXIT_PAPR_HCALL.
     PaprHcall,
+    /// Corresponds to KVM_EXIT_S390_UCONTROL.
     S390Ucontrol,
+    /// Corresponds to KVM_EXIT_WATCHDOG.
     Watchdog,
+    /// Corresponds to KVM_EXIT_S390_TSCH.
     S390Tsch,
+    /// Corresponds to KVM_EXIT_EPR.
     Epr,
+    /// Corresponds to KVM_EXIT_SYSTEM_EVENT.
     SystemEvent,
+    /// Corresponds to KVM_EXIT_S390_STSI.
     S390Stsi,
+    /// Corresponds to KVM_EXIT_IOAPIC_EOI.
     IoapicEoi,
+    /// Corresponds to KVM_EXIT_HYPERV.
     Hyperv,
 }
 
@@ -410,7 +438,7 @@ pub struct VcpuFd {
 }
 
 impl VcpuFd {
-    /// Gets the VCPU registers.
+    /// Gets the VCPU registers using KVM_GET_REGS ioctl.
     #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
     pub fn get_regs(&self) -> Result<kvm_regs> {
         // Safe because we know that our file is a VCPU fd, we know the kernel will only read the
@@ -423,7 +451,7 @@ impl VcpuFd {
         Ok(regs)
     }
 
-    /// Sets the VCPU registers.
+    /// Sets the VCPU registers using KVM_SET_REGS ioctl.
     #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
     pub fn set_regs(&self, regs: &kvm_regs) -> Result<()> {
         // Safe because we know that our file is a VCPU fd, we know the kernel will only read the
@@ -435,7 +463,7 @@ impl VcpuFd {
         Ok(())
     }
 
-    /// Gets the VCPU special registers.
+    /// Gets the VCPU special registers using KVM_GET_SREGS ioctl.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn get_sregs(&self) -> Result<kvm_sregs> {
         // Safe because we know that our file is a VCPU fd, we know the kernel will only write the
@@ -449,7 +477,7 @@ impl VcpuFd {
         Ok(regs)
     }
 
-    /// Sets the VCPU special registers.
+    /// Sets the VCPU special registers using KVM_SET_SREGS ioctl.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn set_sregs(&self, sregs: &kvm_sregs) -> Result<()> {
         // Safe because we know that our file is a VCPU fd, we know the kernel will only read the
@@ -461,7 +489,7 @@ impl VcpuFd {
         Ok(())
     }
 
-    /// X86 specific call that gets the FPU-related structure
+    /// X86 specific call that gets the FPU-related structure.
     ///
     /// See the documentation for KVM_GET_FPU.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -478,7 +506,7 @@ impl VcpuFd {
         Ok(fpu)
     }
 
-    /// X86 specific call to setup the FPU
+    /// X86 specific call to setup the FPU.
     ///
     /// See the documentation for KVM_SET_FPU.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -493,7 +521,7 @@ impl VcpuFd {
         Ok(())
     }
 
-    /// X86 specific call to setup the CPUID registers
+    /// X86 specific call to setup the CPUID registers.
     ///
     /// See the documentation for KVM_SET_CPUID2.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -559,7 +587,7 @@ impl VcpuFd {
         Ok(ret)
     }
 
-    /// X86 specific call to setup the MSRS
+    /// X86 specific call to setup the MSRS.
     ///
     /// See the documentation for KVM_SET_MSRS.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -676,6 +704,7 @@ pub struct CpuId {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 impl CpuId {
+    /// Creates a new `CpuId` structure that can contain at most `array_len` KVM cpuid entries.
     pub fn new(array_len: usize) -> CpuId {
         use std::mem::size_of;
 
@@ -723,6 +752,8 @@ impl CpuId {
 
 #[cfg(test)]
 mod tests {
+    extern crate byteorder;
+
     use super::*;
 
     //as per https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/fpu/internal.h
@@ -936,7 +967,7 @@ mod tests {
         use std::io::Cursor;
         use std::mem;
         //we might get read of byteorder if we replace 5h3 mem::transmute with something safer
-        use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+        use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
         //as per https://github.com/torvalds/linux/arch/x86/kvm/lapic.c
         //try to write and read the APIC_ICR (0x300) register which is non-read only and
         //one can simply write to it
