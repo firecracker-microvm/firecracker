@@ -81,7 +81,7 @@ mod tests {
     use self::rand::Rng;
 
     use super::*;
-    use kvm::{Kvm, VcpuFd, VmFd};
+    use kvm::Kvm;
 
     const KVM_APIC_REG_SIZE: usize = 0x400;
 
@@ -117,10 +117,10 @@ mod tests {
     fn test_setlint() {
         let kvm = Kvm::new().unwrap();
         assert!(kvm.check_extension(kvm::Cap::Irqchip));
-        let vm = VmFd::new(&kvm).unwrap();
+        let vm = kvm.create_vm().unwrap();
         //the get_lapic ioctl will fail if there is no irqchip created beforehand.
         assert!(vm.create_irq_chip().is_ok());
-        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         let klapic_before: kvm_lapic_state = vcpu.get_lapic().unwrap();
 
         // Compute the value that is expected to represent LVT0 and LVT1.
@@ -142,8 +142,8 @@ mod tests {
     #[test]
     fn test_setlint_fails() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
-        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         // 'get_lapic' ioctl triggered by the 'set_lint' function will fail if there is no
         // irqchip created beforehand.
         assert!(set_lint(&vcpu).is_err());

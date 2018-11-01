@@ -121,6 +121,28 @@ impl Kvm {
 
         Ok(cpuid)
     }
+
+    /// Creates a VM fd using the KVM fd (KVM_CREATE_VM).
+    /// A call to this function will also initialize the supported cpuid (KVM_GET_SUPPORTED_CPUID)
+    /// and the size of the vcpu mmap area (KVM_GET_VCPU_MMAP_SIZE).
+    pub fn create_vm(&self) -> Result<VmFd> {
+        // Safe because we know kvm is a real kvm fd as this module is the only one that can make
+        // Kvm objects.
+        let ret = unsafe { ioctl(&self.kvm, KVM_CREATE_VM()) };
+        if ret >= 0 {
+            // Safe because we verify the value of ret and we are the owners of the fd.
+            let vm_file = unsafe { File::from_raw_fd(ret) };
+            let run_mmap_size = self.get_vcpu_mmap_size()?;
+            let kvm_cpuid: CpuId = self.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)?;
+            Ok(VmFd {
+                vm: vm_file,
+                supported_cpuid: kvm_cpuid,
+                run_size: run_mmap_size,
+            })
+        } else {
+            errno_result()
+        }
+    }
 }
 
 impl AsRawFd for Kvm {
@@ -152,31 +174,6 @@ pub struct VmFd {
 }
 
 impl VmFd {
-    /// Constructs a new `VmFd` using the given `Kvm` instance.
-    pub fn new(kvm: &Kvm) -> Result<VmFd> {
-        // Safe because we know kvm is a real kvm fd as this module is the only one that can make
-        // Kvm objects.
-        let ret = unsafe { ioctl(kvm, KVM_CREATE_VM()) };
-        if ret >= 0 {
-            // Safe because we verify the value of ret and we are the owners of the fd.
-            let vm_file = unsafe { File::from_raw_fd(ret) };
-            let run_mmap_size = kvm.get_vcpu_mmap_size()?;
-            let kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)?;
-            Ok(VmFd {
-                vm: vm_file,
-                supported_cpuid: kvm_cpuid,
-                run_size: run_mmap_size,
-            })
-        } else {
-            errno_result()
-        }
-    }
-
-    /// Returns the size of a VcpuFd mmap area
-    pub fn get_run_size(&self) -> usize {
-        self.run_size
-    }
-
     /// Returns a clone of the system supported CPUID values associated with this VmFd
     pub fn get_supported_cpuid(&self) -> CpuId {
         self.supported_cpuid.clone()
@@ -324,6 +321,29 @@ impl VmFd {
             errno_result()
         }
     }
+
+    /// Constructs a new kvm VCPU fd.
+    ///
+    /// # Errors
+    /// Returns an error when the VM fd is invalid or the VCPU memory cannot be mapped correctly.
+    ///
+    /// The `id` argument is the CPU number between [0, max vcpus).
+    pub fn create_vcpu(&self, id: u8) -> Result<VcpuFd> {
+        // Safe because we know that vm is a VM fd and we verify the return result.
+        let vcpu_fd = unsafe { ioctl_with_val(&self.vm, KVM_CREATE_VCPU(), id as c_ulong) };
+        if vcpu_fd < 0 {
+            return errno_result();
+        }
+
+        // Wrap the vcpu now in case the following ? returns early. This is safe because we verified
+        // the value of the fd and we own the fd.
+        let vcpu = unsafe { File::from_raw_fd(vcpu_fd) };
+
+        let run_mmap =
+            MemoryMapping::from_fd(&vcpu, self.run_size).map_err(|_| Error::new(ENOSPC))?;
+
+        Ok(VcpuFd { vcpu, run_mmap })
+    }
 }
 
 impl AsRawFd for VmFd {
@@ -382,28 +402,6 @@ pub struct VcpuFd {
 }
 
 impl VcpuFd {
-    /// Constructs a new kvm VCPU fd
-    ///
-    /// The `id` argument is the CPU number between [0, max vcpus).
-    pub fn new(id: u8, vm: &VmFd) -> Result<VcpuFd> {
-        let run_mmap_size = vm.get_run_size();
-
-        // Safe because we know that vm is a VM fd and we verify the return result.
-        let vcpu_fd = unsafe { ioctl_with_val(vm, KVM_CREATE_VCPU(), id as c_ulong) };
-        if vcpu_fd < 0 {
-            return errno_result();
-        }
-
-        // Wrap the vcpu now in case the following ? returns early. This is safe because we verified
-        // the value of the fd and we own the fd.
-        let vcpu = unsafe { File::from_raw_fd(vcpu_fd) };
-
-        let run_mmap =
-            MemoryMapping::from_fd(&vcpu, run_mmap_size).map_err(|_| Error::new(ENOSPC))?;
-
-        Ok(VcpuFd { vcpu, run_mmap })
-    }
-
     /// Gets the VCPU registers.
     #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
     pub fn get_regs(&self) -> Result<kvm_regs> {
@@ -576,7 +574,7 @@ impl VcpuFd {
         unsafe { &mut *(self.run_mmap.as_ptr() as *mut kvm_run) }
     }
 
-    /// Triggers the running of the current virtual CPU returning an exit reason
+    /// Triggers the running of the current virtual CPU returning an exit reason.
     pub fn run(&self) -> Result<VcpuExit> {
         // Safe because we know that our file is a VCPU fd and we verify the return result.
         let ret = unsafe { ioctl(self, KVM_RUN()) };
@@ -723,6 +721,12 @@ mod tests {
     pub const KVM_FPU_CWD: usize = 0x37f;
     pub const KVM_FPU_MXCSR: usize = 0x1f80;
 
+    impl VmFd {
+        fn get_run_size(&self) -> usize {
+            self.run_size
+        }
+    }
+
     //kvm system related function tests
     #[test]
     fn new() {
@@ -758,12 +762,12 @@ mod tests {
     fn cpuid_test() {
         let kvm = Kvm::new().unwrap();
         if kvm.check_extension(Cap::ExtCpuid) {
-            let mut vm = VmFd::new(&kvm).unwrap();
+            let vm = kvm.create_vm().unwrap();
             let mut cpuid = vm.get_supported_cpuid();
             assert!(cpuid.mut_entries_slice().len() <= MAX_KVM_CPUID_ENTRIES);
             let nr_vcpus = kvm.get_nr_vcpus();
             for cpu_id in 0..nr_vcpus {
-                let vcpu = VcpuFd::new(cpu_id as u8, &mut vm).unwrap();
+                let vcpu = vm.create_vcpu(cpu_id as u8).unwrap();
                 vcpu.set_cpuid2(&mut cpuid).unwrap();
             }
         }
@@ -774,7 +778,7 @@ mod tests {
     fn test_get_cpuid_features() {
         let kvm = Kvm::new().unwrap();
         if kvm.check_extension(Cap::ExtCpuid) {
-            let vm = VmFd::new(&kvm).unwrap();
+            let vm = kvm.create_vm().unwrap();
             let mut cpuid = vm.get_supported_cpuid();
             assert!(cpuid.mut_entries_slice().len() <= MAX_KVM_CPUID_ENTRIES);
         }
@@ -784,41 +788,41 @@ mod tests {
     #[test]
     fn create_vm() {
         let kvm = Kvm::new().unwrap();
-        VmFd::new(&kvm).unwrap();
+        kvm.create_vm().unwrap();
     }
 
     #[test]
     fn get_vm_run_size() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
+        let vm = kvm.create_vm().unwrap();
         assert_eq!(kvm.get_vcpu_mmap_size().unwrap(), vm.get_run_size());
     }
 
     #[test]
     fn set_invalid_memory_test() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
+        let vm = kvm.create_vm().unwrap();
         assert!(vm.set_user_memory_region(0, 0, 0, 0, 0).is_err());
     }
 
     #[test]
     fn set_tss_address() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
+        let vm = kvm.create_vm().unwrap();
         assert!(vm.set_tss_address(0xfffbd000).is_ok());
     }
 
     #[test]
     fn create_irq_chip() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
+        let vm = kvm.create_vm().unwrap();
         assert!(vm.create_irq_chip().is_ok());
     }
 
     #[test]
     fn create_pit2() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
+        let vm = kvm.create_vm().unwrap();
         assert!(vm.create_pit2().is_ok());
     }
 
@@ -827,7 +831,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<NoDatamatch>(), 0);
 
         let kvm = Kvm::new().unwrap();
-        let vm_fd = VmFd::new(&kvm).unwrap();
+        let vm_fd = kvm.create_vm().unwrap();
         let evtfd = EventFd::new().unwrap();
         vm_fd
             .register_ioevent(&evtfd, IoeventAddress::Pio(0xf4), NoDatamatch)
@@ -852,7 +856,7 @@ mod tests {
     #[test]
     fn register_irqfd() {
         let kvm = Kvm::new().unwrap();
-        let vm_fd = VmFd::new(&kvm).unwrap();
+        let vm_fd = kvm.create_vm().unwrap();
         let evtfd1 = EventFd::new().unwrap();
         let evtfd2 = EventFd::new().unwrap();
         let evtfd3 = EventFd::new().unwrap();
@@ -866,16 +870,16 @@ mod tests {
     #[test]
     fn create_vcpu() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
-        VcpuFd::new(0, &vm).unwrap();
+        let vm = kvm.create_vm().unwrap();
+        vm.create_vcpu(0).unwrap();
     }
 
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn reg_test() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
-        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         let mut regs = vcpu.get_regs().unwrap();
         regs.rax = 0x1;
         vcpu.set_regs(&regs).unwrap();
@@ -886,8 +890,8 @@ mod tests {
     #[test]
     fn sreg_test() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
-        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         let mut sregs = vcpu.get_sregs().unwrap();
         sregs.cr0 = 0x1;
         sregs.efer = 0x2;
@@ -901,8 +905,8 @@ mod tests {
     #[test]
     fn fpu_test() {
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
-        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         let mut fpu: kvm_fpu = kvm_fpu {
             fcw: KVM_FPU_CWD as u16,
             mxcsr: KVM_FPU_MXCSR as u32,
@@ -930,10 +934,10 @@ mod tests {
         //one can simply write to it
         let kvm = Kvm::new().unwrap();
         assert!(kvm.check_extension(Cap::Irqchip));
-        let vm = VmFd::new(&kvm).unwrap();
+        let vm = kvm.create_vm().unwrap();
         //the get_lapic ioctl will fail if there is no irqchip created beforehand
         assert!(vm.create_irq_chip().is_ok());
-        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         let mut klapic: kvm_lapic_state = vcpu.get_lapic().unwrap();
 
         let reg_offset = 0x300;
@@ -955,8 +959,8 @@ mod tests {
     fn msrs_test() {
         use std::mem;
         let kvm = Kvm::new().unwrap();
-        let vm = VmFd::new(&kvm).unwrap();
-        let vcpu = VcpuFd::new(0, &vm).unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
         let mut configured_entry_vec = Vec::<kvm_msr_entry>::new();
 
         configured_entry_vec.push(kvm_msr_entry {
@@ -1041,7 +1045,7 @@ mod tests {
 
         let kvm = Kvm::new().expect("new Kvm failed");
 
-        let vm_fd = VmFd::new(&kvm).expect("new VmFd failed");
+        let vm_fd = kvm.create_vm().expect("new VmFd failed");
         mem.with_regions(|index, guest_addr, size, host_addr| {
             // Safe because the guest regions are guaranteed not to overlap.
             vm_fd.set_user_memory_region(
@@ -1055,7 +1059,7 @@ mod tests {
         mem.write_slice_at_addr(&code, load_addr)
             .expect("Writing code to memory failed");
 
-        let vcpu_fd = VcpuFd::new(0, &vm_fd).expect("new VcpuFd failed");
+        let vcpu_fd = vm_fd.create_vcpu(0).expect("new VcpuFd failed");
 
         let mut vcpu_sregs = vcpu_fd.get_sregs().expect("get sregs failed");
         assert_ne!(vcpu_sregs.cs.base, 0);
@@ -1115,8 +1119,8 @@ mod tests {
             badf_error
         );
 
-        assert_eq!(VmFd::new(&faulty_kvm).err().unwrap(), badf_error);
-        let mut faulty_vm_fd = VmFd {
+        assert_eq!(faulty_kvm.create_vm().err().unwrap(), badf_error);
+        let faulty_vm_fd = VmFd {
             vm: unsafe { File::from_raw_fd(-1) },
             supported_cpuid: CpuId::new(max_cpus),
             run_size: 0,
@@ -1142,7 +1146,7 @@ mod tests {
             badf_error
         );
 
-        assert_eq!(VcpuFd::new(0, &mut faulty_vm_fd).err().unwrap(), badf_error);
+        assert_eq!(faulty_vm_fd.create_vcpu(0).err().unwrap(), badf_error);
         let faulty_vcpu_fd = VcpuFd {
             vcpu: unsafe { File::from_raw_fd(-1) },
             run_mmap: MemoryMapping::new(10).unwrap(),

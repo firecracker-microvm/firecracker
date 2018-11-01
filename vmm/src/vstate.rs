@@ -60,7 +60,7 @@ impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
     pub fn new(kvm: &Kvm) -> Result<Self> {
         //create fd for interacting with kvm-vm specific functions
-        let vm_fd = VmFd::new(&kvm).map_err(Error::VmFd)?;
+        let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
 
         Ok(Vm {
             fd: vm_fd,
@@ -133,7 +133,7 @@ impl Vcpu {
     ///
     /// The `id` argument is the CPU number between [0, max vcpus).
     pub fn new(id: u8, vm: &Vm) -> Result<Self> {
-        let kvm_vcpu = VcpuFd::new(id, &vm.fd).map_err(Error::VcpuFd)?;
+        let kvm_vcpu = vm.fd.create_vcpu(id).map_err(Error::VcpuFd)?;
         // Initially the cpuid per vCPU is the one supported by this VM
         Ok(Vcpu {
             fd: kvm_vcpu,
@@ -206,16 +206,6 @@ impl Vcpu {
 
 #[cfg(test)]
 mod tests {
-
-    impl Vcpu {
-        /// Returns a clone of the CPUID entries of this vCPU
-        /// For now this function is only used for testing; the cfg(test) should be removed when
-        /// this function will be used for configuring the cpu features
-        pub fn get_cpuid(&self) -> CpuId {
-            return self.cpuid.clone();
-        }
-    }
-
     use super::*;
 
     #[test]
