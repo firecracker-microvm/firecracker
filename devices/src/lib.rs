@@ -5,7 +5,6 @@
 //! Emulates virtual and hardware devices.
 extern crate byteorder;
 extern crate epoll;
-extern crate fc_util;
 extern crate libc;
 
 extern crate dumbo;
@@ -14,6 +13,7 @@ extern crate logger;
 extern crate memory_model;
 extern crate net_sys;
 extern crate net_util;
+extern crate rate_limiter;
 extern crate sys_util;
 extern crate virtio_sys;
 

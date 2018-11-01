@@ -21,11 +21,11 @@ use super::{
     VIRTIO_MMIO_INT_VRING,
 };
 use dumbo::ns::MmdsNetworkStack;
-use fc_util::ratelimiter::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use net_sys;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
+use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
 use virtio_sys::virtio_config::*;
 use virtio_sys::virtio_net::*;

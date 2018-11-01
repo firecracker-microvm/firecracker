@@ -16,9 +16,9 @@ use super::{
     ActivateError, ActivateResult, DescriptorChain, EpollHandlerPayload, Queue, VirtioDevice,
     TYPE_BLOCK, VIRTIO_MMIO_INT_VRING,
 };
-use fc_util::ratelimiter::{RateLimiter, TokenType};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
+use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
 use sys_util::Result as SysResult;
 use virtio_sys::virtio_blk::*;
