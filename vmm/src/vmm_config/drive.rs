@@ -9,15 +9,24 @@ use rate_limiter::RateLimiterDescription;
 
 type Result<T> = result::Result<T, DriveError>;
 
+/// Errors associated with the operations allowed on a drive.
 #[derive(Debug, PartialEq)]
 pub enum DriveError {
+    /// Cannot open block device due to invalid permissions or path.
     CannotOpenBlockDevice,
+    /// The block device ID is invalid.
     InvalidBlockDeviceID,
+    /// The block device path is invalid.
     InvalidBlockDevicePath,
+    /// The block device path was already used for a different drive.
     BlockDevicePathAlreadyExists,
+    /// Cannot update the block device.
     BlockDeviceUpdateFailed,
+    /// Cannot perform the requested operation before booting the microVM.
     OperationNotAllowedPreBoot,
+    /// Cannot perform the requested operation after booting the microVM.
     UpdateNotAllowedPostBoot,
+    /// A root block device was already added.
     RootBlockDeviceAlreadyAdded,
 }
 
@@ -44,36 +53,50 @@ impl Display for DriveError {
     }
 }
 
-/// Use this structure to set up the Block Device before booting the kernel
+/// Use this structure to set up the Block Device before booting the kernel.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockDeviceConfig {
+    /// Unique identifier of the drive.
     pub drive_id: String,
+    /// Path of the drive.
     pub path_on_host: PathBuf,
+    /// If set to true, it makes the current device the root block device.
+    /// Setting this flag to true will mount the block device in the
+    /// guest under /dev/vda unless the partuuid is present.
     pub is_root_device: bool,
+    /// Part-UUID. Represents the unique id of the boot partition of this device. It is
+    /// optional and it will be used only if the `is_root_device` field is true.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub partuuid: Option<String>,
+    /// If set to true, the drive is opened in read-only mode. Otherwise, the
+    /// drive is opened as read-write.
     pub is_read_only: bool,
+    /// Rate Limiter for I/O operations.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limiter: Option<RateLimiterDescription>,
 }
 
 impl BlockDeviceConfig {
+    /// Returns a reference to the partuuid.
     pub fn get_partuuid(&self) -> Option<&String> {
         self.partuuid.as_ref()
     }
 
+    /// Checks whether the drive had read only permissions.
     pub fn is_read_only(&self) -> bool {
         self.is_read_only
     }
 
+    /// Returns a reference to `path_on_host`.
     pub fn path_on_host(&self) -> &PathBuf {
         &self.path_on_host
     }
 }
 
-// Wrapper for the collection that holds all the Block Devices Configs
+/// Wrapper for the collection that holds all the Block Devices Configs
 pub struct BlockDeviceConfigs {
+    /// a Linked List of `BlockDeviceConfig` objects.
     pub config_list: LinkedList<BlockDeviceConfig>,
     has_root_block: bool,
     has_partuuid_root: bool,
@@ -81,6 +104,7 @@ pub struct BlockDeviceConfigs {
 }
 
 impl BlockDeviceConfigs {
+    /// Constructor for the BlockDeviceConfigs. It initializes an empty LinkedList.
     pub fn new() -> BlockDeviceConfigs {
         BlockDeviceConfigs {
             config_list: LinkedList::<BlockDeviceConfig>::new(),
@@ -90,19 +114,24 @@ impl BlockDeviceConfigs {
         }
     }
 
+    /// Checks whether any of the added BlockDevice is the root.
     pub fn has_root_block_device(&self) -> bool {
         return self.has_root_block;
     }
 
+    /// Checks whether the root device has read-only permisssions.
     pub fn has_read_only_root(&self) -> bool {
         self.read_only_root
     }
 
+    /// Checks whether the root device is configured using a part UUID.
     pub fn has_partuuid_root(&self) -> bool {
         self.has_partuuid_root
     }
 
-    pub fn contains_drive_path(&self, drive_path: PathBuf) -> bool {
+    /// Checks whether a device with the path specified by `drive_path` already exists
+    /// in the list.
+    fn contains_drive_path(&self, drive_path: PathBuf) -> bool {
         for drive_config in self.config_list.iter() {
             if drive_config.path_on_host == drive_path {
                 return true;
@@ -111,6 +140,11 @@ impl BlockDeviceConfigs {
         return false;
     }
 
+    /// Checks whether a device with the specified `drive_id` already exists in the list.
+    /// TODO: this should be made private. Right now it is used in the vmm to make a decision
+    /// about calling insert or add. Instead, we should follow the same interface as
+    /// `NetworkInterfaceConfigs` and only have a public interface for insert which would
+    /// implement both cases (add and update).
     pub fn contains_drive_id(&self, drive_id: String) -> bool {
         for drive_config in self.config_list.iter() {
             if drive_config.drive_id == drive_id {
@@ -122,6 +156,7 @@ impl BlockDeviceConfigs {
 
     /// This function adds a Block Device Config to the list. The root block device is always
     /// added to the beginning of the list. Only one root block device can be added.
+    /// TODO: make private. See comment from `contains_drive_id`.
     pub fn add(&mut self, block_device_config: BlockDeviceConfig) -> Result<()> {
         // check if the path exists
         if !block_device_config.path_on_host.exists() {
@@ -166,6 +201,10 @@ impl BlockDeviceConfigs {
         None
     }
 
+    /// Returns the BlockDeviceConfing with the specified `id`.
+    /// TODO: make this function private. It is used only in `set_block_device_path`.
+    /// It should be the responsibility of the BlockDeviceConfigs list to update the
+    /// path of one of its block devices.
     pub fn get_block_device_config(&self, id: &String) -> Result<BlockDeviceConfig> {
         for drive_config in self.config_list.iter() {
             if drive_config.drive_id.eq(id) {
@@ -178,6 +217,7 @@ impl BlockDeviceConfigs {
     /// This function updates a Block Device Config. The update fails if it would result in two
     /// root block devices. Full updates are allowed via PUT prior to the guest boot. Partial
     /// updates on path_on_host are allowed via PATCH both before and after boot.
+    /// TODO: make private. See comment from `contains_drive_id`.
     pub fn update(&mut self, block_device_config: &BlockDeviceConfig) -> Result<()> {
         // Check if the path exists
         if !block_device_config.path_on_host.exists() {

@@ -1,9 +1,14 @@
 use std::fmt::{Display, Formatter, Result};
 
+/// Errors associated with configuring the microVM.
 #[derive(Debug, PartialEq)]
 pub enum VmConfigError {
+    /// The vcpu count is invalid. When hyperthreading is enabled, the `cpu_count` must be either
+    /// 1 or an even number.
     InvalidVcpuCount,
+    /// The memory size is invalid. The memory can only be an unsigned integer.
     InvalidMemorySize,
+    /// Cannot update the configuration of the microvm post boot.
     UpdateNotAllowedPostBoot,
 }
 
@@ -24,15 +29,21 @@ impl Display for VmConfigError {
     }
 }
 
+/// Strongly typed structure that represents the configuration of the
+/// microvm.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VmConfig {
+    /// Number of vcpu to start.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vcpu_count: Option<u8>,
+    /// The memory size in MiB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_size_mib: Option<usize>,
+    /// Enables or disabled hyperthreading.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ht_enabled: Option<bool>,
+    /// A CPU template that it is used to filter the CPU features exposed to the guest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cpu_template: Option<CpuFeaturesTemplate>,
 }
@@ -48,9 +59,13 @@ impl Default for VmConfig {
     }
 }
 
+/// Template types available for configuring the CPU features that map
+/// to EC2 instances.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum CpuFeaturesTemplate {
+    /// C3 Template.
     C3,
+    /// T2 Template.
     T2,
 }
 

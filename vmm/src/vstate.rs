@@ -6,31 +6,32 @@ use std::result;
 
 use cpuid::{c3_template, filter_cpuid, t2_template};
 use kvm::*;
-use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
+use memory_model::{GuestAddress, GuestMemory};
 use sys_util::EventFd;
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
 use x86_64::{interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
 
+/// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
 pub enum Error {
-    AlreadyRunning,
+    /// A call to cpuid instruction failed.
     CpuId(cpuid::Error),
-    GuestMemory(GuestMemoryError),
-    Kvm(sys_util::Error),
+    /// Cannot open the VM file descriptor.
     VmFd(sys_util::Error),
+    /// Cannot open the VCPU file descriptor.
     VcpuFd(sys_util::Error),
+    /// Cannot configure the microvm.
     VmSetup(sys_util::Error),
+    /// Cannot run the VCPUs.
     VcpuRun(sys_util::Error),
-    GetSupportedCpusFailed(sys_util::Error),
+    /// The call to KVM_SET_CPUID2 failed.
     SetSupportedCpusFailed(sys_util::Error),
-    NotEnoughMemory,
-    NoMemoryEntry,
+    /// Cannot set the local interruption due to bad configuration.
     LocalIntConfiguration(interrupts::Error),
+    /// Cannot set the memory regions.
     SetUserMemoryRegion(sys_util::Error),
-    /// The kernel extends past the end of RAM
-    KernelOffsetPastEnd,
     /// Error configuring the MSR registers
     MSRSConfiguration(regs::Error),
     /// Error configuring the general purpose registers
@@ -39,7 +40,7 @@ pub enum Error {
     SREGSConfiguration(regs::Error),
     /// Error configuring the floating point related registers
     FPUConfiguration(regs::Error),
-    EventFd(sys_util::Error),
+    /// Cannot configure the IRQ.
     Irq(sys_util::Error),
 }
 pub type Result<T> = result::Result<T, Error>;
@@ -68,7 +69,8 @@ impl Vm {
         })
     }
 
-    /// Currently this is x86 specific (because of the TSS address setup)
+    /// Initializes the guest memory. Currently this is x86 specific
+    /// because of the TSS address setup.
     pub fn memory_init(&mut self, guest_mem: GuestMemory) -> Result<()> {
         guest_mem.with_regions(|index, guest_addr, size, host_addr| {
             info!("Guest memory starts at {:x?}", host_addr);
@@ -91,7 +93,7 @@ impl Vm {
         Ok(())
     }
 
-    /// This function creates the irq chip and adds 2 interrupt events to the IRQ
+    /// This function creates the irq chip and adds 2 interrupt events to the IRQ.
     pub fn setup_irqchip(&self, com_evt_1_3: &EventFd, com_evt_2_4: &EventFd) -> Result<()> {
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
 
@@ -101,6 +103,7 @@ impl Vm {
         Ok(())
     }
 
+    /// Creates an in-kernel device model for the PIT.
     pub fn create_pit(&self) -> Result<()> {
         self.fd.create_pit2().map_err(Error::VmSetup)?;
         Ok(())
@@ -121,7 +124,7 @@ impl Vm {
     }
 }
 
-/// A wrapper around creating and using a kvm-based VCPU
+/// A wrapper around creating and using a kvm-based VCPU.
 pub struct Vcpu {
     cpuid: CpuId,
     fd: VcpuFd,
