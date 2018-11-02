@@ -234,12 +234,12 @@ pub type OutcomeReceiver = oneshot::Receiver<VmmRequestOutcome>;
 
 type Result<T> = std::result::Result<T, Error>;
 
-// Allows access to the functionality of the KVM wrapper only as long as every required
-// KVM capability is present on the host.
-struct KvmContext {
+/// Describes a KVM context that gets attached to the micro vm instance.
+/// It gives access to the functionality of the KVM wrapper as long as every required
+/// KVM capability is present on the host.
+pub struct KvmContext {
     kvm: Kvm,
-    nr_vcpus: usize,
-    max_vcpus: usize,
+    max_memslots: usize,
 }
 
 impl KvmContext {
@@ -269,28 +269,17 @@ impl KvmContext {
         check_cap(&kvm, Cap::SetTssAddr)?;
         check_cap(&kvm, Cap::UserMemory)?;
 
-        let nr_vcpus = kvm.get_nr_vcpus();
-        let max_vcpus = kvm.get_max_vcpus();
-
-        Ok(KvmContext {
-            kvm,
-            nr_vcpus,
-            max_vcpus,
-        })
+        let max_memslots = kvm.get_nr_memslots();
+        Ok(KvmContext { kvm, max_memslots })
     }
 
     fn fd(&self) -> &Kvm {
         &self.kvm
     }
 
-    #[allow(dead_code)]
-    fn nr_vcpus(&self) -> usize {
-        self.nr_vcpus
-    }
-
-    #[allow(dead_code)]
-    fn max_vcpus(&self) -> usize {
-        self.max_vcpus
+    /// Get the maximum number of memory slots reported by this KVM context.
+    pub fn max_memslots(&self) -> usize {
+        self.max_memslots
     }
 }
 
@@ -488,7 +477,7 @@ struct KernelConfig {
 }
 
 struct Vmm {
-    _kvm: KvmContext,
+    kvm: KvmContext,
 
     vm_config: VmConfig,
     shared_info: Arc<RwLock<InstanceInfo>>,
@@ -550,7 +539,7 @@ impl Vmm {
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
         Ok(Vmm {
-            _kvm: kvm,
+            kvm,
             vm_config: VmConfig::default(),
             shared_info: api_shared_info,
             guest_memory: None,
@@ -763,6 +752,7 @@ impl Vmm {
                     .ok_or(StartMicrovmError::GuestMemory(
                         memory_model::GuestMemoryError::MemoryNotInitialized,
                     ))?,
+                &self.kvm,
             ).map_err(|e| StartMicrovmError::ConfigureVm(e))?;
         self.vm
             .setup_irqchip(
@@ -2199,11 +2189,8 @@ mod tests {
         use std::os::unix::io::FromRawFd;
 
         let c = KvmContext::new(None).unwrap();
-        let nr_vcpus = c.nr_vcpus();
-        let max_vcpus = c.max_vcpus();
 
-        assert!(nr_vcpus > 0);
-        assert!(max_vcpus >= nr_vcpus);
+        assert!(c.max_memslots >= 32);
 
         let kvm = Kvm::new().unwrap();
         let f = unsafe { File::from_raw_fd(kvm.as_raw_fd()) };
