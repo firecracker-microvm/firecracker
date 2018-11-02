@@ -4,6 +4,7 @@ extern crate x86_64;
 
 use std::result;
 
+use super::KvmContext;
 use cpuid::{c3_template, filter_cpuid, t2_template};
 use kvm::*;
 use memory_model::{GuestAddress, GuestMemory};
@@ -28,6 +29,8 @@ pub enum Error {
     VcpuRun(sys_util::Error),
     /// The call to KVM_SET_CPUID2 failed.
     SetSupportedCpusFailed(sys_util::Error),
+    /// The number of configured slots is bigger than the maximum reported by KVM.
+    NotEnoughMemorySlots,
     /// Cannot set the local interruption due to bad configuration.
     LocalIntConfiguration(interrupts::Error),
     /// Cannot set the memory regions.
@@ -71,7 +74,10 @@ impl Vm {
 
     /// Initializes the guest memory. Currently this is x86 specific
     /// because of the TSS address setup.
-    pub fn memory_init(&mut self, guest_mem: GuestMemory) -> Result<()> {
+    pub fn memory_init(&mut self, guest_mem: GuestMemory, kvm_context: &KvmContext) -> Result<()> {
+        if guest_mem.num_regions() > kvm_context.max_memslots() {
+            return Err(Error::NotEnoughMemorySlots);
+        }
         guest_mem.with_regions(|index, guest_addr, size, host_addr| {
             info!("Guest memory starts at {:x?}", host_addr);
             // Safe because the guest regions are guaranteed not to overlap.
@@ -211,20 +217,24 @@ impl Vcpu {
 mod tests {
     use super::*;
 
+    use std::os::unix::io::AsRawFd;
+
     #[test]
     fn create_vm() {
-        let kvm = Kvm::new().unwrap();
+        let kvm_fd = Kvm::new().unwrap();
+        let kvm = KvmContext::new(Some(kvm_fd.as_raw_fd())).unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
-        let mut vm = Vm::new(&kvm).expect("new vm failed");
-        assert!(vm.memory_init(gm).is_ok());
+        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
+        assert!(vm.memory_init(gm, &kvm).is_ok());
     }
 
     #[test]
     fn get_memory() {
-        let kvm = Kvm::new().unwrap();
+        let kvm_fd = Kvm::new().unwrap();
+        let kvm = KvmContext::new(Some(kvm_fd.as_raw_fd())).unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
-        let mut vm = Vm::new(&kvm).expect("new vm failed");
-        assert!(vm.memory_init(gm).is_ok());
+        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
+        assert!(vm.memory_init(gm, &kvm).is_ok());
         let obj_addr = GuestAddress(0xf0);
         vm.get_memory()
             .unwrap()
@@ -241,10 +251,11 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
     fn test_configure_vcpu() {
-        let kvm = Kvm::new().unwrap();
+        let kvm_fd = Kvm::new().unwrap();
+        let kvm = KvmContext::new(Some(kvm_fd.as_raw_fd())).unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
-        let mut vm = Vm::new(&kvm).expect("new vm failed");
-        assert!(vm.memory_init(gm).is_ok());
+        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
+        assert!(vm.memory_init(gm, &kvm).is_ok());
         let dummy_eventfd_1 = EventFd::new().unwrap();
         let dummy_eventfd_2 = EventFd::new().unwrap();
 
@@ -268,6 +279,22 @@ mod tests {
     }
 
     #[test]
+    fn not_enough_mem_slots() {
+        let kvm_fd = Kvm::new().unwrap();
+        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
+
+        let kvm = KvmContext {
+            kvm: kvm_fd,
+            max_memslots: 1,
+        };
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x1000);
+        let gm = GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+
+        assert!(vm.memory_init(gm, &kvm).is_err());
+    }
+
+    #[test]
     fn run_code() {
         use std::io::{self, Write};
         // This example based on https://lwn.net/Articles/658511/
@@ -285,9 +312,10 @@ mod tests {
         let load_addr = GuestAddress(0x1000);
         let mem = GuestMemory::new(&vec![(load_addr, mem_size)]).unwrap();
 
-        let kvm = Kvm::new().expect("new kvm failed");
-        let mut vm = Vm::new(&kvm).expect("new vm failed");
-        assert!(vm.memory_init(mem).is_ok());
+        let kvm_fd = Kvm::new().expect("new kvm failed");
+        let kvm = KvmContext::new(Some(kvm_fd.as_raw_fd())).unwrap();
+        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
+        assert!(vm.memory_init(mem, &kvm).is_ok());
         vm.get_memory()
             .unwrap()
             .write_slice_at_addr(&code, load_addr)
