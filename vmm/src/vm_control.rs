@@ -40,7 +40,7 @@ impl VmRequest {
     /// received this `VmRequest`.
     pub fn execute(&self, vm: &VmFd) -> VmResponse {
         match self {
-            &VmRequest::RegisterIoevent(ref evt, addr, datamatch) => {
+            &VmRequest::RegisterIoevent(ref evt, ref addr, datamatch) => {
                 match vm.register_ioevent(evt, addr, datamatch) {
                     Ok(_) => VmResponse::Ok,
                     Err(e) => VmResponse::Err(e),
