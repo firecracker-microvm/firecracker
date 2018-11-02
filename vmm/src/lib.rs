@@ -1,3 +1,7 @@
+//! Virtual Machine Monitor that leverages the Linux Kernel-based Virtual Machine (KVM),
+//! and other virtualization features to run a single lightweight micro-virtual
+//! machine (microVM).
+#![warn(missing_docs)]
 extern crate chrono;
 extern crate epoll;
 extern crate futures;
@@ -25,6 +29,7 @@ extern crate x86_64;
 mod default_syscalls;
 mod device_manager;
 mod vm_control;
+/// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 mod vstate;
 
@@ -108,6 +113,7 @@ enum Error {
     Vm(vstate::Error),
 }
 
+/// Types of errors associated with vmm actions.
 #[derive(Debug)]
 pub enum ErrorKind {
     /// User Errors describe bad configuration (user input).
@@ -120,15 +126,29 @@ pub enum ErrorKind {
 /// Wrapper for all errors associated with VMM actions.
 #[derive(Debug)]
 pub enum VmmActionError {
+    /// The action `ConfigureBootSource` failed either because of bad user input (`ErrorKind::User`) or
+    /// an internal error (`ErrorKind::Internal`).
     BootSource(ErrorKind, BootSourceConfigError),
+    /// One of the actions `InsertBlockDevice`, `RescanBlockDevice` or `UpdateBlockDevicePath`
+    /// failed either because of bad user input (`ErrorKind::User`) or an
+    /// internal error (`ErrorKind::Internal`).
     DriveConfig(ErrorKind, DriveError),
+    /// The action `ConfigureLogger` failed either because of bad user input (`ErrorKind::User`) or
+    /// an internal error (`ErrorKind::Internal`).
     Logger(ErrorKind, LoggerConfigError),
+    /// One of the actions `GetVmConfiguration` or `SetVmConfiguration` failed either because of bad input (`ErrorKind::User`) or
+    /// an internal error (`ErrorKind::Internal`).
     MachineConfig(ErrorKind, VmConfigError),
+    /// The action `InsertNetworkDevice` failed either because of bad user input (`ErrorKind::User`) or
+    /// an internal error (`ErrorKind::Internal`).
     NetworkConfig(ErrorKind, NetworkInterfaceError),
+    /// The action `StartMicroVm` failed either because of bad user input (`ErrorKind::User`) or
+    /// an internal error (`ErrorKind::Internal`).
     StartMicrovm(ErrorKind, StartMicrovmError),
 }
 
 impl VmmActionError {
+    /// Returns the error type.
     pub fn get_kind(&self) -> &ErrorKind {
         use self::VmmActionError::*;
 
@@ -161,27 +181,55 @@ impl Display for VmmActionError {
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
 pub enum VmmAction {
+    /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
+    /// action can only be called before the microVM has booted. The response is sent using the
+    /// `OutcomeSender`.
     ConfigureBootSource(BootSourceConfig, OutcomeSender),
+    /// Configure the logger using as input the `LoggerConfig`. This action can only be called
+    /// before the microVM has booted. The response is sent using the `OutcomeSender`.
     ConfigureLogger(LoggerConfig, OutcomeSender),
+    /// Get the configuration of the microVM. The action response is sent using the `OutcomeSender`.
     GetVmConfiguration(OutcomeSender),
+    /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
+    /// input. This action can only be called before the microVM has booted. The response
+    /// is sent using the `OutcomeSender`.
     InsertBlockDevice(BlockDeviceConfig, OutcomeSender),
+    /// Add a new network interface config or update one that already exists using the
+    /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
+    /// booted. The response is sent using the `OutcomeSender`.
     InsertNetworkDevice(NetworkInterfaceConfig, OutcomeSender),
+    /// Update the size of an existing block device specified by an ID. The ID is the first data
+    /// associated with this enum variant. This action can only be called after the microVM is
+    /// started. The response is sent using the `OutcomeSender`.
     RescanBlockDevice(String, OutcomeSender),
+    /// Set the microVM configuration (memory & vcpu) using `VmConfig` as input. This
+    /// action can only be called before the microVM has booted. The action
+    /// response is sent using the `OutcomeSender`.
     SetVmConfiguration(VmConfig, OutcomeSender),
+    /// Launch the microVM. This action can only be called before the microVM has booted.
+    /// The response is sent using the `OutcomeSender`.
     StartMicroVm(OutcomeSender),
-    UpdateBlockDevicePath(String, String, OutcomeSender), // drive_id, path_on_host, channel
+    /// Update the path of an existing block device. The data associated with this variant
+    /// represents the `drive_id` and the `path_on_host`. The response is sent using
+    /// the `OutcomeSender`.
+    UpdateBlockDevicePath(String, String, OutcomeSender),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
 /// empty, when no data needs to be sent, or an internal VMM structure.
 #[derive(Debug)]
 pub enum VmmData {
+    /// No data is sent on the channel.
     Empty,
+    /// The microVM configuration represented by `VmConfig`.
     MachineConfiguration(VmConfig),
 }
 
+/// Data type used to communicate between the API and the VMM.
 pub type VmmRequestOutcome = std::result::Result<VmmData, VmmActionError>;
+/// One shot channel used to send a request.
 pub type OutcomeSender = oneshot::Sender<VmmRequestOutcome>;
+/// One shot channel used to receive a response.
 pub type OutcomeReceiver = oneshot::Receiver<VmmRequestOutcome>;
 
 type Result<T> = std::result::Result<T, Error>;
@@ -1675,9 +1723,9 @@ mod tests {
     }
 
     struct DummyEpollHandler {
-        pub evt: Option<DeviceEventT>,
-        pub flags: Option<u32>,
-        pub payload: Option<EpollHandlerPayload>,
+        evt: Option<DeviceEventT>,
+        flags: Option<u32>,
+        payload: Option<EpollHandlerPayload>,
     }
 
     impl EpollHandler for DummyEpollHandler {

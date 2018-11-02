@@ -4,15 +4,22 @@ use std::sync::{Arc, Mutex};
 use devices;
 use sys_util::{self, EventFd, Terminal};
 
+/// Errors corresponding to the `LegacyDeviceManager`.
 #[derive(Debug)]
 pub enum Error {
+    /// Cannot add legacy device to Bus.
     BusError(devices::BusError),
+    /// Cannot create EventFd.
     EventFd(sys_util::Error),
+    /// Cannot set mode for terminal.
     StdinHandle(sys_util::Error),
 }
 
 type Result<T> = ::std::result::Result<T, Error>;
 
+/// The `LegacyDeviceManager` is a wrapper that is used for registering legacy devices
+/// on an I/O Bus. It currently manages the uart and i8042 devices.
+/// The `LegacyDeviceManger` should be initialized only by using the constructor.
 pub struct LegacyDeviceManager {
     pub io_bus: devices::Bus,
     pub stdio_serial: Arc<Mutex<devices::legacy::Serial>>,
