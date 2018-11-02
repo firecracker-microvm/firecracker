@@ -95,9 +95,26 @@ impl Kvm {
 
     /// Gets the recommended number of VCPUs per VM.
     pub fn get_nr_vcpus(&self) -> usize {
-        match self.check_extension_int(Cap::NrVcpus) {
-            x if x > 0 => x as usize,
-            _ => 4,
+        let x = self.check_extension_int(Cap::NrVcpus);
+        if x > 0 {
+            x as usize
+        } else {
+            4
+        }
+    }
+
+    /// Gets the maximum allowed memory slots per VM.
+    ///
+    /// KVM reports the number of available memory slots (KVM_CAP_NR_MEMSLOTS)
+    /// using the extension interface.  Both x86 and s390 implement this, ARM
+    /// and powerpc do not yet enable it.
+    /// Default to 32 when KVM_CAP_NR_MEMSLOTS is not implemented.
+    pub fn get_nr_memslots(&self) -> usize {
+        let x = self.check_extension_int(Cap::NrMemslots);
+        if x > 0 {
+            x as usize
+        } else {
+            32
         }
     }
 
@@ -175,7 +192,6 @@ impl Into<u64> for NoDatamatch {
     }
 }
 /// A wrapper around creating and using a VM.
-#[derive(Debug)]
 pub struct VmFd {
     vm: File,
     supported_cpuid: CpuId,
@@ -189,6 +205,8 @@ impl VmFd {
     }
 
     /// Creates/modifies a guest physical memory slot using KVM_SET_USER_MEMORY_REGION.
+    ///
+    /// See the documentation on the KVM_SET_USER_MEMORY_REGION ioctl.
     pub fn set_user_memory_region(
         &self,
         slot: u32,
@@ -756,6 +774,8 @@ mod tests {
 
     use super::*;
 
+    use memory_model::{GuestAddress, GuestMemory};
+
     //as per https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/fpu/internal.h
     pub const KVM_FPU_CWD: usize = 0x37f;
     pub const KVM_FPU_MXCSR: usize = 0x1f80;
@@ -794,6 +814,45 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let nr_vcpus = kvm.get_nr_vcpus();
         assert!(nr_vcpus >= 4);
+    }
+
+    #[test]
+    fn get_max_memslots() {
+        let kvm = Kvm::new().unwrap();
+        let max_mem_slots = kvm.get_nr_memslots();
+        assert!(max_mem_slots >= 32);
+    }
+
+    #[test]
+    fn trigger_exceeded_memory_slots() {
+        let kvm = Kvm::new().expect("new Kvm failed");
+        let max_mem_slots = kvm.get_nr_memslots();
+
+        // Below we are creating an array representing memory regions with a dimension that is
+        // bigger than the maximum allowed slots.
+        let mem_size = 1 << 20;
+        let start_addr = GuestAddress(0x0);
+        let mut mem_vec = vec![];
+        for i in 1..=max_mem_slots + 1 {
+            mem_vec.push((
+                start_addr.checked_add(i as usize * mem_size).unwrap(),
+                mem_size,
+            ))
+        }
+        let mem = GuestMemory::new(&mem_vec).unwrap();
+        let vm = kvm.create_vm().unwrap();
+
+        assert!(
+            mem.with_regions(
+                |index, guest_addr, size, host_addr| vm.set_user_memory_region(
+                    index as u32,
+                    guest_addr.offset() as u64,
+                    size as u64,
+                    host_addr as u64,
+                    0,
+                )
+            ).is_err()
+        );
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1064,8 +1123,6 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn run_code_test() {
-        use memory_model::{GuestAddress, GuestMemory};
-
         // This example based on https://lwn.net/Articles/658511/
         let code = [
             0xba, 0xf8, 0x03, /* mov $0x3f8, %dx */
