@@ -180,7 +180,6 @@ impl AsRawFd for Kvm {
 }
 
 /// An address either in programmable I/O space or in memory mapped I/O space.
-#[derive(Copy, Clone)]
 pub enum IoeventAddress {
     /// Representation of an programmable I/O address.
     Pio(u64),
@@ -298,7 +297,7 @@ impl VmFd {
     pub fn register_ioevent<T: Into<u64>>(
         &self,
         evt: &EventFd,
-        addr: IoeventAddress,
+        addr: &IoeventAddress,
         datamatch: T,
     ) -> Result<()> {
         let mut flags = 0;
@@ -306,18 +305,18 @@ impl VmFd {
             flags |= 1 << kvm_ioeventfd_flag_nr_datamatch
         }
         match addr {
-            IoeventAddress::Pio(_) => flags |= 1 << kvm_ioeventfd_flag_nr_pio,
+            &IoeventAddress::Pio(_) => flags |= 1 << kvm_ioeventfd_flag_nr_pio,
             _ => {}
         };
         let ioeventfd = kvm_ioeventfd {
             datamatch: datamatch.into(),
             len: std::mem::size_of::<T>() as u32,
             addr: match addr {
-                IoeventAddress::Pio(p) => p as u64,
-                IoeventAddress::Mmio(m) => m,
+                IoeventAddress::Pio(ref p) => *p as u64,
+                IoeventAddress::Mmio(ref m) => *m,
             },
             fd: evt.as_raw_fd(),
-            flags: flags,
+            flags,
             ..Default::default()
         };
         // Safe because we know that our file is a VM fd, we know the kernel will only read the
@@ -936,22 +935,22 @@ mod tests {
         let vm_fd = kvm.create_vm().unwrap();
         let evtfd = EventFd::new().unwrap();
         vm_fd
-            .register_ioevent(&evtfd, IoeventAddress::Pio(0xf4), NoDatamatch)
+            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xf4), NoDatamatch)
             .unwrap();
         vm_fd
-            .register_ioevent(&evtfd, IoeventAddress::Mmio(0x1000), NoDatamatch)
+            .register_ioevent(&evtfd, &IoeventAddress::Mmio(0x1000), NoDatamatch)
             .unwrap();
         vm_fd
-            .register_ioevent(&evtfd, IoeventAddress::Pio(0xc1), 0x7fu8)
+            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc1), 0x7fu8)
             .unwrap();
         vm_fd
-            .register_ioevent(&evtfd, IoeventAddress::Pio(0xc2), 0x1337u16)
+            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc2), 0x1337u16)
             .unwrap();
         vm_fd
-            .register_ioevent(&evtfd, IoeventAddress::Pio(0xc4), 0xdeadbeefu32)
+            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc4), 0xdeadbeefu32)
             .unwrap();
         vm_fd
-            .register_ioevent(&evtfd, IoeventAddress::Pio(0xc8), 0xdeadbeefdeadbeefu64)
+            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc8), 0xdeadbeefdeadbeefu64)
             .unwrap();
     }
 
@@ -1237,7 +1236,7 @@ mod tests {
         let event_fd = EventFd::new().unwrap();
         assert_eq!(
             faulty_vm_fd
-                .register_ioevent(&event_fd, IoeventAddress::Pio(0), 0u64)
+                .register_ioevent(&event_fd, &IoeventAddress::Pio(0), 0u64)
                 .unwrap_err(),
             badf_error
         );
