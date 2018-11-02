@@ -65,7 +65,7 @@ const MMIO_LEN: u64 = 0x1000;
 /// to its configuration space.
 const MMIO_CFG_SPACE_OFF: u64 = 0x100;
 
-/// Manages the complexities of adding a device.
+/// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
     pub bus: devices::Bus,
     pub vm_requests: Vec<VmRequest>,
@@ -163,6 +163,9 @@ impl MMIODeviceManager {
         return self.id_to_addr_map.get(id.as_str());
     }
 
+    /// Removing the address of a device will generate an error when you try to update the
+    /// drive. The purpose of this method is to test error scenarios and should otherwise
+    /// not be used.
     #[cfg(test)]
     pub fn remove_address(&mut self, id: &String) {
         self.id_to_addr_map.remove(id).unwrap();

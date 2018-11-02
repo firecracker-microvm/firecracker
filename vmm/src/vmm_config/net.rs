@@ -5,22 +5,34 @@ use super::DeviceState;
 use net_util::{MacAddr, Tap, TapError};
 use rate_limiter::RateLimiterDescription;
 
-// This struct represents the strongly typed equivalent of the json body from net iface
-// related requests.
+/// This struct represents the strongly typed equivalent of the json body from net iface
+/// related requests.
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkInterfaceConfig {
+    /// ID of the guest network interface.
     pub iface_id: String,
+    /// State of the network interface.
     pub state: DeviceState,
+    /// Host level path for the guest network interface.
     pub host_dev_name: String,
+    /// Guest MAC address.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_mac: Option<MacAddr>,
+    /// Rate Limiter for received packages.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rx_rate_limiter: Option<RateLimiterDescription>,
+    /// Rate Limiter for transmitted packages.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tx_rate_limiter: Option<RateLimiterDescription>,
     #[serde(default = "default_allow_mmds_requests")]
+    /// If this field is set, the device model will reply to HTTP GET
+    /// requests sent to the MMDS address via this interface. In this case,
+    /// both ARP requests for `169.254.169.254` and TCP segments heading to the
+    /// same address are intercepted by the device model, and do not reach
+    /// the associated TAP device.
     pub allow_mmds_requests: bool,
+    /// Handle for a network tap interface created using `host_dev_name`.
     #[serde(skip_deserializing, skip_serializing)]
     pub tap: Option<Tap>,
 }
@@ -33,24 +45,34 @@ fn default_allow_mmds_requests() -> bool {
 }
 
 impl NetworkInterfaceConfig {
+    /// Returns the tap device if it was configured. This function has side effects as it takes
+    /// the value from `self.tap` and leaves None in its place.
     pub fn take_tap(&mut self) -> Option<Tap> {
         self.tap.take()
     }
 
+    /// Returns a reference to the mac address. It the mac address is not configured, it
+    /// return None.
     pub fn guest_mac(&self) -> Option<&MacAddr> {
         self.guest_mac.as_ref()
     }
 
+    /// Checks whether the interface is supposed to respond to MMDS requests.
     pub fn allow_mmds_requests(&self) -> bool {
         self.allow_mmds_requests
     }
 }
 
+/// Errors associated with `NetworkInterfaceConfig`.
 #[derive(Debug)]
 pub enum NetworkInterfaceError {
+    /// The MAC address is already in use.
     GuestMacAddressInUse(String),
+    /// The host device name is already in use.
     HostDeviceNameInUse(String),
+    /// Cannot open/create tap device.
     OpenTap(TapError),
+    /// The update is not allowed after booting the microvm.
     UpdateNotAllowedPostBoot,
 }
 
@@ -88,6 +110,7 @@ impl Display for NetworkInterfaceError {
     }
 }
 
+/// A wrapper over the list of the `NetworkInterfaceConfig` that the microvm has configured.
 pub struct NetworkInterfaceConfigs {
     if_list: Vec<NetworkInterfaceConfig>,
 }
@@ -100,6 +123,7 @@ impl NetworkInterfaceConfigs {
         }
     }
 
+    /// Returns a mutable iterator over the network interfaces.
     pub fn iter_mut(&mut self) -> ::std::slice::IterMut<NetworkInterfaceConfig> {
         self.if_list.iter_mut()
     }
