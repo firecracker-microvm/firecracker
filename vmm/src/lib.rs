@@ -1693,6 +1693,21 @@ mod tests {
             &[10]
         }
 
+        fn ack_features(&mut self, page: u32, value: u32) {
+            let _ = page;
+            let _ = value;
+        }
+
+        fn read_config(&self, offset: u64, data: &mut [u8]) {
+            let _ = offset;
+            let _ = data;
+        }
+
+        fn write_config(&mut self, offset: u64, data: &[u8]) {
+            let _ = offset;
+            let _ = data;
+        }
+
         #[allow(unused_variables)]
         #[allow(unused_mut)]
         fn activate(

@@ -42,22 +42,13 @@ pub trait VirtioDevice: Send {
     }
 
     /// Acknowledges that this set of features should be enabled.
-    fn ack_features(&mut self, page: u32, value: u32) {
-        let _ = page;
-        let _ = value;
-    }
+    fn ack_features(&mut self, page: u32, value: u32);
 
     /// Reads this device configuration space at `offset`.
-    fn read_config(&self, offset: u64, data: &mut [u8]) {
-        let _ = offset;
-        let _ = data;
-    }
+    fn read_config(&self, offset: u64, data: &mut [u8]);
 
     /// Writes to this device configuration space at `offset`.
-    fn write_config(&mut self, offset: u64, data: &[u8]) {
-        let _ = offset;
-        let _ = data;
-    }
+    fn write_config(&mut self, offset: u64, data: &[u8]);
 
     /// Activates this device for real usage.
     fn activate(
@@ -354,7 +345,10 @@ mod tests {
     #[test]
     fn test_new() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
+        let mut dummy = DummyDevice::new();
+        // Validate reset is no-op.
+        assert!(dummy.reset().is_none());
+        let mut d = MmioDevice::new(m, Box::new(dummy)).unwrap();
 
         // We just make sure here that the implementation of a mmio device behaves as we expect,
         // given a known virtio device implementation (the dummy device).

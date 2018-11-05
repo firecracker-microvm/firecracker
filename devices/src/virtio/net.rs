@@ -788,15 +788,11 @@ impl VirtioDevice for Net {
         self.acked_features |= v;
     }
 
-    // Taken from block.rs. This will only read data that is actually available in the config space,
-    // and leave the rest of the destination buffer as is. When the length of the configuration
-    // space is 0, nothing actually happens.
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
         let config_len = self.config_space.len() as u64;
         if offset >= config_len {
             error!("Failed to read config space");
             METRICS.net.cfg_fails.inc();
-
             return;
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
@@ -804,6 +800,18 @@ impl VirtioDevice for Net {
             data.write(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
                 .unwrap();
         }
+    }
+
+    fn write_config(&mut self, offset: u64, data: &[u8]) {
+        let data_len = data.len() as u64;
+        let config_len = self.config_space.len() as u64;
+        if offset + data_len > config_len {
+            error!("Failed to write config space");
+            METRICS.net.cfg_fails.inc();
+            return;
+        }
+        let (_, right) = self.config_space.split_at_mut(offset as usize);
+        right.copy_from_slice(&data[..]);
     }
 
     fn activate(
