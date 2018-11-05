@@ -1,22 +1,23 @@
 //! Defines the metrics system.
+//!
+//! # Design
 //! The main design goals of this system are:
-//! - Use lockless operations, preferably ones that don't require anything other than
+//! * Use lockless operations, preferably ones that don't require anything other than
 //!   simple reads/writes being atomic.
-//! - Exploit interior mutability and atomics being Sync to allow all methods (including the ones
+//! * Exploit interior mutability and atomics being Sync to allow all methods (including the ones
 //!   which are effectively mutable) to be callable on a global non-mut static.
-//! - Rely on Serde to provide the actual serialization for logging the metrics.
-//! - Since all metrics start at 0, we implement the Default trait via derive for all of them,
+//! * Rely on `serde` to provide the actual serialization for logging the metrics.
+//! * Since all metrics start at 0, we implement the `Default` trait via derive for all of them,
 //!   to avoid having to initialize everything by hand.
-
+//!
 //! Moreover, the value of a metric is currently NOT reset to 0 each time it's being logged. The
 //! current approach is to store two values (current and previous) and compute the delta between
 //! them each time we do a flush (i.e by serialization). There are a number of advantages
 //! to this approach, including:
-//! - We don't have to introduce an additional write (to reset the value) from the thread which
+//! * We don't have to introduce an additional write (to reset the value) from the thread which
 //!   does to actual logging, so less synchronization effort is required.
-//! - We don't have to worry at all that much about losing some data if logging fails for a while
+//! * We don't have to worry at all that much about losing some data if logging fails for a while
 //!   (this could be a concern, I guess).
-//!
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
@@ -32,15 +33,19 @@ const SYSCALL_MAX: usize = 350;
 // This trait helps with writing less code. It has to be in scope (via an use directive) in order
 // for its methods to be available to call on structs that implement it.
 pub trait Metric {
+    /// Adds `value` to the current counter.
     fn add(&self, value: usize);
+    /// Increments by 1 unit the current counter.
     fn inc(&self) {
         self.add(1);
     }
+    /// Returns current value of the counter.
     fn count(&self) -> usize;
 }
 
-// A simple metric is one meant to be incremented from a single thread, so it can use simple
-// loads + stores. Loads are currently Relaxed everywhere, because we don't do anything besides
+/// Representation of a metric that is expected  to be incremented from a single thread, so it
+/// can use simple loads and stores with no additional synchronization necessities.
+// Loads are currently Relaxed everywhere, because we don't do anything besides
 // logging the retrieved value (their outcome os not used to modify some memory location in a
 // potentially inconsistent manner). There's no way currently to make sure a SimpleMetric is only
 // incremented by a single thread, this has to be enforced via judicious use (although, every
@@ -62,13 +67,14 @@ impl Metric for SimpleMetric {
 
 impl Serialize for SimpleMetric {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // There's no serializer.serialize_usize() for some reason :(
+        // There's no serializer.serialize_usize().
         serializer.serialize_u64(self.0.load(Ordering::Relaxed) as u64)
     }
 }
 
-// A shared metric is one which is expected to be incremented from more than one thread, so more
-// synchronization is necessary. It's currently used for vCPU metrics. An alternative here would be
+/// Representation of a metric that is expected to be incremented from more than one thread, so more
+/// synchronization is necessary.
+// It's currently used for vCPU metrics. An alternative here would be
 // to have one instance of every metric for each thread (like a per-thread SimpleMetric), and to
 // aggregate them when logging. However this probably overkill unless we have a lot of vCPUs
 // incrementing metrics very often. Still, it's there if we ever need it :-s
@@ -113,117 +119,192 @@ impl Serialize for SharedMetric {
 // are interested in. Whenever the name of a field differs from its ideal textual representation
 // in the serialized form, we can use the #[serde(rename = "name")] attribute to, well, rename it.
 
-// Metrics related to the internal api server
+/// Metrics related to the internal API server.
 #[derive(Default, Serialize)]
 pub struct ApiServerMetrics {
+    /// Number of failures when obtaining information on the current instance.
     pub instance_info_fails: SharedMetric,
+    /// Measures the process's startup time in microseconds.
     pub process_startup_time_us: SharedMetric,
+    /// Measures the cpu's startup time in microseconds.
     pub process_startup_time_cpu_us: SharedMetric,
+    /// Number of failures on API requests triggered by internal errors.
     pub sync_outcome_fails: SharedMetric,
+    /// Number of timeouts during communication with the VMM.
     pub sync_vmm_send_timeout_count: SharedMetric,
 }
 
-// Metrics on GET Api Requests
+/// Metrics specific to GET API Requests for counting user triggered actions and/or failures.
 #[derive(Default, Serialize)]
 pub struct GetRequestsMetrics {
+    /// Number of GETs for getting information on the instance.
     pub instance_info_count: SharedMetric,
+    /// Number of GETs for getting status on attaching machine configuration.
     pub machine_cfg_count: SharedMetric,
+    /// Number of failures during GETs for getting information on the instance.
     pub machine_cfg_fails: SharedMetric,
 }
 
-// Metrics on PUT Api Requests
+/// Metrics specific to PUT API Requests for counting user triggered actions and/or failures.
 #[derive(Default, Serialize)]
 pub struct PutRequestsMetrics {
+    /// Number of PUTs triggering an action on the VM.
     pub actions_count: SharedMetric,
+    /// Number of failures in triggering an action on the VM.
     pub actions_fails: SharedMetric,
+    /// Number of PUTs for attaching source of boot.
     pub boot_source_count: SharedMetric,
+    /// Number of failures during attaching source of boot.
     pub boot_source_fails: SharedMetric,
-    pub drive_fails: SharedMetric,
+    /// Number of PUTs triggering a block attach.
     pub drive_count: SharedMetric,
+    /// Number of failures in attaching a block device.
+    pub drive_fails: SharedMetric,
+    /// Number of PUTs for initializing the logging system.
     pub logger_count: SharedMetric,
+    /// Number of failures in initializing the logging system.
     pub logger_fails: SharedMetric,
+    /// Number of PUTs for configuring the machine.
     pub machine_cfg_count: SharedMetric,
+    /// Number of failures in configuring the machine.
     pub machine_cfg_fails: SharedMetric,
+    /// Number of PUTs for creating a new network interface.
     pub network_count: SharedMetric,
+    /// Number of failures in creating a new network interface.
     pub network_fails: SharedMetric,
 }
 
-// Metrics on PATCH Api Requests
+/// Metrics specific to PATCH API Requests for counting user triggered actions and/or failures.
 #[derive(Default, Serialize)]
 pub struct PatchRequestsMetrics {
-    pub drive_fails: SharedMetric,
+    /// Number of tries to PATCH a block device.
     pub drive_count: SharedMetric,
+    /// Number of failures in PATCHing a block device.
+    pub drive_fails: SharedMetric,
 }
 
+/// Block Device associated metrics.
 #[derive(Default, Serialize)]
 pub struct BlockDeviceMetrics {
+    /// Number of times when activate failed on a block device.
     pub activate_fails: SharedMetric,
+    /// Number of times when interacting with the space config of a block device failed.
     pub cfg_fails: SharedMetric,
+    /// Number of times when handling events on a block device failed.
     pub event_fails: SharedMetric,
+    /// Number of failures in executing a request on a block device.
     pub execute_fails: SharedMetric,
+    /// Number of invalid requests received for this block device.
     pub invalid_reqs_count: SharedMetric,
+    /// Number of flushes operation triggered on this block device.
     pub flush_count: SharedMetric,
+    /// Number of events triggerd on the queue of this block device.
     pub queue_event_count: SharedMetric,
+    /// Number of events ratelimiter-related.
     pub rate_limiter_event_count: SharedMetric,
+    /// Number of update operation triggered on this block device.
     pub update_count: SharedMetric,
+    /// Number of failures while doing update on this block device.
     pub update_fails: SharedMetric,
+    /// Number of bytes read by this block device.
     pub read_count: SharedMetric,
+    /// Number of bytes written by this block device.
     pub write_count: SharedMetric,
 }
 
+/// Metrics specific to the i8042 device.
 #[derive(Default, Serialize)]
 pub struct I8042DeviceMetrics {
+    /// Errors triggered while using the i8042 device.
     pub error_count: SharedMetric,
+    /// Number of superfluous read intents on this i8042 device.
     pub missed_read_count: SharedMetric,
+    /// Number of superfluous read intents on this i8042 device.
     pub missed_write_count: SharedMetric,
+    /// Bytes read by this device.
     pub read_count: SharedMetric,
+    /// Number of resets done by this device.
     pub reset_count: SharedMetric,
+    /// Bytes written by this device.
     pub write_count: SharedMetric,
 }
 
+/// Metrics for the logging subsystem.
 #[derive(Default, Serialize)]
 pub struct LoggerSystemMetrics {
+    /// Number of misses on flushing metrics.
     pub missed_metrics_count: SharedMetric,
+    /// Number of errors during metrics handling.
     pub metrics_fails: SharedMetric,
+    /// Number of misses on logging human readable content.
     pub missed_log_count: SharedMetric,
+    /// Number of errors while trying to log human readable content.
     pub log_fails: SharedMetric,
 }
 
+/// Metrics for the MMDS functionality.
 #[derive(Default, Serialize)]
 pub struct MmdsMetrics {
+    /// Number of frames rerouted to MMDS.
     pub rx_accepted: SharedMetric,
+    /// Number of errors while handling a frame through MMDS.
     pub rx_accepted_err: SharedMetric,
+    /// Number of uncommon events encountered while processing packets through MMDS.
     pub rx_accepted_unusual: SharedMetric,
+    /// The number of buffers which couldn't be parsed as valid Ethernet frames by the MMDS.
     pub rx_bad_eth: SharedMetric,
+    /// The total number of bytes sent by the MMDS.
     pub tx_bytes: SharedMetric,
+    /// The number of errors raised by the MMDS while attempting to send frames/packets/segments.
     pub tx_errors: SharedMetric,
+    /// The number of frames sent by the MMDS.
     pub tx_frames: SharedMetric,
+    /// The number of connections successfully accepted by the MMDS TCP handler.
     pub connections_created: SharedMetric,
+    /// The number of connections cleaned up by the MMDS TCP handler.
     pub connections_destroyed: SharedMetric,
 }
 
+/// Network-related metrics.
 #[derive(Default, Serialize)]
 pub struct NetDeviceMetrics {
+    /// Number of times when activate failed on a network device.
     pub activate_fails: SharedMetric,
+    /// Number of times when interacting with the space config of a network device failed.
     pub cfg_fails: SharedMetric,
+    /// Number of times when handling events on a network device failed.
     pub event_fails: SharedMetric,
+    /// Number of events associated with the receiving queue.
     pub rx_queue_event_count: SharedMetric,
+    /// Number of events associated with the rate limiter installed on the receiving path.
     pub rx_event_rate_limiter_count: SharedMetric,
+    /// Number of events received on the associated tap.
     pub rx_tap_event_count: SharedMetric,
+    /// Number of bytes received.
     pub rx_bytes_count: SharedMetric,
+    /// Number of packets received.
     pub rx_packets_count: SharedMetric,
+    /// Number of errors while receiving data.
     pub rx_fails: SharedMetric,
-    pub tx_queue_event_count: SharedMetric,
-    pub tx_rate_limiter_event_count: SharedMetric,
+    /// Number of transmitted bytes.
     pub tx_bytes_count: SharedMetric,
-    pub tx_packets_count: SharedMetric,
+    /// Number of errors while transmitting data.
     pub tx_fails: SharedMetric,
+    /// Number of transmitted packets.
+    pub tx_packets_count: SharedMetric,
+    /// Number of events associated with the transmitting queue.
+    pub tx_queue_event_count: SharedMetric,
+    /// Number of events associated with the rate limiter installed on the transmitting path.
+    pub tx_rate_limiter_event_count: SharedMetric,
 }
 
+/// Metrics for the seccomp filtering.
 #[derive(Serialize)]
 pub struct SeccompMetrics {
-    pub num_faults: SharedMetric,
+    /// Number of black listed syscalls.
     pub bad_syscalls: Vec<SharedMetric>,
+    /// Number of errors inside the seccomp filtering.
+    pub num_faults: SharedMetric,
 }
 
 impl Default for SeccompMetrics {
@@ -239,30 +320,44 @@ impl Default for SeccompMetrics {
     }
 }
 
+/// Metrics specific to the UART device.
 #[derive(Default, Serialize)]
 pub struct SerialDeviceMetrics {
+    /// Errors triggered while using the UART device.
     pub error_count: SharedMetric,
+    /// Number of flush operations.
     pub flush_count: SharedMetric,
+    /// Number of read calls that did not trigger a read.
     pub missed_read_count: SharedMetric,
+    /// Number of write calls that did not trigger a write.
     pub missed_write_count: SharedMetric,
+    /// Number of succeeded read calls.
     pub read_count: SharedMetric,
+    /// Number of succeeded write calls.
     pub write_count: SharedMetric,
 }
 
+/// Metrics specific to VCPUs' mode of functioning.
 #[derive(Default, Serialize)]
 pub struct VcpuMetrics {
-    pub eagain: SharedMetric,
-    pub eintr: SharedMetric,
+    /// Number of KVM exits for handling input IO.
     pub exit_io_in: SharedMetric,
+    /// Number of KVM exits for handling output IO.
     pub exit_io_out: SharedMetric,
+    /// Number of KVM exits for handling MMIO reads.
     pub exit_mmio_read: SharedMetric,
+    /// Number of KVM exits for handling MMIO writes.
     pub exit_mmio_write: SharedMetric,
+    /// Number of errors during this VCPU's run.
     pub failures: SharedMetric,
 }
 
+/// Metrics specific to the machine manager as a whole.
 #[derive(Default, Serialize)]
 pub struct VmmMetrics {
+    /// Number of device related events received for a VM.
     pub device_events: SharedMetric,
+    /// Metric for signaling a panic has occurred.
     pub panic_count: SharedMetric,
 }
 
@@ -276,21 +371,35 @@ impl Serialize for SerializeToUtcTimestampMs {
     }
 }
 
+/// Structure storing all metrics while enforcing serialization support on them.
 #[derive(Default, Serialize)]
 pub struct FirecrackerMetrics {
     utc_timestamp_ms: SerializeToUtcTimestampMs,
+    /// API Server related metrics.
     pub api_server: ApiServerMetrics,
+    /// A block device's related metrics.
     pub block: BlockDeviceMetrics,
+    /// Metrics related to API GET requests.
     pub get_api_requests: GetRequestsMetrics,
+    /// Metrics relaetd to the i8042 device.
     pub i8042: I8042DeviceMetrics,
+    /// Logging related metrics.
     pub logger: LoggerSystemMetrics,
+    /// Metrics specific to MMDS functionality.
     pub mmds: MmdsMetrics,
+    /// A network device's related metrics.
     pub net: NetDeviceMetrics,
+    /// Metrics related to API PATCH requests.
     pub patch_api_requests: PatchRequestsMetrics,
+    /// Metrics related to API PUT requests.
     pub put_api_requests: PutRequestsMetrics,
+    /// Metrics related to seccomp filtering.
     pub seccomp: SeccompMetrics,
+    /// Metrics related to a vcpu's functioning.
     pub vcpu: VcpuMetrics,
+    /// Metrics related to the virtual machine manager.
     pub vmm: VmmMetrics,
+    /// Metrics related to the UART device.
     pub uart: SerialDeviceMetrics,
 }
 

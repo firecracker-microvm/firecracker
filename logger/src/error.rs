@@ -4,6 +4,7 @@ use std;
 use std::error::Error;
 use std::fmt;
 
+/// Describes the errors which may occur while handling logging scenarios.
 #[derive(Debug)]
 pub enum LoggerError {
     /// First attempt at initialization failed.
