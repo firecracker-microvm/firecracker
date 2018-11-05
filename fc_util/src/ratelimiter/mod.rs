@@ -205,7 +205,7 @@ pub enum TokenType {
     Ops,
 }
 
-/// Rate Limiter that works on both bandwidth and ops/s limiting
+/// Rate Limiter that works on both bandwidth and ops/s limiting.
 ///
 /// Bandwidth (bytes/s) and ops/s limiting can be used at the same time or individually.
 ///
