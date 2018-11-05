@@ -1,10 +1,15 @@
-//! Sends log messages and metrics to either stdout, stderr or two FIFOs specified upon init.
+#![warn(missing_docs)]
+//! Utility for sending log related messages and metrics to two different named pipes (FIFO) or
+//! simply to stdout/stderr. The logging destination is specified upon the initialization of the
+//! logging system.
 //!
-//! Every function exported by this module is thread-safe.
-//! Each function will silently fail until
-//! `LOGGER.init()` is called and returns `Ok`.
+//! # Enabling logging
+//! The first step in making use of the logging functionality, is to explicitly initialize it. Any
+//! intent to log either human readable content or metrics will silently fail until `LOGGER.init()`
+//! is called and it returns `Ok`. Any call to the `LOGGER.init()` after the logging subsystem has
+//! already been initialized, will fail with an explicit error.
 //!
-//! # Examples
+//! ## Example for logging to stdout/stderr
 //!
 //! ```
 //! #[macro_use]
@@ -13,6 +18,8 @@
 //! use std::ops::Deref;
 //!
 //! fn main() {
+//!     // Initialize the logger. if there is not path to a FIFO provided the `LOGGER` logs both
+//!     // the human readable content and metrics to stdout and stderr depending on the log level.
 //!     if let Err(e) = LOGGER.deref().init("MY-INSTANCE", None, None) {
 //!         println!("Could not initialize the log subsystem: {:?}", e);
 //!         return;
@@ -21,6 +28,99 @@
 //!     error!("this is an error");
 //! }
 //! ```
+//! ## Example for logging to FIFOs
+//!
+//! ```
+//! extern crate libc;
+//! extern crate tempfile;
+//!
+//! use self::tempfile::NamedTempFile;
+//! use std::ops::Deref;
+//!
+//! #[macro_use]
+//! extern crate logger;
+//! use logger::LOGGER;
+//!
+//! fn main() {
+//!     let log_file_temp =
+//!            NamedTempFile::new().expect("Failed to create temporary output logging file.");
+//!     let metrics_file_temp =
+//!            NamedTempFile::new().expect("Failed to create temporary metrics logging file.");
+//!     let logs = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
+//!     let metrics = String::from(metrics_file_temp.path().to_path_buf().to_str().unwrap());
+//!
+//!     unsafe {
+//!          libc::mkfifo(logs.as_bytes().as_ptr() as *const i8, 0o644);
+//!      }
+//!     unsafe {
+//!          libc::mkfifo(metrics.as_bytes().as_ptr() as *const i8, 0o644);
+//!     }
+//!     // Initialize the logger to log to a FIFO that was created beforehand.
+//!     assert!(LOGGER.deref().init("MY-INSTANCE", Some(logs), Some(metrics)).is_ok());
+//!     // The following messages should appear in the `log_file_temp` file.
+//!     warn!("this is a warning");
+//!     error!("this is an error");
+//! }
+//! ```
+
+//! # Plain log format
+//! The current logging system is built upon the upstream crate 'log' and reexports the macros
+//! provided by it for flushing plain log content. Log messages are printed through the use of five
+//! macros:
+//! * error!(<string>)
+//! * warning!(<string>)
+//! * info!(<string>)
+//! * debug!(<string>)
+//! * trace!(<string>)
+//!
+//! Each call to the desired macro will flush a line in the FIFO used for plain log purposes. Each
+//! line will have the following format:
+//! ```<timestamp> [<instance_id>:<level>:<file path>:<line number>] <log content>```.
+//! The first component is always the timestamp which has the `%Y-%m-%dT%H:%M:%S.%f` format.
+//! The level will depend on the macro used to flush a line and will be one of the following:
+//! `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE`.
+//! The file path and the line provides the exact location of where the call to the macro was made.
+//! ## Example of a log line:
+//! ```bash
+//! 2018-11-07T05:34:25.180751152 [anonymous-instance:ERROR:vmm/src/lib.rs:1173] Failed to log
+//! metrics: Failed to write logs. Error: operation would block
+//! ```
+//!
+//! # Metrics format
+//! The metrics are flushed in JSON format each 60 seconds. The first field will always be the
+//! timestamp followed by the JSON representation of the structures representing each component on
+//! which we are capturing specific metrics.
+//!
+//! ## JSON example with metrics:
+//! ```bash
+//! {
+//!  "utc_timestamp_ms": 1541591155180,
+//!  "api_server": {
+//!    "instance_info_fails": 0,
+//!    "process_startup_time_us": 0,
+//!    "process_startup_time_cpu_us": 0
+//!  },
+//!  "block": {
+//!    "activate_fails": 0,
+//!    "cfg_fails": 0,
+//!    "event_fails": 0,
+//!    "flush_count": 0,
+//!    "queue_event_count": 0,
+//!    "read_count": 0,
+//!    "write_count": 0
+//!  }
+//! }
+//! ```
+//! The example above means that inside the structure representing all the metrics there is a field
+//! named `block` which is in turn a serializable child structure collecting metrics for
+//! the block device such as `activate_fails`, `cfg_fails`, etc.
+//!
+//! # Limitations
+//! In order to not block the instance if nobody is consuming the logs that are flushed to the two
+//! pipes, we are opening them with `O_NONBLOCK` flag. In this case, writing to a pipe will
+//! start failing when reaching 64K of unconsumed content. Simultaneously, the `missed_metrics_count`
+//! metric will get increased.
+
 extern crate chrono;
 // workaround to macro_reexport
 #[macro_use]
@@ -34,7 +134,7 @@ extern crate serde_json;
 extern crate time;
 
 pub mod error;
-mod metrics;
+pub mod metrics;
 mod writers;
 
 use std::error::Error;
@@ -52,25 +152,23 @@ use log::{set_logger, set_max_level, Log, Metadata, Record};
 pub use metrics::{Metric, METRICS};
 use writers::*;
 
-/// Type used by the Logger for returning functions outcome.
+/// Type for returning functions outcome.
 ///
 pub type Result<T> = result::Result<T, LoggerError>;
 
-/// Values used by the Logger.
-///
+// Values used by the Logger.
 const IN_PREFIX_SEPARATOR: &str = ":";
 const MSG_SEPARATOR: &str = " ";
 const DEFAULT_LEVEL: Level = Level::Warn;
 
-/// Synchronization primitives used to run a one-time global initialization.
-///
+// Synchronization primitives used to run a one-time global initialization.
 const UNINITIALIZED: usize = 0;
 const INITIALIZING: usize = 1;
 const INITIALIZED: usize = 2;
 
 static STATE: AtomicUsize = ATOMIC_USIZE_INIT;
 
-/// Time format
+// Time format
 const TIME_FMT: &str = "%Y-%m-%dT%H:%M:%S.%f";
 
 lazy_static! {
@@ -79,8 +177,7 @@ lazy_static! {
     pub static ref LOGGER: Logger = Logger::new();
 }
 
-/// Output sources for the log subsystem.
-///
+// Output sources for the log subsystem.
 #[derive(PartialEq, Clone, Copy)]
 #[repr(usize)]
 enum Destination {
@@ -89,12 +186,11 @@ enum Destination {
     Pipe,
 }
 
-/// Each log level also has a code and a destination output associated with it.
-///
-pub struct LevelInfo {
-    // this represents the numeric representation of the chosen log::Level variant
+// Each log level also has a code and a destination output associated with it.
+struct LevelInfo {
+    // Numeric representation of the chosen log level.
     code: AtomicUsize,
-    // this represents the numeric representation of the chosen Destination variant
+    // Numeric representation of the chosen log destination.
     writer: AtomicUsize,
 }
 
@@ -132,8 +228,7 @@ pub struct Logger {
     instance_id: RwLock<String>,
 }
 
-/// Auxiliary function to get the default destination for some code level.
-///
+// Auxiliary function to get the default destination for some code level.
 fn get_default_destination(level: Level) -> Destination {
     match level {
         Level::Error => Destination::Stderr,
@@ -144,8 +239,8 @@ fn get_default_destination(level: Level) -> Destination {
     }
 }
 
-/// Auxiliary function to flush a message to a PipeLogWriter.
-/// This is used by the internal logger to either flush human-readable logs or metrics.
+// Auxiliary function to flush a message to a PipeLogWriter.
+// This is used by the internal logger to either flush human-readable logs or metrics.
 fn log_to_fifo(mut msg: String, fifo_writer: &mut PipeLogWriter) -> Result<()> {
     msg = format!("{}\n", msg);
     fifo_writer.write(&msg)?;
@@ -155,20 +250,16 @@ fn log_to_fifo(mut msg: String, fifo_writer: &mut PipeLogWriter) -> Result<()> {
 }
 
 impl Logger {
-    /// Creates a new instance of the current logger.
-    ///
-    /// The default level is Warning.
-    /// The default separator between the tag and the log message is " ".
-    /// The default separator inside the tag is ":".
-    /// The tag of the log message is the text to the left of the separator.
-    ///
-    pub fn new() -> Logger {
+    // Creates a new instance of the current logger.
+    //
+    // The default log level is `WARN` and the default destination is stdout/stderr based on level.
+    fn new() -> Logger {
         Logger {
             show_level: AtomicBool::new(true),
             show_line_numbers: AtomicBool::new(true),
             show_file_path: AtomicBool::new(true),
             level_info: LevelInfo {
-                // DEFAULT_LEVEL is warn so the destination output is stderr
+                // DEFAULT_LEVEL is warn so the destination output is stderr.
                 code: AtomicUsize::new(DEFAULT_LEVEL as usize),
                 writer: AtomicUsize::new(Destination::Stderr as usize),
             },
@@ -192,6 +283,10 @@ impl Logger {
 
     /// Enables or disables including the level in the log message's tag portion.
     ///
+    /// # Arguments
+    ///
+    /// * `option` - Boolean deciding whether to include log level in log message.
+    ///
     /// # Example
     ///
     /// ```
@@ -204,17 +299,27 @@ impl Logger {
     /// fn main() {
     ///     let l = LOGGER.deref();
     ///     l.set_include_level(true);
-    ///     l.init("MY-INSTANCE", None, None).unwrap();
-    ///
-    ///     warn!("This will print 'WARN' surrounded by square brackets followed by log message");
+    ///     assert!(l.init("MY-INSTANCE", None, None).is_ok());
+    ///     warn!("A warning log message with level included");
     /// }
+    /// ```
+    /// The code above will more or less print:
+    /// ```bash
+    /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:WARN:logger/src/lib.rs:290] A warning log
+    /// message with level included
     /// ```
     pub fn set_include_level(&self, option: bool) {
         self.show_level.store(option, Ordering::Relaxed);
     }
 
     /// Enables or disables including the file path and the line numbers in the tag of
-    /// the log message.
+    /// the log message. Not including the file path will also hide the line numbers from the tag.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Boolean deciding whether to include file path of the log message's origin.
+    /// * `line_numbers` - Boolean deciding whether to include the line number of the file where the
+    /// log message orginated.
     ///
     /// # Example
     ///
@@ -226,11 +331,16 @@ impl Logger {
     ///
     /// fn main() {
     ///     let l = LOGGER.deref();
-    ///     l.set_include_origin(true, true);
-    ///     l.init("MY-INSTANCE", None, None).unwrap();
+    ///     l.set_include_origin(false, false);
+    ///     assert!(l.init("MY-INSTANCE", None, None).is_ok());
     ///
-    ///     warn!("This will print '[WARN:file_path.rs:155]' followed by log message");
+    ///     warn!("A warning log message with log origin disabled");
     /// }
+    /// ```
+    /// The code above will more or less print:
+    /// ```bash
+    /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:WARN] A warning log message with log origin
+    /// disabled
     /// ```
     pub fn set_include_origin(&self, file_path: bool, line_numbers: bool) {
         self.show_file_path.store(file_path, Ordering::Relaxed);
@@ -246,6 +356,9 @@ impl Logger {
     /// bigger than the level code).
     /// If level is decreased at INFO, ERROR, WARN and INFO statements will be outputted, etc.
     ///
+    /// # Arguments
+    ///
+    /// * `level` - Set the highest log level.
     /// # Example
     ///
     /// ```
@@ -258,8 +371,14 @@ impl Logger {
     /// fn main() {
     ///     let l = LOGGER.deref();
     ///     l.set_level(log::Level::Info);
-    ///     l.init("MY-INSTANCE", None, None).unwrap();
+    ///     assert!(l.init("MY-INSTANCE", None, None).is_ok());
+    ///     info!("An informational log message");
     /// }
+    /// ```
+    /// The code above will more or less print:
+    /// ```bash
+    /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:INFO:logger/src/lib.rs:353] An informational log
+    /// message
     /// ```
     pub fn set_level(&self, level: Level) {
         self.level_info.set_code(level);
@@ -325,6 +444,12 @@ impl Logger {
     /// Initialize log system (once and only once).
     /// Every call made after the first will have no effect besides return `Ok` or `Err`
     /// appropriately (read description of error's enum items).
+    ///
+    /// # Arguments
+    ///
+    /// * `instance_id` - Unique string identifying this logger session.
+    /// * `log_pipe` - Path to a FIFO used for logging plain text.
+    /// * `metrics_pipe` - Path to a FIFO used for logging JSON formatted metrics.
     ///
     /// # Example
     ///
@@ -457,10 +582,12 @@ impl Logger {
     }
 }
 
-/// Implements trait log from the externally used log crate.
+/// Implements the "Log" trait from the externally used "log" crate.
 ///
 impl Log for Logger {
-    // Test whether a log level is enabled for the current module.
+    // Test whether the level of the log line should be outputted or not based on the currently
+    // configured level. If the configured level is "warning" but the line is logged through "info!"
+    // marco then it will not get logged.
     fn enabled(&self, metadata: &Metadata) -> bool {
         metadata.level() as usize <= self.level_info.code()
     }
