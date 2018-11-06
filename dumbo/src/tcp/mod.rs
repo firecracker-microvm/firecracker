@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Provides functionality for handling incoming TCP connections.
+
 pub mod connection;
 mod endpoint;
 pub mod handler;
@@ -10,36 +12,41 @@ use pdu::tcp::{Flags as TcpFlags, TcpSegment};
 
 use std::num::Wrapping;
 
-/// The largest possible window size ever (requires the window scaling option).
+/// The largest possible window size (requires the window scaling option).
 pub const MAX_WINDOW_SIZE: u32 = 1_073_725_440;
 
-/// The default MSS value, used when no MSS information is carried over the initial handshake.
+/// The default maximum segment size (MSS) value, used when no MSS information is carried
+/// over the initial handshake.
 pub const MSS_DEFAULT: u16 = 536;
 
-// Describes whether a particular entity (a Connection for example) has segments to send.
+/// Describes whether a particular entity (a [`Connection`] for example) has segments to send.
+///
+/// [`Connection`]: connection/struct.Connection.html
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum NextSegmentStatus {
-    // Segments are available immediately.
+    /// At least one segment is available immediately.
     Available,
-    // There's nothing to send.
+    /// There's nothing to send.
     Nothing,
-    // A RTO will fire at the specified point in time.
+    /// A retransmission timeout (RTO) will trigger after the specified point in time.
     Timeout(u64),
 }
 
-// Represents the configuration of the sequence number and ACK fields for outgoing RST segments.
+/// Represents the configuration of the sequence number and `ACK` number fields for outgoing
+/// `RST` segments.
 #[derive(Clone, Copy)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum RstConfig {
-    // The RST segment will carry the specified sequence number, and will not have the ACK flag set.
+    /// The `RST` segment will carry the specified sequence number, and will not have
+    /// the `ACK` flag set.
     Seq(u32),
-    // The RST segment will carry 0 as the sequence number, will have the ACK flag set, and the ACK
-    // number will be set to the specified value.
+    /// The `RST` segment will carry 0 as the sequence number, will have the `ACK` flag enabled,
+    /// and the `ACK` number will be set to the specified value.
     Ack(u32),
 }
 
 impl RstConfig {
-    // Creates a RstConfig in response to the specified incoming segment.
+    /// Creates a `RstConfig` in response to the given segment.
     pub fn new<T: NetworkBytes>(s: &TcpSegment<T>) -> Self {
         if s.flags_after_ns().intersects(TcpFlags::ACK) {
             // If s contains an ACK number, we use that as the sequence number of the RST.
@@ -50,8 +57,8 @@ impl RstConfig {
         }
     }
 
-    // Returns the sequence number, ACK number, and TCP flags (not counting NS) that must be set
-    // on the outgoing RST segment.
+    /// Returns the sequence number, acknowledgement number, and TCP flags (not counting `NS`) that
+    /// must be set on the outgoing `RST` segment.
     pub fn seq_ack_tcp_flags(&self) -> (u32, u32, TcpFlags) {
         match *self {
             RstConfig::Seq(seq) => (seq, 0, TcpFlags::RST),
@@ -60,17 +67,26 @@ impl RstConfig {
     }
 }
 
-// Please note this is not a connex binary relation; in other words, given two sequence numbers a
-// and b, it's sometimes possible that seq_at_or_after(a, b) || seq_at_or_after(b, a) == false. This
-// is why we can't define seq_after(a, b) as simply !seq_at_or_after(b, a).
-#[inline]
-pub fn seq_at_or_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
-    (a - b).0 < MAX_WINDOW_SIZE
-}
-
+/// Returns true if `a` comes after `b` in the sequence number space, relative to the maximum
+/// possible window size.
+///
+/// Please note this is not a connex binary relation; in other words, given two sequence numbers,
+/// it's sometimes possible that `seq_after(a, b) || seq_after(b, a) == false`. This is why
+/// `seq_after(a, b)` can't be defined as simply `!seq_at_or_after(b, a)`.
 #[inline]
 pub fn seq_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
     a != b && (a - b).0 < MAX_WINDOW_SIZE
+}
+
+/// Returns true if `a` comes after, or is at `b` in the sequence number space, relative to
+/// the maximum possible window size.
+///
+/// Please note this is not a connex binary relation; in other words, given two sequence numbers,
+/// it's sometimes possible that `seq_at_or_after(a, b) || seq_at_or_after(b, a) == false`. This
+/// is why `seq_after(a, b)` can't be defined as simply `!seq_at_or_after(b, a)`.
+#[inline]
+pub fn seq_at_or_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
+    (a - b).0 < MAX_WINDOW_SIZE
 }
 
 #[cfg(test)]

@@ -1,6 +1,10 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(missing_docs)]
+//! Provides helper logic for parsing and writing protocol data units, and minimalist
+//! implementations of a TCP listener, a TCP connection, and an HTTP/1.1 server.
+
 #[macro_use]
 extern crate bitflags;
 extern crate byteorder;
@@ -20,8 +24,12 @@ use std::ops::Index;
 pub trait ByteBuffer: Index<usize, Output = u8> {
     /// Returns the length of the buffer.
     fn len(&self) -> usize;
-    /// Reads `buf.len()` bytes into `buf`, starting at `offset`. Will panic if `offset + buf.len()
-    /// < `self.len()`.
+
+    /// Reads `buf.len()` bytes from `buf` into the inner buffer, starting at `offset`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `offset + buf.len()` < `self.len()`.
     fn read_to_slice(&self, offset: usize, buf: &mut [u8]);
 }
 
