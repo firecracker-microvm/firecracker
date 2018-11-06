@@ -1,7 +1,7 @@
 """Utilities for measuring memory utilization for a process."""
 import time
 
-from subprocess import run, PIPE
+from subprocess import run, CalledProcessError, PIPE
 from threading import Thread
 
 
@@ -32,12 +32,15 @@ def _memory_cop(mem_size_mib, pid):
     pmap_cmd = 'pmap -xq {}'.format(pid)
     while True:
         mem_total = 0
-        pmap_out = run(
-            pmap_cmd,
-            shell=True,
-            check=True,
-            stdout=PIPE
-        ).stdout.decode('utf-8').split('\n')
+        try:
+            pmap_out = run(
+                pmap_cmd,
+                shell=True,
+                check=True,
+                stdout=PIPE
+            ).stdout.decode('utf-8').split('\n')
+        except CalledProcessError:
+            break
         for line in pmap_out:
             tokens = line.split()
             if not tokens:
