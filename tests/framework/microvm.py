@@ -9,6 +9,7 @@ destroy microvms.
 """
 
 import os
+import re
 from subprocess import run, PIPE
 
 from retry import retry
@@ -273,6 +274,14 @@ class Microvm:
             )
 
             run(start_cmd, shell=True, check=True)
+
+            out = run('screen -ls', shell=True, stdout=PIPE)\
+                .stdout.decode('utf-8')
+            screen_pid = re.search(r'([0-9]+)\.{}'.format(self._session_name),
+                                   out).group(1)
+            self._jailer_clone_pid = open('/proc/{}/task/{}/children'
+                                          .format(screen_pid, screen_pid)
+                                          ).read().strip()
 
         # Wait for the jailer to create resources needed.
         # We expect the jailer to start within 80 ms. However, we wait for
