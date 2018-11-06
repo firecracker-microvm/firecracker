@@ -1,6 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// TODO: get rid of this when splitting dumbo into public and internal parts.
+#![allow(missing_docs)]
+
 use std::convert::From;
 use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
