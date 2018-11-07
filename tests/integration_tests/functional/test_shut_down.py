@@ -2,6 +2,7 @@
 import os
 
 from subprocess import run, PIPE
+import time
 
 import host_tools.network as net_tools  # pylint: disable=import-error
 
@@ -28,7 +29,7 @@ def test_reboot(test_microvm_with_ssh, network_config):
         test_microvm.api_socket
     )
     process = run(cmd, stdout=PIPE, stderr=PIPE, shell=True, check=True)
-    firecracker_pid = process.stdout.decode('utf-8').rstrip()
+    firecracker_pid = int(process.stdout.decode('utf-8').rstrip())
 
     # Get number of threads in Firecracker
     cmd = 'ps -o nlwp {} | tail -1 | awk \'{{print $1}}\''.format(
@@ -43,11 +44,10 @@ def test_reboot(test_microvm_with_ssh, network_config):
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     ssh_connection.execute_command("reboot")
 
-    # TODO remove this when Firecracker is no longer a child of
-    # the testing system process.
-    os.waitpid(int(firecracker_pid), 0)
-
-    # Check that the Firecracker process does not exist
-    cmd = "ps -p {}".format(firecracker_pid)
-    process = run(cmd, stdout=PIPE, stderr=PIPE, shell=True)
-    assert process.returncode != 0
+    while True:
+        # Pytest's timeout will kill the test even if the loop doesn't exit.
+        try:
+            os.kill(firecracker_pid, 0)
+            time.sleep(0.01)
+        except OSError:
+            break
