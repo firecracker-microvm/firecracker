@@ -1,7 +1,6 @@
 """Tests that the seccomp filters don't let blacklisted syscalls through."""
 
 import os
-import shutil
 
 from subprocess import run
 
@@ -109,7 +108,7 @@ def tmp_advanced_seccomp_binaries(test_session_root_path):
     os.remove(demo_malicious_firecracker)
 
 
-def test_seccomp_ls(test_session_root_path, tmp_basic_jailer):
+def test_seccomp_ls(tmp_basic_jailer):
     """Assert that the seccomp filters deny a blacklisted syscall."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
