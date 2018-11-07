@@ -1,3 +1,4 @@
+/build/
 target
 Cargo.lock
 *.rs.bk
@@ -5,4 +6,3 @@ Cargo.lock
 .idea
 __pycache__
 *.pyc
-.pytest_cache

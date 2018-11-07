@@ -207,6 +207,9 @@ class MicrovmImageS3Fetcher:
             Prefix=self.MICROVM_IMAGES_RELPATH
         )['Contents']:
             key_groups = re.match(folder_key_groups_regex, obj['Key'])
+            if key_groups is None:
+                # Ignore files (leaves) under MICROVM_IMAGES_RELPATH
+                continue
             microvm_image_name = key_groups.group(1)
             resource = key_groups.group(2)
 
