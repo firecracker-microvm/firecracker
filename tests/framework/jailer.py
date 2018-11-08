@@ -67,33 +67,32 @@ class JailerContext:
         might want to add integration tests that validate the enforcement of
         mandatory arguments.
         """
-        jailer_params_list = []
+        jailer_param_list = []
 
         # Pretty please, try to keep the same order as in the code base.
         if self.jailer_id is not None:
-            jailer_params_list.extend(['--id', str(self.jailer_id)])
+            jailer_param_list.extend(['--id', str(self.jailer_id)])
         if self.exec_file is not None:
-            jailer_params_list.extend(['--exec-file', str(self.exec_file)])
+            jailer_param_list.extend(['--exec-file', str(self.exec_file)])
         if self.numa_node is not None:
-            jailer_params_list.extend(['--node', str(self.numa_node)])
+            jailer_param_list.extend(['--node', str(self.numa_node)])
         if self.uid is not None:
-            jailer_params_list.extend(['--uid', str(self.uid)])
+            jailer_param_list.extend(['--uid', str(self.uid)])
         if self.gid is not None:
-            jailer_params_list.extend(['--gid', str(self.gid)])
+            jailer_param_list.extend(['--gid', str(self.gid)])
         if self.chroot_base is not None:
-            jailer_params_list.extend(
+            jailer_param_list.extend(
                 ['--chroot-base-dir', str(self.chroot_base)]
             )
         if self.netns is not None:
-            jailer_params_list.extend(['--netns', str(self.netns_file_path())])
+            jailer_param_list.extend(['--netns', str(self.netns_file_path())])
         if self.daemonize:
-            jailer_params_list = ['jailer'] + jailer_params_list
-            jailer_params_list.append('--daemonize')
+            jailer_param_list.append('--daemonize')
         if self.seccomp_level is not None:
-            jailer_params_list.extend(
+            jailer_param_list.extend(
                 ['--seccomp-level', str(self.seccomp_level)]
             )
-        return jailer_params_list
+        return jailer_param_list
 
     def chroot_base_with_id(self):
         """Return the MicroVM chroot base + MicroVM ID."""

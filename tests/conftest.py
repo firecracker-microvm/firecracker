@@ -79,6 +79,7 @@ be run on every microvm image in the bucket, each as a separate test case.
 import threading
 import os
 import shutil
+from subprocess import run
 import sys
 import tempfile
 import uuid
@@ -163,8 +164,27 @@ def test_session_tmp_path(test_session_root_path):
     shutil.rmtree(tmp_path)
 
 
+@pytest.fixture(scope='session')
+def newpid_cloner_path(test_session_root_path):
+    """Build an external tool that can properly use the clone() syscall."""
+    # pylint: disable=redefined-outer-name
+    # The fixture pattern causes a pylint false positive for that rule.
+    bin_path = os.path.join(test_session_root_path, "newpid_cloner")
+    compile_cmd = "musl-gcc {} -o {} -static -O3".format(
+        "host_tools/newpid_cloner.c",
+        bin_path
+    )
+    run(
+        compile_cmd,
+        shell=True,
+        check=True
+    )
+
+    yield bin_path
+
+
 @pytest.fixture
-def microvm(test_session_root_path):
+def microvm(test_session_root_path, newpid_cloner_path):
     """Instantiate a microvm."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
@@ -181,7 +201,8 @@ def microvm(test_session_root_path):
         resource_path=test_session_root_path,
         fc_binary_path=fc_binary,
         jailer_binary_path=jailer_binary,
-        microvm_id=microvm_id
+        microvm_id=microvm_id,
+        newpid_cloner_path=newpid_cloner_path
     )
     vm.setup()
 
