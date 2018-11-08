@@ -890,6 +890,15 @@ mod tests {
 
     use dumbo::pdu::{arp, ethernet};
 
+    /// Will read $metric, run the code in $block, then assert metric has increased by $delta.
+    macro_rules! check_metric_after_block {
+        ($metric:expr, $delta:expr, $block:expr) => {{
+            let before = $metric.count();
+            $block;
+            assert_eq!($metric.count(), before + $delta, "unexpected metric value");
+        }};
+    }
+
     pub struct TestMutators {
         pub tap_read_fail: bool,
     }
@@ -989,12 +998,6 @@ mod tests {
         fn set_tx_rate_limiter(&mut self, tx_rate_limiter: RateLimiter) {
             self.tx.rate_limiter = tx_rate_limiter;
         }
-    }
-
-    fn check_metric_after_fn<F: FnOnce()>(metric: &Metric, delta: usize, f: F) {
-        let before = metric.count();
-        f();
-        assert_eq!(metric.count(), before + delta);
     }
 
     fn activate_some_net(n: &mut Net, bad_qlen: bool, bad_evtlen: bool) -> ActivateResult {
@@ -1132,36 +1135,60 @@ mod tests {
 
             // Invalid read.
             config_mac = [0u8; MAC_ADDR_LEN];
-            check_metric_after_fn(&METRICS.net.cfg_fails, 1, || {
-                n.read_config(MAC_ADDR_LEN as u64 + 1, &mut config_mac);
-            });
+            check_metric_after_block!(
+                &METRICS.net.cfg_fails,
+                1,
+                n.read_config(MAC_ADDR_LEN as u64 + 1, &mut config_mac)
+            );
             assert_eq!(config_mac, [0u8, 0u8, 0u8, 0u8, 0u8, 0u8]);
         }
 
         // Let's test the activate function.
         {
             // It should fail when not enough queues and/or evts are provided.
-            check_metric_after_fn(&METRICS.net.activate_fails, 1, || {
-                assert!(activate_some_net(n, true, false).is_err());
-            });
+            check_metric_after_block!(
+                &METRICS.net.activate_fails,
+                1,
+                assert!(match activate_some_net(n, true, false) {
+                    Err(ActivateError::BadActivate) => true,
+                    _ => false,
+                })
+            );
 
-            check_metric_after_fn(&METRICS.net.activate_fails, 1, || {
-                assert!(activate_some_net(n, false, true).is_err());
-            });
+            check_metric_after_block!(
+                &METRICS.net.activate_fails,
+                1,
+                assert!(match activate_some_net(n, false, true) {
+                    Err(ActivateError::BadActivate) => true,
+                    _ => false,
+                })
+            );
 
-            check_metric_after_fn(&METRICS.net.activate_fails, 1, || {
-                assert!(activate_some_net(n, true, true).is_err());
-            });
+            check_metric_after_block!(
+                &METRICS.net.activate_fails,
+                1,
+                assert!(match activate_some_net(n, true, true) {
+                    Err(ActivateError::BadActivate) => true,
+                    _ => false,
+                })
+            );
 
             // Otherwise, it should be ok.
-            check_metric_after_fn(&METRICS.net.activate_fails, 0, || {
-                assert!(activate_some_net(n, false, false).is_ok());
-            });
+            check_metric_after_block!(
+                &METRICS.net.activate_fails,
+                0,
+                assert!(activate_some_net(n, false, false).is_ok())
+            );
 
             // Second activate shouldn't be ok anymore.
-            check_metric_after_fn(&METRICS.net.activate_fails, 1, || {
-                assert!(activate_some_net(n, false, false).is_err());
-            });
+            check_metric_after_block!(
+                &METRICS.net.activate_fails,
+                1,
+                assert!(match activate_some_net(n, false, false) {
+                    Err(ActivateError::BadActivate) => true,
+                    _ => false,
+                })
+            );
         }
 
         // Test writing another config.
@@ -1173,9 +1200,7 @@ mod tests {
             assert_eq!(new_config, new_config_read);
 
             // Invalid write.
-            check_metric_after_fn(&METRICS.net.cfg_fails, 1, || {
-                n.write_config(5, &new_config);
-            });
+            check_metric_after_block!(&METRICS.net.cfg_fails, 1, n.write_config(5, &new_config));
             // Verify old config was untouched.
             new_config_read = [0u8; 6];
             n.read_config(0, &mut new_config_read);
@@ -1264,32 +1289,23 @@ mod tests {
 
         // Call the code which sends the packet to the host or MMDS.
         // Validate the frame was consumed by MMDS and that the metrics reflect that.
-        check_metric_after_fn(&METRICS.mmds.rx_accepted, 1, || {
+        check_metric_after_block!(
+            &METRICS.mmds.rx_accepted,
+            1,
             assert!(NetEpollHandler::write_to_mmds_or_tap(
                 h.mmds_ns.as_mut(),
                 &mut h.tx.rate_limiter,
                 &h.tx.frame_buf[..packet_len],
                 &mut h.tap,
-            ));
-        });
+            ))
+        );
 
         // Validate that MMDS has a response and we can retrieve it.
-        check_metric_after_fn(&METRICS.mmds.tx_frames, 1, || {
-            h.read_from_mmds_or_tap().unwrap();
-        });
-    }
-
-    #[test]
-    fn test_rx_error() {
-        let test_mutators = TestMutators {
-            tap_read_fail: true,
-        };
-        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, test_mutators);
-
-        check_metric_after_fn(&METRICS.net.rx_fails, 1, || {
-            h.process_rx();
-        });
+        check_metric_after_block!(
+            &METRICS.mmds.tx_frames,
+            1,
+            h.read_from_mmds_or_tap().unwrap()
+        );
     }
 
     #[test]
@@ -1299,15 +1315,19 @@ mod tests {
 
         // RX rate limiter events should error since the limiter is not blocked.
         // Validate that the event failed and failure was properly accounted for.
-        check_metric_after_fn(&METRICS.net.event_fails, 1, || {
-            h.handle_event(RX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty);
-        });
+        check_metric_after_block!(
+            &METRICS.net.event_fails,
+            1,
+            h.handle_event(RX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
+        );
 
         // TX rate limiter events should error since the limiter is not blocked.
         // Validate that the event failed and failure was properly accounted for.
-        check_metric_after_fn(&METRICS.net.event_fails, 1, || {
-            h.handle_event(TX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty);
-        });
+        check_metric_after_block!(
+            &METRICS.net.event_fails,
+            1,
+            h.handle_event(TX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
+        );
     }
 
     #[test]
@@ -1358,7 +1378,11 @@ mod tests {
                 // We make the prev desc write_only (with no other flag) to get a chain which is
                 // writable, but too short.
                 rxq.dtable[0].flags.set(VIRTQ_DESC_F_WRITE);
-                assert!(!h.rx_single_frame_no_irq_coalescing());
+                check_metric_after_block!(
+                    &METRICS.net.rx_fails,
+                    1,
+                    assert!(!h.rx_single_frame_no_irq_coalescing())
+                );
                 assert_eq!(rxq.used.idx.get(), 1);
 
                 rxq.used.idx.set(0);
@@ -1424,7 +1448,11 @@ mod tests {
             rxq.used.idx.set(0);
 
             h.interrupt_evt.write(1).unwrap();
-            h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty);
+            check_metric_after_block!(
+                &METRICS.net.rx_fails,
+                1,
+                h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty)
+            );
             assert!(h.rx.deferred_frame);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
 
@@ -1445,6 +1473,16 @@ mod tests {
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(RX_QUEUE_EVENT, 0, EpollHandlerPayload::Empty);
             assert_eq!(h.interrupt_evt.read(), Ok(2));
+        }
+
+        {
+            let test_mutators = TestMutators {
+                tap_read_fail: true,
+            };
+            let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+            let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, test_mutators);
+
+            check_metric_after_block!(&METRICS.net.rx_fails, 1, h.process_rx());
         }
     }
 
