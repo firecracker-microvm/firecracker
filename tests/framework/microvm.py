@@ -8,10 +8,8 @@ destroy microvms.
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
 
-import ctypes
-import ctypes.util
 import os
-from subprocess import run
+from subprocess import run, PIPE
 
 from retry import retry
 
@@ -41,7 +39,8 @@ class Microvm:
         fc_binary_path,
         jailer_binary_path,
         microvm_id,
-        monitor_memory=True
+        monitor_memory=True,
+        newpid_cloner_path=None
     ):
         """Set up microVM attributes, paths, and data structures."""
         # Unique identifier for this machine.
@@ -97,6 +96,9 @@ class Microvm:
 
         # Deal with memory monitoring.
         self.monitor_memory = monitor_memory
+
+        # External clone/exec tool, because Python can't into clone
+        self.newpid_cloner_path = newpid_cloner_path
 
     def kill(self):
         """All clean up associated with this microVM should go here."""
@@ -229,62 +231,45 @@ class Microvm:
             self._api_session
         )
 
-        context = self._jailer
-        jailer_params_list = [
-            '--id',
-            str(context.jailer_id),
-            '--exec-file',
-            self._fc_binary_path,
-            '--uid',
-            str(context.uid),
-            '--gid',
-            str(context.gid),
-            '--node',
-            str(context.numa_node)
-        ]
-
-        if context.netns:
-            jailer_params_list.append('--netns')
-            jailer_params_list.append(context.netns_file_path())
-
-        jailer_params_list = self._jailer.construct_param_list()
+        jailer_param_list = self._jailer.construct_param_list()
 
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell. Going
         # forward, we'll probably switch to this method for running
         # Firecracker in general, because it represents the way it's meant
         # to be run by customers (together with CLONE_NEWPID flag).
+        #
+        # We have to use an external tool for CLONE_NEWPID, because
+        # 1) Python doesn't provide a os.clone() interface, and
+        # 2) Python's ctypes libc interface appears to be broken, causing
+        # our clone / exec to deadlock at some point.
         if self._jailer.daemonize:
-            def exec_func():
-                os.execv(self._jailer_binary_path, jailer_params_list)
-                return -1
-
-            libc = ctypes.CDLL(ctypes.util.find_library('c'))
-            stack_size = 4096
-            stack = ctypes.c_char_p(b' ' * stack_size)
-            stack_top = ctypes.c_void_p(
-                ctypes.cast(
-                    stack,
-                    ctypes.c_void_p
-                ).value
-                + stack_size
-            )
-            exec_func_c = ctypes.CFUNCTYPE(ctypes.c_int)(exec_func)
-
-            # Don't know how to refer to defines with ctypes & libc.
-            clone_newpid = 0x20000000
-
-            self._jailer_clone_pid = libc.clone(
-                exec_func_c,
-                stack_top,
-                clone_newpid
-            )
+            if self.newpid_cloner_path:
+                _p = run(
+                    [self.newpid_cloner_path]
+                    + [self._jailer_binary_path]
+                    + jailer_param_list,
+                    stdout=PIPE,
+                    check=True
+                )
+                self._jailer_clone_pid = int(_p.stdout.decode().rstrip())
+            else:
+                # This code path is not used at the moment, but I just feel
+                # it's nice to have a fallback mechanism in place, in case
+                # we decide to offload PID namespacing to the jailer.
+                _pid = os.fork()
+                if _pid == 0:
+                    os.execv(
+                        self._jailer_binary_path,
+                        [self._jailer_binary_path] + jailer_param_list
+                    )
+                self._jailer_clone_pid = _pid
         else:
             start_cmd = 'screen -dmS {session} {binary} {params}'
             start_cmd = start_cmd.format(
                 session=self._session_name,
                 binary=self._jailer_binary_path,
-                params=' '.join(jailer_params_list)
+                params=' '.join(jailer_param_list)
             )
 
             run(start_cmd, shell=True, check=True)
@@ -295,7 +280,7 @@ class Microvm:
         # and leave 0.002 delay between them.
         self._wait_create()
 
-    @retry(delay=0.002, tries=500)
+    @retry(delay=0.100, tries=10)
     def _wait_create(self):
         """Wait until the API socket and chroot folder are available."""
         os.stat(self._jailer.api_socket_path())
