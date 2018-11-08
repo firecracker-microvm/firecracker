@@ -628,6 +628,15 @@ mod tests {
 
     use virtio::queue::tests::*;
 
+    /// Will read $metric, run the code in $block, then assert metric has increased by $delta.
+    macro_rules! check_metric_after_block {
+        ($metric:expr, $delta:expr, $block:expr) => {{
+            let before = $metric.count();
+            $block;
+            assert_eq!($metric.count(), before + $delta, "unexpected metric value");
+        }};
+    }
+
     struct DummyBlock {
         block: Block,
         epoll_raw_fd: i32,
@@ -662,12 +671,6 @@ mod tests {
         fn drop(&mut self) {
             unsafe { libc::close(self.epoll_raw_fd) };
         }
-    }
-
-    fn check_metric_after_fn<F: FnOnce()>(metric: &Metric, delta: usize, f: F) {
-        let before = metric.count();
-        f();
-        assert_eq!(metric.count(), before + delta);
     }
 
     fn default_test_blockepollhandler<'a>(
@@ -938,9 +941,11 @@ mod tests {
 
             // Invalid read.
             num_sectors = [0xd, 0xe, 0xa, 0xd];
-            check_metric_after_fn(&METRICS.block.cfg_fails, 1, || {
-                b.read_config(CONFIG_SPACE_SIZE as u64 + 1, &mut num_sectors);
-            });
+            check_metric_after_block!(
+                &METRICS.block.cfg_fails,
+                1,
+                b.read_config(CONFIG_SPACE_SIZE as u64 + 1, &mut num_sectors)
+            );
             // Validate read failed.
             assert_eq!(num_sectors, [0xd, 0xe, 0xa, 0xd]);
         }
@@ -964,34 +969,42 @@ mod tests {
         // Test `activate()`.
         {
             // It should fail when not enough queues and/or evts are provided.
-            check_metric_after_fn(&METRICS.block.activate_fails, 1, || {
+            check_metric_after_block!(
+                &METRICS.block.activate_fails,
+                1,
                 assert!(match activate_block_with_modifiers(b, true, false) {
                     Err(ActivateError::BadActivate) => true,
                     _ => false,
-                });
-            });
-            check_metric_after_fn(&METRICS.block.activate_fails, 1, || {
+                })
+            );
+            check_metric_after_block!(
+                &METRICS.block.activate_fails,
+                1,
                 assert!(match activate_block_with_modifiers(b, false, true) {
                     Err(ActivateError::BadActivate) => true,
                     _ => false,
-                });
-            });
-            check_metric_after_fn(&METRICS.block.activate_fails, 1, || {
+                })
+            );
+            check_metric_after_block!(
+                &METRICS.block.activate_fails,
+                1,
                 assert!(match activate_block_with_modifiers(b, true, true) {
                     Err(ActivateError::BadActivate) => true,
                     _ => false,
-                });
-            });
+                })
+            );
             // Otherwise, it should be ok.
             assert!(activate_block_with_modifiers(b, false, false).is_ok());
 
             // Second activate shouldn't be ok anymore.
-            check_metric_after_fn(&METRICS.block.activate_fails, 1, || {
+            check_metric_after_block!(
+                &METRICS.block.activate_fails,
+                1,
                 assert!(match activate_block_with_modifiers(b, false, false) {
                     Err(ActivateError::BadActivate) => true,
                     _ => false,
-                });
-            });
+                })
+            );
         }
 
         // Test `write_config()`.
@@ -1002,9 +1015,7 @@ mod tests {
             b.read_config(0, &mut new_config_read);
             assert_eq!(new_config, new_config_read);
             // Invalid write.
-            check_metric_after_fn(&METRICS.block.cfg_fails, 1, || {
-                b.write_config(5, &new_config);
-            });
+            check_metric_after_block!(&METRICS.block.cfg_fails, 1, b.write_config(5, &new_config));
             // Make sure nothing got written.
             new_config_read = [0u8; 8];
             b.read_config(0, &mut new_config_read);
