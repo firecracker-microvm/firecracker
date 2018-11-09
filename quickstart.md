@@ -19,9 +19,9 @@ Tested on Amazon Linux 2
 
 - Open another terminal to query the VM:
 
-	```
-	curl --unix-socket /tmp/firecracker.socket "http://localhost/machine-config"
-	```
+  ```
+  curl --unix-socket /tmp/firecracker.socket "http://localhost/machine-config"
+  ```
 
 
 ## Source Code (TODO)
