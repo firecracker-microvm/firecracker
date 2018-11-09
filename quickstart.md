@@ -16,8 +16,9 @@ Tested on Amazon Linux 2
   rm -f /tmp/firecracker.socket
   ./firecracker-latest
 
-- Open another terminal:
+- Open another terminal to query the VM:
 
+	curl --unix-socket /tmp/firecracker.socket "http://localhost/machine-config"
 
 
 ## Source Code (TODO)
