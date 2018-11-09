@@ -74,7 +74,7 @@
 OPEN_SOURCE_SWITCH=false
 
 # Private development container image (used before open sourcing).
-PRIVATE_DEVCTR_IMAGE="948479086345.dkr.ecr.us-east-1.amazonaws.com/firecracker/dev:latest"
+PRIVATE_DEVCTR_IMAGE="948479086345.dkr.ecr.us-east-1.amazonaws.com/ccfc:latest"
 
 # Public development container image (used after open sourcing).
 PUBLIC_DEVCTR_IMAGE="firecracker-microvm/dev:latest"
@@ -85,7 +85,7 @@ PUBLIC_DEVCTR_IMAGE="firecracker-microvm/dev:latest"
     || DEVCTR_IMAGE="$PRIVATE_DEVCTR_IMAGE"
 
 # The S3 bucket used to the store test microVM images.
-TEST_MICROVM_IMAGES_S3_BUCKET="spec.firecracker.min"
+TEST_MICROVM_IMAGES_S3_BUCKET="spec.ccfc.min"
 
 # Naming things is hard
 MY_NAME="Firecracker $(basename "$0")"
@@ -122,7 +122,7 @@ CTR_CARGO_REGISTRY_DIR="$CTR_FC_BUILD_DIR/cargo_registry"
 CTR_CARGO_TARGET_DIR="$CTR_FC_BUILD_DIR/cargo_target"
 
 # Full path to the microVM images cache dir
-CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/microvm-images"
+CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
 
 # Global options received by $0
 # These options are not command-specific, so we store them as global vars

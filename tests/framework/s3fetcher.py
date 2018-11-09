@@ -49,7 +49,7 @@ class MicrovmImageS3Fetcher:
     documentation.
     """
 
-    MICROVM_IMAGES_RELPATH = 'microvm-images/'
+    MICROVM_IMAGES_RELPATH = 'img/'
     MICROVM_IMAGE_KERNEL_RELPATH = 'kernel/'
     MICROVM_IMAGE_BLOCKDEV_RELPATH = 'fsfiles/'
     MICROVM_IMAGE_KERNEL_FILE_SUFFIX = r'vmlinux.bin'
