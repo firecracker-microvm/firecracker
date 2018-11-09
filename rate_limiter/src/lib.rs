@@ -43,20 +43,19 @@
 //! needs to be called by the user on every event on the rate limiter's `AsRawFd` FD.
 //!
 
+extern crate serde;
 extern crate time;
 extern crate timerfd;
-extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 
 #[macro_use]
 extern crate logger;
 
-use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::Duration;
+use std::{fmt, io};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
-
 
 #[derive(Debug)]
 pub enum Error {
@@ -66,6 +65,8 @@ pub enum Error {
 
 // Interval at which the refill timer will run when limiter is at capacity.
 const REFILL_TIMER_INTERVAL_MS: u64 = 100;
+const TIMER_REFILL_STATE: TimerState =
+    TimerState::Oneshot(Duration::from_millis(REFILL_TIMER_INTERVAL_MS));
 
 const NANOSEC_IN_ONE_MILLISEC: u64 = 1_000_000;
 
@@ -241,14 +242,33 @@ pub enum TokenType {
 /// RateLimiters will generate events on the FDs provided by their `AsRawFd` trait
 /// implementation. These events are meant to be consumed by the user of this struct.
 /// On each such event, the user must call the `event_handler()` method.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RateLimiter {
-    bytes_token_bucket: Option<TokenBucket>,
-    ops_token_bucket: Option<TokenBucket>,
+    bandwidth: Option<TokenBucket>,
+    ops: Option<TokenBucket>,
+
+    #[serde(skip_deserializing, skip_serializing)]
     timer_fd: Option<TimerFd>,
     // Internal flag that quickly determines timer state.
+    #[serde(skip_deserializing, skip_serializing)]
     timer_active: bool,
-    // Cache the target state of the timer to avoid computing it over and over.
-    timer_future_state: TimerState,
+}
+
+impl PartialEq for RateLimiter {
+    fn eq(&self, other: &RateLimiter) -> bool {
+        self.bandwidth == other.bandwidth && self.ops == other.ops
+    }
+}
+
+impl fmt::Debug for RateLimiter {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "RateLimiter {{ bandwidth: {:?}, ops: {:?} }}",
+            self.bandwidth, self.ops
+        )
+    }
 }
 
 impl RateLimiter {
@@ -283,13 +303,13 @@ impl RateLimiter {
     ) -> io::Result<Self> {
         // If either bytes token bucket capacity or refill time is 0, disable limiting on bytes/s.
         let bytes_token_bucket = if bytes_total_capacity != 0 && bytes_complete_refill_time_ms != 0
-            {
-                Some(TokenBucket::new(
-                    bytes_total_capacity,
-                    bytes_one_time_burst,
-                    bytes_complete_refill_time_ms,
-                ))
-            } else {
+        {
+            Some(TokenBucket::new(
+                bytes_total_capacity,
+                bytes_one_time_burst,
+                bytes_complete_refill_time_ms,
+            ))
+        } else {
             None
         };
 
@@ -313,14 +333,10 @@ impl RateLimiter {
         };
 
         Ok(RateLimiter {
-            bytes_token_bucket,
-            ops_token_bucket,
+            bandwidth: bytes_token_bucket,
+            ops: ops_token_bucket,
             timer_fd,
             timer_active: false,
-            // Cache this instead of building it each time.
-            timer_future_state: TimerState::Oneshot(Duration::from_millis(
-                REFILL_TIMER_INTERVAL_MS,
-            )),
         })
     }
 
@@ -330,8 +346,8 @@ impl RateLimiter {
     pub fn consume(&mut self, tokens: u64, token_type: TokenType) -> bool {
         // Identify the required token bucket.
         let token_bucket = match token_type {
-            TokenType::Bytes => self.bytes_token_bucket.as_mut(),
-            TokenType::Ops => self.ops_token_bucket.as_mut(),
+            TokenType::Bytes => self.bandwidth.as_mut(),
+            TokenType::Ops => self.ops.as_mut(),
         };
         // Try to consume from the token bucket.
         let success = match token_bucket {
@@ -349,7 +365,7 @@ impl RateLimiter {
             self.timer_fd
                 .as_mut()
                 .unwrap()
-                .set_state(self.timer_future_state.clone(), SetTimeFlags::Default);
+                .set_state(TIMER_REFILL_STATE, SetTimeFlags::Default);
             self.timer_active = true;
         }
         success
@@ -362,8 +378,8 @@ impl RateLimiter {
     pub fn manual_replenish(&mut self, tokens: u64, token_type: TokenType) {
         // Identify the required token bucket.
         let token_bucket = match token_type {
-            TokenType::Bytes => self.bytes_token_bucket.as_mut(),
-            TokenType::Ops => self.ops_token_bucket.as_mut(),
+            TokenType::Bytes => self.bandwidth.as_mut(),
+            TokenType::Ops => self.ops.as_mut(),
         };
         // Add tokens to the token bucket.
         if let Some(bucket) = token_bucket {
@@ -409,8 +425,8 @@ impl RateLimiter {
     #[cfg(test)]
     fn get_token_bucket(&self, token_type: TokenType) -> Option<&TokenBucket> {
         match token_type {
-            TokenType::Bytes => self.bytes_token_bucket.as_ref(),
-            TokenType::Ops => self.ops_token_bucket.as_ref(),
+            TokenType::Bytes => self.bandwidth.as_ref(),
+            TokenType::Ops => self.ops.as_ref(),
         }
     }
 }
