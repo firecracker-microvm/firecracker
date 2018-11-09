@@ -60,7 +60,6 @@ use kernel::loader as kernel_loader;
 use kvm::*;
 use logger::{Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
-use rate_limiter::description_into_implementation as rate_limiter_description_into_implementation;
 use sys_util::{register_signal_handler, EventFd, Killable, Terminal};
 use vm_control::VmResponse;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
@@ -591,19 +590,18 @@ impl Vmm {
         &mut self,
         device_manager: &mut MMIODeviceManager,
     ) -> std::result::Result<(), StartMicrovmError> {
-        let block_dev = &self.block_device_configs;
         // We rely on check_health function for making sure kernel_config is not None.
         let kernel_config = self.kernel_config.as_mut().unwrap();
 
-        if block_dev.has_root_block_device() {
+        if self.block_device_configs.has_root_block_device() {
             // If no PARTUUID was specified for the root device, try with the /dev/vda.
-            if !block_dev.has_partuuid_root() {
+            if !self.block_device_configs.has_partuuid_root() {
                 kernel_config
                     .cmdline
                     .insert_str(" root=/dev/vda")
                     .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
 
-                if block_dev.has_read_only_root() {
+                if self.block_device_configs.has_read_only_root() {
                     kernel_config
                         .cmdline
                         .insert_str(" ro")
@@ -613,7 +611,7 @@ impl Vmm {
         }
 
         let epoll_context = &mut self.epoll_context;
-        for drive_config in self.block_device_configs.config_list.iter() {
+        for drive_config in self.block_device_configs.config_list.iter_mut() {
             // Add the block device from file.
             let block_file = OpenOptions::new()
                 .read(true)
@@ -641,15 +639,12 @@ impl Vmm {
             self.drive_handler_id_map
                 .insert(drive_config.drive_id.clone(), curr_device_idx - 1);
 
-            let rate_limiter =
-                rate_limiter_description_into_implementation(drive_config.rate_limiter.as_ref())
-                    .map_err(StartMicrovmError::CreateRateLimiter)?;
             let block_box = Box::new(
                 devices::virtio::Block::new(
                     block_file,
                     drive_config.is_read_only,
                     epoll_config,
-                    rate_limiter,
+                    drive_config.rate_limiter.take(),
                 ).map_err(StartMicrovmError::CreateBlockDevice)?,
             );
             device_manager
@@ -673,14 +668,9 @@ impl Vmm {
         for cfg in self.network_interface_configs.iter_mut() {
             let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
 
-            let rx_rate_limiter =
-                rate_limiter_description_into_implementation(cfg.rx_rate_limiter.as_ref())
-                    .map_err(StartMicrovmError::CreateRateLimiter)?;
-            let tx_rate_limiter =
-                rate_limiter_description_into_implementation(cfg.tx_rate_limiter.as_ref())
-                    .map_err(StartMicrovmError::CreateRateLimiter)?;
-
             let allow_mmds_requests = cfg.allow_mmds_requests();
+            let rx_rate_limiter = cfg.rx_rate_limiter.take();
+            let tx_rate_limiter = cfg.tx_rate_limiter.take();
 
             if let Some(tap) = cfg.take_tap() {
                 let net_box = Box::new(

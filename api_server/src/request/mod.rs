@@ -277,11 +277,6 @@ mod tests {
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
-            StartMicrovmError::CreateRateLimiter(std::io::Error::from_raw_os_error(22)),
-        );
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
-        let vmm_resp = VmmActionError::StartMicrovm(
-            ErrorKind::Internal,
             StartMicrovmError::NetDeviceNotConfigured,
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
