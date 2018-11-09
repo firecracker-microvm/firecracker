@@ -52,6 +52,7 @@ extern crate serde_derive;
 #[macro_use]
 extern crate logger;
 
+use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::Duration;
 use std::{fmt, io};
@@ -242,16 +243,18 @@ pub enum TokenType {
 /// RateLimiters will generate events on the FDs provided by their `AsRawFd` trait
 /// implementation. These events are meant to be consumed by the user of this struct.
 /// On each such event, the user must call the `event_handler()` method.
-#[derive(Deserialize, Serialize)]
+#[derive(Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RateLimiter {
+    #[serde(skip_serializing_if = "Option::is_none")]
     bandwidth: Option<TokenBucket>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     ops: Option<TokenBucket>,
 
-    #[serde(skip_deserializing, skip_serializing)]
+    #[serde(skip_serializing)]
     timer_fd: Option<TimerFd>,
     // Internal flag that quickly determines timer state.
-    #[serde(skip_deserializing, skip_serializing)]
+    #[serde(skip_serializing)]
     timer_active: bool,
 }
 
@@ -268,6 +271,66 @@ impl fmt::Debug for RateLimiter {
             "RateLimiter {{ bandwidth: {:?}, ops: {:?} }}",
             self.bandwidth, self.ops
         )
+    }
+}
+
+impl<'de> Deserialize<'de> for RateLimiter {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[allow(non_camel_case_types)]
+        enum Field {
+            bandwidth,
+            ops,
+        };
+
+        struct RateLimiterVisitor;
+
+        impl<'de> Visitor<'de> for RateLimiterVisitor {
+            type Value = RateLimiter;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct RateLimiter")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<RateLimiter, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut bandwidth: Option<TokenBucket> = None;
+                let mut ops: Option<TokenBucket> = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::bandwidth => {
+                            if bandwidth.is_some() {
+                                return Err(de::Error::duplicate_field("bandwidth"));
+                            }
+                            bandwidth = Some(map.next_value()?);
+                        }
+                        Field::ops => {
+                            if ops.is_some() {
+                                return Err(de::Error::duplicate_field("ops"));
+                            }
+                            ops = Some(map.next_value()?);
+                        }
+                    }
+                }
+                let bandwidth = bandwidth.unwrap_or_default();
+                let ops = ops.unwrap_or_default();
+                RateLimiter::new(
+                    bandwidth.size,
+                    bandwidth.one_time_burst,
+                    bandwidth.refill_time,
+                    ops.size,
+                    ops.one_time_burst,
+                    ops.refill_time,
+                ).map_err(de::Error::custom)
+            }
+        }
+        const FIELDS: &'static [&'static str] = &["bandwidth", "ops"];
+        deserializer.deserialize_struct("RateLimiter", FIELDS, RateLimiterVisitor)
     }
 }
 
@@ -703,6 +766,43 @@ mod tests {
         //assert!(!l.consume(u64::max_value(), TokenType::Bytes));
     }
 
+    #[test]
+    fn test_rate_limiter_deserialization() {
+        let jstr = r#"{
+            "bandwidth": { "size": 1000, "one_time_burst": 2000,  "refill_time": 1000 },
+            "ops": { "size": 10, "one_time_burst": 20, "refill_time": 1000 }
+        }"#;
+
+        let x: RateLimiter = serde_json::from_str(jstr).expect("deserialization failed.");
+        assert_eq!(x.bandwidth.as_ref().unwrap().size, 1000);
+        assert_eq!(x.bandwidth.as_ref().unwrap().one_time_burst.unwrap(), 2000);
+        assert_eq!(x.bandwidth.as_ref().unwrap().refill_time, 1000);
+        assert_eq!(x.ops.as_ref().unwrap().size, 10);
+        assert_eq!(x.ops.as_ref().unwrap().one_time_burst.unwrap(), 20);
+        assert_eq!(x.ops.as_ref().unwrap().refill_time, 1000);
+
+        let jstr = r#"{
+            "ops": { "size": 10, "one_time_burst": 20, "refill_time": 1000 }
+        }"#;
+
+        let x: RateLimiter = serde_json::from_str(jstr).expect("deserialization failed.");
+        assert!(x.bandwidth.is_none());
+        assert_eq!(x.ops.as_ref().unwrap().size, 10);
+        assert_eq!(x.ops.as_ref().unwrap().one_time_burst.unwrap(), 20);
+        assert_eq!(x.ops.as_ref().unwrap().refill_time, 1000);
+        assert_eq!(x.timer_active, false);
+
+        let jstr = r#"{
+            "bandwidth": { "size": 1000, "one_time_burst": 2000,  "refill_time": 1000 },
+            "opz": { "size": 10, "one_time_burst": 20, "refill_time": 1000 }
+        }"#;
+        assert!(serde_json::from_str::<RateLimiter>(jstr).is_err());
+
+        let jstr = r#"{
+        }"#;
+        assert!(serde_json::from_str::<RateLimiter>(jstr).is_ok());
+    }
+
     extern crate serde_json;
 
     #[test]
@@ -721,18 +821,6 @@ mod tests {
         RateLimiterDescription::default()
             .into_implementation()
             .unwrap();
-    }
-
-    #[test]
-    fn test_rate_limiter_deserialization() {
-        let jstr = r#"{
-                "bandwidth": { "size": 0, "one_time_burst": 0,  "refill_time": 0 },
-                "ops": { "size": 0, "one_time_burst": 0, "refill_time": 0 }
-            }"#;
-
-        let x: RateLimiterDescription =
-            serde_json::from_str(jstr).expect("deserialization failed.");
-        assert!(x.into_implementation().is_ok());
     }
 }
 
