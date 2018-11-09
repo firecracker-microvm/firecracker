@@ -3,13 +3,13 @@
 
 ## Get the Binary
 
-### Using the pre-built binary
+### Use the pre-built binary
 
 - Create an `i3.metal` instance usiung Ubuntu
 - Download latest Firecracker binary from https://s3.console.aws.amazon.com/s3/object/firecracker.build.us-east-1/firecracker-latest?region=us-east-1&tab=overview#
 - Copy binary to EC2 instance: `scp -i <key> firecracker-latest ubunutu@<public-ip>:/home/ubuntu`
 
-### From the GitHub repo
+### Build from the GitHub repo
 
 - Install Rust: `curl https://sh.rustup.rs -sSf | sh¸`
 - Setup environment vars: `source $HOME/.cargo/env`
