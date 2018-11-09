@@ -15,6 +15,7 @@ Tested on Amazon Linux 2
   sudo su
   rm -f /tmp/firecracker.socket
   ./firecracker-latest
+  ```
 
 - Open another terminal to query the VM:
 
