@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::result;
 
-use rate_limiter::RateLimiterDescription;
+use rate_limiter::RateLimiter;
 
 type Result<T> = result::Result<T, DriveError>;
 
@@ -74,7 +74,7 @@ pub struct BlockDeviceConfig {
     pub is_read_only: bool,
     /// Rate Limiter for I/O operations.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rate_limiter: Option<RateLimiterDescription>,
+    pub rate_limiter: Option<RateLimiter>,
 }
 
 impl BlockDeviceConfig {

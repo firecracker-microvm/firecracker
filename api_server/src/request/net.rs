@@ -38,7 +38,7 @@ mod tests {
 
     use serde_json;
 
-    use self::rate_limiter::RateLimiterDescription;
+    use self::rate_limiter::RateLimiter;
     use vmm::vmm_config::DeviceState;
 
     fn get_dummy_netif(
@@ -100,8 +100,8 @@ mod tests {
             state: DeviceState::Attached,
             host_dev_name: String::from("bar"),
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
-            rx_rate_limiter: Some(RateLimiterDescription::default()),
-            tx_rate_limiter: Some(RateLimiterDescription::default()),
+            rx_rate_limiter: Some(RateLimiter::default()),
+            tx_rate_limiter: Some(RateLimiter::default()),
             allow_mmds_requests: true,
             tap: None,
         };

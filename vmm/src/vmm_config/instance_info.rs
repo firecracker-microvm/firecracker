@@ -52,10 +52,6 @@ pub enum StartMicrovmError {
     /// Internal errors are due to resource exhaustion.
     /// Users errors  are due to invalid permissions.
     CreateNetDevice(devices::virtio::Error),
-    /// Creating a Rate Limiter can fail because of resource exhaustion when trying to
-    /// create a new timer file descriptor.
-    /// This error can come from both bad user input and internal errors and we should probably
-    CreateRateLimiter(std::io::Error),
     /// Executing a VM request failed.
     DeviceVmRequest(sys_util::Error),
     /// Cannot read from an Event file descriptor.
@@ -119,17 +115,6 @@ impl Display for StartMicrovmError {
                 err_msg = err_msg.replace("\"", "");
 
                 write!(f, "Cannot create network device. {}", err_msg)
-            }
-            CreateRateLimiter(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(
-                    f,
-                    "Creating a Rate Limiter can fail because of resource exhaustion when trying \
-                     to create a new timer file descriptor. {}",
-                    err_msg
-                )
             }
             DeviceVmRequest(ref err) => {
                 let mut err_msg = format!("{:?}", err);

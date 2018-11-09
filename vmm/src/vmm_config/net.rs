@@ -3,7 +3,7 @@ use std::result;
 
 use super::DeviceState;
 use net_util::{MacAddr, Tap, TapError};
-use rate_limiter::RateLimiterDescription;
+use rate_limiter::RateLimiter;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -21,10 +21,10 @@ pub struct NetworkInterfaceConfig {
     pub guest_mac: Option<MacAddr>,
     /// Rate Limiter for received packages.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rx_rate_limiter: Option<RateLimiterDescription>,
+    pub rx_rate_limiter: Option<RateLimiter>,
     /// Rate Limiter for transmitted packages.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tx_rate_limiter: Option<RateLimiterDescription>,
+    pub tx_rate_limiter: Option<RateLimiter>,
     #[serde(default = "default_allow_mmds_requests")]
     /// If this field is set, the device model will reply to HTTP GET
     /// requests sent to the MMDS address via this interface. In this case,
@@ -33,7 +33,7 @@ pub struct NetworkInterfaceConfig {
     /// the associated TAP device.
     pub allow_mmds_requests: bool,
     /// Handle for a network tap interface created using `host_dev_name`.
-    #[serde(skip_deserializing, skip_serializing)]
+    #[serde(skip)]
     pub tap: Option<Tap>,
 }
 
@@ -265,8 +265,8 @@ mod tests {
             state: DeviceState::Attached,
             host_dev_name: String::from(name),
             guest_mac: Some(MacAddr::parse_str(mac).unwrap()),
-            rx_rate_limiter: Some(RateLimiterDescription::default()),
-            tx_rate_limiter: Some(RateLimiterDescription::default()),
+            rx_rate_limiter: Some(RateLimiter::default()),
+            tx_rate_limiter: Some(RateLimiter::default()),
             allow_mmds_requests: false,
             tap: None,
         }
