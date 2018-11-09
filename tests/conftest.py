@@ -13,7 +13,7 @@ designed with the following goals in mind:
 - Keep microvm test images in an S3 bucket, structured as follows:
 
 ``` tree
-s3://<bucket-url>/microvm-images/
+s3://<bucket-url>/img/
     <microvm_test_image_folder_n>/
         kernel/
             <optional_kernel_name.>vmlinux.bin
@@ -93,10 +93,10 @@ from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
 
 
-SPEC_S3_BUCKET = 'spec.firecracker'
+SPEC_S3_BUCKET = 'spec.ccfc.min'
 """The s3 bucket that holds global Firecracker specifications."""
 
-DEFAULT_TEST_IMAGES_S3_BUCKET = 'spec.firecracker'
+DEFAULT_TEST_IMAGES_S3_BUCKET = 'spec.ccfc.min'
 """The default s3 bucket that holds Firecracker microvm test images."""
 
 ENV_TEST_IMAGES_S3_BUCKET = 'TEST_MICROVM_IMAGES_S3_BUCKET'
