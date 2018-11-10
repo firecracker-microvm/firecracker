@@ -7,7 +7,7 @@
 
 - Create an `i3.metal` instance usiung Ubuntu
 - Download latest Firecracker binary from https://s3.console.aws.amazon.com/s3/object/firecracker.build.us-east-1/firecracker-latest?region=us-east-1&tab=overview#
-- Copy binary to EC2 instance: `scp -i <key> firecracker-latest ubunutu@<public-ip>:/home/ubuntu`
+- Copy binary to EC2 instance: `scp -i <key> firecracker-latest ubuntu@<public-ip>:/home/ubuntu`
 
 ### Build from the GitHub repo
 
