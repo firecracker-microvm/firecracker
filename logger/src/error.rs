@@ -11,6 +11,8 @@ pub enum LoggerError {
     NeverInitialized(String),
     /// The logger does not allow reinitialization.
     AlreadyInitialized,
+    /// Attempt to initialize with one pipe and one standard output stream as destinations.
+    DifferentDestinations,
     /// Opening named pipe fails.
     OpenFIFO(std::io::Error),
     /// Writing to named pipe fails.
@@ -32,6 +34,10 @@ impl fmt::Display for LoggerError {
             LoggerError::AlreadyInitialized => {
                 format!("{}", "Reinitialization of logger not allowed.")
             }
+            LoggerError::DifferentDestinations => format!(
+                "{}",
+                "Initialization with one pipe and one standard output stream not allowed."
+            ),
             LoggerError::OpenFIFO(ref e) => {
                 format!("Failed to open pipe. Error: {}", e.description())
             }
@@ -74,6 +80,15 @@ mod tests {
         assert_eq!(
             format!("{}", LoggerError::AlreadyInitialized),
             "Reinitialization of logger not allowed."
+        );
+
+        assert_eq!(
+            format!("{:?}", LoggerError::DifferentDestinations),
+            "DifferentDestinations"
+        );
+        assert_eq!(
+            format!("{}", LoggerError::DifferentDestinations),
+            "Initialization with one pipe and one standard output stream not allowed."
         );
 
         assert!(

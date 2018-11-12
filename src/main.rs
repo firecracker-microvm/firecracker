@@ -14,12 +14,14 @@ extern crate vmm;
 
 use backtrace::Backtrace;
 use clap::{App, Arg};
+
+use std::io::ErrorKind;
 use std::panic;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
-use api_server::{ApiServer, UnixDomainSocket};
+use api_server::{ApiServer, Error, UnixDomainSocket};
 use jailer::FirecrackerContext;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
@@ -29,6 +31,10 @@ const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 
 fn main() {
+    LOGGER
+        .init(&"", None, None)
+        .expect("Failed to register logger");
+
     // If the signal handler can't be set, it's OK to panic.
     seccomp::setup_sigsys_handler().expect("Failed to register signal handler");
     // Start firecracker by setting up a panic hook, which will be called before
@@ -114,9 +120,23 @@ fn main() {
         UnixDomainSocket::Path(bind_path)
     };
 
-    server
-        .bind_and_run(uds_path_or_fd, start_time_us, start_time_cpu_us)
-        .unwrap();
+    match server.bind_and_run(uds_path_or_fd, start_time_us, start_time_cpu_us) {
+        Ok(_) => (),
+        Err(Error::Io(inner)) => match inner.kind() {
+            ErrorKind::AddrInUse => panic!(
+                "Failed to open the API socket: IO Error: {:?}",
+                Error::Io(inner)
+            ),
+            _ => panic!(
+                "Failed to communicate with the API socket: IO Error: {:?}",
+                Error::Io(inner)
+            ),
+        },
+        Err(Error::Eventfd(inner)) => panic!(
+            "Failed to open the API socket: EventFd Error: {:?}",
+            Error::Eventfd(inner)
+        ),
+    }
 }
 
 #[cfg(test)]

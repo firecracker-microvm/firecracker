@@ -6,8 +6,11 @@
 //! # Enabling logging
 //! The first step in making use of the logging functionality, is to explicitly initialize it. Any
 //! intent to log either human readable content or metrics will silently fail until `LOGGER.init()`
-//! is called and it returns `Ok`. Any call to the `LOGGER.init()` after the logging subsystem has
-//! already been initialized, will fail with an explicit error.
+//! is called and it returns `Ok`. The logging subsystem is considered to be initialized when both
+//! the log and metric destinations have been configured to be a pipe. In other words,
+//! `LOGGER.init(<ID>, None, None)` can be called any number of times, up until the first call with
+//! both parameters set to `Some`. Any call to the `LOGGER.init()` following that will fail with an
+//! explicit error.
 //!
 //! ## Example for logging to stdout/stderr
 //!
@@ -120,6 +123,7 @@
 //! pipes, we are opening them with `O_NONBLOCK` flag. In this case, writing to a pipe will
 //! start failing when reaching 64K of unconsumed content. Simultaneously, the `missed_metrics_count`
 //! metric will get increased.
+//! Metrics are only logged to pipes. Logs can be flushed either to stdout/stderr or to a pipe.
 
 extern crate chrono;
 // workaround to macro_reexport
@@ -172,9 +176,16 @@ static STATE: AtomicUsize = ATOMIC_USIZE_INIT;
 const TIME_FMT: &str = "%Y-%m-%dT%H:%M:%S.%f";
 
 lazy_static! {
+    static ref _LOGGER_INNER: Logger = Logger::new();
+}
+
+lazy_static! {
     /// Static instance used for handling human-readable logs.
     ///
-    pub static ref LOGGER: Logger = Logger::new();
+    pub static ref LOGGER: &'static Logger = {
+        set_logger(_LOGGER_INNER.deref()).unwrap();
+        _LOGGER_INNER.deref()
+    };
 }
 
 // Output sources for the log subsystem.
@@ -474,6 +485,12 @@ impl Logger {
             return Err(LoggerError::AlreadyInitialized);
         }
 
+        if (log_pipe.is_none() && metrics_pipe.is_some())
+            || (log_pipe.is_some() && metrics_pipe.is_none())
+        {
+            return Err(LoggerError::DifferentDestinations);
+        }
+
         {
             let mut id_guard = self.instance_id.write().unwrap();
             *id_guard = instance_id.to_string();
@@ -515,12 +532,13 @@ impl Logger {
         }
         set_max_level(Level::Trace.to_level_filter());
 
-        if let Err(e) = set_logger(LOGGER.deref()) {
+        if log_pipe.is_none() && metrics_pipe.is_none() {
+            // Allow second initialization.
             STATE.store(UNINITIALIZED, Ordering::SeqCst);
-            return Err(LoggerError::NeverInitialized(format!("{}", e)));
+        } else {
+            STATE.store(INITIALIZED, Ordering::SeqCst);
         }
 
-        STATE.store(INITIALIZED, Ordering::SeqCst);
         Ok(())
     }
 
@@ -650,7 +668,7 @@ mod tests {
     }
 
     #[test]
-    fn test_init_with_file() {
+    fn test_init() {
         const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
 
         let l = LOGGER.deref();
@@ -667,6 +685,17 @@ mod tests {
 
         assert!(l.log_metrics().is_err());
 
+        // Assert that initialization with stdout/stderr works any number of times.
+        assert!(l.init(TEST_INSTANCE_ID, None, None).is_ok());
+        assert!(l.init(TEST_INSTANCE_ID, None, None).is_ok());
+
+        // Assert that metrics cannot be flushed to stdout/stderr.
+        assert!(l.log_metrics().is_err());
+
+        info!("info");
+        warn!("warning");
+        error!("error");
+
         let log_file_temp =
             NamedTempFile::new().expect("Failed to create temporary output logging file.");
         let metrics_file_temp =
@@ -674,6 +703,7 @@ mod tests {
         let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
         let metrics_file = String::from(metrics_file_temp.path().to_path_buf().to_str().unwrap());
 
+        // Assert that initialization with pipes works after initializing with stdout/stderr.
         assert!(
             l.init(TEST_INSTANCE_ID, Some(log_file.clone()), Some(metrics_file))
                 .is_ok()
@@ -682,6 +712,7 @@ mod tests {
         info!("info");
         warn!("warning");
 
+        // Assert that initialization doesn't work anymore after setting the pipes.
         assert!(l.init(TEST_INSTANCE_ID, None, None).is_err());
 
         info!("info");
@@ -690,8 +721,8 @@ mod tests {
 
         l.flush();
 
-        // Here we also test that the second initialization had no effect given that the
-        // logging system can only be initialized once per program.
+        // Here we also test that the last initialization had no effect given that the
+        // logging system can only be initialized with pipes once per program.
         validate_logs(
             &log_file,
             &[
@@ -704,6 +735,17 @@ mod tests {
         );
 
         assert!(l.log_metrics().is_ok());
+
+        STATE.store(UNINITIALIZED, Ordering::SeqCst);
+        let log_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary output logging file.");
+        let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
+
+        // Assert that initialization with one pipe and stdout/stderr is not allowed.
+        assert!(
+            l.init(TEST_INSTANCE_ID, Some(log_file.clone()), None)
+                .is_err()
+        );
 
         // Exercise the case when there is an error in opening file.
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
@@ -737,15 +779,6 @@ mod tests {
         assert_eq!(
             format!("{:?}", l.init("TEST-ID", None, None).err()),
             "Some(AlreadyInitialized)"
-        );
-
-        STATE.store(UNINITIALIZED, Ordering::SeqCst);
-        let res = l.init("TEST-ID", Some(log_file.clone()), None);
-        assert!(res.is_err());
-        assert_eq!(
-            format!("{:?}", res.err().unwrap()),
-            "NeverInitialized(\"attempted to set a logger after \
-             the logging system was already initialized\")"
         );
     }
 
