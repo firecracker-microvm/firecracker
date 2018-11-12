@@ -1,5 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
 
+#![warn(missing_docs)]
 //! # Rate Limiter
 //!
 //! Provides a rate limiter written in Rust useful for IO operations that need to
@@ -25,8 +26,8 @@
 //! configuration parameter provided by the user. The token buckets will never
 //! replenish above their respective `size`.
 //!
-//! Each token bucket can start off with a `one_time_burst` initial capacity larger
-//! than their `size`. This initial extra credit does not replenish and
+//! Each token bucket can start off with a `one_time_burst` initial extra capacity
+//! on top of their `size`. This initial extra credit does not replenish and
 //! can be used for an initial burst of data.
 //!
 //! The granularity for 'wake up' events when the rate limiter is blocked is
@@ -59,6 +60,7 @@ use std::{fmt, io};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 #[derive(Debug)]
+/// Describes the errors that may occur while handling rate limiter events.
 pub enum Error {
     /// The event handler was called spuriously.
     SpuriousRateLimiterEvent(&'static str),
@@ -108,13 +110,11 @@ pub struct TokenBucket {
 }
 
 impl TokenBucket {
-    /// Creates a TokenBucket
-    ///  @size: the total capacity of the token bucket
-    ///  @one_time_burst: a initial non-replenishing budget of the token bucket, this can be larger than the
-    ///                   size, thus allowing for an initial burst
-    ///  @complete_refill_time_ms: number of milliseconds for the token bucket to
-    ///                            go from zero tokens to total capacity.
-    fn new(size: u64, one_time_burst: Option<u64>, complete_refill_time_ms: u64) -> Self {
+    /// Creates a TokenBucket of `size` total capacity that takes `complete_refill_time_ms`
+    /// milliseconds to go from zero tokens to total capacity. The `one_time_burst` is initial
+    /// extra credit on top of total capacity, that does not replenish and which can be used
+    /// for an initial burst of data.
+    pub fn new(size: u64, one_time_burst: Option<u64>, complete_refill_time_ms: u64) -> Self {
         // Formula for computing current refill amount:
         // refill_token_count = (delta_time * size) / (complete_refill_time_ms * 1_000_000)
         // In order to avoid overflows, simplify the fractions by computing greatest common divisor.
@@ -147,9 +147,10 @@ impl TokenBucket {
         }
     }
 
+    /// Attempts to consume `tokens` from the bucket and returns whether the action succeeded.
     // TODO (Issue #259): handle cases where a single request is larger than the full capacity
     // for such cases we need to support partial fulfilment of requests
-    fn reduce(&mut self, mut tokens: u64) -> bool {
+    pub fn reduce(&mut self, mut tokens: u64) -> bool {
         // First things first: consume the one-time-burst budget.
         if let Some(otb) = self.one_time_burst.as_mut() {
             if *otb > 0 {
@@ -203,8 +204,8 @@ impl TokenBucket {
         true
     }
 
-    /// Adds tokens to bucket
-    fn replenish(&mut self, tokens: u64) {
+    /// "Manually" adds tokens to bucket.
+    pub fn replenish(&mut self, tokens: u64) {
         // This means we are still during the burst interval.
         // Of course there is a very small chance  that the last reduce() also used up burst
         // budget which should now be replenished, but for performance and code-complexity
@@ -220,11 +221,10 @@ impl TokenBucket {
 }
 
 /// Enum that describes the type of token used.
-///
-/// `TokenType::Bytes` tokens are used for bandwidth limiting, while
-/// `TokenType::Ops` tokens are used for operations/second limiting.
 pub enum TokenType {
+    /// Token type used for bandwidth limiting.
     Bytes,
+    /// Token type used for operations/second limiting.
     Ops,
 }
 
@@ -337,16 +337,16 @@ impl<'de> Deserialize<'de> for RateLimiter {
 impl RateLimiter {
     /// Creates a new Rate Limiter that can limit on both bytes/s and ops/s.
     ///
-    /// # Params
+    /// # Arguments
     ///
     /// * `bytes_total_capacity` - the total capacity of the `TokenType::Bytes` token bucket.
-    /// * `bytes_one_time_burst` - the initial capacity of the `TokenType::Bytes` token bucket,
-    /// this can be larger than the `bytes_total_capacity` thus allowing for an initial burst.
+    /// * `bytes_one_time_burst` - initial extra credit on top of `bytes_total_capacity`,
+    /// that does not replenish and which can be used for an initial burst of data.
     /// * `bytes_complete_refill_time_ms` - number of milliseconds for the `TokenType::Bytes`
     /// token bucket to go from zero Bytes to `bytes_total_capacity` Bytes.
     /// * `ops_total_capacity` - the total capacity of the `TokenType::Ops` token bucket.
-    /// * `ops_one_time_burst` - the initial capacity of the `TokenType::Ops` token bucket,
-    /// this can be larger than the `ops_total_capacity`, thus allowing for an initial burst.
+    /// * `ops_one_time_burst` - initial extra credit on top of `ops_total_capacity`,
+    /// that does not replenish and which can be used for an initial burst of data.
     /// * `ops_complete_refill_time_ms` - number of milliseconds for the `TokenType::Ops` token
     /// bucket to go from zero Ops to `ops_total_capacity` Ops.
     ///
@@ -484,14 +484,6 @@ impl RateLimiter {
             )),
         }
     }
-
-    #[cfg(test)]
-    fn get_token_bucket(&self, token_type: TokenType) -> Option<&TokenBucket> {
-        match token_type {
-            TokenType::Bytes => self.bandwidth.as_ref(),
-            TokenType::Ops => self.ops.as_ref(),
-        }
-    }
 }
 
 impl AsRawFd for RateLimiter {
@@ -552,6 +544,15 @@ mod tests {
 
         fn get_one_time_burst(&self) -> u64 {
             self.one_time_burst.unwrap_or(0)
+        }
+    }
+
+    impl RateLimiter {
+        fn get_token_bucket(&self, token_type: TokenType) -> Option<&TokenBucket> {
+            match token_type {
+                TokenType::Bytes => self.bandwidth.as_ref(),
+                TokenType::Ops => self.ops.as_ref(),
+            }
         }
     }
 
