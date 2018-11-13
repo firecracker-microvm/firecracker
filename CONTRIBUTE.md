@@ -1,7 +1,13 @@
 # Contributions Welcome
 
-Firecracker welcomes external contributions that further the mission defined in
-[the Firecracker Charter](CHARTER.md) and that align with the tenets therein.
+Firecracker is already running production workloads within AWS, but it's still
+day 1 on the journey guided by our [mission](CHARTER.md). There's a lot more to
+build and we welcome all contributions.
+
+There's a lot to contribute to in Firecracker. We've opened issues for all the
+features we want to build and improvements we want to make. Good first issues
+are labeled accordingly. We're also keen to hearing about your use cases and how
+we can support them, your ideas, and your feedback for what's already here.
 
 If you're just looking for quick feedback for an idea or proposal, open an
 [issue](https://github.com/firecracker-microvm/firecracker/issues) or chat with
