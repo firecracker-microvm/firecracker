@@ -10,12 +10,6 @@ pub mod ethernet;
 pub mod ipv4;
 pub mod tcp;
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-pub enum Error {
-    Arp(arp::Error),
-    Ethernet(ethernet::Error),
-}
-
 /// This is the baseline definition of the `Incomplete` struct, which wraps a PDU that does is
 /// still missing some values or content.
 ///
