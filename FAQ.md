@@ -1,78 +1,169 @@
 # Firecracker Frequently Asked Questions
 
-## Troubleshooting
+## About Firecracker
 
-`Q1:`
-*I tried using an initrd for boot but it doesn't seem to be used.
-Is initrd supported?*  
-`A1:`
-Right now initrd is not supported in Firecracker. You can track issue
-[#228](https://github.com/aws/PRIVATE-firecracker/issues/208).
+### Why did we develop Firecracker?
 
-`Q2:`
-*Firecracker is not showing any output on the console.*  
-`A2:`
-In order to debug the issue, you will first have to check the response of the
-`InstanceStart` API request. You can find examples in
-[README.md](https://github.com/aws/PRIVATE-firecracker/blob/master/README.md)
-in the "Power-On the MicroVM" section. If the result is:
+Customers have told us that existing container security boundaries do not offer
+sufficient isolation between their applications when all containers have to use
+a shared operating system (OS) kernel. Containers offer fast startup times,
+while VMs offer hardware virtualization-based security boundaries that are more
+secure. Firecracker is a new virtualization technology that enables service
+owners to operate multi-tenant container-based services on bare metal machines
+by combining the speed, resource efficiency, and performance enabled by
+containers with the security and workload isolation properties of traditional
+VMs.
+
+### Who developed Firecracker?
+
+Firecracker was built at Amazon Web Services to enable AWS services such as AWS
+Fargate and AWS Lambda to improve resource utilization and customer experience.
+Firecracker is based on Chromium OSs' Virtual Machine Monitor (crosvm), an
+open-sourced VMM written in Rust. Today, crosvm and Firecracker have diverged
+to serve very different customer needs. We plan to contribute back the bug fixes
+and tests added to shared crates, and any Firecracker functionality that's
+appealing for crosvm.
+
+### Who uses Firecracker today and how will they use Firecracker?
+
+Firecracker is for service owners running containers and functions-based
+services. Service owners will be able to launch containers via familiar
+interfaces such as containerd and OCI runtime interface which can automatically
+create micro-VMs to sandbox containerized applications. AWS Lambda and AWS
+Fargate are built on Firecracker.
+
+### Is Firecracker compatible with the container ecosystem such as Kubernetes, Docker, Kata containers?
+
+The Firecracker community will explore integration and collaboration with
+Kubernetes, containerd, Docker, and Kata Containers, with the goal of enabling
+Firecracker to be seamlessly integrated with the container ecosystem. 
+
+### What processors does Firecracker support?
+
+The Firecracker VMM is built to be processor agnostic. Today, it can run on
+Intel processors. AMD and ARM processors will be supported in the near future.
+
+### What is the difference between Firecracker and Kata Containers and QEMU?
+
+Kata Containers is an OCI-compliant container runtime that executes containers
+within QEMU based virtual machines. Firecracker is a cloud-native alternative to
+QEMU that is purpose-built for running containers safely and efficiently, and
+nothing more. Firecracker provides a minimal required device model to the guest
+operating system while excluding non-essential functionality (there are only 4
+emulated devices: virtio-net, virtio-block, serial console, and a 1-button
+keyboard controller used only to stop the microVM). This, along with a
+streamlined kernel loading process enables a < 125 ms startup time and a reduced
+memory footprint. The Firecracker process also provides a RESTful control API,
+handles resource rate limiting for microVMs, and provides a microVM metadata
+service to enable the sharing of configuration data between the host and guest.
+
+### What operating systems are supported by Firecracker?
+
+Firecracker supports Linux host and guest operating systems with kernel versions
+4.14 and above. The long-term support plan is still under discussion. A leading
+option is to support Firecracker for the last two Linux stable branch releases.
+
+### What is the open source license for Firecracker?
+
+Firecracker is licensed under the Apache License, version 2.0, allowing you to
+freely use, copy, and distribute your changes under the terms of your choice.
+[Read more about Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+Crosvm code sections are licensed under a
+[BSD-3-Clause license](https://opensource.org/licenses/BSD-3-Clause) that also
+allows you to use, copy, and distribute your changes under the terms of your
+choice.
+
+### How can I contribute?
+
+Firecracker is an AWS open-source project that encourages contributions from
+customers and the developer community. Any contribution is welcome as
+long as it aligns with our [charter](CHARTER.md). You can learn more about how
+to contribute in [CONTRIBUTE.md](CONTRIBUTE.md). You can chat with others in the
+community on the
+[Firecracker Slack workspace](https://firecracker-microvm.slack.com). 
+
+### How is Firecracker project governed?
+
+The Firecracker [team at Amazon Web Services](MAINTAINERS.md) owns project
+maintainer responsibilities, permissions to merge pull requests, and the ability
+to create new Firecracker releases.
+
+### Are there plans to make Firecracker an OpenStack or CNCF project?
+
+Not at the moment.
+
+## Technical FAQ & Troubleshooting
+
+### I tried using an initrd for boot but it doesn't seem to be used. Is initrd supported?
+Right now, initrd is not supported in Firecracker. You can track issue
+[#228](https://github.com/aws/PRIVATE-firecracker/issues/208) for news on this
+topic.
+
+### Firecracker is not showing any output on the console.
+
+In order to debug the issue, check the response of the `InstanceStart` API
+request. Possible responses:
 
 - **Error**: Submit a new issue with the label "Support: Failure".
 - **Success**: If the boot was successful, you should get a response with 204
   as the status code.
 
-  If you have no output in the console, most likely you will have to update the
-  kernel command line. By default, Firecracker starts with the serial console
-  disabled for boot time performance reasons. Example of a kernel valid command
-  line that enables the serial console:
-  `console=ttyS0 reboot=k panic=1 pci=off nomodules`, which goes in the
-  `boot_args` field of the `/boot-source` Firecracker API resource.
+If you have no output in the console, most likely you will have to update the
+kernel command line. By default, Firecracker starts with the serial console
+disabled for boot time performance reasons.
 
-`Q3:`
-*How can we configure multiple Ethernet devices through the kernel command
-line?*  
-`A3:`
+Example of a kernel valid command
+line that enables the serial console (which goes in the `boot_args` field of
+the `/boot-source` Firecracker API resource):
+
+```
+console=ttyS0 reboot=k panic=1 pci=off nomodules
+```
+
+### How can I configure multiple Ethernet devices through the kernel command line?
+
 The `ip=` boot param in the linux kernel only actually supports configuring a
 single interface. Multiple interfaces can be set up in Firecracker using the
 API, but guest IP configuration at boot time through boot arguments can only be
 done for a single interface.
 
-`Q4:`
-*Each Firecracker opens 20+ file descriptors. Is this an issue?*  
-`A4:`
+### Each Firecracker opens 20+ file descriptors. Is this an issue?  
+
 The relatively high FD usage is expected and correct. Firecracker heavily
 relies on event file descriptors to drive device emulation.
 
-`Q5:`
-*We are trying to create two network interfaces, `eth0` and `eth1` by calling
-`/network-interfaces/0` and `/network-interfaces/1`. In our script, we would
-bring up interface `eth0` before `eth1`. Then both interfaces would be created
-with the correct MAC addresses. But if we swap the ordering of the calls by
-first calling `/network-interfaces/1` and then `/network-interfaces/0`, the MAC
-addresses of `eth0` and `eth1` will be swapped. Is this expected behavior?
-Should we always setup the `eth` device in the same order the network-interface
-API is called?*  
-`A5:`
-The `0` and `1` in the `/network-interfaces` path are the API identifiers of
-the `network-interfaces` HTTP resources. For now these are only used for
-resource management in the API and have nothing to do with `eth0` and `eth1`.
-The id that you pass through the API call path is used for example to separate
-an update of an existing network interface from creating a new interface. In
-short, this is expected behavior and the ids from the path are not tied to the
-ids of the actual network interfaces.
+### How does network interface numbering work?
 
-`Q6`:
-*We are seeing page allocation failures from Firecracker in the `dmesg` output.
-Example:*
+There is no relation between the numbering of the `/network-interface` API calls
+and the number of the network interface in the guest. Rather, it is usually
+the order of network interface creation that determines the number in the guest
+(but this depends on the distribution).
+
+For example, when you create two network interfaces by calling
+`/network-interfaces/1` and then `/network-interfaces/0`, it may result in this
+mapping:
+
 ```
-[80427.988646] fc_vmm: page allocation failure: order:6, mode:0x140c0c0
+/network-interfaces/1 -> eth0
+/network-interfaces/0 -> eth1
+```
+
+### We are seeing page allocation failures from Firecracker in the `dmesg` output.
+
+If you see errors like ...
+
+```
+[<TIMESTAMP>] fc_vmm: page allocation failure: order:6, mode:0x140c0c0
 (GFP_KERNEL|__GFP_COMP|__GFP_ZERO), nodemask=(null)
-[80427.989567] fc_vmm cpuset=27d8fd00-a29a-4745-b518-e6a4e6cd69dd mems_allowed=0
+[<TIMESTAMP>] fc_vmm cpuset=<GUID> mems_allowed=0
 ```
-`A6`:
-The host is running out of memory. KVM is attempting to do an allocation of
-2^`order` bytes (in this case, 6) and there aren't sufficient contiguous pages.
+
+... then your host is running out of memory. KVM is attempting to do an
+allocation of 2^`order` bytes (in this case, 6) and there aren't sufficient
+contiguous pages.
+
 Possible mitigations are:
 - Track the failing allocations in the `dmesg` output and rebuild the host
   kernel so as to use `vmalloc` instead of `kmalloc` for them.
 - Reduce memory pressure on the host.
+
