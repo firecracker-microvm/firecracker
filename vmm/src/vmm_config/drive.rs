@@ -54,7 +54,7 @@ impl Display for DriveError {
 }
 
 /// Use this structure to set up the Block Device before booting the kernel.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct BlockDeviceConfig {
     /// Unique identifier of the drive.
@@ -67,13 +67,11 @@ pub struct BlockDeviceConfig {
     pub is_root_device: bool,
     /// Part-UUID. Represents the unique id of the boot partition of this device. It is
     /// optional and it will be used only if the `is_root_device` field is true.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub partuuid: Option<String>,
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
     /// drive is opened as read-write.
     pub is_read_only: bool,
     /// Rate Limiter for I/O operations.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limiter: Option<RateLimiter>,
 }
 

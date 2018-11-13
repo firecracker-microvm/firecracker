@@ -13,7 +13,7 @@ pub mod net;
 
 /// Device State. TODO: This should be removed because we don't plan
 /// to support hot plug-unplug in the near future.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub enum DeviceState {
     /// Device is attached.
     Attached,
