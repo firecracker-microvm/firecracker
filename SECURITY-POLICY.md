@@ -1,5 +1,8 @@
 # Security Problem Policy
 
+If you uncover a security problem with Firecracker, please write to us on
+<firecracker-security-disclosures@amazon.com>.
+
 Once the Firecracker [maintainers](MAINTAINERS.md) become aware (or are made
 aware) of a security vulnerability, they will immediately assess it. Based on
 impact and complexity, they will determine an embargo period (if externally
