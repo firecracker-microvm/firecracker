@@ -241,13 +241,14 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     /// # Panics
     ///
     /// This method may panic if the value of `header_len` is invalid.
-    // TODO: rename this to parse_mss_option_unchecked, after making sure this doesn't interfere
-    // with other existing PRs.
-    pub fn parse_mss_option(&self, header_len: usize) -> Result<Option<NonZeroU16>, Error> {
+    pub fn parse_mss_option_unchecked(
+        &self,
+        header_len: usize,
+    ) -> Result<Option<NonZeroU16>, Error> {
         let b = self.options_unchecked(header_len);
         let mut i = 0;
 
-        // All TCP options (besides EOL and NOP) are encoded using x bytes (x >= 2), where the first
+        // All TCP options (except EOL and NOP) are encoded using x bytes (x >= 2), where the first
         // byte represents the option kind, the second is the option length (including these first two
         // bytes), and finally the next x - 2 bytes represent option data. The length of the MSS option
         // is 4, so the option data encodes an u16 in network order.
@@ -718,7 +719,7 @@ mod tests {
         {
             let p = TcpSegment::from_bytes(&a[..segment_len], Some((src_addr, dst_addr))).unwrap();
             assert_eq!(
-                p.parse_mss_option(header_len),
+                p.parse_mss_option_unchecked(header_len),
                 Ok(Some(NonZeroU16::new(mss_left as u16).unwrap()))
             );
         }
