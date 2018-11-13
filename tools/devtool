@@ -141,24 +141,32 @@ OPT_UNATTENDED=false
 # Send a decorated message to stdout, followed by a new line
 #
 say() {
-    echo "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $@"
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $@" \
+        || echo "[$MY_NAME] $@"
 }
 
 # Send a decorated message to stdout, without a trailing new line
 #
 say_noln() {
-    echo -n "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $@"
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo -n "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $@" \
+        || echo "[$MY_NAME] $@"
 }
 
 # Send a text message to stderr
 #
 say_err() {
-    echo "$(tput setaf 1)[$MY_NAME] $@ $(tput sgr0)" 1>&2
+    [ -t 2 ] && [ -n "$TERM" ] \
+        && echo "$(tput setaf 1)[$MY_NAME] $@$(tput sgr0)" 1>&2 \
+        || echo "[$MY_NAME] $@" 1>&2
 }
 
 # Send a warning-highlighted text to stdout
 say_warn() {
-    echo "$(tput setaf 3)[$MY_NAME] $@ $(tput sgr0)"
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo "$(tput setaf 3)[$MY_NAME] $@$(tput sgr0)" \
+        || echo "[$MY_NAME] $@"
 }
 
 # Exit with an error message and (optional) code
@@ -316,7 +324,15 @@ fix_build_dir_perms() {
 #   exit code != 0 if the user declined
 #
 get_user_confirmation() {
+
+    # Pass if running unattended
     [[ "$OPT_UNATTENDED" = true ]] && return 0
+
+    # Fail if STDIN is not a terminal (there's no user to confirm anything)
+    [[ -t 0 ]] || return 1
+
+    # Otherwise, ask the user
+    #
     msg=$([ -n "$1" ] && echo -n "$1" || echo -n "Continue? (y/n) ")
     yes=$([ -n "$2" ] && echo -n "$2" || echo -n "y")
     say_noln "$msg"
@@ -358,10 +374,15 @@ run_devctr() {
         }
     }
 
+    # If we're running in a terminal, pass the terminal to Docker and run
+    # the container interactively
+    [[ -t 0 ]] && docker_args+=("-i")
+    [[ -t 1 ]] && docker_args+=("-t")
+
     # Finally, run the dev container
     #
     docker run "${docker_args[@]}" \
-        --rm -it \
+        --rm \
         --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR" \
         --env TEST_MICROVM_IMAGES_S3_BUCKET="$TEST_MICROVM_IMAGES_S3_BUCKET" \
         --env OPT_LOCAL_IMAGES_PATH="$(dirname "$CTR_MICROVM_IMAGES_DIR")" \
