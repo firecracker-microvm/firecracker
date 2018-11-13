@@ -7,7 +7,7 @@ use rate_limiter::RateLimiter;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkInterfaceConfig {
     /// ID of the guest network interface.
@@ -17,13 +17,10 @@ pub struct NetworkInterfaceConfig {
     /// Host level path for the guest network interface.
     pub host_dev_name: String,
     /// Guest MAC address.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_mac: Option<MacAddr>,
     /// Rate Limiter for received packages.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub rx_rate_limiter: Option<RateLimiter>,
     /// Rate Limiter for transmitted packages.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub tx_rate_limiter: Option<RateLimiter>,
     #[serde(default = "default_allow_mmds_requests")]
     /// If this field is set, the device model will reply to HTTP GET

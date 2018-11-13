@@ -122,10 +122,6 @@ mod tests {
         let x = serde_json::from_str(jstr).expect("deserialization failed.");
         assert_eq!(netif, x);
 
-        let y = serde_json::to_string(&netif).expect("serialization failed.");
-        let z = serde_json::from_str(y.as_ref()).expect("deserialization (2) failed.");
-        assert_eq!(x, z);
-
         // Check that guest_mac and rate limiters are truly optional.
         let jstr_no_mac = r#"{
             "iface_id": "foo",
