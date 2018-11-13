@@ -72,11 +72,13 @@ class MicrovmImageS3Fetcher:
     change. In effect, the s3 bucket will only be mapped once and the s3 client
     can cache across all fixtures. This is called "the borg pattern", because
     in the Sci-Fi series "Star Trek", the borg were a people where all
-    individuals that shared the same consciousness.
+    individuals shared the same consciousness.
     """
 
-    microvm_images = None
-    microvm_images_by_cap = None
+    _microvm_images = None
+    _microvm_images_by_cap = None
+    _microvm_images_bucket = None
+    _s3 = None
 
     def __init__(
         self,
@@ -84,28 +86,29 @@ class MicrovmImageS3Fetcher:
     ):
         """Initialize fetcher shared state, s3 client, paths, and data."""
         self.__dict__ = self.__shared_state
-
-        self.s3 = boto3.client(
-            's3',
-            config=botocore.client.Config(signature_version=botocore.UNSIGNED)
-        )
-        # Will use AWS EC2 IMDS credentials if present.
-
-        self.microvm_images_bucket = microvm_images_bucket
-
-        # The Borg pattern ensures that the map_bucket() is called only once
+        # The Borg pattern ensures that the _map_bucket() is called only once
         # per test session.
-        if self.microvm_images is None:
-            self.map_bucket()
-        assert self.microvm_images and self.microvm_images_by_cap
+        if self._microvm_images is None:
+            self._microvm_images_bucket = microvm_images_bucket
 
-    def get_microvm_image(self, microvm_image_name, microvm):
-        """Populate the microvm resource path with the associated image.
+            # s3 should also be the same for each object to exploit the caching
+            # capabilities of the s3 downloading process.
+            self._s3 = boto3.client(
+                's3',
+                config=botocore.client.Config(
+                    signature_version=botocore.UNSIGNED
+                )
+            )
+            self._map_bucket()
+        assert self._microvm_images and self._microvm_images_by_cap
+
+    def init_vm_resources(self, microvm_image_name, microvm):
+        """Populate the microvm resource path with the necessary resources.
 
         Assumes the correct microvm image structure, and copies all
         microvm image resources into the microvm resource path.
         """
-        for resource_key in self.microvm_images[microvm_image_name]:
+        for resource_key in self._microvm_images[microvm_image_name]:
             if resource_key in [
                 self.MICROVM_IMAGE_KERNEL_RELPATH,
                 self.MICROVM_IMAGE_BLOCKDEV_RELPATH
@@ -115,7 +118,6 @@ class MicrovmImageS3Fetcher:
                 continue
 
             microvm_dest_path = os.path.join(microvm.path, resource_key)
-
             if resource_key.endswith('/'):
                 # Create a new microvm_directory if one is encountered.
                 os.mkdir(microvm_dest_path)
@@ -155,8 +157,8 @@ class MicrovmImageS3Fetcher:
                     os.path.dirname(resource_local_path),
                     exist_ok=True
                 )
-                self.s3.download_file(
-                    self.microvm_images_bucket,
+                self._s3.download_file(
+                    self._microvm_images_bucket,
                     resource_rel_path,
                     resource_local_path)
 
@@ -175,41 +177,85 @@ class MicrovmImageS3Fetcher:
                 microvm.ssh_config['ssh_key_path'] = microvm_dest_path
                 os.chmod(microvm_dest_path, 400)
 
+    def hardlink_vm_resources(
+            self,
+            microvm_image_name,
+            from_microvm,
+            to_microvm
+    ):
+        """Hardlink resources from one microvm to another.
+
+        Assumes the correct microvm image structure for the source vm specified
+        by the `from_microvm` parameter and copies all necessary resources into
+        the destination microvm specified through the `to_microvm` parameter.
+        """
+        for resource_key in self._microvm_images[microvm_image_name]:
+            if resource_key in [
+                self.MICROVM_IMAGE_KERNEL_RELPATH,
+                self.MICROVM_IMAGE_BLOCKDEV_RELPATH
+            ]:
+                # Kernel and blockdev dirs already exist in the microvm's
+                # allocated resources.
+                continue
+
+            microvm_dest_path = os.path.join(to_microvm.path, resource_key)
+            microvm_source_path = os.path.join(from_microvm.path, resource_key)
+
+            if resource_key.endswith('/'):
+                # Create a new microvm_directory if one is encountered.
+                os.mkdir(microvm_dest_path)
+                continue
+
+            if not os.path.exists(microvm_dest_path):
+                os.link(microvm_source_path, microvm_dest_path)
+
+            if resource_key.endswith(self.MICROVM_IMAGE_KERNEL_FILE_SUFFIX):
+                to_microvm.kernel_file = microvm_dest_path
+
+            if resource_key.endswith(self.MICROVM_IMAGE_ROOTFS_FILE_SUFFIX):
+                to_microvm.rootfs_file = microvm_dest_path
+
+            if resource_key.endswith(self.MICROVM_IMAGE_SSH_KEY_SUFFIX):
+                # Add the key path to the config dictionary and set
+                # permissions.
+                to_microvm.ssh_config['ssh_key_path'] = microvm_dest_path
+                os.chmod(microvm_dest_path, 400)
+
     def list_microvm_images(self, capability_filter: List[str] = None):
         """Return microvm images with the specified capabilities."""
         capability_filter = capability_filter or ['*']
         microvm_images_with_caps = []
         for cap in capability_filter:
             if cap == '*':
-                microvm_images_with_caps.append({*self.microvm_images})
+                microvm_images_with_caps.append({*self._microvm_images})
                 continue
-            microvm_images_with_caps.append(self.microvm_images_by_cap[cap])
+            microvm_images_with_caps.append(self._microvm_images_by_cap[cap])
 
         return list(set.intersection(*microvm_images_with_caps))
 
     def enum_capabilities(self):
         """Return a list of all the capabilities of all microvm images."""
-        return [*self.microvm_images_by_cap]
+        return [*self._microvm_images_by_cap]
 
-    def map_bucket(self):
+    def _map_bucket(self):
         """Map all the keys and tags in the s3 microvm image bucket.
 
         This allows the other methods to work on local objects.
 
-        Populates `self.microvm_images` with
+        Populates `self._microvm_images` with
         {microvm_image_folder_key_n: [microvm_image_key_n, ...], ...}
 
-        Populates `self.microvm_images_by_cap` with a capability dict:
+        Populates `self._microvm_images_by_cap` with a capability dict:
         `{capability_n: {microvm_image_folder_key_n, ...}, ...}
         """
-        self.microvm_images = {}
-        self.microvm_images_by_cap = {}
+        self._microvm_images = {}
+        self._microvm_images_by_cap = {}
         folder_key_groups_regex = re.compile(
             self.MICROVM_IMAGES_RELPATH + r'(.+?)/(.*)'
         )
 
-        for obj in self.s3.list_objects_v2(
-            Bucket=self.microvm_images_bucket,
+        for obj in self._s3.list_objects_v2(
+            Bucket=self._microvm_images_bucket,
             Prefix=self.MICROVM_IMAGES_RELPATH
         )['Contents']:
             key_groups = re.match(folder_key_groups_regex, obj['Key'])
@@ -221,19 +267,19 @@ class MicrovmImageS3Fetcher:
 
             if not resource:
                 # This is a microvm image root folder.
-                self.microvm_images[microvm_image_name] = []
-                for cap in self.get_caps(obj['Key']):
-                    if cap not in self.microvm_images_by_cap:
-                        self.microvm_images_by_cap[cap] = set()
-                    self.microvm_images_by_cap[cap].add(microvm_image_name)
+                self._microvm_images[microvm_image_name] = []
+                for cap in self._get_caps(obj['Key']):
+                    if cap not in self._microvm_images_by_cap:
+                        self._microvm_images_by_cap[cap] = set()
+                    self._microvm_images_by_cap[cap].add(microvm_image_name)
             else:
                 # This is key within a microvm image root folder.
-                self.microvm_images[microvm_image_name].append(resource)
+                self._microvm_images[microvm_image_name].append(resource)
 
-    def get_caps(self, key):
+    def _get_caps(self, key):
         """Return the set of capabilities of an s3 object key."""
-        tagging = self.s3.get_object_tagging(
-            Bucket=self.microvm_images_bucket,
+        tagging = self._s3.get_object_tagging(
+            Bucket=self._microvm_images_bucket,
             Key=key
         )
         return {
