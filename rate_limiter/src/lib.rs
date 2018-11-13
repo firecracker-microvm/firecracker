@@ -87,12 +87,11 @@ fn gcd(x: u64, y: u64) -> u64 {
 
 /// TokenBucket provides a lower level interface to rate limiting with a
 /// configurable capacity, refill-rate and initial burst.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TokenBucket {
     // Bucket defining traits.
     size: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     one_time_burst: Option<u64>,
     refill_time: u64,
 
@@ -243,18 +242,12 @@ pub enum TokenType {
 /// RateLimiters will generate events on the FDs provided by their `AsRawFd` trait
 /// implementation. These events are meant to be consumed by the user of this struct.
 /// On each such event, the user must call the `event_handler()` method.
-#[derive(Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct RateLimiter {
-    #[serde(skip_serializing_if = "Option::is_none")]
     bandwidth: Option<TokenBucket>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     ops: Option<TokenBucket>,
 
-    #[serde(skip_serializing)]
     timer_fd: Option<TimerFd>,
     // Internal flag that quickly determines timer state.
-    #[serde(skip_serializing)]
     timer_active: bool,
 }
 
