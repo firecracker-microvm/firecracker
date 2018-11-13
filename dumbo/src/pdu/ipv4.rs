@@ -40,7 +40,7 @@ pub enum Error {
     /// The total length of the packet is invalid.
     InvalidTotalLen,
     /// The length of the given slice does not match the length of the packet.
-    SliceExactLength,
+    SliceExactLen,
     /// The length of the given slice is less than the IPv4 header length.
     SliceTooShort,
     /// The version header field is invalid.
@@ -91,7 +91,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
         }
 
         if total_len != bytes_len {
-            return Err(Error::SliceExactLength);
+            return Err(Error::SliceExactLen);
         }
 
         if header_len < OPTIONS_OFFSET {
@@ -605,7 +605,7 @@ mod tests {
 
         // Total len not matching slice length.
         p(buf.as_mut()).set_total_len(buf_len as u16 - 1);
-        look_for_error(buf.as_ref(), Error::SliceExactLength);
+        look_for_error(buf.as_ref(), Error::SliceExactLen);
 
         // The original packet header should contain a valid checksum.
         assert_eq!(

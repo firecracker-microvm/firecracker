@@ -53,7 +53,7 @@ pub enum Error {
     /// Invalid protocol type.
     PType,
     /// The provided slice does not fit the size of a frame.
-    SliceLength,
+    SliceExactLen,
 }
 
 /// The inner bytes will be interpreted as an ARP frame.
@@ -86,7 +86,7 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
     pub fn request_from_bytes(bytes: T) -> Result<Self, Error> {
         // This kind of frame has a fixed length, so we know what to expect.
         if bytes.len() != ETH_IPV4_FRAME_LEN {
-            return Err(Error::SliceLength);
+            return Err(Error::SliceExactLen);
         }
 
         let maybe = EthIPv4ArpFrame::from_bytes_unchecked(bytes);
@@ -192,7 +192,7 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
         tpa: Ipv4Addr,
     ) -> Result<Self, Error> {
         if buf.len() != ETH_IPV4_FRAME_LEN {
-            return Err(Error::SliceLength);
+            return Err(Error::SliceExactLen);
         }
 
         // This is ok, because we've checked the length of the slice.
@@ -316,13 +316,6 @@ impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
     }
 }
 
-#[cfg(test)]
-impl<'a, T: NetworkBytes> fmt::Debug for EthIPv4ArpFrame<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(EthIPv4ArpFrame frame)")
-    }
-}
-
 /// This function checks if `buf` may hold an Ethernet frame which encapsulates an
 /// `EthIPv4ArpRequest` for the given address. Cannot produce false negatives.
 #[inline]
@@ -341,6 +334,12 @@ pub fn test_speculative_tpa(buf: &[u8], addr: Ipv4Addr) -> bool {
 mod tests {
     use super::*;
 
+    impl<'a, T: NetworkBytes> fmt::Debug for EthIPv4ArpFrame<'a, T> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "(EthIPv4ArpFrame frame)")
+        }
+    }
+
     #[test]
     fn test_eth_ipv4_arp_frame() {
         let mut a = [0u8; 1000];
@@ -354,19 +353,19 @@ mod tests {
         // Slice is too short.
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(bad_array.as_ref()).unwrap_err(),
-            Error::SliceLength
+            Error::SliceExactLen
         );
 
         // Slice is too short.
         assert_eq!(
             EthIPv4ArpFrame::write_reply(bad_array.as_mut(), sha, spa, tha, tpa).unwrap_err(),
-            Error::SliceLength
+            Error::SliceExactLen
         );
 
         // Slice is too long.
         assert_eq!(
             EthIPv4ArpFrame::write_reply(a.as_mut(), sha, spa, tha, tpa).unwrap_err(),
-            Error::SliceLength
+            Error::SliceExactLen
         );
 
         // We write a valid ARP reply to the specified slice.
@@ -391,7 +390,7 @@ mod tests {
         // Slice is too long.
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(a.as_ref()).unwrap_err(),
-            Error::SliceLength
+            Error::SliceExactLen
         );
 
         // The length is fine now, but the operation is a reply instead of request.

@@ -162,10 +162,8 @@ impl<'a, T: NetworkBytes> Incomplete<EthernetFrame<'a, T>> {
     /// # Panics
     ///
     /// This method panics if `len` is greater than the length of the inner byte sequence.
-    // TODO: rename this to with_payload_len_unchecked after making sure this doesn't create issues
-    // for other existing PRs.
     #[inline]
-    pub fn with_payload_len(mut self, payload_len: usize) -> EthernetFrame<'a, T> {
+    pub fn with_payload_len_unchecked(mut self, payload_len: usize) -> EthernetFrame<'a, T> {
         let payload_offset = self.inner.payload_offset();
         self.inner
             .bytes
@@ -228,7 +226,7 @@ mod tests {
         {
             let f3 =
                 EthernetFrame::write_incomplete(a.as_mut(), dst_mac, src_mac, ethertype).unwrap();
-            let f3_complete = f3.with_payload_len(123);
+            let f3_complete = f3.with_payload_len_unchecked(123);
             assert_eq!(f3_complete.len(), f3_complete.payload_offset() + 123);
         }
     }

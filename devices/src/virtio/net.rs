@@ -1269,7 +1269,8 @@ mod tests {
             ).ok()
             .unwrap();
             // Set its length to hold an ARP request.
-            let mut eth_frame_complete = eth_frame_i.with_payload_len(arp::ETH_IPV4_FRAME_LEN);
+            let mut eth_frame_complete =
+                eth_frame_i.with_payload_len_unchecked(arp::ETH_IPV4_FRAME_LEN);
 
             // Save the total frame length.
             packet_len =

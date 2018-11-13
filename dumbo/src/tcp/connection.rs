@@ -125,7 +125,7 @@ pub struct Connection {
 }
 
 fn parse_mss_option<T: NetworkBytes>(segment: &TcpSegment<T>) -> Result<u16, PassiveOpenError> {
-    match segment.parse_mss_option(segment.header_len()) {
+    match segment.parse_mss_option_unchecked(segment.header_len()) {
         Ok(Some(value)) => Ok(value.get()),
         Ok(None) => Ok(MSS_DEFAULT),
         Err(_) => Err(PassiveOpenError::MssOption),

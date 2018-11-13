@@ -209,7 +209,7 @@ impl MmdsNetworkStack {
 
         Ok(Some(
             // The unwrap() is safe because arp_len > 0.
-            NonZeroUsize::new(eth_unsized.with_payload_len(arp_len).len()).unwrap(),
+            NonZeroUsize::new(eth_unsized.with_payload_len_unchecked(arp_len).len()).unwrap(),
         ))
     }
 
@@ -233,7 +233,11 @@ impl MmdsNetworkStack {
         if let Some(packet_len) = maybe_len {
             return Ok(Some(
                 // The unwrap() is safe because packet_len > 0.
-                NonZeroUsize::new(eth_unsized.with_payload_len(packet_len.get()).len()).unwrap(),
+                NonZeroUsize::new(
+                    eth_unsized
+                        .with_payload_len_unchecked(packet_len.get())
+                        .len(),
+                ).unwrap(),
             ));
         }
         Ok(None)
