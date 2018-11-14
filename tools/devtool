@@ -382,6 +382,7 @@ run_devctr() {
     # Finally, run the dev container
     #
     docker run "${docker_args[@]}" \
+        --init \
         --rm \
         --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR" \
         --env TEST_MICROVM_IMAGES_S3_BUCKET="$TEST_MICROVM_IMAGES_S3_BUCKET" \
