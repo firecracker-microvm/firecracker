@@ -1629,7 +1629,6 @@ mod tests {
     use super::*;
 
     use std::fs::File;
-    use std::io::{BufRead, BufReader};
     use std::sync::atomic::AtomicUsize;
 
     use self::tempfile::NamedTempFile;
@@ -2506,25 +2505,6 @@ mod tests {
         }
     }
 
-    // Helper function that tests whether the log file contains the `line_tokens`
-    fn validate_logs(
-        log_path: &str,
-        line_tokens: &[(&'static str, &'static str, &'static str)],
-    ) -> bool {
-        let f = File::open(log_path).unwrap();
-        let mut reader = BufReader::new(f);
-        let mut res = true;
-        let mut line = String::new();
-        for tuple in line_tokens {
-            line.clear();
-            reader.read_line(&mut line).unwrap();
-            res &= line.contains(&tuple.0);
-            res &= line.contains(&tuple.1);
-            res &= line.contains(&tuple.2);
-        }
-        res
-    }
-
     #[test]
     fn test_init_logger_from_api() {
         // Error case: update after instance is running
@@ -2565,18 +2545,5 @@ mod tests {
             show_log_origin: Some(true),
         };
         assert!(vmm.init_logger(desc).is_ok());
-
-        info!("info");
-        warn!("warning");
-        error!("error");
-
-        // Assert that the log contains the error and warning.
-        assert!(validate_logs(
-            log_file.path().to_str().unwrap(),
-            &[
-                ("WARN", "vmm/src/lib.rs", "warn"),
-                ("ERROR", "vmm/src/lib.rs", "error"),
-            ]
-        ));
     }
 }
