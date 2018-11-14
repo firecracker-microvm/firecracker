@@ -45,11 +45,9 @@ class MicrovmImageS3Fetcher:
 
     # Credentials
 
-    When run on an EC2 instance, `boto3` will check for IMDS credentials if no
-    other credentials are found. This mechanism is relied upon for running test
-    sessions within an account that has access to the microvm-image-bucket. If
-    that is not the case, local credentials must be present. See `boto3`
-    documentation.
+    `boto3` is configured to not perform the signing step at all by using
+    the `signature_version=UNSIGNED` so no credentials are needed. Thus, the
+    bucket where the microVM images are stored needs to be publicly accessible.
     """
 
     MICROVM_IMAGES_RELPATH = 'img/'
@@ -63,18 +61,6 @@ class MicrovmImageS3Fetcher:
 
     CAPABILITY_KEY_PREFIX = 'capability:'
 
-    __shared_state = {}
-    """Initializing the shared state here leads to all objects sharing it.
-
-    When you instantiate this class, you get a new object every time, but the
-    object's state is the same one as the state of all other objects of this
-    class. When an object changes this shared state, all other objects see the
-    change. In effect, the s3 bucket will only be mapped once and the s3 client
-    can cache across all fixtures. This is called "the borg pattern", because
-    in the Sci-Fi series "Star Trek", the borg were a people where all
-    individuals shared the same consciousness.
-    """
-
     _microvm_images = None
     _microvm_images_by_cap = None
     _microvm_images_bucket = None
@@ -84,22 +70,13 @@ class MicrovmImageS3Fetcher:
         self,
         microvm_images_bucket
     ):
-        """Initialize fetcher shared state, s3 client, paths, and data."""
-        self.__dict__ = self.__shared_state
-        # The Borg pattern ensures that the _map_bucket() is called only once
-        # per test session.
-        if self._microvm_images is None:
-            self._microvm_images_bucket = microvm_images_bucket
-
-            # s3 should also be the same for each object to exploit the caching
-            # capabilities of the s3 downloading process.
-            self._s3 = boto3.client(
-                's3',
-                config=botocore.client.Config(
-                    signature_version=botocore.UNSIGNED
-                )
-            )
-            self._map_bucket()
+        """Initialize S3 client, list of microvm images and S3 bucket name."""
+        self._microvm_images_bucket = microvm_images_bucket
+        self._s3 = boto3.client(
+            's3',
+            config=botocore.client.Config(signature_version=botocore.UNSIGNED)
+        )
+        self._map_bucket()
         assert self._microvm_images and self._microvm_images_by_cap
 
     def init_vm_resources(self, microvm_image_name, microvm):
