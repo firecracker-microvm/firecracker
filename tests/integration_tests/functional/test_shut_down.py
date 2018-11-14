@@ -43,6 +43,7 @@ def test_reboot(test_microvm_with_ssh, network_config):
     # the instance.
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     ssh_connection.execute_command("reboot")
+    ssh_connection.close()
 
     while True:
         # Pytest's timeout will kill the test even if the loop doesn't exit.
