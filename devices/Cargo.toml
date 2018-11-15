@@ -16,6 +16,11 @@ net_sys = { path = "../net_sys" }
 rate_limiter = { path = "../rate_limiter" }
 sys_util = { path = "../sys_util" }
 virtio_sys = { path = "../virtio_sys" }
+vhost_sys = { path = "../vhost_sys" , optional = true}
+vhost_backend = { path = "../vhost_backend", optional = true}
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
+
+[features]
+vsock = ["vhost_sys", "vhost_backend"]
