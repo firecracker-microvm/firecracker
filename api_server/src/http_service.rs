@@ -25,6 +25,8 @@ use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::logger::LoggerConfig;
 use vmm::vmm_config::machine_config::VmConfig;
 use vmm::vmm_config::net::NetworkInterfaceConfig;
+#[cfg(feature = "vsock")]
+use vmm::vmm_config::vsock::VsockDeviceConfig;
 use vmm::VmmAction;
 
 fn build_response_base<B: Into<hyper::Body>>(
@@ -315,6 +317,28 @@ fn parse_netif_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a
     }
 }
 
+#[cfg(feature = "vsock")]
+// Turns a GET/PUT /vsocks HTTP request into a ParsedRequest.
+fn parse_vsocks_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a, ParsedRequest> {
+    let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+    let id_from_path = if path_tokens.len() > 1 {
+        checked_id(path_tokens[1])?
+    } else {
+        return Err(Error::EmptyID);
+    };
+
+    match path_tokens[1..].len() {
+        1 if method == Method::Put => Ok(serde_json::from_slice::<VsockDeviceConfig>(body)
+            .map_err(|e| Error::SerdeJson(e))?
+            .into_parsed_request(Some(id_from_path.to_string()), method)
+            .map_err(|s| {
+                METRICS.put_api_requests.network_fails.inc();
+                Error::Generic(StatusCode::BadRequest, s)
+            })?),
+        _ => Err(Error::InvalidPathMethod(path, method)),
+    }
+}
+
 // This turns an incoming HTTP request into a ParsedRequest, which is an item containing both the
 // message to be passed to the VMM, and associated entities, such as channels which allow the
 // reception of the outcome back from the VMM.
@@ -360,6 +384,8 @@ fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, 
         "machine-config" => parse_machine_config_req(path, method, body),
         "network-interfaces" => parse_netif_req(path, method, body),
         "mmds" => parse_mmds_request(path, method, body),
+        #[cfg(feature = "vsock")]
+        "vsocks" => parse_vsocks_req(path, method, body),
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
