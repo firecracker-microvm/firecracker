@@ -1,0 +1,516 @@
+#!/usr/bin/env bash
+
+# This script is meant as a hands-on, super-fast, show-me-the-microVM
+# introduction to Firecracker.
+#
+# It will download the latest Firecracker release binary, along with a sample
+# pair of kernel and rootfs files, then use it all to spawn a demo microVM.
+#
+# Usage:
+#  ./hello-world
+#
+# No other Firecracker files are required in order to run this script. In fact,
+# the only dependecies are:
+# - BASH (obviously)
+# - curl (for downloading the binary and the microVM image)
+# - /dev/kvm (Firecracker dependency)
+# - Linux x86_64 4.14+ (Firecracker dependency)
+# - awscli (only needed before the GitHub repo goes public, for acccessing the
+#   S3 release bucket).
+
+
+# The directory used to store the Firecracker binary and the microVM image.
+HELLO_HOME="/tmp/firecracker-hello-world"
+
+# The Firecracker release S3 bucket (only used if the GitHub repo is not yet
+# public).
+FC_BIN_BUCKET="firecracker.build.us-east-1"
+
+# The microVM image S3 bucket.
+FC_MICROVM_BUCKET="spec.ccfc.min"
+
+# Minimum Linux kernel version supported by Firecracker
+MIN_KERNEL_VERSION="4.14"
+
+
+# Write a message to STDOUT, followed by a new line.
+#
+say() {
+    printf "%s\n" "$*"
+}
+
+# Write a message to STDOUT, without a trailing new line.
+#
+say_noln() {
+    printf "%s" "$*"
+}
+
+# Write a color-emphasized message to STDERR, followed by a new line.
+#
+say_err() {
+    say "$(tput setaf 1)$*$(tput sgr0)" 1>&2
+}
+
+# Write a color-emphasized message to STDOUT, followed by a new line.
+#
+say_warn() {
+    say "$(tput setaf 3)$*$(tput sgr0)"
+}
+
+# Clean up and exit with an optional exit code and error message.
+# Usage:
+#  die [-c <exit code>] [<message>]
+# The default exit code is 1 (error).
+#
+die() {
+    teardown_home
+    ret=1
+    [ "$1" = "-c" ] && { ret="$2"; shift 2; }
+    say_err "$@"
+    exit $ret
+}
+
+# Exit with an error message, if the previous exit code is not 0 (success).
+# Otherwise, do nothing.
+# Example:
+#  check_pulse
+#  ok_or_die "It's dead, Jim."
+#
+ok_or_die() {
+    ret=$?
+    [ $ret -eq 0 ] || die -c $ret "$*"
+}
+
+# Prompt the user for confirmation before proceeding.
+# Args:
+#   $1  prompt text.
+#       Default: Continue? (y/n)
+#   $2  confirmation input.
+#       Default: y
+# Return:
+#   exit code 0 for successful confirmation
+#   exit code != 0 if the user declined
+#
+get_user_confirmation() {
+    msg=$([ -n "$1" ] && echo -n "$1" || echo -n "Continue? (y/n) ")
+    yes=$([ -n "$2" ] && echo -n "$2" || echo -n "y")
+    say_noln "$msg"
+    read c && [ "$c" = "$yes" ] && return 0
+    return 1
+}
+
+# Show a greeting mesasge and let the user know what this script is all about.
+#
+greet() {
+    say ""
+    say "                       Welcome to Firecracker!"
+    say ""
+    say "This script will guide you through running your first microVM."
+    say ""
+    say "It will:"
+    say "1. Check that your system meets the basic requirements for running Firecracker."
+    say "2. Guide you through configuring your system to run Firecracker."
+    say "3. Create dir $HELLO_HOME."
+    say "4. Download the Firecracker binary (about 6 MiB) to $HELLO_HOME/."
+    say "5. Download a basic microVM image (kernel and rootfs - about 50 MiB) to $HELLO_HOME/."
+    say "6. Run Firecracker and give you a login prompt to your new microVM."
+    say ""
+}
+
+# Check that we have everything we need to run this demo. Exit if any
+# requirement is not fulfilled.
+#
+ensure_host_requirements() {
+
+    # Check that the host platform is Linux x86_64
+    #
+    platform="$(uname) $(uname -m)"
+    [ "$platform" = "Linux x86_64" ]
+    ok_or_die "Your host is $platform. Firecracker only supports Linux x86_64. Sorry :("
+
+    # Check the host kernel version
+    #
+    kernel_version=$(uname -r)
+    [ "$kernel_version" \> "$MIN_KERNEL_VERSION" ]
+    ok_or_die "Firecracker needs kernel version $MIN_KERNEL_VERSION or later." \
+        "You have $kernel_version."
+
+    # Check that /dev/kvm exists
+    #
+    [ -c /dev/kvm ]
+    [ $? -eq 0 ] || {
+        say_err "Error: KVM not found. Aborting."
+        say "Please have a look at our getting started guide, for more information"
+        say "on setting up your system to run Firecracker:"
+        say "https://github.com/firecracker-microvm/firecracker/blob/master/docs/getting-started.md"
+        die
+    }
+
+    # Check that we have access to /dev/kvm
+    #
+    user=$(id -u -n)
+    [ -r /dev/kvm ] && [ -w /dev/kvm ] || {
+        # No access?
+        # Let the user know offer a solution.
+        #
+        command -v setfacl >/dev/null 2>&1 && {
+            say_warn "Your user ($(id -u -n)) doesn't have access to /dev/kvm."
+            say "You can grant it access with:"
+            say "  sudo setfacl -m \"u:$user:rw\" /dev/kvm"
+            get_user_confirmation "Would you like to do that now? (y/n) " || die
+            sudo setfacl -m "u:$user:rw" /dev/kvm
+            [ $? -eq 0 ] || say_warn "\`setfacl\` failed. Trying next method ..."
+        }
+
+        [ -r /dev/kvm ] && [ -w /dev/kvm ] || {
+
+            # If that didn't work, maybe access to KVM is controllod via the `kvm`
+            # group? If so, attempt to join that group.
+            #
+            [ $(stat -c "%G" /dev/kvm = kvm) ] && {
+                say_warn "Adding user $user to the kvm group" \
+                    "(you may need to provide the root password) ..."
+                say_warn "Access to /dev/kvm is managed via the \`kvm\` group, " \
+                    "but your user is not part of that group."
+                say "You can fix that with:"
+                say "  sudo usermod -aG kvm \"$user\""
+                get_user_confirmation "Would you like to do that now? (y/n) "
+                ok_or_die
+
+                sudo usermod -aG kvm "$user"
+                ok_or_die "usermod failed."
+
+                say_warn "Please log out and then back in, for the access change to take effect."
+                die
+            }
+        }
+    }
+
+    [ -r /dev/kvm ] && [ -w /dev/kvm ] || {
+        # If we still don't have access to /dev/kvm, we're out of options.
+        # Time to ask the user to use `sudo`.
+        say_err "Failed to acquire access to /dev/kvm."
+        say "Please try running this script as root (via \`sudo\`)."
+        die
+    }
+
+    # Check that `curl` is available.
+    #
+    command -v curl >/dev/null 2>&1
+    ok_or_die "Error: couldn't find the \`curl\` binary." \
+        "Please install it and try again."
+
+    # If the GitHub repo is not yet public, check that we have `awscli`
+    # available. We'll need it to access the Firecracker release S3 bucket.
+    #
+    curl -f "https://raw.githubusercontent.com/firecracker-microvm/firecracker/master/README.md" \
+        > /dev/null 2>&1
+    [ $? -eq 0 ] || {
+        command -v aws > /dev/null 2>&1
+        ok_or_die "The AWS CLI toolkit (awscli) is missing from your system." \
+            "Please install it and try again. It is needed because the Firecracker" \
+            "GitHub repo is not yet public, and the we need to fetch the binary from S3."
+    }
+}
+
+# Create our home/work directory and download the files needed to run this demo
+# into it.
+# Exit if anything goes wrong and we can't get the Firecracker binary and
+# the microVM image.
+#
+setup_home() {
+
+    # If our home dir is already there, perhaps this is not the first time
+    # we ran, so we'll attempt to reuse it. Otherwise, it'll get created now.
+    #
+    [ -d "$HELLO_HOME" ] \
+        && say "Found dir $HELLO_HOME/." \
+        || {
+            say_warn "Creating dir $HELLO_HOME ... "
+            mkdir -p "$HELLO_HOME"
+            ok_or_die "Error creating $HELLO_HOME."
+        }
+
+    [ -w "$HELLO_HOME" ] \
+        || die "Bad permissions detected for $HELLO_HOME." \
+            "Please either correct them, or remove the directory."
+
+    # Check if the Firecracker binary is already there, and download it if it
+    # isn't.
+    #
+    [ -x "$HELLO_HOME/firecracker" ] \
+        && say "Using binary $HELLO_HOME/firecracker." \
+        || {
+            # First, try to get it from GitHub.
+            #
+            say "Downloading Firecracker ..."
+
+            # Get the tag for our latest release, using the GitHub API.
+            #
+            tag_ln=$(
+                curl -fsL "https://api.github.com/repos/firecracker-microvm/firecracker/releases/latest" \
+                    | grep \"tag_name\"
+            )
+
+            # A hacky approach to JSON parsing, but we only need to grab a
+            # single key (the latest tag), so this will do.
+            #
+            [ $? -eq 0 ] && \
+                [[ "$tag_ln" =~ \"tag_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && \
+                    tag="${BASH_REMATCH[1]}"
+
+            # If we've found the tag, let's download the Firecracker binary.
+            #
+            [ -n "$tag" ] && \
+                curl -fsL -o "$HELLO_HOME/firecracker" \
+                    "https://github.com/firecracker/firecracker-microvm/releases/download/$tag/firecracker-$tag"
+
+            [ $? -eq 0 ] || {
+                # Alright, that didn't work. Most probably, we're not yet public.
+                # Let's try our private S3 bucket.
+                #
+                say_warn "Unable to get the Firecracker binary from GitHub (repo not public yet?)." \
+                    "Trying S3 ..."
+                aws s3 cp "s3://$FC_BIN_BUCKET/firecracker-latest" "$HELLO_HOME/firecracker"
+
+                # If that didn't work either, let the user know we can't continue.
+                ok_or_die "S3 download failed. Giving up." \
+                    "Please check that you have access to our S3 bucket: $FC_MICROVM_BUCKET."
+
+                # This is actually an ELF binary
+                #
+                chmod +x "$HELLO_HOME/firecracker"
+            }
+        }
+
+    # Check if we already have a kernel binary from a previous run.
+    # If we don't, download it now from the public S3 bucket.
+    #
+    [ -f "$HELLO_HOME/hello-vmlinux.bin" ] \
+        && say "Using kernel $HELLO_HOME/hello-vmlinux.bin ..." \
+        || {
+            say "Downloading kernel image ..."
+            curl -fsSL -o "$HELLO_HOME/hello-vmlinux.bin" \
+                https://s3.amazonaws.com/$FC_MICROVM_BUCKET/img/hello/kernel/hello-vmlinux.bin
+            ok_or_die "Unable to get the kernel binary. Aborting."
+        }
+
+    # Check if we already have a rootfs image from a previous run.
+    # If we don't, download it now from the public S3 bucket.
+    #
+    [ -f "$HELLO_HOME/hello-rootfs.ext4" ] \
+        && say "Using rootfs image $HELLO_HOME/hello-rootfs.ext4 ..." \
+        || {
+            say "Downloading rootfs ..."
+            curl -fsSL -o "$HELLO_HOME/hello-rootfs.ext4" \
+                https://s3.amazonaws.com/$FC_MICROVM_BUCKET/img/hello/fsfiles/hello-rootfs.ext4
+            ok_or_die "Unable to get the rootfs image. Aborting."
+        }
+
+}
+
+
+# Delete all the downloaded files, unless the user wants to keep them.
+#
+teardown_home() {
+    [ -d "$HELLO_HOME" ] && {
+        say_warn "The Firecracker binary and the microVM image were downloaded" \
+            "to $HELLO_HOME/."
+        say_noln "Do you want to keep them? (y/n) "
+        read ln
+        [ "$ln" != "y" ] && {
+            say "Removing $HELLO_HOME ..."
+            rm -rf "$HELLO_HOME"
+        }
+    }
+}
+
+
+# Configure and start the microVM, by writing to the Firecracker API socket.
+# If anything goes wrong, return an error exit code, so the caller knows
+# the Firecracker process needs to be killed.
+#
+run_firecracker_control() {
+
+    say "Setting microVM config to 1 vCPU and 512MiB RAM ..."
+    curl -fsS --unix-socket "$HELLO_HOME/api.sock" \
+        -X PUT "http://localhost/machine-config" \
+        -H "accept: application/json" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"vcpu_count\": 1,
+            \"mem_size_mib\": 512
+        }"
+    [ $? -eq 0 ] || return 1
+
+    say "Setting microVM kernel to $HELLO_HOME/hello-vmlinux.bin ..."
+    curl -fsS --unix-socket "$HELLO_HOME/api.sock" \
+        -X PUT "http://localhost/boot-source" \
+        -H "accept: application/json" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"kernel_image_path\": \"hello-vmlinux.bin\",
+            \"boot_args\": \"console=ttyS0 reboot=k panic=1 pci=off\"
+        }"
+    [ $? -eq 0 ] || return 1
+
+    say "Setting microVM rootfs to $HELLO_HOME/hello-rootfs.ext4 ..."
+    curl -fsS --unix-socket "$HELLO_HOME/api.sock" \
+        -X PUT "http://localhost/drives/rootfs" \
+        -H "accept: application/json" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"drive_id\": \"rootfs\",
+            \"path_on_host\": \"hello-rootfs.ext4\",
+            \"is_root_device\": true,
+            \"is_read_only\": false
+        }"
+    [ $? -eq 0 ] || return 1
+
+    # Alright, we're ready to boot the microVM.
+    # Let's let the user know and give them some time to read through
+    # the info shown thus far (the kernel boot log will show a bunch of text
+    # lines that will scroll everything out of sight).
+    #
+    say ""
+    printf "%.0s=" $(seq 2 $(tput cols))
+    say ""
+    say ""
+    say "Your microVM is ready to boot."
+    say "You can log in as root, using the password \`root\`."
+    say "When you're done, issuing a \`reboot\` command inside the microVM" \
+        "will shutdown Firecracker gracefully."
+    say ""
+    say_noln "Booting the microVM in 30 seconds. Hit <ENTER> too boot it now ... "
+
+    read -s -t 30 ln
+    say "Starting microVM ..."
+    say ""
+    printf "%.0s=" $(seq 2 $(tput cols))
+    say ""
+
+    curl -fsS --unix-socket "$HELLO_HOME/api.sock" \
+        -X PUT "http://localhost/actions" \
+        -H  "accept: application/json" \
+        -H  "Content-Type: application/json" \
+        -d "{
+            \"action_type\": \"InstanceStart\"
+         }"
+    [ $? -eq 0 ] || return 1
+}
+
+# Manage the two subshells needed to run Firecracker: one for running
+# Firecracker, and the other one for setting it up via the API socket.
+#
+run_demo() {
+
+    # Go home, so paths are easier to read.
+    #
+    cd "$HELLO_HOME"
+
+    # Make sure Firecracker is able to create the API socket.
+    rm -f "api.sock"
+    ok_or_die "Error cleaning up $HELLO_HOME/api.sock." \
+        "Please check dir/file permissions."
+
+    # We'll need to have Firecracker connected to STDIN and STDOUT, so the
+    # user can interact with the microVM.
+    # However, when spawning a subshell in the background, STDIN gets closed,
+    # so we'll need to back it up here and restored it later.
+    #
+    exec 5<&0
+    (
+        # This is the Firecracker subshell. Time to restore STDIN.
+        #
+        exec 0<&5
+        exec 5<&-
+
+        # Exec into the Firecracker binary, so we don't have to resort to any
+        # `ps` workaround to get the Firecracker PID.
+        #
+        exec ./firecracker --api-sock api.sock
+    )&
+    firecracker_pid=$!
+
+    # We don't need the backup anymore.
+    exec 5<&-
+
+    say "Firecracker started with PID $firecracker_pid."
+    say "Waiting for the API socket to show up ..."
+
+    # Firecracker is now initializing. We'll have to wait for the API socket
+    # to become available before we can set up the microVM.
+    # Run a loop, looking for the API socket every 100ms.
+    # Give up after 10 seconds.
+    #
+    retries=100
+    while ((retries-- > 0)); do
+        [ -w "api.sock" ] && break
+        sleep 0.1
+    done
+
+    # Check why we exited the loop.
+    #
+    [ -w "api.sock" ] || \
+        die "Well, this is embarassing... Firecracker failed to start."
+
+    # Alright, Firecracker is up and running. Time to let it know how to start
+    # our microVM.
+    #
+    run_firecracker_control || {
+        say_err "Well, this is embarassing... couldn't set up Firecracker."
+        kill -9 $firecracker_pid
+    }
+
+    # The microVM is running in the foreground. Wait around for the user to
+    # finish up and shut down Firecracker.
+    #
+    wait $firecracker_pid
+
+    printf "%.0s=" $(seq 2 $(tput cols))
+    say ""
+
+    # Remove the API socket.
+    #
+    rm -f "api.sock"
+
+    # Aaaaand... done.
+    #
+    say ""
+    say "All done!"
+    say ""
+}
+
+# Let the user know there are some new files that we downloaded to their
+# machine, and how to get rid of them if they want to.
+#
+say_goodbye() {
+    say ""
+    say "Thank you for trying out Firecracker!"
+}
+
+main() {
+
+    # Make sure we're running in a terminal.
+    #
+    [ -t 0 ] && [ -t 1 ] || {
+        die "Error: this script must be run in a terminal."
+    }
+
+    greet
+
+    get_user_confirmation
+    ok_or_die
+
+    ensure_host_requirements
+
+    setup_home
+
+    run_demo
+
+    teardown_home
+
+    say_goodbye
+}
+
+main
