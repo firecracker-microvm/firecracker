@@ -30,3 +30,7 @@ x86_64 = { path = "../x86_64" }
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
+
+[features]
+vsock = ["devices/vsock"]
+
