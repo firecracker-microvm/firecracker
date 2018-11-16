@@ -27,4 +27,7 @@ panic = "abort"
 lto = true
 panic = "abort"
 
+[features]
+vsock = ["api_server/vsock"]
+
 [workspace]
