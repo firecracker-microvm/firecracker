@@ -27,3 +27,6 @@ memory_model = { path = "../memory_model" }
 net_util = { path = "../net_util" }
 rate_limiter = { path = "../rate_limiter" }
 x86_64 = { path = "../x86_64" }
+
+[features]
+vsock = ["vmm/vsock"]
