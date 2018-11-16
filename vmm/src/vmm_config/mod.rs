@@ -13,6 +13,9 @@ pub mod logger;
 pub mod machine_config;
 /// Wrapper for configuring the network devices attached to the microVM.
 pub mod net;
+#[cfg(feature = "vsock")]
+/// Wrapper for configuring the vsock devices attached to the microVM.
+pub mod vsock;
 
 /// Device State. TODO: This should be removed because we don't plan
 /// to support hot plug-unplug in the near future.

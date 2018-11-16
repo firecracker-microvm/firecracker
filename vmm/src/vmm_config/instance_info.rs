@@ -51,10 +51,13 @@ pub enum StartMicrovmError {
     /// Unable to seek the block device backing file due to invalid permissions or
     /// the file was deleted/corrupted.
     CreateBlockDevice(sys_util::Error),
-    /// split this at some point.
+    /// Split this at some point.
     /// Internal errors are due to resource exhaustion.
-    /// Users errors  are due to invalid permissions.
+    /// Users errors are due to invalid permissions.
     CreateNetDevice(devices::virtio::Error),
+    #[cfg(feature = "vsock")]
+    /// Creating a vsock device can only fail if the /dev/vhost-vsock device cannot be open.
+    CreateVsockDevice(devices::virtio::vhost::Error),
     /// Executing a VM request failed.
     DeviceVmRequest(sys_util::Error),
     /// Cannot read from an Event file descriptor.
@@ -81,6 +84,9 @@ pub enum StartMicrovmError {
     RegisterEvent,
     /// Cannot initialize a MMIO Network Device or add a device to the MMIO Bus.
     RegisterNetDevice(device_manager::mmio::Error),
+    #[cfg(feature = "vsock")]
+    /// Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus.
+    RegisterVsockDevice(device_manager::mmio::Error),
     /// Cannot create a new vCPU file descriptor.
     Vcpu(vstate::Error),
     /// vCPU configuration failed.
@@ -113,6 +119,13 @@ impl Display for StartMicrovmError {
                  the file was deleted/corrupted. Error number: {}",
                 err.errno().to_string()
             ),
+            #[cfg(feature = "vsock")]
+            CreateVsockDevice(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot create vsock device. {}", err_msg)
+            }
             CreateNetDevice(ref err) => {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
@@ -167,7 +180,7 @@ impl Display for StartMicrovmError {
                 err_msg = err_msg.replace("\"", "");
                 write!(
                     f,
-                    "Cannot initialize a MMIO Block Device or add a device to the MMIO Bus. Error: {}",
+                    "Cannot initialize a MMIO Block Device or add a device to the MMIO Bus. {}",
                     err_msg
                 )
             }
@@ -179,6 +192,17 @@ impl Display for StartMicrovmError {
                 write!(
                     f,
                     "Cannot initialize a MMIO Network Device or add a device to the MMIO Bus. {}",
+                    err_msg
+                )
+            }
+            #[cfg(feature = "vsock")]
+            RegisterVsockDevice(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(
+                    f,
+                    "Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus. {}",
                     err_msg
                 )
             }

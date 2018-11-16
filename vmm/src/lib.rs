@@ -75,6 +75,8 @@ use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
 use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError};
+#[cfg(feature = "vsock")]
+use vmm_config::vsock::{VsockDeviceConfig, VsockDeviceConfigs, VsockError};
 use vstate::{Vcpu, Vm};
 
 const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u16 = 0x03f0;
@@ -132,8 +134,8 @@ pub enum ErrorKind {
 /// Wrapper for all errors associated with VMM actions.
 #[derive(Debug)]
 pub enum VmmActionError {
-    /// The action `ConfigureBootSource` failed either because of bad user input (`ErrorKind::User`) or
-    /// an internal error (`ErrorKind::Internal`).
+    /// The action `ConfigureBootSource` failed either because of bad user input (`ErrorKind::User`)
+    /// or an internal error (`ErrorKind::Internal`).
     BootSource(ErrorKind, BootSourceConfigError),
     /// One of the actions `InsertBlockDevice`, `RescanBlockDevice` or `UpdateBlockDevicePath`
     /// failed either because of bad user input (`ErrorKind::User`) or an
@@ -142,15 +144,19 @@ pub enum VmmActionError {
     /// The action `ConfigureLogger` failed either because of bad user input (`ErrorKind::User`) or
     /// an internal error (`ErrorKind::Internal`).
     Logger(ErrorKind, LoggerConfigError),
-    /// One of the actions `GetVmConfiguration` or `SetVmConfiguration` failed either because of bad input (`ErrorKind::User`) or
-    /// an internal error (`ErrorKind::Internal`).
+    /// One of the actions `GetVmConfiguration` or `SetVmConfiguration` failed either because of bad
+    /// input (`ErrorKind::User`) or an internal error (`ErrorKind::Internal`).
     MachineConfig(ErrorKind, VmConfigError),
-    /// The action `InsertNetworkDevice` failed either because of bad user input (`ErrorKind::User`) or
-    /// an internal error (`ErrorKind::Internal`).
+    /// The action `InsertNetworkDevice` failed either because of bad user input (`ErrorKind::User`)
+    /// or an internal error (`ErrorKind::Internal`).
     NetworkConfig(ErrorKind, NetworkInterfaceError),
     /// The action `StartMicroVm` failed either because of bad user input (`ErrorKind::User`) or
     /// an internal error (`ErrorKind::Internal`).
     StartMicrovm(ErrorKind, StartMicrovmError),
+    #[cfg(feature = "vsock")]
+    /// The action `insert_vsock_device` failed either because of bad user input (`ErrorKind::User`)
+    /// or an internal error (`ErrorKind::Internal`).
+    VsockConfig(ErrorKind, VsockError),
 }
 
 impl VmmActionError {
@@ -165,6 +171,8 @@ impl VmmActionError {
             MachineConfig(ref kind, _) => kind,
             NetworkConfig(ref kind, _) => kind,
             StartMicrovm(ref kind, _) => kind,
+            #[cfg(feature = "vsock")]
+            VsockConfig(ref kind, _) => kind,
         }
     }
 }
@@ -180,6 +188,8 @@ impl Display for VmmActionError {
             MachineConfig(_, ref err) => write!(f, "{}", err.to_string()),
             NetworkConfig(_, ref err) => write!(f, "{}", err.to_string()),
             StartMicrovm(_, ref err) => write!(f, "{}", err.to_string()),
+            #[cfg(feature = "vsock")]
+            VsockConfig(_, ref err) => write!(f, "{}", err.to_string()),
         }
     }
 }
@@ -204,6 +214,11 @@ pub enum VmmAction {
     /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
     /// booted. The response is sent using the `OutcomeSender`.
     InsertNetworkDevice(NetworkInterfaceConfig, OutcomeSender),
+    #[cfg(feature = "vsock")]
+    /// Add a new vsock device or update one that already exists using the
+    /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
+    /// booted. The response is sent using the `OutcomeSender`.
+    InsertVsockDevice(VsockDeviceConfig, OutcomeSender),
     /// Update the size of an existing block device specified by an ID. The ID is the first data
     /// associated with this enum variant. This action can only be called after the microVM is
     /// started. The response is sent using the `OutcomeSender`.
@@ -447,6 +462,12 @@ impl EpollContext {
         virtio::net::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
+    #[cfg(feature = "vsock")]
+    fn allocate_virtio_vsock_tokens(&mut self) -> virtio::vhost::handle::VhostEpollConfig {
+        let (dispatch_base, sender) = self.allocate_tokens(2);
+        virtio::vhost::handle::VhostEpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
+    }
+
     fn get_device_handler(&mut self, device_idx: usize) -> Result<&mut EpollHandler> {
         let ref mut maybe = self.device_handlers[device_idx];
         match maybe.handler {
@@ -505,6 +526,8 @@ struct Vmm {
     // This is necessary because we want the root to always be mounted on /dev/vda
     block_device_configs: BlockDeviceConfigs,
     network_interface_configs: NetworkInterfaceConfigs,
+    #[cfg(feature = "vsock")]
+    vsock_device_configs: VsockDeviceConfigs,
 
     epoll_context: EpollContext,
 
@@ -559,6 +582,8 @@ impl Vmm {
             block_device_configs,
             drive_handler_id_map: HashMap::new(),
             network_interface_configs: NetworkInterfaceConfigs::new(),
+            #[cfg(feature = "vsock")]
+            vsock_device_configs: VsockDeviceConfigs::new(),
             epoll_context,
             api_event,
             from_api,
@@ -701,6 +726,28 @@ impl Vmm {
         Ok(())
     }
 
+    #[cfg(feature = "vsock")]
+    fn attach_vsock_devices(
+        &mut self,
+        device_manager: &mut MMIODeviceManager,
+        guest_mem: &GuestMemory,
+    ) -> std::result::Result<(), StartMicrovmError> {
+        let kernel_config = self.kernel_config.as_mut().unwrap();
+
+        for cfg in self.vsock_device_configs.iter() {
+            let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
+
+            let vsock_box = Box::new(
+                devices::virtio::Vsock::new(cfg.guest_cid as u64, guest_mem, epoll_config)
+                    .map_err(StartMicrovmError::CreateVsockDevice)?,
+            );
+            device_manager
+                .register_device(vsock_box, &mut kernel_config.cmdline, None)
+                .map_err(StartMicrovmError::RegisterVsockDevice)?;
+        }
+        Ok(())
+    }
+
     fn configure_kernel(&mut self, kernel_config: KernelConfig) {
         self.kernel_config = Some(kernel_config);
     }
@@ -736,6 +783,8 @@ impl Vmm {
 
         self.attach_block_devices(&mut device_manager)?;
         self.attach_net_devices(&mut device_manager)?;
+        #[cfg(feature = "vsock")]
+        self.attach_vsock_devices(&mut device_manager, &guest_mem)?;
 
         self.mmio_device_manager = Some(device_manager);
         Ok(())
@@ -1327,6 +1376,23 @@ impl Vmm {
             .map_err(|e| VmmActionError::NetworkConfig(ErrorKind::User, e))
     }
 
+    #[cfg(feature = "vsock")]
+    fn insert_vsock_device(
+        &mut self,
+        body: VsockDeviceConfig,
+    ) -> std::result::Result<VmmData, VmmActionError> {
+        if self.is_instance_initialized() {
+            return Err(VmmActionError::VsockConfig(
+                ErrorKind::User,
+                VsockError::UpdateNotAllowedPostBoot,
+            ));
+        }
+        self.vsock_device_configs
+            .add(body)
+            .map(|_| VmmData::Empty)
+            .map_err(|e| VmmActionError::VsockConfig(ErrorKind::User, e))
+    }
+
     fn set_block_device_path(
         &mut self,
         drive_id: String,
@@ -1534,6 +1600,10 @@ impl Vmm {
             VmmAction::InsertNetworkDevice(netif_body, sender) => {
                 Vmm::send_response(self.insert_net_device(netif_body), sender);
             }
+            #[cfg(feature = "vsock")]
+            VmmAction::InsertVsockDevice(vsock_cfg, sender) => {
+                Vmm::send_response(self.insert_vsock_device(vsock_cfg), sender);
+            }
             VmmAction::RescanBlockDevice(drive_id, sender) => {
                 Vmm::send_response(self.rescan_block_device(&drive_id), sender);
             }
@@ -1547,7 +1617,6 @@ impl Vmm {
                 Vmm::send_response(self.set_block_device_path(drive_id, path_on_host), sender);
             }
         };
-
         Ok(())
     }
 }
