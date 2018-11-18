@@ -324,6 +324,10 @@ impl TcpIPv4Handler {
                 Some((self.local_addr, tuple.remote_addr)),
             ).len();
 
+            packet
+                .inner_mut()
+                .set_destination_address(tuple.remote_addr);
+
             let packet_len = packet.with_payload_len_unchecked(segment_len, true).len();
             // The unwrap() is safe because packet_len > 0.
             return Ok((
@@ -445,14 +449,21 @@ mod tests {
     }
 
     // Calls write_next_packet until either an error occurs, or there's nothing left to send.
-    // When successful, returns how many packets were written.
-    fn drain_packets(h: &mut TcpIPv4Handler) -> Result<usize, WriteNextError> {
+    // When successful, returns how many packets were written. The remote_addr argument is used
+    // to check the packets are sent to the appropriate destination.
+    fn drain_packets(
+        h: &mut TcpIPv4Handler,
+        remote_addr: Ipv4Addr,
+    ) -> Result<usize, WriteNextError> {
         let mut buf = [0u8; 2000];
         let mut count: usize = 0;
         loop {
             let (o, _) = write_next(h, buf.as_mut())?;
             if o.is_some() {
                 count += 1;
+                let p = o.unwrap();
+                assert_eq!(p.source_address(), h.local_addr);
+                assert_eq!(p.destination_address(), remote_addr);
             } else {
                 break;
             }
@@ -507,7 +518,7 @@ mod tests {
 
         // The handler should have nothing to send at this point.
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Nothing);
-        assert_eq!(drain_packets(&mut h), Ok(0));
+        assert_eq!(drain_packets(&mut h, remote_addr), Ok(0));
 
         let mut p = p.with_payload_len_unchecked(s_len, false);
         assert_eq!(h.receive_packet(&p).unwrap_err(), RecvError::InvalidPort);
@@ -522,6 +533,7 @@ mod tests {
         {
             let s = next_written_segment(&mut h, buf2.as_mut(), WriteEvent::Nothing);
             assert!(s.flags_after_ns().intersects(TcpFlags::RST));
+            assert_eq!(s.source_port(), local_port);
             assert_eq!(s.destination_port(), remote_port);
         }
 
@@ -538,7 +550,7 @@ mod tests {
 
         // Drain the resets.
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Available);
-        assert_eq!(drain_packets(&mut h), Ok(2));
+        assert_eq!(drain_packets(&mut h, remote_addr), Ok(2));
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Nothing);
 
         // Ok now let's send a valid SYN.
@@ -567,7 +579,7 @@ mod tests {
 
         // There will be a SYNACK in response.
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Available);
-        assert_eq!(drain_packets(&mut h), Ok(1));
+        assert_eq!(drain_packets(&mut h, remote_addr), Ok(1));
 
         let remote_tuple = ConnectionTuple::new(remote_addr, remote_port);
         let remote_tuple2 = ConnectionTuple::new(remote_addr, remote_port + 1);
@@ -586,7 +598,7 @@ mod tests {
         assert_eq!(h.receive_packet(&p), Ok(RecvEvent::Nothing));
         assert_eq!(h.connections.len(), 1);
         // SYNACK retransmission.
-        assert_eq!(drain_packets(&mut h), Ok(1));
+        assert_eq!(drain_packets(&mut h, remote_addr), Ok(1));
 
         // The timeout value should've gotten updated.
         assert_eq!(h.active_connections.len(), 0);
@@ -629,7 +641,7 @@ mod tests {
         assert_eq!(h.connections.len(), 2);
         assert_eq!(h.active_connections.len(), 1);
         // SYNACK
-        assert_eq!(drain_packets(&mut h), Ok(1));
+        assert_eq!(drain_packets(&mut h, remote_addr), Ok(1));
 
         // The timeout associated with the SYNACK of the second connection should be next.
         assert_eq!(h.active_connections.len(), 0);
@@ -665,7 +677,7 @@ mod tests {
 
         // One SYNACK for the new connection, and one RST for the old one.
         assert_eq!(h.rst_queue.len(), 1);
-        assert_eq!(drain_packets(&mut h), Ok(2));
+        assert_eq!(drain_packets(&mut h, remote_addr), Ok(2));
         assert_eq!(h.rst_queue.len(), 0);
         assert_eq!(h.active_connections.len(), 0);
 
@@ -675,7 +687,7 @@ mod tests {
         inner_tcp_mut(&mut p).set_source_port(remote_port);
         assert_eq!(h.receive_packet(&p), Ok(RecvEvent::Nothing));
         assert_eq!(h.active_connections.len(), 1);
-        assert_eq!(drain_packets(&mut h), Ok(1));
+        assert_eq!(drain_packets(&mut h, remote_addr), Ok(1));
         assert_eq!(h.connections.len(), 1);
         assert_eq!(h.active_connections.len(), 0);
     }
