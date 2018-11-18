@@ -167,9 +167,12 @@ impl MmdsNetworkStack {
     // - Some(len), if a frame of the given length has been written to the specified buffer.
     pub fn write_next_frame(&mut self, buf: &mut [u8]) -> Option<NonZeroUsize> {
         // We try to send ARP replies first.
-        if let Some(spa) = self.pending_arp_reply.take() {
+        if let Some(spa) = self.pending_arp_reply {
             return match self.write_arp_reply(buf, spa) {
-                Ok(something) => something,
+                Ok(something) => {
+                    self.pending_arp_reply = None;
+                    something
+                }
                 Err(_) => {
                     METRICS.mmds.tx_errors.inc();
                     None
