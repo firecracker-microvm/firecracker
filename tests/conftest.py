@@ -1,3 +1,5 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Imported by pytest at the start of every test session.
 
 # Fixture Goals

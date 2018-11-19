@@ -1,3 +1,5 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Defines classes for all the resources a microvm could need attaching."""
 
 import urllib

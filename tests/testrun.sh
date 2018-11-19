@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Run this script to do a Firecracker integration testrun. This script sets up
 # dependencies in a sandbox, does the testrun, and then tears down the sandbox.
 #

@@ -1,3 +1,5 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Tests ensuring codebase style compliance for Rust and Python."""
 
 from subprocess import run, PIPE

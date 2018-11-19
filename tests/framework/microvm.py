@@ -1,3 +1,5 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Classes for working with microVMs.
 
 This module defines `Microvm`, which can be used to create, test drive, and

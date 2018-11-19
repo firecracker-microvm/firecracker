@@ -1,3 +1,5 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Tests that check if both the debug and the release builds pass."""
 
 import os
