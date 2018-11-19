@@ -1,6 +1,9 @@
-// Copyright 2017 The Chromium OS Authors. All rights reserved.
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
+// found in the THIRD-PARTY file.
 
 // This is only used by the tests module from tap.rs, but we cannot use #[macro_use] unless the
 // reference to lazy_static is declared at the root level of the importing crate.

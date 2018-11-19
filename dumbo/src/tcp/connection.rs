@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
 // I think this is the sole use of the rand crate within Firecracker. If it's too much dependency

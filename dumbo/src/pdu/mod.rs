@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //! A module for interpreting byte slices as protocol data units (PDUs).
 //!
 //! A PDU represents data transmitted as a single unit during communication using a specific

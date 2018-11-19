@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Contains logic that helps with handling ARP frames over Ethernet, which encapsulate requests
 //! or replies related to IPv4 addresses.
 //!

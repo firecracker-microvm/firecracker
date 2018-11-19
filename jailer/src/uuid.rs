@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Validate UUIDs.
 //! A UUID is an unique number of 128bit.  UUIDs are used to  assign
 //! unique identifiers to entities.

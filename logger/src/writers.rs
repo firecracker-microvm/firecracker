@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Auxiliary module for flushing some input to a named PIPE (FIFO).
 
 use libc::O_NONBLOCK;
