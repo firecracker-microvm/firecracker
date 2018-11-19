@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::convert::From;
 use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;

@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Contains support for parsing and writing Ethernet frames. Does not currently offer support for
 //! 802.1Q tags.
 
