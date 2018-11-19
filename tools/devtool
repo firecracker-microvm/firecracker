@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Firecracker devtool
 #
 # Use this script to build and test Firecracker.
