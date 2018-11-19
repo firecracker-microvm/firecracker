@@ -1,3 +1,5 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Some common defines used in different modules of the testing framework."""
 API_USOCKET_URL_PREFIX = 'http+unix://'
 """URL prefix used for the API calls through a UNIX domain socket."""
