@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Contains support for parsing and writing TCP segments.
 //!
 //! [Here]'s a useful depiction of the TCP header layout (watch out for the MSB 0 bit numbering.)

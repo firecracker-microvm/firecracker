@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // When designing the MMDS, we thought about a split in functionality, were we have some basic
 // building blocks (such as the simplified TCP implementation, and the micro HTTP server) which can
 // even be exported as libraries at some point, and then we have things built on top of those.

@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 #![warn(missing_docs)]
 //! Utility for sending log related messages and metrics to two different named pipes (FIFO) or
 //! simply to stdout/stderr. The logging destination is specified upon the initialization of the

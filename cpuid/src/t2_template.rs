@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use cpu_leaf::*;
 use kvm_sys::kvm_cpuid_entry2;
 

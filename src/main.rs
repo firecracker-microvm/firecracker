@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 extern crate backtrace;
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;

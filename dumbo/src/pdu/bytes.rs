@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Defines traits which allow byte slices to be interpreted as sequences of bytes that stand for
 //! different values packed together using network byte ordering (such as network packets).
 //!

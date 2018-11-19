@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Contains support for parsing and writing IPv4 packets.
 //!
 //! A picture of the IPv4 packet header can be found [here] (watch out for the MSB 0 bit numbering).
