@@ -26,15 +26,13 @@ appealing for crosvm.
 
 ### Who uses Firecracker today and how will they use Firecracker?
 
-Firecracker is for service owners running containers and functions-based
-services. Service owners will be able to launch containers via familiar
-interfaces such as containerd and OCI runtime interface which can automatically
-create micro-VMs to sandbox containerized applications. AWS Lambda and AWS
-Fargate are built on Firecracker.
+Today, AWS Lambda and AWS Fargate are built on Firecracker. In the
+future, we plan to enable users to launch micro-VM backed containers
+via familiar interfaces such as containerd.
 
 ### Is Firecracker compatible with the container ecosystem such as Kubernetes, Docker, Kata containers?
 
-The Firecracker community will explore integration and collaboration with
+The Firecracker team is exploring integration and collaboration with
 Kubernetes, containerd, Docker, and Kata Containers, with the goal of enabling
 Firecracker to be seamlessly integrated with the container ecosystem. 
 
