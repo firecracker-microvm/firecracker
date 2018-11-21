@@ -73,19 +73,8 @@
 #   - Look into caching the Cargo registry within the container and if that
 #     would help with reproducible builds (in addition to pinning Cargo.lock)
 
-# Pretty descriptive var name.
-OPEN_SOURCE_SWITCH=false
-
-# Private development container image (used before open sourcing).
-PRIVATE_DEVCTR_IMAGE="948479086345.dkr.ecr.us-east-1.amazonaws.com/ccfc:latest"
-
-# Public development container image (used after open sourcing).
-PUBLIC_DEVCTR_IMAGE="firecracker-microvm/dev:latest"
-
-# The development container image.
-[[ "$OPEN_SOURCE_SWITCH" = true ]] \
-    && DEVCTR_IMAGE="$PUBLIC_DEVCTR_IMAGE" \
-    || DEVCTR_IMAGE="$PRIVATE_DEVCTR_IMAGE"
+# Development container image (name:tag)
+DEVCTR_IMAGE="fcuvm/dev:latest"
 
 # The S3 bucket used to the store test microVM images.
 TEST_MICROVM_IMAGES_S3_BUCKET="spec.ccfc.min"
@@ -130,15 +119,6 @@ CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
 # Global options received by $0
 # These options are not command-specific, so we store them as global vars
 OPT_UNATTENDED=false
-
-# AWS credentials. We need to pass these to the container, so it gets access
-# to the S3 bucket holding the test microVM images.
-# Once we open source, the S3 bucket will be publicly available, so we can
-# remove this.
-[[ "$OPEN_SOURCE_SWITCH" != true ]] && {
-    AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
-    AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
-}
 
 
 # Send a decorated message to stdout, followed by a new line
@@ -360,23 +340,6 @@ run_devctr() {
         shift
     done
 
-    # While the S3 microVM test images bucket is still private, we need to pass
-    # the AWS cred to the dev container.
-    #
-    [[ "$OPEN_SOURCE_SWITCH" != true ]] && {
-        docker_args+=("--env")
-        docker_args+=("AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}")
-        docker_args+=("--env")
-        docker_args+=("AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}")
-
-        # The session token is only present when using a temporary access key,
-        # such as one provided by an IAM role.
-        [[ -n "$AWS_SESSION_TOKEN" ]] && {
-            docker_args+=("--env")
-            docker_args+=("AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}")
-        }
-    }
-
     # If we're running in a terminal, pass the terminal to Docker and run
     # the container interactively
     [[ -t 0 ]] && docker_args+=("-i")
@@ -514,10 +477,6 @@ cmd_test() {
     ensure_devctr
     ensure_build_dir
 
-    # We need AWS creds to access the S3 microVM images bucket, while the bucket
-    # is still private.
-    [ "$OPEN_SOURCE_SWITCH" != true ] && load_aws_creds || \
-        die "Could not find AWS credentials."
 
     # If we got to here, we've got all we need to continue.
     say "Starting test run ..."
@@ -566,12 +525,6 @@ cmd_shell() {
     # Make sure we have what we need to continue.
     ensure_devctr
     ensure_build_dir
-
-    # We need AWS creds to access the S3 microVM images bucket, while the bucket
-    # is still private.
-    [ "$OPEN_SOURCE_SWITCH" != true ] && load_aws_creds || \
-        say_warn "WARNING: could not find AWS credentials; tests will not work," \
-            "as they will be unable to access the microVM images S3 bucket."
 
     if [[ $privileged = true ]]; then
         # If requested, spin up a privileged container.
@@ -637,39 +590,6 @@ cmd_update() {
     [ $confirmed = true ] || {
         say "About to pull docker image $DEVCTR_IMAGE"
         get_user_confirmation || die "Aborted."
-    }
-
-    # While our container is still private (and stored with ECR), we'll need to
-    # log in before being able to download it.
-    #
-    [[ "$OPEN_SOURCE_SWITCH" != true ]] &&  {
-
-        # We'll need the AWS CLI tools to login to ECR.
-        which aws > /dev/null 2>&1
-        [[ $? -eq 0 ]] || die "awscli not found. Aborting"
-
-        # Extract the AWS region from the container URL.
-        aws_region=$(
-            [[ $DEVCTR_IMAGE =~ ecr.([-0-9a-z]+).amazonaws.com ]] && \
-                echo "${BASH_REMATCH[1]}"
-        )
-
-        # Extract the AWS ECR registry ID. We'll need it to properly generate
-        # the docker login command.
-        registry_id=$(
-            [[ $DEVCTR_IMAGE =~ (^[0-9]+)\. ]] && \
-                echo "${BASH_REMATCH[1]}"
-        )
-
-        # Login to ECR.
-        # `aws ecr get-login` will echo a docker login command
-        say "Logging in to AWS ECR ..."
-        $(
-            aws --region "$aws_region" \
-                ecr get-login --registry-ids "$registry_id" --no-include-email
-        )
-
-        ok_or_die "Docker login failed. Aborting."
     }
 
     say "Updating ${DEVCTR_IMAGE} ..."
