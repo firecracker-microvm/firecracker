@@ -5,7 +5,7 @@
 Enable secure, multi-tenant, minimal-overhead execution of container and
 serverless workloads.
 
-## Tenets
+## Tenets (unless you know better ones)
 
 These tenets guide Firecracker's development:
 
@@ -21,13 +21,12 @@ These tenets guide Firecracker's development:
 1. **Compute Oversubscription**: All of the hardware compute resources exposed
    by Firecracker to guests can be securely oversubscribed.
 
-## Contributions & Governance 
+## Contributions & Project Roles
 
 All contributions must align with this charter and follow Firecracker's
 [contribution process](CONTRIBUTE.md).
 
-Only Firecracker [maintainers](MAINTAINERS.md) may merge contributions into the
-master branch and create Firecracker releases. Maintainers are also subject to
-the mission and tenets outlined herein. Anyone may submit and review
-contributions.
-
+Firecracker [maintainers](MAINTAINERS.md) merge contributions into the
+master branch and create Firecracker releases. Maintainers are also
+subject to the mission and tenets outlined above. Anyone may submit
+and review contributions.
