@@ -618,7 +618,9 @@ mod tests {
     #[test]
     #[cfg(target_env = "musl")]
     fn test_basic_seccomp() {
-        seccomp::setup_seccomp(seccomp::SeccompLevel::Basic(super::ALLOWED_SYSCALLS)).unwrap();
+        assert!(
+            seccomp::setup_seccomp(seccomp::SeccompLevel::Basic(super::ALLOWED_SYSCALLS)).is_ok()
+        );
     }
 
     #[test]
@@ -626,27 +628,51 @@ mod tests {
     fn test_advanced_seccomp() {
         // Sets up context with additional rules required by the test.
         let mut context = super::default_context().unwrap();
-        context.add_rule(
-            libc::SYS_exit,
-            None,
-            seccomp::SeccompRule::new(vec![], seccomp::SeccompAction::Allow),
+        assert!(
+            context
+                .add_rules(
+                    libc::SYS_exit,
+                    None,
+                    vec![seccomp::SeccompRule::new(
+                        vec![],
+                        seccomp::SeccompAction::Allow,
+                    )],
+                ).is_ok()
         );
-        context.add_rule(
-            libc::SYS_rt_sigprocmask,
-            None,
-            seccomp::SeccompRule::new(vec![], seccomp::SeccompAction::Allow),
+        assert!(
+            context
+                .add_rules(
+                    libc::SYS_rt_sigprocmask,
+                    None,
+                    vec![seccomp::SeccompRule::new(
+                        vec![],
+                        seccomp::SeccompAction::Allow,
+                    )],
+                ).is_ok()
         );
-        context.add_rule(
-            libc::SYS_set_tid_address,
-            None,
-            seccomp::SeccompRule::new(vec![], seccomp::SeccompAction::Allow),
+        assert!(
+            context
+                .add_rules(
+                    libc::SYS_set_tid_address,
+                    None,
+                    vec![seccomp::SeccompRule::new(
+                        vec![],
+                        seccomp::SeccompAction::Allow,
+                    )],
+                ).is_ok()
         );
-        context.add_rule(
-            libc::SYS_sigaltstack,
-            None,
-            seccomp::SeccompRule::new(vec![], seccomp::SeccompAction::Allow),
+        assert!(
+            context
+                .add_rules(
+                    libc::SYS_sigaltstack,
+                    None,
+                    vec![seccomp::SeccompRule::new(
+                        vec![],
+                        seccomp::SeccompAction::Allow,
+                    )],
+                ).is_ok()
         );
 
-        seccomp::setup_seccomp(seccomp::SeccompLevel::Advanced(context)).unwrap();
+        assert!(seccomp::setup_seccomp(seccomp::SeccompLevel::Advanced(context)).is_ok());
     }
 }
