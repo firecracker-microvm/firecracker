@@ -5,6 +5,3 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
 libc = ">=0.2.39"
-
-logger = { path = "../logger" }
-sys_util = { path = "../sys_util" }
