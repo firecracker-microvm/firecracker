@@ -5,6 +5,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+#![warn(missing_docs)]
+//! Utility for configuring the CPUID (CPU identification) for the guest microVM.
+
 extern crate kvm;
 extern crate kvm_sys;
 #[macro_use]
@@ -15,22 +18,50 @@ use std::result;
 use kvm::CpuId;
 
 mod brand_string;
+/// Follows a C3 template in setting up the CPUID.
 pub mod c3_template;
 mod cpu_leaf;
+/// Follows a T2 template in setting up the CPUID.
 pub mod t2_template;
 
 use brand_string::BrandString;
 use brand_string::Reg as BsReg;
 use cpu_leaf::*;
 
+/// Errors associated with configuring the CPUID entries.
 #[derive(Debug)]
 pub enum Error {
+    /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
     VcpuCountOverflow,
 }
 
+/// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, Error>;
 
-/// Sets up the cpuid entries for the given vcpu
+/// Sets up the CPUID entries for the given vcpu.
+///
+/// # Arguments
+///
+/// * `cpu_id` - The index of the VCPU for which the CPUID entries are configured.
+/// * `cpu_count` - The total number of present VCPUs.
+/// * `ht_enabled` - Whether or not to enable HT.
+/// * `kvm_cpuid` - KVM related structure holding the relevant CPUID info.
+///
+/// # Example
+/// ```
+/// extern crate cpuid;
+/// extern crate kvm;
+///
+/// use cpuid::filter_cpuid;
+/// use kvm::{CpuId, Kvm, MAX_KVM_CPUID_ENTRIES};
+///
+/// let kvm = Kvm::new().unwrap();
+/// let mut kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
+/// filter_cpuid(0, 1, true, &mut kvm_cpuid).unwrap();
+///
+/// // Get expected `kvm_cpuid` entries.
+/// let entries = kvm_cpuid.mut_entries_slice();
+/// ```
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn filter_cpuid(
     cpu_id: u8,
@@ -202,10 +233,11 @@ const LEAFBH_INDEX1_APICID_SHIFT: u32 = 6;
 
 const DEFAULT_BRAND_STRING: &[u8] = b"Intel(R) Xeon(R) Processor";
 
-/// This function is used for setting leaf 01H EBX[23-16]
+/// Sets leaf 01H EBX[23-16].
+///
 /// The maximum number of addressable logical CPUs is computed as the closest power of 2
-/// higher or equal to the CPU count configured by the user
-fn get_max_addressable_lprocessors(cpu_count: u8) -> result::Result<u8, Error> {
+/// higher or equal to the CPU count configured by the user.
+fn get_max_addressable_lprocessors(cpu_count: u8) -> Result<u8> {
     let mut max_addressable_lcpu = (cpu_count as f64).log2().ceil();
     max_addressable_lcpu = (2 as f64).powf(max_addressable_lcpu);
     // check that this number is still an u8
@@ -215,10 +247,10 @@ fn get_max_addressable_lprocessors(cpu_count: u8) -> result::Result<u8, Error> {
     Ok(max_addressable_lcpu as u8)
 }
 
-/// Generate the emulated brand string.
-/// TODO: Add non-Intel CPU support
+/// Generates the emulated brand string.
+/// TODO: Add non-Intel CPU support.
 ///
-/// For non-Intel CPUs, we'll just expose DEFAULT_BRAND_STRING
+/// For non-Intel CPUs, we'll just expose DEFAULT_BRAND_STRING.
 ///
 /// For Intel CPUs, the brand string we expose will be:
 ///    "Intel(R) Xeon(R) Processor @ {host freq}"
