@@ -7,13 +7,22 @@ use ascii::{CR, LF, SP};
 use common::{Body, Version};
 use headers::{Header, Headers, MediaType};
 
+/// Wrapper over a response status code.
+///
+/// The status code is defined as specified in the
+/// [RFC](https://tools.ietf.org/html/rfc7231#section-6).
 #[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq)]
 pub enum StatusCode {
+    /// 100, OK
     OK,
+    /// 400, Bad Request
     BadRequest,
+    /// 404, Not Found
     NotFound,
+    /// 500, Internal Server Error
     InternalServerError,
+    /// 501, Not Implemented
     NotImplemented,
 }
 
@@ -52,6 +61,10 @@ impl StatusLine {
     }
 }
 
+/// Wrapper over an HTTP Response.
+///
+/// The Response is created using a `Version` and a `StatusCode`. When creating a Response object,
+/// the body is initialize to `None`. The body can be updated with a call to `set_body`.
 pub struct Response {
     status_line: StatusLine,
     headers: Headers,
@@ -59,6 +72,7 @@ pub struct Response {
 }
 
 impl Response {
+    /// Creates a new HTTP `Response` with an empty body.
     pub fn new(http_version: Version, status_code: StatusCode) -> Response {
         return Response {
             status_line: StatusLine::new(http_version, status_code),
@@ -67,6 +81,11 @@ impl Response {
         };
     }
 
+    /// Updates the body of the `Response`.
+    ///
+    /// This function has side effects because it also updates the headers:
+    /// - `ContentLength`: this is set to the length of the specified body.
+    /// - `MediaType`: this is set to "text/plain".
     pub fn set_body(&mut self, body: Body) {
         self.headers
             .add(Header::ContentLength, body.len().to_string());
@@ -84,6 +103,10 @@ impl Response {
         Ok(())
     }
 
+    /// Writes the content of the `Response` to the specified `buf`.
+    ///
+    /// # Errors
+    /// Returns an error when the buffer is not large enough.
     pub fn write_all<T: Write>(&self, mut buf: &mut T) -> Result<(), WriteError> {
         self.status_line.write_all(&mut buf)?;
         self.headers.write_all(&mut buf)?;
@@ -92,14 +115,18 @@ impl Response {
         Ok(())
     }
 
+    /// Returns the Status Code of the Response.
     pub fn status(&self) -> StatusCode {
         self.status_line.status_code
     }
 
+    /// Returns the Body of the response. If the response does not have a body,
+    /// it returns None.
     pub fn body(&self) -> Option<Body> {
         self.body.clone()
     }
 
+    /// Returns the HTTP Version of the response.
     pub fn http_version(&self) -> Version {
         self.status_line.http_version.clone()
     }

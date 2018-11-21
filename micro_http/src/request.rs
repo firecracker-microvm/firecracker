@@ -25,6 +25,9 @@ fn split(bytes: &[u8], separator: u8) -> (&[u8], &[u8]) {
     return (&[], bytes);
 }
 
+/// Wrapper over HTTP URIs.
+///
+/// The `Uri` can not be used directly and it is only accessible from an HTTP Request.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Uri<'a> {
     slice: &'a str,
@@ -44,6 +47,8 @@ impl<'a> Uri<'a> {
         Ok(Uri::new(utf8_slice))
     }
 
+    /// Returns the absolute path of the `Uri`.
+    ///
     /// URIs can be represented in absolute form or relative form. The absolute form includes
     /// the HTTP scheme, followed by the absolute path as follows:
     /// "http:" "//" host [ ":" port ] [ abs_path ]
@@ -120,6 +125,7 @@ impl<'a> RequestLine<'a> {
     }
 }
 
+/// Wrapper over an HTTP Request.
 #[allow(unused)]
 #[derive(Debug)]
 pub struct Request<'a> {
@@ -130,13 +136,15 @@ pub struct Request<'a> {
 
 impl<'a> Request<'a> {
     /// Parses a byte slice into a HTTP Request.
+    ///
     /// The byte slice is expected to have the following format: </br>
     ///     * Request Line: "GET SP Request-uri SP HTTP/1.0 CRLF" - Mandatory </br>
     ///     * Request Headers "<headers> CRLF"- Optional </br>
     ///     * Entity Body - Optional </br>
     /// The request headers and the entity body is not parsed and None is returned because
     /// these are not used by the MMDS server.
-    /// The only supported method is GET and the HTTP protocol is expected to be HTTP/1.0.
+    /// The only supported method is GET and the HTTP protocol is expected to be HTTP/1.0
+    /// or HTTP/1.1.
     ///
     /// # Errors
     /// The function returns InvalidRequest when parsing the byte stream fails.
@@ -148,7 +156,7 @@ impl<'a> Request<'a> {
     /// use micro_http::Request;
     ///
     /// let http_request = Request::try_from(b"GET http://localhost/home HTTP/1.0\r\n");
-    ///
+    /// ```
     pub fn try_from(byte_stream: &'a [u8]) -> Result<Self, RequestError> {
         // The first line of the request is the Request Line. The line ending is LF.
         let (request_line, _) = split(byte_stream, LF);
@@ -166,10 +174,14 @@ impl<'a> Request<'a> {
         })
     }
 
+    /// Returns the `Uri` from the parsed `Request`.
+    ///
+    /// The return value can be used to get the absolute path of the URI.
     pub fn uri(&self) -> &Uri {
         &self.request_line.uri
     }
 
+    /// Returns the HTTP `Version` of the `Request`.
     pub fn http_version(&self) -> Version {
         self.request_line.http_version
     }
