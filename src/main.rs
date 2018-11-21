@@ -39,7 +39,7 @@ fn main() {
         .expect("Failed to register logger");
 
     // If the signal handler can't be set, it's OK to panic.
-    seccomp::setup_sigsys_handler().expect("Failed to register signal handler");
+    vmm::setup_sigsys_handler().expect("Failed to register signal handler");
     // Start firecracker by setting up a panic hook, which will be called before
     // terminating as we're building with panic = "abort".
     // It's worth noting that the abort is caused by sending a SIG_ABORT signal to the process.
