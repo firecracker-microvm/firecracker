@@ -6,9 +6,12 @@ use std::io::{Error as WriteError, Write};
 
 use ascii::{COLON, CR, LF, SP};
 
+/// Wrapper over an HTTP Header type.
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub enum Header {
+    /// Header `Content-Length`.
     ContentLength,
+    /// Header `Content-Type`.
     ContentType,
 }
 
@@ -21,22 +24,26 @@ impl Header {
     }
 }
 
+/// Wrapper over the list of headers associated with a Request/Response.
 #[derive(Debug)]
 pub struct Headers {
     headers: HashMap<Header, String>,
 }
 
 impl Headers {
+    /// By default Requests are created with no headers.
     pub fn default() -> Headers {
         return Headers {
             headers: HashMap::new(),
         };
     }
 
+    /// Adds a new header to the list.
     pub fn add(&mut self, header: Header, value: String) {
         self.headers.insert(header, value);
     }
 
+    /// Writes the headers to `buf` using the HTTP specification.
     pub fn write_all<T: Write>(&self, buf: &mut T) -> Result<(), WriteError> {
         for (key, val) in &self.headers {
             buf.write_all(key.raw())?;
@@ -52,11 +59,14 @@ impl Headers {
     }
 }
 
+/// Wrapper over supported Media Types.
 pub enum MediaType {
+    /// Media Type: "text/plain".
     PlainText,
 }
 
 impl MediaType {
+    /// Returns a static string representation of the object.
     pub fn as_str(&self) -> &'static str {
         match self {
             MediaType::PlainText => "text/plain",
