@@ -9,8 +9,7 @@ pub enum Error {
     NotSupported,
 }
 
-/// Register designations used to get/set specific register values
-/// within the brand string buffer
+/// Register designations used to get/set specific register values within the brand string buffer.
 pub enum Reg {
     EAX = 0,
     EBX = 1,
@@ -18,13 +17,15 @@ pub enum Reg {
     EDX = 3,
 }
 
-/// A CPUID brand string wrapper, providing some efficient manipulation
-/// primitives. This is achieved by bypassing the O(n) indexing, heap
-/// allocation, and the unicode checks done by std::string::String.
+/// A CPUID brand string wrapper, providing some efficient manipulation primitives.
+///
+/// This is achieved by bypassing the `O(n)` indexing, heap allocation, and the unicode checks
+/// done by `std::string::String`.
 ///
 pub struct BrandString {
-    /// Flattened buffer, holding an array of 32-bit register values
-    /// Laid out like this:
+    /// Flattened buffer, holding an array of 32-bit register values.
+    ///
+    /// It has the following layout:
     ///   reg_buf[0] = leaf_0x80000002.EAX
     ///   reg_buf[1] = leaf_0x80000002.EBX
     ///   reg_buf[2] = leaf_0x80000002.ECX
@@ -33,22 +34,23 @@ pub struct BrandString {
     ///   ...
     ///   reg_buf[10] = leaf_0x80000004.ECX
     ///   reg_buf[11] = leaf_0x80000004.EDX
-    /// When seen as a byte-array, this buffer holds the ASCII-encoded
-    /// CPU brand string.
+    /// When seen as a byte-array, this buffer holds the ASCII-encoded CPU brand string.
     reg_buf: [u32; BrandString::REG_BUF_SIZE],
 
     /// Actual string length, in bytes.
-    /// E.g. for "Intel CPU", this would be strlen("Intel CPU") == 9
+    ///
+    /// E.g. For "Intel CPU", this would be `strlen("Intel CPU") == 9`.
     len: usize,
 }
 
 impl BrandString {
-    /// Register buffer size (in number of registers)
-    /// There are 3 leaves (0x800000002 through 0x80000004),
-    /// each with 4 regs (EAX, EBX, ECX, EDX)
+    /// Register buffer size (in number of registers).
+    ///
+    /// There are 3 leaves (0x800000002 through 0x80000004), each with 4 regs (EAX, EBX, ECX, EDX).
     const REG_BUF_SIZE: usize = 3 * 4;
 
-    /// Max Brand string length, in bytes (also in chars, since it is ASCII-encoded)
+    /// Max Brand string length, in bytes (also in chars, since it is ASCII-encoded).
+    ///
     /// The string is NULL-terminated, so the max string length is actually one byte
     /// less than the buffer size in bytes
     const MAX_LEN: usize = Self::REG_BUF_SIZE * 4 - 1;
@@ -64,7 +66,6 @@ impl BrandString {
 
     /// Creates a brand string, initialized from the CPUID leaves 0x80000002 through 0x80000004
     /// of the host CPU.
-    ///
     pub fn from_host_cpuid() -> Result<Self, Error> {
         let mut this = Self::new();
         let mut cpuid_regs = unsafe { host_cpuid(0x80000000) };
@@ -94,10 +95,10 @@ impl BrandString {
         Ok(this)
     }
 
-    /// Creates a (custom) brand string, initialized from src.
-    /// No checks are performed on the length of src or its contents
-    /// (src should be an ASCII-encoded string).
+    /// Creates a (custom) brand string, initialized from `src`.
     ///
+    /// No checks are performed on the length of `src` or its contents (`src` should be an
+    /// ASCII-encoded string).
     #[inline]
     pub fn from_bytes_unchecked(src: &[u8]) -> Self {
         let mut this = Self::new();
@@ -107,7 +108,8 @@ impl BrandString {
     }
 
     /// Returns the given register value for the given CPUID leaf.
-    ///   leaf must be between 0x80000002 and 0x80000004
+    ///
+    /// `leaf` must be between 0x80000002 and 0x80000004.
     #[inline]
     pub fn get_reg_for_leaf(&self, leaf: u32, reg: Reg) -> u32 {
         // It's ok not to validate parameters here, leaf and reg should
@@ -116,8 +118,9 @@ impl BrandString {
         self.reg_buf[(leaf - 0x80000002) as usize * 4 + reg as usize]
     }
 
-    /// Sets the value for the given leaf/register pair
-    ///   leaf must be between 0x80000002 and 0x80000004
+    /// Sets the value for the given leaf/register pair.
+    ///
+    /// `leaf` must be between 0x80000002 and 0x80000004.
     #[inline]
     fn set_reg_for_leaf(&mut self, leaf: u32, reg: Reg, val: u32) {
         // It's ok not to validate parameters here, leaf and reg should
@@ -126,7 +129,7 @@ impl BrandString {
         self.reg_buf[(leaf - 0x80000002) as usize * 4 + reg as usize] = val;
     }
 
-    /// Get an immutable u8 slice view into the brand string buffer
+    /// Gets an immutable `u8` slice view into the brand string buffer.
     #[inline]
     fn as_bytes(&self) -> &[u8] {
         // This is actually safe, because self.reg_buf has a fixed, known size,
@@ -135,7 +138,7 @@ impl BrandString {
         unsafe { slice::from_raw_parts(self.reg_buf.as_ptr() as *const u8, Self::REG_BUF_SIZE * 4) }
     }
 
-    /// Get a mutable u8 slice view into the brand string buffer
+    /// Gets a mutable `u8` slice view into the brand string buffer.
     #[inline]
     fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe {
@@ -143,14 +146,12 @@ impl BrandString {
         }
     }
 
-    /// Asserts whether or not there is enough room to append src to the brand string.
-    ///
+    /// Asserts whether or not there is enough room to append `src` to the brand string.
     fn check_push(&mut self, src: &[u8]) -> bool {
         !(src.len() > Self::MAX_LEN - self.len)
     }
 
-    /// Appends src to the brand string if there is enough room to append it.
-    ///
+    /// Appends `src` to the brand string if there is enough room to append it.
     pub fn push_bytes(&mut self, src: &[u8]) {
         if !self.check_push(src) {
             // No room to push all of src.
@@ -163,8 +164,7 @@ impl BrandString {
         self.as_bytes_mut()[start..(start + count)].copy_from_slice(src);
     }
 
-    /// Checks if src is a prefix of the brand string
-    ///
+    /// Checks if `src` is a prefix of the brand string.
     pub fn starts_with(&self, src: &[u8]) -> bool {
         if src.len() > Self::MAX_LEN {
             return false;
@@ -173,9 +173,9 @@ impl BrandString {
     }
 
     /// Searches the brand string for the CPU frequency data it may contain (e.g. 4.01GHz),
-    /// and, if found, returns it as an u8 slice.
-    /// Basically, we're implementing a search for this regex: "([0-9]+\.[0-9]+[MG]Hz)"
+    /// and, if found, returns it as an `u8` slice.
     ///
+    /// Basically, we're implementing a search for this regex: "([0-9]+\.[0-9]+[MG]Hz)".
     pub fn find_freq(&self) -> Option<&[u8]> {
         let mut it = self
             .as_bytes()
