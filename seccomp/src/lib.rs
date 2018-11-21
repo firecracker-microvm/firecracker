@@ -104,8 +104,7 @@
 //! 1. `Errno(num)`: the syscall will not be executed. `errno` will be set to `num`.
 //! 1. `Kill`: the kernel will kill the process.
 //! 1. `Trap`: the kernel will send `SIGSYS` to the process. Handling is up to the process. If no
-//!    signal handler is set for `SIGSYS`, the process will die. A signal handler can be set with
-//!    the [`setup_sigsys_handler`] function.
+//!    signal handler is set for `SIGSYS`, the process will die.
 //!
 //! ### Example with Advanced Filtering
 //!
@@ -242,7 +241,6 @@
 //! The exit code will be 159.
 //!
 //! [`setup_seccomp`]: fn.setup_seccomp.html
-//! [`setup_sigsys_handler`]: fn.setup_sigsys_handler.html
 //! [`SeccompCondition`]: struct.SeccompCondition.html
 //! [`SeccompRule`]: struct.SeccompRule.html
 //! [`SeccompAction`]: enum.SeccompAction.html
@@ -252,10 +250,6 @@
 
 extern crate libc;
 
-extern crate logger;
-extern crate sys_util;
-
-use self::logger::{Metric, METRICS};
 use std::collections::HashMap;
 use std::result::Result;
 
@@ -308,13 +302,6 @@ const SECCOMP_RET_MASK: u32 = 0x0000ffff;
 // Defined as:
 // `#define AUDIT_ARCH_X86_64	(EM_X86_64|__AUDIT_ARCH_64BIT|__AUDIT_ARCH_LE)`
 const AUDIT_ARCH_X86_64: u32 = 62 | 0x80000000 | 0x40000000;
-
-// The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
-// expressed as an `(u)int*`.
-// Offset `6` for an `i32` field means that the needed information is located at `6 * sizeof(i32)`.
-// See /usr/include/linux/signal.h for the C struct definition.
-// See https://github.com/rust-lang/libc/issues/716 for why the offset is different in Rust.
-const SI_OFF_SYSCALL: isize = 6;
 
 // The maximum number of a syscall argument.
 // A syscall can have at most 6 arguments.
@@ -999,31 +986,6 @@ pub fn setup_seccomp(level: SeccompLevel) -> Result<(), i32> {
     Ok(())
 }
 
-/// Sets up the specified signal handler for `SIGSYS`.
-///
-pub fn setup_sigsys_handler() -> Result<(), sys_util::Error> {
-    return unsafe {
-        sys_util::register_signal_handler(
-            libc::SIGSYS,
-            sys_util::SignalHandler::Siginfo(sigsys_handler),
-            false,
-        )
-    };
-}
-
-extern "C" fn sigsys_handler(
-    num: libc::c_int,
-    info: *mut libc::siginfo_t,
-    _unused: *mut libc::c_void,
-) {
-    if num != libc::SIGSYS {
-        return;
-    }
-    let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) as usize };
-    METRICS.seccomp.num_faults.inc();
-    METRICS.seccomp.bad_syscalls[syscall].inc();
-}
-
 /// Builds a `jump` BPF instruction.
 ///
 /// # Arguments
@@ -1097,7 +1059,6 @@ fn SIGNAL_PROCESS() -> Vec<sock_filter> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process;
 
     // Checks that rule gets translated correctly into BPF statements.
     #[test]
@@ -1286,32 +1247,6 @@ mod tests {
         ];
 
         assert_eq!(context.into_bpf().unwrap(), instructions);
-    }
-
-    #[test]
-    fn test_signal_handler() {
-        assert!(setup_sigsys_handler().is_ok());
-
-        // Syscalls that have to be allowed in order for the test to work.
-        const REQUIRED_SYSCALLS: &[i64] = &[
-            libc::SYS_exit,
-            libc::SYS_futex,
-            libc::SYS_munmap,
-            libc::SYS_rt_sigprocmask,
-            libc::SYS_rt_sigreturn,
-            libc::SYS_set_tid_address,
-            libc::SYS_sigaltstack,
-        ];
-        assert!(setup_seccomp(SeccompLevel::Basic(REQUIRED_SYSCALLS)).is_ok());
-
-        // Calls the blacklisted SYS_getpid.
-        let _pid = process::id();
-
-        // The signal handler should let the program continue.
-        assert!(true);
-
-        // The reason this test doesn't check the failure metrics as well is that the signal handler
-        // doesn't work right with kcov - possibly because the process is being pinned to 1 core.
     }
 
     #[test]

@@ -35,6 +35,8 @@ extern crate x86_64;
 
 mod default_syscalls;
 mod device_manager;
+/// Signal handling utilities for seccomp violations.
+mod sigsys_handler;
 mod vm_control;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
@@ -67,6 +69,7 @@ use kernel::loader as kernel_loader;
 use kvm::*;
 use logger::{Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
+pub use sigsys_handler::setup_sigsys_handler;
 use sys_util::{register_signal_handler, EventFd, Killable, Terminal};
 use vm_control::VmResponse;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
