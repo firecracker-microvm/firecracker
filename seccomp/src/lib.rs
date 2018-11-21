@@ -1,6 +1,255 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(missing_docs)]
+//! This crate implements a high level wrapper over BPF instructions for seccomp filtering.
+//!
+//! # Seccomp Filtering Levels
+//!
+//! [Seccomp filtering](https://www.kernel.org/doc/Documentation/prctl/seccomp_filter.txt) is used
+//! to limit the set of syscalls that a process can make. This crate exposes 3 levels of filtering:
+//! 1. Filtering disabled: no filters are loaded in the kernel. All syscalls pass through.
+//! 1. Simple filtering: all syscalls are denied, except for a subset that are explicitly let
+//!    through. The latter are identified solely through the syscall number.
+//! 1. Advanced filtering: all syscalls are denied, except for a subset that are explicitly let
+//!    through. The latter are identified via the syscall number and the allowed values for the
+//!    syscall's arguments. Arguments whose values do not match the filtering rule will cause the
+//!    syscall to be denied.
+//!
+//! The desired filtering level is passed to the [`setup_seccomp`] function.
+//!
+//! ## Example with Filtering Disabled
+//!
+//! ```rust
+//! extern crate libc;
+//! extern crate seccomp;
+//!
+//! use seccomp::*;
+//!
+//! fn main() {
+//!     let buf = "Hello, world!";
+//!     setup_seccomp(SeccompLevel::None).unwrap();
+//!     assert_eq!(
+//!         unsafe {
+//!             libc::syscall(
+//!                 libc::SYS_write,
+//!                 libc::STDOUT_FILENO,
+//!                 buf.as_bytes(),
+//!                 buf.len(),
+//!             );
+//!         },
+//!         ()
+//!     );
+//! }
+//! ```
+//!
+//! The code snippet above will print "Hello, world!" to stdout.
+//! The exit code will be 0.
+//!
+//! ## Example with Simple Filtering
+//!
+//! In this example, the process will allow a subset of syscalls. All the others will fall under
+//! the default action: cause the kernel to send `SIGSYS` (signal number 31) to the process.
+//! Without a signal handler in place, the process will die with exit code 159 (128 + `SIGSYS`).
+//!
+//! ```should_panic
+//! extern crate libc;
+//! extern crate seccomp;
+//!
+//! use seccomp::*;
+//!
+//! fn main() {
+//!     let buf = "Hello, world!";
+//!     setup_seccomp(SeccompLevel::Basic(&[
+//!         libc::SYS_close,
+//!         libc::SYS_execve,
+//!         libc::SYS_exit_group,
+//!         libc::SYS_open,
+//!         libc::SYS_read,
+//!         libc::SYS_write,
+//!     ])).unwrap();
+//!
+//!     unsafe {
+//!         libc::syscall(
+//!             libc::SYS_write,
+//!             libc::STDOUT_FILENO,
+//!             buf.as_bytes(),
+//!             buf.len(),
+//!         );
+//!     };
+//! }
+//! ```
+//!
+//! The code snippet above will print "Hello, world!" to stdout and "Bad system call" to stderr.
+//! The exit code will be 159.
+//!
+//! ## Advanced Filtering: Conditions, Rules and Contexts
+//!
+//! A system call is matched if it verifies a set of [`SeccompCondition`]s. Namely, the syscall
+//! number must match the one in the [`SeccompCondition`], and each of its arguments (in case of
+//! advanced filtering) must match a set of [`SeccompCondition`]s that identify the argument by its
+//! index and its respective value either by exact value match, or by bounds to be compared to.
+//!
+//! A [`SeccompRule`] is composed of a set of [`SeccompCondition`]s the syscall must match and the
+//! [`SeccompAction`] to be taken in case of a match.
+//!
+//! A [`SeccompFilterContext`] applies only to advanced filtering and is composed of a set of
+//! [`SeccompRule`]s and a default [`SeccompAction`]. The default action will be taken for the
+//! syscalls that do not match any of the rules.
+//!
+//! ### Denying Syscalls
+//!
+//! The [`SeccompRule`] struct specifies which action to be taken when a syscall is attempted
+//! through its [`action`]. To deny a syscall, [`action`] must take one of the following values:
+//! 1. `Errno(num)`: the syscall will not be executed. `errno` will be set to `num`.
+//! 1. `Kill`: the kernel will kill the process.
+//! 1. `Trap`: the kernel will send `SIGSYS` to the process. Handling is up to the process. If no
+//!    signal handler is set for `SIGSYS`, the process will die. A signal handler can be set with
+//!    the [`setup_sigsys_handler`] function.
+//!
+//! ### Example with Advanced Filtering
+//!
+//! In this example, the process will allow a subset of syscalls with any arguments and the syscall
+//! `SYS_write` with the first argument `0` and the third argument `13`. The default action is to
+//! cause the kernel to send `SIGSYS` (signal number 31) to the process.
+//! A signal handler will catch `SIGSYS` and exit with code 159 on any other syscall.
+//!
+//! ```should_panic
+//! extern crate libc;
+//! extern crate seccomp;
+//!
+//! use seccomp::*;
+//! use std::mem;
+//! use std::process::exit;
+//!
+//! const SI_OFF_SYSCALL: isize = 6;
+//! static mut SIGNAL_HANDLER_CALLED: i32 = 0;
+//!
+//! fn fail() {
+//!     exit(159);
+//! }
+//!
+//! extern "C" fn sigsys_handler(
+//!     _num: libc::c_int,
+//!     info: *mut libc::siginfo_t,
+//!     _unused: *mut libc::c_void,
+//! ) {
+//!     let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) };
+//!     if syscall as i64 != libc::SYS_write {
+//!         fail();
+//!     }
+//!     unsafe {
+//!         SIGNAL_HANDLER_CALLED = SIGNAL_HANDLER_CALLED + 1;
+//!     }
+//! }
+//!
+//! fn gen_rules() -> Vec<(i64, Vec<SeccompRule>)> {
+//!     vec![
+//!         (
+//!             libc::SYS_close,
+//!             vec![SeccompRule::new(vec![], SeccompAction::Allow)],
+//!         ),
+//!         (
+//!             libc::SYS_execve,
+//!             vec![SeccompRule::new(vec![], SeccompAction::Allow)],
+//!         ),
+//!         (
+//!             libc::SYS_exit_group,
+//!             vec![SeccompRule::new(vec![], SeccompAction::Allow)],
+//!         ),
+//!         (
+//!             libc::SYS_munmap,
+//!             vec![SeccompRule::new(vec![], SeccompAction::Allow)],
+//!         ),
+//!         (
+//!             libc::SYS_open,
+//!             vec![SeccompRule::new(vec![], SeccompAction::Allow)],
+//!         ),
+//!         (
+//!             libc::SYS_rt_sigreturn,
+//!             vec![SeccompRule::new(vec![], SeccompAction::Allow)],
+//!         ),
+//!         (
+//!             libc::SYS_sigaltstack,
+//!             vec![SeccompRule::new(vec![], SeccompAction::Allow)],
+//!         ),
+//!     ]
+//! }
+//!
+//! fn main() {
+//!     let buf = "Hello, world!";
+//!
+//!     let mut act: libc::sigaction = unsafe { mem::zeroed() };
+//!     act.sa_flags = libc::SA_SIGINFO;
+//!     act.sa_sigaction = sigsys_handler as *const () as usize;
+//!
+//!     unsafe { libc::sigaction(libc::SIGSYS, &act, ::std::ptr::null_mut()) };
+//!
+//!     let mut context =
+//!         SeccompFilterContext::new(vec![].into_iter().collect(), SeccompAction::Trap).unwrap();
+//!
+//!     gen_rules()
+//!         .into_iter()
+//!         .try_for_each(|(syscall_number, rules)| context.add_rules(syscall_number, None, rules))
+//!         .unwrap();
+//!
+//!     context.add_rules(
+//!         libc::SYS_write,
+//!         None,
+//!         vec![SeccompRule::new(
+//!             vec![
+//!                 SeccompCondition::new(0, SeccompCmpOp::Eq, libc::STDOUT_FILENO as u64).unwrap(),
+//!                 SeccompCondition::new(2, SeccompCmpOp::Eq, 13).unwrap(),
+//!             ],
+//!             SeccompAction::Allow,
+//!         )],
+//!     ).unwrap();
+//!
+//!     setup_seccomp(SeccompLevel::Advanced(context)).unwrap();
+//!
+//!     unsafe {
+//!         libc::syscall(
+//!             libc::SYS_write,
+//!             libc::STDOUT_FILENO,
+//!             buf.as_bytes(),
+//!             buf.len(),
+//!         );
+//!     };
+//!
+//!     if unsafe { SIGNAL_HANDLER_CALLED } != 0 {
+//!         fail();
+//!     }
+//!
+//!     let buf = "Goodbye!";
+//!     unsafe {
+//!         libc::syscall(
+//!             libc::SYS_write,
+//!             libc::STDOUT_FILENO,
+//!             buf.as_bytes(),
+//!             buf.len(),
+//!         );
+//!     };
+//!     if unsafe { SIGNAL_HANDLER_CALLED } != 1 {
+//!         fail();
+//!     }
+//!
+//!     unsafe {
+//!         libc::syscall(libc::SYS_getpid);
+//!     };
+//! }
+//! ```
+//! The code snippet above will print "Hello, world!" to stdout.
+//! The exit code will be 159.
+//!
+//! [`setup_seccomp`]: fn.setup_seccomp.html
+//! [`setup_sigsys_handler`]: fn.setup_sigsys_handler.html
+//! [`SeccompCondition`]: struct.SeccompCondition.html
+//! [`SeccompRule`]: struct.SeccompRule.html
+//! [`SeccompAction`]: enum.SeccompAction.html
+//! [`SeccompFilterContext`]: struct.SeccompFilterContext.html
+//! [`action`]: struct.SeccompRule.html#action
+//!
+
 extern crate libc;
 
 extern crate logger;
@@ -10,41 +259,42 @@ use self::logger::{Metric, METRICS};
 use std::collections::HashMap;
 use std::result::Result;
 
-/// Integer values for the level of seccomp filtering used.
-/// See `struct SeccompLevel` for more information about the different levels.
+/// Level of filtering that causes syscall numbers and parameters to be examined.
 pub const SECCOMP_LEVEL_ADVANCED: u32 = 2;
+/// Level of filtering that causes only syscall numbers to be examined.
 pub const SECCOMP_LEVEL_BASIC: u32 = 1;
+/// Seccomp filtering disabled.
 pub const SECCOMP_LEVEL_NONE: u32 = 0;
 
 /// Maximum number of instructions that a BPF program can have.
 const BPF_MAX_LEN: usize = 4096;
 
-/// BPF Instruction classes.
-/// See /usr/include/linux/bpf_common.h .
+// BPF Instruction classes.
+// See /usr/include/linux/bpf_common.h .
 const BPF_LD: u16 = 0x00;
 const BPF_ALU: u16 = 0x04;
 const BPF_JMP: u16 = 0x05;
 const BPF_RET: u16 = 0x06;
 
-/// BPF ld/ldx fields
-/// See /usr/include/linux/bpf_common.h .
+// BPF ld/ldx fields.
+// See /usr/include/linux/bpf_common.h .
 const BPF_W: u16 = 0x00;
 const BPF_ABS: u16 = 0x20;
 
-/// BPF alu fields.
-/// See /usr/include/linux/bpf_common.h .
+// BPF alu fields.
+// See /usr/include/linux/bpf_common.h .
 const BPF_AND: u16 = 0x50;
 
-/// BPF jmp fields.
-/// See /usr/include/linux/bpf_common.h .
+// BPF jmp fields.
+// See /usr/include/linux/bpf_common.h .
 const BPF_JA: u16 = 0x00;
 const BPF_JEQ: u16 = 0x10;
 const BPF_JGT: u16 = 0x20;
 const BPF_JGE: u16 = 0x30;
 const BPF_K: u16 = 0x00;
 
-/// Return codes for BPF programs.
-///  See /usr/include/linux/seccomp.h .
+// Return codes for BPF programs.
+// See /usr/include/linux/seccomp.h .
 const SECCOMP_RET_ALLOW: u32 = 0x7fff0000;
 const SECCOMP_RET_ERRNO: u32 = 0x00050000;
 const SECCOMP_RET_KILL: u32 = 0x00000000;
@@ -53,37 +303,37 @@ const SECCOMP_RET_TRACE: u32 = 0x7ff00000;
 const SECCOMP_RET_TRAP: u32 = 0x00030000;
 const SECCOMP_RET_MASK: u32 = 0x0000ffff;
 
-/// x86_64 architecture identifier.
-/// See /usr/include/linux/audit.h .
-/// Defined as:
-/// `#define AUDIT_ARCH_X86_64	(EM_X86_64|__AUDIT_ARCH_64BIT|__AUDIT_ARCH_LE)`
+// x86_64 architecture identifier.
+// See /usr/include/linux/audit.h .
+// Defined as:
+// `#define AUDIT_ARCH_X86_64	(EM_X86_64|__AUDIT_ARCH_64BIT|__AUDIT_ARCH_LE)`
 const AUDIT_ARCH_X86_64: u32 = 62 | 0x80000000 | 0x40000000;
 
-/// The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
-/// expressed as an `(u)int*`.
-/// Offset `6` for an `i32` field means that the needed information is located at `6 * sizeof(i32)`.
-/// See /usr/include/linux/signal.h for the C struct definition.
-/// See https://github.com/rust-lang/libc/issues/716 for why the offset is different in Rust.
+// The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
+// expressed as an `(u)int*`.
+// Offset `6` for an `i32` field means that the needed information is located at `6 * sizeof(i32)`.
+// See /usr/include/linux/signal.h for the C struct definition.
+// See https://github.com/rust-lang/libc/issues/716 for why the offset is different in Rust.
 const SI_OFF_SYSCALL: isize = 6;
 
-/// The maximum number of a syscall argument.
-/// A syscall can have at most 6 arguments.
-/// Arguments are numbered from 0 to 5.
+// The maximum number of a syscall argument.
+// A syscall can have at most 6 arguments.
+// Arguments are numbered from 0 to 5.
 const ARG_NUMBER_MAX: u8 = 5;
 
-/// The maximum number of BPF statements that a condition will be translated into.
+// The maximum number of BPF statements that a condition will be translated into.
 const CONDITION_MAX_LEN: u16 = 6;
 
-/// `struct seccomp_data` offsets and sizes of fields in bytes:
-///
-/// ```c
-/// struct seccomp_data {
-///     int nr;
-///     __u32 arch;
-///     __u64 instruction_pointer;
-///     __u64 args[6];
-/// };
-/// ```
+// `struct seccomp_data` offsets and sizes of fields in bytes:
+//
+// ```c
+// struct seccomp_data {
+//     int nr;
+//     __u32 arch;
+//     __u64 instruction_pointer;
+//     __u64 args[6];
+// };
+// ```
 const SECCOMP_DATA_NR_OFFSET: u8 = 0;
 const SECCOMP_DATA_ARGS_OFFSET: u8 = 16;
 const SECCOMP_DATA_ARG_SIZE: u8 = 8;
@@ -175,8 +425,8 @@ pub struct SeccompFilterContext {
     default_action: SeccompAction,
 }
 
-/// BPF instruction structure definition.
-/// See /usr/include/linux/filter.h .
+// BPF instruction structure definition.
+// See /usr/include/linux/filter.h .
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 struct sock_filter {
@@ -186,8 +436,8 @@ struct sock_filter {
     pub k: ::std::os::raw::c_uint,
 }
 
-/// BPF structure definition for filter array.
-/// See /usr/include/linux/filter.h .
+// BPF structure definition for filter array.
+// See /usr/include/linux/filter.h .
 #[repr(C)]
 #[derive(Debug)]
 struct sock_fprog {
@@ -196,7 +446,16 @@ struct sock_fprog {
 }
 
 impl SeccompCondition {
-    /// Creates a new `SeccompCondition`.
+    /// Creates a new [`SeccompCondition`].
+    ///
+    /// # Arguments
+    ///
+    /// * `arg_number` - The index of the argument in the system call.
+    /// * `operator` - The comparison operator. See `SeccompCmpOp`.
+    /// * `value` - The value against which the argument will be compared with `operator`.
+    ///
+    /// [`SeccompCondition`]: struct.SeccompCondition.html
+    ///
     pub fn new(arg_number: u8, operator: SeccompCmpOp, value: u64) -> Result<Self, Error> {
         // Checks that the given argument number is valid.
         if arg_number > ARG_NUMBER_MAX {
@@ -210,11 +469,15 @@ impl SeccompCondition {
         })
     }
 
-    /// Helper method.
+    /// Splits the [`SeccompCondition`] into 32 bit chunks and offsets.
+    ///
     /// Returns most significant half, least significant half of the `value` field of
-    /// `SeccompCondition`, also returns the offsets of the most significant and least significant
+    /// [`SeccompCondition`], as well as the offsets of the most significant and least significant
     /// half of the argument specified by `arg_number` relative to `struct seccomp_data` passed to
     /// the BPF program by the kernel.
+    ///
+    /// [`SeccompCondition`]: struct.SeccompCondition.html
+    ///
     fn value_segments(&self) -> (u32, u32, u8, u8) {
         // Splits the specified value into its most significant and least significant halves.
         let (msb, lsb) = ((self.value >> 32) as u32, self.value as u32);
@@ -237,18 +500,21 @@ impl SeccompCondition {
         (msb, lsb, msb_offset, lsb_offset)
     }
 
-    /// Helper methods, translating conditions into BPF statements, based on the operator of the
-    /// condition.
+    /// Translates the `eq` (equal) condition into BPF statements.
     ///
-    /// The `offset` parameter is a given jump offset to the start of the next rule. The jump is
-    /// performed if the condition fails and thus the current rule does not match so `seccomp` tries
-    /// to match the next rule by jumping out of the current rule.
+    /// # Arguments
+    ///
+    /// * `offset` - The given jump offset to the start of the next rule.
+    ///
+    /// The jump is performed if the condition fails and thus the current rule does not match so
+    /// `seccomp` tries to match the next rule by jumping out of the current rule.
     ///
     /// In case the condition is part of the last rule, the jump offset is to the default action of
     /// respective context.
     ///
     /// The most significant and least significant halves of the argument value are compared
     /// separately since the BPF operand and accumulator are 4 bytes whereas an argument value is 8.
+    ///
     fn into_eq_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
@@ -259,6 +525,12 @@ impl SeccompCondition {
         ]
     }
 
+    /// Translates the `ge` (greater than or equal) condition into BPF statements.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The given jump offset to the start of the next rule.
+    ///
     fn into_ge_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
@@ -270,6 +542,12 @@ impl SeccompCondition {
         ]
     }
 
+    /// Translates the `gt` (greater than) condition into BPF statements.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The given jump offset to the start of the next rule.
+    ///
     fn into_gt_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
@@ -281,6 +559,12 @@ impl SeccompCondition {
         ]
     }
 
+    /// Translates the `le` (less than or equal) condition into BPF statements.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The given jump offset to the start of the next rule.
+    ///
     fn into_le_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
@@ -292,6 +576,12 @@ impl SeccompCondition {
         ]
     }
 
+    /// Translates the `lt` (less than) condition into BPF statements.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The given jump offset to the start of the next rule.
+    ///
     fn into_lt_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
@@ -303,6 +593,15 @@ impl SeccompCondition {
         ]
     }
 
+    /// Translates the `masked_eq` (masked equal) condition into BPF statements.
+    ///
+    /// The `masked_eq` condition is `true` if the result of logical `AND` between the given value
+    /// and the mask is the value being compared against.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The given jump offset to the start of the next rule.
+    ///
     fn into_masked_eq_bpf(self, offset: u8, mask: u64) -> Vec<sock_filter> {
         let (_, _, msb_offset, lsb_offset) = self.value_segments();
         let masked_value = self.value & mask;
@@ -319,6 +618,12 @@ impl SeccompCondition {
         ]
     }
 
+    /// Translates the `ne` (not equal) condition into BPF statements.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The given jump offset to the start of the next rule.
+    ///
     fn into_ne_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
@@ -329,7 +634,14 @@ impl SeccompCondition {
         ]
     }
 
-    /// Translates `SeccompCondition` into BPF statements.
+    /// Translates the [`SeccompCondition`] into BPF statements.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The given jump offset to the start of the next rule.
+    ///
+    /// [`SeccompCondition`]: struct.SeccompCondition.html
+    ///
     fn into_bpf(self, offset: u8) -> Vec<sock_filter> {
         let result = match self.operator {
             SeccompCmpOp::Eq => self.into_eq_bpf(offset),
@@ -341,7 +653,7 @@ impl SeccompCondition {
             SeccompCmpOp::Ne => self.into_ne_bpf(offset),
         };
 
-        // Regression testing that the `CONDITION_MAX_LEN` constant was properly updated.
+        // Verifies that the `CONDITION_MAX_LEN` constant was properly updated.
         assert!(result.len() <= CONDITION_MAX_LEN as usize);
 
         result
@@ -350,6 +662,13 @@ impl SeccompCondition {
 
 impl From<SeccompAction> for u32 {
     /// Return codes of the BPF program for each action.
+    ///
+    /// # Arguments
+    ///
+    /// * `action` - The [`SeccompAction`] that the kernel will take.
+    ///
+    /// [`SeccompAction`]: struct.SeccompAction.html
+    ///
     fn from(action: SeccompAction) -> Self {
         match action {
             SeccompAction::Allow => SECCOMP_RET_ALLOW,
@@ -363,7 +682,16 @@ impl From<SeccompAction> for u32 {
 }
 
 impl SeccompRule {
-    /// Creates a new rule, rules with 0 conditions always match.
+    /// Creates a new rule. Rules with 0 conditions always match.
+    ///
+    /// # Arguments
+    ///
+    /// * `conditions` - Vector of [`SeccompCondition`] that the syscall must match.
+    /// * `action` - Action taken if the syscall matches the conditions. See [`SeccompAction`].
+    ///
+    /// [`SeccompCondition`]: struct.SeccompCondition.html
+    /// [`SeccompAction`]: struct.SeccompAction.html
+    ///
     pub fn new(conditions: Vec<SeccompCondition>, action: SeccompAction) -> Self {
         Self { conditions, action }
     }
@@ -371,10 +699,11 @@ impl SeccompRule {
     /// Translates a rule into BPF statements.
     ///
     /// Each rule starts with 2 jump statements:
-    /// - The first jump enters the rule, attempting a match.
-    /// - The second jump points to the end of the rule chain for one syscall, into the rule chain
+    /// * The first jump enters the rule, attempting a match.
+    /// * The second jump points to the end of the rule chain for one syscall, into the rule chain
     ///   for the next syscall or the default action if the current syscall is the last one. It
     ///   essentially jumps out of the current rule chain.
+    ///
     fn into_bpf(self) -> Vec<sock_filter> {
         // Rule is built backwards, last statement is the action of the rule.
         // The offset to the next rule is 1.
@@ -410,9 +739,17 @@ impl SeccompRule {
         result
     }
 
-    /// Helper function.
-    /// Appends a condition of the rule to an accumulator, updating the length of the rule and
-    /// offset to the next rule.
+    /// Appends a condition of the rule to an accumulator.
+    ///
+    /// The length of the rule and offset to the next rule are updated.
+    ///
+    /// # Arguments
+    ///
+    /// * `condition` - The condition added to the rule.
+    /// * `accumulator` - Accumulator of BPF statements that compose the BPF program.
+    /// * `rule_len` - Number of conditions in the rule.
+    /// * `offset` - Offset (in number of BPF statements) to the next rule.
+    ///
     fn append_condition(
         condition: SeccompCondition,
         accumulator: &mut Vec<Vec<sock_filter>>,
@@ -450,7 +787,13 @@ impl SeccompRule {
 }
 
 impl SeccompFilterContext {
-    /// Creates a new filter context
+    /// Creates a new filter context with a set of rules and a default action.
+    ///
+    /// # Arguments
+    ///
+    /// * `rules` - Map of syscall numbers and the rules that will be applied to each of them.
+    /// * `default_action` - Action taken for all syscalls that do not match any rule.
+    ///
     pub fn new(
         rules: HashMap<i64, (i64, Vec<SeccompRule>)>,
         default_action: SeccompAction,
@@ -468,21 +811,17 @@ impl SeccompFilterContext {
         })
     }
 
-    /// Adds a rule to a syscall number in the filter context.
-    pub fn add_rule(
-        &mut self,
-        syscall_number: i64,
-        default_priority: Option<i64>,
-        rule: SeccompRule,
-    ) {
-        self.rules
-            .entry(syscall_number)
-            .or_insert_with(|| (default_priority.unwrap_or(0), vec![]))
-            .1
-            .push(rule);
-    }
-
     /// Adds rules to a syscall number in the filter context.
+    ///
+    /// # Arguments
+    ///
+    /// * `syscall_number` - Syscall identifier.
+    /// * `default_priority` - Priority for the syscall's examination. The higher the value, the
+    ///                        earlier the syscall will be examined in its entry point in the
+    ///                        kernel. Frequent syscalls should have higher priority so that the
+    ///                        kernel wastes as little time as possible iterating through filters.
+    /// * `rules` - Rules to be applied to the syscall.
+    ///
     pub fn add_rules(
         &mut self,
         syscall_number: i64,
@@ -504,6 +843,7 @@ impl SeccompFilterContext {
     }
 
     /// Translates filter context into BPF instructions.
+    ///
     fn into_bpf(self) -> Result<Vec<sock_filter>, Error> {
         // The called syscall number is loaded.
         let mut accumulator = Vec::with_capacity(1);
@@ -552,8 +892,17 @@ impl SeccompFilterContext {
         Ok(result)
     }
 
-    /// Helper function.
-    /// Appends a chain of the context to an accumulator, updating the length of the context.
+    /// Appends a chain of rules to an accumulator, updating the length of the context.
+    ///
+    /// # Arguments
+    ///
+    /// * `syscall_number` - The syscall to which the rules apply.
+    /// * `chain` - The chain of rules for the specified syscall.
+    /// * `default_action` - The action to be taken in none of the rules apply.
+    /// * `accumulator` - The expanding BPF program.
+    /// * `context_len` - The size (in number of BPF statements) of the BPF program. This is
+    ///                   limited to 4096. If the limit is exceeded, the context is invalidated.
+    ///
     fn append_syscall_chain(
         syscall_number: i64,
         chain: Vec<SeccompRule>,
@@ -598,6 +947,11 @@ impl SeccompFilterContext {
 }
 
 /// Builds the array of filter instructions and sends them to the kernel.
+///
+/// # Arguments
+///
+/// * `level` - Filtering level.
+///
 pub fn setup_seccomp(level: SeccompLevel) -> Result<(), i32> {
     let mut filters = Vec::new();
 
@@ -645,6 +999,8 @@ pub fn setup_seccomp(level: SeccompLevel) -> Result<(), i32> {
     Ok(())
 }
 
+/// Sets up the specified signal handler for `SIGSYS`.
+///
 pub fn setup_sigsys_handler() -> Result<(), sys_util::Error> {
     return unsafe {
         sys_util::register_signal_handler(
@@ -668,13 +1024,27 @@ extern "C" fn sigsys_handler(
     METRICS.seccomp.bad_syscalls[syscall].inc();
 }
 
-/// Builds a "jump" BPF instruction.
+/// Builds a `jump` BPF instruction.
+///
+/// # Arguments
+///
+/// * `code` - The operation code.
+/// * `jt` - The jump offset in case the operation returns `true`.
+/// * `jf` - The jump offset in case the operation returns `false`.
+/// * `k` - The operand.
+///
 #[allow(non_snake_case)]
 fn BPF_JUMP(code: u16, k: u32, jt: u8, jf: u8) -> sock_filter {
     sock_filter { code, jt, jf, k }
 }
 
 /// Builds a "statement" BPF instruction.
+///
+/// # Arguments
+///
+/// * `code` - The operation code.
+/// * `k` - The operand.
+///
 #[allow(non_snake_case)]
 fn BPF_STMT(code: u16, k: u32) -> sock_filter {
     sock_filter {
@@ -686,6 +1056,7 @@ fn BPF_STMT(code: u16, k: u32) -> sock_filter {
 }
 
 /// Builds a sequence of BPF instructions that validate the underlying architecture.
+///
 #[allow(non_snake_case)]
 fn VALIDATE_ARCHITECTURE() -> Vec<sock_filter> {
     vec![
@@ -696,12 +1067,18 @@ fn VALIDATE_ARCHITECTURE() -> Vec<sock_filter> {
 }
 
 /// Builds a sequence of BPF instructions that are followed by syscall examination.
+///
 #[allow(non_snake_case)]
 fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
     vec![BPF_STMT(BPF_LD + BPF_W + BPF_ABS, 0)]
 }
 
 /// Builds a sequence of BPF instructions that allow a syscall to go through.
+///
+/// # Arguments
+///
+/// * `syscall_number` - The syscall identifier.
+///
 #[allow(non_snake_case)]
 fn ALLOW_SYSCALL(syscall_number: i64) -> Vec<sock_filter> {
     vec![
@@ -710,7 +1087,8 @@ fn ALLOW_SYSCALL(syscall_number: i64) -> Vec<sock_filter> {
     ]
 }
 
-/// Builds a sequence of BPF instructions that emit SIGSYS when a syscall is denied.
+/// Builds a sequence of BPF instructions that emit `SIGSYS` when a syscall is denied.
+///
 #[allow(non_snake_case)]
 fn SIGNAL_PROCESS() -> Vec<sock_filter> {
     vec![BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_TRAP)]
@@ -721,7 +1099,7 @@ mod tests {
     use super::*;
     use std::process;
 
-    /// Checks that rule gets translated correctly into BPF statements.
+    // Checks that rule gets translated correctly into BPF statements.
     #[test]
     fn test_rule_bpf_output() {
         // Builds rule.
@@ -766,8 +1144,8 @@ mod tests {
         assert_eq!(rule.into_bpf(), instructions);
     }
 
-    /// Checks that rule with too many conditions gets translated correctly into BPF statements
-    /// using three helper jumps.
+    // Checks that rule with too many conditions gets translated correctly into BPF statements
+    // using three helper jumps.
     #[test]
     fn test_rule_many_conditions_bpf_output() {
         // Builds rule.
