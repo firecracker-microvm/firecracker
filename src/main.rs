@@ -12,7 +12,6 @@ extern crate jailer;
 #[macro_use]
 extern crate logger;
 extern crate mmds;
-extern crate seccomp;
 extern crate vmm;
 
 use backtrace::Backtrace;

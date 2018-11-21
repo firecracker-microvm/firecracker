@@ -13,7 +13,6 @@ api_server = { path = "api_server" }
 jailer = { path = "jailer" }
 logger = { path = "logger"}
 mmds = { path = "mmds" }
-seccomp = { path = "seccomp" }
 vmm = { path = "vmm" }
 fc_util = { path = "fc_util" }
 
