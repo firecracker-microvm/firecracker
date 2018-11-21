@@ -35,6 +35,8 @@ pub enum WriteEvent {
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum RecvError {
+    /// The packet has an invalid destination address.
+    InvalidAddress,
     InvalidPort,
     TcpSegment(TcpSegmentError),
 }
@@ -119,6 +121,10 @@ impl TcpIPv4Handler {
         &mut self,
         packet: &IPv4Packet<T>,
     ) -> Result<RecvEvent, RecvError> {
+        if packet.destination_address() != self.local_addr {
+            return Err(RecvError::InvalidAddress);
+        }
+
         // TODO: We skip verifying the checksum, just in case the device model relies on offloading
         // checksum computation from the guest to some other entity. Clear this up at some point!
         // (Issue #520)
@@ -479,6 +485,7 @@ mod tests {
         let mut buf = [0u8; 100];
         let mut buf2 = [0u8; 2000];
 
+        let wrong_local_addr = Ipv4Addr::new(123, 123, 123, 123);
         let local_addr = Ipv4Addr::new(169, 254, 169, 254);
         let local_port = 80;
         let remote_addr = Ipv4Addr::new(10, 0, 0, 1);
@@ -493,10 +500,11 @@ mod tests {
             NonZeroUsize::new(max_pending_resets).unwrap(),
         );
 
-        // We set the proper value of dst_addr from the start, because the TcpHandler expects this
-        // check to be made before receiving the packet.
+        // We start with a wrong destination address and destination port to check those error
+        // conditions first.
         let mut p =
-            IPv4Packet::write_header(buf.as_mut(), PROTOCOL_TCP, remote_addr, local_addr).unwrap();
+            IPv4Packet::write_header(buf.as_mut(), PROTOCOL_TCP, remote_addr, wrong_local_addr)
+                .unwrap();
 
         let seq_number = 123;
 
@@ -525,6 +533,9 @@ mod tests {
         assert_eq!(drain_packets(&mut h, remote_addr), Ok(0));
 
         let mut p = p.with_payload_len_unchecked(s_len, false);
+
+        assert_eq!(h.receive_packet(&p).unwrap_err(), RecvError::InvalidAddress);
+        p.set_destination_address(local_addr);
         assert_eq!(h.receive_packet(&p).unwrap_err(), RecvError::InvalidPort);
 
         // Let's fix the port. However, the segment is not a valid SYN, so we should get an

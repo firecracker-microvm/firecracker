@@ -147,6 +147,9 @@ impl MmdsNetworkStack {
                                 METRICS.mmds.connections_created.inc();
                                 METRICS.mmds.connections_destroyed.inc();
                             }
+                            RecvEvent::EndpointDone => {
+                                METRICS.mmds.connections_destroyed.inc();
+                            }
                             _ => (),
                         },
                         Err(_) => METRICS.mmds.rx_accepted_err.inc(),
