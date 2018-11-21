@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-//! Track memory regions that are mapped to the guest VM.
+//! Track memory regions that are mapped to the guest microVM.
 
 use std::io::{Read, Write};
 use std::result;
@@ -15,13 +15,20 @@ use guest_address::GuestAddress;
 use mmap::{self, MemoryMapping};
 use DataInit;
 
+/// Errors associated with handling guest memory regions.
 #[derive(Debug)]
 pub enum Error {
+    /// Failure in finding a guest address in any memory regions mapped by this guest.
     InvalidGuestAddress(GuestAddress),
+    /// Failure in accessing the memory located at some address.
     MemoryAccess(GuestAddress, mmap::Error),
+    /// Failure in creating an anonymous shared mapping.
     MemoryMappingFailed(mmap::Error),
+    /// Failure in initializing guest memory.
     MemoryNotInitialized,
+    /// Two of the memory regions are overlapping.
     MemoryRegionOverlap,
+    /// No memory regions were provided for initializing the guest memory.
     NoMemoryRegions,
 }
 type Result<T> = result::Result<T, Error>;
@@ -142,7 +149,7 @@ impl GuestMemory {
         Ok(())
     }
     /// Writes a slice to guest memory at the specified guest address.
-    /// Returns the number of bytes written.  The number of bytes written can
+    /// Returns the number of bytes written. The number of bytes written can
     /// be less than the length of the slice if there isn't enough room in the
     /// memory region.
     ///

@@ -5,6 +5,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+//! Provides a wrapper for allocating, handling and interacting with the guest memory regions.
+
+#![warn(missing_docs)]
+
 extern crate libc;
 extern crate sys_util;
 
@@ -17,7 +21,7 @@ extern crate sys_util;
 /// Implementing this trait guarantees that it is safe to instantiate the struct with random data.
 pub unsafe trait DataInit: Copy + Send + Sync {}
 
-// All intrinsic types and arrays of intrinsic types are DataInit.  They are just numbers.
+// All intrinsic types and arrays of intrinsic types are DataInit. They are just numbers.
 macro_rules! array_data_init {
     ($T:ty, $($N:expr)+) => {
         $(
