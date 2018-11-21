@@ -9,6 +9,7 @@ from shutil import copyfile
 from typing import List
 
 import boto3
+import botocore.client
 
 
 class MicrovmImageS3Fetcher:
@@ -84,7 +85,10 @@ class MicrovmImageS3Fetcher:
         """Initialize fetcher shared state, s3 client, paths, and data."""
         self.__dict__ = self.__shared_state
 
-        self.s3 = boto3.client('s3')
+        self.s3 = boto3.client(
+            's3',
+            config=botocore.client.Config(signature_version=botocore.UNSIGNED)
+        )
         # Will use AWS EC2 IMDS credentials if present.
 
         self.microvm_images_bucket = microvm_images_bucket
