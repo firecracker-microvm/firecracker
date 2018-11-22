@@ -76,9 +76,6 @@
 # Development container image (name:tag)
 DEVCTR_IMAGE="fcuvm/dev:latest"
 
-# The S3 bucket used to the store test microVM images.
-TEST_MICROVM_IMAGES_S3_BUCKET="spec.ccfc.min"
-
 # Naming things is hard
 MY_NAME="Firecracker $(basename "$0")"
 
@@ -351,7 +348,6 @@ run_devctr() {
         --init \
         --rm \
         --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR" \
-        --env TEST_MICROVM_IMAGES_S3_BUCKET="$TEST_MICROVM_IMAGES_S3_BUCKET" \
         --env OPT_LOCAL_IMAGES_PATH="$(dirname "$CTR_MICROVM_IMAGES_DIR")" \
         --env PYTHONDONTWRITEBYTECODE=1 \
         "$DEVCTR_IMAGE" "${ctr_args[@]}"
