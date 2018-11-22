@@ -169,63 +169,6 @@ ok_or_die() {
     [[ $code -eq 0 ]] || die -c $code "$@"
 }
 
-# Load the AWS credentials from the host machine.
-# Before open sourcing, we'll need them for accessing the S3 bucket holding
-# the microVM test images.
-# We'll be looking for the creds in these three places, respectively:
-#   1. The environment
-#   2. The ~/.aws/credentials file (created by `aws configure`)
-#   3. The IMDS (if we're running on an EC2 instance with an IAM role)
-#
-load_aws_creds() {
-
-    # First, check if we already have the creds defined in our environment.
-    [[ -z "$AWS_ACCESS_KEY_ID" ]] || [[ -z "$AWS_SECRET_ACCESS_KEY" ]] \
-        && [[ -r ~/.aws/credentials ]] && {
-        # Nope, not it, but we have a ~/.aws/credentials file. Go through it
-        # line by line and look there.
-        while read ln; do
-            [[ "$ln" =~ aws_access_key_id[[:space:]]*=[[:space:]]*(.+)$ ]] && {
-                AWS_ACCESS_KEY_ID="${BASH_REMATCH[1]}"
-            }
-            [[ "$ln" =~ aws_secret_access_key[[:space:]]*=[[:space:]]*(.+)$ ]] && {
-                AWS_SECRET_ACCESS_KEY="${BASH_REMATCH[1]}"
-            }
-        done < ~/.aws/credentials
-    }
-
-    # Still nothing? Ok, hit the IMDS then.
-    [[ -z "$AWS_ACCESS_KEY_ID" ]] || [[ -z "$AWS_SECRET_ACCESS_KEY" ]] && {
-        # Get the IAM role, if one is assigned to this instance
-        role="$(
-            curl -f "http://169.254.169.254/latest/meta-data/iam/security-credentials" \
-            2> /dev/null
-        )"
-        [[ $? -eq 0 ]] && [[ -n "$role" ]] && {
-            # Ok, we got a response with an HTTP code <400. We're most probably
-            # running on an EC2 instance with an IAM role assigned.
-            # Let's hack our way through the credentials JSON and look for our
-            # data.
-            # Note: the curl invoke is below this `while` block (BASH process
-            # substitution wizardry in action).
-            while read ln; do
-                [[ "$ln" =~ \"AccessKeyId\"[[:space:]]:[[:space:]]\"([^\"]+) ]] \
-                    && AWS_ACCESS_KEY_ID="${BASH_REMATCH[1]}"
-                [[ "$ln" =~ \"SecretAccessKey\"[[:space:]]:[[:space:]]\"([^\"]+) ]] \
-                    && AWS_SECRET_ACCESS_KEY="${BASH_REMATCH[1]}"
-                [[ "$ln" =~ \"Token\"[[:space:]]:[[:space:]]\"([^\"]+) ]] \
-                    && export AWS_SESSION_TOKEN="${BASH_REMATCH[1]}"
-            done < <(
-                curl "http://169.254.169.254/latest/meta-data/iam/security-credentials/$role" \
-                    2> /dev/null
-            )
-        }
-    }
-
-    # Set a relevant exit code (0 if the creds have been found).
-    [[ -n "$AWS_ACCESS_KEY_ID" ]] && [[ -n "$AWS_SECRET_ACCESS_KEY" ]]
-}
-
 # Check if Docker is available and exit if it's not.
 # Upon returning from this call, the caller can be certain Docker is available.
 #
