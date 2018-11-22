@@ -125,8 +125,6 @@ impl Serialize for SharedMetric {
 /// Metrics related to the internal API server.
 #[derive(Default, Serialize)]
 pub struct ApiServerMetrics {
-    /// Number of failures when obtaining information on the current instance.
-    pub instance_info_fails: SharedMetric,
     /// Measures the process's startup time in microseconds.
     pub process_startup_time_us: SharedMetric,
     /// Measures the cpu's startup time in microseconds.
@@ -142,6 +140,8 @@ pub struct ApiServerMetrics {
 pub struct GetRequestsMetrics {
     /// Number of GETs for getting information on the instance.
     pub instance_info_count: SharedMetric,
+    /// Number of failures when obtaining information on the current instance.
+    pub instance_info_fails: SharedMetric,
     /// Number of GETs for getting status on attaching machine configuration.
     pub machine_cfg_count: SharedMetric,
     /// Number of failures during GETs for getting information on the instance.
