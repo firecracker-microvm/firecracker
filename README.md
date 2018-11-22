@@ -1,6 +1,6 @@
-# Firecracker Read Me
+![Firecracker Logo Title](docs/fc-logo-title.png)
 
-Our mission is to enable secure, multi-tenant, minimal-overhead execution of
+Our mission is to enable secure, multitenant, minimal-overhead execution of
 container and serverless workloads.
 
 Read more about the Firecracker Charter [here](CHARTER.md).
@@ -14,33 +14,34 @@ machines, called microVMs, which combine the security and workload isolation
 properties of traditional VMs with the speed and resource efficiency of
 containers (you can create microVMs with any combination of vCPUs and memory).
 
-Firecracker implements a virtual machine monitor (VMM) based on the Linux Kernel
-Virtual Machine (KVM) to create and manage microVMs (there is one Firecracker
-process per microVM). Firecracker has a minimalist design. It excludes
-unnecessary devices and guest functionality to reduce the memory footprint and
-attack surface area of each microVM. This improves security, decreases the
-startup time, and increases hardware utilization. Firecracker currently supports
-Intel CPUs, with planned AMD and ARM support. Firecracker will also be
-integrated with popular container runtimes.
+Firecracker implements a virtual machine monitor (VMM) that uses the Linux
+Kernel Virtual Machine (KVM) to create and manage microVMs (there is one
+Firecracker process per microVM). Firecracker has a minimalist design. It
+excludes unnecessary devices and guest functionality to reduce the memory
+footprint and attack surface area of each microVM. This improves security,
+decreases the startup time, and increases hardware utilization. Firecracker
+currently supports Intel CPUs, with planned AMD and ARM support. Firecracker
+will also be integrated with popular container runtimes.
 
 Firecracker was developed at Amazon Web Services to accelerate the speed and
-efficiency of services like AWS Fargate and AWS Lambda. Firecracker is open
+efficiency of services like [AWS Lambda](https://aws.amazon.com/lambda/) and
+[AWS Fargate](https://aws.amazon.com/fargate/). Firecracker is open
 sourced under [Apache version 2.0](LICENSE).
 
 To read more about the benefits of Firecracker, check out
-[firecracker-microvm.io](firecracker-microvm.io).
+[firecracker-microvm.io](https://firecracker-microvm.github.io).
 
 ## Getting Started
 
 To try out Firecracker, go to the [quickstart guide](docs/getting-started.md).
 
-To enable service owners to run microVM-based containers in multi-tenant
+To enable service owners to run microVM-based containers in multitenant
 production fleets, we are working to integrate Firecracker in the container
 ecosystem; once this integration is complete, customers will be able to run
 pods, tasks, and containers within Firecracker microVMs.
 
 Service owners will also need to ensure that their host OS is configured to a
-security bar that enables safe multi-tenant computing. An configuration that we
+security bar that enables safe multitenant computing. A configuration that we
 consider meets this bar is included in
 [the production host setup document](docs/prod-host-setup.md).
 
@@ -56,7 +57,8 @@ To contribute to Firecracker, check out the development setup section in the
 
 ## Releases
 
-New Firecracker versions are released via GitHub's release infrastructure,
+New Firecracker versions are released via the GitHub repository
+[releases](https://github.com/firecracker-microvm/firecracker/releases) page,
 typically every one or two months. A history of changes is recorded in our
 [changelog](CHANGELOG.md).
 
@@ -92,7 +94,7 @@ The **API endpoint** can be used to:
   arguments.
 - Stop the microVM.
 
-**Build-in Capabilities**:
+**Built-in Capabilities**:
 
 - Demand fault paging and CPU oversubscription enabled by default.
 - Jailer process for starting Firecracker in production scenarios; applies a

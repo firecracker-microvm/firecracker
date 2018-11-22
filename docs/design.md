@@ -8,7 +8,7 @@ Firecracker is a new virtualization technology that enables customers to deploy
 lightweight *micro* Virtual Machines or microVMs. Firecracker microVMs combine
 the security and workload isolation properties of traditional VMs with the
 speed, agility and resource efficiency enabled by containers. They provide a
-secure, trusted environment for multi-tenant services, while maintaining
+secure, trusted environment for multitenant services, while maintaining
 minimal overhead.
 
 The scope of this document is to describe the features and architecture of the

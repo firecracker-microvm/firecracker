@@ -9,25 +9,27 @@ sufficient isolation between their applications when all containers have to use
 a shared operating system (OS) kernel. Containers offer fast startup times,
 while VMs offer hardware virtualization-based security boundaries that are more
 secure. Firecracker is a new virtualization technology that enables service
-owners to operate multi-tenant container-based services on bare metal machines
+owners to operate multitenant container-based services on bare metal machines
 by combining the speed, resource efficiency, and performance enabled by
 containers with the security and workload isolation properties of traditional
 VMs.
 
 ### Who developed Firecracker?
 
-Firecracker was built at Amazon Web Services to enable AWS services such as AWS
-Fargate and AWS Lambda to improve resource utilization and customer experience.
-Firecracker is based on Chromium OSs' Virtual Machine Monitor (crosvm), an
-open-sourced VMM written in Rust. Today, crosvm and Firecracker have diverged
-to serve very different customer needs. We plan to contribute back the bug fixes
-and tests added to shared crates, and any Firecracker functionality that's
-appealing for crosvm.
+Firecracker was built at Amazon Web Services to enable AWS services such as 
+[Lambda](https://aws.amazon.com/lambda/) and
+[Fargate](https://aws.amazon.com/fargate/) to improve resource utilization and
+customer experience. Firecracker started from Chromium OS's Virtual Machine
+Monitor (crosvm), an open-sourced VMM written in Rust. Today, crosvm and
+Firecracker have diverged to serve very different customer needs. We plan to
+contribute back the bug fixes and tests added to shared crates, and any
+Firecracker functionality that's appealing for crosvm.
 
 ### Who uses Firecracker today and how will they use Firecracker?
 
-Today, AWS Lambda and AWS Fargate are built on Firecracker. In the
-future, we plan to enable users to launch micro-VM backed containers
+Today, [AWS Lambda](https://aws.amazon.com/lambda/) and
+[AWS Fargate](https://aws.amazon.com/fargate/) are built on Firecracker. In the
+future, we plan to enable users to launch microVM backed containers
 via familiar interfaces such as containerd.
 
 ### Is Firecracker compatible with the container ecosystem such as Kubernetes, Docker, Kata containers?
