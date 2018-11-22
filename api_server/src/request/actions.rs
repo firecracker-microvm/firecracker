@@ -14,14 +14,9 @@ use vmm::VmmAction;
 // values of "action_type" from the json request body. This is useful to get a strongly typed
 // struct from the Serde deserialization process.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub enum ActionType {
+enum ActionType {
     BlockDeviceRescan,
     InstanceStart,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub enum DeviceType {
-    Drive,
 }
 
 // The model of the json body from a sync request. We use Serde to transform each associated
@@ -29,9 +24,9 @@ pub enum DeviceType {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ActionBody {
-    pub action_type: ActionType,
+    action_type: ActionType,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub payload: Option<Value>,
+    payload: Option<Value>,
 }
 
 fn validate_payload(action_body: &ActionBody) -> Result<(), String> {
