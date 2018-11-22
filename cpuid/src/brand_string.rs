@@ -119,7 +119,7 @@ impl BrandString {
     /// Sets the value for the given leaf/register pair
     ///   leaf must be between 0x80000002 and 0x80000004
     #[inline]
-    pub fn set_reg_for_leaf(&mut self, leaf: u32, reg: Reg, val: u32) {
+    fn set_reg_for_leaf(&mut self, leaf: u32, reg: Reg, val: u32) {
         // It's ok not to validate parameters here, leaf and reg should
         // both be compile-time constants. If there's something wrong with them,
         // that's a programming error and we should panic anyway.
@@ -128,7 +128,7 @@ impl BrandString {
 
     /// Get an immutable u8 slice view into the brand string buffer
     #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
+    fn as_bytes(&self) -> &[u8] {
         // This is actually safe, because self.reg_buf has a fixed, known size,
         // and also there's no risk of misalignment, since we're downgrading
         // alignment constraints from dword to byte.
@@ -137,7 +137,7 @@ impl BrandString {
 
     /// Get a mutable u8 slice view into the brand string buffer
     #[inline]
-    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+    fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe {
             slice::from_raw_parts_mut(self.reg_buf.as_mut_ptr() as *mut u8, Self::REG_BUF_SIZE * 4)
         }
