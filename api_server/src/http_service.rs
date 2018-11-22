@@ -472,7 +472,7 @@ impl hyper::server::Service for ApiServerHttpService {
                             Ok(body) => Either::A(future::ok(json_response(StatusCode::Ok, body))),
                             Err(e) => {
                                 // This is an api server metrics as the shared info is obtained internally.
-                                METRICS.api_server.instance_info_fails.inc();
+                                METRICS.get_api_requests.instance_info_fails.inc();
                                 Either::A(future::ok(json_response(
                                     StatusCode::InternalServerError,
                                     json_fault_message(e.to_string()),

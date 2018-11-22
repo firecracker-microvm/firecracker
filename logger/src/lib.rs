@@ -102,7 +102,6 @@
 //! {
 //!  "utc_timestamp_ms": 1541591155180,
 //!  "api_server": {
-//!    "instance_info_fails": 0,
 //!    "process_startup_time_us": 0,
 //!    "process_startup_time_cpu_us": 0
 //!  },
