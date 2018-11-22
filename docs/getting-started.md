@@ -294,9 +294,9 @@ docker run --rm -it alpine ping -c 3 amazon.com
 
 ## Appendix C: Deployment Security Recommendations
 
-When using Firecracker containers as a security boundary to separate processes 
-of different trust levels, the following environment configuration is recommended to 
-guard against side-channel security issues.
+When deploying two or more Firecracker containers on the same host and the containers are
+being used as a security boundary between different trust levels, the following environment 
+configuration is recommended to guard against side-channel security issues.
 
  - Disable Hyperthreading
  
@@ -306,7 +306,7 @@ guard against side-channel security issues.
    nosmt=force
    ````
    
-   Verification can be done by checking
+   Verification can be done by running
    
    ```bash
    cat /sys/devices/system/cpu/smt/control 
@@ -314,21 +314,27 @@ guard against side-channel security issues.
    
    with output showing "forceoff" or "notsupported".
    
- - Enable Kernel Page-Table Isolation (KPTI)
+ - Check Kernel Page-Table Isolation (KPTI) is supported
 
+   Verification can be done by running
+   
    ```bash
    cat /sys/devices/system/cpu/vulnerabilities/meltdown
    ``` 
+   
    with output showing "Mitigation: PTI"
 
  - Disable Kernel Same-page Merging (KSM)/sharing/de-duplication between containers
  
+   Verification can be done by checking
+   
    ```bash
    cat /sys/kernel/mm/ksm/run
    ``` 
    with output showing "0"
     
- - Compile kernel with with retpoline and hardware with microcode supporting IBPB, IBRS
+ - Use kernel compiled with retpoline and run on hardware with microcode 
+   supporting IBPB and IBRS.  Verification can be done by running
  
    ```bash
    cat /sys/devices/system/cpu/vulnerabilities/spectre_v2
@@ -338,16 +344,9 @@ guard against side-channel security issues.
    
  - Enable Eager FPU option 
  
-   Use kernel parameter "eagerfpu=on" for older Linux version, on by default starting 
-   in Linux 4.4.138.
-   
- - Disable swapping to disk or enable secure swap
-   ```bash
-   cat /proc/swaps
-   ``` 
-   
-   shows no swap.
-   
+   Use kernel parameter "eagerfpu=on" for older Linux versions. Starting in Linux 4.4.138,
+   this is enabled by default.
+      
  - Validate PTE inversion mitigation is enabled for OS if running on affected hardware  
    (L1TF) and flush cache on VM context change
  
@@ -357,18 +356,36 @@ guard against side-channel security issues.
    l1tf=full,force kvm-intel.vmentry_l1d_flush=always
    ```
    
-   Verification can be done by checking that   
+   Verification can be done by running   
    
    ```bash
    cat /sys/devices/system/cpu/vulnerabilities/l1tf
    ``` 
-   outputs "Mitigation: PTE Inversion" and "VMX: cache flushes"
+   
+   with outputs showing "Mitigation: PTE Inversion" and "VMX: cache flushes" properties.
     
  - Ensure that Speculative Store Bypass Disable (SSBD) is applied for Firecracker process
  
-   ```bash
-   cat /proc/<PID>/status | grep Speculation_Store_Bypass
-   ```
-   shows "* mitigated"
+   Verification can be done by running
    
- - Use DDR4 memory that supports target row refresh or use pseudo target row refresh (pTRR) for system with DDR3 memory
+   ```bash
+   cat /proc/*PID*/status | grep Speculation_Store_Bypass
+   ```
+   where *PID* is the process ID being check.  Output shows one of the following:
+   - not vulnerable
+   - thread mitigated
+   - thread force mitigated
+   - globally mitigated
+   
+ - Use DDR4 memory that supports target row refresh or use pseudo target row refresh 
+   (pTRR) for system with DDR3 memory
+
+ - Disable swapping to disk or enable secure swap
+ 
+   Verification to determine if swap is enabled run
+ 
+   ```bash
+   cat /proc/swaps
+   ``` 
+   
+   and the output shows no swap partition.
