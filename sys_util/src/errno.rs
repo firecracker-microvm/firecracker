@@ -5,34 +5,45 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt::{Display, Formatter};
 use std::io;
 use std::result;
 
 use libc::__errno_location;
 
-/// An error number, retrieved from errno (man 3 errno), set by a libc
-/// function that returned an error.
+/// An error number, retrieved from [`errno`](http://man7.org/linux/man-pages/man3/errno.3.html),
+/// set by a libc function that returned an error.
+///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Error(i32);
 pub type Result<T> = result::Result<T, Error>;
 
 impl Error {
-    /// Constructs a new error with the given errno.
+    /// Constructs a new error with the given `errno`.
+    ///
     pub fn new(e: i32) -> Error {
         Error(e)
     }
 
-    /// Constructs an error from the current errno.
+    /// Constructs an error from the current `errno`.
     ///
     /// The result of this only has any meaning just after a libc call that returned a value
-    /// indicating errno was set.
+    /// indicating `errno` was set.
+    ///
     pub fn last() -> Error {
         Error(unsafe { *__errno_location() })
     }
 
-    /// Gets the errno for this error
+    /// Gets the `errno` for this error.
+    ///
     pub fn errno(&self) -> i32 {
         self.0
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "Errno {}", self.0)
     }
 }
 
@@ -42,7 +53,10 @@ impl From<io::Error> for Error {
     }
 }
 
-/// Returns the last errno as a Result that is always an error.
+/// Returns the last `errno` as a [`Result`] that is always an error.
+///
+/// [`Result`]: type.Result.html
+///
 pub fn errno_result<T>() -> Result<T> {
     Err(Error::last())
 }
@@ -63,5 +77,10 @@ mod tests {
         assert_eq!(last_err, Error::new(libc::EBADF));
         assert_eq!(last_err.errno(), libc::EBADF);
         assert_eq!(last_err, Error::from(io::Error::last_os_error()));
+    }
+
+    #[test]
+    fn test_display() {
+        assert_eq!(format!("{}", Error::new(42)), "Errno 42")
     }
 }

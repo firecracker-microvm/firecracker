@@ -17,6 +17,7 @@ mod chroot;
 mod env;
 
 use std::ffi::{CString, NulError, OsString};
+use std::fmt;
 use std::fs;
 use std::io;
 use std::os::unix::io::AsRawFd;
@@ -59,22 +60,19 @@ pub enum Error {
     CStringParsing(NulError),
     Dup2(sys_util::Error),
     Exec(io::Error),
-    FileCreate(PathBuf, io::Error),
     FileName(PathBuf),
     FileOpen(PathBuf, io::Error),
     FromBytesWithNul(&'static [u8]),
     GetOldFdFlags(sys_util::Error),
     Gid(String),
     InvalidInstanceId(validators::Error),
-    Metadata(PathBuf, io::Error),
+    MissingArgument(&'static str),
     MissingParent(PathBuf),
     MkdirOldRoot(sys_util::Error),
     MknodDevNetTun(sys_util::Error),
     MountBind(sys_util::Error),
     MountPropagationPrivate(sys_util::Error),
     NotAFile(PathBuf),
-    NotAFolder(PathBuf),
-    NotAlphanumeric(String),
     NumaNode(String),
     OpenDevKvm(sys_util::Error),
     OpenDevNull(sys_util::Error),
@@ -84,6 +82,7 @@ pub enum Error {
     ReadToString(PathBuf, io::Error),
     RegEx(regex::Error),
     RmOldRootDir(sys_util::Error),
+    SeccompLevel(std::num::ParseIntError),
     SetCurrentDir(io::Error),
     SetNetNs(sys_util::Error),
     SetSid(sys_util::Error),
@@ -95,6 +94,114 @@ pub enum Error {
     UnixListener(io::Error),
     UnsetCloexec(sys_util::Error),
     Write(PathBuf, io::Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Error::*;
+
+        match *self {
+            Canonicalize(ref path, ref io_err) => {
+                write!(f, "Failed to canonicalize path {:?}: {:?}", path, io_err)
+            }
+            CgroupInheritFromParent(ref path, ref filename) => write!(
+                f,
+                "Failed to inherit cgroups configurations from file {} in path {:?}",
+                filename, path
+            ),
+            CgroupLineNotFound(ref proc_mounts, ref controller) => write!(
+                f,
+                "{} configurations not found in {}",
+                controller, proc_mounts
+            ),
+            CgroupLineNotUnique(ref proc_mounts, ref controller) => write!(
+                f,
+                "Found more than one cgroups configuration line in {} for {}",
+                proc_mounts, controller
+            ),
+            ChangeDevNetTunOwner(ref err) => {
+                write!(f, "Failed to change owner for /dev/net/tun: {}", err)
+            }
+            Chroot(ref err) => write!(f, "Failed to chroot into the new jail folder: {}", err),
+            CloseNetNsFd(ref err) => write!(f, "Failed to close netns fd: {}", err),
+            CloseDevNullFd(ref err) => write!(f, "Failed to close /dev/null fd: {}", err),
+            Copy(ref file, ref path, ref err) => {
+                write!(f, "Failed to copy {:?} to {:?}: {}", file, path, err)
+            }
+            CreateDir(ref path, ref err) => {
+                write!(f, "Failed to create directory {:?}: {:?}", path, err)
+            }
+            CStringParsing(_) => write!(f, "Encountered interior \\0 while parsing a string"),
+            Dup2(ref err) => write!(f, "Failed to duplicate fd: {}", err),
+            Exec(ref err) => write!(f, "Failed to exec into Firecracker: {:?}", err),
+            FileName(ref path) => write!(f, "Failed to extract filename from path {:?}", path),
+            FileOpen(ref path, ref err) => {
+                write!(f, "Failed to open file {:?}: error {:?}", path, err)
+            }
+            FromBytesWithNul(ref bytes) => {
+                write!(f, "Failed to decode string from byte array: {:?}", bytes)
+            }
+            GetOldFdFlags(ref err) => write!(f, "Failed to get flags from fs: {}", err),
+            Gid(ref gid) => write!(f, "Invalid gid: {}", gid),
+            InvalidInstanceId(ref err) => write!(f, "Invalid instance ID: {}", err),
+            MissingArgument(ref arg) => write!(f, "Missing argument: {}", arg),
+            MissingParent(ref path) => write!(f, "File {:?} doesn't have a parent", path),
+            MkdirOldRoot(ref err) => write!(
+                f,
+                "Failed to create the jail root directory before pivoting root: {}",
+                err
+            ),
+            MknodDevNetTun(ref err) => write!(
+                f,
+                "Failed to create /dev/net/tun via mknod inside the jail: {}",
+                err
+            ),
+            MountBind(ref err) => {
+                write!(f, "Failed to bind mount the jail root directory: {}", err)
+            }
+            MountPropagationPrivate(ref err) => write!(
+                f,
+                "Failed to change the propagation type to private: {}",
+                err
+            ),
+            NotAFile(ref path) => write!(f, "{:?} is not a file", path),
+            NumaNode(ref node) => write!(f, "Invalid numa node: {}", node),
+            OpenDevKvm(ref err) => write!(f, "Failed to open /dev/kvm: {}", err),
+            OpenDevNull(ref err) => write!(f, "Failed to open /dev/null: {}", err),
+            OsStringParsing(ref path, _) => {
+                write!(f, "Failed to parse path {:?} into an OsString", path)
+            }
+            PivotRoot(ref err) => write!(f, "Failed to pivot root: {}", err),
+            ReadLine(ref path, ref err) => {
+                write!(f, "Failed to read line from {:?}: {:?}", path, err)
+            }
+            ReadToString(ref path, ref err) => {
+                write!(f, "Failed to read file {:?} into a string: {:?}", path, err)
+            }
+            RegEx(ref err) => write!(f, "Regex failed: {:?}", err),
+            RmOldRootDir(ref err) => write!(f, "Failed to remove old jail root directory: {}", err),
+            SeccompLevel(ref err) => write!(f, "Failed to parse seccomp level: {:?}", err),
+            SetCurrentDir(ref err) => write!(f, "Failed to change current directory: {:?}", err),
+            SetNetNs(ref err) => write!(f, "Failed to join network namespace: netns: {}", err),
+            SetSid(ref err) => write!(f, "Failed to daemonize: setsid: {}", err),
+            Uid(ref uid) => write!(f, "Invalid uid: {}", uid),
+            UmountOldRoot(ref err) => write!(f, "Failed to unmount the old jail root: {}", err),
+            UnexpectedKvmFd(fd) => write!(f, "Unexpected value for the /dev/kvm fd: {}", fd),
+            UnexpectedListenerFd(fd) => {
+                write!(f, "Unexpected value for the socket listener fd: {}", fd)
+            }
+            UnshareNewNs(ref err) => {
+                write!(f, "Failed to unshare into new mount namespace: {}", err)
+            }
+            UnixListener(ref err) => write!(f, "Failed to bind to the Unix socket: {:?}", err),
+            UnsetCloexec(ref err) => write!(
+                f,
+                "Failed to unset the O_CLOEXEC flag on the socket fd: {}",
+                err
+            ),
+            Write(ref path, ref err) => write!(f, "Failed to write to {:?}: {:?}", path, err),
+        }
+    }
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -223,8 +330,12 @@ pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Resu
         .map_err(|e| Error::CreateDir(env.chroot_dir().to_owned(), e))?;
 
     // The unwrap should not fail, since the end of chroot_dir looks like ..../<id>/root
-    let listener = UnixListener::bind(env.chroot_dir().parent().unwrap().join(SOCKET_FILE_NAME))
-        .map_err(|e| Error::UnixListener(e))?;
+    let listener = UnixListener::bind(
+        env.chroot_dir()
+            .parent()
+            .ok_or(Error::MissingParent(env.chroot_dir().to_path_buf()))?
+            .join(SOCKET_FILE_NAME),
+    ).map_err(|e| Error::UnixListener(e))?;
 
     let listener_fd = listener.as_raw_fd();
     if listener_fd != LISTENER_FD {
