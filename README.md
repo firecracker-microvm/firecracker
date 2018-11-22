@@ -90,6 +90,8 @@ The **API endpoint** can be used to:
 - Configure the logging and metric system.
 - `[BETA]` Configure the data tree of the guest-facing metadata service. The
   service is only available to the guest if this resource is configured.
+- `[EXPERIMENTAL]` Add one or more [vsock sockets](docs/experimental-vsock.md)
+  to the microVM.
 - Start the microVM using a given kernel image, root file system, and boot
   arguments.
 - Stop the microVM.
@@ -97,8 +99,9 @@ The **API endpoint** can be used to:
 **Built-in Capabilities**:
 
 - Demand fault paging and CPU oversubscription enabled by default.
-- Jailer process for starting Firecracker in production scenarios; applies a
-  cgroup/namespace/seccomp rule isolation barrier and then drops privileges. 
+- [Jailer](docs/jailer.md) process for starting Firecracker in production
+  scenarios; applies a cgroup/namespace/seccomp rule isolation barrier and then
+  drops privileges. 
 
 ## Performance
 
