@@ -2,7 +2,7 @@
 
 ## Mission
 
-Enable secure, multi-tenant, minimal-overhead execution of container and
+Enable secure, multitenant, minimal-overhead execution of container and
 serverless workloads.
 
 ## Tenets (unless you know better ones)
