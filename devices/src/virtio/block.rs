@@ -237,7 +237,7 @@ impl Request {
     }
 }
 
-pub struct BlockEpollHandler {
+struct BlockEpollHandler {
     queues: Vec<Queue>,
     mem: GuestMemory,
     disk_image: File,
@@ -331,21 +331,6 @@ impl BlockEpollHandler {
             error!("Failed to signal used queue: {:?}", e);
             METRICS.block.event_fails.inc();
         }
-    }
-
-    #[cfg(test)]
-    fn set_queue(&mut self, idx: usize, q: Queue) {
-        self.queues[idx] = q;
-    }
-
-    #[cfg(test)]
-    fn get_rate_limiter(&self) -> &RateLimiter {
-        &self.rate_limiter
-    }
-
-    #[cfg(test)]
-    fn set_rate_limiter(&mut self, rate_limiter: RateLimiter) {
-        self.rate_limiter = rate_limiter;
     }
 
     fn update_disk_image(&mut self, disk_image: File) {
@@ -639,6 +624,20 @@ mod tests {
             $block;
             assert_eq!($metric.count(), before + $delta, "unexpected metric value");
         }};
+    }
+
+    impl BlockEpollHandler {
+        fn set_queue(&mut self, idx: usize, q: Queue) {
+            self.queues[idx] = q;
+        }
+
+        fn get_rate_limiter(&self) -> &RateLimiter {
+            &self.rate_limiter
+        }
+
+        fn set_rate_limiter(&mut self, rate_limiter: RateLimiter) {
+            self.rate_limiter = rate_limiter;
+        }
     }
 
     struct DummyBlock {
