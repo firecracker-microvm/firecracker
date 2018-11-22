@@ -18,8 +18,7 @@
 
 - **KVM**
 
-  Firecracker is built on top of [KVM](https://www.linux-kvm.org). Please make
-  sure that:
+  Firecracker uses [KVM](https://www.linux-kvm.org). Please make sure that:
   1. you have KVM enabled in your Linux kernel, and
   2. you have read/write access to `/dev/kvm`.
      If you need help setting up access to `/dev/kvm`, you should check out
