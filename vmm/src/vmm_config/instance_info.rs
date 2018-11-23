@@ -8,6 +8,7 @@ use device_manager;
 use devices;
 use kernel::loader as kernel_loader;
 use memory_model::GuestMemoryError;
+use seccomp;
 use sys_util;
 use vstate;
 use x86_64;
@@ -58,6 +59,8 @@ pub enum StartMicrovmError {
     #[cfg(feature = "vsock")]
     /// Creating a vsock device can only fail if the /dev/vhost-vsock device cannot be open.
     CreateVsockDevice(devices::virtio::vhost::Error),
+    /// The device manager was not configured.
+    DeviceManager,
     /// Executing a VM request failed.
     DeviceVmRequest(sys_util::Error),
     /// Cannot read from an Event file descriptor.
@@ -87,14 +90,16 @@ pub enum StartMicrovmError {
     #[cfg(feature = "vsock")]
     /// Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus.
     RegisterVsockDevice(device_manager::mmio::Error),
+    /// Cannot build seccomp filters.
+    SeccompFilters(seccomp::Error),
     /// Cannot create a new vCPU file descriptor.
     Vcpu(vstate::Error),
     /// vCPU configuration failed.
     VcpuConfigure(vstate::Error),
+    /// vCPUs were not configured.
+    VcpusNotConfigured,
     /// Cannot spawn a new vCPU thread.
     VcpuSpawn(std::io::Error),
-    /// Cannot configure the VM.
-    VmConfigure(vstate::Error),
 }
 
 impl Display for StartMicrovmError {
@@ -138,7 +143,7 @@ impl Display for StartMicrovmError {
 
                 write!(f, "Executing a VM request failed. {}", err_msg)
             }
-
+            DeviceManager => write!(f, "The device manager was not configured."),
             EventFd => write!(f, "Cannot read from an Event file descriptor."),
             GuestMemory(ref err) => {
                 // Remove imbricated quotes from error message.
@@ -206,6 +211,12 @@ impl Display for StartMicrovmError {
                     err_msg
                 )
             }
+            SeccompFilters(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot build seccomp filters. {}", err_msg)
+            }
             Vcpu(ref err) => {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
@@ -216,19 +227,14 @@ impl Display for StartMicrovmError {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
 
-                write!(f, "Vcpu configuration failed. {}", err_msg)
+                write!(f, "vCPU configuration failed. {}", err_msg)
             }
+            VcpusNotConfigured => write!(f, "vCPUs were not configured."),
             VcpuSpawn(ref err) => {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
 
                 write!(f, "Cannot spawn vCPU thread. {}", err_msg)
-            }
-            VmConfigure(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot configure the microvm. {}", err_msg)
             }
         }
     }
