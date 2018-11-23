@@ -16,6 +16,7 @@ use super::KvmContext;
 use cpuid::{c3_template, filter_cpuid, t2_template};
 use kvm::*;
 use logger::{LogOption, LOGGER};
+use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
@@ -27,8 +28,6 @@ const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
 pub enum Error {
-    /// A call to cpuid instruction failed.
-    CpuId(cpuid::Error),
     /// Invalid guest memory configuration.
     GuestMemory(GuestMemoryError),
     /// Hyperthreading flag is not initialized.
@@ -185,16 +184,22 @@ impl Vcpu {
         kernel_start_addr: GuestAddress,
         vm: &Vm,
     ) -> Result<()> {
-        // the MachineConfiguration has defaults for ht_enabled and vcpu_count.
-        filter_cpuid(
+        // the MachineConfiguration has defaults for ht_enabled and vcpu_count hence it is safe to unwrap
+        if let Err(e) = filter_cpuid(
             self.id,
             machine_config
                 .vcpu_count
                 .ok_or(Error::VcpuCountNotInitialized)?,
             machine_config.ht_enabled.ok_or(Error::HTNotInitialized)?,
             &mut self.cpuid,
-        )
-        .map_err(|e| Error::CpuId(e))?;
+        ) {
+            // For the moment, we do not have a showstopper error returned by the `filter_cpuid`.
+            METRICS.vcpu.fitler_cpuid.inc();
+            error!(
+                "Failure in configuring CPUID for vcpu {:?}: {:?}",
+                self.id, e
+            );
+        }
         match machine_config.cpu_template {
             Some(template) => match template {
                 CpuFeaturesTemplate::T2 => {

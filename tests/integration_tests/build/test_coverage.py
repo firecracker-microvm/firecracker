@@ -19,7 +19,7 @@ import pytest
 import host_tools.cargo_build as host  # pylint: disable=import-error
 
 
-COVERAGE_TARGET_PCT = 78.0
+COVERAGE_TARGET_PCT = 81.0
 # TODO: Put the coverage in s3 and update it automatically.
 
 CARGO_KCOV_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, 'kcov')
@@ -35,8 +35,8 @@ KCOV_COVERAGE_REGEX = r'"covered":"(\d+\.\d)"'
 def test_coverage(test_session_root_path, test_session_tmp_path):
     """Test line coverage with kcov.
 
-    The result is extracted from the index.json created by kcov after a
-    coverage run.
+    The result is extracted from the $KCOV_COVERAGE_FILE file created by kcov
+    after a coverage run.
     """
     exclude_pattern = (
         '${CARGO_HOME:-$HOME/.cargo/},'
