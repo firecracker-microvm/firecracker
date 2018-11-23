@@ -78,7 +78,7 @@ fn main() {
     let bind_path = cmd_arguments
         .value_of("api_sock")
         .map(|s| PathBuf::from(s))
-        .unwrap();
+        .expect("Missing argument: api_sock");
 
     let mut instance_id = String::from(DEFAULT_INSTANCE_ID);
     let mut seccomp_level = 0;
@@ -87,7 +87,8 @@ fn main() {
     let mut is_jailed = false;
 
     if let Some(s) = cmd_arguments.value_of("context") {
-        let context = serde_json::from_str::<FirecrackerContext>(s).unwrap();
+        let context =
+            serde_json::from_str::<FirecrackerContext>(s).expect("Invalid context format");
         is_jailed = context.jailed;
         instance_id = context.id;
         seccomp_level = context.seccomp_level;
@@ -101,7 +102,8 @@ fn main() {
     }));
     let mmds_info = MMDS.clone();
     let (to_vmm, from_api) = channel();
-    let server = ApiServer::new(mmds_info, shared_info.clone(), to_vmm).unwrap();
+    let server =
+        ApiServer::new(mmds_info, shared_info.clone(), to_vmm).expect("Cannot create API server");
 
     let api_event_fd = server
         .get_event_fd_clone()
