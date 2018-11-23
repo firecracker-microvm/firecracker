@@ -37,7 +37,9 @@ fn get_klapic_reg(klapic: &kvm_lapic_state, reg_offset: usize) -> u32 {
     };
     let mut reader = Cursor::new(sliceu8);
     // Following call can't fail if the offsets defined above are correct.
-    reader.read_u32::<LittleEndian>().unwrap()
+    reader
+        .read_u32::<LittleEndian>()
+        .expect("Failed to read klapic register")
 }
 
 fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u32) {
@@ -48,7 +50,9 @@ fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u32) {
     };
     let mut writer = Cursor::new(sliceu8);
     // Following call can't fail if the offsets defined above are correct.
-    writer.write_u32::<LittleEndian>(value).unwrap()
+    writer
+        .write_u32::<LittleEndian>(value)
+        .expect("Failed to write klapic register")
 }
 
 fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
