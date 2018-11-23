@@ -349,7 +349,7 @@ impl GuestMemory {
     /// # Examples
     ///
     /// ```
-    /// # use sys_util::{GuestAddress, GuestMemory};
+    /// # use memory_model::{GuestAddress, GuestMemory};
     /// # fn test_host_addr() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
