@@ -14,7 +14,7 @@ use std::result;
 use super::KvmContext;
 use cpuid::{c3_template, filter_cpuid, t2_template};
 use kvm::*;
-use memory_model::{GuestAddress, GuestMemory};
+use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
 use x86_64::{interrupts, regs};
@@ -26,6 +26,12 @@ pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
 pub enum Error {
     /// A call to cpuid instruction failed.
     CpuId(cpuid::Error),
+    /// Invalid guest memory configuration.
+    GuestMemory(GuestMemoryError),
+    /// Hyperthreading flag is not initialized.
+    HTNotInitialized,
+    /// vCPU count is not initialized.
+    VcpuCountNotInitialized,
     /// Cannot open the VM file descriptor.
     VmFd(sys_util::Error),
     /// Cannot open the VCPU file descriptor.
@@ -170,11 +176,13 @@ impl Vcpu {
         kernel_start_addr: GuestAddress,
         vm: &Vm,
     ) -> Result<()> {
-        // the MachineConfiguration has defaults for ht_enabled and vcpu_count hence it is safe to unwrap
+        // the MachineConfiguration has defaults for ht_enabled and vcpu_count.
         filter_cpuid(
             self.id,
-            machine_config.vcpu_count.unwrap(),
-            machine_config.ht_enabled.unwrap(),
+            machine_config
+                .vcpu_count
+                .ok_or(Error::VcpuCountNotInitialized)?,
+            machine_config.ht_enabled.ok_or(Error::HTNotInitialized)?,
             &mut self.cpuid,
         ).map_err(|e| Error::CpuId(e))?;
         match machine_config.cpu_template {
@@ -195,7 +203,9 @@ impl Vcpu {
 
         regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
         // Safe to unwrap because this method is called after the VM is configured
-        let vm_memory = vm.get_memory().unwrap();
+        let vm_memory = vm
+            .get_memory()
+            .ok_or(Error::GuestMemory(GuestMemoryError::MemoryNotInitialized))?;
         regs::setup_regs(
             &self.fd,
             kernel_start_addr.offset() as u64,
