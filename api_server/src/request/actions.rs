@@ -16,6 +16,7 @@ use vmm::VmmAction;
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 enum ActionType {
     BlockDeviceRescan,
+    FlushMetrics,
     InstanceStart,
 }
 
@@ -46,10 +47,13 @@ fn validate_payload(action_body: &ActionBody) -> Result<(), String> {
                 None => return Err("Payload is required for block device rescan.".to_string()),
             }
         }
-        ActionType::InstanceStart => {
-            // InstanceStart does not have a payload
+        ActionType::FlushMetrics | ActionType::InstanceStart => {
+            // Neither FlushMetrics nor InstanceStart should have a payload.
             if !action_body.payload.is_none() {
-                return Err("InstanceStart does not support a payload.".to_string());
+                return Err(format!(
+                    "{:?} does not support a payload.",
+                    action_body.action_type
+                ));
             }
             Ok(())
         }
@@ -70,6 +74,13 @@ impl IntoParsedRequest for ActionBody {
                 let (sync_sender, sync_receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
                     VmmAction::RescanBlockDevice(block_device_id, sync_sender),
+                    sync_receiver,
+                ))
+            }
+            ActionType::FlushMetrics => {
+                let (sync_sender, sync_receiver) = oneshot::channel();
+                Ok(ParsedRequest::Sync(
+                    VmmAction::FlushMetrics(sync_sender),
                     sync_receiver,
                 ))
             }
