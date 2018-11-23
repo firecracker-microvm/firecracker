@@ -185,7 +185,7 @@ lazy_static! {
     /// Static instance used for handling human-readable logs.
     ///
     pub static ref LOGGER: &'static Logger = {
-        set_logger(_LOGGER_INNER.deref()).unwrap();
+        set_logger(_LOGGER_INNER.deref()).expect("Failed to set logger");
         _LOGGER_INNER.deref()
     };
 }
@@ -410,7 +410,10 @@ impl Logger {
             // It's safe to unrwap here, because instance_id is only written to
             // during log initialization, so there aren't any writers that could
             // poison the lock.
-            let id_guard = self.instance_id.read().unwrap();
+            let id_guard = self
+                .instance_id
+                .read()
+                .expect("Failed to read instance ID due to poisoned lock");
             res.push_str(id_guard.as_ref());
         }
 
@@ -494,7 +497,10 @@ impl Logger {
         }
 
         {
-            let mut id_guard = self.instance_id.write().unwrap();
+            let mut id_guard = self
+                .instance_id
+                .write()
+                .expect("Failed to set instance ID due to poisoned lock");
             *id_guard = instance_id.to_string();
         }
 
@@ -553,7 +559,12 @@ impl Logger {
         match self.level_info.writer() {
             x if x == Destination::Pipe as usize => {
                 // Unwrap is safe cause the Destination is a Pipe.
-                if let Err(_) = log_to_fifo(msg, self.log_fifo_guard().as_mut().unwrap()) {
+                if let Err(_) = log_to_fifo(
+                    msg,
+                    self.log_fifo_guard()
+                        .as_mut()
+                        .expect("Failed to write to fifo due to poisoned lock"),
+                ) {
                     // No reason to log the error to stderr here, just increment the metric.
                     METRICS.logger.missed_log_count.inc();
                 }
@@ -578,12 +589,15 @@ impl Logger {
                 Ok(msg) => {
                     // Check that the destination is indeed a FIFO.
                     if self.level_info.writer() == Destination::Pipe as usize {
-                        log_to_fifo(msg, self.metrics_fifo_guard().as_mut().unwrap()).map_err(
-                            |e| {
-                                METRICS.logger.missed_metrics_count.inc();
-                                e
-                            },
-                        )?;
+                        log_to_fifo(
+                            msg,
+                            self.metrics_fifo_guard()
+                                .as_mut()
+                                .expect("Failed to write to fifo due to poisoned lock"),
+                        ).map_err(|e| {
+                            METRICS.logger.missed_metrics_count.inc();
+                            e
+                        })?;
                     }
                     // We are not logging metrics if the Destination is not a PIPE.
                     Ok(())
