@@ -20,14 +20,16 @@ use sys_util;
 
 #[derive(Debug)]
 pub enum Error {
-    /// Failed to configure the FPU.
-    ConfigureFPU(sys_util::Error),
+    /// Failed to get SREGs for this CPU.
+    GetStatusRegisters(sys_util::Error),
     /// Failed to set base registers for this CPU.
-    ConfigureBaseRegisters(sys_util::Error),
+    SetBaseRegisters(sys_util::Error),
+    /// Failed to configure the FPU.
+    SetFPURegisters(sys_util::Error),
     /// Setting up MSRs failed.
-    ConfigureMSRs(sys_util::Error),
+    SetModelSpecificRegisters(sys_util::Error),
     /// Failed to set SREGs for this CPU.
-    ConfigureSREGs(sys_util::Error),
+    SetStatusRegisters(sys_util::Error),
     /// Writing the GDT to RAM failed.
     WriteGDT,
     /// Writing the IDT to RAM failed.
@@ -52,7 +54,7 @@ pub fn setup_fpu(vcpu: &kvm::VcpuFd) -> Result<()> {
         ..Default::default()
     };
 
-    vcpu.set_fpu(&fpu).map_err(Error::ConfigureFPU)
+    vcpu.set_fpu(&fpu).map_err(Error::SetFPURegisters)
 }
 
 /// Configure Model Specific Registers (MSRs) for a given CPU.
@@ -79,7 +81,8 @@ pub fn setup_msrs(vcpu: &kvm::VcpuFd) -> Result<()> {
     }
     msrs.nmsrs = entry_vec.len() as u32;
 
-    vcpu.set_msrs(msrs).map_err(Error::ConfigureMSRs)
+    vcpu.set_msrs(msrs)
+        .map_err(Error::SetModelSpecificRegisters)
 }
 
 /// Configure base registers for a given CPU.
@@ -100,7 +103,7 @@ pub fn setup_regs(vcpu: &kvm::VcpuFd, boot_ip: u64, boot_sp: u64, boot_si: u64) 
         ..Default::default()
     };
 
-    vcpu.set_regs(&regs).map_err(Error::ConfigureBaseRegisters)
+    vcpu.set_regs(&regs).map_err(Error::SetBaseRegisters)
 }
 
 /// Configures the segment registers and system page tables for a given CPU.
@@ -110,12 +113,12 @@ pub fn setup_regs(vcpu: &kvm::VcpuFd, boot_ip: u64, boot_sp: u64, boot_si: u64) 
 /// * `mem` - The memory that will be passed to the guest.
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 pub fn setup_sregs(mem: &GuestMemory, vcpu: &kvm::VcpuFd) -> Result<()> {
-    let mut sregs: kvm_sregs = vcpu.get_sregs().map_err(Error::ConfigureSREGs)?;
+    let mut sregs: kvm_sregs = vcpu.get_sregs().map_err(Error::GetStatusRegisters)?;
 
     configure_segments_and_sregs(mem, &mut sregs)?;
     setup_page_tables(mem, &mut sregs)?; // TODO(dgreid) - Can this be done once per system instead?
 
-    vcpu.set_sregs(&sregs).map_err(Error::ConfigureSREGs)
+    vcpu.set_sregs(&sregs).map_err(Error::SetStatusRegisters)
 }
 
 const BOOT_GDT_OFFSET: usize = 0x500;
