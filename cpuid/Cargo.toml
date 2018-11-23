@@ -6,4 +6,3 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 [dependencies]
 kvm = { path = "../kvm" }
 kvm_gen = { path = "../kvm_gen" }
-logger = { path = "../logger" }

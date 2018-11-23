@@ -10,8 +10,6 @@
 
 extern crate kvm;
 extern crate kvm_gen;
-#[macro_use]
-extern crate logger;
 
 use std::result;
 
@@ -33,10 +31,15 @@ use cpu_leaf::*;
 pub enum Error {
     /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
     VcpuCountOverflow,
+    /// Failure with getting brand string.
+    CreateBrandString(brand_string::Error),
 }
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, Error>;
+
+/// Type for propagating errors that can be optionally handled.
+pub type PartialError<T, E> = (T, Option<E>);
 
 /// Sets up the CPUID entries for the given vcpu.
 ///
@@ -72,7 +75,8 @@ pub fn filter_cpuid(
     let entries = kvm_cpuid.mut_entries_slice();
     let max_addr_cpu = get_max_addressable_lprocessors(cpu_count)? as u32;
 
-    let bstr = get_brand_string();
+    let res = get_brand_string();
+    let bstr = res.0;
 
     for entry in entries.iter_mut() {
         match entry.function {
@@ -220,7 +224,11 @@ pub fn filter_cpuid(
         }
     }
 
-    Ok(())
+    if let Some(e) = res.1 {
+        Err(Error::CreateBrandString(e))
+    } else {
+        Ok(())
+    }
 }
 
 // constants for setting the fields of kvm_cpuid2 structures
@@ -259,7 +267,7 @@ fn get_max_addressable_lprocessors(cpu_count: u8) -> Result<u8> {
 ///
 /// This is safe because we know DEFAULT_BRAND_STRING to hold valid data
 /// (allowed length and holding only valid ASCII chars).
-fn get_brand_string() -> BrandString {
+fn get_brand_string() -> PartialError<BrandString, brand_string::Error> {
     let mut bstr = BrandString::from_bytes_unchecked(DEFAULT_BRAND_STRING);
     if let Ok(host_bstr) = BrandString::from_host_cpuid() {
         if host_bstr.starts_with(b"Intel") {
@@ -267,11 +275,13 @@ fn get_brand_string() -> BrandString {
                 let mut v3 = vec![];
                 v3.extend_from_slice(" @ ".as_bytes());
                 v3.extend_from_slice(freq);
-                bstr.push_bytes(&v3);
+                if let Err(e) = bstr.push_bytes(&v3) {
+                    return (bstr, Some(e));
+                }
             }
         }
     }
-    bstr
+    (bstr, None)
 }
 
 #[cfg(test)]
@@ -542,7 +552,7 @@ mod tests {
             let entries = kvm_cpuid.mut_entries_slice();
             assert_eq!(entries[9], cpuid_fb);
         }
-        let bstr = get_brand_string();
+        let bstr = get_brand_string().0;
         let cpuid_fother = kvm_cpuid_entry2 {
             function: 0x80000003,
             index: 0,
@@ -772,7 +782,7 @@ mod tests {
             let entries = kvm_cpuid.mut_entries_slice();
             assert_eq!(entries[9], cpuid_fb);
         }
-        let bstr = get_brand_string();
+        let bstr = get_brand_string().0;
         let cpuid_fother = kvm_cpuid_entry2 {
             function: 0x80000003,
             index: 0,
@@ -991,7 +1001,7 @@ mod tests {
             let entries = kvm_cpuid.mut_entries_slice();
             assert_eq!(entries[9], cpuid_fb);
         }
-        let bstr = get_brand_string();
+        let bstr = get_brand_string().0;
         let cpuid_fother = kvm_cpuid_entry2 {
             function: 0x80000003,
             index: 0,
@@ -1221,7 +1231,7 @@ mod tests {
             let entries = kvm_cpuid.mut_entries_slice();
             assert_eq!(entries[9], cpuid_fb);
         }
-        let bstr = get_brand_string();
+        let bstr = get_brand_string().0;
         let cpuid_fother = kvm_cpuid_entry2 {
             function: 0x80000003,
             index: 0,
