@@ -251,7 +251,6 @@
 extern crate libc;
 
 use std::collections::HashMap;
-use std::result::Result;
 
 /// Level of filtering that causes syscall numbers and parameters to be examined.
 pub const SECCOMP_LEVEL_ADVANCED: u32 = 2;
@@ -345,7 +344,11 @@ pub enum Error {
     EmptyRulesVector,
     /// Argument number that exceeds the maximum value.
     InvalidArgumentNumber,
+    /// Failed to load seccomp rules into the kernel.
+    Load(i32),
 }
+
+type Result<T> = std::result::Result<T, Error>;
 
 /// Comparison to perform when matching a condition.
 #[derive(PartialEq)]
@@ -443,7 +446,7 @@ impl SeccompCondition {
     ///
     /// [`SeccompCondition`]: struct.SeccompCondition.html
     ///
-    pub fn new(arg_number: u8, operator: SeccompCmpOp, value: u64) -> Result<Self, Error> {
+    pub fn new(arg_number: u8, operator: SeccompCmpOp, value: u64) -> Result<Self> {
         // Checks that the given argument number is valid.
         if arg_number > ARG_NUMBER_MAX {
             return Err(Error::InvalidArgumentNumber);
@@ -784,7 +787,7 @@ impl SeccompFilterContext {
     pub fn new(
         rules: HashMap<i64, (i64, Vec<SeccompRule>)>,
         default_action: SeccompAction,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self> {
         // All inserted syscalls must have at least one rule, otherwise BPF code will break.
         for (_, value) in rules.iter() {
             if value.1.len() == 0 {
@@ -814,7 +817,7 @@ impl SeccompFilterContext {
         syscall_number: i64,
         default_priority: Option<i64>,
         mut rules: Vec<SeccompRule>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         // All inserted syscalls must have at least one rule, otherwise BPF code will break.
         if rules.len() == 0 {
             return Err(Error::EmptyRulesVector);
@@ -831,7 +834,7 @@ impl SeccompFilterContext {
 
     /// Translates filter context into BPF instructions.
     ///
-    fn into_bpf(self) -> Result<Vec<sock_filter>, Error> {
+    fn into_bpf(self) -> Result<Vec<sock_filter>> {
         // The called syscall number is loaded.
         let mut accumulator = Vec::with_capacity(1);
         let mut context_len = 1;
@@ -896,7 +899,7 @@ impl SeccompFilterContext {
         default_action: u32,
         accumulator: &mut Vec<Vec<sock_filter>>,
         context_len: &mut usize,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         // The rules of the chain are translated into BPF statements.
         let chain: Vec<_> = chain.into_iter().map(|rule| rule.into_bpf()).collect();
         let chain_len = chain.iter().map(|rule| rule.len()).fold(0, |a, b| a + b);
@@ -939,7 +942,7 @@ impl SeccompFilterContext {
 ///
 /// * `level` - Filtering level.
 ///
-pub fn setup_seccomp(level: SeccompLevel) -> Result<(), i32> {
+pub fn setup_seccomp(level: SeccompLevel) -> Result<()> {
     let mut filters = Vec::new();
 
     filters.extend(VALIDATE_ARCHITECTURE());
@@ -947,7 +950,7 @@ pub fn setup_seccomp(level: SeccompLevel) -> Result<(), i32> {
     // Load filters according to specified filter level.
     match level {
         SeccompLevel::Advanced(context) => {
-            filters.extend(context.into_bpf().map_err(|_| libc::EINVAL)?);
+            filters.extend(context.into_bpf().map_err(|_| Error::Load(libc::EINVAL))?);
         }
         SeccompLevel::Basic(allowed_syscalls) => {
             filters.extend(EXAMINE_SYSCALL());
@@ -965,7 +968,7 @@ pub fn setup_seccomp(level: SeccompLevel) -> Result<(), i32> {
         {
             let rc = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
             if rc != 0 {
-                return Err(*libc::__errno_location());
+                return Err(Error::Load(*libc::__errno_location()));
             }
         }
 
@@ -978,7 +981,7 @@ pub fn setup_seccomp(level: SeccompLevel) -> Result<(), i32> {
         {
             let rc = libc::prctl(libc::PR_SET_SECCOMP, libc::SECCOMP_MODE_FILTER, filter_ptr);
             if rc != 0 {
-                return Err(*libc::__errno_location());
+                return Err(Error::Load(*libc::__errno_location()));
             }
         }
     }

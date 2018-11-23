@@ -69,6 +69,9 @@ use kernel::loader as kernel_loader;
 use kvm::*;
 use logger::{Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
+use seccomp::{
+    setup_seccomp, SeccompLevel, SECCOMP_LEVEL_ADVANCED, SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
+};
 pub use sigsys_handler::setup_sigsys_handler;
 use sys_util::{register_signal_handler, EventFd, Killable, Terminal};
 use vm_control::VmResponse;
@@ -626,7 +629,10 @@ impl Vmm {
         device_manager: &mut MMIODeviceManager,
     ) -> std::result::Result<(), StartMicrovmError> {
         // We rely on check_health function for making sure kernel_config is not None.
-        let kernel_config = self.kernel_config.as_mut().unwrap();
+        let kernel_config = self
+            .kernel_config
+            .as_mut()
+            .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
         if self.block_device_configs.has_root_block_device() {
             // If no PARTUUID was specified for the root device, try with the /dev/vda.
@@ -698,7 +704,10 @@ impl Vmm {
         device_manager: &mut MMIODeviceManager,
     ) -> std::result::Result<(), StartMicrovmError> {
         // We rely on check_health function for making sure kernel_config is not None.
-        let kernel_config = self.kernel_config.as_mut().unwrap();
+        let kernel_config = self
+            .kernel_config
+            .as_mut()
+            .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
         for cfg in self.network_interface_configs.iter_mut() {
             let epoll_config = self.epoll_context.allocate_virtio_net_tokens();
@@ -735,7 +744,10 @@ impl Vmm {
         device_manager: &mut MMIODeviceManager,
         guest_mem: &GuestMemory,
     ) -> std::result::Result<(), StartMicrovmError> {
-        let kernel_config = self.kernel_config.as_mut().unwrap();
+        let kernel_config = self
+            .kernel_config
+            .as_mut()
+            .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
         for cfg in self.vsock_device_configs.iter() {
             let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
@@ -756,8 +768,13 @@ impl Vmm {
     }
 
     fn init_guest_memory(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        // It is safe to unwrap because vm_config it is initialized with a default value.
-        let mem_size = self.vm_config.mem_size_mib.unwrap() << 20;
+        let mem_size = self
+            .vm_config
+            .mem_size_mib
+            .ok_or(StartMicrovmError::GuestMemory(
+                memory_model::GuestMemoryError::MemoryNotInitialized,
+            ))?
+            << 20;
         let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
         self.guest_memory =
             Some(GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?);
@@ -807,14 +824,16 @@ impl Vmm {
             .setup_irqchip(
                 &self.legacy_device_manager.com_evt_1_3,
                 &self.legacy_device_manager.com_evt_2_4,
-            ).map_err(StartMicrovmError::VmConfigure)?;
+            ).map_err(|e| StartMicrovmError::ConfigureVm(e))?;
         self.vm
             .create_pit()
             .map_err(|e| StartMicrovmError::ConfigureVm(e))?;
 
-        // It is safe to unwrap() because mmio_device_manager is instantiated in init_devices, which
-        // is called before init_microvm.
-        let device_manager = self.mmio_device_manager.as_ref().unwrap();
+        // mmio_device_manager is instantiated in init_devices, which is called before init_microvm.
+        let device_manager = self
+            .mmio_device_manager
+            .as_ref()
+            .ok_or(StartMicrovmError::DeviceManager)?;
         for request in &device_manager.vm_requests {
             if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
                 return Err(StartMicrovmError::DeviceVmRequest(e))?;
@@ -832,8 +851,11 @@ impl Vmm {
         &mut self,
         entry_addr: GuestAddress,
     ) -> std::result::Result<(), StartMicrovmError> {
-        // It is safe to unwrap because vm_config has a default value for vcpu_count.
-        let vcpu_count = self.vm_config.vcpu_count.unwrap();
+        // vm_config has a default value for vcpu_count.
+        let vcpu_count = self
+            .vm_config
+            .vcpu_count
+            .ok_or(StartMicrovmError::VcpusNotConfigured)?;
         self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
         // It is safe to unwrap since it's set just above.
         let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
@@ -845,9 +867,12 @@ impl Vmm {
 
         for cpu_id in 0..vcpu_count {
             let io_bus = self.legacy_device_manager.io_bus.clone();
-            // It is safe to unwrap() because mmio_device_manager is instantiated in init_devices,
-            // which is called before start_vcpus.
-            let device_manager = self.mmio_device_manager.as_ref().unwrap();
+            // mmio_device_manager is instantiated in init_devices, which is called before
+            // start_vcpus.
+            let device_manager = self
+                .mmio_device_manager
+                .as_ref()
+                .ok_or(StartMicrovmError::DeviceManager)?;
             let mmio_bus = device_manager.bus.clone();
             let kill_signaled = kill_signaled.clone();
             let vcpu_thread_barrier = vcpu_thread_barrier.clone();
@@ -856,7 +881,7 @@ impl Vmm {
                 .legacy_device_manager
                 .i8042
                 .lock()
-                .unwrap()
+                .expect("Failed to start VCPUs due to poisoned i8042 lock")
                 .get_eventfd_clone()
                 .map_err(|_| StartMicrovmError::EventFd)?;
 
@@ -977,22 +1002,22 @@ impl Vmm {
             );
         }
 
-        // Starts seccomp filtering before executing guest code.
-        // Filters according to specified level.
+        // Load seccomp filters before executing guest code.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
         match self.seccomp_level {
-            seccomp::SECCOMP_LEVEL_ADVANCED => {
-                seccomp::setup_seccomp(seccomp::SeccompLevel::Advanced(
-                    default_syscalls::default_context().unwrap(),
-                )).expect("Could not load filters as requested!");
+            SECCOMP_LEVEL_ADVANCED => {
+                setup_seccomp(SeccompLevel::Advanced(
+                    default_syscalls::default_context()
+                        .map_err(|e| StartMicrovmError::SeccompFilters(e))?,
+                )).map_err(|e| StartMicrovmError::SeccompFilters(e))?;
             }
-            seccomp::SECCOMP_LEVEL_BASIC => {
-                seccomp::setup_seccomp(seccomp::SeccompLevel::Basic(
+            SECCOMP_LEVEL_BASIC => {
+                setup_seccomp(seccomp::SeccompLevel::Basic(
                     default_syscalls::ALLOWED_SYSCALLS,
-                )).expect("Could not load filters as requested!");
+                )).map_err(|e| StartMicrovmError::SeccompFilters(e))?;
             }
-            seccomp::SECCOMP_LEVEL_NONE | _ => {}
+            SECCOMP_LEVEL_NONE | _ => {}
         }
 
         vcpu_thread_barrier.wait();
@@ -1003,23 +1028,29 @@ impl Vmm {
     fn load_kernel(&mut self) -> std::result::Result<GuestAddress, StartMicrovmError> {
         // This is the easy way out of consuming the value of the kernel_cmdline.
         // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
-        // It is safe to unwrap since we've already validated that the kernel_config has a value
-        // in the check_health function.
-        let kernel_config = self.kernel_config.as_mut().unwrap();
+        let kernel_config = self
+            .kernel_config
+            .as_mut()
+            .ok_or(StartMicrovmError::MissingKernelConfig)?;
         let cmdline_cstring = CString::new(kernel_config.cmdline.clone()).map_err(|_| {
             StartMicrovmError::KernelCmdline(kernel_cmdline::Error::InvalidAscii.to_string())
         })?;
 
         // It is safe to unwrap because the VM memory was initialized before in vm.memory_init().
-        let vm_memory = self.vm.get_memory().unwrap();
+        let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
+            memory_model::GuestMemoryError::MemoryNotInitialized,
+        ))?;
         let entry_addr = kernel_loader::load_kernel(vm_memory, &mut kernel_config.kernel_file)
             .map_err(|e| StartMicrovmError::Loader(e))?;
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)
             .map_err(|e| StartMicrovmError::Loader(e))?;
 
-        // Safe to unwrap as the vcpu_count has a default value. If we get to this point without
-        // setting the vcpu count, we should panic anyway.
-        let vcpu_count = self.vm_config.vcpu_count.unwrap();
+        // The vcpu_count has a default value. We shouldn't have gotten to this point without
+        // having set the vcpu count.
+        let vcpu_count = self
+            .vm_config
+            .vcpu_count
+            .ok_or(StartMicrovmError::VcpusNotConfigured)?;
         x86_64::configure_system(
             vm_memory,
             kernel_config.cmdline_addr,
@@ -1035,7 +1066,7 @@ impl Vmm {
             .legacy_device_manager
             .i8042
             .lock()
-            .unwrap()
+            .expect("Failed to register events on the event fd due to poisoned lock")
             .get_eventfd_clone()
             .map_err(|_| StartMicrovmError::EventFd)?;
         let exit_epoll_evt = self
@@ -1067,8 +1098,11 @@ impl Vmm {
 
         self.check_health()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::User, e))?;
-        // Use unwrap() to crash if the other thread poisoned this lock.
-        self.shared_info.write().unwrap().state = InstanceState::Starting;
+        // Use expect() to crash if the other thread poisoned this lock.
+        self.shared_info
+            .write()
+            .expect("Failed to start microVM because shared info couldn't be written due to poisoned lock")
+            .state = InstanceState::Starting;
 
         self.init_guest_memory()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
@@ -1087,8 +1121,11 @@ impl Vmm {
         self.start_vcpus(entry_addr)
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
-        // Use unwrap() to crash if the other thread poisoned this lock.
-        self.shared_info.write().unwrap().state = InstanceState::Running;
+        // Use expect() to crash if the other thread poisoned this lock.
+        self.shared_info
+            .write()
+            .expect("Failed to start microVM because shared info couldn't be written due to poisoned lock")
+            .state = InstanceState::Running;
 
         // Arm the log write timer.
         // TODO: the timer does not stop on InstanceStop.
@@ -1166,8 +1203,9 @@ impl Vmm {
 
     fn is_instance_initialized(&self) -> bool {
         let instance_state = {
-            // Use unwrap() to crash if the other thread poisoned this lock.
-            let shared_info = self.shared_info.read().unwrap();
+            // Use expect() to crash if the other thread poisoned this lock.
+            let shared_info = self.shared_info.read()
+                .expect("Failed to determine if instance is initialized because shared info couldn't be read due to poisoned lock");
             shared_info.state.clone()
         };
         match instance_state {
@@ -1216,13 +1254,14 @@ impl Vmm {
                                     self.epoll_context.disable_stdin_event()?;
                                 }
                                 Ok(count) => {
-                                    // Use unwrap() to panic if another thread panicked
+                                    // Use expect() to panic if another thread panicked
                                     // while holding the lock.
                                     self.legacy_device_manager
                                         .stdio_serial
                                         .lock()
-                                        .unwrap()
-                                        .queue_input_bytes(&out[..count])
+                                        .expect(
+                                            "Failed to process stdin event due to poisoned lock",
+                                        ).queue_input_bytes(&out[..count])
                                         .map_err(Error::Serial)?;
                                 }
                             }
