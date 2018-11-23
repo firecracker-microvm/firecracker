@@ -616,11 +616,13 @@ mod tests {
     extern crate seccomp;
 
     #[test]
+    #[cfg(target_env = "musl")]
     fn test_basic_seccomp() {
         seccomp::setup_seccomp(seccomp::SeccompLevel::Basic(super::ALLOWED_SYSCALLS)).unwrap();
     }
 
     #[test]
+    #[cfg(target_env = "musl")]
     fn test_advanced_seccomp() {
         // Sets up context with additional rules required by the test.
         let mut context = super::default_context().unwrap();
