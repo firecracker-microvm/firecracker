@@ -95,38 +95,49 @@ pub const IOC_INOUT: c_uint = 3221225472;
 pub const IOCSIZE_MASK: c_uint = 1073676288;
 pub const IOCSIZE_SHIFT: c_uint = 16;
 
+// The type of the `req` parameter is different for the `musl` library. This will enable
+// successful build for other non-musl libraries.
+#[cfg(target_env = "musl")]
+type IoctlRequest = c_int;
+#[cfg(not(target_env = "musl"))]
+type IoctlRequest = c_ulong;
+
 /// Run an ioctl with no arguments.
 pub unsafe fn ioctl<F: AsRawFd>(fd: &F, req: c_ulong) -> c_int {
-    libc::ioctl(fd.as_raw_fd(), req as c_int, 0)
+    libc::ioctl(fd.as_raw_fd(), req as IoctlRequest, 0)
 }
 
 /// Run an ioctl with a single value argument.
 pub unsafe fn ioctl_with_val<F: AsRawFd>(fd: &F, req: c_ulong, arg: c_ulong) -> c_int {
-    libc::ioctl(fd.as_raw_fd(), req as c_int, arg)
+    libc::ioctl(fd.as_raw_fd(), req as IoctlRequest, arg)
 }
 
 /// Run an ioctl with an immutable reference.
 pub unsafe fn ioctl_with_ref<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: &T) -> c_int {
     libc::ioctl(
         fd.as_raw_fd(),
-        req as c_int,
+        req as IoctlRequest,
         arg as *const T as *const c_void,
     )
 }
 
 /// Run an ioctl with a mutable reference.
 pub unsafe fn ioctl_with_mut_ref<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: &mut T) -> c_int {
-    libc::ioctl(fd.as_raw_fd(), req as c_int, arg as *mut T as *mut c_void)
+    libc::ioctl(
+        fd.as_raw_fd(),
+        req as IoctlRequest,
+        arg as *mut T as *mut c_void,
+    )
 }
 
 /// Run an ioctl with a raw pointer.
 pub unsafe fn ioctl_with_ptr<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: *const T) -> c_int {
-    libc::ioctl(fd.as_raw_fd(), req as c_int, arg as *const c_void)
+    libc::ioctl(fd.as_raw_fd(), req as IoctlRequest, arg as *const c_void)
 }
 
 /// Run an ioctl with a mutable raw pointer.
 pub unsafe fn ioctl_with_mut_ptr<F: AsRawFd, T>(fd: &F, req: c_ulong, arg: *mut T) -> c_int {
-    libc::ioctl(fd.as_raw_fd(), req as c_int, arg as *mut c_void)
+    libc::ioctl(fd.as_raw_fd(), req as IoctlRequest, arg as *mut c_void)
 }
 
 #[cfg(test)]
