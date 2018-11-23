@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.11.0]
+
+### Added
+
+- Apache-2.0 license
+- Docs:
+  - [charter](CHARTER.md)
+  - [contribution guildelines](CONTRIBUTE.md)
+  - [design](docs/design.md)
+  - [getting started guide](docs/getting-started.md)
+  - [security policy](SECURITY-POLICY.md)
+  - [specifications](SPECIFICATION.md)
+- **Experimental** vhost-based vsock implementation.
+
+### Changed
+
+- Improved MMDS network stack performance
+- If the logging system is not yet initialized (via `PUT /logger`), log events
+  are now sent to stdout/stderr.
+- Moved the `instance_info_fails` metric under `get_api_requests`
+- Improved [readme](README.md) and added links to more detailed information,
+  now featured in subject-specific docs.
+
+### Fixed
+- Fixed bug in the MMDS network stack, that caused some RST packets to be sent
+  without a destination.
+- Fixed bug in `PATCH /drives`, whereby the ID in the path was not checked
+  against the ID in the body.
+
 ## [0.10.1]
 
 ### Fixed

@@ -1,6 +1,6 @@
 [package]
 name = "firecracker"
-version = "0.10.1"
+version = "0.11.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
