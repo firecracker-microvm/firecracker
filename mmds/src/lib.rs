@@ -43,7 +43,10 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
 
             // The lock can be held by one thread only, so it is safe to unwrap.
             // If another thread poisoned the lock, we abort the execution.
-            let response = MMDS.lock().unwrap().get_value(uri.to_string());
+            let response = MMDS
+                .lock()
+                .expect("Failed to build MMDS response due to poisoned lock")
+                .get_value(uri.to_string());
             match response {
                 Ok(response) => {
                     let response_body = response.join("\n");
