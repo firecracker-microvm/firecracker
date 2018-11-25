@@ -36,7 +36,7 @@ Firecracker virtual machine manager (VMM).
 ### Specifications
 
 Firecracker's technical specifications are available in the
-[Specifications document](SPECS.md).
+[Specifications document](../SPECIFICATION.md).
 
 ## Host Integration
 
