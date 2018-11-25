@@ -13,6 +13,7 @@ use std::result;
 
 use super::KvmContext;
 use cpuid::{c3_template, filter_cpuid, t2_template};
+use cpuid;
 use kvm::*;
 use memory_model::{GuestAddress, GuestMemory};
 use sys_util::EventFd;
