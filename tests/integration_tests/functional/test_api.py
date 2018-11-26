@@ -11,7 +11,6 @@ import host_tools.network as net_tools
 
 def test_api_happy_start(test_microvm_with_api):
     """Test a regular microvm API start sequence."""
-
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -24,7 +23,6 @@ def test_api_happy_start(test_microvm_with_api):
 
 def test_api_put_update_pre_boot(test_microvm_with_api):
     """Test that PUT updates are allowed before the microvm boots."""
-
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -634,7 +632,7 @@ def test_api_actions(test_microvm_with_api):
 
 
 def _drive_patch(test_microvm):
-    """Helper function to exercise drive patch test scenarios."""
+    """Exercise drive patch test scenarios."""
     # Patches without mandatory fields are not allowed.
     response = test_microvm.drive.patch(
         drive_id='scratch'

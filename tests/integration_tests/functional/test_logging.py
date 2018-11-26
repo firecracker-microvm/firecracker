@@ -1,8 +1,10 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Tests the format of human readable logs by checking response of the API
-config calls."""
+"""Tests the format of human readable logs.
 
+It checks the response of the API configuration calls and the logs that show
+up in the configured logging FIFO.
+"""
 import os
 import re
 
@@ -16,7 +18,8 @@ LOG_LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"]
 
 
 def to_formal_log_level(log_level):
-    """
+    """Convert a pretty-print log level into the related log level code.
+
     Turns a pretty formatted log level (i.e Warning) into the one actually
     being logged (i.e WARN).
     :param log_level: pretty formatted log level
@@ -34,13 +37,15 @@ def to_formal_log_level(log_level):
 
 
 def check_log_message(log_str, instance_id, level, show_level, show_origin):
-    """Parse the string representing the logs and look for the parts
-     that should be there.
-     The log line should look lie this:
+    """Ensure correctness of the logged message.
+
+    Parse the string representing the logs and look for the parts
+    that should be there.
+    The log line should look lie this:
          YYYY-MM-DDTHH:MM:SS.NNNNNNNNN [ID:LEVEL:FILE:LINE] MESSAGE
-     where LEVEL and FILE:LINE are both optional.
-     e.g.:
-        2018-09-09T12:52:00.123456789 [MYID:WARN:/path/to/file.rs:52] warning
+    where LEVEL and FILE:LINE are both optional.
+    e.g.:
+    `2018-09-09T12:52:00.123456789 [MYID:WARN:/path/to/file.rs:52] warning`
     """
     (timestamp, tag, _) = log_str.split(' ')[:3]
     timestamp = timestamp[:-10]

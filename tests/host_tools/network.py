@@ -88,19 +88,13 @@ class SSHConnection:
 class NoMoreIPsError(Exception):
     """No implementation required."""
 
-    pass
-
 
 class InvalidIPCount(Exception):
     """No implementation required."""
 
-    pass
-
 
 class SingletonReinitializationError(Exception):
     """No implementation required."""
-
-    pass
 
 
 class UniqueIPv4Generator:

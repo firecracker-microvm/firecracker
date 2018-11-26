@@ -16,7 +16,6 @@ SUCCESS_CODE = 0
 @pytest.mark.timeout(120)
 def test_rust_style():
     """Fail if there's misbehaving Rust style in this repo."""
-
     # Install rustfmt if it's not available yet.
     rustfmt_check = run(
         'rustup component list | grep --silent "rustfmt.*(installed)"',
@@ -46,19 +45,20 @@ def test_rust_style():
 @pytest.mark.timeout(120)
 def test_python_style():
     """Fail if there's misbehaving Python style in the test system."""
-
     # Check style with pylint.
+    # We are using `xargs` for propagating error code triggered by the
+    # actual command to stderr.
+    cmd = r'find ../ -type f -iname "*.py" -not -path "../build/*" ' \
+          r'-print0 | ' \
+          r'xargs -0 -n1 ' \
+          r'python3 -m pylint --jobs=0 --persistent=no --score=no ' \
+          r'--output-format=colorized --attr-rgx="[a-z_][a-z0-9_]{1,30}$" ' \
+          r'--argument-rgx="[a-z_][a-z0-9_]{1,30}$" ' \
+          r'--variable-rgx="[a-z_][a-z0-9_]{1,30}$" --disable=' \
+          r'bad-continuation,fixme,too-many-instance-attributes,' \
+          r'too-many-locals,too-many-arguments'
     run(
-        r'find ../ -type d -path "../build/*" -prune -o -iname "*.py" -exec '
-        r'python3 -m pylint '
-        r'--jobs=0 --persistent=no --score=no --output-format=colorized '
-        r'--attr-rgx="[a-z_][a-z0-9_]{1,30}$" '
-        r'--argument-rgx="[a-z_][a-z0-9_]{1,30}$" '
-        r'--variable-rgx="[a-z_][a-z0-9_]{1,30}$" '
-        r'--disable='
-        r'bad-continuation,fixme,'
-        r'too-many-instance-attributes,too-many-locals,too-many-arguments '
-        r'{} \;',
+        cmd,
         shell=True,
         check=True
     )
@@ -69,29 +69,26 @@ def test_python_style():
     # run('python3 -m flake8 ../', shell=True, check=True)
 
     # Check style with pycodestyle.
+    cmd = r'python3 -m pycodestyle --show-pep8 --show-source ' \
+          r'--exclude=../build ../'
     run(
-        r'python3 -m pycodestyle --show-pep8 --show-source --exclude=../build '
-        r'../',
+        cmd,
         shell=True,
         check=True
     )
 
-    # Good news: this test was broken and now it's fixed; it used to always
-    # pass. Apparently pydocstyle can't handle recursing through a dir
-    # properly.
-    # Bad news: our code doesn't actually pass this test.
-    # Outcome: (temporarily) disabling test, of course.
-    #
     # Check style with pydocstyle.
     # pydocstyle's --match-dir option appears to be broken, so we're using
     # `find` here to exclude the build/ dir.
-    # run(
-    #     r'find ../ -type d -path "../build/*" -prune -o -type f '
-    #     r'-name "*.py" -exec '
-    #     r'python3 -m pydocstyle --explain --source "{}" ";"',
-    #     shell=True,
-    #     check=True
-    # )
+    cmd = r'find ../ -type f -iname "*.py" -not -path "../build/*" ' \
+          r'-print0 | ' \
+          r'xargs -0 -n1 ' \
+          r'python3 -m pydocstyle --explain --source'
+    run(
+        cmd,
+        shell=True,
+        check=True
+    )
 
 
 def test_yaml_style():
