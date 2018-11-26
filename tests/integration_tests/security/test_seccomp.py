@@ -13,9 +13,8 @@ import host_tools.cargo_build as host  # pylint:disable=import-error
 
 @pytest.fixture
 def tmp_basic_jailer(test_session_root_path):
-    """
+    """Build `demo_basic_jailer`, required for the basic seccomp tests.
 
-    Build `demo_basic_jailer`, required for the basic seccomp tests.
     :return: The paths of the built binary.
     """
     binaries_srcdir = os.path.normpath(

@@ -38,7 +38,6 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
     The result is extracted from the index.json created by kcov after a
     coverage run.
     """
-
     exclude_pattern = (
         '${CARGO_HOME:-$HOME/.cargo/},'
         'build/,'

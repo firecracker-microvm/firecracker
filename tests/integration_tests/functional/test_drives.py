@@ -57,7 +57,7 @@ def test_rescan(test_microvm_with_ssh, network_config):
 
 
 def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
-    """"Test the output reported by blockdev when booting from /dev/vda."""
+    """Test the output reported by blockdev when booting from /dev/vda."""
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
