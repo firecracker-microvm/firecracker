@@ -1,8 +1,6 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""
-Tests that ensure the process startup time up to socket bind is within spec.
-"""
+"""Test that the process startup time up to socket bind is within spec."""
 
 import json
 import os
@@ -17,7 +15,6 @@ MAX_STARTUP_TIME_CPU_US = 8000
 
 def test_startup_time(test_microvm_with_api):
     """Check the startup time for jailer and Firecracker up to socket bind."""
-
     microvm = test_microvm_with_api
     microvm.spawn()
 

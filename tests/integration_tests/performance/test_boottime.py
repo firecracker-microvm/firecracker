@@ -40,9 +40,9 @@ def _test_microvm_boottime(
         microvm,
         net_config
 ):
-    """
-    Assert that we meet the minimum boot time. Should use a microVM with the
-    `boottime` capability.
+    """Assert that we meet the minimum boot time.
+
+    TODO: Should use a microVM with the `boottime` capability.
     """
     microvm.spawn()
 

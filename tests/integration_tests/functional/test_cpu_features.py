@@ -56,7 +56,7 @@ def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
 
 
 def _check_cpu_topology(test_microvm, expected_cpu_topology):
-    """"Perform common microvm setup for different CPU topology tests.
+    """Perform common microvm setup for different CPU topology tests.
 
     This is a wrapper function for calling lscpu and checking if the
     command returns the expected cpu topology.
@@ -81,13 +81,13 @@ def _check_cpu_topology(test_microvm, expected_cpu_topology):
 
 
 def test_brand_string(test_microvm_with_ssh, network_config):
-    """
-    For Intel CPUs, the guest brand string should be:
+    """Ensure good formatting for the guest band string.
+
+    * For Intel CPUs, the guest brand string should be:
         Intel(R) Xeon(R) Processor @ {host frequency}
     where {host frequency} is the frequency reported by the host CPUID
     (e.g. 4.01GHz)
-
-    For non-Intel CPUs, the guest brand string should be:
+    * For non-Intel CPUs, the guest brand string should be:
         Intel(R) Xeon(R) Processor
     """
     cif = open('/proc/cpuinfo', 'r')

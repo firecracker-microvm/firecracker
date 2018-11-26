@@ -338,7 +338,6 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
 
 def _start_iperf_on_guest(test_microvm, hostname):
     """Start iperf in server mode through an SSH connection."""
-
     test_microvm.ssh_config['hostname'] = hostname
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
@@ -377,15 +376,13 @@ def _start_local_iperf(netns_cmd_prefix):
 
 
 def _run_local_iperf(iperf_cmd):
-    """Runs a client related iperf command locally."""
-
+    """Execute a client related iperf command locally."""
     process = run(iperf_cmd, shell=True, stdout=PIPE)
     return process.stdout.decode('utf-8')
 
 
 def _get_difference(current, previous):
-    """Returns the percentage delta between the arguments."""
-
+    """Return the percentage delta between the arguments."""
     if current == previous:
         return 0
     try:

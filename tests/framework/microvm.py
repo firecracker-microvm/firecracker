@@ -281,8 +281,8 @@ class Microvm:
                 .stdout.decode('utf-8')
             screen_pid = re.search(r'([0-9]+)\.{}'.format(self._session_name),
                                    out).group(1)
-            self._jailer_clone_pid = open('/proc/{}/task/{}/children'
-                                          .format(screen_pid, screen_pid)
+            self._jailer_clone_pid = open('/proc/{0}/task/{0}/children'
+                                          .format(screen_pid)
                                           ).read().strip()
 
         # Wait for the jailer to create resources needed.
