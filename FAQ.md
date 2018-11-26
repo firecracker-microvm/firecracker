@@ -2,46 +2,49 @@
 
 ## About Firecracker
 
-### Why did we develop Firecracker?
 
-Customers have told us that existing container security boundaries do not offer
-sufficient isolation between their applications when all containers have to use
-a shared operating system (OS) kernel. Containers offer fast startup times,
-while VMs offer hardware virtualization-based security boundaries that are more
-secure. Firecracker is a new virtualization technology that enables service
-owners to operate multitenant container-based services on bare metal machines
-by combining the speed, resource efficiency, and performance enabled by
-containers with the security and workload isolation properties of traditional
-VMs.
+### What is Firecracker?
+
+Firecracker is an open source Virtual Machine Monitor (VMM) that
+enables secure, multi-tenant, minimal-overhead execution of container
+and function workloads.
 
 ### Who developed Firecracker?
 
-Firecracker was built at Amazon Web Services to enable AWS services such as 
-[Lambda](https://aws.amazon.com/lambda/) and
-[Fargate](https://aws.amazon.com/fargate/) to improve resource utilization and
-customer experience. Firecracker started from Chromium OS's Virtual Machine
-Monitor (crosvm), an open-sourced VMM written in Rust. Today, crosvm and
+Firecracker was built by developers at Amazon Web Services to enable services
+such as [AWS Lambda](https://aws.amazon.com/lambda/) and [AWS
+Fargate](https://aws.amazon.com/fargate/) to improve resource utilization and
+customer experience, while providing the security and isolation required of
+public cloud infrastructure. Firecracker started from Chromium OS's Virtual
+Machine Monitor (crosvm), an open source VMM written in Rust. Today, crosvm and
 Firecracker have diverged to serve very different customer needs. We plan to
-contribute back the bug fixes and tests added to shared crates, and any
-Firecracker functionality that's appealing for crosvm.
+contribute bug fixes and tests for Rust crates that originated from crosvm, and
+any Firecracker functionality that's appealing for crosvm.
 
-### Who uses Firecracker today and how will they use Firecracker?
+### Why did you develop Firecracker?
 
-Today, [AWS Lambda](https://aws.amazon.com/lambda/) and
-[AWS Fargate](https://aws.amazon.com/fargate/) are built on Firecracker. In the
-future, we plan to enable users to launch microVM backed containers
-via familiar interfaces such as containerd.
-
-### Is Firecracker compatible with the container ecosystem such as Kubernetes, Docker, Kata containers?
-
-The Firecracker team is exploring integration and collaboration with
-Kubernetes, containerd, Docker, and Kata Containers, with the goal of enabling
-Firecracker to be seamlessly integrated with the container ecosystem. 
+When we launched Lambda in November of 2014, we were focused on providing a
+secure [serverless](https://aws.amazon.com/serverless/) experience. At launch we
+used per-customer EC2 instances to provide strong security and isolation between
+customers. As Lambda grew, we saw the need for technology to provide a highly
+secure, flexible, and efficient runtime environment for services like Lambda and
+Fargate. Using our experience building isolated EC2 instances with hardware
+virtualization technology, we started an effort to build a VMM that was tailored
+to integrate with container ecosystems.
 
 ### What processors does Firecracker support?
 
 The Firecracker VMM is built to be processor agnostic. Today, it can run on
 Intel processors. AMD and ARM processors will be supported in the near future.
+
+### Can Firecracker be used with Kubernetes, Docker, or Kata containers today?
+
+Not yet. We are making Firecracker open source because it provides a
+meaningfully different approach to security for running containers. We hope that
+others in the communities that build open source container technology find it
+useful. We are working to make Firecracker integrate naturally with the
+container ecosystem, with the goal to provide seamless integration in the future
+to provide more choices in how container workloads are isolated.
 
 ### What is the difference between Firecracker and Kata Containers and QEMU?
 
@@ -75,7 +78,7 @@ choice.
 
 ### How can I contribute?
 
-Firecracker is an AWS open-source project that encourages contributions from
+Firecracker is an AWS open source project that encourages contributions from
 customers and the developer community. Any contribution is welcome as
 long as it aligns with our [charter](CHARTER.md). You can learn more about how
 to contribute in [CONTRIBUTE.md](CONTRIBUTE.md). You can chat with others in the
