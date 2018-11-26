@@ -2,15 +2,15 @@
 
 ## Mission
 
-Enable secure, multitenant, minimal-overhead execution of container and
-serverless workloads.
+Our mission is to enable secure, multi-tenant, minimal-overhead
+execution of container and function workloads.
 
 ## Tenets (unless you know better ones)
 
 These tenets guide Firecracker's development:
 
 1. **Built-In Security**: We provide compute security barriers that enable
-   multitenant workloads, and cannot be mistakenly disabled by customers.
+   multi-tenant workloads, and cannot be mistakenly disabled by customers.
    Customer workloads are simultaneously considered sacred (shall not be
    touched) and malicious (shall be defended against).
 1. **Light-weight Virtualization**: We focus on transient or stateless workloads
