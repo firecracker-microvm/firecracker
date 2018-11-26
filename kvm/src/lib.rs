@@ -58,6 +58,11 @@ impl Kvm {
 
     /// Creates a new Kvm object assuming `fd` represents an existing open file descriptor
     /// associated with `/dev/kvm`.
+    ///
+    /// # Arguments
+    ///
+    /// * `fd` - File descriptor for `/dev/kvm`.
+    ///
     pub unsafe fn new_with_fd_number(fd: RawFd) -> Self {
         Kvm {
             kvm: File::from_raw_fd(fd),
@@ -73,6 +78,7 @@ impl Kvm {
 
     /// Query the availability of a particular kvm capability.
     /// Returns 0 if the capability is not available and > 0 otherwise.
+    ///
     fn check_extension_int(&self, c: Cap) -> i32 {
         // Safe because we know that our file is a KVM fd and that the extension is one of the ones
         // defined by kernel.
@@ -80,8 +86,14 @@ impl Kvm {
     }
 
     /// Checks if a particular `Cap` is available.
+    ///
     /// According to the KVM API doc, KVM_CHECK_EXTENSION returns "0 if unsupported; 1 (or some
     /// other positive integer) if supported".
+    ///
+    /// # Arguments
+    ///
+    /// * `c` - KVM capability.
+    ///
     pub fn check_extension(&self, c: Cap) -> bool {
         self.check_extension_int(c) >= 1
     }
@@ -98,6 +110,7 @@ impl Kvm {
     }
 
     /// Gets the recommended number of VCPUs per VM.
+    ///
     pub fn get_nr_vcpus(&self) -> usize {
         let x = self.check_extension_int(Cap::NrVcpus);
         if x > 0 {
@@ -109,10 +122,11 @@ impl Kvm {
 
     /// Gets the maximum allowed memory slots per VM.
     ///
-    /// KVM reports the number of available memory slots (KVM_CAP_NR_MEMSLOTS)
+    /// KVM reports the number of available memory slots (`KVM_CAP_NR_MEMSLOTS`)
     /// using the extension interface.  Both x86 and s390 implement this, ARM
     /// and powerpc do not yet enable it.
-    /// Default to 32 when KVM_CAP_NR_MEMSLOTS is not implemented.
+    /// Default to 32 when `KVM_CAP_NR_MEMSLOTS` is not implemented.
+    ///
     pub fn get_nr_memslots(&self) -> usize {
         let x = self.check_extension_int(Cap::NrMemslots);
         if x > 0 {
@@ -123,6 +137,7 @@ impl Kvm {
     }
 
     /// Gets the recommended maximum number of VCPUs per VM.
+    ///
     pub fn get_max_vcpus(&self) -> usize {
         match self.check_extension_int(Cap::MaxVcpus) {
             0 => self.get_nr_vcpus(),
@@ -130,9 +145,13 @@ impl Kvm {
         }
     }
 
-    /// X86 specific call to get the system supported CPUID values. The function
-    /// returns at most `max_entries_count` CPUID entries. It can return less than
-    /// `max_entries_count` when the hardware does not support so many CPUID entries.
+    /// X86 specific call to get the system supported CPUID values.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_entries_count` - Maximum number of CPUID entries. This function can return less than
+    ///                         this when the hardware does not support so many CPUID entries.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn get_supported_cpuid(&self, max_entries_count: usize) -> Result<CpuId> {
         let mut cpuid = CpuId::new(max_entries_count);
@@ -150,9 +169,11 @@ impl Kvm {
         Ok(cpuid)
     }
 
-    /// Creates a VM fd using the KVM fd (KVM_CREATE_VM).
-    /// A call to this function will also initialize the supported cpuid (KVM_GET_SUPPORTED_CPUID)
-    /// and the size of the vcpu mmap area (KVM_GET_VCPU_MMAP_SIZE).
+    /// Creates a VM fd using the KVM fd (`KVM_CREATE_VM`).
+    ///
+    /// A call to this function will also initialize the supported cpuid (`KVM_GET_SUPPORTED_CPUID`)
+    /// and the size of the vcpu mmap area (`KVM_GET_VCPU_MMAP_SIZE`).
+    ///
     pub fn create_vm(&self) -> Result<VmFd> {
         // Safe because we know kvm is a real kvm fd as this module is the only one that can make
         // Kvm objects.
@@ -194,6 +215,7 @@ impl Into<u64> for NoDatamatch {
         0
     }
 }
+
 /// A wrapper around creating and using a VM.
 pub struct VmFd {
     vm: File,
@@ -203,13 +225,24 @@ pub struct VmFd {
 
 impl VmFd {
     /// Returns a clone of the system supported CPUID values associated with this VmFd
+    ///
     pub fn get_supported_cpuid(&self) -> CpuId {
         self.supported_cpuid.clone()
     }
 
-    /// Creates/modifies a guest physical memory slot using KVM_SET_USER_MEMORY_REGION.
+    /// Creates/modifies a guest physical memory slot using `KVM_SET_USER_MEMORY_REGION`.
     ///
-    /// See the documentation on the KVM_SET_USER_MEMORY_REGION ioctl.
+    /// See the documentation on the `KVM_SET_USER_MEMORY_REGION` ioctl.
+    ///
+    /// # Arguments
+    ///
+    /// * `slot` - Guest memory slot identifier.
+    /// * `guest_phys_addr` - Physical address in the guest's space.
+    /// * `memory_size` - Size of the memory region.
+    /// * `userspace_addr` - Starting address of the userspace allocated memory.
+    /// * `flags` - Memory flags. Currently supported: `KVM_MEM_LOG_DIRTY_PAGES`,
+    ///             `KVM_MEM_READONLY`.
+    ///
     pub fn set_user_memory_region(
         &self,
         slot: u32,
@@ -236,7 +269,12 @@ impl VmFd {
 
     /// Sets the address of the three-page region in the VM's address space.
     ///
-    /// See the documentation on the KVM_SET_TSS_ADDR ioctl.
+    /// See the documentation on the `KVM_SET_TSS_ADDR` ioctl.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - Physical address of a three-page region in the guest's physical address space.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn set_tss_address(&self, offset: usize) -> Result<()> {
         // Safe because we know that our file is a VM fd and we verify the return result.
@@ -248,9 +286,10 @@ impl VmFd {
         }
     }
 
-    /// Crates an in kernel interrupt controller.
+    /// Creates an in-kernel interrupt controller.
     ///
-    /// See the documentation on the KVM_CREATE_IRQCHIP ioctl.
+    /// See the documentation on the `KVM_CREATE_IRQCHIP` ioctl.
+    ///
     #[cfg(any(
         target_arch = "x86",
         target_arch = "x86_64",
@@ -267,9 +306,10 @@ impl VmFd {
         }
     }
 
-    /// Creates a PIT as per the KVM_CREATE_PIT2 ioctl.
+    /// Creates a PIT as per the `KVM_CREATE_PIT2` ioctl.
     ///
     /// Note that this call can only succeed after a call to `Vm::create_irq_chip`.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn create_pit2(&self) -> Result<()> {
         let mut pit_config = kvm_pit_config::default();
@@ -286,14 +326,17 @@ impl VmFd {
         }
     }
 
-    /// Registers an event to be signalled whenever a certain address is written to.
+    /// Registers an event to be signaled whenever a certain address is written to.
     ///
-    /// The `datamatch` parameter can be used to limit singalling `evt` to only the cases where the
-    /// value being written is equal to `datamatch`. Note that the size of `datamatch` is important
-    /// and must match the expected size of the guest's write.
+    /// # Arguments
     ///
-    /// In all cases where `evt` is signalled, the ordinary vmexit to userspace that would be
-    /// triggered is prevented.
+    /// * `evt` - EventFd which will be signaled. When signaling, the usual `vmexit` to userspace
+    ///           is prevented.
+    /// * `addr` - Address being written to.
+    /// * `datamatch` - Limits signaling `evt` to only the cases where the value being written is
+    ///                 equal to this parameter. The size of `datamatch` is important and it must
+    ///                 match the expected size of the guest's write.
+    ///
     pub fn register_ioevent<T: Into<u64>>(
         &self,
         evt: &EventFd,
@@ -329,7 +372,61 @@ impl VmFd {
         }
     }
 
-    /// Registers an event that will, when signalled, trigger the `gsi` irq.
+    /// Gets the bitmap of pages dirtied since the last call of this function.
+    ///
+    /// Leverages the dirty page logging feature in KVM. As a side-effect, this also resets the
+    /// bitmap inside the kernel. Because of this, this function is only usable from one place in
+    /// the code. Right now, that's just the dirty page count metrics, but if it's needed in other
+    /// places, then some scheme for buffering the results is needed.
+    ///
+    /// # Arguments
+    ///
+    /// * `slot` - Guest memory slot identifier.
+    /// * `memory_size` - Size of the memory region.
+    ///
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub fn get_and_reset_dirty_page_bitmap(
+        &self,
+        slot: u32,
+        memory_size: usize,
+    ) -> Result<Vec<u64>> {
+        let memsize_multiplier = 4096 * 64;
+        // Assert that the memory size is a multiple of 128k (which it must be, because the config
+        // is in megabytes).
+        assert!(
+            memory_size % memsize_multiplier == 0,
+            "memory size {} is not a multiple of 128kB",
+            memory_size
+        );
+        // Create a vec with at least one bit per page of guest memory in this slot.
+        let bitmap_size = memory_size / memsize_multiplier;
+        let mut bitmap = vec![0; bitmap_size];
+        let b_data = bitmap.as_mut_ptr() as *mut c_void;
+        let dirtylog = kvm_dirty_log {
+            slot: slot,
+            padding1: 0,
+            __bindgen_anon_1: kvm_dirty_log__bindgen_ty_1 {
+                dirty_bitmap: b_data,
+            },
+            ..Default::default()
+        };
+        // Safe because we know that our file is a VM fd, and we know that the amount of memory
+        // we allocated for the bitmap is at least one bit per page.
+        let ret = unsafe { ioctl_with_ref(self, KVM_GET_DIRTY_LOG(), &dirtylog) };
+        if ret == 0 {
+            Ok(bitmap)
+        } else {
+            errno_result()
+        }
+    }
+
+    /// Registers an event that will, when signaled, trigger the `gsi` IRQ.
+    ///
+    /// # Arguments
+    ///
+    /// * `evt` - Event to be signaled.
+    /// * `gsi` - IRQ to be triggered.
+    ///
     #[cfg(any(
         target_arch = "x86",
         target_arch = "x86_64",
@@ -354,10 +451,13 @@ impl VmFd {
 
     /// Constructs a new kvm VCPU fd.
     ///
+    /// # Arguments
+    ///
+    /// * `id` - The CPU number between [0, max vcpus).
+    ///
     /// # Errors
     /// Returns an error when the VM fd is invalid or the VCPU memory cannot be mapped correctly.
     ///
-    /// The `id` argument is the CPU number between [0, max vcpus).
     pub fn create_vcpu(&self, id: u8) -> Result<VcpuFd> {
         // Safe because we know that vm is a VM fd and we verify the return result.
         let vcpu_fd = unsafe { ioctl_with_val(&self.vm, KVM_CREATE_VCPU(), id as c_ulong) };
@@ -459,7 +559,8 @@ pub struct VcpuFd {
 }
 
 impl VcpuFd {
-    /// Gets the VCPU registers using KVM_GET_REGS ioctl.
+    /// Gets the VCPU registers using the `KVM_GET_REGS` ioctl.
+    ///
     #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
     pub fn get_regs(&self) -> Result<kvm_regs> {
         // Safe because we know that our file is a VCPU fd, we know the kernel will only read the
@@ -472,7 +573,12 @@ impl VcpuFd {
         Ok(regs)
     }
 
-    /// Sets the VCPU registers using KVM_SET_REGS ioctl.
+    /// Sets the VCPU registers using `KVM_SET_REGS` ioctl.
+    ///
+    /// # Arguments
+    ///
+    /// * `regs` - Registers being set.
+    ///
     #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
     pub fn set_regs(&self, regs: &kvm_regs) -> Result<()> {
         // Safe because we know that our file is a VCPU fd, we know the kernel will only read the
@@ -484,7 +590,8 @@ impl VcpuFd {
         Ok(())
     }
 
-    /// Gets the VCPU special registers using KVM_GET_SREGS ioctl.
+    /// Gets the VCPU special registers using `KVM_GET_SREGS` ioctl.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn get_sregs(&self) -> Result<kvm_sregs> {
         // Safe because we know that our file is a VCPU fd, we know the kernel will only write the
@@ -498,7 +605,12 @@ impl VcpuFd {
         Ok(regs)
     }
 
-    /// Sets the VCPU special registers using KVM_SET_SREGS ioctl.
+    /// Sets the VCPU special registers using `KVM_SET_SREGS` ioctl.
+    ///
+    /// # Arguments
+    ///
+    /// * `sregs` - Special registers to be set.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn set_sregs(&self, sregs: &kvm_sregs) -> Result<()> {
         // Safe because we know that our file is a VCPU fd, we know the kernel will only read the
@@ -512,7 +624,8 @@ impl VcpuFd {
 
     /// X86 specific call that gets the FPU-related structure.
     ///
-    /// See the documentation for KVM_GET_FPU.
+    /// See the documentation for `KVM_GET_FPU`.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn get_fpu(&self) -> Result<kvm_fpu> {
         let mut fpu = kvm_fpu::default();
@@ -529,7 +642,12 @@ impl VcpuFd {
 
     /// X86 specific call to setup the FPU.
     ///
-    /// See the documentation for KVM_SET_FPU.
+    /// See the documentation for `KVM_SET_FPU`.
+    ///
+    /// # Arguments
+    ///
+    /// * `fpu` - FPU configurations struct.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn set_fpu(&self, fpu: &kvm_fpu) -> Result<()> {
         let ret = unsafe {
@@ -544,7 +662,12 @@ impl VcpuFd {
 
     /// X86 specific call to setup the CPUID registers.
     ///
-    /// See the documentation for KVM_SET_CPUID2.
+    /// See the documentation for `KVM_SET_CPUID2`.
+    ///
+    /// # Arguments
+    ///
+    /// * `cpuid` - CPUID registers.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn set_cpuid2(&self, cpuid: &CpuId) -> Result<()> {
         let ret = unsafe {
@@ -557,10 +680,11 @@ impl VcpuFd {
         Ok(())
     }
 
-    /// X86 specific call to get the state of the
-    /// "Local Advanced Programmable Interrupt Controller".
+    /// X86 specific call to get the state of the LAPIC (Local Advanced Programmable Interrupt
+    /// Controller).
     ///
-    /// See the documentation for KVM_GET_LAPIC.
+    /// See the documentation for `KVM_GET_LAPIC`.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn get_lapic(&self) -> Result<kvm_lapic_state> {
         let mut klapic = kvm_lapic_state::default();
@@ -576,10 +700,15 @@ impl VcpuFd {
         Ok(klapic)
     }
 
-    /// X86 specific call to set the state of the
-    /// "Local Advanced Programmable Interrupt Controller".
+    /// X86 specific call to set the state of the LAPIC (Local Advanced Programmable Interrupt
+    /// Controller).
     ///
-    /// See the documentation for KVM_SET_LAPIC.
+    /// See the documentation for `KVM_SET_LAPIC`.
+    ///
+    /// # Arguments
+    ///
+    /// * `klapic` - LAPIC state registers.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn set_lapic(&self, klapic: &kvm_lapic_state) -> Result<()> {
         let ret = unsafe {
@@ -594,8 +723,13 @@ impl VcpuFd {
 
     /// X86 specific call to read model-specific registers for this VCPU.
     ///
-    /// It emulates KVM_GET_MSRS ioctl's behavior by returning the number of MSRs
+    /// It emulates `KVM_GET_MSRS` ioctl's behavior by returning the number of MSRs
     /// successfully read upon success or the last error number in case of failure.
+    ///
+    /// # Arguments
+    ///
+    /// * `msrs`  - MSRs to be read.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn get_msrs(&self, msrs: &mut kvm_msrs) -> Result<(i32)> {
         let ret = unsafe {
@@ -610,7 +744,12 @@ impl VcpuFd {
 
     /// X86 specific call to setup the MSRS.
     ///
-    /// See the documentation for KVM_SET_MSRS.
+    /// See the documentation for `KVM_SET_MSRS`.
+    ///
+    /// # Arguments
+    ///
+    /// * `kvm_msrs` - MSRs to be written.
+    ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn set_msrs(&self, msrs: &kvm_msrs) -> Result<()> {
         let ret = unsafe {
@@ -624,7 +763,8 @@ impl VcpuFd {
         Ok(())
     }
 
-    /// Returns a reference to the kvm_run structure obtained by mmap-ing the associated VcpuFd
+    /// Returns a reference to the `kvm_run` structure obtained by mmap-ing the associated `VcpuFd`.
+    ///
     fn get_run(&self) -> &mut kvm_run {
         // Safe because we know we mapped enough memory to hold the kvm_run struct because the
         // kernel told us how large it was.
@@ -632,6 +772,7 @@ impl VcpuFd {
     }
 
     /// Triggers the running of the current virtual CPU returning an exit reason.
+    ///
     pub fn run(&self) -> Result<VcpuExit> {
         // Safe because we know that our file is a VCPU fd and we verify the return result.
         let ret = unsafe { ioctl(self, KVM_RUN()) };
@@ -714,7 +855,7 @@ impl AsRawFd for VcpuFd {
     }
 }
 
-/// Wrapper for kvm_cpuid2 which has a zero length array at the end.
+/// Wrapper for `kvm_cpuid2` which has a zero length array at the end.
 /// Hides the zero length array behind a bounds check.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[derive(Clone, Debug, PartialEq)]
@@ -725,7 +866,12 @@ pub struct CpuId {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 impl CpuId {
-    /// Creates a new `CpuId` structure that can contain at most `array_len` KVM cpuid entries.
+    /// Creates a new `CpuId` structure that can contain at most `array_len` KVM CPUID entries.
+    ///
+    /// # Arguments
+    ///
+    /// * `array_len` - Maximum number of CPUID entries.
+    ///
     pub fn new(array_len: usize) -> CpuId {
         use std::mem::size_of;
 
@@ -745,6 +891,7 @@ impl CpuId {
     }
 
     /// Get the mutable entries slice so they can be modified before passing to the VCPU.
+    ///
     pub fn mut_entries_slice(&mut self) -> &mut [kvm_cpuid_entry2] {
         unsafe {
             // We have ensured in new that there is enough space for the structure so this
@@ -760,12 +907,14 @@ impl CpuId {
         }
     }
 
-    /// Get a  pointer so it can be passed to the kernel.  Using this pointer is unsafe.
+    /// Get a  pointer so it can be passed to the kernel. Using this pointer is unsafe.
+    ///
     pub fn as_ptr(&self) -> *const kvm_cpuid2 {
         self.bytes.as_ptr() as *const kvm_cpuid2
     }
 
-    /// Get a mutable pointer so it can be passed to the kernel.  Using this pointer is unsafe.
+    /// Get a mutable pointer so it can be passed to the kernel. Using this pointer is unsafe.
+    ///
     pub fn as_mut_ptr(&mut self) -> *mut kvm_cpuid2 {
         self.bytes.as_mut_ptr() as *mut kvm_cpuid2
     }
@@ -779,7 +928,7 @@ mod tests {
 
     use memory_model::{GuestAddress, GuestMemory};
 
-    //as per https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/fpu/internal.h
+    // as per https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/fpu/internal.h
     pub const KVM_FPU_CWD: usize = 0x37f;
     pub const KVM_FPU_MXCSR: usize = 0x1f80;
 
@@ -789,7 +938,7 @@ mod tests {
         }
     }
 
-    //kvm system related function tests
+    // kvm system related function tests
     #[test]
     fn new() {
         Kvm::new().unwrap();
@@ -1138,7 +1287,7 @@ mod tests {
             0xf4, /* hlt */
         ];
 
-        let mem_size = 0x1000;
+        let mem_size = 0x40000;
         let load_addr = GuestAddress(0x1000);
         let mem = GuestMemory::new(&vec![(load_addr, mem_size)]).unwrap();
 
@@ -1152,7 +1301,7 @@ mod tests {
                 guest_addr.offset() as u64,
                 size as u64,
                 host_addr as u64,
-                0,
+                KVM_MEM_LOG_DIRTY_PAGES,
             )
         }).expect("Cannot configure guest memory");
         mem.write_slice_at_addr(&code, load_addr)
@@ -1195,6 +1344,25 @@ mod tests {
                     assert_eq!(data[0], 0);
                 }
                 VcpuExit::Hlt => {
+                    let dirty_pages = mem.map_and_fold(
+                        0,
+                        |(slot, memory_region)| {
+                            let bitmap = vm_fd
+                                .get_and_reset_dirty_page_bitmap(slot as u32, memory_region.size());
+                            match bitmap {
+                                Ok(v) => v
+                                    .iter()
+                                    .fold(0, |init, page| init + page.count_ones() as usize),
+                                Err(_) => 0,
+                            }
+                        },
+                        |dirty_pages, region_dirty_pages| dirty_pages + region_dirty_pages,
+                    );
+
+                    // The code snippet dirties 2 pages:
+                    // * one when the code itself is loaded in memory;
+                    // * and one more from the `movl` that writes to address 0x2000.
+                    assert_eq!(dirty_pages, 2);
                     break;
                 }
                 r => panic!("unexpected exit reason: {:?}", r),

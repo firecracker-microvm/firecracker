@@ -24,8 +24,8 @@
 //! use std::ops::Deref;
 //!
 //! fn main() {
-//!     // Initialize the logger. if there is not path to a FIFO provided the `LOGGER` logs both
-//!     // the human readable content and metrics to stdout and stderr depending on the log level.
+//!     // Initialize the logger. If there is no path to a FIFO provided, the `LOGGER` logs the
+//!     // human readable content to stdout and stderr depending on the log level.
 //!     if let Err(e) = LOGGER.deref().init("MY-INSTANCE", None, None, vec![]) {
 //!         println!("Could not initialize the log subsystem: {:?}", e);
 //!         return;
@@ -201,10 +201,12 @@ enum Destination {
     Pipe,
 }
 
-// Logging options.
+/// Enum representing logging options that can be activated from the API.
+///
 #[derive(PartialEq)]
 #[repr(usize)]
-enum LogOption {
+pub enum LogOption {
+    /// Enable KVM dirty page tracking and a metric that counts dirty pages.
     LogDirtyPages = 1,
 }
 
@@ -420,6 +422,12 @@ impl Logger {
         if self.level_info.writer() != Destination::Pipe as usize {
             self.level_info.set_writer(get_default_destination(level));
         }
+    }
+
+    /// Returns the configured flags for the logger.
+    ///
+    pub fn flags(&self) -> usize {
+        self.flags.load(Ordering::Relaxed)
     }
 
     /// Creates the first portion (to the left of the separator)
