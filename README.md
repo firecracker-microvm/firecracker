@@ -1,7 +1,7 @@
-![Firecracker Logo Title](docs/fc-logo-title.png)
+![Firecracker Logo Title](docs/images/fc-logo-title.png)
 
-Our mission is to enable secure, multi-tenant, minimal-overhead
-execution of container and function workloads.
+Our mission is to enable secure, multi-tenant, minimal-overhead execution of
+container and function workloads.
 
 Read more about the Firecracker Charter [here](CHARTER.md).
 
@@ -33,7 +33,18 @@ To read more about Firecracker, check out
 
 ## Getting Started
 
-To try out Firecracker, go to the [quickstart guide](docs/getting-started.md).
+You can build Firecracker on any system that has Docker running (we use a
+development container). The simple steps to get & build Firecracker are:
+
+```bash
+git clone https://github.com/firecracker-microvm/firecracker
+cd firecracker
+tools/devtool build
+```
+
+The Firecracker binary will be placed at `build/debug/firecracker`. For more
+information on building, testing, and running Firecracker, go to the
+[quickstart guide](docs/getting-started.md).
 
 The overall security of Firecracker microVMs, including the ability to meet the
 criteria for safe multi-tenant computing, depends on a well configured Linux
@@ -113,9 +124,18 @@ uncovered a vulnerability, get in touch with us; we will immediately prioritize
 your disclosure. More details on our process for dealing with this type of event
 can be found in [our security policy document](SECURITY-POLICY.md).
 
-## Contact & Additional Questions
+## FAQ & Contact
 
-You can contact us via GitHub Issues in this repository, or via our
-[Slack workspace](https://firecracker-microvm.slack.com). Issues and Slack chat
-are also the place to ask questions beyond those already answered in the
-[Firecracker FAQ](FAQ.md).
+Frequently asked questions are collected in our [FAQ doc](FAQ.md).
+
+The Firecracker community can be contacted in the following ways:
+- Chat with us on our
+  [Slack workspace](https://tinyurl.com/firecracker-microvm). _Note: most of the
+  maintainers are on a European time zone._
+- Open a GitHub issue in this repository.
+- Email the maintainers at
+  [firecracker-maintainers@amazon.com](mailto:firecracker-maintainers@amazon.com).
+- Community email list: _comming soon_.
+
+When communicating within the Firecracker community, please mind our
+[code of conduct](CODE-OF-CONDUCT.md).
