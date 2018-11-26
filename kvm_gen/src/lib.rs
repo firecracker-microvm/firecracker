@@ -41,6 +41,7 @@ ioctl_io_nr!(KVM_CREATE_VM, KVMIO, 0x01);
 ioctl_io_nr!(KVM_CHECK_EXTENSION, KVMIO, 0x03);
 ioctl_io_nr!(KVM_GET_VCPU_MMAP_SIZE, KVMIO, 0x04);
 ioctl_io_nr!(KVM_CREATE_VCPU, KVMIO, 0x41);
+ioctl_iow_nr!(KVM_GET_DIRTY_LOG, KVMIO, 0x42, kvm_dirty_log);
 ioctl_iow_nr!(
     KVM_SET_USER_MEMORY_REGION,
     KVMIO,

@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 extern crate devices;
+extern crate logger;
 extern crate sys_util;
 extern crate x86_64;
 
@@ -14,12 +15,14 @@ use std::result;
 use super::KvmContext;
 use cpuid::{c3_template, filter_cpuid, t2_template};
 use kvm::*;
+use logger::{LogOption, LOGGER};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
 use x86_64::{interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
+const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
@@ -93,13 +96,19 @@ impl Vm {
         }
         guest_mem.with_regions(|index, guest_addr, size, host_addr| {
             info!("Guest memory starts at {:x?}", host_addr);
+
+            let flags = if LOGGER.flags() & LogOption::LogDirtyPages as usize > 0 {
+                KVM_MEM_LOG_DIRTY_PAGES
+            } else {
+                0
+            };
             // Safe because the guest regions are guaranteed not to overlap.
             self.fd.set_user_memory_region(
                 index as u32,
                 guest_addr.offset() as u64,
                 size as u64,
                 host_addr as u64,
-                0,
+                flags,
             )
         })?;
         self.guest_mem = Some(guest_mem);
