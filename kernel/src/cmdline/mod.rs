@@ -82,7 +82,7 @@ impl Cmdline {
     pub fn new(capacity: usize) -> Cmdline {
         assert_ne!(capacity, 0);
         Cmdline {
-            line: String::new(),
+            line: String::with_capacity(capacity),
             capacity: capacity,
         }
     }
