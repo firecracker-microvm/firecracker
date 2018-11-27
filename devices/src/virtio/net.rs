@@ -27,12 +27,12 @@ use super::{
 use dumbo::ns::MmdsNetworkStack;
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
-use net_sys;
+use net_gen;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
-use virtio_sys::virtio_config::*;
-use virtio_sys::virtio_net::*;
+use virtio_gen::virtio_config::*;
+use virtio_gen::virtio_net::*;
 use {DeviceEventT, EpollHandler};
 
 /// The maximum buffer size when segmentation offload is enabled. This
@@ -626,7 +626,7 @@ impl Net {
     ) -> Result<Self> {
         // Set offload flags to match the virtio features below.
         tap.set_offload(
-            net_sys::TUN_F_CSUM | net_sys::TUN_F_UFO | net_sys::TUN_F_TSO4 | net_sys::TUN_F_TSO6,
+            net_gen::TUN_F_CSUM | net_gen::TUN_F_UFO | net_gen::TUN_F_TSO4 | net_gen::TUN_F_TSO6,
         ).map_err(Error::TapSetOffload)?;
 
         let vnet_hdr_size = vnet_hdr_len() as i32;

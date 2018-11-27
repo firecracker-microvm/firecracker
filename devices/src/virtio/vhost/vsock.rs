@@ -13,9 +13,9 @@ use memory_model::GuestMemory;
 use sys_util::EventFd;
 use vhost_backend::Vhost;
 use vhost_backend::Vsock as VhostVsockFd;
-use vhost_sys::vhost::*;
-use virtio_sys::virtio_config::*;
-use virtio_sys::virtio_ring::*;
+use vhost_gen::vhost::*;
+use virtio_gen::virtio_config::*;
+use virtio_gen::virtio_ring::*;
 
 use byteorder::{ByteOrder, LittleEndian};
 use epoll;

@@ -25,8 +25,8 @@ use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
 use sys_util::Result as SysResult;
-use virtio_sys::virtio_blk::*;
-use virtio_sys::virtio_config::*;
+use virtio_gen::virtio_blk::*;
+use virtio_gen::virtio_config::*;
 use {DeviceEventT, EpollHandler};
 
 const CONFIG_SPACE_SIZE: usize = 8;

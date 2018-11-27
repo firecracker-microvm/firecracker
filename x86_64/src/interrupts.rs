@@ -12,7 +12,7 @@ use std::result;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use kvm;
-use kvm_sys::kvm_lapic_state;
+use kvm_gen::kvm_lapic_state;
 use sys_util;
 
 #[derive(Debug)]
