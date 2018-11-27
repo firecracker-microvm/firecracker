@@ -1157,7 +1157,7 @@ impl Vmm {
 
         // Log the metrics before exiting.
         if let Err(e) = LOGGER.log_metrics() {
-            error!("Failed to log metrics on abort. {}:?", e);
+            error!("Failed to log metrics while stopping: {}", e);
         }
 
         // Exit from Firecracker using the provided exit code.
@@ -1254,7 +1254,7 @@ impl Vmm {
                             // it will write to stdout, so metric logging will interfere with
                             // console output.
                             if let Err(e) = LOGGER.log_metrics() {
-                                error!("Failed to log metrics: {}", e);
+                                error!("Failed to log metrics on timer trigger: {}", e);
                             }
                         }
                     }
