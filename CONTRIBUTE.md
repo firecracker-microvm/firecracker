@@ -70,7 +70,7 @@ testing. Your contribution needs to meet the following standards:
   [commit message best practices](https://github.com/erlang/otp/wiki/writing-good-commit-messages).
 - Document your pull requests. Include the reasoning behind each change, and
   the testing done.
-- Acknowledge Firecracker's [Apache 2.0 license](LICENSE.md) and certify that no
+- Acknowledge Firecracker's [Apache 2.0 license](LICENSE) and certify that no
   part of your contribution contravenes this license by signing off on all your
   commits with `git -s`. Ensure that every file in your pull request has a
   header referring to the repository license file.
