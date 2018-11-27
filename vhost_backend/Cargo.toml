@@ -7,5 +7,5 @@ authors = ["The Chromium OS Authors"]
 libc = ">=0.2.39"
 
 memory_model = { path = "../memory_model" }
-vhost_sys = { path = "../vhost_sys" }
+vhost_gen = { path = "../vhost_gen" }
 sys_util = { path = "../sys_util" }

@@ -1,7 +1,6 @@
 [package]
-name = "net_sys"
+name = "virtio_gen"
 version = "0.1.0"
 authors = ["The Chromium OS Authors"]
 
 [dependencies]
-sys_util = { path = "../sys_util" }

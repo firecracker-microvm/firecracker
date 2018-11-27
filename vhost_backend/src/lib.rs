@@ -6,7 +6,7 @@ extern crate libc;
 
 extern crate memory_model;
 extern crate sys_util;
-extern crate vhost_sys;
+extern crate vhost_gen;
 
 mod vsock;
 pub use vsock::Vsock;
@@ -17,7 +17,7 @@ use std::ptr::null;
 
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::{ioctl, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref, EventFd};
-use vhost_sys::*;
+use vhost_gen::*;
 
 #[derive(Debug)]
 pub enum Error {

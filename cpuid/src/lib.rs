@@ -9,7 +9,7 @@
 //! Utility for configuring the CPUID (CPU identification) for the guest microVM.
 
 extern crate kvm;
-extern crate kvm_sys;
+extern crate kvm_gen;
 #[macro_use]
 extern crate logger;
 
@@ -278,7 +278,7 @@ fn get_brand_string() -> BrandString {
 mod tests {
     use super::*;
     use kvm::{Kvm, MAX_KVM_CPUID_ENTRIES};
-    use kvm_sys::kvm_cpuid_entry2;
+    use kvm_gen::kvm_cpuid_entry2;
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
