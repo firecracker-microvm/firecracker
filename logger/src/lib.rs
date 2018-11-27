@@ -596,7 +596,7 @@ impl Logger {
         } else {
             METRICS.logger.metrics_fails.inc();
             return Err(LoggerError::LogMetricFailure(
-                "Failed to log metrics. Logger was not initialized.".to_string(),
+                "Logger was not initialized.".to_string(),
             ));
         }
     }

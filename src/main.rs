@@ -54,7 +54,7 @@ fn main() {
 
         // Log the metrics before aborting.
         if let Err(e) = LOGGER.log_metrics() {
-            error!("Failed to log metrics on abort. {}:?", e);
+            error!("Failed to log metrics while panicking: {}", e);
         }
     }));
 
