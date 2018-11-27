@@ -1,6 +1,5 @@
 /build/
 target
-Cargo.lock
 *.rs.bk
 *.iml
 .idea
