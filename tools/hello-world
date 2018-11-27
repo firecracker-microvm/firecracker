@@ -15,16 +15,10 @@
 # - curl (for downloading the binary and the microVM image)
 # - /dev/kvm (Firecracker dependency)
 # - Linux x86_64 4.14+ (Firecracker dependency)
-# - awscli (only needed before the GitHub repo goes public, for acccessing the
-#   S3 release bucket).
 
 
 # The directory used to store the Firecracker binary and the microVM image.
 HELLO_HOME="/tmp/firecracker-hello-world"
-
-# The Firecracker release S3 bucket (only used if the GitHub repo is not yet
-# public).
-FC_BIN_BUCKET="firecracker.build.us-east-1"
 
 # The microVM image S3 bucket.
 FC_MICROVM_BUCKET="spec.ccfc.min"
@@ -99,6 +93,26 @@ get_user_confirmation() {
     return 1
 }
 
+# Check if a version string (in dot notation: <major.minor.patch>), satisifies
+# a minimally required version (also in dot notation).
+# Args:
+# - $1: version string to check
+# - $2: minimally required version to check against
+# Return:
+# - exit code 0, if $1 is the same or newer than $2
+# - exit code 1, if $1 is older than $2
+#
+check_min_ver() {
+    ver=($(echo "$1" | tr . " "))
+    min_ver=($(echo "$2" | tr . " "))
+    for i in $(seq 0 2); do
+        [[ ${ver[i]} =~ (^[0-9]+) ]] && v1=${BASH_REMATCH[1]} || v1=0
+        [[ ${min_ver[i]} =~ (^[0-9]+) ]] && v2=${BASH_REMATCH[1]} || v2=0
+        [ $v1 -lt $v2 ] && return 1
+    done
+    return 0
+}
+
 # Show a greeting mesasge and let the user know what this script is all about.
 #
 greet() {
@@ -130,8 +144,7 @@ ensure_host_requirements() {
 
     # Check the host kernel version
     #
-    kernel_version=$(uname -r)
-    [ "$kernel_version" \> "$MIN_KERNEL_VERSION" ]
+    check_min_ver "$(uname -r)" "$MIN_KERNEL_VERSION"
     ok_or_die "Firecracker needs kernel version $MIN_KERNEL_VERSION or later." \
         "You have $kernel_version."
 
@@ -159,7 +172,7 @@ ensure_host_requirements() {
             say "  sudo setfacl -m \"u:$user:rw\" /dev/kvm"
             get_user_confirmation "Would you like to do that now? (y/n) " || die
             sudo setfacl -m "u:$user:rw" /dev/kvm
-            [ $? -eq 0 ] || say_warn "\`setfacl\` failed. Trying next method ..."
+            [ $? -eq 0 ] || say_err "\`setfacl\` failed."
         }
     }
 
@@ -187,17 +200,6 @@ ensure_host_requirements() {
     ok_or_die "Error: couldn't find the \`curl\` binary." \
         "Please install it and try again."
 
-    # If the GitHub repo is not yet public, check that we have `awscli`
-    # available. We'll need it to access the Firecracker release S3 bucket.
-    #
-    curl -f "https://raw.githubusercontent.com/firecracker-microvm/firecracker/master/README.md" \
-        > /dev/null 2>&1
-    [ $? -eq 0 ] || {
-        command -v aws > /dev/null 2>&1
-        ok_or_die "The AWS CLI toolkit (awscli) is missing from your system." \
-            "Please install it and try again. It is needed because the Firecracker" \
-            "GitHub repo is not yet public, and the we need to fetch the binary from S3."
-    }
 }
 
 # Create our home/work directory and download the files needed to run this demo
@@ -249,25 +251,11 @@ setup_home() {
             # If we've found the tag, let's download the Firecracker binary.
             #
             [ -n "$tag" ] && \
-                curl -fsL -o "$HELLO_HOME/firecracker" \
-                    "https://github.com/firecracker/firecracker-microvm/releases/download/$tag/firecracker-$tag"
+                curl -fsSL -o "$HELLO_HOME/firecracker" \
+                    "https://github.com/firecracker-microvm/firecracker/releases/download/$tag/firecracker-$tag"
 
-            [ $? -eq 0 ] || {
-                # Alright, that didn't work. Most probably, we're not yet public.
-                # Let's try our private S3 bucket.
-                #
-                say_warn "Unable to get the Firecracker binary from GitHub (repo not public yet?)." \
-                    "Trying S3 ..."
-                aws s3 cp "s3://$FC_BIN_BUCKET/firecracker-latest" "$HELLO_HOME/firecracker"
-
-                # If that didn't work either, let the user know we can't continue.
-                ok_or_die "S3 download failed. Giving up." \
-                    "Please check that you have access to our S3 bucket: $FC_MICROVM_BUCKET."
-
-                # This is actually an ELF binary
-                #
-                chmod +x "$HELLO_HOME/firecracker"
-            }
+            ok_or_die "Error: couldn't download the Firecracker binary from GitHub."
+            chmod +x "$HELLO_HOME/firecracker"
         }
 
     # Check if we already have a kernel binary from a previous run.
@@ -343,7 +331,6 @@ run_firecracker_control() {
             \"show_log_origin\": false
          }"
       [ $? -eq 0 ] || return 1
-
 
     say "Setting microVM kernel to $HELLO_HOME/hello-vmlinux.bin ..."
     curl -fsS --unix-socket "$HELLO_HOME/api.sock" \
