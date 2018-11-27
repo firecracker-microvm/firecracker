@@ -230,7 +230,7 @@ sudo setfacl -m u:${USER}:rw /dev/kvm
 Otherwise, if access is managed via the `kvm` group:
 
 ```bash
-[ $(stat -c "%G" /dev/kvm) = kvm ] && sudo usermod -aG ${USER} kvm && echo "Access granted."
+[ $(stat -c "%G" /dev/kvm) = kvm ] && sudo usermod -aG kvm ${USER} && echo "Access granted."
 ```
 
 If none of the above works, you will need to either install the file
