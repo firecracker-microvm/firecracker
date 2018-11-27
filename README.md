@@ -135,7 +135,7 @@ The Firecracker community can be contacted in the following ways:
 - Open a GitHub issue in this repository.
 - Email the maintainers at
   [firecracker-maintainers@amazon.com](mailto:firecracker-maintainers@amazon.com).
-- Community email list: _comming soon_.
+- Community email list: _coming soon_.
 
 When communicating within the Firecracker community, please mind our
 [code of conduct](CODE-OF-CONDUCT.md).
