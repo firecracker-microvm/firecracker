@@ -1695,8 +1695,14 @@ pub fn start_vmm_thread(
                 kvm_fd,
             ).expect("Cannot create VMM.");
             match vmm.run_control() {
-                Ok(()) => vmm.stop(0),
-                Err(_) => vmm.stop(1),
+                Ok(()) => {
+                    info!("Gracefully terminated VMM control loop");
+                    vmm.stop(0)
+                }
+                Err(e) => {
+                    error!("Abruptly exited VMM control loop: {:?}", e);
+                    vmm.stop(1)
+                }
             }
         }).expect("VMM thread spawn failed.")
 }
