@@ -40,9 +40,9 @@ pub struct Body {
 
 impl Body {
     /// Creates a new `Body` from a `String` input.
-    pub fn new(body: String) -> Self {
+    pub fn new<T: Into<Vec<u8>>>(body: T) -> Self {
         Body {
-            body: body.into_bytes(),
+            body: body.into(),
         }
     }
 
