@@ -27,7 +27,7 @@ pub enum StatusCode {
 }
 
 impl StatusCode {
-    fn raw(&self) -> &'static [u8] {
+    fn raw(&self) -> &'static [u8; 3] {
         match self {
             StatusCode::OK => b"200",
             StatusCode::BadRequest => b"400",
@@ -139,11 +139,11 @@ mod tests {
     #[test]
     fn test_write_response() {
         let mut response = Response::new(Version::Http10, StatusCode::OK);
-        let body = String::from("This is a test");
-        response.set_body(Body::new(body.clone()));
+        let body = "This is a test";
+        response.set_body(Body::new(body));
 
         assert!(response.status() == StatusCode::OK);
-        assert_eq!(response.body().unwrap(), Body::new(body.clone()));
+        assert_eq!(response.body().unwrap(), Body::new(body));
         assert_eq!(response.http_version(), Version::Http10);
 
         // Headers can be in either order.
