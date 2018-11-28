@@ -107,7 +107,7 @@ The **API endpoint** can be used to:
 - Demand fault paging and CPU oversubscription enabled by default.
 - [Jailer](docs/jailer.md) process for starting Firecracker in production
   scenarios; applies a cgroup/namespace/seccomp rule isolation barrier and then
-  drops privileges. 
+  drops privileges.
 
 ## Performance
 
@@ -120,15 +120,16 @@ testing.
 ## Policy for Security Disclosures
 
 The security of Firecracker is our top priority. If you suspect you have
-uncovered a vulnerability, get in touch with us; we will immediately prioritize
-your disclosure. More details on our process for dealing with this type of event
-can be found in [our security policy document](SECURITY-POLICY.md).
+uncovered a vulnerability, contact us privately, as outlined in our
+[security policy document](SECURITY-POLICY.md); we will immediately prioritize
+your disclosure.
 
 ## FAQ & Contact
 
 Frequently asked questions are collected in our [FAQ doc](FAQ.md).
 
 You can get in touch with the Firecracker community in the following ways:
+- Security-related issues, see our [security policy document](SECURITY-POLICY.md).
 - Chat with us on our
   [Slack workspace](https://tinyurl.com/firecracker-microvm). _Note: most of the
   maintainers are on a European time zone._
