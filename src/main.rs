@@ -11,15 +11,22 @@ extern crate fc_util;
 extern crate jailer;
 #[macro_use]
 extern crate logger;
+extern crate libc;
 extern crate mmds;
 extern crate vmm;
 
 use backtrace::Backtrace;
 use clap::{App, Arg};
 
+use libc::uname;
+use libc::utsname;
+use std::ffi::CStr;
+use std::fs::File;
 use std::io::ErrorKind;
+use std::os::unix::fs::PermissionsExt;
 use std::panic;
 use std::path::PathBuf;
+use std::str;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
@@ -31,8 +38,48 @@ use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
+const KERNEL_VERSION: f64 = 4.14;
+
+fn is_kvm_writable() -> Result<bool, Error> {
+    let f = File::open("/dev/kvm").expect("failed opening /dev/kvm");
+    let metadata = f.metadata().expect("failed getting metadata from /dev/kvm");
+    let permissions = metadata.permissions();
+    Ok(permissions.mode() != 0o660)
+}
+
+fn kernel_version() -> Result<f64, Error> {
+    let mut buf: utsname = utsname {
+        sysname: [0; 65],
+        nodename: [0; 65],
+        release: [0; 65],
+        version: [0; 65],
+        machine: [0; 65],
+        domainname: [0; 65],
+    };
+    unsafe {
+        uname(&mut buf);
+    }
+    let rel: String = unsafe {
+        CStr::from_ptr(buf.release.as_mut_ptr())
+            .to_string_lossy()
+            .into_owned()
+    };
+    let kver: f64 = rel[0..4].parse().unwrap();
+
+    Ok(kver)
+}
+
+fn check_requirements() {
+    if !is_kvm_writable().expect("not able to find /dev/kvm") {
+        panic!("/dev/kvm should be readable and writable by firecracker");
+    }
+    if kernel_version().expect("not able to get kernel version") < KERNEL_VERSION {
+        panic!("You need to update your kernel to be able to run firecracker");
+    }
+}
 
 fn main() {
+    check_requirements();
     LOGGER
         .init(&"", None, None)
         .expect("Failed to register logger");

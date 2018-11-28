@@ -15,7 +15,7 @@ logger = { path = "logger"}
 mmds = { path = "mmds" }
 vmm = { path = "vmm" }
 fc_util = { path = "fc_util" }
-
+libc = ">=0.2.39"
 [dev-dependencies]
 tempfile = ">=3.0.2"
 

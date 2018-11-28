@@ -50,6 +50,7 @@ pub const ALLOWED_SYSCALLS: &[i64] = &[
     libc::SYS_eventfd2,
     libc::SYS_epoll_create1,
     libc::SYS_getrandom,
+    libc::SYS_uname,
 ];
 
 // See /usr/include/x86_64-linux-gnu/sys/epoll.h
