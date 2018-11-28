@@ -365,8 +365,7 @@ class Network:
         """Create the json for the net specific API request."""
         datax = {
             'iface_id': iface_id,
-            'host_dev_name': host_dev_name,
-            'state': 'Attached'
+            'host_dev_name': host_dev_name
         }
 
         if guest_mac is not None:

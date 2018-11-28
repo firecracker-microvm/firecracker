@@ -569,7 +569,6 @@ mod tests {
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
-    use vmm::vmm_config::DeviceState;
     use vmm::VmmAction;
 
     impl<'a> PartialEq for Error<'a> {
@@ -1052,7 +1051,6 @@ mod tests {
         let net_id = String::from("id_1");
         let json = "{
                 \"iface_id\": \"id_1\",
-                \"state\": \"Attached\",
                 \"host_dev_name\": \"foo\",
                 \"guest_mac\": \"12:34:56:78:9a:BC\"
               }";
@@ -1061,7 +1059,6 @@ mod tests {
         // PUT
         let netif = NetworkInterfaceConfig {
             iface_id: net_id.clone(),
-            state: DeviceState::Attached,
             host_dev_name: String::from("foo"),
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9a:BC").unwrap()),
             rx_rate_limiter: None,
