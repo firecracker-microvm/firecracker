@@ -24,6 +24,25 @@
      If you need help setting up access to `/dev/kvm`, you should check out
      [Appendix A](#appendix-a-setting-up-kvm-access).
 
+<details>
+
+<summary>Click here to see a BASH script that will check if your system meets
+the basic requirements to run Firecracker.</summary>
+
+```bash
+err=""; \
+[ "$(uname) $(uname -m)" = "Linux x86_64" ] \
+  || err="ERROR: your system is not Linux x86_64."; \
+dmesg | grep -i "hypervisor detected" \
+  && err="$err\nERROR: you are running in a virtual machine."; \
+[ -r /dev/kvm ] && [ -w /dev/kvm ] \
+  || err="$err\nERROR: /dev/kvm is innaccessible."; \
+(( $(uname -r | cut -d. -f1)*1000 + $(uname -r | cut -d. -f2) >= 4014 )) \
+  || err="$err\nERROR: your kernel version ($(uname -r)) is too old."; \
+[ -z "$err" ] && echo "Your system looks ready for Firecracker!" || echo -e "$err"
+```
+
+</details>
 
 ## Getting the Firecracker Binary
 
@@ -237,11 +256,10 @@ If none of the above works, you will need to either install the file
 system ACL package for your distro and use the `setfacl` command as above,
 or run Firecracker as `root` (via `sudo`).
 
-You can check your KVM setup with:
-
-```bash
-[ -r /dev/kvm ] && [ -w /dev/kvm ] && [ $(uname -r) \> 4.14 ] && echo "OK" || echo "FAIL"
-```
+You can check if you have access to `/dev/kvm` with:
+  ```bash
+  [ -r /dev/kvm ] && [ -w /dev/kvm ] && echo "OK" || echo "FAIL"
+  ```
 
 Note: if you've just added your user to the `kvm` group via `usermod`, don't
 forget to log out and then back in, so this change takes effect.
