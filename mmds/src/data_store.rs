@@ -37,7 +37,7 @@ impl Mmds {
 
     pub fn put_data(&mut self, data: Value) {
         // TODO: we should add a data validator and only accept Strings, arrays & dictionaries
-        // https://github.com/aws/PRIVATE-firecracker/issues/401
+        // https://github.com/firecracker-microvm/firecracker/issues/401
         self.data_store = data;
         self.is_initialized = true;
     }
