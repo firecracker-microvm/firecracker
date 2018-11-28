@@ -81,7 +81,7 @@ impl IntoParsedRequest for PatchDrivePayload {
         method: Method,
     ) -> result::Result<ParsedRequest, String> {
         match method {
-            Method::Patch => {
+            Method::PATCH => {
                 self.validate()?;
                 let drive_id: String = self.get_string_field_unchecked("drive_id");
                 let path_on_host: String = self.get_string_field_unchecked("path_on_host");
@@ -118,7 +118,7 @@ impl IntoParsedRequest for BlockDeviceConfig {
         }
         let (sender, receiver) = oneshot::channel();
         match method {
-            Method::Put => Ok(ParsedRequest::Sync(
+            Method::PUT => Ok(ParsedRequest::Sync(
                 VmmAction::InsertBlockDevice(self, sender),
                 receiver,
             )),
@@ -144,7 +144,7 @@ mod tests {
             fields: Value::Object(payload_map),
         };
         let expected_err = Err("Required key path_on_host not present in the json.".to_string());
-        assert!(patch_payload.into_parsed_request(None, Method::Patch) == expected_err);
+        assert!(patch_payload.into_parsed_request(None, Method::PATCH) == expected_err);
 
         // PATCH with invalid types on fields. Adding a drive_id as number instead of string.
         let mut payload_map = Map::<String, Value>::new();
@@ -157,7 +157,7 @@ mod tests {
             fields: Value::Object(payload_map),
         };
         let expected_err = Err("Invalid type for key drive_id.".to_string());
-        assert!(patch_payload.into_parsed_request(None, Method::Patch) == expected_err);
+        assert!(patch_payload.into_parsed_request(None, Method::PATCH) == expected_err);
 
         // PATCH with invalid types on fields. Adding a path_on_host as bool instead of string.
         let mut payload_map = Map::<String, Value>::new();
@@ -171,7 +171,7 @@ mod tests {
         };
         assert!(
             patch_payload
-                .into_parsed_request(None, Method::Patch)
+                .into_parsed_request(None, Method::PATCH)
                 .is_err()
         );
 
@@ -185,7 +185,7 @@ mod tests {
             fields: Value::Object(payload_map),
         };
         let expected_err = Err("Required key path_on_host not present in the json.".to_string());
-        assert!(patch_payload.into_parsed_request(None, Method::Patch) == expected_err);
+        assert!(patch_payload.into_parsed_request(None, Method::PATCH) == expected_err);
 
         // PATCH with missing drive_id field.
         let mut payload_map = Map::<String, Value>::new();
@@ -194,7 +194,7 @@ mod tests {
             fields: Value::Object(payload_map),
         };
         let expected_err = Err("Required key drive_id not present in the json.".to_string());
-        assert!(patch_payload.into_parsed_request(None, Method::Patch) == expected_err);
+        assert!(patch_payload.into_parsed_request(None, Method::PATCH) == expected_err);
 
         // PATCH that tries to update something else other than path_on_host.
         let mut payload_map = Map::new();
@@ -213,14 +213,14 @@ mod tests {
         };
         let expected_err =
             Err("Invalid PATCH payload. Only updates on path_on_host are allowed.".to_string());
-        assert!(patch_payload.into_parsed_request(None, Method::Patch) == expected_err);
+        assert!(patch_payload.into_parsed_request(None, Method::PATCH) == expected_err);
 
         // PATCH with payload that is not a json.
         let patch_payload = PatchDrivePayload {
             fields: Value::String(String::from("dummy_payload")),
         };
         assert!(
-            patch_payload.into_parsed_request(None, Method::Patch)
+            patch_payload.into_parsed_request(None, Method::PATCH)
                 == Err("Invalid json.".to_string())
         );
 
@@ -237,7 +237,7 @@ mod tests {
 
         assert!(
             pdp.clone()
-                .into_parsed_request(Some("foo".to_string()), Method::Patch)
+                .into_parsed_request(Some("foo".to_string()), Method::PATCH)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::UpdateBlockDevicePath(
                         "foo".to_string(),
@@ -249,7 +249,7 @@ mod tests {
         );
 
         assert!(
-            pdp.into_parsed_request(None, Method::Put) == Err(String::from("Invalid method PUT!"))
+            pdp.into_parsed_request(None, Method::PUT) == Err(String::from("Invalid method PUT!"))
         );
     }
 
@@ -264,7 +264,7 @@ mod tests {
             rate_limiter: None,
         };
         assert!(
-            &desc.into_parsed_request(Some(String::from("foo")), Method::Options)
+            &desc.into_parsed_request(Some(String::from("foo")), Method::OPTIONS)
                 == &Err(String::from("Invalid method."))
         );
 
@@ -287,7 +287,7 @@ mod tests {
         };
         let (sender, receiver) = oneshot::channel();
         assert!(
-            desc.into_parsed_request(Some(String::from("foo")), Method::Put)
+            desc.into_parsed_request(Some(String::from("foo")), Method::PUT)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::InsertBlockDevice(same_desc, sender),
                     receiver

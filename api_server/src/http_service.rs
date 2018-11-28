@@ -1,16 +1,17 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::rc::Rc;
 use std::result;
 use std::str;
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 
 use futures::future::{self, Either};
-use futures::{Future, Stream};
+use futures::{Future, Stream, IntoFuture};
 
-use hyper::{self, Chunk, Headers, Method, StatusCode};
+use crossbeam_channel::Sender;
+use hyper::header::{HeaderMap, HeaderValue};
+use hyper::{self, Body, Chunk, Method, Request, Response, StatusCode};
+use hyper::service::Service;
 use serde_json;
 
 use logger::{Metric, METRICS};
@@ -29,30 +30,69 @@ use vmm::vmm_config::net::NetworkInterfaceConfig;
 use vmm::vmm_config::vsock::VsockDeviceConfig;
 use vmm::VmmAction;
 
-fn build_response_base<B: Into<hyper::Body>>(
+use std::error::Error as StdError;
+use std::fmt;
+
+#[derive(Debug)]
+pub enum ServiceError {
+    Hyper(hyper::error::Error),
+    CanceledFuture(futures::Canceled),
+    Generic,
+}
+
+impl fmt::Display for ServiceError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ServiceError::Hyper(inner) => write!(f, "Got an service error: {}", inner),
+            ServiceError::CanceledFuture(inner) => write!(f, "Got an service error: {}", inner),
+            ServiceError::Generic => write!(f, "Got an service error."),
+        }
+    }
+}
+
+impl StdError for ServiceError {
+    fn description(&self) -> &str {
+        "HTTP Service Error"
+    }
+
+    fn cause(&self) -> Option<&StdError> {
+        match self {
+            ServiceError::Hyper(inner) => Some(inner),
+            ServiceError::CanceledFuture(inner) => Some(inner),
+            ServiceError::Generic => None,
+        }
+    }
+}
+
+fn build_response_base<B: Into<Body>>(
     status: StatusCode,
-    maybe_headers: Option<Headers>,
+    maybe_headers: Option<HeaderMap<HeaderValue>>,
     maybe_body: Option<B>,
-) -> hyper::Response {
-    let mut response = hyper::Response::new().with_status(status);
+) -> Response<Body> {
+    let mut response: Response<Body> = Response::default();
+    *response.status_mut() = status;
+
     if let Some(headers) = maybe_headers {
-        response = response.with_headers(headers);
+        *response.headers_mut() = headers;
     }
     if let Some(body) = maybe_body {
-        response.set_body(body);
+        *response.body_mut() = body.into();
     }
     response
 }
 
 // An HTTP response with just a status code.
-pub fn empty_response(status: StatusCode) -> hyper::Response {
+pub fn empty_response(status: StatusCode) -> Response<Body> {
     build_response_base::<String>(status, None, None)
 }
 
 // An HTTP response which also includes a body.
-pub fn json_response<T: Into<hyper::Body>>(status: StatusCode, body: T) -> hyper::Response {
-    let mut headers = Headers::new();
-    headers.set(hyper::header::ContentType::json());
+pub fn json_response<T: Into<hyper::Body>>(status: StatusCode, body: T) -> Response<Body> {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        hyper::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     build_response_base(status, Some(headers), Some(body))
 }
 
@@ -81,23 +121,23 @@ enum Error<'a> {
 }
 
 // It's convenient to turn errors into HTTP responses directly.
-impl<'a> Into<hyper::Response> for Error<'a> {
-    fn into(self) -> hyper::Response {
+impl<'a> Into<Response<Body>> for Error<'a> {
+    fn into(self) -> Response<Body> {
         match self {
             Error::Generic(status, msg) => json_response(status, json_fault_message(msg)),
             Error::EmptyID => json_response(
-                StatusCode::BadRequest,
+                StatusCode::BAD_REQUEST,
                 json_fault_message("The ID cannot be empty."),
             ),
             Error::InvalidPathMethod(path, method) => json_response(
-                StatusCode::BadRequest,
+                StatusCode::BAD_REQUEST,
                 json_fault_message(format!(
                     "Invalid request method and/or path: {} {}",
                     method, path
                 )),
             ),
             Error::SerdeJson(e) => {
-                json_response(StatusCode::BadRequest, json_fault_message(e.to_string()))
+                json_response(StatusCode::BAD_REQUEST, json_fault_message(e.to_string()))
             }
         }
     }
@@ -110,7 +150,7 @@ fn parse_actions_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<
     let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
 
     match path_tokens.len() {
-        1 if method == Method::Put => {
+        1 if method == Method::PUT => {
             METRICS.put_api_requests.actions_count.inc();
             Ok(serde_json::from_slice::<ActionBody>(body.as_ref())
                 .map_err(|e| {
@@ -119,7 +159,7 @@ fn parse_actions_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<
                 })?.into_parsed_request(None, method)
                 .map_err(|msg| {
                     METRICS.put_api_requests.actions_fails.inc();
-                    Error::Generic(StatusCode::BadRequest, msg)
+                    Error::Generic(StatusCode::BAD_REQUEST, msg)
                 })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -142,7 +182,7 @@ fn parse_boot_source_req<'a>(
     let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
 
     match path_tokens[1..].len() {
-        0 if method == Method::Put => {
+        0 if method == Method::PUT => {
             METRICS.put_api_requests.boot_source_count.inc();
             Ok(serde_json::from_slice::<BootSourceConfig>(body)
                 .map_err(|e| {
@@ -151,7 +191,7 @@ fn parse_boot_source_req<'a>(
                 })?.into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.boot_source_fails.inc();
-                    Error::Generic(StatusCode::BadRequest, s)
+                    Error::Generic(StatusCode::BAD_REQUEST, s)
                 })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -169,14 +209,14 @@ fn parse_mmds_request<'a>(
     let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
 
     match path_tokens[1..].len() {
-        0 if method == Method::Get => Ok(ParsedRequest::GetMMDS),
-        0 if method == Method::Put => {
+        0 if method == Method::GET => Ok(ParsedRequest::GetMMDS),
+        0 if method == Method::PUT => {
             match serde_json::from_slice(&body) {
                 Ok(val) => return Ok(ParsedRequest::PutMMDS(val)),
                 Err(e) => return Err(Error::SerdeJson(e)),
             };
         }
-        0 if method == Method::Patch => match serde_json::from_slice(&body) {
+        0 if method == Method::PATCH => match serde_json::from_slice(&body) {
             Ok(val) => return Ok(ParsedRequest::PatchMMDS(val)),
             Err(e) => return Err(Error::SerdeJson(e)),
         },
@@ -194,7 +234,7 @@ fn parse_drives_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
     };
 
     match path_tokens[1..].len() {
-        1 if method == Method::Put => {
+        1 if method == Method::PUT => {
             METRICS.put_api_requests.drive_count.inc();
 
             let device_cfg = serde_json::from_slice::<BlockDeviceConfig>(body).map_err(|e| {
@@ -205,11 +245,11 @@ fn parse_drives_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
                 .into_parsed_request(Some(id_from_path.to_string()), method)
                 .map_err(|s| {
                     METRICS.put_api_requests.drive_fails.inc();
-                    Error::Generic(StatusCode::BadRequest, s)
+                    Error::Generic(StatusCode::BAD_REQUEST, s)
                 })?)
         }
 
-        1 if method == Method::Patch => {
+        1 if method == Method::PATCH => {
             METRICS.patch_api_requests.drive_count.inc();
 
             Ok(PatchDrivePayload {
@@ -220,7 +260,7 @@ fn parse_drives_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
             }.into_parsed_request(Some(id_from_path.to_string()), method)
             .map_err(|s| {
                 METRICS.patch_api_requests.drive_fails.inc();
-                Error::Generic(StatusCode::BadRequest, s)
+                Error::Generic(StatusCode::BAD_REQUEST, s)
             })?)
         }
 
@@ -233,7 +273,7 @@ fn parse_logger_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
     let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
 
     match path_tokens[1..].len() {
-        0 if method == Method::Put => {
+        0 if method == Method::PUT => {
             METRICS.put_api_requests.logger_count.inc();
             Ok(serde_json::from_slice::<LoggerConfig>(body)
                 .map_err(|e| {
@@ -242,7 +282,7 @@ fn parse_logger_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
                 })?.into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.logger_fails.inc();
-                    Error::Generic(StatusCode::BadRequest, s)
+                    Error::Generic(StatusCode::BAD_REQUEST, s)
                 })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -258,7 +298,7 @@ fn parse_machine_config_req<'a>(
     let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
 
     match path_tokens[1..].len() {
-        0 if method == Method::Get => {
+        0 if method == Method::GET => {
             METRICS.get_api_requests.machine_cfg_count.inc();
             let empty_machine_config = VmConfig {
                 vcpu_count: None,
@@ -270,11 +310,11 @@ fn parse_machine_config_req<'a>(
                 .into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.get_api_requests.machine_cfg_fails.inc();
-                    Error::Generic(StatusCode::BadRequest, s)
+                    Error::Generic(StatusCode::BAD_REQUEST, s)
                 })?)
         }
 
-        0 if method == Method::Put => {
+        0 if method == Method::PUT => {
             METRICS.put_api_requests.machine_cfg_count.inc();
             Ok(serde_json::from_slice::<VmConfig>(body)
                 .map_err(|e| {
@@ -283,7 +323,7 @@ fn parse_machine_config_req<'a>(
                 })?.into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
-                    Error::Generic(StatusCode::BadRequest, s)
+                    Error::Generic(StatusCode::BAD_REQUEST, s)
                 })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -300,7 +340,7 @@ fn parse_netif_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a
     };
 
     match path_tokens[1..].len() {
-        1 if method == Method::Put => {
+        1 if method == Method::PUT => {
             METRICS.put_api_requests.network_count.inc();
 
             Ok(serde_json::from_slice::<NetworkInterfaceConfig>(body)
@@ -310,7 +350,7 @@ fn parse_netif_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a
                 })?.into_parsed_request(Some(id_from_path.to_string()), method)
                 .map_err(|s| {
                     METRICS.put_api_requests.network_fails.inc();
-                    Error::Generic(StatusCode::BadRequest, s)
+                    Error::Generic(StatusCode::BAD_REQUEST, s)
                 })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -328,12 +368,12 @@ fn parse_vsocks_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
     };
 
     match path_tokens[1..].len() {
-        1 if method == Method::Put => Ok(serde_json::from_slice::<VsockDeviceConfig>(body)
+        1 if method == Method::PUT => Ok(serde_json::from_slice::<VsockDeviceConfig>(body)
             .map_err(|e| Error::SerdeJson(e))?
             .into_parsed_request(Some(id_from_path.to_string()), method)
             .map_err(|s| {
                 METRICS.put_api_requests.network_fails.inc();
-                Error::Generic(StatusCode::BadRequest, s)
+                Error::Generic(StatusCode::BAD_REQUEST, s)
             })?),
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -369,7 +409,7 @@ fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, 
     let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
 
     if path_tokens.len() == 0 {
-        if method == Method::Get {
+        if method == Method::GET {
             return Ok(ParsedRequest::GetInstanceInfo);
         } else {
             return Err(Error::InvalidPathMethod(path, method));
@@ -394,10 +434,10 @@ fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, 
 // with the VMM (so we don't forget to write to the EventFd).
 fn send_to_vmm(
     req: VmmAction,
-    sender: &mpsc::Sender<Box<VmmAction>>,
+    sender: Sender<VmmAction>,
     send_event: &EventFd,
 ) -> result::Result<(), ()> {
-    sender.send(Box::new(req)).map_err(|_| ())?;
+    sender.send(req).map_err(|_| ())?;
     send_event.write(1).map_err(|_| ())
 }
 
@@ -411,17 +451,17 @@ pub struct ApiServerHttpService {
     // This allows sending messages to the VMM thread. It makes sense to use a Rc for the sender
     // (instead of cloning) because everything happens on a single thread, so there's no risk of
     // having races (if that was even a problem to begin with).
-    api_request_sender: Rc<mpsc::Sender<Box<VmmAction>>>,
+    api_request_sender: Sender<VmmAction>,
     // We write to this EventFd to let the VMM know about new messages.
-    vmm_send_event: Rc<EventFd>,
+    vmm_send_event: Arc<EventFd>,
 }
 
 impl ApiServerHttpService {
     pub fn new(
         mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_request_sender: Rc<mpsc::Sender<Box<VmmAction>>>,
-        vmm_send_event: Rc<EventFd>,
+        api_request_sender: Sender<VmmAction>,
+        vmm_send_event: Arc<EventFd>,
     ) -> Self {
         ApiServerHttpService {
             mmds_info,
@@ -432,21 +472,33 @@ impl ApiServerHttpService {
     }
 }
 
-impl hyper::server::Service for ApiServerHttpService {
-    type Request = hyper::Request;
-    type Response = hyper::Response;
-    type Error = hyper::error::Error;
-    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+
+impl IntoFuture for ApiServerHttpService {
+    type Future = future::FutureResult<Self::Item, Self::Error>;
+    type Item = Self;
+    type Error = ServiceError;
+
+    fn into_future(self) -> Self::Future {
+        future::ok(self)
+    }
+}
+
+pub type FutureObj<T, E> = Box<Future<Item = T, Error = E> + Send>;
+impl Service for ApiServerHttpService {
+    type ReqBody = Body;
+    type ResBody = Body;
+    type Error = ServiceError;
+    type Future = FutureObj<Response<Self::ResBody>, Self::Error>;
 
     // This function returns a future that will resolve at some point to the response for
     // the HTTP request contained in req.
-    fn call(&self, req: Self::Request) -> Self::Future {
+    fn call(&mut self, req: Request<Self::ReqBody>) -> Self::Future {
         // We do all this cloning to be able too move everything we need
         // into the closure that follows.
         let mmds_info = self.mmds_info.clone();
         let method = req.method().clone();
         let method_copy = req.method().clone();
-        let path = String::from(req.path());
+        let path = String::from(req.uri().path());
         let shared_info_lock = self.vmm_shared_info.clone();
         let api_request_sender = self.api_request_sender.clone();
         let vmm_send_event = self.vmm_send_event.clone();
@@ -457,7 +509,7 @@ impl hyper::server::Service for ApiServerHttpService {
         // The request body is itself a future (a stream of Chunks to be more precise),
         // so we have to define a future that waits for all the pieces first (via concat2),
         // and then does something with the newly available body (via and_then).
-        Box::new(req.body().concat2().and_then(move |b| {
+        Box::new(req.into_body().concat2().map_err(ServiceError::Hyper).and_then(move |b: Chunk| {
             // When this will be executed, the body is available. We start by parsing the request.
             match parse_request(method, path.as_ref(), &b) {
                 Ok(parsed_req) => match parsed_req {
@@ -471,12 +523,12 @@ impl hyper::server::Service for ApiServerHttpService {
                         // Serialize it to a JSON string.
                         let body_result = serde_json::to_string(&(*shared_info));
                         match body_result {
-                            Ok(body) => Either::A(future::ok(json_response(StatusCode::Ok, body))),
+                            Ok(body) => Either::A(future::ok(json_response(StatusCode::OK, body))),
                             Err(e) => {
                                 // This is an api server metrics as the shared info is obtained internally.
                                 METRICS.get_api_requests.instance_info_fails.inc();
                                 Either::A(future::ok(json_response(
-                                    StatusCode::InternalServerError,
+                                    StatusCode::INTERNAL_SERVER_ERROR,
                                     json_fault_message(e.to_string()),
                                 )))
                             }
@@ -489,10 +541,10 @@ impl hyper::server::Service for ApiServerHttpService {
                         match mmds.is_initialized() {
                             true => {
                                 mmds.patch_data(json_value);
-                                Either::A(future::ok(empty_response(StatusCode::NoContent)))
+                                Either::A(future::ok(empty_response(StatusCode::NO_CONTENT)))
                             }
                             false => Either::A(future::ok(json_response(
-                                StatusCode::NotFound,
+                                StatusCode::NOT_FOUND,
                                 json_fault_message("The MMDS resource does not exist."),
                             ))),
                         }
@@ -512,9 +564,9 @@ impl hyper::server::Service for ApiServerHttpService {
                             .get_data_str(),
                     ))),
                     Sync(sync_req, outcome_receiver) => {
-                        if send_to_vmm(sync_req, &api_request_sender, &vmm_send_event).is_err() {
+                        if send_to_vmm(sync_req, api_request_sender, &vmm_send_event).is_err() {
                             METRICS.api_server.sync_vmm_send_timeout_count.inc();
-                            return Either::A(future::err(hyper::Error::Timeout));
+                            return Either::A(future::err(ServiceError::Generic));
                         }
 
                         // metric-logging related variables for being able to log response details
@@ -537,13 +589,13 @@ impl hyper::server::Service for ApiServerHttpService {
                                         describe(&method_copy, &path_copy, &b_str)
                                     );
                                     x.generate_response()
-                                }).map_err(move |_| {
+                                }).map_err(move |e| {
                                     info!(
                                         "Received Error on {}",
                                         describe(&method_copy_err, &path_copy_err, &b_str_err)
                                     );
                                     METRICS.api_server.sync_outcome_fails.inc();
-                                    hyper::Error::Timeout
+                                    ServiceError::CanceledFuture(e)
                                 }),
                         )
                     }
@@ -576,8 +628,7 @@ mod tests {
     use std::result;
 
     use futures::sync::oneshot;
-    use hyper::header::{ContentType, Headers};
-    use hyper::Body;
+    use hyper::{Body, header::{HeaderMap, HeaderName, HeaderValue}};
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm::VmmAction;
 
@@ -621,6 +672,15 @@ mod tests {
         serde_json_err.unwrap_err()
     }
 
+    macro_rules! assert_is_json {
+        ($response:expr) => {
+            assert_eq!(
+                $response.headers().get("content-type"),
+                Some(&HeaderValue::from_static("application/json"))
+            );
+        };
+    }
+
     #[derive(Serialize, Deserialize)]
     struct Foo {
         bar: u32,
@@ -628,37 +688,40 @@ mod tests {
 
     #[test]
     fn test_build_response_base() {
-        let mut headers = Headers::new();
-        let content_type_hdr = ContentType::plaintext();
-        headers.set(ContentType::plaintext());
-        let body = String::from("This is a test");
-        let resp = build_response_base::<String>(StatusCode::Ok, Some(headers), Some(body.clone()));
+        let mut headers = HeaderMap::new();
+        let content_type = HeaderName::from_static("content-type");
+        let plain = HeaderValue::from_static("text/plain");
 
-        assert_eq!(resp.status(), StatusCode::Ok);
-        assert_eq!(resp.headers().len(), 1);
-        assert_eq!(resp.headers().get::<ContentType>(), Some(&content_type_hdr));
-        assert_eq!(body_to_string(resp.body()), body);
+        headers.insert(
+            &content_type,
+            plain.clone(),
+        );
+
+        let body = String::from("This is a test");
+        let response = build_response_base::<String>(StatusCode::OK, Some(headers), Some(body.clone()));
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().len(), 1);
+        assert_eq!(response.headers().get(content_type), Some(&plain));
+        assert_eq!(body_to_string(response.into_body()), body);
     }
 
     #[test]
     fn test_empty_response() {
-        let resp = empty_response(StatusCode::Ok);
-        assert_eq!(resp.status(), StatusCode::Ok);
-        assert_eq!(resp.headers().len(), 0);
-        assert_eq!(body_to_string(resp.body()), body_to_string(Body::empty()));
+        let response = empty_response(StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().len(), 0);
+        assert_eq!(body_to_string(response.into_body()), body_to_string(Body::empty()));
     }
 
     #[test]
     fn test_json_response() {
         let body = String::from("This is not a valid JSON string, but the function works");
-        let resp = json_response::<String>(StatusCode::Ok, body.clone());
-        assert_eq!(resp.status(), StatusCode::Ok);
-        assert_eq!(resp.headers().len(), 1);
-        assert_eq!(
-            resp.headers().get::<ContentType>(),
-            Some(&ContentType::json())
-        );
-        assert_eq!(body_to_string(resp.body()), body);
+        let response = json_response::<String>(StatusCode::OK, body.clone());
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().len(), 1);
+        assert_is_json!(response);
+        assert_eq!(body_to_string(response.into_body()), body);
     }
 
     #[test]
@@ -685,47 +748,34 @@ mod tests {
         let json_err_val = "This is an error message";
         let err_message = format!("{{\n  \"{}\": \"{}\"\n}}", &json_err_key, &json_err_val);
         let message = String::from("This is an error message");
-        let mut response: hyper::Response =
-            Error::Generic(StatusCode::ServiceUnavailable, message).into();
-        assert_eq!(response.status(), StatusCode::ServiceUnavailable);
-        assert_eq!(
-            response.headers().get::<ContentType>(),
-            Some(&ContentType::json())
-        );
-        assert_eq!(body_to_string(response.body()), err_message);
+        let mut response: hyper::Response<Body> =
+            Error::Generic(StatusCode::SERVICE_UNAVAILABLE, message).into();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_is_json!(response);
+        assert_eq!(body_to_string(response.into_body()), err_message);
 
         response = Error::EmptyID.into();
         let json_err_val = "The ID cannot be empty.";
         let err_message = format!("{{\n  \"{}\": \"{}\"\n}}", &json_err_key, &json_err_val);
-        assert_eq!(response.status(), StatusCode::BadRequest);
-        assert_eq!(
-            response.headers().get::<ContentType>(),
-            Some(&ContentType::json())
-        );
-        assert_eq!(body_to_string(response.body()), err_message);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_is_json!(response);
+        assert_eq!(body_to_string(response.into_body()), err_message);
 
         let path = String::from("/foo");
-        let method = Method::Options;
+        let method = Method::OPTIONS;
         response = Error::InvalidPathMethod(&path, method.clone()).into();
         let json_err_val = format!("Invalid request method and/or path: {} {}", &method, &path);
         let err_message = format!("{{\n  \"{}\": \"{}\"\n}}", &json_err_key, &json_err_val);
-        assert_eq!(response.status(), StatusCode::BadRequest);
-        assert_eq!(
-            response.headers().get::<ContentType>(),
-            Some(&ContentType::json())
-        );
-        assert_eq!(body_to_string(response.body()), err_message);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(body_to_string(response.into_body()), err_message);
 
         let res = serde_json::from_str::<Foo>(&"foo");
         match res {
             Ok(_) => {}
             Err(e) => {
                 response = Error::SerdeJson(e).into();
-                assert_eq!(response.status(), StatusCode::BadRequest);
-                assert_eq!(
-                    response.headers().get::<ContentType>(),
-                    Some(&ContentType::json())
-                );
+                assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+                assert_is_json!(response);
             }
         }
     }
@@ -744,7 +794,7 @@ mod tests {
         let body: Chunk = Chunk::from(json);
         let path = "/foo";
 
-        match parse_actions_req(path, Method::Put, &body) {
+        match parse_actions_req(path, Method::PUT, &body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
@@ -762,7 +812,7 @@ mod tests {
               }"#;
         let body: Chunk = Chunk::from(json);
         let path = "/foo";
-        match parse_actions_req(path, Method::Put, &body) {
+        match parse_actions_req(path, Method::PUT, &body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
@@ -777,19 +827,19 @@ mod tests {
 
         // Test PUT with invalid path.
         let path = "/foo/bar/baz";
-        let expected_err = Error::InvalidPathMethod(path, Method::Put);
-        assert!(parse_actions_req(path, Method::Put, &Chunk::from("foo")) == Err(expected_err));
+        let expected_err = Error::InvalidPathMethod(path, Method::PUT);
+        assert!(parse_actions_req(path, Method::PUT, &Chunk::from("foo")) == Err(expected_err));
 
         // Test PUT with invalid action body (serde erorr).
         let actions_path = "/actions";
         assert!(
-            parse_actions_req(actions_path, Method::Put, &Chunk::from("foo"))
+            parse_actions_req(actions_path, Method::PUT, &Chunk::from("foo"))
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Test PUT BadRequest due to invalid payload.
         let expected_err = Error::Generic(
-            StatusCode::BadRequest,
+            StatusCode::BAD_REQUEST,
             "InstanceStart does not support a payload.".to_string(),
         );
         let body = r#"{
@@ -799,15 +849,15 @@ mod tests {
             }
         }"#;
         assert!(
-            parse_actions_req(actions_path, Method::Put, &Chunk::from(body)) == Err(expected_err)
+            parse_actions_req(actions_path, Method::PUT, &Chunk::from(body)) == Err(expected_err)
         );
 
         // Test invalid method.
-        let expected_err = Error::InvalidPathMethod(actions_path, Method::Post);
+        let expected_err = Error::InvalidPathMethod(actions_path, Method::POST);
         assert!(
             parse_actions_req(
                 actions_path,
-                Method::Post,
+                Method::POST,
                 &Chunk::from("{\"action_type\": \"InstanceStart\"}")
             ) == Err(expected_err)
         );
@@ -827,7 +877,7 @@ mod tests {
         // all of BootSourceBody's members are accessible. Rather than making them all public just
         // for the purpose of unit tests, it's preferable to trust the deserialization.
         let boot_source_cfg = serde_json::from_slice::<BootSourceConfig>(&body).unwrap();
-        match parse_boot_source_req(boot_source_path, Method::Put, &body) {
+        match parse_boot_source_req(boot_source_path, Method::PUT, &body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
@@ -841,22 +891,22 @@ mod tests {
         // Error cases
         // Test case for invalid path.
         let dummy_path = "/boot-source/dummy";
-        let expected_err = Error::InvalidPathMethod(dummy_path, Method::Put);
+        let expected_err = Error::InvalidPathMethod(dummy_path, Method::PUT);
         assert!(
-            parse_boot_source_req(dummy_path, Method::Put, &Chunk::from(boot_source_json))
+            parse_boot_source_req(dummy_path, Method::PUT, &Chunk::from(boot_source_json))
                 == Err(expected_err)
         );
 
         // Test case for invalid method (GET).
-        let expected_err = Error::InvalidPathMethod(boot_source_path, Method::Get);
+        let expected_err = Error::InvalidPathMethod(boot_source_path, Method::GET);
         assert!(
-            parse_boot_source_req(boot_source_path, Method::Get, &Chunk::from("{}"))
+            parse_boot_source_req(boot_source_path, Method::GET, &Chunk::from("{}"))
                 == Err(expected_err)
         );
 
         // Test case for invalid body (serde  error).
         assert!(
-            parse_boot_source_req(boot_source_path, Method::Put, &Chunk::from("foo"))
+            parse_boot_source_req(boot_source_path, Method::PUT, &Chunk::from("foo"))
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
     }
@@ -882,8 +932,8 @@ mod tests {
             rate_limiter: None,
         };
 
-        match drive_desc.into_parsed_request(Some(String::from("id_1")), Method::Put) {
-            Ok(pr) => match parse_drives_req(valid_drive_path, Method::Put, &body) {
+        match drive_desc.into_parsed_request(Some(String::from("id_1")), Method::PUT) {
+            Ok(pr) => match parse_drives_req(valid_drive_path, Method::PUT, &body) {
                 Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
                 _ => assert!(false),
             },
@@ -893,25 +943,25 @@ mod tests {
         // Error Cases
         // Test Case for invalid payload (id from path does not match the id from the body).
         let expected_error = Err(Error::Generic(
-            StatusCode::BadRequest,
+            StatusCode::BAD_REQUEST,
             String::from("The id from the path does not match the id from the body!"),
         ));
         let path = "/drives/invalid_id";
-        assert!(parse_drives_req(path, Method::Put, &body) == expected_error);
+        assert!(parse_drives_req(path, Method::PUT, &body) == expected_error);
 
         // Serde Error: Payload does not serialize to BlockDeviceConfig struct.
         assert!(
-            parse_drives_req(valid_drive_path, Method::Put, &Chunk::from("dummy_payload"))
+            parse_drives_req(valid_drive_path, Method::PUT, &Chunk::from("dummy_payload"))
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Test Case for invalid path (path does not contain the id).
-        assert!(parse_drives_req("/foo", Method::Put, &body) == Err(Error::EmptyID));
+        assert!(parse_drives_req("/foo", Method::PUT, &body) == Err(Error::EmptyID));
 
         // Test Case for invalid path (more than 2 tokens in path).
         let path = "/a/b/c";
-        let expected_error = Err(Error::InvalidPathMethod(path, Method::Put));
-        assert!(parse_drives_req(path, Method::Put, &body) == expected_error);
+        let expected_error = Err(Error::InvalidPathMethod(path, Method::PUT));
+        assert!(parse_drives_req(path, Method::PUT, &body) == expected_error);
 
         // PATCH
         let json = r#"{
@@ -932,8 +982,8 @@ mod tests {
             fields: Value::Object(payload_map),
         };
 
-        match patch_payload.into_parsed_request(Some("id_1".to_string()), Method::Patch) {
-            Ok(pr) => match parse_drives_req(valid_drive_path, Method::Patch, &valid_body) {
+        match patch_payload.into_parsed_request(Some("id_1".to_string()), Method::PATCH) {
+            Ok(pr) => match parse_drives_req(valid_drive_path, Method::PATCH, &valid_body) {
                 Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
                 _ => assert!(false),
             },
@@ -942,18 +992,18 @@ mod tests {
 
         // Test case where id from path is different.
         let expected_error = Err(Error::Generic(
-            StatusCode::BadRequest,
+            StatusCode::BAD_REQUEST,
             String::from("The id from the path does not match the id from the body!"),
         ));
         let path = "/drives/invalid_id";
 
-        assert!(parse_drives_req(path, Method::Patch, &valid_body) == expected_error);
+        assert!(parse_drives_req(path, Method::PATCH, &valid_body) == expected_error);
 
         // Serde Error: Payload is an invalid JSON object.
         assert!(
             parse_drives_req(
                 valid_drive_path,
-                Method::Patch,
+                Method::PATCH,
                 &Chunk::from("{drive_id: 1234}")
             ) == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
@@ -963,11 +1013,11 @@ mod tests {
                 \"drive_id\": \"bar\"
               }";
         let expected_error = Err(Error::Generic(
-            StatusCode::BadRequest,
+            StatusCode::BAD_REQUEST,
             String::from("Required key path_on_host not present in the json."),
         ));
         let body: Chunk = Chunk::from(json);
-        assert!(parse_drives_req("/foo/bar", Method::Patch, &body) == expected_error);
+        assert!(parse_drives_req("/foo/bar", Method::PATCH, &body) == expected_error);
     }
 
     #[test]
@@ -985,7 +1035,7 @@ mod tests {
         // PUT
         let logger_config =
             serde_json::from_slice::<LoggerConfig>(&logger_body).expect("deserialization failed");
-        match parse_logger_req(logger_path, Method::Put, &logger_body) {
+        match parse_logger_req(logger_path, Method::PUT, &logger_body) {
             Ok(pr) => {
                 let (sender, receiver) = oneshot::channel();
                 assert!(pr.eq(&ParsedRequest::Sync(
@@ -999,13 +1049,13 @@ mod tests {
         // Error cases
         // Error Case: Serde Deserialization fails due to invalid payload.
         assert!(
-            parse_logger_req(logger_path, Method::Put, &Chunk::from("foo"))
+            parse_logger_req(logger_path, Method::PUT, &Chunk::from("foo"))
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Error Case: Invalid path.
-        let expected_err = Err(Error::InvalidPathMethod("/foo/bar", Method::Put));
-        assert!(parse_logger_req(&"/foo/bar", Method::Put, &Chunk::from("foo")) == expected_err);
+        let expected_err = Err(Error::InvalidPathMethod("/foo/bar", Method::PUT));
+        assert!(parse_logger_req(&"/foo/bar", Method::PUT, &Chunk::from("foo")) == expected_err);
     }
 
     #[test]
@@ -1013,19 +1063,19 @@ mod tests {
         let path = "/machine-config";
         let json = "{
                 \"vcpu_count\": 42,
-                \"mem_size_mib\": 1025,
+                \"mem_size_mib\": 102,
                 \"ht_enabled\": true,
                 \"cpu_template\": \"T2\"
               }";
         let body: Chunk = Chunk::from(json);
 
         // GET
-        assert!(parse_machine_config_req(path, Method::Get, &body).is_ok());
+        assert!(parse_machine_config_req(path, Method::GET, &body).is_ok());
 
         // Error Cases
         // Error Case: Invalid Path.
-        let expected_err = Err(Error::InvalidPathMethod("/foo/bar", Method::Get));
-        assert!(parse_machine_config_req("/foo/bar", Method::Get, &body) == expected_err);
+        let expected_err = Err(Error::InvalidPathMethod("/foo/bar", Method::GET));
+        assert!(parse_machine_config_req("/foo/bar", Method::GET, &body) == expected_err);
 
         // PUT
         let vm_config = VmConfig {
@@ -1035,8 +1085,8 @@ mod tests {
             cpu_template: Some(CpuFeaturesTemplate::T2),
         };
 
-        match vm_config.into_parsed_request(None, Method::Put) {
-            Ok(parsed_req) => match parse_machine_config_req(&path, Method::Put, &body) {
+        match vm_config.into_parsed_request(None, Method::PUT) {
+            Ok(parsed_req) => match parse_machine_config_req(&path, Method::PUT, &body) {
                 Ok(other_parsed_req) => assert!(parsed_req.eq(&other_parsed_req)),
                 _ => assert!(false),
             },
@@ -1046,16 +1096,16 @@ mod tests {
         // Error cases
         // Error Case: Invalid payload (cannot deserialize the body into a VmConfig object).
         assert!(
-            parse_machine_config_req(path, Method::Put, &Chunk::from("foo bar"))
+            parse_machine_config_req(path, Method::PUT, &Chunk::from("foo bar"))
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Error Case: Invalid payload (payload is empty).
         let expected_err = Err(Error::Generic(
-            StatusCode::BadRequest,
+            StatusCode::BAD_REQUEST,
             String::from("Empty request."),
         ));
-        assert!(parse_machine_config_req(path, Method::Put, &Chunk::from("{}")) == expected_err);
+        assert!(parse_machine_config_req(path, Method::PUT, &Chunk::from("{}")) == expected_err);
     }
 
     #[test]
@@ -1080,8 +1130,8 @@ mod tests {
             tap: None,
         };
 
-        match netif.into_parsed_request(Some(net_id), Method::Put) {
-            Ok(pr) => match parse_netif_req(&path, Method::Put, &body) {
+        match netif.into_parsed_request(Some(net_id), Method::PUT) {
+            Ok(pr) => match parse_netif_req(&path, Method::PUT, &body) {
                 Ok(pr_netif) => assert!(pr.eq(&pr_netif)),
                 _ => assert!(false),
             },
@@ -1091,23 +1141,23 @@ mod tests {
         // Error cases
         // Error Case: The id from the path does not match the id from the body.
         let expected_err = Err(Error::Generic(
-            StatusCode::BadRequest,
+            StatusCode::BAD_REQUEST,
             String::from("The id from the path does not match the id from the body!"),
         ));
         let path = "/network-interfaces/invalid_id";
 
-        assert!(parse_netif_req(path, Method::Put, &body) == expected_err);
+        assert!(parse_netif_req(path, Method::PUT, &body) == expected_err);
 
         // Error Case: Invalid payload (cannot deserialize the body into a NetworkInterfaceBody object).
         assert!(
-            parse_netif_req(path, Method::Put, &Chunk::from("foo bar"))
+            parse_netif_req(path, Method::PUT, &Chunk::from("foo bar"))
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Error Case: Invalid Path.
         assert!(
-            parse_netif_req(path, Method::Patch, &body,)
-                == Err(Error::InvalidPathMethod(path, Method::Patch))
+            parse_netif_req(path, Method::PATCH, &body,)
+                == Err(Error::InvalidPathMethod(path, Method::PATCH))
         )
     }
 
@@ -1118,7 +1168,7 @@ mod tests {
         let body = Chunk::from(empty_json);
 
         // Test for GET request
-        match parse_mmds_request(path, Method::Get, &body) {
+        match parse_mmds_request(path, Method::GET, &body) {
             Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::GetMMDS)),
             Err(_) => assert!(false),
         };
@@ -1134,7 +1184,7 @@ mod tests {
 
         // Test for PUT request
         let body = Chunk::from(dummy_json);
-        match parse_mmds_request(path, Method::Put, &body) {
+        match parse_mmds_request(path, Method::PUT, &body) {
             Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::PutMMDS(
                 serde_json::from_slice(&body).unwrap()
             ))),
@@ -1144,7 +1194,7 @@ mod tests {
         // Test for PATCH request
         let patch_json = "{\"user-data\": 15}";
         let body = Chunk::from(patch_json);
-        match parse_mmds_request(path, Method::Patch, &body) {
+        match parse_mmds_request(path, Method::PATCH, &body) {
             Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::PatchMMDS(
                 serde_json::from_slice(&body).unwrap()
             ))),
@@ -1155,7 +1205,7 @@ mod tests {
         let invalid_json = "\"latest\": {}}";
         let body = Chunk::from(invalid_json);
         assert!(
-            parse_mmds_request(path, Method::Put, &body)
+            parse_mmds_request(path, Method::PUT, &body)
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
@@ -1163,32 +1213,32 @@ mod tests {
         let invalid_json = "\"latest\": {}}";
         let body = Chunk::from(invalid_json);
         assert!(
-            parse_mmds_request(path, Method::Patch, &body)
+            parse_mmds_request(path, Method::PATCH, &body)
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Test for invalid path
         let path = "/mmds/something";
-        let expected_err = Err(Error::InvalidPathMethod(path, Method::Get));
-        assert!(parse_mmds_request(path, Method::Get, &body) == expected_err);
+        let expected_err = Err(Error::InvalidPathMethod(path, Method::GET));
+        assert!(parse_mmds_request(path, Method::GET, &body) == expected_err);
     }
 
     #[test]
     fn test_parse_request() {
         let body: Chunk = Chunk::from("{ \"foo\": \"bar\" }");
 
-        assert!(parse_request(Method::Get, "foo/bar", &body).is_err());
+        assert!(parse_request(Method::GET, "foo/bar", &body).is_err());
 
         let all_methods = vec![
-            Method::Put,
-            Method::Options,
-            Method::Post,
-            Method::Delete,
-            Method::Head,
-            Method::Trace,
-            Method::Connect,
-            Method::Patch,
-            Method::Extension(String::from("foobar")),
+            Method::PUT,
+            Method::OPTIONS,
+            Method::POST,
+            Method::DELETE,
+            Method::HEAD,
+            Method::TRACE,
+            Method::CONNECT,
+            Method::PATCH,
+            Method::from_bytes(b"foobar").unwrap(),
         ];
 
         for method in &all_methods {
@@ -1196,12 +1246,12 @@ mod tests {
         }
 
         // Test empty request
-        match parse_request(Method::Get, "/", &body) {
+        match parse_request(Method::GET, "/", &body) {
             Ok(pr) => assert!(pr.eq(&ParsedRequest::GetInstanceInfo)),
             _ => assert!(false),
         }
         for method in &all_methods {
-            if *method != Method::Get {
+            if *method != Method::GET {
                 assert!(parse_request(method.clone(), "/", &body).is_err());
             }
         }
@@ -1215,7 +1265,7 @@ mod tests {
             "/network-interfaces",
         ] {
             for method in &all_methods {
-                if *method != Method::Get && *method != Method::Put {
+                if *method != Method::GET && *method != Method::PUT {
                     assert!(parse_request(method.clone(), path, &body).is_err());
                 }
             }
@@ -1225,12 +1275,12 @@ mod tests {
     #[test]
     fn test_describe() {
         let body: String = String::from("{ \"foo\": \"bar\" }");
-        let msj = describe(&Method::Get, &String::from("/foo/bar"), &body);
+        let msj = describe(&Method::GET, &String::from("/foo/bar"), &body);
         assert_eq!(
             msj,
             "synchronous Get request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
         );
-        let msj = describe(&Method::Put, &String::from("/foo/bar"), &body);
+        let msj = describe(&Method::PUT, &String::from("/foo/bar"), &body);
         assert_eq!(
             msj,
             "synchronous Put request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""

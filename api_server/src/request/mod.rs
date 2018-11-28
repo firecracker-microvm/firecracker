@@ -13,8 +13,7 @@ pub mod vsock;
 use serde_json::Value;
 use std::result;
 
-use hyper;
-use hyper::{Method, StatusCode};
+use hyper::{Body, Method, Response, StatusCode};
 
 use http_service::{empty_response, json_fault_message, json_response};
 use vmm::{ErrorKind, OutcomeReceiver, VmmAction, VmmActionError, VmmData};
@@ -40,11 +39,11 @@ pub trait IntoParsedRequest {
 // thread, and then unpacked into a http response using the implementation of
 // the generate_response() method.
 pub trait GenerateHyperResponse {
-    fn generate_response(&self) -> hyper::Response;
+    fn generate_response(&self) -> Response<Body>;
 }
 
 impl GenerateHyperResponse for result::Result<VmmData, VmmActionError> {
-    fn generate_response(&self) -> hyper::Response {
+    fn generate_response(&self) -> Response<Body> {
         match *self {
             Ok(ref data) => data.generate_response(),
             Err(ref error) => error.generate_response(),
@@ -53,21 +52,21 @@ impl GenerateHyperResponse for result::Result<VmmData, VmmActionError> {
 }
 
 impl GenerateHyperResponse for VmmData {
-    fn generate_response(&self) -> hyper::Response {
+    fn generate_response(&self) -> Response<Body> {
         match *self {
             VmmData::MachineConfiguration(ref machine_config) => machine_config.generate_response(),
-            VmmData::Empty => empty_response(StatusCode::NoContent),
+            VmmData::Empty => empty_response(StatusCode::NO_CONTENT),
         }
     }
 }
 
 impl GenerateHyperResponse for VmmActionError {
-    fn generate_response(&self) -> hyper::Response {
+    fn generate_response(&self) -> Response<Body> {
         use self::ErrorKind::*;
 
         let status_code = match self.get_kind() {
-            User => StatusCode::BadRequest,
-            Internal => StatusCode::InternalServerError,
+            User => StatusCode::BAD_REQUEST,
+            Internal => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         json_response(status_code, json_fault_message(self.to_string()))
@@ -125,7 +124,7 @@ mod tests {
         response: Response<Body>,
     ) -> std::result::Result<serde_json::Value, serde_json::Error> {
         let body = response
-            .body()
+            .into_body()
             .map_err(|_| ())
             .fold(vec![], |mut acc, chunk| {
                 acc.extend_from_slice(&chunk);
@@ -145,7 +144,7 @@ mod tests {
         // Test OK Empty response from VMM.
         let vmm_resp = Ok(VmmData::Empty);
         let hyper_resp = vmm_resp.generate_response();
-        assert_eq!(hyper_resp.status(), StatusCode::NoContent);
+        assert_eq!(hyper_resp.status(), StatusCode::NO_CONTENT);
         // assert that the body is empty. When the JSON is empty, serde returns and EOF error.
         let body_err = get_body(hyper_resp).unwrap_err();
         assert_eq!(
@@ -156,7 +155,7 @@ mod tests {
         // Test OK response from VMM that contains the Machine Configuration.
         let vmm_resp = Ok(VmmData::MachineConfiguration(VmConfig::default()));
         let hyper_resp = vmm_resp.generate_response();
-        assert_eq!(hyper_resp.status(), StatusCode::Ok);
+        assert_eq!(hyper_resp.status(), StatusCode::OK);
         let vm_config_json = r#"{
             "vcpu_count": 1,
             "mem_size_mib": 128,
@@ -170,40 +169,40 @@ mod tests {
         // Tests for BootSource Errors.
         let vmm_resp =
             VmmActionError::BootSource(ErrorKind::User, BootSourceConfigError::InvalidKernelPath);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp = VmmActionError::BootSource(
             ErrorKind::User,
             BootSourceConfigError::InvalidKernelCommandLine,
         );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp = VmmActionError::BootSource(
             ErrorKind::User,
             BootSourceConfigError::UpdateNotAllowedPostBoot,
         );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
 
         // Tests for DriveConfig Errors.
         let vmm_resp =
             VmmActionError::DriveConfig(ErrorKind::User, DriveError::CannotOpenBlockDevice);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp =
             VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp =
             VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDevicePath);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp =
             VmmActionError::DriveConfig(ErrorKind::User, DriveError::BlockDevicePathAlreadyExists);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp =
             VmmActionError::DriveConfig(ErrorKind::User, DriveError::OperationNotAllowedPreBoot);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp =
             VmmActionError::DriveConfig(ErrorKind::User, DriveError::RootBlockDeviceAlreadyAdded);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp =
             VmmActionError::DriveConfig(ErrorKind::User, DriveError::UpdateNotAllowedPostBoot);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
 
         // Tests for Logger Errors.
         let vmm_resp = VmmActionError::Logger(
@@ -212,18 +211,18 @@ mod tests {
                 "Could not open logging fifo: dummy".to_string(),
             ),
         );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
 
         // Tests for MachineConfig Errors.
         let vmm_resp =
             VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::InvalidVcpuCount);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp =
             VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::InvalidMemorySize);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp =
             VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::UpdateNotAllowedPostBoot);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
 
         // Tests for NetworkConfig Errors.
         let vmm_resp = VmmActionError::NetworkConfig(
@@ -232,22 +231,22 @@ mod tests {
                 22,
             ))),
         );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp = VmmActionError::NetworkConfig(
             ErrorKind::User,
             NetworkInterfaceError::GuestMacAddressInUse(String::from("12:34:56:78:9a:bc")),
         );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp = VmmActionError::NetworkConfig(
             ErrorKind::User,
             NetworkInterfaceError::UpdateNotAllowedPostBoot,
         );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp = VmmActionError::NetworkConfig(
             ErrorKind::User,
             NetworkInterfaceError::HostDeviceNameInUse(String::from("tap_name")),
         );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
 
         // Tests for MicrovmStart Errors.
         // RegisterBlockDevice, RegisterNetDevice, and LegacyIOBus cannot be tested because the
@@ -256,67 +255,67 @@ mod tests {
         // in the vmm crate.
         let vmm_resp =
             VmmActionError::StartMicrovm(ErrorKind::User, StartMicrovmError::MicroVMAlreadyRunning);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp =
             VmmActionError::StartMicrovm(ErrorKind::User, StartMicrovmError::MissingKernelConfig);
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
             StartMicrovmError::GuestMemory(GuestMemoryError::MemoryNotInitialized),
         );
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        check_error_response(vmm_resp, StatusCode::INTERNAL_SERVER_ERROR);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
             StartMicrovmError::KernelCmdline(String::from("dummy error.")),
         );
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        check_error_response(vmm_resp, StatusCode::INTERNAL_SERVER_ERROR);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
             StartMicrovmError::CreateBlockDevice(sys_util::Error::new(22)),
         );
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        check_error_response(vmm_resp, StatusCode::INTERNAL_SERVER_ERROR);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
             StartMicrovmError::OpenBlockDevice(std::io::Error::from_raw_os_error(22)),
         );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
             StartMicrovmError::NetDeviceNotConfigured,
         );
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        check_error_response(vmm_resp, StatusCode::INTERNAL_SERVER_ERROR);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
             StartMicrovmError::CreateNetDevice(VirtioNetError::TapOpen(TapError::OpenTun(
                 std::io::Error::from_raw_os_error(22),
             ))),
         );
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        check_error_response(vmm_resp, StatusCode::INTERNAL_SERVER_ERROR);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
             StartMicrovmError::DeviceVmRequest(sys_util::Error::new(22)),
         );
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        check_error_response(vmm_resp, StatusCode::INTERNAL_SERVER_ERROR);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
             StartMicrovmError::ConfigureSystem(x86_64::Error::E820Configuration),
         );
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        check_error_response(vmm_resp, StatusCode::INTERNAL_SERVER_ERROR);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
             StartMicrovmError::Loader(kernel::loader::Error::BigEndianElfOnLittle),
         );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
+        check_error_response(vmm_resp, StatusCode::BAD_REQUEST);
         let vmm_resp =
             VmmActionError::StartMicrovm(ErrorKind::Internal, StartMicrovmError::EventFd);
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        check_error_response(vmm_resp, StatusCode::INTERNAL_SERVER_ERROR);
         let vmm_resp =
             VmmActionError::StartMicrovm(ErrorKind::Internal, StartMicrovmError::RegisterEvent);
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        check_error_response(vmm_resp, StatusCode::INTERNAL_SERVER_ERROR);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
             StartMicrovmError::VcpuSpawn(std::io::Error::from_raw_os_error(11)),
         );
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        check_error_response(vmm_resp, StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

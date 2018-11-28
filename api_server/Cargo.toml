@@ -5,14 +5,13 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
 chrono = ">=0.4"
-futures = "=0.1.18"
-hyper = "=0.11.16"
+futures = "^0.1.25"
+hyper = "^0.12"
 serde = "=1.0.27"
 serde_derive = "=1.0.27"
 serde_json = ">=1.0.9"
-tokio-core = "=0.1.12"
-tokio-uds = "=0.1.7"
-tokio-io = "=0.1.5"
+tokio = "^0.1.13"
+crossbeam-channel = "0.3"
 
 fc_util = { path = "../fc_util" }
 logger = { path = "../logger" }

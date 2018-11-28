@@ -40,7 +40,7 @@ mod tests {
         };
         let (sender, receiver) = oneshot::channel();
         assert!(
-            body.into_parsed_request(None, Method::Put)
+            body.into_parsed_request(None, Method::PUT)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::ConfigureBootSource(same_body, sender),
                     receiver

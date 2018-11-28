@@ -142,7 +142,7 @@ mod tests {
             assert!(
                 result
                     .unwrap()
-                    .into_parsed_request(None, Method::Put)
+                    .into_parsed_request(None, Method::PUT)
                     .unwrap()
                     .eq(&req)
             );
@@ -160,7 +160,7 @@ mod tests {
             assert!(
                 result
                     .unwrap()
-                    .into_parsed_request(None, Method::Put)
+                    .into_parsed_request(None, Method::PUT)
                     .unwrap()
                     .eq(&req)
             );

@@ -68,7 +68,7 @@ mod tests {
         );
         assert!(
             netif
-                .into_parsed_request(Some(String::from("bar")), Method::Put)
+                .into_parsed_request(Some(String::from("bar")), Method::PUT)
                 .is_err()
         );
 
@@ -86,7 +86,7 @@ mod tests {
         );
         assert!(
             netif
-                .into_parsed_request(Some(String::from("foo")), Method::Put)
+                .into_parsed_request(Some(String::from("foo")), Method::PUT)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::InsertNetworkDevice(netif_clone, sender),
                     receiver

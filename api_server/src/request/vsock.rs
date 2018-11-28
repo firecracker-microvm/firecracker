@@ -44,13 +44,13 @@ mod tests {
         assert!(
             vsock
                 .clone()
-                .into_parsed_request(Some(String::from("bar")), Method::Put)
+                .into_parsed_request(Some(String::from("bar")), Method::PUT)
                 .is_err()
         );
         assert!(
             vsock
                 .clone()
-                .into_parsed_request(Some(String::from("foo")), Method::Put)
+                .into_parsed_request(Some(String::from("foo")), Method::PUT)
                 .is_ok()
         );
     }

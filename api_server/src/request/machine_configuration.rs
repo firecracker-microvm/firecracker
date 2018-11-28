@@ -4,7 +4,7 @@
 use std::result;
 
 use futures::sync::oneshot;
-use hyper::{Method, Response, StatusCode};
+use hyper::{Body, Method, Response, StatusCode};
 
 use http_service::json_response;
 use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
@@ -12,7 +12,7 @@ use vmm::vmm_config::machine_config::VmConfig;
 use vmm::VmmAction;
 
 impl GenerateHyperResponse for VmConfig {
-    fn generate_response(&self) -> Response {
+    fn generate_response(&self) -> Response<Body> {
         let vcpu_count = self.vcpu_count.unwrap_or(1);
         let mem_size = self.mem_size_mib.unwrap_or(128);
         let ht_enabled = self.ht_enabled.unwrap_or(false);
@@ -21,7 +21,7 @@ impl GenerateHyperResponse for VmConfig {
             .map_or("Uninitialized".to_string(), |c| c.to_string());
 
         json_response(
-            StatusCode::Ok,
+            StatusCode::OK,
             format!(
                 "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?},  \"ht_enabled\": {:?},  \"cpu_template\": {:?} }}",
                 vcpu_count, mem_size, ht_enabled, cpu_template
@@ -38,11 +38,11 @@ impl IntoParsedRequest for VmConfig {
     ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         match method {
-            Method::Get => Ok(ParsedRequest::Sync(
+            Method::GET => Ok(ParsedRequest::Sync(
                 VmmAction::GetVmConfiguration(sender),
                 receiver,
             )),
-            Method::Put => {
+            Method::PUT => {
                 if self.vcpu_count.is_none()
                     && self.mem_size_mib.is_none()
                     && self.cpu_template.is_none()
@@ -76,7 +76,7 @@ mod tests {
         let (sender, receiver) = oneshot::channel();
         assert!(
             body.clone()
-                .into_parsed_request(None, Method::Put)
+                .into_parsed_request(None, Method::PUT)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::SetVmConfiguration(body, sender),
                     receiver
@@ -91,17 +91,17 @@ mod tests {
         assert!(
             uninitialized
                 .clone()
-                .into_parsed_request(None, Method::Get)
+                .into_parsed_request(None, Method::GET)
                 .is_ok()
         );
         assert!(
             uninitialized
                 .clone()
-                .into_parsed_request(None, Method::Patch)
+                .into_parsed_request(None, Method::PATCH)
                 .is_err()
         );
 
-        match uninitialized.into_parsed_request(None, Method::Put) {
+        match uninitialized.into_parsed_request(None, Method::PUT) {
             Ok(_) => assert!(false),
             Err(e) => assert_eq!(e, String::from("Empty request.")),
         };

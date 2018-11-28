@@ -38,12 +38,12 @@ mod tests {
             show_log_origin: None,
         };
         format!("{:?}", desc);
-        assert!(&desc.clone().into_parsed_request(None, Method::Put).is_ok());
+        assert!(&desc.clone().into_parsed_request(None, Method::PUT).is_ok());
         let (sender, receiver) = oneshot::channel();
         assert!(
             &desc
                 .clone()
-                .into_parsed_request(None, Method::Put)
+                .into_parsed_request(None, Method::PUT)
                 .eq(&Ok(ParsedRequest::Sync(
                     VmmAction::ConfigureLogger(desc, sender),
                     receiver
