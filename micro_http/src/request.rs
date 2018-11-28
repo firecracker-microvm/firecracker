@@ -12,17 +12,10 @@ use headers::Headers;
 // Splits the bytes in a pair containing the bytes before the separator and after the separator.
 // The separator is not included in the return values.
 fn split(bytes: &[u8], separator: u8) -> (&[u8], &[u8]) {
-    for index in 0..bytes.len() {
-        if bytes[index] == separator {
-            if index + 1 < bytes.len() {
-                return (&bytes[..index], &bytes[index + 1..]);
-            } else {
-                return (&bytes[..index], &[]);
-            }
-        }
+    match bytes.iter().position(|byte| *byte == separator) {
+        Some(index) => (&bytes[..index], &bytes[index + 1..]),
+        None => (&[], bytes),
     }
-
-    return (&[], bytes);
 }
 
 /// Wrapper over HTTP URIs.
@@ -60,24 +53,25 @@ impl<'a> Uri<'a> {
     /// Returns an empty byte array when the host or the path are empty/invalid.
     ///
     pub fn get_abs_path(&self) -> &'a str {
-        let http_scheme_prefix = "http://";
-        if self.slice.starts_with(http_scheme_prefix) {
-            if self.slice.len() == http_scheme_prefix.len() {
+        const HTTP_SCHEME_PREFIX: &str = "http://";
+
+        if self.slice.starts_with(HTTP_SCHEME_PREFIX) {
+            let without_scheme = &self.slice[HTTP_SCHEME_PREFIX.len()..];
+            if without_scheme.len() == 0 {
                 return "";
             }
             // The host in this case includes the port and contains the bytes after http:// up to
             // the next '/'.
-            let (host, _) = split(&self.slice.as_bytes()[http_scheme_prefix.len()..], b'/');
-            if host.len() == 0 {
-                return "";
+            match without_scheme.bytes().position(|byte| byte == b'/') {
+                Some(len) => &without_scheme[len..],
+                None => "",
             }
-            let path_start_index = http_scheme_prefix.len() + host.len();
-            return &self.slice[path_start_index..];
         } else {
             if self.slice.starts_with("/") {
                 return &self.slice;
             }
-            return "";
+
+            ""
         }
     }
 }
@@ -91,11 +85,10 @@ struct RequestLine<'a> {
 
 impl<'a> RequestLine<'a> {
     fn remove_trailing_cr(version: &[u8]) -> &[u8] {
-        if version.len() > 1 && version[version.len() - 1] == CR {
-            return &version[..version.len() - 1];
+        match version.last() {
+            Some(&CR) => &version[..version.len() - 1],
+            _ => version,
         }
-
-        version
     }
 
     fn parse_request_line(request_line: &[u8]) -> (&[u8], &[u8], &[u8]) {
