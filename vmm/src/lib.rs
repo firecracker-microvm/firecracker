@@ -1720,7 +1720,6 @@ mod tests {
     use devices::virtio::ActivateResult;
     use net_util::MacAddr;
     use vmm_config::machine_config::CpuFeaturesTemplate;
-    use vmm_config::DeviceState;
 
     impl Vmm {
         fn get_kernel_cmdline_str(&self) -> &str {
@@ -1965,7 +1964,6 @@ mod tests {
         // test create network interface
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
-            state: DeviceState::Attached,
             host_dev_name: String::from("hostname"),
             guest_mac: None,
             rx_rate_limiter: None,
@@ -1979,7 +1977,6 @@ mod tests {
         // test update network interface
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
-            state: DeviceState::Attached,
             host_dev_name: String::from("hostname2"),
             guest_mac: Some(mac.clone()),
             rx_rate_limiter: None,
@@ -1992,7 +1989,6 @@ mod tests {
         // Test insert new net device with same mac fails.
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif2"),
-            state: DeviceState::Attached,
             host_dev_name: String::from("hostname3"),
             guest_mac: Some(mac),
             rx_rate_limiter: None,
@@ -2006,7 +2002,6 @@ mod tests {
         vmm.set_instance_state(InstanceState::Running);
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
-            state: DeviceState::Attached,
             host_dev_name: String::from("hostname2"),
             guest_mac: None,
             rx_rate_limiter: None,
@@ -2418,7 +2413,6 @@ mod tests {
         // test create network interface
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
-            state: DeviceState::Attached,
             host_dev_name: String::from("hostname3"),
             guest_mac: None,
             rx_rate_limiter: None,
