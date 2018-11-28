@@ -99,7 +99,7 @@ Not at the moment.
 
 ### I tried using an initrd for boot but it doesn't seem to be used. Is initrd supported?
 Right now, initrd is not supported in Firecracker. You can track issue
-[#228](https://github.com/aws/PRIVATE-firecracker/issues/208) for news on this
+[#228](https://github.com/firecracker-microvm/firecracker/issues/208) for news on this
 topic.
 
 ### Firecracker is not showing any output on the console.
