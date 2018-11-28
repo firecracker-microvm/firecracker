@@ -240,7 +240,10 @@ or run Firecracker as `root` (via `sudo`).
 You can check your KVM setup with:
 
 ```bash
-[ -r /dev/kvm ] && [ -w /dev/kvm ] && [ $(uname -r) \> 4.14 ] && echo "OK" || echo "FAIL"
+[ -r /dev/kvm ] && [ -w /dev/kvm ]           \
+  && [ "$(uname -r | cut -d. -f1)" -ge 4 ]   \
+  && [ "$(uname -r | cut -d. -f2)" -ge 14 ]  \
+  && echo "OK" || echo "FAIL"
 ```
 
 Note: if you've just added your user to the `kvm` group via `usermod`, don't
