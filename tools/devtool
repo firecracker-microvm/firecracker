@@ -290,7 +290,7 @@ run_devctr() {
     docker run "${docker_args[@]}" \
         --init \
         --rm \
-        --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR" \
+        --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR:z" \
         --env OPT_LOCAL_IMAGES_PATH="$(dirname "$CTR_MICROVM_IMAGES_DIR")" \
         --env PYTHONDONTWRITEBYTECODE=1 \
         "$DEVCTR_IMAGE" "${ctr_args[@]}"
