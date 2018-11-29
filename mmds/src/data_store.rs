@@ -28,9 +28,9 @@ impl Default for Mmds {
 
 impl Mmds {
     /// This method is needed to provide the correct status code for API request.
-    /// When the Mmds structure is initialized for the first time via the API, the
-    /// status code should be 201 (Created) and when the structure is updated, the
-    /// status code should be 204 (Updated).
+    /// When a PATCH request is made on an uninitialized Mmds structure the status
+    /// code should be 404 (Not Found) otherwise the returned status code should be
+    /// 204 (No Content).
     pub fn is_initialized(&self) -> bool {
         return self.is_initialized;
     }

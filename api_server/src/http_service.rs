@@ -494,12 +494,8 @@ impl hyper::server::Service for ApiServerHttpService {
                         }
                     }
                     PutMMDS(json_value) => {
-                        let status_code = match mmds_info.lock().unwrap().is_initialized() {
-                            true => StatusCode::NoContent,
-                            false => StatusCode::Created,
-                        };
                         mmds_info.lock().unwrap().put_data(json_value);
-                        Either::A(future::ok(empty_response(status_code)))
+                        Either::A(future::ok(empty_response(StatusCode::NoContent)))
                     }
                     GetMMDS => Either::A(future::ok(json_response(
                         StatusCode::Ok,
