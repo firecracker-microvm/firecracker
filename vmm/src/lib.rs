@@ -506,6 +506,18 @@ struct KernelConfig {
     cmdline_addr: GuestAddress,
 }
 
+/// Structure used to set initial configuration of MicroVM
+#[derive(Deserialize, Debug)]
+pub struct InitialVMMConfig {
+    boot_source: Option<BootSourceConfig>,
+    block_devices: Option<Vec<BlockDeviceConfig>>,
+    network_interfaces: Option<Vec<NetworkInterfaceConfig>>,
+    vm: Option<VmConfig>,
+    auto_start: Option<bool>,
+    #[cfg(feature = "vsock")]
+    vsock_devices: Option<Vec<VsockDeviceConfig>>,
+}
+
 struct Vmm {
     kvm: KvmContext,
 
@@ -552,6 +564,7 @@ impl Vmm {
         from_api: Receiver<Box<VmmAction>>,
         seccomp_level: u32,
         kvm_fd: Option<RawFd>,
+        initial_config: Option<InitialVMMConfig>,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
@@ -570,7 +583,7 @@ impl Vmm {
         let kvm = KvmContext::new(kvm_fd)?;
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
-        Ok(Vmm {
+        let mut vmm = Vmm {
             kvm,
             vm_config: VmConfig::default(),
             shared_info: api_shared_info,
@@ -592,7 +605,51 @@ impl Vmm {
             from_api,
             write_metrics_event,
             seccomp_level,
-        })
+        };
+
+        if let Some(config) = initial_config {
+            if let Some(vm_config) = config.vm {
+                vmm.set_vm_configuration(vm_config)
+                    .expect("Failed to set VM Config");
+            }
+            if let Some(boot_source) = config.boot_source {
+                vmm.configure_boot_source(
+                    boot_source.kernel_image_path,
+                    boot_source.boot_args,
+                ).expect("Failed to set Boot Source");
+            }
+            if let Some(block_devices) = config.block_devices {
+                println!("found block devices {}", block_devices.len());
+                for block_device in block_devices {
+                    println!("inserted {:?}", &block_device);
+                    vmm.insert_block_device(block_device)
+                        .expect("Failed to add block device");
+                }
+            }
+            if let Some(network_interfaces) = config.network_interfaces {
+                for network_interface in network_interfaces {
+                    vmm.insert_net_device(network_interface)
+                        .expect("Failed to add network interface");
+                }
+            }
+            #[cfg(feature = "vsock")]
+            {
+                if let Some(vsock_devices) = config.vsock_devices {
+                    for vsock_device in vsock_devices {
+                        vmm.insert_vsock_device(vsock_device)
+                            .expect("Failed to add vsock device");
+                    }
+                }
+            }
+            if let Some(auto_start) = config.auto_start {
+                if auto_start {
+                    vmm.start_microvm()
+                        .expect("Failed to auto-start MicroVM");
+                }
+            }
+        }
+
+        return Ok(vmm);
     }
 
     fn update_drive_handler(
@@ -1682,6 +1739,7 @@ pub fn start_vmm_thread(
     from_api: Receiver<Box<VmmAction>>,
     seccomp_level: u32,
     kvm_fd: Option<RawFd>,
+    initial_config: Option<InitialVMMConfig>,
 ) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("fc_vmm".to_string())
@@ -1693,6 +1751,7 @@ pub fn start_vmm_thread(
                 from_api,
                 seccomp_level,
                 kvm_fd,
+                initial_config,
             ).expect("Cannot create VMM.");
             match vmm.run_control() {
                 Ok(()) => {
@@ -1852,6 +1911,7 @@ mod tests {
             EventFd::new().expect("cannot create eventFD"),
             from_api,
             seccomp::SECCOMP_LEVEL_ADVANCED,
+            None,
             None,
         ).expect("Cannot Create VMM");
         return vmm;

@@ -17,6 +17,7 @@ extern crate vmm;
 use backtrace::Backtrace;
 use clap::{App, Arg};
 
+use std::fs::File;
 use std::io::ErrorKind;
 use std::panic;
 use std::path::PathBuf;
@@ -73,6 +74,11 @@ fn main() {
                 .long("context")
                 .help("Additional parameters sent to Firecracker.")
                 .takes_value(true),
+        ).arg(
+            Arg::with_name("config")
+                .long("config")
+                .help("Path to MicroVM JSON configuration")
+                .takes_value(true),
         ).get_matches();
 
     let bind_path = cmd_arguments
@@ -113,8 +119,18 @@ fn main() {
         None
     };
 
+    let vmm_config = if let Some(config_path) = cmd_arguments.value_of("config") {
+        let config_file = File::open(config_path)
+            .expect("Failed to open config file");
+        let config = serde_json::from_reader(config_file)
+            .expect("Failed to read config file");
+        Some(config)
+    } else {
+        None
+    };
+
     let _vmm_thread_handle =
-        vmm::start_vmm_thread(shared_info, api_event_fd, from_api, seccomp_level, kvm_fd);
+        vmm::start_vmm_thread(shared_info, api_event_fd, from_api, seccomp_level, kvm_fd, vmm_config);
 
     let uds_path_or_fd = if is_jailed {
         UnixDomainSocket::Fd(jailer::LISTENER_FD)
