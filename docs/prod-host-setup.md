@@ -112,8 +112,8 @@ cat /proc/*PID*/status | grep Speculation_Store_Bypass
 where *PID* is the process ID being check.  Output shows one of the
 following:
 - not vulnerable
-- thread mitigated
-- thread force mitigated
+- threat mitigated
+- threat force mitigated
 - globally mitigated
 
 #### Use memory with Rowhammer mitigation support
