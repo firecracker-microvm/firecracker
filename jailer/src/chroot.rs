@@ -84,6 +84,12 @@ pub fn chroot(path: &Path) -> Result<()> {
         return Err(Error::PivotRoot(sys_util::Error::last()));
     }
 
+    // pivot_root doesn't guarantee that we will be in "/" at this point, so switch to "/"
+    // explicitly. Safe because we provide valid parameters.
+    if unsafe { libc::chdir(root_dir.as_ptr()) } < 0 {
+        return Err(Error::ChdirNewRoot(sys_util::Error::last()));
+    }
+
     // Umount the old_root, thus isolating the process from everything outside the jail root folder.
     // Safe because we provide valid parameters.
     if unsafe { libc::umount2(old_root_dir.as_ptr(), libc::MNT_DETACH) } < 0 {
@@ -93,12 +99,6 @@ pub fn chroot(path: &Path) -> Result<()> {
     // Remove the no longer necessary old_root directory.
     if unsafe { libc::rmdir(old_root_dir.as_ptr()) } < 0 {
         return Err(Error::RmOldRootDir(sys_util::Error::last()));
-    }
-
-    // Call chroot in the current folder for good measure.
-    // TODO: is calling chroot here helpful even in the slightest, potential way?
-    if unsafe { libc::chroot(cwd.as_ptr()) } < 0 {
-        return Err(Error::Chroot(sys_util::Error::last()));
     }
 
     Ok(())
