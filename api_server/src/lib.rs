@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 extern crate chrono;
-extern crate crossbeam_channel;
 extern crate futures;
 extern crate hyper;
 extern crate serde;
@@ -30,7 +29,7 @@ use futures::{Future, Stream};
 use tokio::net::unix::UnixListener;
 use tokio::reactor::Handle;
 use hyper::server::conn::Http;
-use crossbeam_channel::Sender;
+use std::sync::mpsc::Sender;
 
 use http_service::ApiServerHttpService;
 use logger::{Metric, METRICS};

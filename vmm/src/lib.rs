@@ -10,7 +10,6 @@
 //! machine (microVM).
 #![warn(missing_docs)]
 extern crate chrono;
-extern crate crossbeam_channel;
 extern crate epoll;
 extern crate futures;
 extern crate libc;
@@ -44,7 +43,6 @@ pub mod vmm_config;
 mod vstate;
 
 use futures::sync::oneshot;
-use crossbeam_channel::{Receiver as BeamReceiver, TryRecvError};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::{Display, Formatter};
@@ -53,7 +51,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 use std::time::Duration;
@@ -541,7 +539,7 @@ struct Vmm {
 
     // api resources
     api_event: EpollEvent<EventFd>,
-    from_api: BeamReceiver<VmmAction>,
+    from_api: Receiver<VmmAction>,
 
     write_metrics_event: EpollEvent<TimerFd>,
 
@@ -554,7 +552,7 @@ impl Vmm {
     fn new(
         api_shared_info: Arc<RwLock<InstanceInfo>>,
         api_event_fd: EventFd,
-        from_api: BeamReceiver<VmmAction>,
+        from_api: Receiver<VmmAction>,
         seccomp_level: u32,
         kvm_fd: Option<RawFd>,
     ) -> Result<Self> {
@@ -1720,7 +1718,7 @@ impl PartialEq for VmmAction {
 pub fn start_vmm_thread(
     api_shared_info: Arc<RwLock<InstanceInfo>>,
     api_event_fd: EventFd,
-    from_api: BeamReceiver<VmmAction>,
+    from_api: Receiver<VmmAction>,
     seccomp_level: u32,
     kvm_fd: Option<RawFd>,
 ) -> thread::JoinHandle<()> {

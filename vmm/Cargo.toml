@@ -13,7 +13,6 @@ serde_derive = ">=1.0.27"
 serde_json = ">=1.0.9"
 time = ">=0.1.39"
 timerfd = ">=1.0"
-crossbeam-channel = "^0.3"
 
 cpuid = { path = "../cpuid" }
 devices = { path = "../devices" }

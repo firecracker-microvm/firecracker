@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use futures::future::{self, Either};
 use futures::{Future, Stream, IntoFuture};
 
-use crossbeam_channel::Sender;
+use std::sync::mpsc::Sender;
 use hyper::header::{HeaderMap, HeaderValue};
 use hyper::{self, Body, Chunk, Method, Request, Response, StatusCode};
 use hyper::service::Service;

@@ -13,16 +13,15 @@ extern crate jailer;
 extern crate logger;
 extern crate mmds;
 extern crate vmm;
-extern crate crossbeam_channel;
 
 use backtrace::Backtrace;
 use clap::{App, Arg};
-use crossbeam_channel::unbounded;
 
 use std::io::ErrorKind;
 use std::panic;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use std::sync::mpsc::channel;
 
 use api_server::{ApiServer, Error, UnixDomainSocket};
 use jailer::FirecrackerContext;
