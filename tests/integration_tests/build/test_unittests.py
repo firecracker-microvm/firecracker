@@ -24,8 +24,8 @@ CARGO_UNITTEST_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, "test")
 def test_unittests(test_session_root_path):
     """Run unit and doc tests from all crates using default target."""
     run(
-        'CARGO_TARGET_DIR={} RUST_BACKTRACE=1 cargo test --all --no-fail-fast'
-        .format(
+        'CARGO_TARGET_DIR={} RUST_TEST_THREADS=1 RUST_BACKTRACE=1 cargo test '
+        '--all --no-fail-fast'.format(
             os.path.join(test_session_root_path, CARGO_UNITTEST_REL_PATH),
         ),
         shell=True,
@@ -36,7 +36,7 @@ def test_unittests(test_session_root_path):
 def test_gnutests(test_session_root_path):
     """Run unit and doc tests from all crates using GNU target."""
     run(
-        'CARGO_TARGET_DIR={} RUST_BACKTRACE=1 cargo test '
+        'CARGO_TARGET_DIR={} RUST_TEST_THREADS=1 RUST_BACKTRACE=1 cargo test '
         '--target x86_64-unknown-linux-gnu --all --no-fail-fast'.format(
             os.path.join(test_session_root_path, CARGO_UNITTEST_REL_PATH),
         ),
