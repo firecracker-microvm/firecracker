@@ -3,12 +3,6 @@
 
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
-// I think this is the sole use of the rand crate within Firecracker. If it's too much dependency
-// baggage, we could roll our own simple pseudo-rng, especially since initial sequence numbers for
-// our MMDS do not require crypto-grade randomness or smt (in fact, we could even use a fixed value,
-// but that has some potential robustness implications which I don't want to think about right now).
-use rand::random;
-
 use pdu::bytes::NetworkBytes;
 use pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
 use pdu::Incomplete;
@@ -75,6 +69,19 @@ pub enum WriteNextError {
     PayloadBufTooLarge,
     PayloadMissingSeq,
     TcpSegment(TcpSegmentError),
+}
+
+// This generates pseudo random u32 numbers based on the current timestamp. Only works for x86_64,
+// but can find something else if we ever need to support different architectures.
+#[cfg(target_arch = "x86_64")]
+fn xor_rng_u32() -> u32 {
+    // Safe because there's nothing that can go wrong with this call.
+    let mut t = unsafe { std::arch::x86_64::_rdtsc() } as u32;
+
+    // Taken from https://en.wikipedia.org/wiki/Xorshift
+    t ^= t << 13;
+    t ^= t >> 17;
+    t ^ (t << 5)
 }
 
 // Represents a TCP connection which behaves as close as possible to the real thing during normal
@@ -163,7 +170,7 @@ impl Connection {
         let ack_to_send = Wrapping(segment.sequence_number()) + Wrapping(1);
 
         // Let's pick the initial sequence number.
-        let isn = Wrapping(random());
+        let isn = Wrapping(xor_rng_u32());
         let first_not_sent = isn + Wrapping(1);
         let remote_rwnd_edge = first_not_sent + Wrapping(segment.window_size() as u32);
 

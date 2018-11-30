@@ -51,7 +51,7 @@ pub enum Error {
     CgroupLineNotFound(String, String),
     CgroupLineNotUnique(String, String),
     ChangeDevNetTunOwner(sys_util::Error),
-    Chroot(sys_util::Error),
+    ChdirNewRoot(sys_util::Error),
     CloseNetNsFd(sys_util::Error),
     CloseDevNullFd(sys_util::Error),
     Copy(PathBuf, PathBuf, io::Error),
