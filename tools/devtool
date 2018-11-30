@@ -285,6 +285,14 @@ run_devctr() {
     [[ -t 0 ]] && docker_args+=("-i")
     [[ -t 1 ]] && docker_args+=("-t")
 
+    # Try to pass these environments from host into container for network proxies
+    proxies=(http_proxy HTTP_PROXY https_proxy HTTPS_PROXY no_proxy NO_PROXY)
+    for i in "${proxies[@]}"; do
+        if [[ ! -z ${!i} ]]; then
+            docker_args+=("--env") && docker_args+=("$i=${!i}")
+        fi
+    done
+
     # Finally, run the dev container
     #
     docker run "${docker_args[@]}" \
