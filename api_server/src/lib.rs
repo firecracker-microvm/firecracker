@@ -126,7 +126,7 @@ impl ApiServer {
                 let conn = http
                     .serve_connection(stream, service)
                     .map_err(|e| {
-                        eprintln!("server connection error: {}", e);
+                        error!("server connection error: {}", e);
                     });
 
                 tokio::spawn(conn);
