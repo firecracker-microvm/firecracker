@@ -196,7 +196,6 @@ dependencies = [
  "logger 0.1.0",
  "mmds 0.1.0",
  "net_util 0.1.0",
- "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
