@@ -352,7 +352,7 @@ definitions:
 
   Error:
     properties:
-      faultMessage:
+      fault_message:
         type: string
         description: A description of the error condition
 
