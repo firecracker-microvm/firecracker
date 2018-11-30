@@ -1157,7 +1157,7 @@ impl Vmm {
 
         // Log the metrics before exiting.
         if let Err(e) = LOGGER.log_metrics() {
-            error!("Failed to log metrics on abort. {}:?", e);
+            error!("Failed to log metrics while stopping: {}", e);
         }
 
         // Exit from Firecracker using the provided exit code.
@@ -1254,7 +1254,7 @@ impl Vmm {
                             // it will write to stdout, so metric logging will interfere with
                             // console output.
                             if let Err(e) = LOGGER.log_metrics() {
-                                error!("Failed to log metrics: {}", e);
+                                error!("Failed to log metrics on timer trigger: {}", e);
                             }
                         }
                     }
@@ -1695,8 +1695,14 @@ pub fn start_vmm_thread(
                 kvm_fd,
             ).expect("Cannot create VMM.");
             match vmm.run_control() {
-                Ok(()) => vmm.stop(0),
-                Err(_) => vmm.stop(1),
+                Ok(()) => {
+                    info!("Gracefully terminated VMM control loop");
+                    vmm.stop(0)
+                }
+                Err(e) => {
+                    error!("Abruptly exited VMM control loop: {:?}", e);
+                    vmm.stop(1)
+                }
             }
         }).expect("VMM thread spawn failed.")
 }
