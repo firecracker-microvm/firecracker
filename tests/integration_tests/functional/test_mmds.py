@@ -46,7 +46,7 @@ def test_mmds(test_microvm_with_ssh, network_config):
     # Test that using the same json with a PUT request, the MMDS data-store is
     # created.
     response = test_microvm.mmds.put(json=dummy_json)
-    assert response.status_code == 201
+    assert response.status_code == 204
 
     response = test_microvm.mmds.get()
     assert response.json() == dummy_json

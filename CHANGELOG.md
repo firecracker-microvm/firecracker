@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- PUT requests on /mmds always return 204 on success.
+
 ## [0.11.0]
 
 ### Added
