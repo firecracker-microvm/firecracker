@@ -1,6 +1,7 @@
 # Getting Started with Firecracker
 
 ## Contents
+
 - [Prerequisites](#prerequisites)
 - [Getting the Firecracker Binary](#getting-the-firecracker-binary)
 - [Running Firecracker](#running-firecracker)
@@ -24,7 +25,7 @@ The generic requirements are explained below:
 
 - **Linux 4.14+**
 
-  Firecracker currently supports physical Linux x86_64 hosts, with kernel
+  Firecracker currently supports physical Linux x86_64 hosts, running kernel
   version 4.14 or later.
 
 - **KVM**
@@ -72,7 +73,6 @@ curl -LOJ https://github.com/firecracker-microvm/firecracker/releases/download/v
 If, instead, you'd like to build Firecracker yourself, you should check out
 the [Building From Source section](#building-from-source) in this doc.
 
-
 ## Running Firecracker
 
 In production, Firecracker is designed to be run securely, inside
@@ -82,7 +82,7 @@ our
 However, if you just want to see Firecracker booting up a guest Linux
 machine, you can do that as well.
 
-First, make sure you have the Firecracker binary available - either
+First, make sure you have the `firecracker` binary available - either
 [downloaded from our release page](#getting-the-firecracker-binary), or
 [built from source](#building-from-source).
 
@@ -97,11 +97,12 @@ https://s3.amazonaws.com/spec.ccfc.min/img/hello/fsfiles/hello-rootfs.ext4
 ).
 
 Now, let's open up two shell prompts: one to run Firecracker, and another one
-to control it (writing to the API socket). For the purpose of this guide,
+to control it (by writing to the API socket). For the purpose of this guide,
 **make sure the two shells run in the same directory where you placed the
 `firecracker` binary**.
 
 In your **first shell**:
+
 - make sure Firecracker can create its API socket:
 
 ```bash
@@ -109,11 +110,13 @@ rm -f /tmp/firecracker.sock
 ```
 
 - then, start Firecracker:
+
 ```bash
 ./firecracker --api-sock /tmp/firecracker.sock
 ```
 
 In your **second shell** prompt:
+
 - get the kernel and rootfs, if you don't have any available:
 
   ```bash
@@ -211,7 +214,6 @@ check it out with:
 git checkout tags/v0.10.1
 ```
 
-
 ### Building Firecracker
 
 Within the Firecracker repository root directory:
@@ -236,7 +238,6 @@ arguments is available via:
 tools/devtool --help
 ```
 
-
 ## Running the Integration Test Suite
 
 You can also use our development tool to run the integration test suite:
@@ -251,7 +252,6 @@ and, as such, some performance tests may fail when run on a regular desktop
 machine. Specifically, don't be alarmed if you see
 `tests/integration_tests/performance/test_process_startup_time.py` failing when
 not run on an EC2 .metal instance.
-
 
 ## Appendix A: Setting Up KVM Access
 
@@ -278,16 +278,15 @@ You can check if you have access to `/dev/kvm` with:
   [ -r /dev/kvm ] && [ -w /dev/kvm ] && echo "OK" || echo "FAIL"
   ```
 
-Note: if you've just added your user to the `kvm` group via `usermod`, don't
+**Note:** If you've just added your user to the `kvm` group via `usermod`, don't
 forget to log out and then back in, so this change takes effect.
-
 
 ## Appendix B: Setting Up Docker
 
 To get Docker, you can either use the
-[official Docker install instructions](
-https://docs.docker.com/install/
-), or the package manager available on your specific Linux distribution:
+[official Docker install instructions](https://docs.docker.com/install/)
+, or the package manager available on your specific Linux distribution:
+
 - on Debian / Ubuntu
 
   ```bash
