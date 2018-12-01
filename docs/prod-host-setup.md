@@ -12,7 +12,7 @@ isolation and drops privileges of the Firecracker process.
 
 To set up the jailer correctly, you'll need to:
 
-- Create a dedicated non-privilaged POSIX user and group to run Firecracker
+- Create a dedicated non-privileged POSIX user and group to run Firecracker
   under. Use the created POSIX user and group IDs in Jailer's ``--uid <uid>``
   and ``--guid <gid>`` flags, respectively. This will run the Firecracker as
   the created non-privileged user and group. All file system resources used for
