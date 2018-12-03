@@ -16,6 +16,7 @@ extern crate libc;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate serde_json;
 extern crate time;
 extern crate timerfd;
 
@@ -72,6 +73,7 @@ use memory_model::{GuestAddress, GuestMemory};
 use seccomp::{
     setup_seccomp, SeccompLevel, SECCOMP_LEVEL_ADVANCED, SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
 };
+use serde_json::Value;
 pub use sigsys_handler::setup_sigsys_handler;
 use sys_util::{register_signal_handler, EventFd, Killable, Terminal};
 use vm_control::VmResponse;
@@ -1585,11 +1587,17 @@ impl Vmm {
             LOGGER.set_include_level(val);
         }
 
+        let options = match api_logger.options {
+            Value::Array(options) => options,
+            _ => vec![],
+        };
+
         LOGGER
             .init(
                 &instance_id,
                 Some(api_logger.log_fifo),
                 Some(api_logger.metrics_fifo),
+                options,
             ).map(|_| VmmData::Empty)
             .map_err(|e| {
                 VmmActionError::Logger(
@@ -2634,6 +2642,7 @@ mod tests {
             level: Some(LoggerLevel::Warning),
             show_level: Some(true),
             show_log_origin: Some(true),
+            options: Value::Array(vec![]),
         };
 
         let mut vmm = create_vmm_object(InstanceState::Running);
@@ -2642,13 +2651,25 @@ mod tests {
         // Reset vmm state to test the other scenarios.
         vmm.set_instance_state(InstanceState::Uninitialized);
 
-        // Error case: initializing logger with invalid pipes return error.
+        // Error case: initializing logger with invalid pipes returns error.
         let desc = LoggerConfig {
             log_fifo: String::from("not_found_file_log"),
             metrics_fifo: String::from("not_found_file_metrics"),
             level: None,
             show_level: None,
             show_log_origin: None,
+            options: Value::Array(vec![]),
+        };
+        assert!(vmm.init_logger(desc).is_err());
+
+        // Error case: initializing logger with invalid option flags returns error.
+        let desc = LoggerConfig {
+            log_fifo: String::from("not_found_file_log"),
+            metrics_fifo: String::from("not_found_file_metrics"),
+            level: None,
+            show_level: None,
+            show_log_origin: None,
+            options: Value::Array(vec![Value::String("foobar".to_string())]),
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2661,6 +2682,7 @@ mod tests {
             level: Some(LoggerLevel::Warning),
             show_level: Some(true),
             show_log_origin: Some(true),
+            options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
         };
         assert!(vmm.init_logger(desc).is_ok());
     }
