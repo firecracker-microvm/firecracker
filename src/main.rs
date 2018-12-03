@@ -34,7 +34,7 @@ const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 
 fn main() {
     LOGGER
-        .init(&"", None, None)
+        .init(&"", None, None, vec![])
         .expect("Failed to register logger");
 
     // If the signal handler can't be set, it's OK to panic.
@@ -220,6 +220,7 @@ mod tests {
                 "TEST-ID",
                 Some(log_file_temp.path().to_str().unwrap().to_string()),
                 Some(metrics_file_temp.path().to_str().unwrap().to_string()),
+                vec![],
             ).expect("Could not initialize logger.");
 
         // Cause some controlled panic and see if a backtrace shows up in the log,

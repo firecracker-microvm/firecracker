@@ -1,7 +1,11 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+extern crate serde_json;
+
 use std::fmt::{Display, Formatter, Result};
+
+use self::serde_json::Value;
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -36,6 +40,13 @@ pub struct LoggerConfig {
     /// When enabled, the logger will append the origin of the log entry.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show_log_origin: Option<bool>,
+    /// Additional logging options.
+    #[serde(default = "default_log_options")]
+    pub options: Value,
+}
+
+fn default_log_options() -> Value {
+    Value::Array(vec![])
 }
 
 /// Errors associated with actions on the `LoggerConfig`.
