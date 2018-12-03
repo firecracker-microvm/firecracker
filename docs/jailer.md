@@ -77,10 +77,14 @@ After starting, the Jailer goes through the following operations:
 - If `--daemonize` is specified, call `setsid()` and redirect `STDIN`,
   `STDOUT`, and `STDERR` to `/dev/null`.
 - Drop privileges via setting the provided `uid` and `gid`.
-- Exec into `<exec_file_name> --jailed --id <id>`. The `--jailed` command line
-  argument to the target binary is then interpreted by Firecracker, that
-  realizes it’s running inside a jail, and continues the execution
-  accordingly.
+- Exec into `<exec_file_name> --context=<context_json>`. `context_json` is a
+  structure to pass parameters from the jailer to Firecracker. The json string
+  includes the following keys:
+  - `id`: (`string`) - The `id` argument provided to the jailer.
+  - `jailed`: (`boolean`) value (`true` in this case) to let Firecracker know
+    that it's running inside a jail.
+  - `seccomp_level`: (`number`) the `--seccomp-level` argument provided to the
+    jailer.
 
 ## Example Run and Notes
 
@@ -168,7 +172,12 @@ Then, redirect standard file descriptors to `/dev/null` by calling
 STDERR)`. Close `dev_null_fd`, because it is no longer necessary.
 
 Finally, the jailer switches the `uid` to `123`, and `gid` to `100`, and execs
-`./firecracker --jailed`. We can now use the socket at
+
+```
+./firecracker --context={"id":"551e7604-e35c-42b3-b825-416853441234","jailed":true,"seccomp_level":0}
+```
+
+We can now use the socket at
 `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/api.socket`
 to interact with the VM.
 
