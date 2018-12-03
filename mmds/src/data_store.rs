@@ -28,16 +28,16 @@ impl Default for Mmds {
 
 impl Mmds {
     /// This method is needed to provide the correct status code for API request.
-    /// When the Mmds structure is initialized for the first time via the API, the
-    /// status code should be 201 (Created) and when the structure is updated, the
-    /// status code should be 204 (Updated).
+    /// When a PATCH request is made on an uninitialized Mmds structure the status
+    /// code should be 404 (Not Found) otherwise the returned status code should be
+    /// 204 (No Content).
     pub fn is_initialized(&self) -> bool {
         return self.is_initialized;
     }
 
     pub fn put_data(&mut self, data: Value) {
         // TODO: we should add a data validator and only accept Strings, arrays & dictionaries
-        // https://github.com/aws/PRIVATE-firecracker/issues/401
+        // https://github.com/firecracker-microvm/firecracker/issues/401
         self.data_store = data;
         self.is_initialized = true;
     }

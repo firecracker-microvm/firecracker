@@ -11,6 +11,17 @@
 
 ## Prerequisites
 
+If you need an opinionated way of running Firecracker, create an `i3.metal`
+instance using Ubuntu 18.04 on EC2. Firecracker uses
+[KVM](https://www.linux-kvm.org) and needs read/write access that can be
+granted as shown below:
+
+```
+sudo setfacl -m u:${USER}:rw /dev/kvm
+```
+
+The generic requirements are explained below:
+
 - **Linux 4.14+**
 
   Firecracker currently supports physical Linux x86_64 hosts, with kernel
@@ -18,12 +29,31 @@
 
 - **KVM**
 
-  Firecracker uses [KVM](https://www.linux-kvm.org). Please make sure that:
+  Please make sure that:
   1. you have KVM enabled in your Linux kernel, and
   2. you have read/write access to `/dev/kvm`.
      If you need help setting up access to `/dev/kvm`, you should check out
      [Appendix A](#appendix-a-setting-up-kvm-access).
 
+<details>
+
+<summary>Click here to see a BASH script that will check if your system meets
+the basic requirements to run Firecracker.</summary>
+
+```bash
+err=""; \
+[ "$(uname) $(uname -m)" = "Linux x86_64" ] \
+  || err="ERROR: your system is not Linux x86_64."; \
+[ -r /dev/kvm ] && [ -w /dev/kvm ] \
+  || err="$err\nERROR: /dev/kvm is innaccessible."; \
+(( $(uname -r | cut -d. -f1)*1000 + $(uname -r | cut -d. -f2) >= 4014 )) \
+  || err="$err\nERROR: your kernel version ($(uname -r)) is too old."; \
+dmesg | grep -i "hypervisor detected" \
+  && echo "WARNING: you are running in a virtual machine. Firecracker is not well tested under nested virtualization."; \
+[ -z "$err" ] && echo "Your system looks ready for Firecracker!" || echo -e "$err"
+```
+
+</details>
 
 ## Getting the Firecracker Binary
 
@@ -32,6 +62,12 @@ Firecracker is linked statically against
 just download the latest binary from our
 [release page](https://github.com/firecracker-microvm/firecracker/releases),
 and run it on your x86_64 Linux machine.
+
+On the EC2 instance, this binary can be downloaded as:
+
+```
+curl -LOJ https://github.com/firecracker-microvm/firecracker/releases/download/v0.11.0/firecracker-v0.11.0
+```
 
 If, instead, you'd like to build Firecracker yourself, you should check out
 the [Building From Source section](#building-from-source) in this doc.
@@ -237,11 +273,10 @@ If none of the above works, you will need to either install the file
 system ACL package for your distro and use the `setfacl` command as above,
 or run Firecracker as `root` (via `sudo`).
 
-You can check your KVM setup with:
-
-```bash
-[ -r /dev/kvm ] && [ -w /dev/kvm ] && [ $(uname -r) \> 4.14 ] && echo "OK" || echo "FAIL"
-```
+You can check if you have access to `/dev/kvm` with:
+  ```bash
+  [ -r /dev/kvm ] && [ -w /dev/kvm ] && echo "OK" || echo "FAIL"
+  ```
 
 Note: if you've just added your user to the `kvm` group via `usermod`, don't
 forget to log out and then back in, so this change takes effect.

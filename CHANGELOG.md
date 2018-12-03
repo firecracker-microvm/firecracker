@@ -1,5 +1,13 @@
 # Changelog
 
+##  [Unreleased]
+
+### Changed
+
+- `PUT` requests on `/mmds` always return 204 on success.
+- `PUT` operations on `/network-interfaces` API resources no longer accept 
+  the previously required `state` parameter.
+
 ## [0.11.0]
 
 ### Added

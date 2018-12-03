@@ -1,5 +1,32 @@
 # Production Host Setup Recommendations
 
+## Jailer Configuration
+
+Using Jailer in a production Firecracker deployment is highly recommended,
+as it provides additional security boundaries for the microVM.
+The Jailer process applies
+[cgroup](https://www.kernel.org/doc/Documentation/cgroup-v1/cgroups.txt),
+namespace,
+[seccomp](https://www.kernel.org/doc/Documentation/prctl/seccomp_filter.txt)
+isolation and drops privileges of the Firecracker process.
+
+To set up the jailer correctly, you'll need to:
+
+- Create a dedicated non-privilaged POSIX user and group to run Firecracker
+  under. Use the created POSIX user and group IDs in Jailer's ``--uid <uid>``
+  and ``--guid <gid>`` flags, respectively. This will run the Firecracker as
+  the created non-privileged user and group. All file system resources used for
+  Firecracker should be owned by this user and group. Apply least privilege to
+  the resource files owned by this user and group to prevent other accounts from
+  unauthorized file access.
+
+- Use Jailer's ``--seccomp-level 2`` flag to enable seccomp filter. The Jailer
+  will apply a restrictive filter on what ``syscall`` and associated call
+  parameters can issued by Firecracker.
+
+Additional details of Jailer features can be found in the
+[Jailer documentation](jailer.md).
+
 ## Host Security Configuration
 
 ### Mitigating Side-Channel Issues
@@ -111,6 +138,7 @@ cat /proc/*PID*/status | grep Speculation_Store_Bypass
 
 where *PID* is the process ID being check.  Output shows one of the
 following:
+
 - not vulnerable
 - thread mitigated
 - thread force mitigated
