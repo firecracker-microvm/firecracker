@@ -8,7 +8,7 @@ Firecracker is a new virtualization technology that enables customers to deploy
 lightweight *micro* Virtual Machines or microVMs. Firecracker microVMs combine
 the security and workload isolation properties of traditional VMs with the
 speed, agility and resource efficiency enabled by containers. They provide a
-secure, trusted environment for multitenant services, while maintaining
+secure, trusted environment for multi-tenant services, while maintaining
 minimal overhead.
 
 The scope of this document is to describe the features and architecture of the
@@ -48,8 +48,8 @@ images/firecracker_host_integration.png?raw=true
 
 Firecracker runs on Linux hosts with 4.14 or newer kernels and with Linux
 guest OSs (from this point on, referred to as guests). In production
-environments, Firecracker should be started only via the jailer binary.
-The Firecracker binary can also be executed directly, but this will no longer
+environments, Firecracker should be started only via the `jailer` binary.
+The `firecracker` binary can also be executed directly, but this will no longer
 be possible in the future. After launching the process, users interact with
 the Firecracker API to configure the microVM, before issuing the
 `InstanceStart` command.
@@ -137,9 +137,6 @@ bucket is defined via the bucket size, I/O cost, refill rate, maximum burst,
 and initial value. This enables the customer to define flexible rate limiters
 that support bursts or specific bandwidth/operations limitations.
 
-More detailed information is available in the [Rate Limiter documentation](
-rate-limiter.md).
-
 ### MicroVM Metadata Service
 
 Firecracker microVMs expose access to a minimal the MicroVM-Metadata Service
@@ -154,6 +151,7 @@ chroot), drops privileges, and then exec()s into the Firecracker binary, which
 then runs as an unprivileged process. Past this point, Firecracker can only
 access resources that a privileged third-party grants access to (e.g., by
 copying a file into the chroot, or passing a file descriptor).
+
 Seccomp filters are used to further limit the system calls Firecracker can use.
 There are 3 possible levels of seccomp filtering, configurable by passing a
 command line argument to the jailer: 0 (disabled), 1 (whitelists a set of
