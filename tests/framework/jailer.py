@@ -40,7 +40,7 @@ class JailerContext:
             chroot_base=JAILER_DEFAULT_CHROOT,
             netns=None,
             daemonize=True,
-            seccomp_level=0
+            seccomp_level=2
     ):
         """Set up jailer fields.
 

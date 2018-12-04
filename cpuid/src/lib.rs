@@ -70,7 +70,7 @@ pub fn filter_cpuid(
     kvm_cpuid: &mut CpuId,
 ) -> Result<()> {
     let entries = kvm_cpuid.mut_entries_slice();
-    let max_addr_cpu = get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
+    let max_addr_cpu = get_max_addressable_lprocessors(cpu_count)? as u32;
 
     let bstr = get_brand_string();
 

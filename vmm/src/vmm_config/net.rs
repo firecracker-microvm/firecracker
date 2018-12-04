@@ -4,7 +4,6 @@
 use std::fmt::{Display, Formatter, Result};
 use std::result;
 
-use super::DeviceState;
 use net_util::{MacAddr, Tap, TapError};
 use rate_limiter::RateLimiter;
 
@@ -15,8 +14,6 @@ use rate_limiter::RateLimiter;
 pub struct NetworkInterfaceConfig {
     /// ID of the guest network interface.
     pub iface_id: String,
-    /// State of the network interface.
-    pub state: DeviceState,
     /// Host level path for the guest network interface.
     pub host_dev_name: String,
     /// Guest MAC address.
@@ -262,7 +259,6 @@ mod tests {
     fn create_netif(id: &str, name: &str, mac: &str) -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
             iface_id: String::from(id),
-            state: DeviceState::Attached,
             host_dev_name: String::from(name),
             guest_mac: Some(MacAddr::parse_str(mac).unwrap()),
             rx_rate_limiter: Some(RateLimiter::default()),
@@ -278,7 +274,6 @@ mod tests {
         fn clone(&self) -> Self {
             NetworkInterfaceConfig {
                 iface_id: self.iface_id.clone(),
-                state: self.state.clone(),
                 host_dev_name: self.host_dev_name.clone(),
                 guest_mac: self.guest_mac.clone(),
                 rx_rate_limiter: None,
