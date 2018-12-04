@@ -314,7 +314,7 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
 ")
                 .required(false)
                 .takes_value(true)
-                .default_value("0")
+                .default_value("2")
                 .possible_values(&["0", "1", "2"]),
         )
 }

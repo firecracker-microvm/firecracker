@@ -59,7 +59,7 @@ build and we welcome all contributions.
 
 To contribute to Firecracker, check out the development setup section in the
 [getting started guide](docs/getting-started.md) and then the Firecracker
-[contribution guidelines](CONTRIBUTE.md).
+[contribution guidelines](CONTRIBUTING.md).
 
 ## Releases
 
@@ -138,4 +138,4 @@ The Firecracker community can be contacted in the following ways:
 - Community email list: _coming soon_.
 
 When communicating within the Firecracker community, please mind our
-[code of conduct](CODE-OF-CONDUCT.md).
+[code of conduct](CODE_OF_CONDUCT.md).
