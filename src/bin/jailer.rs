@@ -8,12 +8,11 @@ extern crate fc_util;
 extern crate jailer;
 
 fn main() {
-    match jailer::run(
+    if let Err(error) = jailer::run(
         jailer::clap_app().get_matches(),
         (chrono::Utc::now().timestamp_nanos() / 1000) as u64,
         fc_util::now_cputime_us(),
     ) {
-        Ok(()) => (),
-        Err(error) => eprintln!("Jailer error: {}", error),
+        eprintln!("Jailer error: {}", error);
     }
 }

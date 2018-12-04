@@ -7,6 +7,7 @@
 - `PUT` requests on `/mmds` always return 204 on success.
 - `PUT` operations on `/network-interfaces` API resources no longer accept 
   the previously required `state` parameter.
+- The jailer starts with `--seccomp-level=2` (was previously 0) by default.
 
 ## [0.11.0]
 
