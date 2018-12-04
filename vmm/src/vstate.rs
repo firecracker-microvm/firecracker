@@ -5,14 +5,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+extern crate arch;
 extern crate devices;
 extern crate logger;
 extern crate sys_util;
-extern crate x86_64;
 
 use std::result;
 
 use super::KvmContext;
+use arch::x86_64;
 use cpuid::{c3_template, filter_cpuid, t2_template};
 use kvm::*;
 use logger::{LogOption, LOGGER};
@@ -216,21 +217,21 @@ impl Vcpu {
             .set_cpuid2(&self.cpuid)
             .map_err(Error::SetSupportedCpusFailed)?;
 
-        regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
+        x86_64::regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
         // Safe to unwrap because this method is called after the VM is configured
         let vm_memory = vm
             .get_memory()
             .ok_or(Error::GuestMemory(GuestMemoryError::MemoryNotInitialized))?;
-        regs::setup_regs(
+        x86_64::regs::setup_regs(
             &self.fd,
             kernel_start_addr.offset() as u64,
             x86_64::layout::BOOT_STACK_POINTER as u64,
             x86_64::layout::ZERO_PAGE_START as u64,
         )
         .map_err(Error::REGSConfiguration)?;
-        regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
-        regs::setup_sregs(vm_memory, &self.fd).map_err(Error::SREGSConfiguration)?;
-        interrupts::set_lint(&self.fd).map_err(Error::LocalIntConfiguration)?;
+        x86_64::regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
+        x86_64::regs::setup_sregs(vm_memory, &self.fd).map_err(Error::SREGSConfiguration)?;
+        x86_64::interrupts::set_lint(&self.fd).map_err(Error::LocalIntConfiguration)?;
         Ok(())
     }
 

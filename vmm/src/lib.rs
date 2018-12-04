@@ -27,12 +27,12 @@ extern crate kernel;
 extern crate kvm;
 #[macro_use]
 extern crate logger;
+extern crate arch;
 extern crate memory_model;
 extern crate net_util;
 extern crate rate_limiter;
 extern crate seccomp;
 extern crate sys_util;
-extern crate x86_64;
 
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
@@ -61,6 +61,7 @@ use std::time::Duration;
 use libc::{c_void, siginfo_t};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
+use arch::x86_64;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio;
@@ -1092,7 +1093,7 @@ impl Vmm {
         let entry_addr = kernel_loader::load_kernel(
             vm_memory,
             &mut kernel_config.kernel_file,
-            x86_64::layout::HIMEM_START,
+            arch::HIMEM_START,
         )
         .map_err(|e| StartMicrovmError::Loader(e))?;
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)

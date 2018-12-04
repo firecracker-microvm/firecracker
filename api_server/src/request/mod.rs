@@ -97,11 +97,11 @@ impl PartialEq for ParsedRequest {
 
 #[cfg(test)]
 mod tests {
+    extern crate arch;
     extern crate devices;
     extern crate kernel;
     extern crate memory_model;
     extern crate net_util;
-    extern crate x86_64;
 
     use self::devices::virtio::net::Error as VirtioNetError;
     use self::memory_model::GuestMemoryError;
@@ -300,7 +300,7 @@ mod tests {
         check_error_response(vmm_resp, StatusCode::InternalServerError);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
-            StartMicrovmError::ConfigureSystem(x86_64::Error::E820Configuration),
+            StartMicrovmError::ConfigureSystem(arch::Error::ZeroPagePastRamEnd),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
         let vmm_resp = VmmActionError::StartMicrovm(
