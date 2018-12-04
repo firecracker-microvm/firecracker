@@ -5,9 +5,9 @@
 It checks the response of the API configuration calls and the logs that show
 up in the configured logging FIFO.
 """
+import json
 import os
 import re
-
 from time import strptime
 
 import host_tools.logging as log_tools
@@ -116,11 +116,44 @@ def test_error_logs(test_microvm_with_ssh):
     )
 
 
+def test_dirty_page_metrics(test_microvm_with_api):
+    """Check the `dirty_pages` metric."""
+    microvm = test_microvm_with_api
+    microvm.spawn()
+    microvm.basic_config()
+
+    # Configure logging.
+    log_fifo_path = os.path.join(microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
+    log_fifo = log_tools.Fifo(log_fifo_path)
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+
+    response = microvm.logger.put(
+        log_fifo=microvm.create_jailed_resource(log_fifo.path),
+        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
+        level='Error',
+        show_level=False,
+        show_log_origin=False,
+        options=['LogDirtyPages']
+    )
+    assert microvm.api_session.is_good_response(response.status_code)
+
+    microvm.start()
+
+    lines = metrics_fifo.sequential_fifo_reader(3)
+    for line in lines:
+        assert int(json.loads(line)['memory']['dirty_pages']) >= 0
+        # TODO force metrics flushing and get real data without waiting for
+        # Firecracker to flush periodically.
+
+
+# pylint: disable=W0102
 def _test_log_config(
         microvm,
         log_level='Info',
         show_level=True,
-        show_origin=True
+        show_origin=True,
+        options=[]
 ):
     """Exercises different scenarios for testing the logging config."""
     microvm.spawn()
@@ -138,7 +171,8 @@ def _test_log_config(
         metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
         level=log_level,
         show_level=show_level,
-        show_log_origin=show_origin
+        show_log_origin=show_origin,
+        options=options
     )
     assert microvm.api_session.is_good_response(response.status_code)
 
