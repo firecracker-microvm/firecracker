@@ -106,13 +106,13 @@ In your **first shell**:
 - make sure Firecracker can create its API socket:
 
 ```bash
-rm -f /tmp/firecracker.sock
+rm -f /tmp/firecracker.socket
 ```
 
 - then, start Firecracker:
 
 ```bash
-./firecracker --api-sock /tmp/firecracker.sock
+./firecracker --api-sock /tmp/firecracker.socket
 ```
 
 In your **second shell** prompt:
@@ -127,7 +127,7 @@ In your **second shell** prompt:
 - set the guest kernel:
 
   ```bash
-  curl --unix-socket /tmp/firecracker.sock -i \
+  curl --unix-socket /tmp/firecracker.socket -i \
       -X PUT 'http://localhost/boot-source'   \
       -H 'Accept: application/json'           \
       -H 'Content-Type: application/json'     \
@@ -140,7 +140,7 @@ In your **second shell** prompt:
 - set the guest rootfs:
 
   ```bash
-  curl --unix-socket /tmp/firecracker.sock -i \
+  curl --unix-socket /tmp/firecracker.socket -i \
       -X PUT 'http://localhost/drives/rootfs' \
       -H 'Accept: application/json'           \
       -H 'Content-Type: application/json'     \
@@ -155,7 +155,7 @@ In your **second shell** prompt:
 - start the guest machine:
 
   ```bash
-  curl --unix-socket /tmp/firecracker.sock -i \
+  curl --unix-socket /tmp/firecracker.socket -i \
       -X PUT 'http://localhost/actions'       \
       -H  'Accept: application/json'          \
       -H  'Content-Type: application/json'    \
@@ -179,7 +179,7 @@ customize that (say, 2 vCPUs and 1024MiB RAM), you can do so before issuing
 the `InstanceStart` call, via this API command:
 
 ```bash
-curl --unix-socket /tmp/firecracker.sock -i  \
+curl --unix-socket /tmp/firecracker.socket -i  \
     -X PUT 'http://localhost/machine-config' \
     -H 'Accept: application/json'            \
     -H 'Content-Type: application/json'      \
