@@ -21,12 +21,12 @@ sys_util = { path = "../sys_util" }
 vmm = { path = "../vmm" }
 
 [dev-dependencies]
+arch = { path = "../arch" }
 devices = { path = "../devices" }
 kernel = { path = "../kernel" }
 memory_model = { path = "../memory_model" }
 net_util = { path = "../net_util" }
 rate_limiter = { path = "../rate_limiter" }
-x86_64 = { path = "../x86_64" }
 
 [features]
 vsock = ["vmm/vsock"]

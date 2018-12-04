@@ -7,12 +7,17 @@
 
 use std::{mem, result};
 
-use gdt;
-use kvm;
+use super::gdt::{gdt_entry, kvm_segment_from_gdt};
+use arch_gen::x86::msr_index;
+use kvm::VcpuFd;
 use kvm_wrapper::{kvm_fpu, kvm_msr_entry, kvm_msrs, kvm_regs, kvm_sregs};
-use layout;
 use memory_model::{GuestAddress, GuestMemory};
 use sys_util;
+
+// Initial pagetables.
+const PML4_START: usize = 0x9000;
+const PDPTE_START: usize = 0xa000;
+const PDE_START: usize = 0xb000;
 
 #[derive(Debug)]
 pub enum Error {
@@ -45,7 +50,7 @@ pub type Result<T> = result::Result<T, Error>;
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn setup_fpu(vcpu: &kvm::VcpuFd) -> Result<()> {
+pub fn setup_fpu(vcpu: &VcpuFd) -> Result<()> {
     let fpu: kvm_fpu = kvm_fpu {
         fcw: 0x37f,
         mxcsr: 0x1f80,
@@ -60,7 +65,7 @@ pub fn setup_fpu(vcpu: &kvm::VcpuFd) -> Result<()> {
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn setup_msrs(vcpu: &kvm::VcpuFd) -> Result<()> {
+pub fn setup_msrs(vcpu: &VcpuFd) -> Result<()> {
     let entry_vec = create_msr_entries();
     let vec_size_bytes =
         mem::size_of::<kvm_msrs>() + (entry_vec.len() * mem::size_of::<kvm_msr_entry>());
@@ -91,7 +96,7 @@ pub fn setup_msrs(vcpu: &kvm::VcpuFd) -> Result<()> {
 /// * `boot_ip` - Starting instruction pointer.
 /// * `boot_sp` - Starting stack pointer.
 /// * `boot_si` - Must point to zero page address per Linux ABI.
-pub fn setup_regs(vcpu: &kvm::VcpuFd, boot_ip: u64, boot_sp: u64, boot_si: u64) -> Result<()> {
+pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64, boot_sp: u64, boot_si: u64) -> Result<()> {
     let regs: kvm_regs = kvm_regs {
         rflags: 0x0000000000000002u64,
         rip: boot_ip,
@@ -110,7 +115,7 @@ pub fn setup_regs(vcpu: &kvm::VcpuFd, boot_ip: u64, boot_sp: u64, boot_si: u64) 
 ///
 /// * `mem` - The memory that will be passed to the guest.
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn setup_sregs(mem: &GuestMemory, vcpu: &kvm::VcpuFd) -> Result<()> {
+pub fn setup_sregs(mem: &GuestMemory, vcpu: &VcpuFd) -> Result<()> {
     let mut sregs: kvm_sregs = vcpu.get_sregs().map_err(Error::GetStatusRegisters)?;
 
     configure_segments_and_sregs(mem, &mut sregs)?;
@@ -153,15 +158,15 @@ fn write_idt_value(val: u64, guest_mem: &GuestMemory) -> Result<()> {
 
 fn configure_segments_and_sregs(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
     let gdt_table: [u64; BOOT_GDT_MAX as usize] = [
-        gdt::gdt_entry(0, 0, 0),            // NULL
-        gdt::gdt_entry(0xa09b, 0, 0xfffff), // CODE
-        gdt::gdt_entry(0xc093, 0, 0xfffff), // DATA
-        gdt::gdt_entry(0x808b, 0, 0xfffff), // TSS
+        gdt_entry(0, 0, 0),            // NULL
+        gdt_entry(0xa09b, 0, 0xfffff), // CODE
+        gdt_entry(0xc093, 0, 0xfffff), // DATA
+        gdt_entry(0x808b, 0, 0xfffff), // TSS
     ];
 
-    let code_seg = gdt::kvm_segment_from_gdt(gdt_table[1], 1);
-    let data_seg = gdt::kvm_segment_from_gdt(gdt_table[2], 2);
-    let tss_seg = gdt::kvm_segment_from_gdt(gdt_table[3], 3);
+    let code_seg = kvm_segment_from_gdt(gdt_table[1], 1);
+    let data_seg = kvm_segment_from_gdt(gdt_table[2], 2);
+    let tss_seg = kvm_segment_from_gdt(gdt_table[3], 3);
 
     // Write segments
     write_gdt_table(&gdt_table[..], mem)?;
@@ -189,9 +194,9 @@ fn configure_segments_and_sregs(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Res
 
 fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
     // Puts PML4 right after zero page but aligned to 4k.
-    let boot_pml4_addr = GuestAddress(layout::PML4_START);
-    let boot_pdpte_addr = GuestAddress(layout::PDPTE_START);
-    let boot_pde_addr = GuestAddress(layout::PDE_START);
+    let boot_pml4_addr = GuestAddress(PML4_START);
+    let boot_pdpte_addr = GuestAddress(PDPTE_START);
+    let boot_pde_addr = GuestAddress(PDE_START);
 
     // Entry covering VA [0..512GB)
     mem.write_obj_at_addr(boot_pdpte_addr.offset() as u64 | 0x03, boot_pml4_addr)
@@ -220,55 +225,55 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
     let mut entries = Vec::<kvm_msr_entry>::new();
 
     entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_IA32_SYSENTER_CS,
+        index: msr_index::MSR_IA32_SYSENTER_CS,
         data: 0x0,
         ..Default::default()
     });
     entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_IA32_SYSENTER_ESP,
+        index: msr_index::MSR_IA32_SYSENTER_ESP,
         data: 0x0,
         ..Default::default()
     });
     entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_IA32_SYSENTER_EIP,
+        index: msr_index::MSR_IA32_SYSENTER_EIP,
         data: 0x0,
         ..Default::default()
     });
     // x86_64 specific msrs, we only run on x86_64 not x86.
     entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_STAR,
+        index: msr_index::MSR_STAR,
         data: 0x0,
         ..Default::default()
     });
     entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_CSTAR,
+        index: msr_index::MSR_CSTAR,
         data: 0x0,
         ..Default::default()
     });
     entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_KERNEL_GS_BASE,
+        index: msr_index::MSR_KERNEL_GS_BASE,
         data: 0x0,
         ..Default::default()
     });
     entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_SYSCALL_MASK,
+        index: msr_index::MSR_SYSCALL_MASK,
         data: 0x0,
         ..Default::default()
     });
     entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_LSTAR,
+        index: msr_index::MSR_LSTAR,
         data: 0x0,
         ..Default::default()
     });
     // end of x86_64 specific code
     entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_IA32_TSC,
+        index: msr_index::MSR_IA32_TSC,
         data: 0x0,
         ..Default::default()
     });
     entries.push(kvm_msr_entry {
-        index: ::msr_index::MSR_IA32_MISC_ENABLE,
-        data: ::msr_index::MSR_IA32_MISC_ENABLE_FAST_STRING as u64,
+        index: msr_index::MSR_IA32_MISC_ENABLE,
+        data: msr_index::MSR_IA32_MISC_ENABLE_FAST_STRING as u64,
         ..Default::default()
     });
 
@@ -321,16 +326,16 @@ mod tests {
         let gm = create_guest_mem();
         setup_page_tables(&gm, &mut sregs).unwrap();
 
-        assert_eq!(0xa003, read_u64(&gm, layout::PML4_START));
-        assert_eq!(0xb003, read_u64(&gm, layout::PDPTE_START));
+        assert_eq!(0xa003, read_u64(&gm, PML4_START));
+        assert_eq!(0xb003, read_u64(&gm, PDPTE_START));
         for i in 0..512 {
             assert_eq!(
                 (i << 21) + 0x83u64,
-                read_u64(&gm, layout::PDE_START + (i * 8) as usize)
+                read_u64(&gm, PDE_START + (i * 8) as usize)
             );
         }
 
-        assert_eq!(layout::PML4_START as u64, sregs.cr3);
+        assert_eq!(PML4_START as u64, sregs.cr3);
         assert_eq!(X86_CR4_PAE, sregs.cr4);
         assert_eq!(X86_CR0_PG, sregs.cr0);
     }
@@ -367,7 +372,7 @@ mod tests {
         // This test will check against the last MSR entry configured (the tenth one).
         // See create_msr_entries for details.
         let test_kvm_msrs_entry = [kvm_msr_entry {
-            index: ::msr_index::MSR_IA32_MISC_ENABLE,
+            index: msr_index::MSR_IA32_MISC_ENABLE,
             ..Default::default()
         }];
         let vec_size_bytes = mem::size_of::<kvm_msrs>() + mem::size_of::<kvm_msr_entry>();
@@ -390,7 +395,7 @@ mod tests {
         assert_eq!(read_msrs, 1);
 
         // Official entries that were setup when we did setup_msrs. We need to assert that the
-        // tenth one (i.e the one with index ::msr_index::MSR_IA32_MISC_ENABLE has the data we
+        // tenth one (i.e the one with index msr_index::MSR_IA32_MISC_ENABLE has the data we
         // expect.
         let entry_vec = create_msr_entries();
         unsafe {

@@ -11,7 +11,6 @@ use memory_model::GuestMemoryError;
 use seccomp;
 use sys_util;
 use vstate;
-use x86_64;
 
 /// The microvm state. When Firecracker starts, the instance state is Uninitialized.
 /// Once start_microvm method is called, the state goes from Uninitialized to Starting.
@@ -48,7 +47,7 @@ pub struct InstanceInfo {
 pub enum StartMicrovmError {
     /// This error is thrown by the minimal boot loader implementation.
     /// It is related to a faulty memory configuration.
-    ConfigureSystem(x86_64::Error),
+    ConfigureSystem(arch::Error),
     /// Cannot configure the VM.
     ConfigureVm(vstate::Error),
     /// Unable to seek the block device backing file due to invalid permissions or

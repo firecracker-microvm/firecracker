@@ -15,6 +15,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "api_server"
 version = "0.1.0"
 dependencies = [
+ "arch 0.1.0",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "devices 0.1.0",
  "fc_util 0.1.0",
@@ -34,7 +35,27 @@ dependencies = [
  "tokio-io 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-uds 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "vmm 0.1.0",
- "x86_64 0.1.0",
+]
+
+[[package]]
+name = "arch"
+version = "0.1.0"
+dependencies = [
+ "arch_gen 0.1.0",
+ "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "kvm 0.1.0",
+ "kvm_wrapper 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.2.46 (registry+https://github.com/rust-lang/crates.io-index)",
+ "memory_model 0.1.0",
+ "rand 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sys_util 0.1.0",
+]
+
+[[package]]
+name = "arch_gen"
+version = "0.1.0"
+dependencies = [
+ "memory_model 0.1.0",
 ]
 
 [[package]]
@@ -1213,6 +1234,7 @@ version = "0.1.0"
 name = "vmm"
 version = "0.1.0"
 dependencies = [
+ "arch 0.1.0",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "cpuid 0.1.0",
  "devices 0.1.0",
@@ -1235,7 +1257,6 @@ dependencies = [
  "tempfile 3.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.42 (registry+https://github.com/rust-lang/crates.io-index)",
  "timerfd 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "x86_64 0.1.0",
 ]
 
 [[package]]
@@ -1274,19 +1295,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi-build 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "x86_64"
-version = "0.1.0"
-dependencies = [
- "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "kvm 0.1.0",
- "kvm_wrapper 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "libc 0.2.46 (registry+https://github.com/rust-lang/crates.io-index)",
- "memory_model 0.1.0",
- "rand 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "sys_util 0.1.0",
 ]
 
 [metadata]
