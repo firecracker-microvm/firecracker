@@ -324,14 +324,6 @@ definitions:
       - C3
       - T2
 
-  DeviceState:
-    type: string
-    description:
-      The valid states for a Device. So far, a device can only be in the Attached mode.
-      Future valid values will be Detaching and Detached.
-    enum:
-      - Attached
-
   Drive:
     type: object
     required:
@@ -462,8 +454,6 @@ definitions:
         $ref: "#/definitions/RateLimiter"
       tx_rate_limiter:
         $ref: "#/definitions/RateLimiter"
-      state:
-        $ref: "#/definitions/DeviceState"
 
   PartialDrive:
     type: object

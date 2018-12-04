@@ -35,6 +35,12 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
     Ok(())
 }
 
+// Extracts an argument's value or returns a specific error if the argument is missing.
+fn get_value<'a>(args: &'a ArgMatches, arg_name: &'static str) -> Result<&'a str> {
+    args.value_of(arg_name)
+        .ok_or_else(|| Error::MissingArgument(&arg_name))
+}
+
 pub struct Env {
     id: String,
     numa_node: u32,
@@ -53,16 +59,16 @@ impl Env {
     pub fn new(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Result<Self> {
         // All arguments are either mandatory, or have default values, so the unwraps
         // should not fail.
-        let id = args.value_of("id").unwrap();
+        let id = get_value(&args, "id")?;
 
         validators::validate_instance_id(id).map_err(|e| Error::InvalidInstanceId(e))?;
 
-        let numa_node_str = args.value_of("numa_node").unwrap();
+        let numa_node_str = get_value(&args, "numa_node")?;
         let numa_node = numa_node_str
             .parse::<u32>()
             .map_err(|_| Error::NumaNode(String::from(numa_node_str)))?;
 
-        let exec_file = args.value_of("exec_file").unwrap();
+        let exec_file = get_value(&args, "exec_file")?;
         let exec_file_path = canonicalize(exec_file)
             .map_err(|e| Error::Canonicalize(PathBuf::from(exec_file), e))?;
 
@@ -70,7 +76,7 @@ impl Env {
             return Err(Error::NotAFile(exec_file_path));
         }
 
-        let chroot_base = args.value_of("chroot_base").unwrap();
+        let chroot_base = get_value(&args, "chroot_base")?;
 
         let mut chroot_dir = canonicalize(chroot_base)
             .map_err(|e| Error::Canonicalize(PathBuf::from(chroot_base), e))?;
@@ -83,12 +89,12 @@ impl Env {
         chroot_dir.push(id);
         chroot_dir.push("root");
 
-        let uid_str = args.value_of("uid").unwrap();
+        let uid_str = get_value(&args, "uid")?;
         let uid = uid_str
             .parse::<u32>()
             .map_err(|_| Error::Uid(String::from(uid_str)))?;
 
-        let gid_str = args.value_of("gid").unwrap();
+        let gid_str = get_value(&args, "gid")?;
         let gid = gid_str
             .parse::<u32>()
             .map_err(|_| Error::Gid(String::from(gid_str)))?;
@@ -101,14 +107,11 @@ impl Env {
         let daemonize = args.is_present("daemonize");
 
         // The value of the argument can be safely unwrapped, because a default value was specified.
-        // The value of the argument can be parsed into an unsigned integer since its possible
-        // values were specified and they are all unsigned integers, therefore the result of the
-        // parsing can be safely unwrapped.
-        let seccomp_level = args
-            .value_of("seccomp-level")
-            .unwrap()
+        // It can be parsed into an unsigned integer since its possible values were specified and
+        // they are all unsigned integers.
+        let seccomp_level = get_value(&args, "seccomp-level")?
             .parse::<u32>()
-            .unwrap();
+            .map_err(|err| Error::SeccompLevel(err))?;
 
         Ok(Env {
             id: id.to_string(),
@@ -283,7 +286,7 @@ impl Env {
             Command::new(chroot_exec_file)
                 .arg(format!(
                     "--context={}",
-                    serde_json::to_string(&context).unwrap()
+                    serde_json::to_string(&context).expect("Failed to serialize context")
                 )).stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())

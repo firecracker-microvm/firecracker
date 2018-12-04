@@ -68,7 +68,7 @@ pub fn validate(mut input: &str) -> Result<()> {
             }
             _ => {
                 return Err(UUIDError::InvalidChar(
-                    input[index..].chars().next().unwrap(),
+                    input[index..].chars().next().unwrap_or('\0'),
                 ))
             }
         }

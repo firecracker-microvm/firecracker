@@ -465,7 +465,9 @@ impl hyper::server::Service for ApiServerHttpService {
                         METRICS.get_api_requests.instance_info_count.inc();
 
                         // unwrap() to crash if the other thread poisoned this lock
-                        let shared_info = shared_info_lock.read().unwrap();
+                        let shared_info = shared_info_lock
+                            .read()
+                            .expect("Failed to read shared_info due to poisoned lock");
                         // Serialize it to a JSON string.
                         let body_result = serde_json::to_string(&(*shared_info));
                         match body_result {
@@ -481,7 +483,9 @@ impl hyper::server::Service for ApiServerHttpService {
                         }
                     }
                     PatchMMDS(json_value) => {
-                        let mut mmds = mmds_info.lock().unwrap();
+                        let mut mmds = mmds_info
+                            .lock()
+                            .expect("Failed to acquire lock on MMDS info");
                         match mmds.is_initialized() {
                             true => {
                                 mmds.patch_data(json_value);
@@ -494,16 +498,18 @@ impl hyper::server::Service for ApiServerHttpService {
                         }
                     }
                     PutMMDS(json_value) => {
-                        let status_code = match mmds_info.lock().unwrap().is_initialized() {
-                            true => StatusCode::NoContent,
-                            false => StatusCode::Created,
-                        };
-                        mmds_info.lock().unwrap().put_data(json_value);
-                        Either::A(future::ok(empty_response(status_code)))
+                        mmds_info
+                            .lock()
+                            .expect("Failed to acquire lock on MMDS info")
+                            .put_data(json_value);
+                        Either::A(future::ok(empty_response(StatusCode::NoContent)))
                     }
                     GetMMDS => Either::A(future::ok(json_response(
                         StatusCode::Ok,
-                        mmds_info.lock().unwrap().get_data_str(),
+                        mmds_info
+                            .lock()
+                            .expect("Failed to acquire lock on MMDS info")
+                            .get_data_str(),
                     ))),
                     Sync(sync_req, outcome_receiver) => {
                         if send_to_vmm(sync_req, &api_request_sender, &vmm_send_event).is_err() {
@@ -573,7 +579,6 @@ mod tests {
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
-    use vmm::vmm_config::DeviceState;
     use vmm::VmmAction;
 
     impl<'a> PartialEq for Error<'a> {
@@ -602,7 +607,10 @@ mod tests {
                 Ok::<_, hyper::Error>(acc)
             }).and_then(move |value| Ok(value));
 
-        String::from_utf8_lossy(&ret.wait().unwrap()).into()
+        String::from_utf8_lossy(
+            &ret.wait()
+                .expect("Couldn't convert request body into String due to Future polling failure"),
+        ).into()
     }
 
     fn get_dummy_serde_error() -> serde_json::Error {
@@ -1056,7 +1064,6 @@ mod tests {
         let net_id = String::from("id_1");
         let json = "{
                 \"iface_id\": \"id_1\",
-                \"state\": \"Attached\",
                 \"host_dev_name\": \"foo\",
                 \"guest_mac\": \"12:34:56:78:9a:BC\"
               }";
@@ -1065,7 +1072,6 @@ mod tests {
         // PUT
         let netif = NetworkInterfaceConfig {
             iface_id: net_id.clone(),
-            state: DeviceState::Attached,
             host_dev_name: String::from("foo"),
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9a:BC").unwrap()),
             rx_rate_limiter: None,
