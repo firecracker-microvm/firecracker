@@ -1,19 +1,19 @@
 From d796576ad266a1c590b848e73a8392c753804b24 Mon Sep 17 00:00:00 2001
 From: Constantin Musca <mcostin@amazon.com>
 Date: Fri, 12 Jan 2018 18:07:02 +0200
-Subject: [PATCH 2/3] kvm_sys: implement Debug trait for kvm_lapic_state
+Subject: [PATCH 2/3] kvm_gen: implement Debug trait for kvm_lapic_state
 
 This is needed for calling unwrap_err() on Result<kvm_lapic_state, Error>.
 
 Signed-off-by: Constantin Musca <mcostin@amazon.com>
 ---
- kvm_sys/src/x86/bindings.rs | 7 +++++++
+ kvm_gen/src/x86/bindings.rs | 7 +++++++
  1 file changed, 7 insertions(+)
 
-diff --git a/kvm_sys/src/x86/bindings.rs b/kvm_sys/src/x86/bindings.rs
+diff --git a/kvm_gen/src/x86/bindings.rs b/kvm_gen/src/x86/bindings.rs
 index 9b8542c..2100db4 100644
---- a/kvm_sys/src/x86/bindings.rs
-+++ b/kvm_sys/src/x86/bindings.rs
+--- a/kvm_gen/src/x86/bindings.rs
++++ b/kvm_gen/src/x86/bindings.rs
 @@ -1116,6 +1116,13 @@ fn bindgen_test_layout_kvm_regs() {
  pub struct kvm_lapic_state {
      pub regs: [::std::os::raw::c_char; 1024usize],

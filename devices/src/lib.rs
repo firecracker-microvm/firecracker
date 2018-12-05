@@ -14,15 +14,15 @@ extern crate dumbo;
 #[macro_use]
 extern crate logger;
 extern crate memory_model;
-extern crate net_sys;
+extern crate net_gen;
 extern crate net_util;
 extern crate rate_limiter;
 extern crate sys_util;
 #[cfg(feature = "vsock")]
 extern crate vhost_backend;
 #[cfg(feature = "vsock")]
-extern crate vhost_sys;
-extern crate virtio_sys;
+extern crate vhost_gen;
+extern crate virtio_gen;
 
 use std::fs::File;
 

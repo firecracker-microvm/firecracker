@@ -13,7 +13,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use super::{create_sockaddr, create_socket, Error as NetUtilError};
 use libc;
-use net_sys;
+use net_gen;
 use sys_util::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 
 #[derive(Debug)]
@@ -90,19 +90,19 @@ impl Tap {
         // This is pretty messy because of the unions used by ifreq. Since we
         // don't call as_mut on the same union field more than once, this block
         // is safe.
-        let mut ifreq: net_sys::ifreq = Default::default();
+        let mut ifreq: net_gen::ifreq = Default::default();
         unsafe {
             let ifrn_name = ifreq.ifr_ifrn.ifrn_name.as_mut();
             let ifru_flags = ifreq.ifr_ifru.ifru_flags.as_mut();
             let name_slice = &mut ifrn_name[..terminated_if_name.len()];
             name_slice.copy_from_slice(terminated_if_name.as_slice());
             *ifru_flags =
-                (net_sys::IFF_TAP | net_sys::IFF_NO_PI | net_sys::IFF_VNET_HDR) as c_short;
+                (net_gen::IFF_TAP | net_gen::IFF_NO_PI | net_gen::IFF_VNET_HDR) as c_short;
         }
 
         // ioctl is safe since we call it with a valid tap fd and check the return
         // value.
-        let ret = unsafe { ioctl_with_mut_ref(&tuntap, net_sys::TUNSETIFF(), &mut ifreq) };
+        let ret = unsafe { ioctl_with_mut_ref(&tuntap, net_gen::TUNSETIFF(), &mut ifreq) };
 
         if ret < 0 {
             return Err(Error::CreateTap(IoError::last_os_error()));
@@ -135,7 +135,7 @@ impl Tap {
 
         // ioctl is safe. Called with a valid sock fd, and we check the return.
         let ret =
-            unsafe { ioctl_with_ref(&sock, net_sys::sockios::SIOCSIFADDR as c_ulong, &ifreq) };
+            unsafe { ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFADDR as c_ulong, &ifreq) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -158,7 +158,7 @@ impl Tap {
 
         // ioctl is safe. Called with a valid sock fd, and we check the return.
         let ret =
-            unsafe { ioctl_with_ref(&sock, net_sys::sockios::SIOCSIFNETMASK as c_ulong, &ifreq) };
+            unsafe { ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFNETMASK as c_ulong, &ifreq) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -170,7 +170,7 @@ impl Tap {
     pub fn set_offload(&self, flags: c_uint) -> Result<()> {
         // ioctl is safe. Called with a valid tap fd, and we check the return.
         let ret =
-            unsafe { ioctl_with_val(&self.tap_file, net_sys::TUNSETOFFLOAD(), flags as c_ulong) };
+            unsafe { ioctl_with_val(&self.tap_file, net_gen::TUNSETOFFLOAD(), flags as c_ulong) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -188,12 +188,12 @@ impl Tap {
         unsafe {
             let ifru_flags = ifreq.ifr_ifru.ifru_flags.as_mut();
             *ifru_flags =
-                (net_sys::net_device_flags_IFF_UP | net_sys::net_device_flags_IFF_RUNNING) as i16;
+                (net_gen::net_device_flags_IFF_UP | net_gen::net_device_flags_IFF_RUNNING) as i16;
         }
 
         // ioctl is safe. Called with a valid sock fd, and we check the return.
         let ret =
-            unsafe { ioctl_with_ref(&sock, net_sys::sockios::SIOCSIFFLAGS as c_ulong, &ifreq) };
+            unsafe { ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFFLAGS as c_ulong, &ifreq) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -204,7 +204,7 @@ impl Tap {
     /// Set the size of the vnet hdr.
     pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<()> {
         // ioctl is safe. Called with a valid tap fd, and we check the return.
-        let ret = unsafe { ioctl_with_ref(&self.tap_file, net_sys::TUNSETVNETHDRSZ(), &size) };
+        let ret = unsafe { ioctl_with_ref(&self.tap_file, net_gen::TUNSETVNETHDRSZ(), &size) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -212,8 +212,8 @@ impl Tap {
         Ok(())
     }
 
-    fn get_ifreq(&self) -> net_sys::ifreq {
-        let mut ifreq: net_sys::ifreq = Default::default();
+    fn get_ifreq(&self) -> net_gen::ifreq {
+        let mut ifreq: net_gen::ifreq = Default::default();
 
         // This sets the name of the interface, which is the only entry
         // in a single-field union.

@@ -97,8 +97,8 @@ the default `/srv/jailer` chroot base dir.
 We start by running:
 
 ``` bash
-/usr/bin/jailer --id 551e7604-e35c-42b3-b825-416853441234 --node 0 --exec-file
-/usr/bin/firecracker --uid 123 --gid 100 --netns /var/run/netns/my_netns
+/usr/bin/jailer --id 551e7604-e35c-42b3-b825-416853441234 --node 0 --exec-file \
+/usr/bin/firecracker --uid 123 --gid 100 --netns /var/run/netns/my_netns \
 --daemonize
 ```
 
