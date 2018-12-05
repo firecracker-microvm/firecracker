@@ -1,17 +1,17 @@
 From de3b980f47a403f3172517e83950d37a35b6de17 Mon Sep 17 00:00:00 2001
 From: Andreea Florescu <fandree@amazon.com>
 Date: Wed, 7 Feb 2018 12:05:51 +0200
-Subject: [PATCH 3/3] kvm_sys: implement PartialEq for kvm_msr_entry
+Subject: [PATCH 3/3] kvm_gen: implement PartialEq for kvm_msr_entry
 
 Signed-off-by: Andreea Florescu <fandree@amazon.com>
 ---
- kvm_sys/src/x86/bindings.rs | 2 +-
+ kvm_gen/src/x86/bindings.rs | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/kvm_sys/src/x86/bindings.rs b/kvm_sys/src/x86/bindings.rs
+diff --git a/kvm_gen/src/x86/bindings.rs b/kvm_gen/src/x86/bindings.rs
 index 2100db4..11413ce 100644
---- a/kvm_sys/src/x86/bindings.rs
-+++ b/kvm_sys/src/x86/bindings.rs
+--- a/kvm_gen/src/x86/bindings.rs
++++ b/kvm_gen/src/x86/bindings.rs
 @@ -1255,7 +1255,7 @@ fn bindgen_test_layout_kvm_fpu() {
      );
  }

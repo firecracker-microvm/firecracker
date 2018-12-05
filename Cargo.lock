@@ -157,7 +157,7 @@ name = "cpuid"
 version = "0.1.0"
 dependencies = [
  "kvm 0.1.0",
- "kvm_sys 0.1.0",
+ "kvm_gen 0.1.0",
  "logger 0.1.0",
 ]
 
@@ -171,14 +171,14 @@ dependencies = [
  "libc 0.2.44 (registry+https://github.com/rust-lang/crates.io-index)",
  "logger 0.1.0",
  "memory_model 0.1.0",
- "net_sys 0.1.0",
+ "net_gen 0.1.0",
  "net_util 0.1.0",
  "rate_limiter 0.1.0",
  "sys_util 0.1.0",
  "tempfile 3.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "vhost_backend 0.1.0",
- "vhost_sys 0.1.0",
- "virtio_sys 0.1.0",
+ "vhost_gen 0.1.0",
+ "virtio_gen 0.1.0",
 ]
 
 [[package]]
@@ -360,14 +360,14 @@ name = "kvm"
 version = "0.1.0"
 dependencies = [
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "kvm_sys 0.1.0",
+ "kvm_gen 0.1.0",
  "libc 0.2.44 (registry+https://github.com/rust-lang/crates.io-index)",
  "memory_model 0.1.0",
  "sys_util 0.1.0",
 ]
 
 [[package]]
-name = "kvm_sys"
+name = "kvm_gen"
 version = "0.1.0"
 dependencies = [
  "libc 0.2.44 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -516,7 +516,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "net_sys"
+name = "net_gen"
 version = "0.1.0"
 dependencies = [
  "sys_util 0.1.0",
@@ -528,7 +528,7 @@ version = "0.1.0"
 dependencies = [
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.44 (registry+https://github.com/rust-lang/crates.io-index)",
- "net_sys 0.1.0",
+ "net_gen 0.1.0",
  "pnet 0.21.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1174,11 +1174,11 @@ dependencies = [
  "libc 0.2.44 (registry+https://github.com/rust-lang/crates.io-index)",
  "memory_model 0.1.0",
  "sys_util 0.1.0",
- "vhost_sys 0.1.0",
+ "vhost_gen 0.1.0",
 ]
 
 [[package]]
-name = "vhost_sys"
+name = "vhost_gen"
 version = "0.1.0"
 dependencies = [
  "libc 0.2.44 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1186,7 +1186,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "virtio_sys"
+name = "virtio_gen"
 version = "0.1.0"
 
 [[package]]
@@ -1262,7 +1262,7 @@ version = "0.1.0"
 dependencies = [
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "kvm 0.1.0",
- "kvm_sys 0.1.0",
+ "kvm_gen 0.1.0",
  "libc 0.2.44 (registry+https://github.com/rust-lang/crates.io-index)",
  "memory_model 0.1.0",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",

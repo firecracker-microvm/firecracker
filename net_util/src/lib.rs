@@ -13,7 +13,7 @@ extern crate lazy_static;
 extern crate libc;
 extern crate serde;
 
-extern crate net_sys;
+extern crate net_gen;
 extern crate sys_util;
 
 mod mac;
@@ -37,11 +37,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Create a sockaddr_in from an IPv4 address, and expose it as
 /// an opaque sockaddr suitable for usage by socket ioctls.
-fn create_sockaddr(ip_addr: net::Ipv4Addr) -> net_sys::sockaddr {
+fn create_sockaddr(ip_addr: net::Ipv4Addr) -> net_gen::sockaddr {
     // IPv4 addresses big-endian (network order), but Ipv4Addr will give us
     // a view of those bytes directly so we can avoid any endian trickiness.
-    let addr_in = net_sys::sockaddr_in {
-        sin_family: net_sys::AF_INET as u16,
+    let addr_in = net_gen::sockaddr_in {
+        sin_family: net_gen::AF_INET as u16,
         sin_port: 0,
         sin_addr: unsafe { mem::transmute(ip_addr.octets()) },
         __pad: [0; 8usize],
@@ -70,7 +70,7 @@ mod tests {
         let addr: net::Ipv4Addr = "10.0.0.1".parse().unwrap();
         let sockaddr = create_sockaddr(addr);
 
-        assert_eq!(sockaddr.sa_family, net_sys::AF_INET as u16);
+        assert_eq!(sockaddr.sa_family, net_gen::AF_INET as u16);
 
         let data = &sockaddr.sa_data[..];
 

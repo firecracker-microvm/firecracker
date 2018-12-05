@@ -5,13 +5,13 @@ Subject: [PATCH] vhost: fix alignment for vhost_memory
 
 Signed-off-by: Andreea Florescu <fandree@amazon.com>
 ---
- vhost_sys/src/vhost.rs | 1 +
+ vhost_gen/src/vhost.rs | 1 +
  1 file changed, 1 insertion(+)
 
-diff --git a/vhost_sys/src/vhost.rs b/vhost_sys/src/vhost.rs
+diff --git a/vhost_gen/src/vhost.rs b/vhost_gen/src/vhost.rs
 index 7d1be6b..c6f3fdc 100644
---- a/vhost_sys/src/vhost.rs
-+++ b/vhost_sys/src/vhost.rs
+--- a/vhost_gen/src/vhost.rs
++++ b/vhost_gen/src/vhost.rs
 @@ -500,6 +500,7 @@ pub struct vhost_memory {
      pub nregions: __u32,
      pub padding: __u32,
