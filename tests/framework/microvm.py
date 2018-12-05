@@ -114,6 +114,10 @@ class Microvm:
                 shell=True
             )
 
+        # Clean up memory monitor
+        if self.monitor_memory:
+            self.memory_monitor_fut.cancel()
+
     @property
     def api_session(self):
         """Return the api session associated with this microVM."""
@@ -322,7 +326,7 @@ class Microvm:
         assert self._api_session.is_good_response(response.status_code)
 
         if self.monitor_memory:
-            mem_tools.threaded_memory_monitor(
+            self.memory_monitor_fut = mem_tools.spawn_memory_monitor(
                 mem_size_mib,
                 self._jailer_clone_pid
             )
