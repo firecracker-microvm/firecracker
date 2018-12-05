@@ -76,7 +76,7 @@ Tests can be added in any (existing or new) sub-directory of `tests/`, in files
 named `test_*.py`.
 
 Fixtures can be used to quickly build Firecracker microvm integration tests
-that run on all microvm images in `s3://spec.firecracker/microvm-images/`.
+that run on all microvm images in `s3://spec.ccfc.min/img/`.
 
 For example, the test below makes use of the `test_microvm_any` fixture and will
 be run on every microvm image in the bucket, each as a separate test case.
@@ -102,14 +102,15 @@ To see what fixtures are available, inspect `conftest.py`.
 
 ## Adding Microvm Images
 
-Simply place the microvm image under `s3://spec.firecracker/microvm-images/`.
+Simply place the microvm image under `s3://spec.ccfc.min/img/`.
 The layout is:
 
 ``` tree
-s3://<bucket-url>/microvm-images/
+s3://<bucket-name>/img/
     <microvm_test_image_folder_n>/
         kernel/
             <optional_kernel_name.>vmlinux.bin
+            <optional_initrd_name.>initrd.img
         fsfiles/
             <rootfs_name>rootfs.ext4
             <other_fsfile_n>
@@ -119,7 +120,7 @@ s3://<bucket-url>/microvm-images/
     ...
 ```
 
-Then, tag  `<microvm_test_image_folder_n>` with:
+Then, tag  `<microvm_test_image_folder_n>/` with:
 
 ``` json
 TagSet = [{"key": "capability:<cap_name>", "value": ""}, ...]

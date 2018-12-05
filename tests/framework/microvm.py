@@ -54,7 +54,8 @@ class Microvm:
         self._kernel_path = os.path.join(self._path, MICROVM_KERNEL_RELPATH)
         self._fsfiles_path = os.path.join(self._path, MICROVM_FSFILES_RELPATH)
         self._kernel_file = ''
-        self._rootfs_file = ''
+        self._initrd_file = None
+        self._rootfs_file = None
 
         # The binaries this microvm will use to start.
         self._fc_binary_path = fc_binary_path
@@ -157,6 +158,16 @@ class Microvm:
         self._kernel_file = path
 
     @property
+    def initrd_file(self):
+        """Return the name of the initrd file used by this microVM to boot."""
+        return self._initrd_file
+
+    @initrd_file.setter
+    def initrd_file(self, path):
+        """Set the path to the initrd file."""
+        self._initrd_file = path
+
+    @property
     def rootfs_file(self):
         """Return the path to the image this microVM can boot into."""
         return self._rootfs_file
@@ -204,6 +215,7 @@ class Microvm:
              <microvm_uuid>/
                  kernel/
                      <kernel_file_n>
+                     <initrd_file_n>
                      ....
                  fsfiles/
                      <fsfile_n>
@@ -328,12 +340,18 @@ class Microvm:
             )
 
         # Add a kernel to start booting from.
-        response = self.boot.put(
-            kernel_image_path=self.create_jailed_resource(self.kernel_file)
-        )
+        if self.initrd_file is not None:
+            response = self.boot.put(
+                initrd_path=self.create_jailed_resource(self.initrd_file),
+                kernel_image_path=self.create_jailed_resource(self.kernel_file)
+            )
+        else:
+            response = self.boot.put(
+                kernel_image_path=self.create_jailed_resource(self.kernel_file)
+            )
         assert self._api_session.is_good_response(response.status_code)
 
-        if add_root_device:
+        if add_root_device and self.rootfs_file is not None:
             # Add the root file system with rw permissions.
             response = self.drive.put(
                 drive_id='rootfs',

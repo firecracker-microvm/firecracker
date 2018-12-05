@@ -12,6 +12,8 @@ import host_tools.logging as log_tools
 
 # The maximum acceptable boot time in us.
 MAX_BOOT_TIME_US = 150000
+MAX_BZIMAGE_BOOT_TIME_US = 1000000
+MAX_INITRD_BOOT_TIME_US = 2000000
 # TODO: Keep a `current` boot time in S3 and validate we don't regress
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r'Guest-boot-time\s+\=\s+(\d+)\s+us'
@@ -20,7 +22,11 @@ TIMESTAMP_LOG_REGEX = r'Guest-boot-time\s+\=\s+(\d+)\s+us'
 @pytest.mark.timeout(120)
 def test_microvm_boottime_no_network(test_microvm_with_boottime):
     """Check guest boottime of microvm without network."""
-    boottime_us = _test_microvm_boottime(test_microvm_with_boottime, None)
+    boottime_us = _test_microvm_boottime(
+        test_microvm_with_boottime,
+        None,
+        MAX_BOOT_TIME_US
+    )
     print("Boot time with no network is: " + str(boottime_us) + " us")
 
 
@@ -31,14 +37,36 @@ def test_microvm_boottime_with_network(
     """Check guest boottime of microvm with network."""
     boottime_us = _test_microvm_boottime(
         test_microvm_with_boottime,
-        network_config
+        network_config,
+        MAX_BOOT_TIME_US
     )
     print("Boot time with network configured is: " + str(boottime_us) + " us")
 
 
+def test_microvm_boottime_bzimage(test_microvm_with_bzimage):
+    """Check guest boottime of microvm from bzImage kernel."""
+    boottime_us = _test_microvm_boottime(
+        test_microvm_with_bzimage,
+        None,
+        MAX_BZIMAGE_BOOT_TIME_US
+    )
+    print("Boot time with bzimage is: " + str(boottime_us) + " us")
+
+
+def test_microvm_boottime_initrd(test_microvm_with_initrd):
+    """Check guest boottime of microvm with initrd."""
+    boottime_us = _test_microvm_boottime(
+        test_microvm_with_initrd,
+        None,
+        MAX_INITRD_BOOT_TIME_US
+    )
+    print("Boot time with initrd is: " + str(boottime_us) + " us")
+
+
 def _test_microvm_boottime(
         microvm,
-        net_config
+        net_config,
+        time_limit_us
 ):
     """Assert that we meet the minimum boot time.
 
@@ -69,7 +97,7 @@ def _test_microvm_boottime(
     assert microvm.api_session.is_good_response(response.status_code)
 
     microvm.start()
-    time.sleep(0.4)
+    time.sleep(0.25 + time_limit_us / 1000000.0)
     lines = log_fifo.sequential_reader(20)
 
     boot_time_us = 0
@@ -79,5 +107,5 @@ def _test_microvm_boottime(
             boot_time_us = int(timestamps[0])
 
     assert boot_time_us > 0
-    assert boot_time_us < MAX_BOOT_TIME_US
+    assert boot_time_us < time_limit_us
     return boot_time_us
