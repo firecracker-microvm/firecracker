@@ -3,6 +3,7 @@
 """Tests that ensure the correctness of the Firecracker API."""
 
 import os
+import time
 
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
@@ -629,6 +630,45 @@ def test_api_actions(test_microvm_with_api):
     )
     assert not test_microvm.api_session.is_good_response(response.status_code)
     assert "Invalid block device ID" in response.text
+
+
+def test_send_ctrl_alt_del(test_microvm_with_atkbd):
+    """Test shutting down the microVM gracefully, by sending CTRL+ALT+DEL.
+
+    This relies on i8042 and AT Keyboard support being present in the guest
+    kernel.
+    """
+    test_microvm = test_microvm_with_atkbd
+    test_microvm.spawn()
+
+    test_microvm.basic_config()
+    test_microvm.start()
+
+    # Wait around for the guest to boot up and initialize the user space
+    time.sleep(2)
+
+    response = test_microvm.actions.put(
+        action_type='SendCtrlAltDel'
+    )
+    assert test_microvm.api_session.is_good_response(response.status_code)
+
+    firecracker_pid = test_microvm.jailer_clone_pid
+
+    # If everyting goes as expected, the guest OS will issue a reboot,
+    # causing Firecracker to exit.
+    # We'll keep poking Firecracker for at most 30 seconds, waiting for it
+    # to die.
+    start_time = time.time()
+    shutdown_ok = False
+    while time.time() - start_time < 30:
+        try:
+            os.kill(firecracker_pid, 0)
+            time.sleep(0.01)
+        except OSError:
+            shutdown_ok = True
+            break
+
+    assert shutdown_ok
 
 
 def _drive_patch(test_microvm):
