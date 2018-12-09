@@ -18,6 +18,7 @@ use hyper::{Body, Method, Response, StatusCode};
 use http_service::{empty_response, json_fault_message, json_response};
 use vmm::{ErrorKind, OutcomeReceiver, VmmAction, VmmActionError, VmmData};
 
+#[derive(Debug)]
 pub enum ParsedRequest {
     GetInstanceInfo,
     GetMMDS,

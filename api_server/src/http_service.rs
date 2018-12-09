@@ -109,6 +109,7 @@ pub fn json_fault_message<T: AsRef<str>>(msg: T) -> String {
     basic_json_body("fault_message", msg)
 }
 
+#[derive(Debug)]
 enum Error<'a> {
     // A generic error, with a given status code and message to be turned into a fault message.
     Generic(StatusCode, String),
@@ -514,98 +515,105 @@ impl Service for ApiServerHttpService {
         // The request body is itself a future (a stream of Chunks to be more precise),
         // so we have to define a future that waits for all the pieces first (via concat2),
         // and then does something with the newly available body (via and_then).
-        Box::new(req.into_body().concat2().map_err(ServiceError::Hyper).and_then(move |b: Chunk| {
+        let body = req.into_body().concat2().map_err(ServiceError::Hyper);
+        let response = body.and_then(move |b: Chunk| {
             // When this will be executed, the body is available. We start by parsing the request.
             match parse_request(method, path.as_ref(), &b) {
                 Ok(parsed_req) => match parsed_req {
                     GetInstanceInfo => {
-                        METRICS.get_api_requests.instance_info_count.inc();
-
-                        // unwrap() to crash if the other thread poisoned this lock
-                        let shared_info = shared_info_lock
-                            .read()
-                            .expect("Failed to read shared_info due to poisoned lock");
-                        // Serialize it to a JSON string.
-                        let body_result = serde_json::to_string(&(*shared_info));
-                        match body_result {
-                            Ok(body) => Either::A(future::ok(json_response(StatusCode::OK, body))),
-                            Err(e) => {
-                                // This is an api server metrics as the shared info is obtained internally.
-                                METRICS.get_api_requests.instance_info_fails.inc();
-                                Either::A(future::ok(json_response(
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    json_fault_message(e.to_string()),
-                                )))
+                            METRICS.get_api_requests.instance_info_count.inc();
+                            // unwrap() to crash if the other thread poisoned this lock
+                            let shared_info = shared_info_lock
+                                .read()
+                                .expect("Failed to read shared_info due to poisoned lock");
+                            // Serialize it to a JSON string.
+                            let body_result = serde_json::to_string(&(*shared_info));
+                            match body_result {
+                                Ok(body) => {
+                                    Either::A(future::ok(json_response(StatusCode::OK, body)))
+                                }
+                                Err(e) => {
+                                    // This is an api server metrics as the shared info is obtained internally.
+                                    METRICS.get_api_requests.instance_info_fails.inc();
+                                    Either::A(future::ok(json_response(
+                                        StatusCode::INTERNAL_SERVER_ERROR,
+                                        json_fault_message(e.to_string()),
+                                    )))
+                                }
                             }
-                        }
-                    }
+                        },
                     PatchMMDS(json_value) => {
-                        let mut mmds = mmds_info
-                            .lock()
-                            .expect("Failed to acquire lock on MMDS info");
-                        match mmds.is_initialized() {
-                            true => {
+                            let mut mmds = mmds_info
+                                .lock()
+                                .expect("Failed to acquire lock on MMDS info");
+                            if mmds.is_initialized() {
                                 mmds.patch_data(json_value);
                                 Either::A(future::ok(empty_response(StatusCode::NO_CONTENT)))
+                            } else {
+                                Either::A(future::ok(json_response(
+                                    StatusCode::OK,
+                                    mmds_info.lock().unwrap().get_data_str(),
+                                )))
                             }
-                            GetMMDS => Either::A(future::ok(json_response(
-                                StatusCode::OK,
-                                mmds_info.lock().unwrap().get_data_str(),
-                            ))),
-                        }
-                    }
+                        },
                     PutMMDS(json_value) => {
-                        mmds_info
-                            .lock()
-                            .expect("Failed to acquire lock on MMDS info")
-                            .put_data(json_value);
-                        Either::A(future::ok(empty_response(StatusCode::NoContent)))
-                    }
-                    GetMMDS => Either::A(future::ok(json_response(
-                        StatusCode::Ok,
-                        mmds_info
-                            .lock()
-                            .expect("Failed to acquire lock on MMDS info")
-                            .get_data_str(),
-                    ))),
+                            mmds_info
+                                .lock()
+                                .expect("Failed to acquire lock on MMDS info")
+                                .put_data(json_value);
+                            Either::A(future::ok(empty_response(StatusCode::NO_CONTENT)))
+                        },
+                    GetMMDS => {
+                            let info = mmds_info
+                                .lock()
+                                .expect("Failed to acquire lock on MMDS info")
+                                .get_data_str();
+                            Either::A(future::ok(json_response(StatusCode::OK, info)))
+                        },
                     Sync(sync_req, outcome_receiver) => {
-                        if send_to_vmm(sync_req, api_request_sender, &vmm_send_event).is_err() {
-                            METRICS.api_server.sync_vmm_send_timeout_count.inc();
-                            return Either::A(future::err(ServiceError::Generic));
+                            if send_to_vmm(sync_req, api_request_sender, &vmm_send_event).is_err() {
+                                METRICS.api_server.sync_vmm_send_timeout_count.inc();
+                                return Either::A(future::err(ServiceError::Generic));
+                            }
+
+                            // metric-logging related variables for being able to log response details
+                            let b_str = String::from_utf8_lossy(&b.to_vec()).to_string();
+                            let b_str_err = String::from_utf8_lossy(&b.to_vec()).to_string();
+                            let path_copy = path.clone();
+                            let path_copy_err = path_copy.clone();
+                            let method_copy_err = method_copy.clone();
+
+                            info!("Sent {}", describe(&method_copy, &path, &b_str));
+
+                            // Sync requests don't receive a response until the outcome is returned.
+                            // Once more, this just registers a closure to run when the result is
+                            // available.
+                            Either::B(
+                                outcome_receiver
+                                    .map(move |x| {
+                                        info!(
+                                            "Received Success on {}",
+                                            describe(&method_copy, &path_copy, &b_str)
+                                        );
+                                        x.generate_response()
+                                    })
+                                    .map_err(move |e| {
+                                        info!(
+                                            "Received Error on {}",
+                                            describe(&method_copy_err, &path_copy_err, &b_str_err)
+                                        );
+                                        METRICS.api_server.sync_outcome_fails.inc();
+                                        ServiceError::CanceledFuture(e)
+                                    }),
+                            )
                         }
-
-                        // metric-logging related variables for being able to log response details
-                        let b_str = String::from_utf8_lossy(&b.to_vec()).to_string();
-                        let b_str_err = String::from_utf8_lossy(&b.to_vec()).to_string();
-                        let path_copy = path.clone();
-                        let path_copy_err = path_copy.clone();
-                        let method_copy_err = method_copy.clone();
-
-                        info!("Sent {}", describe(&method_copy, &path, &b_str));
-
-                        // Sync requests don't receive a response until the outcome is returned.
-                        // Once more, this just registers a closure to run when the result is
-                        // available.
-                        Either::B(
-                            outcome_receiver
-                                .map(move |x| {
-                                    info!(
-                                        "Received Success on {}",
-                                        describe(&method_copy, &path_copy, &b_str)
-                                    );
-                                    x.generate_response()
-                                }).map_err(move |e| {
-                                    info!(
-                                        "Received Error on {}",
-                                        describe(&method_copy_err, &path_copy_err, &b_str_err)
-                                    );
-                                    METRICS.api_server.sync_outcome_fails.inc();
-                                    ServiceError::CanceledFuture(e)
-                                }),
-                        )
-                    }
-                }),
-        )
+                },
+                Err(e) => {
+                    Either::A(future::ok(e.into()))
+                }
+            }
+        });
+        Box::from(response)
     }
 }
 
@@ -836,13 +844,14 @@ mod tests {
         // Test PUT with invalid path.
         let path = "/foo/bar/baz";
         let expected_err = Error::InvalidPathMethod(path, Method::PUT);
-        assert!(parse_actions_req(path, Method::PUT, &Chunk::from("foo")) == Err(expected_err));
+        assert_eq!(parse_actions_req(path, Method::PUT, &Chunk::from("foo")),
+                   Err(expected_err));
 
         // Test PUT with invalid action body (serde erorr).
         let actions_path = "/actions";
-        assert!(
-            parse_actions_req(actions_path, Method::PUT, &Chunk::from("foo"))
-                == Err(Error::SerdeJson(get_dummy_serde_error()))
+        assert_eq!(
+            parse_actions_req(actions_path, Method::PUT, &Chunk::from("foo")),
+            Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Test PUT BadRequest due to invalid payload.
@@ -856,18 +865,20 @@ mod tests {
                 "foo": "bar"
             }
         }"#;
-        assert!(
-            parse_actions_req(actions_path, Method::PUT, &Chunk::from(body)) == Err(expected_err)
+        assert_eq!(
+            parse_actions_req(actions_path, Method::PUT, &Chunk::from(body)),
+            Err(expected_err)
         );
 
         // Test invalid method.
         let expected_err = Error::InvalidPathMethod(actions_path, Method::POST);
-        assert!(
+        assert_eq!(
             parse_actions_req(
                 actions_path,
                 Method::POST,
                 &Chunk::from("{\"action_type\": \"InstanceStart\"}")
-            ) == Err(expected_err)
+            ),
+            Err(expected_err)
         );
     }
 
@@ -900,22 +911,22 @@ mod tests {
         // Test case for invalid path.
         let dummy_path = "/boot-source/dummy";
         let expected_err = Error::InvalidPathMethod(dummy_path, Method::PUT);
-        assert!(
-            parse_boot_source_req(dummy_path, Method::PUT, &Chunk::from(boot_source_json))
-                == Err(expected_err)
+        assert_eq!(
+            parse_boot_source_req(dummy_path, Method::PUT, &Chunk::from(boot_source_json)),
+            Err(expected_err)
         );
 
         // Test case for invalid method (GET).
         let expected_err = Error::InvalidPathMethod(boot_source_path, Method::GET);
-        assert!(
-            parse_boot_source_req(boot_source_path, Method::GET, &Chunk::from("{}"))
-                == Err(expected_err)
+        assert_eq!(
+            parse_boot_source_req(boot_source_path, Method::GET, &Chunk::from("{}")),
+            Err(expected_err)
         );
 
         // Test case for invalid body (serde  error).
-        assert!(
-            parse_boot_source_req(boot_source_path, Method::PUT, &Chunk::from("foo"))
-                == Err(Error::SerdeJson(get_dummy_serde_error()))
+        assert_eq!(
+            parse_boot_source_req(boot_source_path, Method::PUT, &Chunk::from("foo")),
+            Err(Error::SerdeJson(get_dummy_serde_error()))
         );
     }
 
@@ -955,21 +966,18 @@ mod tests {
             String::from("The id from the path does not match the id from the body!"),
         ));
         let path = "/drives/invalid_id";
-        assert!(parse_drives_req(path, Method::PUT, &body) == expected_error);
+        assert_eq!(parse_drives_req(path, Method::PUT, &body), expected_error);
 
         // Serde Error: Payload does not serialize to BlockDeviceConfig struct.
-        assert!(
-            parse_drives_req(valid_drive_path, Method::PUT, &Chunk::from("dummy_payload"))
-                == Err(Error::SerdeJson(get_dummy_serde_error()))
-        );
+        assert_eq!(parse_drives_req(valid_drive_path, Method::PUT, &Chunk::from("dummy_payload")), Err(Error::SerdeJson(get_dummy_serde_error())));
 
         // Test Case for invalid path (path does not contain the id).
-        assert!(parse_drives_req("/foo", Method::PUT, &body) == Err(Error::EmptyID));
+        assert_eq!(parse_drives_req("/foo", Method::PUT, &body), Err(Error::EmptyID));
 
         // Test Case for invalid path (more than 2 tokens in path).
         let path = "/a/b/c";
         let expected_error = Err(Error::InvalidPathMethod(path, Method::PUT));
-        assert!(parse_drives_req(path, Method::PUT, &body) == expected_error);
+        assert_eq!(parse_drives_req(path, Method::PUT, &body), expected_error);
 
         // PATCH
         let json = r#"{
@@ -1005,15 +1013,16 @@ mod tests {
         ));
         let path = "/drives/invalid_id";
 
-        assert!(parse_drives_req(path, Method::PATCH, &valid_body) == expected_error);
+        assert_eq!(parse_drives_req(path, Method::PATCH, &valid_body), expected_error);
 
         // Serde Error: Payload is an invalid JSON object.
-        assert!(
+        assert_eq!(
             parse_drives_req(
                 valid_drive_path,
                 Method::PATCH,
                 &Chunk::from("{drive_id: 1234}")
-            ) == Err(Error::SerdeJson(get_dummy_serde_error()))
+            ),
+            Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Deserializing to a BlockDeviceConfig should fail when mandatory fields are missing.
@@ -1025,7 +1034,7 @@ mod tests {
             String::from("Required key path_on_host not present in the json."),
         ));
         let body: Chunk = Chunk::from(json);
-        assert!(parse_drives_req("/foo/bar", Method::PATCH, &body) == expected_error);
+        assert_eq!(parse_drives_req("/foo/bar", Method::PATCH, &body), expected_error);
     }
 
     #[test]
@@ -1056,14 +1065,17 @@ mod tests {
 
         // Error cases
         // Error Case: Serde Deserialization fails due to invalid payload.
-        assert!(
-            parse_logger_req(logger_path, Method::PUT, &Chunk::from("foo"))
-                == Err(Error::SerdeJson(get_dummy_serde_error()))
+        assert_eq!(
+            parse_logger_req(logger_path, Method::PUT, &Chunk::from("foo")),
+            Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Error Case: Invalid path.
         let expected_err = Err(Error::InvalidPathMethod("/foo/bar", Method::PUT));
-        assert!(parse_logger_req(&"/foo/bar", Method::PUT, &Chunk::from("foo")) == expected_err);
+        assert_eq!(
+            parse_logger_req(&"/foo/bar", Method::PUT, &Chunk::from("foo")),
+            expected_err
+        );
     }
 
     #[test]
@@ -1071,7 +1083,7 @@ mod tests {
         let path = "/machine-config";
         let json = "{
                 \"vcpu_count\": 42,
-                \"mem_size_mib\": 102,
+                \"mem_size_mib\": 1025,
                 \"ht_enabled\": true,
                 \"cpu_template\": \"T2\"
               }";
@@ -1083,7 +1095,7 @@ mod tests {
         // Error Cases
         // Error Case: Invalid Path.
         let expected_err = Err(Error::InvalidPathMethod("/foo/bar", Method::GET));
-        assert!(parse_machine_config_req("/foo/bar", Method::GET, &body) == expected_err);
+        assert_eq!(parse_machine_config_req("/foo/bar", Method::GET, &body), expected_err);
 
         // PUT
         let vm_config = VmConfig {
@@ -1095,7 +1107,7 @@ mod tests {
 
         match vm_config.into_parsed_request(None, Method::PUT) {
             Ok(parsed_req) => match parse_machine_config_req(&path, Method::PUT, &body) {
-                Ok(other_parsed_req) => assert!(parsed_req.eq(&other_parsed_req)),
+                Ok(other_parsed_req) => assert_eq!(parsed_req, other_parsed_req),
                 _ => assert!(false),
             },
             _ => assert!(false),
@@ -1103,9 +1115,9 @@ mod tests {
 
         // Error cases
         // Error Case: Invalid payload (cannot deserialize the body into a VmConfig object).
-        assert!(
-            parse_machine_config_req(path, Method::PUT, &Chunk::from("foo bar"))
-                == Err(Error::SerdeJson(get_dummy_serde_error()))
+        assert_eq!(
+            parse_machine_config_req(path, Method::PUT, &Chunk::from("foo bar")),
+            Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Error Case: Invalid payload (payload is empty).
@@ -1113,7 +1125,10 @@ mod tests {
             StatusCode::BAD_REQUEST,
             String::from("Empty request."),
         ));
-        assert!(parse_machine_config_req(path, Method::PUT, &Chunk::from("{}")) == expected_err);
+        assert_eq!(
+            parse_machine_config_req(path, Method::PUT, &Chunk::from("{}")),
+            expected_err
+        );
     }
 
     #[test]
@@ -1154,18 +1169,21 @@ mod tests {
         ));
         let path = "/network-interfaces/invalid_id";
 
-        assert!(parse_netif_req(path, Method::PUT, &body) == expected_err);
+        assert_eq!(
+            parse_netif_req(path, Method::PUT, &body),
+            expected_err
+        );
 
         // Error Case: Invalid payload (cannot deserialize the body into a NetworkInterfaceBody object).
-        assert!(
-            parse_netif_req(path, Method::PUT, &Chunk::from("foo bar"))
-                == Err(Error::SerdeJson(get_dummy_serde_error()))
+        assert_eq!(
+            parse_netif_req(path, Method::PUT, &Chunk::from("foo bar")),
+            Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Error Case: Invalid Path.
-        assert!(
-            parse_netif_req(path, Method::PATCH, &body,)
-                == Err(Error::InvalidPathMethod(path, Method::PATCH))
+        assert_eq!(
+            parse_netif_req(path, Method::PATCH, &body),
+            Err(Error::InvalidPathMethod(path, Method::PATCH))
         )
     }
 
@@ -1212,23 +1230,23 @@ mod tests {
         // Test for invalid json on PUT
         let invalid_json = "\"latest\": {}}";
         let body = Chunk::from(invalid_json);
-        assert!(
-            parse_mmds_request(path, Method::PUT, &body)
-                == Err(Error::SerdeJson(get_dummy_serde_error()))
+        assert_eq!(
+            parse_mmds_request(path, Method::PUT, &body),
+            Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Test for invalid json on PATCH
         let invalid_json = "\"latest\": {}}";
         let body = Chunk::from(invalid_json);
-        assert!(
-            parse_mmds_request(path, Method::PATCH, &body)
-                == Err(Error::SerdeJson(get_dummy_serde_error()))
+        assert_eq!(
+            parse_mmds_request(path, Method::PATCH, &body),
+            Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
         // Test for invalid path
         let path = "/mmds/something";
         let expected_err = Err(Error::InvalidPathMethod(path, Method::GET));
-        assert!(parse_mmds_request(path, Method::GET, &body) == expected_err);
+        assert_eq!(parse_mmds_request(path, Method::GET, &body),expected_err);
     }
 
     #[test]
@@ -1286,12 +1304,12 @@ mod tests {
         let msj = describe(&Method::GET, &String::from("/foo/bar"), &body);
         assert_eq!(
             msj,
-            "synchronous Get request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+            "synchronous GET request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
         );
         let msj = describe(&Method::PUT, &String::from("/foo/bar"), &body);
         assert_eq!(
             msj,
-            "synchronous Put request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+            "synchronous PUT request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
         );
     }
 }

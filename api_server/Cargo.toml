@@ -19,6 +19,7 @@ sys_util = { path = "../sys_util" }
 vmm = { path = "../vmm" }
 
 [dev-dependencies]
+pretty_assertions = "^0.5"
 devices = { path = "../devices" }
 kernel = { path = "../kernel" }
 memory_model = { path = "../memory_model" }

@@ -17,6 +17,10 @@ extern crate mmds;
 extern crate sys_util;
 extern crate vmm;
 
+#[cfg(test)]
+#[macro_use]
+extern crate pretty_assertions;
+
 mod http_service;
 pub mod request;
 
@@ -28,9 +32,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use futures::Future;
 use hyper::server::conn::Http;
 use std::sync::mpsc::Sender;
-use tokio::reactor::Handle;
 use tokio::net::unix::UnixListener;
 use tokio::prelude::*;
+use tokio::reactor::Handle;
 use tokio::runtime::current_thread::Runtime;
 
 use http_service::ApiServerHttpService;
