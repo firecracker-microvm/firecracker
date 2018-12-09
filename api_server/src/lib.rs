@@ -25,11 +25,13 @@ use std::os::unix::io::FromRawFd;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
-use futures::{Future, Stream};
-use tokio::net::unix::UnixListener;
-use tokio::reactor::Handle;
+use futures::Future;
 use hyper::server::conn::Http;
 use std::sync::mpsc::Sender;
+use tokio::reactor::Handle;
+use tokio::net::unix::UnixListener;
+use tokio::prelude::*;
+use tokio::runtime::current_thread::Runtime;
 
 use http_service::ApiServerHttpService;
 use logger::{Metric, METRICS};
@@ -82,6 +84,9 @@ impl ApiServer {
         start_time_us: Option<u64>,
         start_time_cpu_us: Option<u64>,
     ) -> Result<()> {
+        let mut runtime = Runtime::new().unwrap();
+        let handle = runtime.handle();
+
         let listener = match path_or_fd {
             UnixDomainSocket::Path(path) => UnixListener::bind(path).map_err(Error::Io)?,
             UnixDomainSocket::Fd(fd) => {
@@ -89,8 +94,9 @@ impl ApiServer {
                 // previously bound UnixListener.
                 UnixListener::from_std(
                     unsafe { std::os::unix::net::UnixListener::from_raw_fd(fd) },
-                    &Handle::default(),
-                ).map_err(Error::Io)?
+                    &Handle::current(),
+                )
+                .map_err(Error::Io)?
             }
         };
 
@@ -122,22 +128,23 @@ impl ApiServer {
                     self.api_request_sender.clone(),
                     self.efd.clone(),
                 );
-                
-                let conn = http
-                    .serve_connection(stream, service)
-                    .map_err(|e| {
-                        error!("server connection error: {}", e);
-                    });
 
-                tokio::spawn(conn);
+                let conn = http.serve_connection(stream, service).map_err(|e| {
+                    error!("server connection error: {}", e);
+                });
+
+                handle
+                    .spawn(conn)
+                    .expect("Handle could not spawn new connection");
                 Ok(())
-            }).map_err(|_| ());
+            })
+            .map_err(|_| ());
 
         // This runs forever, unless an error is returned somewhere within f (but nothing happens
         // for errors which might arise inside the connections we spawn from f, unless we explicitly
         // do something in their future chain). When this returns, ongoing connections will be
         // interrupted, and other futures will not complete, as the event loop stops working.
-        tokio::run(f);
+        runtime.block_on(f).expect("runtime could not run service");
         Ok(())
     }
 

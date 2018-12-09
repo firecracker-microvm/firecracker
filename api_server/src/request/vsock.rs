@@ -41,17 +41,13 @@ mod tests {
             id: String::from("foo"),
             guest_cid: 42,
         };
-        assert!(
-            vsock
-                .clone()
-                .into_parsed_request(Some(String::from("bar")), Method::PUT)
-                .is_err()
-        );
-        assert!(
-            vsock
-                .clone()
-                .into_parsed_request(Some(String::from("foo")), Method::PUT)
-                .is_ok()
-        );
+        assert!(vsock
+            .clone()
+            .into_parsed_request(Some(String::from("bar")), Method::PUT)
+            .is_err());
+        assert!(vsock
+            .clone()
+            .into_parsed_request(Some(String::from("foo")), Method::PUT)
+            .is_ok());
     }
 }

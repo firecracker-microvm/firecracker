@@ -6,13 +6,13 @@ use std::str;
 use std::sync::{Arc, Mutex, RwLock};
 
 use futures::future::{self, Either};
-use futures::{Future, Stream, IntoFuture};
+use futures::{Future, IntoFuture, Stream};
 
-use std::sync::mpsc::Sender;
 use hyper::header::{HeaderMap, HeaderValue};
-use hyper::{self, Body, Chunk, Method, Request, Response, StatusCode};
 use hyper::service::Service;
+use hyper::{self, Body, Chunk, Method, Request, Response, StatusCode};
 use serde_json;
+use std::sync::mpsc::Sender;
 
 use logger::{Metric, METRICS};
 use mmds::data_store::Mmds;
@@ -156,7 +156,8 @@ fn parse_actions_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<
                 .map_err(|e| {
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|msg| {
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::Generic(StatusCode::BAD_REQUEST, msg)
@@ -188,7 +189,8 @@ fn parse_boot_source_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::Generic(StatusCode::BAD_REQUEST, s)
@@ -257,7 +259,8 @@ fn parse_drives_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
                     METRICS.patch_api_requests.drive_fails.inc();
                     Error::SerdeJson(e)
                 })?,
-            }.into_parsed_request(Some(id_from_path.to_string()), method)
+            }
+            .into_parsed_request(Some(id_from_path.to_string()), method)
             .map_err(|s| {
                 METRICS.patch_api_requests.drive_fails.inc();
                 Error::Generic(StatusCode::BAD_REQUEST, s)
@@ -279,7 +282,8 @@ fn parse_logger_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
                 .map_err(|e| {
                     METRICS.put_api_requests.logger_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.logger_fails.inc();
                     Error::Generic(StatusCode::BAD_REQUEST, s)
@@ -320,7 +324,8 @@ fn parse_machine_config_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BAD_REQUEST, s)
@@ -347,7 +352,8 @@ fn parse_netif_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a
                 .map_err(|e| {
                     METRICS.put_api_requests.network_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(Some(id_from_path.to_string()), method)
+                })?
+                .into_parsed_request(Some(id_from_path.to_string()), method)
                 .map_err(|s| {
                     METRICS.put_api_requests.network_fails.inc();
                     Error::Generic(StatusCode::BAD_REQUEST, s)
@@ -472,7 +478,6 @@ impl ApiServerHttpService {
     }
 }
 
-
 impl IntoFuture for ApiServerHttpService {
     type Future = future::FutureResult<Self::Item, Self::Error>;
     type Item = Self;
@@ -543,9 +548,9 @@ impl Service for ApiServerHttpService {
                                 mmds.patch_data(json_value);
                                 Either::A(future::ok(empty_response(StatusCode::NO_CONTENT)))
                             }
-                            false => Either::A(future::ok(json_response(
-                                StatusCode::NOT_FOUND,
-                                json_fault_message("The MMDS resource does not exist."),
+                            GetMMDS => Either::A(future::ok(json_response(
+                                StatusCode::OK,
+                                mmds_info.lock().unwrap().get_data_str(),
                             ))),
                         }
                     }
@@ -599,10 +604,8 @@ impl Service for ApiServerHttpService {
                                 }),
                         )
                     }
-                },
-                Err(e) => Either::A(future::ok(e.into())),
-            }
-        }))
+                }),
+        )
     }
 }
 
@@ -628,7 +631,10 @@ mod tests {
     use std::result;
 
     use futures::sync::oneshot;
-    use hyper::{Body, header::{HeaderMap, HeaderName, HeaderValue}};
+    use hyper::{
+        header::{HeaderMap, HeaderName, HeaderValue},
+        Body,
+    };
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm::VmmAction;
 
@@ -656,7 +662,8 @@ mod tests {
             .fold(Vec::new(), |mut acc, chunk| {
                 acc.extend_from_slice(&*chunk);
                 Ok::<_, hyper::Error>(acc)
-            }).and_then(move |value| Ok(value));
+            })
+            .and_then(move |value| Ok(value));
 
         String::from_utf8_lossy(
             &ret.wait()
@@ -692,13 +699,11 @@ mod tests {
         let content_type = HeaderName::from_static("content-type");
         let plain = HeaderValue::from_static("text/plain");
 
-        headers.insert(
-            &content_type,
-            plain.clone(),
-        );
+        headers.insert(&content_type, plain.clone());
 
         let body = String::from("This is a test");
-        let response = build_response_base::<String>(StatusCode::OK, Some(headers), Some(body.clone()));
+        let response =
+            build_response_base::<String>(StatusCode::OK, Some(headers), Some(body.clone()));
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers().len(), 1);
@@ -711,7 +716,10 @@ mod tests {
         let response = empty_response(StatusCode::OK);
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers().len(), 0);
-        assert_eq!(body_to_string(response.into_body()), body_to_string(Body::empty()));
+        assert_eq!(
+            body_to_string(response.into_body()),
+            body_to_string(Body::empty())
+        );
     }
 
     #[test]

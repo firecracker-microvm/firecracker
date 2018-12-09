@@ -66,11 +66,9 @@ mod tests {
             String::from("bar"),
             "12:34:56:78:9A:BC",
         );
-        assert!(
-            netif
-                .into_parsed_request(Some(String::from("bar")), Method::PUT)
-                .is_err()
-        );
+        assert!(netif
+            .into_parsed_request(Some(String::from("bar")), Method::PUT)
+            .is_err());
 
         let (sender, receiver) = oneshot::channel();
         let netif = get_dummy_netif(
@@ -84,14 +82,12 @@ mod tests {
             String::from("bar"),
             "12:34:56:78:9A:BC",
         );
-        assert!(
-            netif
-                .into_parsed_request(Some(String::from("foo")), Method::PUT)
-                .eq(&Ok(ParsedRequest::Sync(
-                    VmmAction::InsertNetworkDevice(netif_clone, sender),
-                    receiver
-                )))
-        );
+        assert!(netif
+            .into_parsed_request(Some(String::from("foo")), Method::PUT)
+            .eq(&Ok(ParsedRequest::Sync(
+                VmmAction::InsertNetworkDevice(netif_clone, sender),
+                receiver
+            ))));
     }
 
     #[test]
