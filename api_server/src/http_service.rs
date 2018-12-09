@@ -521,96 +521,92 @@ impl Service for ApiServerHttpService {
             match parse_request(method, path.as_ref(), &b) {
                 Ok(parsed_req) => match parsed_req {
                     GetInstanceInfo => {
-                            METRICS.get_api_requests.instance_info_count.inc();
-                            // unwrap() to crash if the other thread poisoned this lock
-                            let shared_info = shared_info_lock
-                                .read()
-                                .expect("Failed to read shared_info due to poisoned lock");
-                            // Serialize it to a JSON string.
-                            let body_result = serde_json::to_string(&(*shared_info));
-                            match body_result {
-                                Ok(body) => {
-                                    Either::A(future::ok(json_response(StatusCode::OK, body)))
-                                }
-                                Err(e) => {
-                                    // This is an api server metrics as the shared info is obtained internally.
-                                    METRICS.get_api_requests.instance_info_fails.inc();
-                                    Either::A(future::ok(json_response(
-                                        StatusCode::INTERNAL_SERVER_ERROR,
-                                        json_fault_message(e.to_string()),
-                                    )))
-                                }
-                            }
-                        },
-                    PatchMMDS(json_value) => {
-                            let mut mmds = mmds_info
-                                .lock()
-                                .expect("Failed to acquire lock on MMDS info");
-                            if mmds.is_initialized() {
-                                mmds.patch_data(json_value);
-                                Either::A(future::ok(empty_response(StatusCode::NO_CONTENT)))
-                            } else {
+                        METRICS.get_api_requests.instance_info_count.inc();
+                        // unwrap() to crash if the other thread poisoned this lock
+                        let shared_info = shared_info_lock
+                            .read()
+                            .expect("Failed to read shared_info due to poisoned lock");
+                        // Serialize it to a JSON string.
+                        let body_result = serde_json::to_string(&(*shared_info));
+                        match body_result {
+                            Ok(body) => Either::A(future::ok(json_response(StatusCode::OK, body))),
+                            Err(e) => {
+                                // This is an api server metrics as the shared info is obtained internally.
+                                METRICS.get_api_requests.instance_info_fails.inc();
                                 Either::A(future::ok(json_response(
-                                    StatusCode::OK,
-                                    mmds_info.lock().unwrap().get_data_str(),
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    json_fault_message(e.to_string()),
                                 )))
                             }
-                        },
-                    PutMMDS(json_value) => {
-                            mmds_info
-                                .lock()
-                                .expect("Failed to acquire lock on MMDS info")
-                                .put_data(json_value);
-                            Either::A(future::ok(empty_response(StatusCode::NO_CONTENT)))
-                        },
-                    GetMMDS => {
-                            let info = mmds_info
-                                .lock()
-                                .expect("Failed to acquire lock on MMDS info")
-                                .get_data_str();
-                            Either::A(future::ok(json_response(StatusCode::OK, info)))
-                        },
-                    Sync(sync_req, outcome_receiver) => {
-                            if send_to_vmm(sync_req, api_request_sender, &vmm_send_event).is_err() {
-                                METRICS.api_server.sync_vmm_send_timeout_count.inc();
-                                return Either::A(future::err(ServiceError::Generic));
-                            }
-
-                            // metric-logging related variables for being able to log response details
-                            let b_str = String::from_utf8_lossy(&b.to_vec()).to_string();
-                            let b_str_err = String::from_utf8_lossy(&b.to_vec()).to_string();
-                            let path_copy = path.clone();
-                            let path_copy_err = path_copy.clone();
-                            let method_copy_err = method_copy.clone();
-
-                            info!("Sent {}", describe(&method_copy, &path, &b_str));
-
-                            // Sync requests don't receive a response until the outcome is returned.
-                            // Once more, this just registers a closure to run when the result is
-                            // available.
-                            Either::B(
-                                outcome_receiver
-                                    .map(move |x| {
-                                        info!(
-                                            "Received Success on {}",
-                                            describe(&method_copy, &path_copy, &b_str)
-                                        );
-                                        x.generate_response()
-                                    })
-                                    .map_err(move |e| {
-                                        info!(
-                                            "Received Error on {}",
-                                            describe(&method_copy_err, &path_copy_err, &b_str_err)
-                                        );
-                                        METRICS.api_server.sync_outcome_fails.inc();
-                                        ServiceError::CanceledFuture(e)
-                                    }),
-                            )
                         }
+                    }
+                    PatchMMDS(json_value) => {
+                        let mut mmds = mmds_info
+                            .lock()
+                            .expect("Failed to acquire lock on MMDS info");
+                        if mmds.is_initialized() {
+                            mmds.patch_data(json_value);
+                            Either::A(future::ok(empty_response(StatusCode::NO_CONTENT)))
+                        } else {
+                            Either::A(future::ok(json_response(
+                                StatusCode::OK,
+                                mmds_info.lock().unwrap().get_data_str(),
+                            )))
+                        }
+                    }
+                    PutMMDS(json_value) => {
+                        mmds_info
+                            .lock()
+                            .expect("Failed to acquire lock on MMDS info")
+                            .put_data(json_value);
+                        Either::A(future::ok(empty_response(StatusCode::NO_CONTENT)))
+                    }
+                    GetMMDS => {
+                        let info = mmds_info
+                            .lock()
+                            .expect("Failed to acquire lock on MMDS info")
+                            .get_data_str();
+                        Either::A(future::ok(json_response(StatusCode::OK, info)))
+                    }
+                    Sync(sync_req, outcome_receiver) => {
+                        if send_to_vmm(sync_req, api_request_sender, &vmm_send_event).is_err() {
+                            METRICS.api_server.sync_vmm_send_timeout_count.inc();
+                            return Either::A(future::err(ServiceError::Generic));
+                        }
+
+                        // metric-logging related variables for being able to log response details
+                        let b_str = String::from_utf8_lossy(&b.to_vec()).to_string();
+                        let b_str_err = String::from_utf8_lossy(&b.to_vec()).to_string();
+                        let path_copy = path.clone();
+                        let path_copy_err = path_copy.clone();
+                        let method_copy_err = method_copy.clone();
+
+                        info!("Sent {}", describe(&method_copy, &path, &b_str));
+
+                        // Sync requests don't receive a response until the outcome is returned.
+                        // Once more, this just registers a closure to run when the result is
+                        // available.
+                        Either::B(
+                            outcome_receiver
+                                .map(move |x| {
+                                    info!(
+                                        "Received Success on {}",
+                                        describe(&method_copy, &path_copy, &b_str)
+                                    );
+                                    x.generate_response()
+                                })
+                                .map_err(move |e| {
+                                    info!(
+                                        "Received Error on {}",
+                                        describe(&method_copy_err, &path_copy_err, &b_str_err)
+                                    );
+                                    METRICS.api_server.sync_outcome_fails.inc();
+                                    ServiceError::CanceledFuture(e)
+                                }),
+                        )
+                    }
                 },
-                Err(e) => {
-                    Either::A(future::ok(e.into()))
-                }
+                Err(e) => Either::A(future::ok(e.into())),
             }
         });
         Box::from(response)
@@ -676,7 +672,8 @@ mod tests {
         String::from_utf8_lossy(
             &ret.wait()
                 .expect("Couldn't convert request body into String due to Future polling failure"),
-        ).into()
+        )
+        .into()
     }
 
     fn get_dummy_serde_error() -> serde_json::Error {
@@ -844,8 +841,10 @@ mod tests {
         // Test PUT with invalid path.
         let path = "/foo/bar/baz";
         let expected_err = Error::InvalidPathMethod(path, Method::PUT);
-        assert_eq!(parse_actions_req(path, Method::PUT, &Chunk::from("foo")),
-                   Err(expected_err));
+        assert_eq!(
+            parse_actions_req(path, Method::PUT, &Chunk::from("foo")),
+            Err(expected_err)
+        );
 
         // Test PUT with invalid action body (serde erorr).
         let actions_path = "/actions";
@@ -969,10 +968,16 @@ mod tests {
         assert_eq!(parse_drives_req(path, Method::PUT, &body), expected_error);
 
         // Serde Error: Payload does not serialize to BlockDeviceConfig struct.
-        assert_eq!(parse_drives_req(valid_drive_path, Method::PUT, &Chunk::from("dummy_payload")), Err(Error::SerdeJson(get_dummy_serde_error())));
+        assert_eq!(
+            parse_drives_req(valid_drive_path, Method::PUT, &Chunk::from("dummy_payload")),
+            Err(Error::SerdeJson(get_dummy_serde_error()))
+        );
 
         // Test Case for invalid path (path does not contain the id).
-        assert_eq!(parse_drives_req("/foo", Method::PUT, &body), Err(Error::EmptyID));
+        assert_eq!(
+            parse_drives_req("/foo", Method::PUT, &body),
+            Err(Error::EmptyID)
+        );
 
         // Test Case for invalid path (more than 2 tokens in path).
         let path = "/a/b/c";
@@ -1013,7 +1018,10 @@ mod tests {
         ));
         let path = "/drives/invalid_id";
 
-        assert_eq!(parse_drives_req(path, Method::PATCH, &valid_body), expected_error);
+        assert_eq!(
+            parse_drives_req(path, Method::PATCH, &valid_body),
+            expected_error
+        );
 
         // Serde Error: Payload is an invalid JSON object.
         assert_eq!(
@@ -1034,7 +1042,10 @@ mod tests {
             String::from("Required key path_on_host not present in the json."),
         ));
         let body: Chunk = Chunk::from(json);
-        assert_eq!(parse_drives_req("/foo/bar", Method::PATCH, &body), expected_error);
+        assert_eq!(
+            parse_drives_req("/foo/bar", Method::PATCH, &body),
+            expected_error
+        );
     }
 
     #[test]
@@ -1095,7 +1106,10 @@ mod tests {
         // Error Cases
         // Error Case: Invalid Path.
         let expected_err = Err(Error::InvalidPathMethod("/foo/bar", Method::GET));
-        assert_eq!(parse_machine_config_req("/foo/bar", Method::GET, &body), expected_err);
+        assert_eq!(
+            parse_machine_config_req("/foo/bar", Method::GET, &body),
+            expected_err
+        );
 
         // PUT
         let vm_config = VmConfig {
@@ -1169,10 +1183,7 @@ mod tests {
         ));
         let path = "/network-interfaces/invalid_id";
 
-        assert_eq!(
-            parse_netif_req(path, Method::PUT, &body),
-            expected_err
-        );
+        assert_eq!(parse_netif_req(path, Method::PUT, &body), expected_err);
 
         // Error Case: Invalid payload (cannot deserialize the body into a NetworkInterfaceBody object).
         assert_eq!(
@@ -1246,7 +1257,7 @@ mod tests {
         // Test for invalid path
         let path = "/mmds/something";
         let expected_err = Err(Error::InvalidPathMethod(path, Method::GET));
-        assert_eq!(parse_mmds_request(path, Method::GET, &body),expected_err);
+        assert_eq!(parse_mmds_request(path, Method::GET, &body), expected_err);
     }
 
     #[test]
