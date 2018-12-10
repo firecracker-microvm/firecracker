@@ -185,9 +185,11 @@ impl Kvm {
             // Safe because we verify the value of ret and we are the owners of the fd.
             let vm_file = unsafe { File::from_raw_fd(ret) };
             let run_mmap_size = self.get_vcpu_mmap_size()?;
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             let kvm_cpuid: CpuId = self.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)?;
             Ok(VmFd {
                 vm: vm_file,
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 supported_cpuid: kvm_cpuid,
                 run_size: run_mmap_size,
             })
@@ -222,11 +224,13 @@ impl Into<u64> for NoDatamatch {
 /// A wrapper around creating and using a VM.
 pub struct VmFd {
     vm: File,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     supported_cpuid: CpuId,
     run_size: usize,
 }
 
 impl VmFd {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Returns a clone of the system supported CPUID values associated with this VmFd
     ///
     pub fn get_supported_cpuid(&self) -> CpuId {
