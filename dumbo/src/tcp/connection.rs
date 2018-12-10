@@ -113,11 +113,16 @@ pub enum WriteNextError {
 
 // This generates pseudo random u32 numbers based on the current timestamp. Only works for x86_64,
 // but can find something else if we ever need to support different architectures.
-#[cfg(target_arch = "x86_64")]
 fn xor_rng_u32() -> u32 {
-    // Safe because there's nothing that can go wrong with this call.
-    let mut t = unsafe { std::arch::x86_64::_rdtsc() } as u32;
-
+    let mut t: u32 = {
+        #[cfg(target_arch = "x86_64")]
+        // Safe because there's nothing that can go wrong with this call.
+        unsafe {
+            std::arch::x86_64::_rdtsc() as u32
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        0
+    };
     // Taken from https://en.wikipedia.org/wiki/Xorshift
     t ^= t << 13;
     t ^= t >> 17;
@@ -1785,5 +1790,12 @@ pub(crate) mod tests {
         // At this point, the connection should be done, because we both sent and received a FIN,
         // and we don't wait for our FIN to be ACKed.
         assert!(c.is_done());
+    }
+
+    #[test]
+    fn test_xor_rng_u32() {
+        for _ in 0..1000 {
+            assert_ne!(xor_rng_u32(), xor_rng_u32());
+        }
     }
 }
