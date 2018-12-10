@@ -20,6 +20,7 @@ extern crate serde_json;
 extern crate time;
 extern crate timerfd;
 
+#[cfg(target_arch = "x86_64")]
 extern crate cpuid;
 extern crate devices;
 extern crate fc_util;
@@ -873,6 +874,7 @@ impl Vmm {
                 &self.legacy_device_manager.com_evt_2_4,
             )
             .map_err(|e| StartMicrovmError::ConfigureVm(e))?;
+        #[cfg(target_arch = "x86_64")]
         self.vm
             .create_pit()
             .map_err(|e| StartMicrovmError::ConfigureVm(e))?;

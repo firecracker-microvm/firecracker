@@ -15,7 +15,6 @@ time = ">=0.1.39"
 timerfd = ">=1.0"
 
 arch = { path = "../arch" }
-cpuid = { path = "../cpuid" }
 devices = { path = "../devices" }
 fc_util = { path = "../fc_util" }
 kernel = { path = "../kernel" }
@@ -27,6 +26,9 @@ net_util = { path = "../net_util"}
 rate_limiter = { path = "../rate_limiter" }
 seccomp = { path = "../seccomp" }
 sys_util = { path = "../sys_util" }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+cpuid = { path = "../cpuid" }
 
 [dev-dependencies]
 tempfile = ">=3.0.2"

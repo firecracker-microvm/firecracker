@@ -13,19 +13,25 @@ extern crate sys_util;
 use std::result;
 
 use super::KvmContext;
+#[cfg(target_arch = "x86_64")]
 use cpuid::{c3_template, filter_cpuid, t2_template};
 use kvm::*;
 use logger::{LogOption, LOGGER};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
-use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
+#[cfg(target_arch = "x86_64")]
+use vmm_config::machine_config::CpuFeaturesTemplate;
+use vmm_config::machine_config::VmConfig;
 
 const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
 pub enum Error {
+    #[cfg(target_arch = "x86_64")]
+    /// A call to cpuid instruction failed.
+    CpuId(cpuid::Error),
     /// Invalid guest memory configuration.
     GuestMemory(GuestMemoryError),
     /// Hyperthreading flag is not initialized.
@@ -90,8 +96,7 @@ impl Vm {
         })
     }
 
-    /// Initializes the guest memory. Currently this is x86 specific
-    /// because of the TSS address setup.
+    /// Initializes the guest memory.
     pub fn memory_init(&mut self, guest_mem: GuestMemory, kvm_context: &KvmContext) -> Result<()> {
         if guest_mem.num_regions() > kvm_context.max_memslots() {
             return Err(Error::NotEnoughMemorySlots);
@@ -133,6 +138,7 @@ impl Vm {
         Ok(())
     }
 
+    #[cfg(target_arch = "x86_64")]
     /// Creates an in-kernel device model for the PIT.
     pub fn create_pit(&self) -> Result<()> {
         self.fd.create_pit2().map_err(Error::VmSetup)?;
@@ -156,6 +162,7 @@ impl Vm {
 
 /// A wrapper around creating and using a kvm-based VCPU.
 pub struct Vcpu {
+    #[cfg(target_arch = "x86_64")]
     cpuid: CpuId,
     fd: VcpuFd,
     id: u8,
@@ -164,24 +171,29 @@ pub struct Vcpu {
 impl Vcpu {
     /// Constructs a new VCPU for `vm`.
     ///
-    /// The `id` argument is the CPU number between [0, max vcpus).
+    /// # Arguments
+    ///
+    /// * `id` - Represents the CPU number between [0, max vcpus).
+    /// * `vm` - The virtual machine this vcpu will get attached to.
     pub fn new(id: u8, vm: &Vm) -> Result<Self> {
         let kvm_vcpu = vm.fd.create_vcpu(id).map_err(Error::VcpuFd)?;
-        // Initially the cpuid per vCPU is the one supported by this VM
+        // Initially the cpuid per vCPU is the one supported by this VM.
         Ok(Vcpu {
-            fd: kvm_vcpu,
+            #[cfg(target_arch = "x86_64")]
             cpuid: vm.fd.get_supported_cpuid(),
+            fd: kvm_vcpu,
             id,
         })
     }
 
     #[cfg(target_arch = "x86_64")]
-    /// Configures the vcpu and should be called once per vcpu from the vcpu's thread.
+    /// Configures a x86_64 specific vcpu and should be called once per vcpu from the vcpu's thread.
     ///
     /// # Arguments
     ///
-    /// * `kernel_load_offset` - Offset from `guest_mem` at which the kernel starts.
-    /// nr cpus is required for checking populating the kvm_cpuid2 entry for ebx and edx registers
+    /// * `machine_config` - Specifies necessary info used for the CPUID configuration.
+    /// * `kernel_start_addr` - Offset from `guest_mem` at which the kernel starts.
+    /// * `vm` - The virtual machine this vcpu will get attached to.
     pub fn configure(
         &mut self,
         machine_config: &VmConfig,
@@ -285,7 +297,7 @@ mod tests {
         assert_eq!(read_val, 67u8);
     }
 
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_configure_vcpu() {
         let kvm_fd = Kvm::new().unwrap();
