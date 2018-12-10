@@ -298,6 +298,7 @@ impl KvmContext {
         check_cap(&kvm, Cap::Ioeventfd)?;
         check_cap(&kvm, Cap::Irqfd)?;
         // check_cap(&kvm, Cap::ImmediateExit)?;
+        #[cfg(target_arch = "x86_64")]
         check_cap(&kvm, Cap::SetTssAddr)?;
         check_cap(&kvm, Cap::UserMemory)?;
 
