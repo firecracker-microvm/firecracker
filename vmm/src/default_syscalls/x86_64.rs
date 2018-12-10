@@ -1,15 +1,13 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-extern crate libc;
-extern crate sys_util;
-
 use seccomp::{
     setup_seccomp, Error, SeccompAction, SeccompCmpOp, SeccompCondition, SeccompFilterContext,
     SeccompLevel, SeccompRule, SECCOMP_LEVEL_ADVANCED, SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
 };
 
-/// List of allowed syscalls, necessary for Firecracker to function correctly.
+/// List of allowed syscalls necessary for correct functioning on x86_64 architectures.
+/// Taken from the musl repo (i.e arch/x86_64/bits/syscall.h).
 pub const ALLOWED_SYSCALLS: &[i64] = &[
     libc::SYS_accept,
     libc::SYS_clock_gettime,
@@ -38,17 +36,17 @@ pub const ALLOWED_SYSCALLS: &[i64] = &[
     libc::SYS_writev,
 ];
 
-// See /usr/include/x86_64-linux-gnu/sys/epoll.h
+// See include/uapi/linux/eventpoll.h in the kernel code.
 const EPOLL_CTL_ADD: u64 = 1;
 const EPOLL_CTL_DEL: u64 = 2;
 
-// See /usr/include/x86_64-linux-gnu/bits/fcntl-linux.h
+// See include/uapi/asm-generic/fcntl.h in the kernel code.
 const O_RDONLY: u64 = 0x00000000;
 const O_RDWR: u64 = 0x00000002;
 const O_NONBLOCK: u64 = 0x00004000;
 const O_CLOEXEC: u64 = 0x02000000;
 
-// See /usr/include/linux/futex.h
+// See include/uapi/linux/futex.h in the kernel code.
 const FUTEX_WAIT: u64 = 0;
 const FUTEX_WAKE: u64 = 1;
 const FUTEX_REQUEUE: u64 = 3;
@@ -57,14 +55,14 @@ const FUTEX_WAIT_PRIVATE: u64 = FUTEX_WAIT | FUTEX_PRIVATE_FLAG;
 const FUTEX_WAKE_PRIVATE: u64 = FUTEX_WAKE | FUTEX_PRIVATE_FLAG;
 const FUTEX_REQUEUE_PRIVATE: u64 = FUTEX_REQUEUE | FUTEX_PRIVATE_FLAG;
 
-// See /usr/include/asm-generic/ioctls.h
+// See include/uapi/asm-generic/ioctls.h in the kernel code.
 const TCGETS: u64 = 0x5401;
 const TCSETS: u64 = 0x5402;
 const TIOCGWINSZ: u64 = 0x5413;
 const FIOCLEX: u64 = 0x5451;
 const FIONBIO: u64 = 0x5421;
 
-// See /usr/include/linux/kvm.h
+// See include/uapi/linux/if_tun.h in the kernel code.
 const KVM_GET_API_VERSION: u64 = 0xae00;
 const KVM_CREATE_VM: u64 = 0xae01;
 const KVM_CHECK_EXTENSION: u64 = 0xae03;
@@ -88,15 +86,17 @@ const KVM_GET_SREGS: u64 = 0x8138ae83;
 const KVM_GET_LAPIC: u64 = 0x8400ae8e;
 const KVM_GET_SUPPORTED_CPUID: u64 = 0xc008ae05;
 
-// See /usr/include/linux/if_tun.h
+// See include/uapi/linux/if_tun.h in the kernel code.
 const TUNSETIFF: u64 = 0x400454ca;
 const TUNSETOFFLOAD: u64 = 0x400454d0;
 const TUNSETVNETHDRSZ: u64 = 0x400454d8;
 
-// See /usr/include/asm-generic/mman-common.h and /usr/include/asm-generic/mman.h
+// See include/uapi/asm-generic/mman-common.h in the kernel code.
 const PROT_NONE: u64 = 0x0;
 const PROT_READ: u64 = 0x1;
 const PROT_WRITE: u64 = 0x2;
+
+// See include/uapi/asm-generic/mman.h in the kernel code.
 const MAP_SHARED: u64 = 0x01;
 const MAP_PRIVATE: u64 = 0x02;
 const MAP_ANONYMOUS: u64 = 0x20;
@@ -529,7 +529,7 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
                         vec![SeccompCondition::new(
                             1,
                             SeccompCmpOp::Eq,
-                            sys_util::validate_signal_num(super::VCPU_RTSIG_OFFSET, true)
+                            sys_util::validate_signal_num(super::super::VCPU_RTSIG_OFFSET, true)
                                 .map_err(|_| Error::InvalidArgumentNumber)?
                                 as u64,
                         )?],
