@@ -16,11 +16,6 @@ use std::mem;
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
 use memory_model::{GuestAddress, GuestMemory};
 
-// Where BIOS/VGA magic would live on a real PC.
-const EBDA_START: u64 = 0x9fc00;
-const FIRST_ADDR_PAST_32BITS: usize = (1 << 32);
-const MEM_32BIT_GAP_SIZE: usize = (768 << 20);
-
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// Invalid e820 setup params.
@@ -28,6 +23,17 @@ pub enum Error {
     /// Error writing MP table to memory.
     MpTableSetup(mptable::Error),
 }
+
+impl From<Error> for super::Error {
+    fn from(e: Error) -> super::Error {
+        super::Error::X86_64Setup(e)
+    }
+}
+
+// Where BIOS/VGA magic would live on a real PC.
+const EBDA_START: u64 = 0x9fc00;
+const FIRST_ADDR_PAST_32BITS: usize = (1 << 32);
+const MEM_32BIT_GAP_SIZE: usize = (768 << 20);
 
 /// Returns a Vec of the valid memory addresses.
 /// These should be used to configure the GuestMemory structure for the platform.
