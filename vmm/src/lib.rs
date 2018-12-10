@@ -61,7 +61,6 @@ use std::time::Duration;
 use libc::{c_void, siginfo_t};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
-use arch::x86_64;
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio;
@@ -822,7 +821,7 @@ impl Vmm {
                 memory_model::GuestMemoryError::MemoryNotInitialized,
             ))?
             << 20;
-        let arch_mem_regions = x86_64::arch_memory_regions(mem_size);
+        let arch_mem_regions = arch::arch_memory_regions(mem_size);
         self.guest_memory =
             Some(GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?);
         Ok(())
@@ -842,11 +841,11 @@ impl Vmm {
             .ok_or(StartMicrovmError::GuestMemory(
                 memory_model::GuestMemoryError::MemoryNotInitialized,
             ))?;
+
         // Instantiate the MMIO device manager.
-        // 'mmio_base' address has to be an address which is protected by the kernel, in this case
-        // the start of the x86 specific gap of memory (currently hardcoded at 768MiB).
+        // 'mmio_base' address has to be an address which is protected by the kernel.
         let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
 
         self.attach_block_devices(&mut device_manager)?;
         self.attach_net_devices(&mut device_manager)?;
@@ -1105,7 +1104,7 @@ impl Vmm {
             .vm_config
             .vcpu_count
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
-        x86_64::configure_system(
+        arch::configure_system(
             vm_memory,
             kernel_config.cmdline_addr,
             cmdline_cstring.to_bytes().len() + 1,
@@ -1406,7 +1405,7 @@ impl Vmm {
         let kernel_file = File::open(kernel_image_path).map_err(|_| {
             VmmActionError::BootSource(ErrorKind::User, BootSourceConfigError::InvalidKernelPath)
         })?;
-        let mut cmdline = kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE);
+        let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
         cmdline
             .insert_str(kernel_cmdline.unwrap_or(String::from(DEFAULT_KERNEL_CMDLINE)))
             .map_err(|_| {
@@ -1419,7 +1418,7 @@ impl Vmm {
         let kernel_config = KernelConfig {
             kernel_file,
             cmdline,
-            cmdline_addr: GuestAddress(x86_64::layout::CMDLINE_START),
+            cmdline_addr: GuestAddress(arch::CMDLINE_START),
         };
         self.configure_kernel(kernel_config);
 
@@ -1881,12 +1880,12 @@ mod tests {
             let kernel_path = String::from(kernel_file_temp.path().to_path_buf().to_str().unwrap());
             let kernel_file = File::open(kernel_path).unwrap();
 
-            let mut cmdline = kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE);
+            let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
             assert!(cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).is_ok());
             let kernel_cfg = KernelConfig {
                 cmdline,
                 kernel_file,
-                cmdline_addr: GuestAddress(x86_64::layout::CMDLINE_START),
+                cmdline_addr: GuestAddress(arch::CMDLINE_START),
             };
             self.configure_kernel(kernel_cfg);
         }
@@ -2450,7 +2449,7 @@ mod tests {
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
         assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
         assert!(vmm.get_kernel_cmdline_str().contains("root=/dev/vda"));
 
@@ -2474,7 +2473,7 @@ mod tests {
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
         assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
         assert!(vmm
             .get_kernel_cmdline_str()
@@ -2502,7 +2501,7 @@ mod tests {
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
         assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
         // Test that kernel commandline does not contain either /dev/vda or PARTUUID.
         assert!(!vmm.get_kernel_cmdline_str().contains("root=PARTUUID="));
@@ -2536,7 +2535,7 @@ mod tests {
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
 
         // test create network interface
         let network_interface = NetworkInterfaceConfig {
@@ -2578,8 +2577,7 @@ mod tests {
         // Test valid kernel path and invalid cmdline.
         let kernel_file = NamedTempFile::new().expect("Failed to create temporary kernel file.");
         let kernel_path = String::from(kernel_file.path().to_path_buf().to_str().unwrap());
-        let invalid_cmdline =
-            String::from_utf8(vec![b'X'; x86_64::layout::CMDLINE_MAX_SIZE + 1]).unwrap();
+        let invalid_cmdline = String::from_utf8(vec![b'X'; arch::CMDLINE_MAX_SIZE + 1]).unwrap();
         assert!(vmm
             .configure_boot_source(kernel_path.clone(), Some(invalid_cmdline))
             .is_err());
@@ -2633,14 +2631,14 @@ mod tests {
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), x86_64::get_32bit_gap_start() as u64);
+            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
 
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         // Use a dummy command line as it is not used in this test.
         let _addr = device_manager
             .register_device(
                 dummy_box,
-                &mut kernel_cmdline::Cmdline::new(x86_64::layout::CMDLINE_MAX_SIZE),
+                &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
                 Some(scratch_id.clone()),
             )
             .unwrap();
