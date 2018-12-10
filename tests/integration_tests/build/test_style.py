@@ -16,21 +16,6 @@ SUCCESS_CODE = 0
 @pytest.mark.timeout(120)
 def test_rust_style():
     """Fail if there's misbehaving Rust style in this repo."""
-    # Install rustfmt if it's not available yet.
-    rustfmt_check = run(
-        'rustup component list | grep --silent "rustfmt.*(installed)"',
-        shell=True
-    )
-    if not rustfmt_check.returncode == SUCCESS_CODE:
-        run(
-            'rustup component add rustfmt-preview'
-            '>/dev/null 2>&1',
-            shell=True,
-            check=True
-        )
-        # rustfmt-preview is used with the current state of things.
-        # See github.com/rust-lang-nursery/rustfmt for information.
-
     # Check that the output is empty.
     process = run(
         'cargo fmt --all -- --check',

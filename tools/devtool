@@ -49,9 +49,6 @@
 #   This will run the entire integration test battery. The testing system is
 #   based on pytest (http://pytest.org).
 #
-# Updating the container image:
-#   Run `./devtool update`.
-#
 # Opening a shell prompt inside the development container:
 #   Run `./devtool shell`.
 #
@@ -74,7 +71,9 @@
 #     would help with reproducible builds (in addition to pinning Cargo.lock)
 
 # Development container image (name:tag)
-DEVCTR_IMAGE="fcuvm/dev:latest"
+# This should be updated whenever we upgrade the development container.
+# (Yet another step on our way to reproducible builds.)
+DEVCTR_IMAGE="fcuvm/dev:v2"
 
 # Naming things is hard
 MY_NAME="Firecracker $(basename "$0")"
@@ -196,8 +195,14 @@ ensure_devctr() {
 
     # Check if we have the container image available locally. Attempt to
     # download it, if we don't.
-    [[ $(docker images -q "$DEVCTR_IMAGE" | wc -l) -gt 0 ]] || cmd_update
-    ok_or_die "Error pulling docker image. Aborting."
+    [[ $(docker images -q "$DEVCTR_IMAGE" | wc -l) -gt 0 ]] || {
+        say "About to pull docker image $DEVCTR_IMAGE"
+        get_user_confirmation || die "Aborted."
+
+        docker pull "${DEVCTR_IMAGE}"
+
+        ok_or_die "Error pulling docker image. Aborting."
+    }
 }
 
 # Check if /dev/kvm exists. Exit if it doesn't.
@@ -338,9 +343,6 @@ cmd_help() {
     echo "        Run the Firecracker integration tests."
     echo "        The Firecracker testing system is based on pytest. All arguments after --"
     echo "        will be passed through to pytest."
-    echo ""
-    echo "    update"
-    echo "        Pull the latest Docker image used to build and test Firecracker."
     echo ""
 }
 
@@ -516,32 +518,6 @@ cmd_shell() {
     return $ret
 }
 
-
-# `$0 update` - download the latest dev container image
-# Please see `$0 help` for more information.
-#
-cmd_update() {
-    confirmed=false
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -h|--help)          { cmd_help; exit 1;     } ;;
-            -y|--yes)           { confirmed=true;       } ;;
-            *)
-                die "Unknown argument: $1. Use --help for help."
-        esac
-        shift
-    done
-
-    ensure_docker
-
-    [ $confirmed = true ] || {
-        say "About to pull docker image $DEVCTR_IMAGE"
-        get_user_confirmation || die "Aborted."
-    }
-
-    say "Updating ${DEVCTR_IMAGE} ..."
-    docker pull "${DEVCTR_IMAGE}"
-}
 
 main() {
 
