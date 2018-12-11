@@ -330,6 +330,11 @@ cmd_help() {
     echo "        --debug             Build the debug binaries. This is the default."
     echo "        --release           Build the release binaries."
     echo ""
+    echo "    fmt"
+    echo "        Auto-format all Rust source files, to match the Firecracker requirements."
+    echo "        This should be used as the last step in every commit, to ensure that the"
+    echo "        Rust style tests pass."
+    echo ""
     echo "    help"
     echo "        Display this help message."
     echo ""
@@ -360,7 +365,7 @@ cmd_build() {
             "-h"|"--help")  { cmd_help; exit 1;     } ;;
             "--debug")      { profile="debug";      } ;;
             "--release")    { profile="release";    } ;;
-            "--")           { break;                } ;;
+            "--")           { shift; break;         } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
             ;;
@@ -413,7 +418,7 @@ cmd_test() {
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")      { cmd_help; exit 1; } ;;
-            "--")               { break;            } ;;
+            "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
             ;;
@@ -516,6 +521,34 @@ cmd_shell() {
     fi
 
     return $ret
+}
+
+
+# Auto-format all source code, to match the Firecracker requirements. For the
+# moment, this is just a wrapper over `cargo fmt --all`
+# Example: `devtool fmt`
+#
+cmd_fmt() {
+
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")      { cmd_help; exit 1; } ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+            ;;
+        esac
+        shift
+    done
+
+    ensure_devctr
+
+    say "Applying rustfmt ..."
+    run_devctr \
+        --user "$(id -u):$(id -g)" \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        -- \
+        cargo fmt --all
 }
 
 
