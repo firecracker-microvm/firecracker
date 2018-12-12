@@ -16,6 +16,7 @@
 - `PUT` operations on `/network-interfaces` API resources no longer accept 
   the previously required `state` parameter.
 - The jailer starts with `--seccomp-level=2` (was previously 0) by default.
+- Log messages use `anonymous-instance` as instance-id if no instance-id is set.
 
 ## [0.11.0]
 

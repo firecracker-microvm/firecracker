@@ -34,7 +34,7 @@ const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 
 fn main() {
     LOGGER
-        .init(&"", None, None, vec![])
+        .init(DEFAULT_INSTANCE_ID, None, None, vec![])
         .expect("Failed to register logger");
 
     // If the signal handler can't be set, it's OK to panic.
