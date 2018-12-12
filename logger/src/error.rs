@@ -16,6 +16,8 @@ pub enum LoggerError {
     AlreadyInitialized,
     /// Attempt to initialize with one pipe and one standard output stream as destinations.
     DifferentDestinations,
+    /// Invalid logger option specified.
+    InvalidLogOption(String),
     /// Opening named pipe fails.
     OpenFIFO(std::io::Error),
     /// Writing to named pipe fails.
@@ -41,6 +43,7 @@ impl fmt::Display for LoggerError {
                 "{}",
                 "Initialization with one pipe and one standard output stream not allowed."
             ),
+            LoggerError::InvalidLogOption(ref s) => format!("Invalid log option: {}", s),
             LoggerError::OpenFIFO(ref e) => {
                 format!("Failed to open pipe. Error: {}", e.description())
             }

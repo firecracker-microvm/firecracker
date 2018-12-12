@@ -33,9 +33,17 @@ pub enum Error {
 }
 type Result<T> = result::Result<T, Error>;
 
-struct MemoryRegion {
+/// Tracks a mapping of anonymous memory in the current process and the corresponding base address
+/// in the guest's memory space.
+pub struct MemoryRegion {
     mapping: MemoryMapping,
     guest_base: GuestAddress,
+}
+
+impl MemoryRegion {
+    pub fn size(&self) -> usize {
+        self.mapping.size()
+    }
 }
 
 fn region_end(region: &MemoryRegion) -> GuestAddress {
@@ -43,7 +51,7 @@ fn region_end(region: &MemoryRegion) -> GuestAddress {
     region.guest_base.unchecked_add(region.mapping.size())
 }
 
-/// Tracks a memory region and where it is mapped in the guest.
+/// Tracks all memory regions allocated for the guest in the current process.
 #[derive(Clone)]
 pub struct GuestMemory {
     regions: Arc<Vec<MemoryRegion>>,
@@ -338,7 +346,7 @@ impl GuestMemory {
         })
     }
 
-    /// Convert a GuestAddress into a pointer in the address space of this
+    /// Converts a GuestAddress into a pointer in the address space of this
     /// process. This should only be necessary for giving addresses to the
     /// kernel, as with vhost ioctls. Normal reads/writes to guest memory should
     /// be done through `write_from_memory`, `read_obj_from_addr`, etc.
@@ -364,6 +372,45 @@ impl GuestMemory {
             // bounds.
             Ok(unsafe { mapping.as_ptr().offset(offset as isize) } as *const u8)
         })
+    }
+
+    /// Applies two functions, specified as callbacks, on the inner memory regions.
+    ///
+    /// # Arguments
+    /// * `init` - Starting value of the accumulator for the `foldf` function.
+    /// * `mapf` - "Map" function, applied to all the inner memory regions. It returns an array of
+    ///            the same size as the memory regions array, containing the function's results
+    ///            for each region.
+    /// * `foldf` - "Fold" function, applied to the array returned by `mapf`. It acts as an
+    ///             operator, applying itself to the `init` value and to each subsequent elemnent
+    ///             in the array returned by `mapf`.
+    ///
+    /// # Examples
+    ///
+    /// * Compute the total size of all memory mappings in KB by iterating over the memory regions
+    ///   and dividing their sizes to 1024, then summing up the values in an accumulator.
+    ///
+    /// ```
+    /// # use memory_model::{GuestAddress, GuestMemory};
+    /// # fn test_map_fold() -> Result<(), ()> {
+    ///     let start_addr1 = GuestAddress(0x0);
+    ///     let start_addr2 = GuestAddress(0x400);
+    ///     let mem = GuestMemory::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
+    ///     let total_size = mem.map_and_fold(
+    ///         0,
+    ///         |(_, region)| region.size() / 1024,
+    ///         |acc, size| acc + size
+    ///     );
+    ///     println!("Total memory size = {} KB", total_size);
+    ///     Ok(())
+    /// # }
+    /// ```
+    pub fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
+    where
+        F: Fn((usize, &MemoryRegion)) -> T,
+        G: Fn(T, T) -> T,
+    {
+        self.regions.iter().enumerate().map(mapf).fold(init, foldf)
     }
 
     fn do_in_region<F, T>(&self, guest_addr: GuestAddress, cb: F) -> Result<T>
@@ -523,5 +570,21 @@ mod tests {
         // Check that a bad address returns an error.
         let bad_addr = GuestAddress(0x123456);
         assert!(mem.get_host_address(bad_addr).is_err());
+    }
+
+    #[test]
+    fn test_map_fold() {
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x400);
+        let mem = GuestMemory::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
+
+        assert_eq!(
+            mem.map_and_fold(
+                0,
+                |(_, region)| region.size() / 1024,
+                |acc, size| acc + size
+            ),
+            3
+        );
     }
 }

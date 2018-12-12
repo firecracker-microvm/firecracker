@@ -16,6 +16,7 @@ extern crate libc;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate serde_json;
 extern crate time;
 extern crate timerfd;
 
@@ -67,11 +68,12 @@ use fc_util::now_cputime_us;
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use kvm::*;
-use logger::{Level, Metric, LOGGER, METRICS};
+use logger::{Level, LogOption, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use seccomp::{
     setup_seccomp, SeccompLevel, SECCOMP_LEVEL_ADVANCED, SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
 };
+use serde_json::Value;
 pub use sigsys_handler::setup_sigsys_handler;
 use sys_util::{register_signal_handler, EventFd, Killable, Terminal};
 use vm_control::VmResponse;
@@ -515,7 +517,7 @@ struct Vmm {
     vm_config: VmConfig,
     shared_info: Arc<RwLock<InstanceInfo>>,
 
-    // guest VM core resources
+    // Guest VM core resources.
     guest_memory: Option<GuestMemory>,
     kernel_config: Option<KernelConfig>,
     kill_signaled: Option<Arc<AtomicBool>>,
@@ -523,13 +525,14 @@ struct Vmm {
     exit_evt: Option<EpollEvent<EventFd>>,
     vm: Vm,
 
-    // guest VM devices
+    // Guest VM devices.
     mmio_device_manager: Option<MMIODeviceManager>,
     legacy_device_manager: LegacyDeviceManager,
     drive_handler_id_map: HashMap<String, usize>,
 
-    // If there is a Root Block Device, this should be added as the first element of the list
-    // This is necessary because we want the root to always be mounted on /dev/vda
+    // Device configurations.
+    // If there is a Root Block Device, this should be added as the first element of the list.
+    // This is necessary because we want the root to always be mounted on /dev/vda.
     block_device_configs: BlockDeviceConfigs,
     network_interface_configs: NetworkInterfaceConfigs,
     #[cfg(feature = "vsock")]
@@ -537,7 +540,7 @@ struct Vmm {
 
     epoll_context: EpollContext,
 
-    // api resources
+    // API resources.
     api_event: EpollEvent<EventFd>,
     from_api: Receiver<Box<VmmAction>>,
 
@@ -1287,18 +1290,51 @@ impl Vmm {
                             });
                         }
                         EpollDispatch::WriteMetrics => {
-                            self.write_metrics_event.fd.read();
-
-                            // Please note that, since LOGGER has no output file configured yet,
-                            // it will write to stdout, so metric logging will interfere with
-                            // console output.
-                            if let Err(e) = LOGGER.log_metrics() {
-                                error!("Failed to log metrics on timer trigger: {}", e);
-                            }
+                            self.write_metrics();
                         }
                     }
                 }
             }
+        }
+    }
+
+    // Count the number of pages dirtied since the last call to this function.
+    // Because this is used for metrics, it swallows most errors and simply doesn't count dirty
+    // pages if the KVM operation fails.
+    #[cfg(target_arch = "x86_64")]
+    fn get_dirty_page_count(&mut self) -> usize {
+        if let Some(ref mem) = self.guest_memory {
+            let dirty_pages = mem.map_and_fold(
+                0,
+                |(slot, memory_region)| {
+                    let bitmap = self
+                        .vm
+                        .get_fd()
+                        .get_and_reset_dirty_page_bitmap(slot as u32, memory_region.size());
+                    match bitmap {
+                        Ok(v) => v
+                            .iter()
+                            .fold(0, |init, page| init + page.count_ones() as usize),
+                        Err(_) => 0,
+                    }
+                },
+                |dirty_pages, region_dirty_pages| dirty_pages + region_dirty_pages,
+            );
+            return dirty_pages;
+        }
+        0
+    }
+
+    fn write_metrics(&mut self) {
+        self.write_metrics_event.fd.read();
+        // If we're logging dirty pages, post the metrics on how many dirty pages there are.
+        if LOGGER.flags() | LogOption::LogDirtyPages as usize > 0 {
+            METRICS.memory.dirty_pages.add(self.get_dirty_page_count());
+        }
+        // Please note that, since LOGGER has no output file configured yet, it will write to
+        // stdout, so logging will interfere with console output.
+        if let Err(e) = LOGGER.log_metrics() {
+            error!("Failed to log metrics: {}", e);
         }
     }
 
@@ -1585,11 +1621,17 @@ impl Vmm {
             LOGGER.set_include_level(val);
         }
 
+        let options = match api_logger.options {
+            Value::Array(options) => options,
+            _ => vec![],
+        };
+
         LOGGER
             .init(
                 &instance_id,
                 Some(api_logger.log_fifo),
                 Some(api_logger.metrics_fifo),
+                options,
             ).map(|_| VmmData::Empty)
             .map_err(|e| {
                 VmmActionError::Logger(
@@ -2634,6 +2676,7 @@ mod tests {
             level: Some(LoggerLevel::Warning),
             show_level: Some(true),
             show_log_origin: Some(true),
+            options: Value::Array(vec![]),
         };
 
         let mut vmm = create_vmm_object(InstanceState::Running);
@@ -2642,13 +2685,25 @@ mod tests {
         // Reset vmm state to test the other scenarios.
         vmm.set_instance_state(InstanceState::Uninitialized);
 
-        // Error case: initializing logger with invalid pipes return error.
+        // Error case: initializing logger with invalid pipes returns error.
         let desc = LoggerConfig {
             log_fifo: String::from("not_found_file_log"),
             metrics_fifo: String::from("not_found_file_metrics"),
             level: None,
             show_level: None,
             show_log_origin: None,
+            options: Value::Array(vec![]),
+        };
+        assert!(vmm.init_logger(desc).is_err());
+
+        // Error case: initializing logger with invalid option flags returns error.
+        let desc = LoggerConfig {
+            log_fifo: String::from("not_found_file_log"),
+            metrics_fifo: String::from("not_found_file_metrics"),
+            level: None,
+            show_level: None,
+            show_log_origin: None,
+            options: Value::Array(vec![Value::String("foobar".to_string())]),
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2661,7 +2716,16 @@ mod tests {
             level: Some(LoggerLevel::Warning),
             show_level: Some(true),
             show_log_origin: Some(true),
+            options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
         };
         assert!(vmm.init_logger(desc).is_ok());
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_dirty_page_count() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert_eq!(vmm.get_dirty_page_count(), 0);
+        // Booting an actual guest and getting real data is covered by `kvm::tests::run_code_test`.
     }
 }
