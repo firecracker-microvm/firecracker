@@ -96,7 +96,8 @@ mod tests {
             100,
             None,
             None,
-        ).unwrap();
+        )
+        .unwrap();
 
         // The ACK flag isn't set, and the payload length is 0.
         let cfg = RstConfig::new(&s);

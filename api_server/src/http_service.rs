@@ -116,7 +116,8 @@ fn parse_actions_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<
                 .map_err(|e| {
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|msg| {
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::Generic(StatusCode::BadRequest, msg)
@@ -148,7 +149,8 @@ fn parse_boot_source_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -217,7 +219,8 @@ fn parse_drives_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
                     METRICS.patch_api_requests.drive_fails.inc();
                     Error::SerdeJson(e)
                 })?,
-            }.into_parsed_request(Some(id_from_path.to_string()), method)
+            }
+            .into_parsed_request(Some(id_from_path.to_string()), method)
             .map_err(|s| {
                 METRICS.patch_api_requests.drive_fails.inc();
                 Error::Generic(StatusCode::BadRequest, s)
@@ -239,7 +242,8 @@ fn parse_logger_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
                 .map_err(|e| {
                     METRICS.put_api_requests.logger_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.logger_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -280,7 +284,8 @@ fn parse_machine_config_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -307,7 +312,8 @@ fn parse_netif_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a
                 .map_err(|e| {
                     METRICS.put_api_requests.network_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(Some(id_from_path.to_string()), method)
+                })?
+                .into_parsed_request(Some(id_from_path.to_string()), method)
                 .map_err(|s| {
                     METRICS.put_api_requests.network_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -537,7 +543,8 @@ impl hyper::server::Service for ApiServerHttpService {
                                         describe(&method_copy, &path_copy, &b_str)
                                     );
                                     x.generate_response()
-                                }).map_err(move |_| {
+                                })
+                                .map_err(move |_| {
                                     info!(
                                         "Received Error on {}",
                                         describe(&method_copy_err, &path_copy_err, &b_str_err)
@@ -605,12 +612,14 @@ mod tests {
             .fold(Vec::new(), |mut acc, chunk| {
                 acc.extend_from_slice(&*chunk);
                 Ok::<_, hyper::Error>(acc)
-            }).and_then(move |value| Ok(value));
+            })
+            .and_then(move |value| Ok(value));
 
         String::from_utf8_lossy(
             &ret.wait()
                 .expect("Couldn't convert request body into String due to Future polling failure"),
-        ).into()
+        )
+        .into()
     }
 
     fn get_dummy_serde_error() -> serde_json::Error {

@@ -512,7 +512,8 @@ mod tests {
             addr,
             &mut File::open(Path::new("/dev/zero")).unwrap(),
             mem::size_of::<u32>(),
-        ).unwrap();
+        )
+        .unwrap();
         let value: u32 = gm.read_obj_from_addr(addr).unwrap();
         assert_eq!(value, 0);
 

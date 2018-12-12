@@ -68,12 +68,14 @@ fn main() {
                 .help("Path to unix domain socket used by the API")
                 .default_value(DEFAULT_API_SOCK_PATH)
                 .takes_value(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("context")
                 .long("context")
                 .help("Additional parameters sent to Firecracker.")
                 .takes_value(true),
-        ).get_matches();
+        )
+        .get_matches();
 
     let bind_path = cmd_arguments
         .value_of("api_sock")
@@ -221,7 +223,8 @@ mod tests {
                 Some(log_file_temp.path().to_str().unwrap().to_string()),
                 Some(metrics_file_temp.path().to_str().unwrap().to_string()),
                 vec![],
-            ).expect("Could not initialize logger.");
+            )
+            .expect("Could not initialize logger.");
 
         // Cause some controlled panic and see if a backtrace shows up in the log,
         // as it's supposed to.

@@ -208,7 +208,8 @@ impl MmdsNetworkStack {
             self.remote_mac_addr,
             self.mac_addr,
             ETHERTYPE_ARP,
-        ).map_err(WriteArpReplyError::Ethernet)?;
+        )
+        .map_err(WriteArpReplyError::Ethernet)?;
 
         let arp_len = EthIPv4ArpFrame::write_reply(
             eth_unsized
@@ -220,7 +221,8 @@ impl MmdsNetworkStack {
             self.ipv4_addr,
             self.remote_mac_addr,
             dst_ipv4,
-        ).map_err(WriteArpReplyError::Arp)?
+        )
+        .map_err(WriteArpReplyError::Arp)?
         .len();
 
         Ok(Some(
@@ -235,7 +237,8 @@ impl MmdsNetworkStack {
             self.remote_mac_addr,
             self.mac_addr,
             ETHERTYPE_IPV4,
-        ).map_err(WritePacketError::Ethernet)?;
+        )
+        .map_err(WritePacketError::Ethernet)?;
 
         let (maybe_len, event) = self
             .tcp_handler
@@ -253,7 +256,8 @@ impl MmdsNetworkStack {
                     eth_unsized
                         .with_payload_len_unchecked(packet_len.get())
                         .len(),
-                ).unwrap(),
+                )
+                .unwrap(),
             ));
         }
         Ok(None)

@@ -648,7 +648,8 @@ impl Logger {
                             self.metrics_fifo_guard()
                                 .as_mut()
                                 .expect("Failed to write to fifo due to poisoned lock"),
-                        ).map_err(|e| {
+                        )
+                        .map_err(|e| {
                             METRICS.logger.missed_metrics_count.inc();
                             e
                         })?;
@@ -777,7 +778,8 @@ mod tests {
                     None,
                     None,
                     vec![Value::String("foobar".to_string())]
-                ).err()
+                )
+                .err()
             ),
             "Some(NeverInitialized(\"Could not set option flags: Invalid log option: foobar\"))"
         );
@@ -797,14 +799,14 @@ mod tests {
         let metrics_file = String::from(metrics_file_temp.path().to_path_buf().to_str().unwrap());
 
         // Assert that initialization with pipes works after initializing with stdout/stderr.
-        assert!(
-            l.init(
+        assert!(l
+            .init(
                 TEST_INSTANCE_ID,
                 Some(log_file.clone()),
                 Some(metrics_file),
                 vec![Value::String("LogDirtyPages".to_string())]
-            ).is_ok()
-        );
+            )
+            .is_ok());
 
         info!("info");
         warn!("warning");
@@ -839,17 +841,15 @@ mod tests {
         let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
 
         // Assert that initialization with one pipe and stdout/stderr is not allowed.
-        assert!(
-            l.init(TEST_INSTANCE_ID, Some(log_file.clone()), None, vec![])
-                .is_err()
-        );
+        assert!(l
+            .init(TEST_INSTANCE_ID, Some(log_file.clone()), None, vec![])
+            .is_err());
 
         // Exercise the case when there is an error in opening file.
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
-        assert!(
-            l.init("TEST-ID", Some(String::from("")), None, vec![])
-                .is_err()
-        );
+        assert!(l
+            .init("TEST-ID", Some(String::from("")), None, vec![])
+            .is_err());
         let res = l.init(
             "TEST-ID",
             Some(log_file.clone()),

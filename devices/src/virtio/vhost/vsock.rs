@@ -192,7 +192,8 @@ impl VirtioDevice for Vsock {
                             queue.used_ring,
                             queue.avail_ring,
                             None,
-                        ).map_err(Error::VhostSetVringAddr)?;
+                        )
+                        .map_err(Error::VhostSetVringAddr)?;
                     vsock_fd
                         .set_vring_base(queue_index, 0)
                         .map_err(Error::VhostSetVringBase)?;
@@ -229,7 +230,8 @@ impl VirtioDevice for Vsock {
                     epoll::EPOLL_CTL_ADD,
                     queue_evt_raw_fd,
                     epoll::Event::new(epoll::EPOLLIN, self.epoll_config.get_queue_evt_token()),
-                ).map_err(ActivateError::EpollCtl)?;
+                )
+                .map_err(ActivateError::EpollCtl)?;
 
                 return Ok(());
             }

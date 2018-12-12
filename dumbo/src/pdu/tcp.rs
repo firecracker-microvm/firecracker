@@ -461,7 +461,8 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
             mss_option,
             mss_remaining,
             payload,
-        )?.finalize(src_port, dst_port, compute_checksum))
+        )?
+        .finalize(src_port, dst_port, compute_checksum))
     }
 
     /// Writes an incomplete TCP segment, which is missing the `source port`, `destination port`,
@@ -684,7 +685,8 @@ mod tests {
                 mss_left,
                 payload,
                 Some((src_addr, dst_addr)),
-            ).unwrap();
+            )
+            .unwrap();
 
             assert_eq!(p.source_port(), src_port);
             assert_eq!(p.destination_port(), dst_port);
@@ -741,7 +743,8 @@ mod tests {
                 mss_left,
                 Some((c.as_ref(), c.len())),
                 Some((src_addr, dst_addr)),
-            ).unwrap()
+            )
+            .unwrap()
             .len();
 
             assert_eq!(len, mss_left as usize);
@@ -801,7 +804,8 @@ mod tests {
                 mss_left,
                 payload,
                 Some((src_addr, dst_addr)),
-            ).unwrap_err(),
+            )
+            .unwrap_err(),
             Error::SliceTooShort
         );
 
@@ -819,7 +823,8 @@ mod tests {
                 0,
                 payload,
                 Some((src_addr, dst_addr)),
-            ).unwrap_err(),
+            )
+            .unwrap_err(),
             Error::MssRemaining
         );
     }

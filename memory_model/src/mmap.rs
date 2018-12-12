@@ -381,24 +381,18 @@ mod tests {
         let mem_map = MemoryMapping::new(5).unwrap();
         assert!(mem_map.write_obj(!0u32, 1).is_ok());
         let mut file = File::open(Path::new("/dev/zero")).unwrap();
-        assert!(
-            mem_map
-                .read_to_memory(2, &mut file, mem::size_of::<u32>())
-                .is_err()
-        );
+        assert!(mem_map
+            .read_to_memory(2, &mut file, mem::size_of::<u32>())
+            .is_err());
 
-        assert!(
-            mem_map
-                .read_to_memory(1, &mut file, mem::size_of::<u32>())
-                .is_ok()
-        );
+        assert!(mem_map
+            .read_to_memory(1, &mut file, mem::size_of::<u32>())
+            .is_ok());
 
         let mut f = tempfile().unwrap();
-        assert!(
-            mem_map
-                .read_to_memory(1, &mut f, mem::size_of::<u32>())
-                .is_err()
-        );
+        assert!(mem_map
+            .read_to_memory(1, &mut f, mem::size_of::<u32>())
+            .is_err());
         format!(
             "{:?}",
             mem_map.read_to_memory(1, &mut f, mem::size_of::<u32>())
@@ -407,16 +401,12 @@ mod tests {
         assert_eq!(mem_map.read_obj::<u32>(1).unwrap(), 0);
 
         let mut sink = Vec::new();
-        assert!(
-            mem_map
-                .write_from_memory(1, &mut sink, mem::size_of::<u32>())
-                .is_ok()
-        );
-        assert!(
-            mem_map
-                .write_from_memory(2, &mut sink, mem::size_of::<u32>())
-                .is_err()
-        );
+        assert!(mem_map
+            .write_from_memory(1, &mut sink, mem::size_of::<u32>())
+            .is_ok());
+        assert!(mem_map
+            .write_from_memory(2, &mut sink, mem::size_of::<u32>())
+            .is_err());
         format!(
             "{:?}",
             mem_map.write_from_memory(2, &mut sink, mem::size_of::<u32>())
