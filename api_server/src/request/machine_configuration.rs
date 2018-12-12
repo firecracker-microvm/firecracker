@@ -74,32 +74,27 @@ mod tests {
             cpu_template: Some(CpuFeaturesTemplate::T2),
         };
         let (sender, receiver) = oneshot::channel();
-        assert!(
-            body.clone()
-                .into_parsed_request(None, Method::Put)
-                .eq(&Ok(ParsedRequest::Sync(
-                    VmmAction::SetVmConfiguration(body, sender),
-                    receiver
-                )))
-        );
+        assert!(body
+            .clone()
+            .into_parsed_request(None, Method::Put)
+            .eq(&Ok(ParsedRequest::Sync(
+                VmmAction::SetVmConfiguration(body, sender),
+                receiver
+            ))));
         let uninitialized = VmConfig {
             vcpu_count: None,
             mem_size_mib: None,
             ht_enabled: None,
             cpu_template: None,
         };
-        assert!(
-            uninitialized
-                .clone()
-                .into_parsed_request(None, Method::Get)
-                .is_ok()
-        );
-        assert!(
-            uninitialized
-                .clone()
-                .into_parsed_request(None, Method::Patch)
-                .is_err()
-        );
+        assert!(uninitialized
+            .clone()
+            .into_parsed_request(None, Method::Get)
+            .is_ok());
+        assert!(uninitialized
+            .clone()
+            .into_parsed_request(None, Method::Patch)
+            .is_err());
 
         match uninitialized.into_parsed_request(None, Method::Put) {
             Ok(_) => assert!(false),

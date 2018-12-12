@@ -604,7 +604,8 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
                 libc::SYS_writev,
                 (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
             ),
-        ].into_iter()
+        ]
+        .into_iter()
         .collect(),
         SeccompAction::Trap,
     )?)
@@ -628,50 +629,46 @@ mod tests {
     fn test_advanced_seccomp() {
         // Sets up context with additional rules required by the test.
         let mut context = super::default_context().unwrap();
-        assert!(
-            context
-                .add_rules(
-                    libc::SYS_exit,
-                    None,
-                    vec![seccomp::SeccompRule::new(
-                        vec![],
-                        seccomp::SeccompAction::Allow,
-                    )],
-                ).is_ok()
-        );
-        assert!(
-            context
-                .add_rules(
-                    libc::SYS_rt_sigprocmask,
-                    None,
-                    vec![seccomp::SeccompRule::new(
-                        vec![],
-                        seccomp::SeccompAction::Allow,
-                    )],
-                ).is_ok()
-        );
-        assert!(
-            context
-                .add_rules(
-                    libc::SYS_set_tid_address,
-                    None,
-                    vec![seccomp::SeccompRule::new(
-                        vec![],
-                        seccomp::SeccompAction::Allow,
-                    )],
-                ).is_ok()
-        );
-        assert!(
-            context
-                .add_rules(
-                    libc::SYS_sigaltstack,
-                    None,
-                    vec![seccomp::SeccompRule::new(
-                        vec![],
-                        seccomp::SeccompAction::Allow,
-                    )],
-                ).is_ok()
-        );
+        assert!(context
+            .add_rules(
+                libc::SYS_exit,
+                None,
+                vec![seccomp::SeccompRule::new(
+                    vec![],
+                    seccomp::SeccompAction::Allow,
+                )],
+            )
+            .is_ok());
+        assert!(context
+            .add_rules(
+                libc::SYS_rt_sigprocmask,
+                None,
+                vec![seccomp::SeccompRule::new(
+                    vec![],
+                    seccomp::SeccompAction::Allow,
+                )],
+            )
+            .is_ok());
+        assert!(context
+            .add_rules(
+                libc::SYS_set_tid_address,
+                None,
+                vec![seccomp::SeccompRule::new(
+                    vec![],
+                    seccomp::SeccompAction::Allow,
+                )],
+            )
+            .is_ok());
+        assert!(context
+            .add_rules(
+                libc::SYS_sigaltstack,
+                None,
+                vec![seccomp::SeccompRule::new(
+                    vec![],
+                    seccomp::SeccompAction::Allow,
+                )],
+            )
+            .is_ok());
 
         assert!(seccomp::setup_seccomp(seccomp::SeccompLevel::Advanced(context)).is_ok());
     }

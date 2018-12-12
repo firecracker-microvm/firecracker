@@ -139,13 +139,11 @@ mod tests {
 
             let result: Result<ActionBody, serde_json::Error> = serde_json::from_str(json);
             assert!(result.is_ok());
-            assert!(
-                result
-                    .unwrap()
-                    .into_parsed_request(None, Method::Put)
-                    .unwrap()
-                    .eq(&req)
-            );
+            assert!(result
+                .unwrap()
+                .into_parsed_request(None, Method::Put)
+                .unwrap()
+                .eq(&req));
         }
 
         {
@@ -157,13 +155,11 @@ mod tests {
             let req: ParsedRequest = ParsedRequest::Sync(VmmAction::StartMicroVm(sender), receiver);
             let result: Result<ActionBody, serde_json::Error> = serde_json::from_str(json);
             assert!(result.is_ok());
-            assert!(
-                result
-                    .unwrap()
-                    .into_parsed_request(None, Method::Put)
-                    .unwrap()
-                    .eq(&req)
-            );
+            assert!(result
+                .unwrap()
+                .into_parsed_request(None, Method::Put)
+                .unwrap()
+                .eq(&req));
         }
     }
 }

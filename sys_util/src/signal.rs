@@ -138,10 +138,12 @@ mod tests {
     fn test_register_signal_handler() {
         unsafe {
             // testing bad value
-            assert!(
-                register_signal_handler(SIGRTMAX(), SignalHandler::Siginfo(handle_signal), true)
-                    .is_err()
-            );
+            assert!(register_signal_handler(
+                SIGRTMAX(),
+                SignalHandler::Siginfo(handle_signal),
+                true
+            )
+            .is_err());
             format!(
                 "{:?}",
                 register_signal_handler(SIGRTMAX(), SignalHandler::Siginfo(handle_signal), true)
@@ -149,10 +151,12 @@ mod tests {
             assert!(
                 register_signal_handler(0, SignalHandler::Siginfo(handle_signal), true).is_ok()
             );
-            assert!(
-                register_signal_handler(libc::SIGSYS, SignalHandler::Siginfo(handle_signal), false)
-                    .is_ok()
-            );
+            assert!(register_signal_handler(
+                libc::SIGSYS,
+                SignalHandler::Siginfo(handle_signal),
+                false
+            )
+            .is_ok());
         }
     }
 

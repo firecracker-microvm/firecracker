@@ -994,8 +994,8 @@ mod tests {
         let mem = GuestMemory::new(&mem_vec).unwrap();
         let vm = kvm.create_vm().unwrap();
 
-        assert!(
-            mem.with_regions(
+        assert!(mem
+            .with_regions(
                 |index, guest_addr, size, host_addr| vm.set_user_memory_region(
                     index as u32,
                     guest_addr.offset() as u64,
@@ -1003,8 +1003,8 @@ mod tests {
                     host_addr as u64,
                     0,
                 )
-            ).is_err()
-        );
+            )
+            .is_err());
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1303,7 +1303,8 @@ mod tests {
                 host_addr as u64,
                 KVM_MEM_LOG_DIRTY_PAGES,
             )
-        }).expect("Cannot configure guest memory");
+        })
+        .expect("Cannot configure guest memory");
         mem.write_slice_at_addr(&code, load_addr)
             .expect("Writing code to memory failed");
 

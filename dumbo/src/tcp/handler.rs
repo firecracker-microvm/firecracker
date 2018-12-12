@@ -317,12 +317,14 @@ impl TcpIPv4Handler {
                 None,
                 0,
                 None,
-            ).map_err(WriteNextError::TcpSegment)?
+            )
+            .map_err(WriteNextError::TcpSegment)?
             .finalize(
                 self.local_port,
                 tuple.remote_port,
                 Some((self.local_addr, tuple.remote_addr)),
-            ).len();
+            )
+            .len();
 
             packet
                 .inner_mut()
@@ -356,7 +358,8 @@ impl TcpIPv4Handler {
                             self.local_port,
                             tuple.remote_port,
                             Some((self.local_addr, tuple.remote_addr)),
-                        ).len(),
+                        )
+                        .len(),
                     None => continue,
                 }
             };
@@ -512,7 +515,8 @@ mod tests {
                 100,
                 None,
                 None,
-            ).unwrap();
+            )
+            .unwrap();
             s.len()
         };
 

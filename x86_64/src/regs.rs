@@ -210,7 +210,8 @@ fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
         mem.write_obj_at_addr(
             (i << 21) + 0x83u64,
             boot_pde_addr.unchecked_add((i * 8) as usize),
-        ).map_err(|_| Error::WritePDEAddress)?;
+        )
+        .map_err(|_| Error::WritePDEAddress)?;
     }
 
     sregs.cr3 = boot_pml4_addr.offset() as u64;
@@ -421,7 +422,8 @@ mod tests {
             expected_regs.rip,
             expected_regs.rsp,
             expected_regs.rsi,
-        ).unwrap();
+        )
+        .unwrap();
 
         let actual_regs: kvm_regs = vcpu.get_regs().unwrap();
         assert_eq!(actual_regs, expected_regs);

@@ -43,14 +43,12 @@ mod tests {
         format!("{:?}", desc);
         assert!(&desc.clone().into_parsed_request(None, Method::Put).is_ok());
         let (sender, receiver) = oneshot::channel();
-        assert!(
-            &desc
-                .clone()
-                .into_parsed_request(None, Method::Put)
-                .eq(&Ok(ParsedRequest::Sync(
-                    VmmAction::ConfigureLogger(desc, sender),
-                    receiver
-                )))
-        );
+        assert!(&desc
+            .clone()
+            .into_parsed_request(None, Method::Put)
+            .eq(&Ok(ParsedRequest::Sync(
+                VmmAction::ConfigureLogger(desc, sender),
+                receiver
+            ))));
     }
 }

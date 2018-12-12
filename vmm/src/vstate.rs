@@ -193,7 +193,8 @@ impl Vcpu {
                 .ok_or(Error::VcpuCountNotInitialized)?,
             machine_config.ht_enabled.ok_or(Error::HTNotInitialized)?,
             &mut self.cpuid,
-        ).map_err(|e| Error::CpuId(e))?;
+        )
+        .map_err(|e| Error::CpuId(e))?;
         match machine_config.cpu_template {
             Some(template) => match template {
                 CpuFeaturesTemplate::T2 => {
@@ -220,7 +221,8 @@ impl Vcpu {
             kernel_start_addr.offset() as u64,
             x86_64::layout::BOOT_STACK_POINTER as u64,
             x86_64::layout::ZERO_PAGE_START as u64,
-        ).map_err(Error::REGSConfiguration)?;
+        )
+        .map_err(Error::REGSConfiguration)?;
         regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
         regs::setup_sregs(vm_memory, &self.fd).map_err(Error::SREGSConfiguration)?;
         interrupts::set_lint(&self.fd).map_err(Error::LocalIntConfiguration)?;

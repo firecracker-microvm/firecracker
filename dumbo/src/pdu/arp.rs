@@ -417,7 +417,8 @@ mod tests {
             spa,
             tha,
             tpa,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).is_ok());
 
         // Now we start writing invalid requests. We've already tried with an invalid operation.
@@ -434,7 +435,8 @@ mod tests {
             spa,
             tha,
             tpa,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
             Error::HType
@@ -452,7 +454,8 @@ mod tests {
             spa,
             tha,
             tpa,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
             Error::PType
@@ -470,7 +473,8 @@ mod tests {
             spa,
             tha,
             tpa,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
             Error::HLen
@@ -488,7 +492,8 @@ mod tests {
             spa,
             tha,
             tpa,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             EthIPv4ArpFrame::request_from_bytes(&a[..ETH_IPV4_FRAME_LEN]).unwrap_err(),
             Error::PLen

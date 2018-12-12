@@ -270,27 +270,21 @@ mod tests {
         };
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
-        assert!(
-            block_devices_configs
-                .insert(dummy_block_device.clone())
-                .is_ok()
-        );
+        assert!(block_devices_configs
+            .insert(dummy_block_device.clone())
+            .is_ok());
 
         assert_eq!(block_devices_configs.has_root_block, false);
         assert_eq!(block_devices_configs.config_list.len(), 1);
 
         let dev_config = block_devices_configs.config_list.iter().next().unwrap();
         assert_eq!(dev_config, &dummy_block_device);
-        assert!(
-            block_devices_configs
-                .get_index_of_drive_path(&dummy_path)
-                .is_some()
-        );
-        assert!(
-            block_devices_configs
-                .get_index_of_drive_id(&dummy_id)
-                .is_some()
-        );
+        assert!(block_devices_configs
+            .get_index_of_drive_path(&dummy_path)
+            .is_some());
+        assert!(block_devices_configs
+            .get_index_of_drive_id(&dummy_id)
+            .is_some());
     }
 
     #[test]
@@ -308,11 +302,9 @@ mod tests {
         };
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
-        assert!(
-            block_devices_configs
-                .create(dummy_block_device.clone())
-                .is_ok()
-        );
+        assert!(block_devices_configs
+            .create(dummy_block_device.clone())
+            .is_ok());
 
         assert_eq!(block_devices_configs.has_root_block, true);
         assert_eq!(block_devices_configs.config_list.len(), 1);
@@ -392,21 +384,15 @@ mod tests {
         };
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
-        assert!(
-            block_devices_configs
-                .create(root_block_device.clone())
-                .is_ok()
-        );
-        assert!(
-            block_devices_configs
-                .create(dummy_block_device_2.clone())
-                .is_ok()
-        );
-        assert!(
-            block_devices_configs
-                .create(dummy_block_device_3.clone())
-                .is_ok()
-        );
+        assert!(block_devices_configs
+            .create(root_block_device.clone())
+            .is_ok());
+        assert!(block_devices_configs
+            .create(dummy_block_device_2.clone())
+            .is_ok());
+        assert!(block_devices_configs
+            .create(dummy_block_device_3.clone())
+            .is_ok());
 
         assert_eq!(block_devices_configs.has_root_block_device(), true);
         assert_eq!(block_devices_configs.has_partuuid_root(), false);
@@ -455,21 +441,15 @@ mod tests {
         };
 
         let mut block_devices_configs = BlockDeviceConfigs::new();
-        assert!(
-            block_devices_configs
-                .create(dummy_block_device_2.clone())
-                .is_ok()
-        );
-        assert!(
-            block_devices_configs
-                .create(dummy_block_device_3.clone())
-                .is_ok()
-        );
-        assert!(
-            block_devices_configs
-                .create(root_block_device.clone())
-                .is_ok()
-        );
+        assert!(block_devices_configs
+            .create(dummy_block_device_2.clone())
+            .is_ok());
+        assert!(block_devices_configs
+            .create(dummy_block_device_3.clone())
+            .is_ok());
+        assert!(block_devices_configs
+            .create(root_block_device.clone())
+            .is_ok());
 
         assert_eq!(block_devices_configs.has_root_block_device(), true);
         assert_eq!(block_devices_configs.has_partuuid_root(), false);
@@ -510,16 +490,12 @@ mod tests {
         let mut block_devices_configs = BlockDeviceConfigs::new();
 
         // Add 2 block devices.
-        assert!(
-            block_devices_configs
-                .create(root_block_device.clone())
-                .is_ok()
-        );
-        assert!(
-            block_devices_configs
-                .create(dummy_block_device_2.clone())
-                .is_ok()
-        );
+        assert!(block_devices_configs
+            .create(root_block_device.clone())
+            .is_ok());
+        assert!(block_devices_configs
+            .create(dummy_block_device_2.clone())
+            .is_ok());
 
         // Get index zero.
         assert_eq!(
@@ -530,26 +506,20 @@ mod tests {
         );
 
         // Get None.
-        assert!(
-            block_devices_configs
-                .get_index_of_drive_id(&String::from("foo"))
-                .is_none()
-        );
+        assert!(block_devices_configs
+            .get_index_of_drive_id(&String::from("foo"))
+            .is_none());
 
         // Test several update cases using dummy_block_device_2.
         // Validate `dummy_block_device_2` is already in the list
-        assert!(
-            block_devices_configs
-                .get_index_of_drive_id(&dummy_block_device_2.drive_id)
-                .is_some()
-        );
+        assert!(block_devices_configs
+            .get_index_of_drive_id(&dummy_block_device_2.drive_id)
+            .is_some());
         // Update OK.
         dummy_block_device_2.is_read_only = true;
-        assert!(
-            block_devices_configs
-                .insert(dummy_block_device_2.clone())
-                .is_ok()
-        );
+        assert!(block_devices_configs
+            .insert(dummy_block_device_2.clone())
+            .is_ok());
 
         let index = block_devices_configs
             .get_index_of_drive_id(&dummy_block_device_2.drive_id)
@@ -594,19 +564,15 @@ mod tests {
         let index1 = block_devices_configs
             .get_index_of_drive_id(&root_block_device_old.drive_id)
             .unwrap();
-        assert!(
-            &block_devices_configs
-                .update(index1, root_block_device_old)
-                .is_ok()
-        );
+        assert!(&block_devices_configs
+            .update(index1, root_block_device_old)
+            .is_ok());
         let index2 = block_devices_configs
             .get_index_of_drive_id(&root_block_device_new.drive_id)
             .unwrap();
-        assert!(
-            &block_devices_configs
-                .update(index2, root_block_device_new)
-                .is_ok()
-        );
+        assert!(&block_devices_configs
+            .update(index2, root_block_device_new)
+            .is_ok());
         assert!(block_devices_configs.has_partuuid_root);
     }
 }

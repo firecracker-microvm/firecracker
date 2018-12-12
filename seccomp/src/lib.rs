@@ -1194,18 +1194,18 @@ mod tests {
                     (
                         0,
                         vec![SeccompRule::new(
-                            vec![
-                                SeccompCondition::new(1, SeccompCmpOp::MaskedEq(0b100), 36)
-                                    .unwrap(),
-                            ],
+                            vec![SeccompCondition::new(1, SeccompCmpOp::MaskedEq(0b100), 36)
+                                .unwrap()],
                             SeccompAction::Allow,
                         )],
                     ),
                 ),
-            ].into_iter()
+            ]
+            .into_iter()
             .collect(),
             SeccompAction::Trap,
-        ).unwrap();
+        )
+        .unwrap();
         let instructions = vec![
             BPF_STMT(0x20, 0),
             BPF_JUMP(0x15, 1, 0, 1),

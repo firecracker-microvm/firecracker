@@ -68,12 +68,11 @@ mod tests {
 
     #[test]
     fn test_formatting() {
-        assert!(
-            format!(
-                "{:?}",
-                LoggerError::NeverInitialized(String::from("Bad Log Path Provided"))
-            ).contains("NeverInitialized")
-        );
+        assert!(format!(
+            "{:?}",
+            LoggerError::NeverInitialized(String::from("Bad Log Path Provided"))
+        )
+        .contains("NeverInitialized"));
         assert_eq!(
             format!(
                 "{}",
@@ -97,12 +96,11 @@ mod tests {
             "Initialization with one pipe and one standard output stream not allowed."
         );
 
-        assert!(
-            format!(
-                "{:?}",
-                LoggerError::LogWrite(std::io::Error::new(ErrorKind::Interrupted, "write"))
-            ).contains("LogWrite")
-        );
+        assert!(format!(
+            "{:?}",
+            LoggerError::LogWrite(std::io::Error::new(ErrorKind::Interrupted, "write"))
+        )
+        .contains("LogWrite"));
         assert_eq!(
             format!(
                 "{}",
@@ -111,12 +109,11 @@ mod tests {
             "Failed to write logs. Error: write"
         );
 
-        assert!(
-            format!(
-                "{:?}",
-                LoggerError::LogFlush(std::io::Error::new(ErrorKind::Interrupted, "flush"))
-            ).contains("LogFlush")
-        );
+        assert!(format!(
+            "{:?}",
+            LoggerError::LogFlush(std::io::Error::new(ErrorKind::Interrupted, "flush"))
+        )
+        .contains("LogFlush"));
         assert_eq!(
             format!(
                 "{}",
@@ -125,12 +122,11 @@ mod tests {
             "Failed to flush logs. Error: flush"
         );
 
-        assert!(
-            format!(
-                "{:?}",
-                LoggerError::MutexLockFailure(String::from("Mutex lock"))
-            ).contains("MutexLockFailure")
-        );
+        assert!(format!(
+            "{:?}",
+            LoggerError::MutexLockFailure(String::from("Mutex lock"))
+        )
+        .contains("MutexLockFailure"));
         assert_eq!(
             format!(
                 "{}",
@@ -139,12 +135,11 @@ mod tests {
             "Mutex lock"
         );
 
-        assert!(
-            format!(
-                "{:?}",
-                LoggerError::LogMetricFailure("Failure in the logging of the metrics.".to_string())
-            ).contains("LogMetricFailure")
-        );
+        assert!(format!(
+            "{:?}",
+            LoggerError::LogMetricFailure("Failure in the logging of the metrics.".to_string())
+        )
+        .contains("LogMetricFailure"));
         assert_eq!(
             format!(
                 "{}",
