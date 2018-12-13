@@ -135,11 +135,12 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
             mpc_cpu.type_ = MP_PROCESSOR as u8;
             mpc_cpu.apicid = cpu_id;
             mpc_cpu.apicver = APIC_VERSION;
-            mpc_cpu.cpuflag = CPU_ENABLED as u8 | if cpu_id == 0 {
-                CPU_BOOTPROCESSOR as u8
-            } else {
-                0
-            };
+            mpc_cpu.cpuflag = CPU_ENABLED as u8
+                | if cpu_id == 0 {
+                    CPU_BOOTPROCESSOR as u8
+                } else {
+                    0
+                };
             mpc_cpu.cpufeature = CPU_STEPPING;
             mpc_cpu.featureflag = CPU_FEATURE_APIC | CPU_FEATURE_FPU;
             mem.write_obj_at_addr(mpc_cpu, base_mp)
@@ -260,7 +261,8 @@ mod tests {
         let mem = GuestMemory::new(&[(
             GuestAddress(layout::MPTABLE_START),
             compute_mp_size(num_cpus),
-        )]).unwrap();
+        )])
+        .unwrap();
 
         setup_mptable(&mem, num_cpus).unwrap();
     }
@@ -271,7 +273,8 @@ mod tests {
         let mem = GuestMemory::new(&[(
             GuestAddress(layout::MPTABLE_START),
             compute_mp_size(num_cpus) - 1,
-        )]).unwrap();
+        )])
+        .unwrap();
 
         assert!(setup_mptable(&mem, num_cpus).is_err());
     }
@@ -282,7 +285,8 @@ mod tests {
         let mem = GuestMemory::new(&[(
             GuestAddress(layout::MPTABLE_START),
             compute_mp_size(num_cpus),
-        )]).unwrap();
+        )])
+        .unwrap();
 
         setup_mptable(&mem, num_cpus).unwrap();
 
@@ -299,7 +303,8 @@ mod tests {
         let mem = GuestMemory::new(&[(
             GuestAddress(layout::MPTABLE_START),
             compute_mp_size(num_cpus),
-        )]).unwrap();
+        )])
+        .unwrap();
 
         setup_mptable(&mem, num_cpus).unwrap();
 
@@ -334,7 +339,8 @@ mod tests {
         let mem = GuestMemory::new(&[(
             GuestAddress(layout::MPTABLE_START),
             compute_mp_size(MAX_CPUS),
-        )]).unwrap();
+        )])
+        .unwrap();
 
         for i in 0..MAX_CPUS {
             setup_mptable(&mem, i).unwrap();

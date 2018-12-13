@@ -627,7 +627,8 @@ impl Net {
         // Set offload flags to match the virtio features below.
         tap.set_offload(
             net_gen::TUN_F_CSUM | net_gen::TUN_F_UFO | net_gen::TUN_F_TSO4 | net_gen::TUN_F_TSO6,
-        ).map_err(Error::TapSetOffload)?;
+        )
+        .map_err(Error::TapSetOffload)?;
 
         let vnet_hdr_size = vnet_hdr_len() as i32;
         tap.set_vnet_hdr_size(vnet_hdr_size)
@@ -829,7 +830,8 @@ impl VirtioDevice for Net {
                 epoll::EPOLL_CTL_ADD,
                 tap_raw_fd,
                 epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_tap_token),
-            ).map_err(|e| {
+            )
+            .map_err(|e| {
                 METRICS.net.activate_fails.inc();
                 ActivateError::EpollCtl(e)
             })?;
@@ -839,7 +841,8 @@ impl VirtioDevice for Net {
                 epoll::EPOLL_CTL_ADD,
                 rx_queue_raw_fd,
                 epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_queue_token),
-            ).map_err(|e| {
+            )
+            .map_err(|e| {
                 METRICS.net.activate_fails.inc();
                 ActivateError::EpollCtl(e)
             })?;
@@ -849,7 +852,8 @@ impl VirtioDevice for Net {
                 epoll::EPOLL_CTL_ADD,
                 tx_queue_raw_fd,
                 epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_queue_token),
-            ).map_err(|e| {
+            )
+            .map_err(|e| {
                 METRICS.net.activate_fails.inc();
                 ActivateError::EpollCtl(e)
             })?;
@@ -860,7 +864,8 @@ impl VirtioDevice for Net {
                     epoll::EPOLL_CTL_ADD,
                     rx_rate_limiter_rawfd,
                     epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_rate_limiter_token),
-                ).map_err(ActivateError::EpollCtl)?;
+                )
+                .map_err(ActivateError::EpollCtl)?;
             }
 
             if tx_rate_limiter_rawfd != -1 {
@@ -869,7 +874,8 @@ impl VirtioDevice for Net {
                     epoll::EPOLL_CTL_ADD,
                     tx_rate_limiter_rawfd,
                     epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_rate_limiter_token),
-                ).map_err(ActivateError::EpollCtl)?;
+                )
+                .map_err(ActivateError::EpollCtl)?;
             }
 
             return Ok(());
@@ -942,7 +948,8 @@ mod tests {
                             u64::max_value(),
                             None,
                             1000,
-                        ).unwrap(),
+                        )
+                        .unwrap(),
                     ),
                     Some(
                         RateLimiter::new(
@@ -952,10 +959,12 @@ mod tests {
                             u64::max_value(),
                             None,
                             1000,
-                        ).unwrap(),
+                        )
+                        .unwrap(),
                     ),
                     true,
-                ).unwrap(),
+                )
+                .unwrap(),
                 epoll_raw_fd,
                 _receiver,
             }
@@ -1282,7 +1291,8 @@ mod tests {
                 tha,
                 sha,
                 ethernet::ETHERTYPE_ARP,
-            ).ok()
+            )
+            .ok()
             .unwrap();
             // Set its length to hold an ARP request.
             let mut eth_frame_complete =

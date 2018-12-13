@@ -409,6 +409,10 @@ definitions:
       show_log_origin:
         type: boolean
         description: Whether or not to include the file path and line number of the log's origin.
+      options:
+        type: array
+        items: string
+        description: Additional logging options. Only "LogDirtyPages" is supported.
 
   MachineConfiguration:
     type: object
