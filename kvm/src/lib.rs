@@ -38,7 +38,7 @@ pub const MAX_KVM_CPUID_ENTRIES: usize = 80;
 
 /// A wrapper around opening and using `/dev/kvm`.
 ///
-/// The handle is used to issue system iocts.
+/// The handle is used to issue system ioctls.
 pub struct Kvm {
     kvm: File,
 }
