@@ -287,7 +287,8 @@ impl Env {
                 .arg(format!(
                     "--context={}",
                     serde_json::to_string(&context).expect("Failed to serialize context")
-                )).stdin(Stdio::inherit())
+                ))
+                .stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
                 .uid(self.uid())
@@ -367,7 +368,8 @@ mod tests {
             ),
             0,
             0,
-        ).expect("This new environment should be created successfully.");
+        )
+        .expect("This new environment should be created successfully.");
 
         let mut chroot_dir = PathBuf::from(chroot_base);
         chroot_dir.push(Path::new(exec_file).file_name().unwrap());
@@ -384,71 +386,67 @@ mod tests {
             make_args(node, id, exec_file, uid, gid, chroot_base, None, false),
             0,
             0,
-        ).expect("This another new environment should be created successfully.");
+        )
+        .expect("This another new environment should be created successfully.");
         assert!(!another_good_env.daemonize);
 
         // Not fine - invalid node.
-        assert!(
-            Env::new(
-                make_args("zzz", id, exec_file, uid, gid, chroot_base, None, true),
-                0,
-                0,
-            ).is_err()
-        );
+        assert!(Env::new(
+            make_args("zzz", id, exec_file, uid, gid, chroot_base, None, true),
+            0,
+            0,
+        )
+        .is_err());
 
         // Not fine - invalid id.
-        assert!(
-            Env::new(
-                make_args(
-                    node,
-                    "/ad./sa12",
-                    exec_file,
-                    uid,
-                    gid,
-                    chroot_base,
-                    None,
-                    true
-                ),
-                0,
-                0
-            ).is_err()
-        );
+        assert!(Env::new(
+            make_args(
+                node,
+                "/ad./sa12",
+                exec_file,
+                uid,
+                gid,
+                chroot_base,
+                None,
+                true
+            ),
+            0,
+            0
+        )
+        .is_err());
 
         // Not fine - inexistent (hopefully) exec_file.
-        assert!(
-            Env::new(
-                make_args(
-                    node,
-                    id,
-                    "/this!/file!/should!/not!/exist!/",
-                    uid,
-                    gid,
-                    chroot_base,
-                    None,
-                    true
-                ),
-                0,
-                0
-            ).is_err()
-        );
+        assert!(Env::new(
+            make_args(
+                node,
+                id,
+                "/this!/file!/should!/not!/exist!/",
+                uid,
+                gid,
+                chroot_base,
+                None,
+                true
+            ),
+            0,
+            0
+        )
+        .is_err());
 
         // Not fine - invalid uid.
-        assert!(
-            Env::new(
-                make_args(node, id, exec_file, "zzz", gid, chroot_base, None, true),
-                0,
-                0
-            ).is_err()
-        );
+        assert!(Env::new(
+            make_args(node, id, exec_file, "zzz", gid, chroot_base, None, true),
+            0,
+            0
+        )
+        .is_err());
 
         // Not fine - invalid gid.
-        assert!(
-            Env::new(
-                make_args(node, id, exec_file, uid, "zzz", chroot_base, None, true),
-                0,
-                0
-            ).is_err()
-        );
+        assert!(Env::new(
+            make_args(node, id, exec_file, uid, "zzz", chroot_base, None, true),
+            0,
+            0
+        )
+        .is_err());
 
         // The chroot-base-dir param is not validated by Env::new, but rather in run, when we
         // actually attempt to create the folder structure (the same goes for netns).

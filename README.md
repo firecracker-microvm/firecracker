@@ -128,14 +128,16 @@ can be found in [our security policy document](SECURITY-POLICY.md).
 
 Frequently asked questions are collected in our [FAQ doc](FAQ.md).
 
-The Firecracker community can be contacted in the following ways:
+You can get in touch with the Firecracker community in the following ways:
 - Chat with us on our
   [Slack workspace](https://tinyurl.com/firecracker-microvm). _Note: most of the
   maintainers are on a European time zone._
 - Open a GitHub issue in this repository.
 - Email the maintainers at
   [firecracker-maintainers@amazon.com](mailto:firecracker-maintainers@amazon.com).
-- Community email list: _coming soon_.
+- [Subscribe](https://lists.infradead.org/mailman/listinfo/firecracker-devel) to
+  our development email list:
+  [firecracker-devel@lists.infradead.org](mailto:firecracker-devel@lists.infradead.org).
 
 When communicating within the Firecracker community, please mind our
 [code of conduct](CODE_OF_CONDUCT.md).

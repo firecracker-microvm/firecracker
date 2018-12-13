@@ -15,6 +15,7 @@ pub const BOOT_STACK_POINTER: usize = 0x8ff0;
 // Initial pagetables.
 pub const PML4_START: usize = 0x9000;
 pub const PDPTE_START: usize = 0xa000;
+pub const PDE_START: usize = 0xb000;
 // Kernel command line.
 pub const CMDLINE_START: usize = 0x20000;
 pub const CMDLINE_MAX_SIZE: usize = 0x10000;

@@ -271,7 +271,8 @@ impl BusDevice for MmioDevice {
                             self.interrupt_status.clone(),
                             self.queues.clone(),
                             self.queue_evts.split_off(0),
-                        ).expect("Failed to activate device");
+                        )
+                        .expect("Failed to activate device");
                     self.device_activated = true;
                 }
             }

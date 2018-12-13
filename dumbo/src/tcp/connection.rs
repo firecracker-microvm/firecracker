@@ -264,10 +264,11 @@ impl Connection {
     // We send a FIN control segment if every data byte up to the self.send_fin sequence number
     // has been ACKed by the other endpoint, and no FIN has been previously sent.
     fn can_send_first_fin(&self) -> bool {
-        !self.fin_sent() && match self.send_fin {
-            Some(fin_seq) if fin_seq == self.highest_ack_received => true,
-            _ => false,
-        }
+        !self.fin_sent()
+            && match self.send_fin {
+                Some(fin_seq) if fin_seq == self.highest_ack_received => true,
+                _ => false,
+            }
     }
 
     // Returns the window size which should be written to an outgoing segment. This is going to be
@@ -647,7 +648,8 @@ impl Connection {
                 .checked_sub(mss_reserved)
                 .ok_or_else(|| WriteNextError::MssRemaining)?,
             payload,
-        ).map_err(WriteNextError::TcpSegment)?;
+        )
+        .map_err(WriteNextError::TcpSegment)?;
 
         if flags_after_ns.intersects(TcpFlags::ACK) {
             self.pending_ack = false;
@@ -971,7 +973,8 @@ pub(crate) mod tests {
                 self.mss.checked_sub(self.mss_reserved).unwrap(),
                 payload,
                 None,
-            ).unwrap()
+            )
+            .unwrap()
         }
 
         pub fn write_syn<'a>(&self, buf: &'a mut [u8]) -> TcpSegment<'a, &'a mut [u8]> {

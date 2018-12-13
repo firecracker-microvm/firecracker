@@ -112,7 +112,8 @@ impl fmt::Display for Error {
                 format!(
                     "Failed to inherit cgroups configurations from file {} in path {:?}",
                     filename, path
-                ).replace("\"", "")
+                )
+                .replace("\"", "")
             ),
             CgroupLineNotFound(ref proc_mounts, ref controller) => write!(
                 f,
@@ -368,7 +369,8 @@ pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Resu
             .parent()
             .ok_or(Error::MissingParent(env.chroot_dir().to_path_buf()))?
             .join(SOCKET_FILE_NAME),
-    ).map_err(|e| Error::UnixListener(e))?;
+    )
+    .map_err(|e| Error::UnixListener(e))?;
 
     let listener_fd = listener.as_raw_fd();
     if listener_fd != LISTENER_FD {

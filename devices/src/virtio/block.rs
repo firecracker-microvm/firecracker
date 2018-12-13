@@ -127,7 +127,8 @@ fn build_device_id(disk_image: &File) -> result::Result<String, Error> {
         blk_metadata.st_dev(),
         blk_metadata.st_rdev(),
         blk_metadata.st_ino()
-    ).to_owned();
+    )
+    .to_owned();
     Ok(device_id)
 }
 
@@ -577,7 +578,8 @@ impl VirtioDevice for Block {
                 epoll::EPOLL_CTL_ADD,
                 queue_evt_raw_fd,
                 epoll::Event::new(epoll::EPOLLIN, self.epoll_config.q_avail_token),
-            ).map_err(|e| {
+            )
+            .map_err(|e| {
                 METRICS.block.activate_fails.inc();
                 ActivateError::EpollCtl(e)
             })?;
@@ -588,7 +590,8 @@ impl VirtioDevice for Block {
                     epoll::EPOLL_CTL_ADD,
                     rate_limiter_rawfd,
                     epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rate_limiter_token),
-                ).map_err(|e| {
+                )
+                .map_err(|e| {
                     METRICS.block.activate_fails.inc();
                     ActivateError::EpollCtl(e)
                 })?;

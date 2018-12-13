@@ -212,9 +212,10 @@ impl NetworkInterfaceConfigs {
         new_config: &NetworkInterfaceConfig,
     ) -> result::Result<(), NetworkInterfaceError> {
         // Check that there is no other interface in the list that has the same mac.
-        if new_config.guest_mac.is_some() && self
-            .get_index_of_mac(&new_config.guest_mac.unwrap())
-            .is_some()
+        if new_config.guest_mac.is_some()
+            && self
+                .get_index_of_mac(&new_config.guest_mac.unwrap())
+                .is_some()
         {
             return Err(NetworkInterfaceError::GuestMacAddressInUse(
                 new_config.guest_mac.unwrap().to_string(),

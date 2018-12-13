@@ -364,6 +364,13 @@ pub struct VmmMetrics {
     pub panic_count: SharedMetric,
 }
 
+/// Memory usage metrics.
+#[derive(Default, Serialize)]
+pub struct MemoryMetrics {
+    /// Number of pages dirtied since the last call to `KVM_GET_DIRTY_LOG`.
+    pub dirty_pages: SharedMetric,
+}
+
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
 #[derive(Default)]
 struct SerializeToUtcTimestampMs;
@@ -404,6 +411,8 @@ pub struct FirecrackerMetrics {
     pub vmm: VmmMetrics,
     /// Metrics related to the UART device.
     pub uart: SerialDeviceMetrics,
+    /// Memory usage metrics.
+    pub memory: MemoryMetrics,
 }
 
 lazy_static! {

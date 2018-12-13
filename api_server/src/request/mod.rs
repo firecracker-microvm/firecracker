@@ -130,7 +130,8 @@ mod tests {
             .fold(vec![], |mut acc, chunk| {
                 acc.extend_from_slice(&chunk);
                 Ok(acc)
-            }).and_then(|v| String::from_utf8(v).map_err(|_| ()));
+            })
+            .and_then(|v| String::from_utf8(v).map_err(|_| ()));
         serde_json::from_str::<Value>(body.wait().unwrap().as_ref())
     }
 
