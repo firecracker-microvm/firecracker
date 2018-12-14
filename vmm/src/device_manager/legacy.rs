@@ -74,7 +74,8 @@ impl LegacyDeviceManager {
                 ))),
                 0x2f8,
                 0x8,
-            ).map_err(|err| Error::BusError(err))?;
+            )
+            .map_err(|err| Error::BusError(err))?;
         self.io_bus
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
@@ -82,7 +83,8 @@ impl LegacyDeviceManager {
                 ))),
                 0x3e8,
                 0x8,
-            ).map_err(|err| Error::BusError(err))?;
+            )
+            .map_err(|err| Error::BusError(err))?;
         self.io_bus
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
@@ -90,7 +92,8 @@ impl LegacyDeviceManager {
                 ))),
                 0x2e8,
                 0x8,
-            ).map_err(|err| Error::BusError(err))?;
+            )
+            .map_err(|err| Error::BusError(err))?;
         self.stdin_handle
             .lock()
             .set_raw_mode()

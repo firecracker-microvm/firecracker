@@ -152,7 +152,12 @@ def test_mmds(test_microvm_with_ssh, network_config):
     # Test reading a non-leaf node WITHOUT a trailing slash.
     cmd = pre + 'latest/meta-data'
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, '')
+    _assert_out_multiple(
+        stdout,
+        stderr,
+        ['ami-id', 'reservation-id', 'local-hostname', 'public-hostname',
+         'network/']
+    )
 
     # Test reading a non-leaf node with a trailing slash.
     cmd = pre + 'latest/meta-data/'

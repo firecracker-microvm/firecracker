@@ -320,7 +320,8 @@ impl<'de> Deserialize<'de> for RateLimiter {
                     ops.size,
                     ops.one_time_burst,
                     ops.refill_time,
-                ).map_err(de::Error::custom)
+                )
+                .map_err(de::Error::custom)
             }
         }
         const FIELDS: &'static [&'static str] = &["bandwidth", "ops"];
