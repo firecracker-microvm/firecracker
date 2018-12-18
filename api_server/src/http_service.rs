@@ -537,16 +537,27 @@ impl hyper::server::Service for ApiServerHttpService {
                         // available.
                         Either::B(
                             outcome_receiver
-                                .map(move |x| {
-                                    info!(
-                                        "Received Success on {}",
-                                        describe(&method_copy, &path_copy, &b_str)
-                                    );
-                                    x.generate_response()
+                                .map(move |result| {
+                                    let description = describe(&method_copy, &path_copy, &b_str);
+                                    // `generate_response` and `err` both consume the inner error.
+                                    // Errors aren't `Clone`-able so we can't back it up either,
+                                    // so we'll rely on the fact that the error was previously
+                                    // logged at its point of origin and not log it again.
+                                    let response = result.generate_response();
+                                    let status_code = response.status();
+                                    if result.is_ok() {
+                                        info!(
+                                            "Received Success {} on {}",
+                                            status_code, description
+                                        );
+                                    } else {
+                                        error!("Received Error {} on {}", status_code, description);
+                                    }
+                                    response
                                 })
                                 .map_err(move |_| {
-                                    info!(
-                                        "Received Error on {}",
+                                    error!(
+                                        "Timeout on {}",
                                         describe(&method_copy_err, &path_copy_err, &b_str_err)
                                     );
                                     METRICS.api_server.sync_outcome_fails.inc();
@@ -561,9 +572,14 @@ impl hyper::server::Service for ApiServerHttpService {
     }
 }
 
-/// Helper function for metric-logging purposes on API requests
-/// `method` is whether PUT or GET
-/// `path` and `body` represent path of the API request and body, respectively
+/// Helper function for metric-logging purposes on API requests.
+///
+/// # Arguments
+///
+/// * `method` - one of `GET`, `PATCH`, `PUT`
+/// * `path` - path of the API request
+/// * `body` - body of the API request
+///
 fn describe(method: &Method, path: &String, body: &String) -> String {
     format!(
         "synchronous {:?} request {:?} with body {:?}",
