@@ -411,7 +411,8 @@ definitions:
         description: Whether or not to include the file path and line number of the log's origin.
       options:
         type: array
-        items: string
+        items:
+          type: string
         description: Additional logging options. Only "LogDirtyPages" is supported.
 
   MachineConfiguration:
