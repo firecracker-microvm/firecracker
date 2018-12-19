@@ -147,6 +147,96 @@ def test_dirty_page_metrics(test_microvm_with_api):
         # Firecracker to flush periodically.
 
 
+def log_file_contains_strings(log_fifo, string_list):
+    """Check if the log file contains all strings in string_list.
+
+    We search for each string in the string_list array only in the
+    first 100 lines of the log.
+    """
+    log_lines = log_fifo.sequential_reader(100)
+    for log_line in log_lines:
+        for text in string_list:
+            if text in log_line:
+                string_list.remove(text)
+                break
+        if not string_list:
+            return True
+
+    return False
+
+
+def test_api_requests_logs(test_microvm_with_api):
+    """Test that API requests are logged."""
+    microvm = test_microvm_with_api
+    microvm.spawn()
+    microvm.basic_config()
+
+    # Configure logging.
+    log_fifo_path = os.path.join(microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
+    log_fifo = log_tools.Fifo(log_fifo_path)
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+
+    response = microvm.logger.put(
+        log_fifo=microvm.create_jailed_resource(log_fifo.path),
+        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
+        level='Info',
+        show_level=True,
+        show_log_origin=True,
+        options=[]
+    )
+    assert response.status_code == 204
+
+    expected_log_strings = []
+
+    # Check that a Put request on /machine-config is logged.
+    response = microvm.machine_cfg.put(vcpu_count=4)
+    assert microvm.api_session.is_good_response(response.status_code)
+    # We are not interested in the actual body. Just check that the log
+    # message also has the string "body" in it.
+    expected_log_strings.append(
+        "The API server received a synchronous Put request "
+        "on \"/machine-config\" with body"
+    )
+
+    # Check that a Get request on /machine-config is logged without the
+    # body.
+    response = microvm.machine_cfg.get()
+    assert response.status_code == 200
+    expected_log_strings.append(
+        "The API server received a synchronous Get request "
+        "on \"/machine-config\"."
+    )
+
+    # Check that all requests on /mmds are logged without the body.
+    dummy_json = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'dummy'
+            }
+        }
+    }
+    response = microvm.mmds.put(json=dummy_json)
+    assert response.status_code == 204
+    expected_log_strings.append(
+        "The API server received a synchronous Put request on \"/mmds\"."
+    )
+
+    response = microvm.mmds.patch(json=dummy_json)
+    assert response.status_code == 204
+    expected_log_strings.append(
+        "The API server received a synchronous Patch request on \"/mmds\"."
+    )
+
+    response = microvm.mmds.get()
+    assert response.status_code == 200
+    expected_log_strings.append(
+        "The API server received a synchronous Get request on \"/mmds\"."
+    )
+
+    assert log_file_contains_strings(log_fifo, expected_log_strings)
+
+
 # pylint: disable=W0102
 def _test_log_config(
         microvm,

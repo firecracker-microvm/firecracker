@@ -25,7 +25,7 @@ class Fifo:
         self.path = path
 
     def sequential_reader(self, max_lines):
-        """Returns up to `max_lines` lines from fifo `fifo_index`.
+        """Return up to `max_lines` lines from fifo `fifo_index`.
 
         :return: A list containing the read lines.
         """
