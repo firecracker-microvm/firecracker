@@ -67,7 +67,7 @@ and run it on your x86_64 Linux machine.
 On the EC2 instance, this binary can be downloaded as:
 
 ```
-curl -LOJ https://github.com/firecracker-microvm/firecracker/releases/download/v0.11.0/firecracker-v0.11.0
+curl -LOJ https://github.com/firecracker-microvm/firecracker/releases/download/v${latest}/firecracker-v${latest}
 ```
 
 If, instead, you'd like to build Firecracker yourself, you should check out

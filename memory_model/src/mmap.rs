@@ -187,7 +187,8 @@ impl MemoryMapping {
             // Guest memory can't strictly be modeled as a slice because it is
             // volatile.  Writing to it with what compiles down to a memcpy
             // won't hurt anything as long as we get the bounds checks right.
-            if offset + std::mem::size_of::<T>() > self.size {
+            let (end, fail) = offset.overflowing_add(std::mem::size_of::<T>());
+            if fail || end > self.size() {
                 return Err(Error::InvalidAddress);
             }
             std::ptr::write_volatile(&mut self.as_mut_slice()[offset..] as *mut _ as *mut T, val);
@@ -212,7 +213,8 @@ impl MemoryMapping {
     ///     assert_eq!(55, num);
     /// ```
     pub fn read_obj<T: DataInit>(&self, offset: usize) -> Result<T> {
-        if offset + std::mem::size_of::<T>() > self.size {
+        let (end, fail) = offset.overflowing_add(std::mem::size_of::<T>());
+        if fail || end > self.size() {
             return Err(Error::InvalidAddress);
         }
         unsafe {
@@ -251,8 +253,8 @@ impl MemoryMapping {
     where
         F: Read,
     {
-        let mem_end = mem_offset + count;
-        if mem_end > self.size() {
+        let (mem_end, fail) = mem_offset.overflowing_add(count);
+        if fail || mem_end > self.size() {
             return Err(Error::InvalidRange(mem_offset, count));
         }
         unsafe {
@@ -291,11 +293,8 @@ impl MemoryMapping {
     where
         F: Write,
     {
-        let mem_end = match mem_offset.checked_add(count) {
-            None => return Err(Error::InvalidRange(mem_offset, count)),
-            Some(m) => m,
-        };
-        if mem_end > self.size() {
+        let (mem_end, fail) = mem_offset.overflowing_add(count);
+        if fail || mem_end > self.size() {
             return Err(Error::InvalidRange(mem_offset, count));
         }
         unsafe {
@@ -371,9 +370,11 @@ mod tests {
     fn obj_read_and_write() {
         let mem_map = MemoryMapping::new(5).unwrap();
         assert!(mem_map.write_obj(55u16, 4).is_err());
+        assert!(mem_map.write_obj(55u16, core::usize::MAX).is_err());
         assert!(mem_map.write_obj(55u16, 2).is_ok());
         assert_eq!(mem_map.read_obj::<u16>(2).unwrap(), 55u16);
         assert!(mem_map.read_obj::<u16>(4).is_err());
+        assert!(mem_map.read_obj::<u16>(core::usize::MAX).is_err());
     }
 
     #[test]
@@ -383,6 +384,9 @@ mod tests {
         let mut file = File::open(Path::new("/dev/zero")).unwrap();
         assert!(mem_map
             .read_to_memory(2, &mut file, mem::size_of::<u32>())
+            .is_err());
+        assert!(mem_map
+            .read_to_memory(core::usize::MAX, &mut file, mem::size_of::<u32>())
             .is_err());
 
         assert!(mem_map
@@ -406,6 +410,9 @@ mod tests {
             .is_ok());
         assert!(mem_map
             .write_from_memory(2, &mut sink, mem::size_of::<u32>())
+            .is_err());
+        assert!(mem_map
+            .write_from_memory(core::usize::MAX, &mut sink, mem::size_of::<u32>())
             .is_err());
         format!(
             "{:?}",

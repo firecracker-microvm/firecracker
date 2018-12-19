@@ -4,7 +4,7 @@ info:
   description: RESTful public-facing API.
                The API is accessible through HTTP calls on specific URLs carrying JSON modeled data.
                The transport medium is a Unix Domain Socket.
-  version: 0.11.0
+  version: 0.12.0
   termsOfService: ""
   contact:
     email: "compute-capsule@amazon.com"
@@ -411,7 +411,8 @@ definitions:
         description: Whether or not to include the file path and line number of the log's origin.
       options:
         type: array
-        items: string
+        items:
+          type: string
         description: Additional logging options. Only "LogDirtyPages" is supported.
 
   MachineConfiguration:
