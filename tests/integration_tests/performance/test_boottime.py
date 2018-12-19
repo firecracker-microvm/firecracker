@@ -70,7 +70,7 @@ def _test_microvm_boottime(
 
     microvm.start()
     time.sleep(0.4)
-    lines = log_fifo.sequential_fifo_reader(20)
+    lines = log_fifo.sequential_reader(20)
 
     boot_time_us = 0
     for line in lines:

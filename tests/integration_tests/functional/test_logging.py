@@ -140,7 +140,7 @@ def test_dirty_page_metrics(test_microvm_with_api):
 
     microvm.start()
 
-    lines = metrics_fifo.sequential_fifo_reader(3)
+    lines = metrics_fifo.sequential_reader(3)
     for line in lines:
         assert int(json.loads(line)['memory']['dirty_pages']) >= 0
         # TODO force metrics flushing and get real data without waiting for
@@ -178,7 +178,7 @@ def _test_log_config(
 
     microvm.start()
 
-    lines = log_fifo.sequential_fifo_reader(20)
+    lines = log_fifo.sequential_reader(20)
     for line in lines:
         check_log_message(
             line,
