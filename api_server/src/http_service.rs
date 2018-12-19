@@ -469,7 +469,7 @@ impl hyper::server::Service for ApiServerHttpService {
                 Ok(parsed_req) => match parsed_req {
                     GetInstanceInfo => {
                         METRICS.get_api_requests.instance_info_count.inc();
-
+                        log_received_api_request(describe(&method_copy, &path, &None));
                         // unwrap() to crash if the other thread poisoned this lock
                         let shared_info = shared_info_lock
                             .read()
@@ -489,6 +489,9 @@ impl hyper::server::Service for ApiServerHttpService {
                         }
                     }
                     PatchMMDS(json_value) => {
+                        // Requests on /mmds should not have the body in the logs as the data
+                        // store contains customer data.
+                        log_received_api_request(describe(&method_copy, &path, &None));
                         let mut mmds = mmds_info
                             .lock()
                             .expect("Failed to acquire lock on MMDS info");
@@ -504,19 +507,25 @@ impl hyper::server::Service for ApiServerHttpService {
                         }
                     }
                     PutMMDS(json_value) => {
+                        // Requests on /mmds should not have the body in the logs as the data
+                        // store contains customer data.
+                        log_received_api_request(describe(&method_copy, &path, &None));
                         mmds_info
                             .lock()
                             .expect("Failed to acquire lock on MMDS info")
                             .put_data(json_value);
                         Either::A(future::ok(empty_response(StatusCode::NoContent)))
                     }
-                    GetMMDS => Either::A(future::ok(json_response(
-                        StatusCode::Ok,
-                        mmds_info
-                            .lock()
-                            .expect("Failed to acquire lock on MMDS info")
-                            .get_data_str(),
-                    ))),
+                    GetMMDS => {
+                        log_received_api_request(describe(&method_copy, &path, &None));
+                        Either::A(future::ok(json_response(
+                            StatusCode::Ok,
+                            mmds_info
+                                .lock()
+                                .expect("Failed to acquire lock on MMDS info")
+                                .get_data_str(),
+                        )))
+                    }
                     Sync(sync_req, outcome_receiver) => {
                         if send_to_vmm(sync_req, &api_request_sender, &vmm_send_event).is_err() {
                             METRICS.api_server.sync_vmm_send_timeout_count.inc();
@@ -524,13 +533,19 @@ impl hyper::server::Service for ApiServerHttpService {
                         }
 
                         // metric-logging related variables for being able to log response details
-                        let b_str = String::from_utf8_lossy(&b.to_vec()).to_string();
-                        let b_str_err = String::from_utf8_lossy(&b.to_vec()).to_string();
                         let path_copy = path.clone();
+                        let body_desc = match method_copy {
+                            Method::Get => None,
+                            _ => Some(String::from_utf8_lossy(&b.to_vec()).to_string()),
+                        };
+
+                        // We need to clone the description of the request because these are moved
+                        // in the below closure.
                         let path_copy_err = path_copy.clone();
                         let method_copy_err = method_copy.clone();
+                        let body_desc_err = body_desc.clone();
 
-                        info!("Sent {}", describe(&method_copy, &path, &b_str));
+                        log_received_api_request(describe(&method_copy, &path, &body_desc));
 
                         // Sync requests don't receive a response until the outcome is returned.
                         // Once more, this just registers a closure to run when the result is
@@ -538,7 +553,8 @@ impl hyper::server::Service for ApiServerHttpService {
                         Either::B(
                             outcome_receiver
                                 .map(move |result| {
-                                    let description = describe(&method_copy, &path_copy, &b_str);
+                                    let description =
+                                        describe(&method_copy, &path_copy, &body_desc);
                                     // `generate_response` and `err` both consume the inner error.
                                     // Errors aren't `Clone`-able so we can't back it up either,
                                     // so we'll rely on the fact that the error was previously
@@ -547,18 +563,21 @@ impl hyper::server::Service for ApiServerHttpService {
                                     let status_code = response.status();
                                     if result.is_ok() {
                                         info!(
-                                            "Received Success {} on {}",
-                                            status_code, description
+                                            "The {} was executed successfully. Status code: {}.",
+                                            description, status_code
                                         );
                                     } else {
-                                        error!("Received Error {} on {}", status_code, description);
+                                        error!(
+                                            "Received Error on {}. Status code: {}.",
+                                            description, status_code
+                                        );
                                     }
                                     response
                                 })
                                 .map_err(move |_| {
                                     error!(
                                         "Timeout on {}",
-                                        describe(&method_copy_err, &path_copy_err, &b_str_err)
+                                        describe(&method_copy_err, &path_copy_err, &body_desc_err)
                                     );
                                     METRICS.api_server.sync_outcome_fails.inc();
                                     hyper::Error::Timeout
@@ -572,6 +591,14 @@ impl hyper::server::Service for ApiServerHttpService {
     }
 }
 
+/// Helper function for writing the received API requests to the log.
+///
+/// The `info` macro is used for logging.
+#[inline]
+fn log_received_api_request(api_description: String) {
+    info!("The API server received a {}.", api_description);
+}
+
 /// Helper function for metric-logging purposes on API requests.
 ///
 /// # Arguments
@@ -580,11 +607,14 @@ impl hyper::server::Service for ApiServerHttpService {
 /// * `path` - path of the API request
 /// * `body` - body of the API request
 ///
-fn describe(method: &Method, path: &String, body: &String) -> String {
-    format!(
-        "synchronous {:?} request {:?} with body {:?}",
-        method, path, body
-    )
+fn describe(method: &Method, path: &String, body: &Option<String>) -> String {
+    match body {
+        Some(value) => format!(
+            "synchronous {:?} request on {:?} with body {:?}",
+            method, path, value
+        ),
+        None => format!("synchronous {:?} request on {:?}", method, path),
+    }
 }
 
 #[cfg(test)]
@@ -1250,15 +1280,17 @@ mod tests {
     #[test]
     fn test_describe() {
         let body: String = String::from("{ \"foo\": \"bar\" }");
-        let msj = describe(&Method::Get, &String::from("/foo/bar"), &body);
+        let msj = describe(&Method::Get, &String::from("/foo/bar"), &Some(body.clone()));
         assert_eq!(
             msj,
-            "synchronous Get request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+            "synchronous Get request on \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
         );
-        let msj = describe(&Method::Put, &String::from("/foo/bar"), &body);
+        let msj = describe(&Method::Put, &String::from("/foo/bar"), &Some(body));
         assert_eq!(
             msj,
-            "synchronous Put request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+            "synchronous Put request on \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
         );
+        let msj = describe(&Method::Patch, &String::from("/foo/bar"), &None);
+        assert_eq!(msj, "synchronous Patch request on \"/foo/bar\"")
     }
 }
