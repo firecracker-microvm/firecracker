@@ -24,21 +24,15 @@ class Fifo:
         run(cmd, shell=True, check=True)
         self.path = path
 
-    def sequential_fifo_reader(self, max_lines):
-        """Read up to `max_lines` lines from fifo `fifo_index`.
+    def sequential_reader(self, max_lines):
+        """Returns up to `max_lines` lines from fifo `fifo_index`.
 
         :return: A list containing the read lines.
         """
-        fifo = self._open_fifo_nonblocking()
-        result_lines = []
-        while max_lines > 0:
-            data = fifo.readline()
-            if not data:
-                break
-            result_lines.append(data)
-        return result_lines
+        fifo = self._open_nonblocking()
+        return fifo.readlines()[:max_lines]
 
-    def threaded_fifo_reader(self, check_func, *args):
+    def threaded_reader(self, check_func, *args):
         """Start a thread to read fifo.
 
         The thread that runs the `check_func` on each line
@@ -46,7 +40,7 @@ class Fifo:
         """
         exceptions_queue = Queue()
         metric_reader_thread = Thread(
-            target=self._do_thread_fifo_reader, args=(
+            target=self._do_thread_reader, args=(
                 exceptions_queue,
                 check_func,
                 *args
@@ -55,7 +49,7 @@ class Fifo:
         metric_reader_thread.start()
         return exceptions_queue
 
-    def _open_fifo_nonblocking(self):
+    def _open_nonblocking(self):
         """Open a FIFO as read-only and non-blocking."""
         fifo = open(self.path, "r")
         fd = fifo.fileno()
@@ -63,7 +57,7 @@ class Fifo:
         fcntl.fcntl(fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
         return fifo
 
-    def _do_thread_fifo_reader(self, exceptions_queue, check_func, *args):
+    def _do_thread_reader(self, exceptions_queue, check_func, *args):
         """Read from a FIFO opened as read-only.
 
         This applies a function for checking output on each
@@ -71,7 +65,7 @@ class Fifo:
         Failures and exceptions are propagated to the main thread
         through the `exceptions_queue`.
         """
-        fifo = self._open_fifo_nonblocking()
+        fifo = self._open_nonblocking()
         max_iter = 20
         while max_iter > 0:
             data = fifo.readline()

@@ -37,7 +37,7 @@ def test_startup_time(test_microvm_with_api):
 
     # The metrics fifo should be at index 1.
     # Since metrics are flushed at InstanceStart, the first line will suffice.
-    lines = metrics_fifo.sequential_fifo_reader(1)
+    lines = metrics_fifo.sequential_reader(1)
     metrics = json.loads(lines[0])
     startup_time_us = metrics['api_server']['process_startup_time_us']
     cpu_startup_time_us = metrics['api_server']['process_startup_time_cpu_us']
