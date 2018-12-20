@@ -367,7 +367,6 @@ definitions:
         enum:
         - BlockDeviceRescan
         - InstanceStart
-        - InstanceHalt
       payload:
         type: string
 
