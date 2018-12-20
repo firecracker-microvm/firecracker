@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Documentation for Logger API Requests in `docs/api_requests/logger.md`.
+
+### Changed
+- Updated the swagger definition of the `Logger` to specify the required fields
+  and provide default values for optional fields.
+
 ## [0.12.0]
 
 ### Added

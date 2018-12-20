@@ -391,28 +391,35 @@ definitions:
     type: object
     description:
       Describes the configuration option for the logging capability.
+    required:
+      - log_fifo
+      - metrics_fifo
     properties:
       log_fifo:
         type: string
         description: The named pipe for the human readable log output.
       metrics_fifo:
-              type: string
-              description: The named pipe where the JSON-formatted metrics will be flushed.
+        type: string
+        description: The named pipe where the JSON-formatted metrics will be flushed.
       level:
         type: string
         description: Set the level.
         enum: [Error, Warning, Info, Debug]
+        default: Warning
       show_level:
         type: boolean
         description: Whether or not to output the level in the logs.
+        default: false
       show_log_origin:
         type: boolean
         description: Whether or not to include the file path and line number of the log's origin.
+        default: false
       options:
         type: array
         items:
           type: string
         description: Additional logging options. Only "LogDirtyPages" is supported.
+        default: []
 
   MachineConfiguration:
     type: object
