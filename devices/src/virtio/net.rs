@@ -827,9 +827,9 @@ impl VirtioDevice for Net {
 
             epoll::ctl(
                 self.epoll_config.epoll_raw_fd,
-                epoll::EPOLL_CTL_ADD,
+                epoll::ControlOptions::EPOLL_CTL_ADD,
                 tap_raw_fd,
-                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_tap_token),
+                epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.rx_tap_token),
             )
             .map_err(|e| {
                 METRICS.net.activate_fails.inc();
@@ -838,9 +838,9 @@ impl VirtioDevice for Net {
 
             epoll::ctl(
                 self.epoll_config.epoll_raw_fd,
-                epoll::EPOLL_CTL_ADD,
+                epoll::ControlOptions::EPOLL_CTL_ADD,
                 rx_queue_raw_fd,
-                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_queue_token),
+                epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.rx_queue_token),
             )
             .map_err(|e| {
                 METRICS.net.activate_fails.inc();
@@ -849,9 +849,9 @@ impl VirtioDevice for Net {
 
             epoll::ctl(
                 self.epoll_config.epoll_raw_fd,
-                epoll::EPOLL_CTL_ADD,
+                epoll::ControlOptions::EPOLL_CTL_ADD,
                 tx_queue_raw_fd,
-                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_queue_token),
+                epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.tx_queue_token),
             )
             .map_err(|e| {
                 METRICS.net.activate_fails.inc();
@@ -861,9 +861,12 @@ impl VirtioDevice for Net {
             if rx_rate_limiter_rawfd != -1 {
                 epoll::ctl(
                     self.epoll_config.epoll_raw_fd,
-                    epoll::EPOLL_CTL_ADD,
+                    epoll::ControlOptions::EPOLL_CTL_ADD,
                     rx_rate_limiter_rawfd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rx_rate_limiter_token),
+                    epoll::Event::new(
+                        epoll::Events::EPOLLIN,
+                        self.epoll_config.rx_rate_limiter_token,
+                    ),
                 )
                 .map_err(ActivateError::EpollCtl)?;
             }
@@ -871,9 +874,12 @@ impl VirtioDevice for Net {
             if tx_rate_limiter_rawfd != -1 {
                 epoll::ctl(
                     self.epoll_config.epoll_raw_fd,
-                    epoll::EPOLL_CTL_ADD,
+                    epoll::ControlOptions::EPOLL_CTL_ADD,
                     tx_rate_limiter_rawfd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.tx_rate_limiter_token),
+                    epoll::Event::new(
+                        epoll::Events::EPOLLIN,
+                        self.epoll_config.tx_rate_limiter_token,
+                    ),
                 )
                 .map_err(ActivateError::EpollCtl)?;
             }

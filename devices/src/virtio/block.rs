@@ -575,9 +575,9 @@ impl VirtioDevice for Block {
             //TODO: barrier needed here by any chance?
             epoll::ctl(
                 self.epoll_config.epoll_raw_fd,
-                epoll::EPOLL_CTL_ADD,
+                epoll::ControlOptions::EPOLL_CTL_ADD,
                 queue_evt_raw_fd,
-                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.q_avail_token),
+                epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.q_avail_token),
             )
             .map_err(|e| {
                 METRICS.block.activate_fails.inc();
@@ -587,9 +587,9 @@ impl VirtioDevice for Block {
             if rate_limiter_rawfd != -1 {
                 epoll::ctl(
                     self.epoll_config.epoll_raw_fd,
-                    epoll::EPOLL_CTL_ADD,
+                    epoll::ControlOptions::EPOLL_CTL_ADD,
                     rate_limiter_rawfd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rate_limiter_token),
+                    epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.rate_limiter_token),
                 )
                 .map_err(|e| {
                     METRICS.block.activate_fails.inc();

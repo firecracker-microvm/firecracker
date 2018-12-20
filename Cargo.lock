@@ -83,11 +83,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "bitflags"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "bitflags"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
@@ -167,7 +162,7 @@ version = "0.1.0"
 dependencies = [
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "dumbo 0.1.0",
- "epoll 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "epoll 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.45 (registry+https://github.com/rust-lang/crates.io-index)",
  "logger 0.1.0",
  "memory_model 0.1.0",
@@ -200,10 +195,10 @@ dependencies = [
 
 [[package]]
 name = "epoll"
-version = "2.1.0"
+version = "4.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "bitflags 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.45 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1196,7 +1191,7 @@ dependencies = [
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "cpuid 0.1.0",
  "devices 0.1.0",
- "epoll 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "epoll 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "fc_util 0.1.0",
  "futures 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "kernel 0.1.0",
@@ -1277,7 +1272,6 @@ dependencies = [
 "checksum backtrace-sys 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)" = "3fcce89e5ad5c8949caa9434501f7b55415b3e7ad5270cb88c75a8d35e8f1279"
 "checksum base64 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)" = "489d6c0ed21b11d038c31b6ceccca973e65d73ba3bd8ecb9a2babf5546164643"
 "checksum bitflags 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4f67931368edf3a9a51d29886d245f1c3db2f1ef0dcc9e35ff70341b78c10d23"
-"checksum bitflags 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "aad18937a628ec6abcd26d1489012cc0e18c21798210f491af69ded9b881106d"
 "checksum bitflags 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)" = "4efd02e230a02e18f92fc2735f44597385ed02ad8f831e7c1c1156ee5e1ab3a5"
 "checksum bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "228047a76f468627ca71776ecdebd732a3423081fcf5125585bcd7c49886ce12"
 "checksum byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "652805b7e73fada9d85e9a6682a4abd490cb52d96aeecc12e33a0de34dfd0d23"
@@ -1288,7 +1282,7 @@ dependencies = [
 "checksum clap 2.27.1 (registry+https://github.com/rust-lang/crates.io-index)" = "1b8c532887f1a292d17de05ae858a8fe50a301e196f9ef0ddb7ccd0d1d00f180"
 "checksum cloudabi 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "ddfc5b9aa5d4507acaf872de71051dfd0e309860e88966e1051e462a077aac4f"
 "checksum dtoa 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "6d301140eb411af13d3115f9a562c85cc6b541ade9dfa314132244aaee7489dd"
-"checksum epoll 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f438f4df5a02309cd0263e944ccc97704968c96b13f634dd4cb83d8e155b83aa"
+"checksum epoll 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f3f0680f2a6f2a17fa7a8668a27c54e45e1ad1cf8a632f56a7c19b9e4e3bbe8a"
 "checksum fuchsia-zircon 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "2e9763c69ebaae630ba35f74888db465e49e259ba1bc0eda7d06f4a067615d82"
 "checksum fuchsia-zircon-sys 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "3dcaa9ae7725d12cdb85b3ad99a434db70b468c09ded17e012d86b5c1010f7a7"
 "checksum futures 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)" = "0bab5b5e94f5c31fc764ba5dd9ad16568aae5d4825538c01d6bca680c9bf94a7"
