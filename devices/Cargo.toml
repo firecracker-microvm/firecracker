@@ -5,7 +5,7 @@ authors = ["The Chromium OS Authors"]
 
 [dependencies]
 byteorder = ">=1.2.1"
-epoll = "=2.1.0"
+epoll = "=4.0.1"
 libc = ">=0.2.39"
 
 dumbo = { path = "../dumbo" }
