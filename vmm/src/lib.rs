@@ -1620,22 +1620,14 @@ impl Vmm {
         }
 
         match api_logger.level {
-            Some(val) => match val {
-                LoggerLevel::Error => LOGGER.set_level(Level::Error),
-                LoggerLevel::Warning => LOGGER.set_level(Level::Warn),
-                LoggerLevel::Info => LOGGER.set_level(Level::Info),
-                LoggerLevel::Debug => LOGGER.set_level(Level::Debug),
-            },
-            None => (),
+            LoggerLevel::Error => LOGGER.set_level(Level::Error),
+            LoggerLevel::Warning => LOGGER.set_level(Level::Warn),
+            LoggerLevel::Info => LOGGER.set_level(Level::Info),
+            LoggerLevel::Debug => LOGGER.set_level(Level::Debug),
         }
 
-        if let Some(val) = api_logger.show_log_origin {
-            LOGGER.set_include_origin(val, val);
-        }
-
-        if let Some(val) = api_logger.show_level {
-            LOGGER.set_include_level(val);
-        }
+        LOGGER.set_include_origin(api_logger.show_log_origin, api_logger.show_log_origin);
+        LOGGER.set_include_level(api_logger.show_level);
 
         let options = match api_logger.options {
             Value::Array(options) => options,
@@ -2680,9 +2672,9 @@ mod tests {
         let desc = LoggerConfig {
             log_fifo: log_file.path().to_str().unwrap().to_string(),
             metrics_fifo: metrics_file.path().to_str().unwrap().to_string(),
-            level: Some(LoggerLevel::Warning),
-            show_level: Some(true),
-            show_log_origin: Some(true),
+            level: LoggerLevel::Warning,
+            show_level: true,
+            show_log_origin: true,
             options: Value::Array(vec![]),
         };
 
@@ -2696,9 +2688,9 @@ mod tests {
         let desc = LoggerConfig {
             log_fifo: String::from("not_found_file_log"),
             metrics_fifo: String::from("not_found_file_metrics"),
-            level: None,
-            show_level: None,
-            show_log_origin: None,
+            level: LoggerLevel::Warning,
+            show_level: false,
+            show_log_origin: false,
             options: Value::Array(vec![]),
         };
         assert!(vmm.init_logger(desc).is_err());
@@ -2707,9 +2699,9 @@ mod tests {
         let desc = LoggerConfig {
             log_fifo: String::from("not_found_file_log"),
             metrics_fifo: String::from("not_found_file_metrics"),
-            level: None,
-            show_level: None,
-            show_log_origin: None,
+            level: LoggerLevel::Warning,
+            show_level: false,
+            show_log_origin: false,
             options: Value::Array(vec![Value::String("foobar".to_string())]),
         };
         assert!(vmm.init_logger(desc).is_err());
@@ -2720,9 +2712,9 @@ mod tests {
         let desc = LoggerConfig {
             log_fifo: log_file.path().to_str().unwrap().to_string(),
             metrics_fifo: metrics_file.path().to_str().unwrap().to_string(),
-            level: Some(LoggerLevel::Warning),
-            show_level: Some(true),
-            show_log_origin: Some(true),
+            level: LoggerLevel::Warning,
+            show_level: true,
+            show_log_origin: true,
             options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
         };
         assert!(vmm.init_logger(desc).is_ok());

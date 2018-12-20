@@ -29,15 +29,16 @@ mod tests {
     use super::*;
 
     use serde_json::Value;
+    use vmm::vmm_config::logger::LoggerLevel;
 
     #[test]
     fn test_into_parsed_request() {
         let desc = LoggerConfig {
             log_fifo: String::from("log"),
             metrics_fifo: String::from("metrics"),
-            level: None,
-            show_level: None,
-            show_log_origin: None,
+            level: LoggerLevel::Warning,
+            show_level: false,
+            show_log_origin: false,
             options: Value::Array(vec![]),
         };
         format!("{:?}", desc);

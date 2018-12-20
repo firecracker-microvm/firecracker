@@ -631,6 +631,7 @@ mod tests {
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
+    use vmm::vmm_config::logger::LoggerLevel;
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm::VmmAction;
 
@@ -1028,6 +1029,19 @@ mod tests {
     #[test]
     fn test_parse_logger_source_req() {
         let logger_path = "/logger";
+
+        // PUT with default values for optional fields.
+        let default_json = r#"{
+            "log_fifo": "tmp1",
+            "metrics_fifo": "tmp2"
+        }"#;
+        let logger_body: Chunk = Chunk::from(default_json);
+        let logger_config =
+            serde_json::from_slice::<LoggerConfig>(&logger_body).expect("deserialization failed");
+        assert_eq!(logger_config.level, LoggerLevel::Warning);
+        assert_eq!(logger_config.show_log_origin, false);
+        assert_eq!(logger_config.show_level, false);
+
         let json = "{
                 \"log_fifo\": \"tmp1\",
                 \"metrics_fifo\": \"tmp2\",
