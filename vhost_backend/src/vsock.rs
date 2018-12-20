@@ -10,7 +10,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use super::{ioctl_error, Error, Result, Vhost};
 use memory_model::GuestMemory;
 use sys_util::ioctl_with_ref;
-use vhost_sys::*;
+use vhost_gen::*;
 
 const VHOST_PATH: &'static str = "/dev/vhost-vsock";
 

@@ -5,5 +5,5 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
 kvm = { path = "../kvm" }
-kvm_sys = { path = "../kvm_sys" }
+kvm_gen = { path = "../kvm_gen" }
 logger = { path = "../logger" }

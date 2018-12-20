@@ -130,7 +130,8 @@ mod tests {
             .fold(vec![], |mut acc, chunk| {
                 acc.extend_from_slice(&chunk);
                 Ok(acc)
-            }).and_then(|v| String::from_utf8(v).map_err(|_| ()));
+            })
+            .and_then(|v| String::from_utf8(v).map_err(|_| ()));
         serde_json::from_str::<Value>(body.wait().unwrap().as_ref())
     }
 
@@ -252,8 +253,8 @@ mod tests {
         // Tests for MicrovmStart Errors.
         // RegisterBlockDevice, RegisterNetDevice, and LegacyIOBus cannot be tested because the
         // device manager is a private module in the vmm crate.
-        // ConfigureVm, Vcpu, VcpuConfigure, and VmConfigure cannot be tested because vstate is a
-        // private module in the vmm crate.
+        // ConfigureVm, Vcpu and VcpuConfigure cannot be tested because vstate is a private module
+        // in the vmm crate.
         let vmm_resp =
             VmmActionError::StartMicrovm(ErrorKind::User, StartMicrovmError::MicroVMAlreadyRunning);
         check_error_response(vmm_resp, StatusCode::BadRequest);

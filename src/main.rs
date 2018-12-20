@@ -34,7 +34,7 @@ const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 
 fn main() {
     LOGGER
-        .init(&"", None, None)
+        .init(DEFAULT_INSTANCE_ID, None, None, vec![])
         .expect("Failed to register logger");
 
     // If the signal handler can't be set, it's OK to panic.
@@ -68,17 +68,19 @@ fn main() {
                 .help("Path to unix domain socket used by the API")
                 .default_value(DEFAULT_API_SOCK_PATH)
                 .takes_value(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("context")
                 .long("context")
                 .help("Additional parameters sent to Firecracker.")
                 .takes_value(true),
-        ).get_matches();
+        )
+        .get_matches();
 
     let bind_path = cmd_arguments
         .value_of("api_sock")
         .map(|s| PathBuf::from(s))
-        .unwrap();
+        .expect("Missing argument: api_sock");
 
     let mut instance_id = String::from(DEFAULT_INSTANCE_ID);
     let mut seccomp_level = 0;
@@ -87,7 +89,8 @@ fn main() {
     let mut is_jailed = false;
 
     if let Some(s) = cmd_arguments.value_of("context") {
-        let context = serde_json::from_str::<FirecrackerContext>(s).unwrap();
+        let context =
+            serde_json::from_str::<FirecrackerContext>(s).expect("Invalid context format");
         is_jailed = context.jailed;
         instance_id = context.id;
         seccomp_level = context.seccomp_level;
@@ -101,7 +104,8 @@ fn main() {
     }));
     let mmds_info = MMDS.clone();
     let (to_vmm, from_api) = channel();
-    let server = ApiServer::new(mmds_info, shared_info.clone(), to_vmm).unwrap();
+    let server =
+        ApiServer::new(mmds_info, shared_info.clone(), to_vmm).expect("Cannot create API server");
 
     let api_event_fd = server
         .get_event_fd_clone()
@@ -218,7 +222,9 @@ mod tests {
                 "TEST-ID",
                 Some(log_file_temp.path().to_str().unwrap().to_string()),
                 Some(metrics_file_temp.path().to_str().unwrap().to_string()),
-            ).expect("Could not initialize logger.");
+                vec![],
+            )
+            .expect("Could not initialize logger.");
 
         // Cause some controlled panic and see if a backtrace shows up in the log,
         // as it's supposed to.

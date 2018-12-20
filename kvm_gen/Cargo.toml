@@ -1,7 +1,7 @@
 [package]
-name = "vhost_sys"
+name = "kvm_gen"
 version = "0.1.0"
-authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
+authors = ["The Chromium OS Authors"]
 
 [dependencies]
 libc = ">=0.2.39"

@@ -320,7 +320,8 @@ impl<'de> Deserialize<'de> for RateLimiter {
                     ops.size,
                     ops.one_time_burst,
                     ops.refill_time,
-                ).map_err(de::Error::custom)
+                )
+                .map_err(de::Error::custom)
             }
         }
         const FIELDS: &'static [&'static str] = &["bandwidth", "ops"];
@@ -421,7 +422,7 @@ impl RateLimiter {
             // safe to unwrap: timer is definitely Some() since we have a bucket.
             self.timer_fd
                 .as_mut()
-                .unwrap()
+                .expect("Failed to consume rate limiter token due to invalid timer fd")
                 .set_state(TIMER_REFILL_STATE, SetTimeFlags::Default);
             self.timer_active = true;
         }
@@ -499,7 +500,7 @@ impl Default for RateLimiter {
     /// Default RateLimiter is a no-op limiter with infinite budget.
     fn default() -> Self {
         // Safe to unwrap since this will not attempt to create timer_fd.
-        RateLimiter::new(0, None, 0, 0, None, 0).unwrap()
+        RateLimiter::new(0, None, 0, 0, None, 0).expect("Failed to build default RateLimiter")
     }
 }
 

@@ -59,7 +59,7 @@ build and we welcome all contributions.
 
 To contribute to Firecracker, check out the development setup section in the
 [getting started guide](docs/getting-started.md) and then the Firecracker
-[contribution guidelines](CONTRIBUTE.md).
+[contribution guidelines](CONTRIBUTING.md).
 
 ## Releases
 
@@ -107,7 +107,7 @@ The **API endpoint** can be used to:
 - Demand fault paging and CPU oversubscription enabled by default.
 - [Jailer](docs/jailer.md) process for starting Firecracker in production
   scenarios; applies a cgroup/namespace/seccomp rule isolation barrier and then
-  drops privileges. 
+  drops privileges.
 
 ## Performance
 
@@ -120,22 +120,25 @@ testing.
 ## Policy for Security Disclosures
 
 The security of Firecracker is our top priority. If you suspect you have
-uncovered a vulnerability, get in touch with us; we will immediately prioritize
-your disclosure. More details on our process for dealing with this type of event
-can be found in [our security policy document](SECURITY-POLICY.md).
+uncovered a vulnerability, contact us privately, as outlined in our
+[security policy document](SECURITY-POLICY.md); we will immediately prioritize
+your disclosure.
 
 ## FAQ & Contact
 
 Frequently asked questions are collected in our [FAQ doc](FAQ.md).
 
-The Firecracker community can be contacted in the following ways:
+You can get in touch with the Firecracker community in the following ways:
+- Security-related issues, see our [security policy document](SECURITY-POLICY.md).
 - Chat with us on our
   [Slack workspace](https://tinyurl.com/firecracker-microvm). _Note: most of the
   maintainers are on a European time zone._
 - Open a GitHub issue in this repository.
 - Email the maintainers at
   [firecracker-maintainers@amazon.com](mailto:firecracker-maintainers@amazon.com).
-- Community email list: _coming soon_.
+- [Subscribe](https://lists.infradead.org/mailman/listinfo/firecracker-devel) to
+  our development email list:
+  [firecracker-devel@lists.infradead.org](mailto:firecracker-devel@lists.infradead.org).
 
 When communicating within the Firecracker community, please mind our
-[code of conduct](CODE-OF-CONDUCT.md).
+[code of conduct](CODE_OF_CONDUCT.md).

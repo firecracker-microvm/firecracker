@@ -24,7 +24,7 @@ These tenets guide Firecracker's development:
 ## Contributions & Project Roles
 
 All contributions must align with this charter and follow Firecracker's
-[contribution process](CONTRIBUTE.md).
+[contribution process](CONTRIBUTING.md).
 
 Firecracker [maintainers](MAINTAINERS.md) merge contributions into the
 master branch and create Firecracker releases. Maintainers are also

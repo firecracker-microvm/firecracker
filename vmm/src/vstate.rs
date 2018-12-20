@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 extern crate devices;
+extern crate logger;
 extern crate sys_util;
 extern crate x86_64;
 
@@ -14,18 +15,26 @@ use std::result;
 use super::KvmContext;
 use cpuid::{c3_template, filter_cpuid, t2_template};
 use kvm::*;
-use memory_model::{GuestAddress, GuestMemory};
+use logger::{LogOption, LOGGER};
+use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
 use x86_64::{interrupts, regs};
 
 pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
+const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
 pub enum Error {
     /// A call to cpuid instruction failed.
     CpuId(cpuid::Error),
+    /// Invalid guest memory configuration.
+    GuestMemory(GuestMemoryError),
+    /// Hyperthreading flag is not initialized.
+    HTNotInitialized,
+    /// vCPU count is not initialized.
+    VcpuCountNotInitialized,
     /// Cannot open the VM file descriptor.
     VmFd(sys_util::Error),
     /// Cannot open the VCPU file descriptor.
@@ -87,13 +96,19 @@ impl Vm {
         }
         guest_mem.with_regions(|index, guest_addr, size, host_addr| {
             info!("Guest memory starts at {:x?}", host_addr);
+
+            let flags = if LOGGER.flags() & LogOption::LogDirtyPages as usize > 0 {
+                KVM_MEM_LOG_DIRTY_PAGES
+            } else {
+                0
+            };
             // Safe because the guest regions are guaranteed not to overlap.
             self.fd.set_user_memory_region(
                 index as u32,
                 guest_addr.offset() as u64,
                 size as u64,
                 host_addr as u64,
-                0,
+                flags,
             )
         })?;
         self.guest_mem = Some(guest_mem);
@@ -170,13 +185,16 @@ impl Vcpu {
         kernel_start_addr: GuestAddress,
         vm: &Vm,
     ) -> Result<()> {
-        // the MachineConfiguration has defaults for ht_enabled and vcpu_count hence it is safe to unwrap
+        // the MachineConfiguration has defaults for ht_enabled and vcpu_count.
         filter_cpuid(
             self.id,
-            machine_config.vcpu_count.unwrap(),
-            machine_config.ht_enabled.unwrap(),
+            machine_config
+                .vcpu_count
+                .ok_or(Error::VcpuCountNotInitialized)?,
+            machine_config.ht_enabled.ok_or(Error::HTNotInitialized)?,
             &mut self.cpuid,
-        ).map_err(|e| Error::CpuId(e))?;
+        )
+        .map_err(|e| Error::CpuId(e))?;
         match machine_config.cpu_template {
             Some(template) => match template {
                 CpuFeaturesTemplate::T2 => {
@@ -195,13 +213,16 @@ impl Vcpu {
 
         regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
         // Safe to unwrap because this method is called after the VM is configured
-        let vm_memory = vm.get_memory().unwrap();
+        let vm_memory = vm
+            .get_memory()
+            .ok_or(Error::GuestMemory(GuestMemoryError::MemoryNotInitialized))?;
         regs::setup_regs(
             &self.fd,
             kernel_start_addr.offset() as u64,
             x86_64::layout::BOOT_STACK_POINTER as u64,
             x86_64::layout::ZERO_PAGE_START as u64,
-        ).map_err(Error::REGSConfiguration)?;
+        )
+        .map_err(Error::REGSConfiguration)?;
         regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
         regs::setup_sregs(vm_memory, &self.fd).map_err(Error::SREGSConfiguration)?;
         interrupts::set_lint(&self.fd).map_err(Error::LocalIntConfiguration)?;
