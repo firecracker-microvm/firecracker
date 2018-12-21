@@ -375,9 +375,9 @@ impl EpollContext {
     fn enable_stdin_event(&mut self) -> Result<()> {
         if let Err(e) = epoll::ctl(
             self.epoll_raw_fd,
-            epoll::EPOLL_CTL_ADD,
+            epoll::ControlOptions::EPOLL_CTL_ADD,
             libc::STDIN_FILENO,
-            epoll::Event::new(epoll::EPOLLIN, self.stdin_index),
+            epoll::Event::new(epoll::Events::EPOLLIN, self.stdin_index),
         ) {
             // TODO: We just log this message, and immediately return Ok, instead of returning the
             // actual error because this operation always fails with EPERM when adding a fd which
@@ -400,9 +400,9 @@ impl EpollContext {
         // any more events on the original event_fd anyway.
         let _ = epoll::ctl(
             self.epoll_raw_fd,
-            epoll::EPOLL_CTL_DEL,
+            epoll::ControlOptions::EPOLL_CTL_DEL,
             libc::STDIN_FILENO,
-            epoll::Event::new(epoll::EPOLLIN, self.stdin_index),
+            epoll::Event::new(epoll::Events::EPOLLIN, self.stdin_index),
         )
         .map_err(Error::EpollFd);
         self.dispatch_table[self.stdin_index as usize] = None;
@@ -417,9 +417,9 @@ impl EpollContext {
         let dispatch_index = self.dispatch_table.len() as u64;
         epoll::ctl(
             self.epoll_raw_fd,
-            epoll::EPOLL_CTL_ADD,
+            epoll::ControlOptions::EPOLL_CTL_ADD,
             fd.as_raw_fd(),
-            epoll::Event::new(epoll::EPOLLIN, dispatch_index),
+            epoll::Event::new(epoll::Events::EPOLLIN, dispatch_index),
         )
         .map_err(Error::EpollFd)?;
         self.dispatch_table.push(Some(token));
@@ -433,9 +433,9 @@ impl EpollContext {
     {
         epoll::ctl(
             self.epoll_raw_fd,
-            epoll::EPOLL_CTL_DEL,
+            epoll::ControlOptions::EPOLL_CTL_DEL,
             epoll_event.fd.as_raw_fd(),
-            epoll::Event::new(epoll::EPOLLIN, epoll_event.dispatch_index),
+            epoll::Event::new(epoll::Events::EPOLLIN, epoll_event.dispatch_index),
         )
         .map_err(Error::EpollFd)?;
         self.dispatch_table[epoll_event.dispatch_index as usize] = None;
@@ -1246,7 +1246,7 @@ impl Vmm {
             let num_events = epoll::wait(epoll_raw_fd, -1, &mut events[..]).map_err(Error::Poll)?;
 
             for i in 0..num_events {
-                let dispatch_idx = events[i].data() as usize;
+                let dispatch_idx = events[i].data as usize;
 
                 if let Some(dispatch_type) = self.epoll_context.dispatch_table[dispatch_idx] {
                     match dispatch_type {
@@ -1290,7 +1290,7 @@ impl Vmm {
                             match self.epoll_context.get_device_handler(device_idx) {
                                 Ok(handler) => handler.handle_event(
                                     device_token,
-                                    events[i].events().bits(),
+                                    events[i].events,
                                     EpollHandlerPayload::Empty,
                                 ),
                                 Err(e) => {
@@ -2277,7 +2277,7 @@ mod tests {
         assert_eq!(num_events, 1);
 
         // reported event should be the one we raised
-        let idx = events[0].data() as usize;
+        let idx = events[0].data as usize;
         assert!(ep.dispatch_table[idx].is_some());
         assert_eq!(
             *ep.dispatch_table[idx].as_ref().unwrap(),
@@ -2338,7 +2338,7 @@ mod tests {
         assert!(ep.remove_event(epev).is_ok());
 
         // reported event should no longer be available
-        let idx = events[0].data() as usize;
+        let idx = events[0].data as usize;
         assert!(ep.dispatch_table[idx].is_none());
     }
 
