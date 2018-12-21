@@ -1824,6 +1824,8 @@ mod tests {
     use super::*;
 
     use std::fs::File;
+    use std::io::BufRead;
+    use std::io::BufReader;
     use std::sync::atomic::AtomicUsize;
 
     use self::tempfile::NamedTempFile;
@@ -2730,7 +2732,29 @@ mod tests {
             show_log_origin: true,
             options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
         };
+        // Flushing metrics before initializing logger is erroneous.
+        let err = vmm.flush_metrics();
+        assert!(err.is_err());
+        assert_eq!(
+            format!("{:?}", err.unwrap_err()),
+            "Logger(Internal, FlushMetrics(\"Logger was not initialized.\"))"
+        );
+
         assert!(vmm.init_logger(desc).is_ok());
+
+        assert!(vmm.flush_metrics().is_ok());
+        let f = File::open(metrics_file).unwrap();
+        let mut reader = BufReader::new(f);
+
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert!(line.contains("utc_timestamp_ms"));
+
+        // It is safe to do that because the tests are run sequentially (so no other test may be
+        // writing to the same file.
+        assert!(vmm.flush_metrics().is_ok());
+        reader.read_line(&mut line).unwrap();
+        assert!(line.contains("utc_timestamp_ms"));
     }
 
     #[cfg(target_arch = "x86_64")]
