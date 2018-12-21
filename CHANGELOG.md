@@ -7,6 +7,8 @@
 - Documentation for Logger API Requests in `docs/api_requests/logger.md`.
 - Documentation for Actions API Requests in `docs/api_requests/actions.md`.
 - Documentation for MMDS in `docs/mmds.md`.
+- Flush metrics on request via a PUT `/actions` with the `action_type`
+  field set to `FlushMetrics`.
 
 ### Changed
 
@@ -37,7 +39,7 @@
 ### Changed
 
 - `PUT` requests on `/mmds` always return 204 on success.
-- `PUT` operations on `/network-interfaces` API resources no longer accept 
+- `PUT` operations on `/network-interfaces` API resources no longer accept
   the previously required `state` parameter.
 - The jailer starts with `--seccomp-level=2` (was previously 0) by default.
 - Log messages use `anonymous-instance` as instance id if none is specified.
@@ -48,7 +50,6 @@
 - Fixed "fault_message" inconsistency between Open API specification and code base.
 - Ensure MMDS compatibility with C5's IMDS implementation.
 - Corrected the swagger specification to ensure `OpenAPI 2.0` compatibility.
-
 
 ## [0.11.0]
 
@@ -74,6 +75,7 @@
   now featured in subject-specific docs.
 
 ### Fixed
+
 - Fixed bug in the MMDS network stack, that caused some RST packets to be sent
   without a destination.
 - Fixed bug in `PATCH /drives`, whereby the ID in the path was not checked

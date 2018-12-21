@@ -69,3 +69,19 @@ curl --unix-socket ${socket} -i \
             \"action_type\": \"InstanceStart\"
          }"
 ```
+
+## FlushMetrics
+
+The `FlushMetrics` action flushes the metrics on user demand.
+
+### FlushMetrics Example
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT "http://localhost/actions" \
+    -H  "accept: application/json" \
+    -H  "Content-Type: application/json" \
+    -d "{
+             \"action_type\": \"FlushMetrics\"
+    }"
+```

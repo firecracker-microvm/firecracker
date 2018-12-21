@@ -366,6 +366,7 @@ definitions:
         type: string
         enum:
         - BlockDeviceRescan
+        - FlushMetrics
         - InstanceStart
       payload:
         type: string
