@@ -13,6 +13,7 @@ use vhost_backend::Vhost;
 use DeviceEventT;
 use EpollHandler;
 
+use super::super::super::Error as DeviceErr;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -55,10 +56,14 @@ impl<T: Vhost> VhostEpollHandler<T> {
         }
     }
 
-    fn signal_used_queue(&self) {
+    fn signal_used_queue(&self) -> std::result::Result<(), DeviceErr> {
         self.interrupt_status
             .fetch_or(INTERRUPT_STATUS_USED_RING as usize, Ordering::SeqCst);
-        self.interrupt_evt.write(1).unwrap();
+        if let Some(e) = self.interrupt_evt.write(1) {
+            Err(DeviceErr::FailedSignalingUsedQueue(e))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn get_queue_evt(&self) -> RawFd {
@@ -74,28 +79,33 @@ impl<T: Vhost> EpollHandler for VhostEpollHandler<T>
 where
     T: std::marker::Send,
 {
-    fn handle_event(&mut self, device_event: DeviceEventT, _: u32, _: EpollHandlerPayload) {
-        let mut needs_interrupt = false;
-
+    fn handle_event(
+        &mut self,
+        device_event: DeviceEventT,
+        _: u32,
+        _: EpollHandlerPayload,
+    ) -> std::result::Result<(), DeviceErr> {
         match device_event {
             VHOST_IRQ_AVAILABLE => {
                 if let Err(e) = self.queue_evt.read() {
                     error!("failed reading queue EventFd: {:?}", e);
-                    return;
+                    Err(DeviceErr::FailedReadingQueue {
+                        event_type: "EventFd",
+                        underlying: e,
+                    })
+                } else {
+                    self.signal_used_queue()
                 }
-                needs_interrupt = true;
-                // TODO dpopa@: after changing handle_event's signature to return Result, uncomment this
-                //self.queue_evt.read().map_err(Error::VhostIrqRead)?;
             }
             KILL_EVENT => {
                 //TODO: call API for device removal here
-                info!("vhost device removed")
+                info!("vhost device removed");
+                Ok(())
             }
-            _ => panic!("unknown token for vhost device"),
-        }
-
-        if needs_interrupt {
-            self.signal_used_queue();
+            other => Err(DeviceErr::UnknownEvent {
+                device: "VhostEpollHandler",
+                event: other,
+            }),
         }
     }
 }
