@@ -27,6 +27,7 @@ use api_server::{ApiServer, Error, UnixDomainSocket};
 use jailer::FirecrackerContext;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
+use vmm::default_syscalls;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
@@ -126,7 +127,25 @@ fn main() {
         UnixDomainSocket::Path(bind_path)
     };
 
-    match server.bind_and_run(uds_path_or_fd, start_time_us, start_time_cpu_us) {
+    // Used to load seccomp filters on the API thread.
+    let apply_seccomp_func = || {
+        // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
+        // altogether is the desired behaviour.
+        match default_syscalls::set_seccomp_level(seccomp_level) {
+            Ok(_) => (),
+            Err(e) => panic!(
+                "Failed to set the requested seccomp filters: Error: {:?}",
+                e
+            ),
+        }
+    };
+
+    match server.bind_and_run(
+        uds_path_or_fd,
+        start_time_us,
+        start_time_cpu_us,
+        apply_seccomp_func,
+    ) {
         Ok(_) => (),
         Err(Error::Io(inner)) => match inner.kind() {
             ErrorKind::AddrInUse => panic!(

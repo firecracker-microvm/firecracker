@@ -78,12 +78,16 @@ impl ApiServer {
     }
 
     // TODO: does tokio_uds also support abstract domain sockets?
-    pub fn bind_and_run<P: AsRef<Path>>(
+    pub fn bind_and_run<P: AsRef<Path>, F>(
         &self,
         path_or_fd: UnixDomainSocket<P>,
         start_time_us: Option<u64>,
         start_time_cpu_us: Option<u64>,
-    ) -> Result<()> {
+        apply_seccomp_func: F,
+    ) -> Result<()>
+    where
+        F: FnOnce(),
+    {
         let mut core = Core::new().map_err(Error::Io)?;
         let handle = Rc::new(core.handle());
 
@@ -136,6 +140,9 @@ impl ApiServer {
                 Ok(())
             })
             .map_err(Error::Io);
+
+        // Load seccomp filters on the API thread.
+        apply_seccomp_func();
 
         // This runs forever, unless an error is returned somewhere within f (but nothing happens
         // for errors which might arise inside the connections we spawn from f, unless we explicitly
