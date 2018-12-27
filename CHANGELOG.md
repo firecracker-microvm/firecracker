@@ -17,6 +17,8 @@
 ### Fixed
 
 - Seccomp filters are now applied to all Firecracker threads.
+- Enforce minimum length of 1 character for the jailer ID.
+- Exit with error code when starting the jailer process fails.
 
 ## [0.12.0]
 
