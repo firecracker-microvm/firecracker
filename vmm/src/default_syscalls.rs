@@ -4,11 +4,14 @@
 extern crate libc;
 
 use seccomp::{
-    Error, SeccompAction, SeccompCmpOp, SeccompCondition, SeccompFilterContext, SeccompRule,
+    setup_seccomp, Error, SeccompAction, SeccompCmpOp, SeccompCondition, SeccompFilterContext,
+    SeccompLevel, SeccompRule, SECCOMP_LEVEL_ADVANCED, SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
 };
 
 /// List of allowed syscalls, necessary for Firecracker to function correctly.
 pub const ALLOWED_SYSCALLS: &[i64] = &[
+    libc::SYS_accept,
+    libc::SYS_clock_gettime,
     libc::SYS_close,
     libc::SYS_dup,
     libc::SYS_epoll_ctl,
@@ -27,7 +30,9 @@ pub const ALLOWED_SYSCALLS: &[i64] = &[
     libc::SYS_readv,
     libc::SYS_rt_sigreturn,
     libc::SYS_stat,
+    libc::SYS_timerfd_create,
     libc::SYS_timerfd_settime,
+    libc::SYS_tkill,
     libc::SYS_write,
     libc::SYS_writev,
 ];
@@ -95,11 +100,31 @@ const MAP_PRIVATE: u64 = 0x02;
 const MAP_ANONYMOUS: u64 = 0x20;
 const MAP_NORESERVE: u64 = 0x4000;
 
+/// Applies the configured level of seccomp filtering to the current thread.
+pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
+    // Load seccomp filters before executing guest code.
+    // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
+    // altogether is the desired behaviour.
+    match seccomp_level {
+        SECCOMP_LEVEL_ADVANCED => setup_seccomp(SeccompLevel::Advanced(default_context()?)),
+        SECCOMP_LEVEL_BASIC => setup_seccomp(seccomp::SeccompLevel::Basic(ALLOWED_SYSCALLS)),
+        SECCOMP_LEVEL_NONE | _ => Ok(()),
+    }
+}
+
 /// The default context containing the white listed syscall rules required by `Firecracker` to
 /// function.
 pub fn default_context() -> Result<SeccompFilterContext, Error> {
     Ok(SeccompFilterContext::new(
         vec![
+            (
+                libc::SYS_accept,
+                (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
+            ),
+            (
+                libc::SYS_clock_gettime,
+                (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
+            ),
             (
                 libc::SYS_close,
                 (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
@@ -484,6 +509,14 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
             ),
             (
                 libc::SYS_stat,
+                (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
+            ),
+            (
+                libc::SYS_tkill,
+                (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
+            ),
+            (
+                libc::SYS_timerfd_create,
                 (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
             ),
             (
