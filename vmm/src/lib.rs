@@ -34,7 +34,8 @@ extern crate seccomp;
 extern crate sys_util;
 extern crate x86_64;
 
-mod default_syscalls;
+/// Syscalls allowed through the seccomp filter.
+pub mod default_syscalls;
 mod device_manager;
 /// Signal handling utilities for seccomp violations.
 mod sigsys_handler;
@@ -70,9 +71,6 @@ use kernel::loader as kernel_loader;
 use kvm::*;
 use logger::{Level, LogOption, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
-use seccomp::{
-    setup_seccomp, SeccompLevel, SECCOMP_LEVEL_ADVANCED, SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
-};
 use serde_json::Value;
 pub use sigsys_handler::setup_sigsys_handler;
 use sys_util::{register_signal_handler, EventFd, Killable, Terminal};
@@ -899,7 +897,7 @@ impl Vmm {
                 .map_err(|_| StartMicrovmError::EventFd)?;
 
             let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(StartMicrovmError::Vcpu)?;
-
+            let seccomp_level = self.seccomp_level;
             // It is safe to unwrap the ht_enabled flag because the machine configure
             // has default values for all fields.
             vcpu.configure(&self.vm_config, entry_addr, &self.vm)
@@ -918,6 +916,17 @@ impl Vmm {
                                 true,
                             )
                             .expect("Failed to register vcpu signal handler");
+                        }
+
+                        // Load seccomp filters for this vCPU thread.
+                        // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
+                        // altogether is the desired behaviour.
+                        if let Err(e) = default_syscalls::set_seccomp_level(seccomp_level) {
+                            panic!(
+                                "Failed to set the requested seccomp filters on vCPU {}:\
+                                 Error: {:?}",
+                                cpu_id, e
+                            );
                         }
 
                         vcpu_thread_barrier.wait();
@@ -1017,25 +1026,11 @@ impl Vmm {
             );
         }
 
-        // Load seccomp filters before executing guest code.
+        // Load seccomp filters for the VMM thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
-        match self.seccomp_level {
-            SECCOMP_LEVEL_ADVANCED => {
-                setup_seccomp(SeccompLevel::Advanced(
-                    default_syscalls::default_context()
-                        .map_err(|e| StartMicrovmError::SeccompFilters(e))?,
-                ))
-                .map_err(|e| StartMicrovmError::SeccompFilters(e))?;
-            }
-            SECCOMP_LEVEL_BASIC => {
-                setup_seccomp(seccomp::SeccompLevel::Basic(
-                    default_syscalls::ALLOWED_SYSCALLS,
-                ))
-                .map_err(|e| StartMicrovmError::SeccompFilters(e))?;
-            }
-            SECCOMP_LEVEL_NONE | _ => {}
-        }
+        default_syscalls::set_seccomp_level(self.seccomp_level)
+            .map_err(|e| StartMicrovmError::SeccompFilters(e))?;
 
         vcpu_thread_barrier.wait();
 

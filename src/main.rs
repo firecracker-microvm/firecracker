@@ -126,7 +126,12 @@ fn main() {
         UnixDomainSocket::Path(bind_path)
     };
 
-    match server.bind_and_run(uds_path_or_fd, start_time_us, start_time_cpu_us) {
+    match server.bind_and_run(
+        uds_path_or_fd,
+        start_time_us,
+        start_time_cpu_us,
+        seccomp_level,
+    ) {
         Ok(_) => (),
         Err(Error::Io(inner)) => match inner.kind() {
             ErrorKind::AddrInUse => panic!(
