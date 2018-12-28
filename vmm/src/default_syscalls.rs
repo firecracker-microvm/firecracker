@@ -552,6 +552,7 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
 }
 
 #[cfg(test)]
+#[cfg(target_env = "musl")]
 mod tests {
     extern crate libc;
     extern crate seccomp;
@@ -559,7 +560,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(target_env = "musl")]
     fn test_basic_seccomp() {
         let mut rules = ALLOWED_SYSCALLS.to_vec();
         rules.extend(vec![
@@ -573,7 +573,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_env = "musl")]
     fn test_advanced_seccomp() {
         // Sets up context with additional rules required by the test.
         let mut context = default_context().unwrap();
