@@ -25,8 +25,8 @@ use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
 use sys_util::Result as SysResult;
-use virtio_sys::virtio_blk::*;
-use virtio_sys::virtio_config::*;
+use virtio_gen::virtio_blk::*;
+use virtio_gen::virtio_config::*;
 use {DeviceEventT, EpollHandler};
 
 const CONFIG_SPACE_SIZE: usize = 8;
@@ -127,7 +127,8 @@ fn build_device_id(disk_image: &File) -> result::Result<String, Error> {
         blk_metadata.st_dev(),
         blk_metadata.st_rdev(),
         blk_metadata.st_ino()
-    ).to_owned();
+    )
+    .to_owned();
     Ok(device_id)
 }
 
@@ -574,10 +575,11 @@ impl VirtioDevice for Block {
             //TODO: barrier needed here by any chance?
             epoll::ctl(
                 self.epoll_config.epoll_raw_fd,
-                epoll::EPOLL_CTL_ADD,
+                epoll::ControlOptions::EPOLL_CTL_ADD,
                 queue_evt_raw_fd,
-                epoll::Event::new(epoll::EPOLLIN, self.epoll_config.q_avail_token),
-            ).map_err(|e| {
+                epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.q_avail_token),
+            )
+            .map_err(|e| {
                 METRICS.block.activate_fails.inc();
                 ActivateError::EpollCtl(e)
             })?;
@@ -585,10 +587,11 @@ impl VirtioDevice for Block {
             if rate_limiter_rawfd != -1 {
                 epoll::ctl(
                     self.epoll_config.epoll_raw_fd,
-                    epoll::EPOLL_CTL_ADD,
+                    epoll::ControlOptions::EPOLL_CTL_ADD,
                     rate_limiter_rawfd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.rate_limiter_token),
-                ).map_err(|e| {
+                    epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.rate_limiter_token),
+                )
+                .map_err(|e| {
                     METRICS.block.activate_fails.inc();
                     ActivateError::EpollCtl(e)
                 })?;

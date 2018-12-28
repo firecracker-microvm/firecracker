@@ -116,7 +116,8 @@ fn parse_actions_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<
                 .map_err(|e| {
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|msg| {
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::Generic(StatusCode::BadRequest, msg)
@@ -148,7 +149,8 @@ fn parse_boot_source_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.boot_source_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -217,7 +219,8 @@ fn parse_drives_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
                     METRICS.patch_api_requests.drive_fails.inc();
                     Error::SerdeJson(e)
                 })?,
-            }.into_parsed_request(Some(id_from_path.to_string()), method)
+            }
+            .into_parsed_request(Some(id_from_path.to_string()), method)
             .map_err(|s| {
                 METRICS.patch_api_requests.drive_fails.inc();
                 Error::Generic(StatusCode::BadRequest, s)
@@ -239,7 +242,8 @@ fn parse_logger_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
                 .map_err(|e| {
                     METRICS.put_api_requests.logger_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.logger_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -280,7 +284,8 @@ fn parse_machine_config_req<'a>(
                 .map_err(|e| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(None, method)
+                })?
+                .into_parsed_request(None, method)
                 .map_err(|s| {
                     METRICS.put_api_requests.machine_cfg_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -307,7 +312,8 @@ fn parse_netif_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a
                 .map_err(|e| {
                     METRICS.put_api_requests.network_fails.inc();
                     Error::SerdeJson(e)
-                })?.into_parsed_request(Some(id_from_path.to_string()), method)
+                })?
+                .into_parsed_request(Some(id_from_path.to_string()), method)
                 .map_err(|s| {
                     METRICS.put_api_requests.network_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
@@ -463,7 +469,7 @@ impl hyper::server::Service for ApiServerHttpService {
                 Ok(parsed_req) => match parsed_req {
                     GetInstanceInfo => {
                         METRICS.get_api_requests.instance_info_count.inc();
-
+                        log_received_api_request(describe(&method_copy, &path, &None));
                         // unwrap() to crash if the other thread poisoned this lock
                         let shared_info = shared_info_lock
                             .read()
@@ -483,6 +489,9 @@ impl hyper::server::Service for ApiServerHttpService {
                         }
                     }
                     PatchMMDS(json_value) => {
+                        // Requests on /mmds should not have the body in the logs as the data
+                        // store contains customer data.
+                        log_received_api_request(describe(&method_copy, &path, &None));
                         let mut mmds = mmds_info
                             .lock()
                             .expect("Failed to acquire lock on MMDS info");
@@ -498,19 +507,25 @@ impl hyper::server::Service for ApiServerHttpService {
                         }
                     }
                     PutMMDS(json_value) => {
+                        // Requests on /mmds should not have the body in the logs as the data
+                        // store contains customer data.
+                        log_received_api_request(describe(&method_copy, &path, &None));
                         mmds_info
                             .lock()
                             .expect("Failed to acquire lock on MMDS info")
                             .put_data(json_value);
                         Either::A(future::ok(empty_response(StatusCode::NoContent)))
                     }
-                    GetMMDS => Either::A(future::ok(json_response(
-                        StatusCode::Ok,
-                        mmds_info
-                            .lock()
-                            .expect("Failed to acquire lock on MMDS info")
-                            .get_data_str(),
-                    ))),
+                    GetMMDS => {
+                        log_received_api_request(describe(&method_copy, &path, &None));
+                        Either::A(future::ok(json_response(
+                            StatusCode::Ok,
+                            mmds_info
+                                .lock()
+                                .expect("Failed to acquire lock on MMDS info")
+                                .get_data_str(),
+                        )))
+                    }
                     Sync(sync_req, outcome_receiver) => {
                         if send_to_vmm(sync_req, &api_request_sender, &vmm_send_event).is_err() {
                             METRICS.api_server.sync_vmm_send_timeout_count.inc();
@@ -518,29 +533,51 @@ impl hyper::server::Service for ApiServerHttpService {
                         }
 
                         // metric-logging related variables for being able to log response details
-                        let b_str = String::from_utf8_lossy(&b.to_vec()).to_string();
-                        let b_str_err = String::from_utf8_lossy(&b.to_vec()).to_string();
                         let path_copy = path.clone();
+                        let body_desc = match method_copy {
+                            Method::Get => None,
+                            _ => Some(String::from_utf8_lossy(&b.to_vec()).to_string()),
+                        };
+
+                        // We need to clone the description of the request because these are moved
+                        // in the below closure.
                         let path_copy_err = path_copy.clone();
                         let method_copy_err = method_copy.clone();
+                        let body_desc_err = body_desc.clone();
 
-                        info!("Sent {}", describe(&method_copy, &path, &b_str));
+                        log_received_api_request(describe(&method_copy, &path, &body_desc));
 
                         // Sync requests don't receive a response until the outcome is returned.
                         // Once more, this just registers a closure to run when the result is
                         // available.
                         Either::B(
                             outcome_receiver
-                                .map(move |x| {
-                                    info!(
-                                        "Received Success on {}",
-                                        describe(&method_copy, &path_copy, &b_str)
-                                    );
-                                    x.generate_response()
-                                }).map_err(move |_| {
-                                    info!(
-                                        "Received Error on {}",
-                                        describe(&method_copy_err, &path_copy_err, &b_str_err)
+                                .map(move |result| {
+                                    let description =
+                                        describe(&method_copy, &path_copy, &body_desc);
+                                    // `generate_response` and `err` both consume the inner error.
+                                    // Errors aren't `Clone`-able so we can't back it up either,
+                                    // so we'll rely on the fact that the error was previously
+                                    // logged at its point of origin and not log it again.
+                                    let response = result.generate_response();
+                                    let status_code = response.status();
+                                    if result.is_ok() {
+                                        info!(
+                                            "The {} was executed successfully. Status code: {}.",
+                                            description, status_code
+                                        );
+                                    } else {
+                                        error!(
+                                            "Received Error on {}. Status code: {}.",
+                                            description, status_code
+                                        );
+                                    }
+                                    response
+                                })
+                                .map_err(move |_| {
+                                    error!(
+                                        "Timeout on {}",
+                                        describe(&method_copy_err, &path_copy_err, &body_desc_err)
                                     );
                                     METRICS.api_server.sync_outcome_fails.inc();
                                     hyper::Error::Timeout
@@ -554,14 +591,30 @@ impl hyper::server::Service for ApiServerHttpService {
     }
 }
 
-/// Helper function for metric-logging purposes on API requests
-/// `method` is whether PUT or GET
-/// `path` and `body` represent path of the API request and body, respectively
-fn describe(method: &Method, path: &String, body: &String) -> String {
-    format!(
-        "synchronous {:?} request {:?} with body {:?}",
-        method, path, body
-    )
+/// Helper function for writing the received API requests to the log.
+///
+/// The `info` macro is used for logging.
+#[inline]
+fn log_received_api_request(api_description: String) {
+    info!("The API server received a {}.", api_description);
+}
+
+/// Helper function for metric-logging purposes on API requests.
+///
+/// # Arguments
+///
+/// * `method` - one of `GET`, `PATCH`, `PUT`
+/// * `path` - path of the API request
+/// * `body` - body of the API request
+///
+fn describe(method: &Method, path: &String, body: &Option<String>) -> String {
+    match body {
+        Some(value) => format!(
+            "synchronous {:?} request on {:?} with body {:?}",
+            method, path, value
+        ),
+        None => format!("synchronous {:?} request on {:?}", method, path),
+    }
 }
 
 #[cfg(test)]
@@ -578,6 +631,7 @@ mod tests {
     use futures::sync::oneshot;
     use hyper::header::{ContentType, Headers};
     use hyper::Body;
+    use vmm::vmm_config::logger::LoggerLevel;
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm::VmmAction;
 
@@ -605,12 +659,14 @@ mod tests {
             .fold(Vec::new(), |mut acc, chunk| {
                 acc.extend_from_slice(&*chunk);
                 Ok::<_, hyper::Error>(acc)
-            }).and_then(move |value| Ok(value));
+            })
+            .and_then(move |value| Ok(value));
 
         String::from_utf8_lossy(
             &ret.wait()
                 .expect("Couldn't convert request body into String due to Future polling failure"),
-        ).into()
+        )
+        .into()
     }
 
     fn get_dummy_serde_error() -> serde_json::Error {
@@ -973,6 +1029,19 @@ mod tests {
     #[test]
     fn test_parse_logger_source_req() {
         let logger_path = "/logger";
+
+        // PUT with default values for optional fields.
+        let default_json = r#"{
+            "log_fifo": "tmp1",
+            "metrics_fifo": "tmp2"
+        }"#;
+        let logger_body: Chunk = Chunk::from(default_json);
+        let logger_config =
+            serde_json::from_slice::<LoggerConfig>(&logger_body).expect("deserialization failed");
+        assert_eq!(logger_config.level, LoggerLevel::Warning);
+        assert_eq!(logger_config.show_log_origin, false);
+        assert_eq!(logger_config.show_level, false);
+
         let json = "{
                 \"log_fifo\": \"tmp1\",
                 \"metrics_fifo\": \"tmp2\",
@@ -1225,15 +1294,17 @@ mod tests {
     #[test]
     fn test_describe() {
         let body: String = String::from("{ \"foo\": \"bar\" }");
-        let msj = describe(&Method::Get, &String::from("/foo/bar"), &body);
+        let msj = describe(&Method::Get, &String::from("/foo/bar"), &Some(body.clone()));
         assert_eq!(
             msj,
-            "synchronous Get request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+            "synchronous Get request on \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
         );
-        let msj = describe(&Method::Put, &String::from("/foo/bar"), &body);
+        let msj = describe(&Method::Put, &String::from("/foo/bar"), &Some(body));
         assert_eq!(
             msj,
-            "synchronous Put request \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+            "synchronous Put request on \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
         );
+        let msj = describe(&Method::Patch, &String::from("/foo/bar"), &None);
+        assert_eq!(msj, "synchronous Patch request on \"/foo/bar\"")
     }
 }

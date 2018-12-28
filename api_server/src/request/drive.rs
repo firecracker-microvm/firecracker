@@ -169,11 +169,9 @@ mod tests {
         let patch_payload = PatchDrivePayload {
             fields: Value::Object(payload_map),
         };
-        assert!(
-            patch_payload
-                .into_parsed_request(None, Method::Patch)
-                .is_err()
-        );
+        assert!(patch_payload
+            .into_parsed_request(None, Method::Patch)
+            .is_err());
 
         // PATCH with missing path_on_host field.
         let mut payload_map = Map::<String, Value>::new();
@@ -235,18 +233,13 @@ mod tests {
         };
         let (sender, receiver) = oneshot::channel();
 
-        assert!(
-            pdp.clone()
-                .into_parsed_request(Some("foo".to_string()), Method::Patch)
-                .eq(&Ok(ParsedRequest::Sync(
-                    VmmAction::UpdateBlockDevicePath(
-                        "foo".to_string(),
-                        "dummy".to_string(),
-                        sender
-                    ),
-                    receiver
-                )))
-        );
+        assert!(pdp
+            .clone()
+            .into_parsed_request(Some("foo".to_string()), Method::Patch)
+            .eq(&Ok(ParsedRequest::Sync(
+                VmmAction::UpdateBlockDevicePath("foo".to_string(), "dummy".to_string(), sender),
+                receiver
+            ))));
 
         assert!(
             pdp.into_parsed_request(None, Method::Put) == Err(String::from("Invalid method PUT!"))
@@ -286,12 +279,11 @@ mod tests {
             rate_limiter: None,
         };
         let (sender, receiver) = oneshot::channel();
-        assert!(
-            desc.into_parsed_request(Some(String::from("foo")), Method::Put)
-                .eq(&Ok(ParsedRequest::Sync(
-                    VmmAction::InsertBlockDevice(same_desc, sender),
-                    receiver
-                )))
-        );
+        assert!(desc
+            .into_parsed_request(Some(String::from("foo")), Method::Put)
+            .eq(&Ok(ParsedRequest::Sync(
+                VmmAction::InsertBlockDevice(same_desc, sender),
+                receiver
+            ))));
     }
 }

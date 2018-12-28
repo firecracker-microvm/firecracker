@@ -269,10 +269,11 @@ impl Endpoint {
     }
 
     pub fn next_segment_status(&self) -> NextSegmentStatus {
-        let can_send_new_data = !self.response_buf.is_empty() && seq_after(
-            self.connection.remote_rwnd_edge(),
-            self.connection.first_not_sent(),
-        );
+        let can_send_new_data = !self.response_buf.is_empty()
+            && seq_after(
+                self.connection.remote_rwnd_edge(),
+                self.connection.first_not_sent(),
+            );
 
         if can_send_new_data || self.connection.dup_ack_pending() {
             NextSegmentStatus::Available

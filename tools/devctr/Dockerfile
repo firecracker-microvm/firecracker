@@ -65,6 +65,7 @@ RUN apt-get update \
 RUN mkdir "$TMP_BUILD_DIR" \
     && curl https://sh.rustup.rs -sSf | sh -s -- -y \
         && rustup target add x86_64-unknown-linux-musl \
+        && rustup component add rustfmt \
         && cd "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
             && cargo kcov --print-install-kcov-sh | sh \

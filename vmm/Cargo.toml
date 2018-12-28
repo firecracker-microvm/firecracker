@@ -6,7 +6,7 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 [dependencies]
 chrono = ">=0.4"
 libc = ">=0.2.39"
-epoll = "=2.1.0"
+epoll = "=4.0.1"
 futures = ">=0.1.18"
 serde = ">=1.0.27"
 serde_derive = ">=1.0.27"

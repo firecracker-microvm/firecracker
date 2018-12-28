@@ -134,7 +134,8 @@ impl MMIODeviceManager {
             .insert(
                 "virtio_mmio.device",
                 &format!("{}K@0x{:08x}:{}", MMIO_LEN / 1024, self.mmio_base, self.irq),
-            ).map_err(Error::Cmdline)?;
+            )
+            .map_err(Error::Cmdline)?;
         let ret = self.mmio_base;
         self.mmio_base += MMIO_LEN;
         self.irq += 1;
@@ -240,11 +241,9 @@ mod tests {
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
 
-        assert!(
-            device_manager
-                .register_device(dummy_box, &mut cmdline, None)
-                .is_ok()
-        );
+        assert!(device_manager
+            .register_device(dummy_box, &mut cmdline, None)
+            .is_ok());
     }
 
     #[test]
@@ -306,7 +305,8 @@ mod tests {
                         device_manager.mmio_base,
                         device_manager.irq
                     ),
-                ).unwrap_err(),
+                )
+                .unwrap_err(),
         );
         assert_eq!(
             format!("{}", e),

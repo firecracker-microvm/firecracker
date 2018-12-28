@@ -53,74 +53,12 @@ impl Mmds {
         return self.data_store.to_string();
     }
 
-    // Helper function for getting all the keys from Value::Object.
-    // Returns a Vec<String> with all keys. If the key corresponds to a
-    // dictionary, a "/" is appended to the key name.
-    // If the `dict` is Value::Null, Error::NotFound is thrown.
-    // If the `dict` is not a dictionary, a Vec with the value corresponding to
-    // the key is returned.
-    fn get_keys(dict: &Value) -> Result<Vec<String>, Error> {
-        if dict.is_null() {
-            return Err(Error::NotFound);
-        }
-
-        let mut ret = Vec::new();
-        match dict.as_object() {
-            Some(map) => {
-                // When the object is a map, push all the keys in the Vec.
-                for key in map.keys() {
-                    let mut key = key.clone();
-                    if dict[&key].is_object() {
-                        key.push_str("/");
-                    }
-
-                    ret.push(key);
-                }
-                return Ok(ret);
-            }
-            None => {
-                // When the object is not a map, return the value.
-                match dict.as_str() {
-                    Some(val) => {
-                        ret.push(val.to_string());
-                        return Ok(ret);
-                    }
-                    None => return Err(Error::UnsupportedValueType),
-                };
-            }
-        };
-    }
-
-    // Helper function for converting a Value to String by following the IMDS specs.
-    // The only supported Value is String. Throws UnsupportedValueType when the type of the
-    // Value is not String.
-    fn get_value_as_string(val: &Value) -> Result<String, Error> {
-        if val.is_null() {
-            return Err(Error::NotFound);
-        }
-
-        if val.is_object() {
-            return Ok(String::new());
-        }
-
-        match val.as_str() {
-            Some(value) => Ok(value.to_string()),
-            None => Err(Error::UnsupportedValueType),
-        }
-    }
-
     /// This function replicates the behavior of the Instance Metadata Service
     /// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
-    /// When the path ends with / there are two cases:
     /// 1. For a (key, value) pair where the value is a dictionary, it will return all the keys
     /// in the dictionary.
     /// 2. For a (key, value) pair where the value is a simple type (bool, string, number),
     /// it will return the value.
-    ///
-    /// When the path does not end with / there are also two cases to cover:
-    /// 1. The value corresponding to that path is a dictionary, the function returns
-    /// an empty string.
-    /// 2. The value corresponding to that path is a simple type, the function returns the value.
     ///
     /// When the path is not found, a NotFound error is returned.
     pub fn get_value(&self, path: String) -> Result<Vec<String>, Error> {
@@ -133,15 +71,37 @@ impl Mmds {
 
         match value {
             Some(val) => {
-                // If path ends with /, return all keys in Value::Object
-                if path.ends_with("/") {
-                    Mmds::get_keys(val)
-                } else {
-                    match Mmds::get_value_as_string(val) {
-                        Ok(value) => Ok(vec![value]),
-                        Err(e) => Err(e),
+                let mut ret = Vec::new();
+                // If the `dict` is Value::Null, Error::NotFound is thrown.
+                // If the `dict` is not a dictionary, a Vec with the value corresponding to
+                // the key is returned.
+                match val.as_object() {
+                    Some(map) => {
+                        // When the object is a map, push all the keys in the Vec.
+                        for key in map.keys() {
+                            let mut key = key.clone();
+                            // If the key corresponds to a dictionary, a "/" is appended
+                            // to the key name.
+                            if map[&key].is_object() {
+                                key.push_str("/");
+                            }
+
+                            ret.push(key);
+                        }
+                        return Ok(ret);
                     }
-                }
+                    None => {
+                        // When the object is not a map, return the value.
+                        // The only supported Value type is String.
+                        match val.as_str() {
+                            Some(str_val) => {
+                                ret.push(str_val.to_string());
+                                return Ok(ret);
+                            }
+                            None => return Err(Error::UnsupportedValueType),
+                        };
+                    }
+                };
             }
             None => return Err(Error::NotFound),
         }
@@ -223,7 +183,7 @@ mod tests {
 
         // Test path does NOT end with /; Value is a dictionary.
         match mmds.get_value("/phones".to_string()) {
-            Ok(ret) => assert_eq!(ret, vec![""]),
+            Ok(ret) => assert_eq!(ret, vec!["home/", "mobile"]),
             Err(_) => assert!(false),
         };
 

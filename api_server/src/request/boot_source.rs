@@ -39,12 +39,11 @@ mod tests {
             boot_args: Some(String::from("foobar")),
         };
         let (sender, receiver) = oneshot::channel();
-        assert!(
-            body.into_parsed_request(None, Method::Put)
-                .eq(&Ok(ParsedRequest::Sync(
-                    VmmAction::ConfigureBootSource(same_body, sender),
-                    receiver
-                )))
-        )
+        assert!(body
+            .into_parsed_request(None, Method::Put)
+            .eq(&Ok(ParsedRequest::Sync(
+                VmmAction::ConfigureBootSource(same_body, sender),
+                receiver
+            ))))
     }
 }

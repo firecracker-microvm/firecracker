@@ -353,6 +353,8 @@ pub struct VcpuMetrics {
     pub exit_mmio_write: SharedMetric,
     /// Number of errors during this VCPU's run.
     pub failures: SharedMetric,
+    /// Failures in configuring the CPUID.
+    pub fitler_cpuid: SharedMetric,
 }
 
 /// Metrics specific to the machine manager as a whole.
@@ -362,6 +364,13 @@ pub struct VmmMetrics {
     pub device_events: SharedMetric,
     /// Metric for signaling a panic has occurred.
     pub panic_count: SharedMetric,
+}
+
+/// Memory usage metrics.
+#[derive(Default, Serialize)]
+pub struct MemoryMetrics {
+    /// Number of pages dirtied since the last call to `KVM_GET_DIRTY_LOG`.
+    pub dirty_pages: SharedMetric,
 }
 
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
@@ -404,6 +413,8 @@ pub struct FirecrackerMetrics {
     pub vmm: VmmMetrics,
     /// Metrics related to the UART device.
     pub uart: SerialDeviceMetrics,
+    /// Memory usage metrics.
+    pub memory: MemoryMetrics,
 }
 
 lazy_static! {

@@ -28,26 +28,28 @@ impl IntoParsedRequest for LoggerConfig {
 mod tests {
     use super::*;
 
+    use serde_json::Value;
+    use vmm::vmm_config::logger::LoggerLevel;
+
     #[test]
     fn test_into_parsed_request() {
         let desc = LoggerConfig {
             log_fifo: String::from("log"),
             metrics_fifo: String::from("metrics"),
-            level: None,
-            show_level: None,
-            show_log_origin: None,
+            level: LoggerLevel::Warning,
+            show_level: false,
+            show_log_origin: false,
+            options: Value::Array(vec![]),
         };
         format!("{:?}", desc);
         assert!(&desc.clone().into_parsed_request(None, Method::Put).is_ok());
         let (sender, receiver) = oneshot::channel();
-        assert!(
-            &desc
-                .clone()
-                .into_parsed_request(None, Method::Put)
-                .eq(&Ok(ParsedRequest::Sync(
-                    VmmAction::ConfigureLogger(desc, sender),
-                    receiver
-                )))
-        );
+        assert!(&desc
+            .clone()
+            .into_parsed_request(None, Method::Put)
+            .eq(&Ok(ParsedRequest::Sync(
+                VmmAction::ConfigureLogger(desc, sender),
+                receiver
+            ))));
     }
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use cpu_leaf::*;
-use kvm_sys::kvm_cpuid_entry2;
+use kvm_gen::kvm_cpuid_entry2;
 
 /// Sets up the cpuid entries for a given VCPU following a C3 template.
 pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {

@@ -1,7 +1,11 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+extern crate serde_json;
+
 use std::fmt::{Display, Formatter, Result};
+
+use self::serde_json::Value;
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -28,14 +32,25 @@ pub struct LoggerConfig {
     /// Named pipe used as output for metrics.
     pub metrics_fifo: String,
     /// The level of the Logger.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub level: Option<LoggerLevel>,
+    #[serde(default = "default_level")]
+    pub level: LoggerLevel,
     /// When enabled, the logger will append to the output the severity of the log entry.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub show_level: Option<bool>,
+    #[serde(default)]
+    pub show_level: bool,
     /// When enabled, the logger will append the origin of the log entry.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub show_log_origin: Option<bool>,
+    #[serde(default)]
+    pub show_log_origin: bool,
+    /// Additional logging options.
+    #[serde(default = "default_log_options")]
+    pub options: Value,
+}
+
+fn default_level() -> LoggerLevel {
+    LoggerLevel::Warning
+}
+
+fn default_log_options() -> Value {
+    Value::Array(vec![])
 }
 
 /// Errors associated with actions on the `LoggerConfig`.

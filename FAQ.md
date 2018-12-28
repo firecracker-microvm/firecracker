@@ -79,11 +79,11 @@ choice.
 ### How can I contribute?
 
 Firecracker is an AWS open source project that encourages contributions from
-customers and the developer community. Any contribution is welcome as
-long as it aligns with our [charter](CHARTER.md). You can learn more about how
-to contribute in [CONTRIBUTE.md](CONTRIBUTE.md). You can chat with others in the
-community on the
-[Firecracker Slack workspace](https://firecracker-microvm.slack.com). 
+customers and the developer community. Any contribution is welcome as long as it
+aligns with our [charter](CHARTER.md). You can learn more about how to
+contribute in [CONTRIBUTING.md](CONTRIBUTING.md). You can chat with others in
+the community on the [Firecracker Slack
+workspace](https://firecracker-microvm.slack.com).
 
 ### How is Firecracker project governed?
 

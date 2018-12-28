@@ -7,6 +7,7 @@ use std::slice;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     NotSupported,
+    Overflow(String),
 }
 
 /// Register designations used to get/set specific register values within the brand string buffer.
@@ -152,16 +153,18 @@ impl BrandString {
     }
 
     /// Appends `src` to the brand string if there is enough room to append it.
-    pub fn push_bytes(&mut self, src: &[u8]) {
+    pub fn push_bytes(&mut self, src: &[u8]) -> Result<(), Error> {
         if !self.check_push(src) {
             // No room to push all of src.
-            error!("Appending to the brand string failed.");
-            return;
+            return Err(Error::Overflow(
+                "Appending to the brand string failed.".to_string(),
+            ));
         }
         let start = self.len;
         let count = src.len();
         self.len += count;
         self.as_bytes_mut()[start..(start + count)].copy_from_slice(src);
+        Ok(())
     }
 
     /// Checks if `src` is a prefix of the brand string.
@@ -292,9 +295,9 @@ mod tests {
         //
         bstr = BrandString::new();
         assert!(bstr.check_push(b"Hello"));
-        bstr.push_bytes(b"Hello");
+        bstr.push_bytes(b"Hello").unwrap();
         assert!(bstr.check_push(b", world!"));
-        bstr.push_bytes(b", world!");
+        bstr.push_bytes(b", world!").unwrap();
         assert!(bstr.starts_with(b"Hello, world!"));
 
         assert!(!bstr.check_push(&_overflow));
@@ -304,7 +307,12 @@ mod tests {
         let actual_len = bstr.as_bytes().len();
         let mut old_bytes: Vec<u8> = repeat(0).take(actual_len).collect();
         old_bytes.copy_from_slice(bstr.as_bytes());
-        bstr.push_bytes(&_overflow);
+        assert_eq!(
+            bstr.push_bytes(&_overflow),
+            Err(Error::Overflow(
+                "Appending to the brand string failed.".to_string()
+            ))
+        );
         assert!(bstr.as_bytes().to_vec() == old_bytes);
 
         // Test BrandString::from_host_cpuid() and get_reg_for_leaf()
@@ -325,6 +333,10 @@ mod tests {
                 let host_regs = unsafe { host_cpuid(0x80000000) };
                 assert!(host_regs.eax < 0x80000004);
             }
+            _ => assert!(
+                false,
+                "This function should not return another type of error"
+            ),
         }
     }
 

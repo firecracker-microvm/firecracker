@@ -5,11 +5,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-extern crate kvm_sys;
+extern crate kvm_gen;
 extern crate libc;
 extern crate sys_util;
 
-use kvm_sys::*;
+use kvm_gen::*;
 use libc::{c_char, open, O_RDWR};
 use std::fs::File;
 use std::os::unix::io::FromRawFd;
