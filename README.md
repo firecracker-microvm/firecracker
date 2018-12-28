@@ -1,4 +1,4 @@
-![Firecracker Logo Title](docs/images/fc-logo-title.png)
+![Firecracker Logo Title](docs/images/fc_logo_full_white-bg.png)
 
 Our mission is to enable secure, multi-tenant, minimal-overhead execution of
 container and function workloads.
