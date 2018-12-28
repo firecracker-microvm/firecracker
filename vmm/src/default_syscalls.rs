@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 extern crate libc;
+extern crate sys_util;
 
 use seccomp::{
     setup_seccomp, Error, SeccompAction, SeccompCmpOp, SeccompCondition, SeccompFilterContext,
@@ -513,7 +514,19 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
             ),
             (
                 libc::SYS_tkill,
-                (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
+                (
+                    0,
+                    vec![SeccompRule::new(
+                        vec![SeccompCondition::new(
+                            1,
+                            SeccompCmpOp::Eq,
+                            sys_util::validate_signal_num(super::VCPU_RTSIG_OFFSET, true)
+                                .map_err(|_| Error::InvalidArgumentNumber)?
+                                as u64,
+                        )?],
+                        SeccompAction::Allow,
+                    )],
+                ),
             ),
             (
                 libc::SYS_timerfd_create,
