@@ -4,7 +4,7 @@
 
 import os
 
-from subprocess import run
+from subprocess import run, PIPE
 
 import pytest
 
@@ -170,3 +170,31 @@ def test_advanced_seccomp_malicious(tmp_advanced_seccomp_binaries):
 
     # The demo malicious firecracker should have received `SIGSYS`.
     assert outcome.returncode != 0
+
+
+def test_seccomp_applies_to_all_threads(test_microvm_with_api):
+    """Test all Firecracker threads get default seccomp level 2."""
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    # Set up the microVM with 2 vCPUs, 256 MiB of RAM and
+    # a root file system with the rw permission.
+    test_microvm.basic_config()
+
+    test_microvm.start()
+
+    # Get Firecracker PID so we can count the number of threads.
+    firecracker_pid = test_microvm._jailer_clone_pid
+
+    # Get number of threads in Firecracker
+    cmd = 'ps -T --no-headers -p {} | awk \'{{print $2}}\''.format(
+        firecracker_pid
+    )
+    process = run(cmd, stdout=PIPE, stderr=PIPE, shell=True, check=True)
+    threads_out_lines = process.stdout.decode('utf-8').splitlines()
+    for tid in threads_out_lines:
+        # Verify each Firecracker thread Seccomp status
+        cmd = 'cat /proc/{}/status | grep Seccomp'.format(tid)
+        process = run(cmd, stdout=PIPE, stderr=PIPE, shell=True, check=True)
+        seccomp_line = ''.join(process.stdout.decode('utf-8').split())
+        assert seccomp_line == "Seccomp:2"
