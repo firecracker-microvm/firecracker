@@ -253,8 +253,19 @@ class Microvm:
                     + [self._jailer_binary_path]
                     + jailer_param_list,
                     stdout=PIPE,
+                    stderr=PIPE,
                     check=True
                 )
+                # Terrible hack to make the tests fail when starting the
+                # jailer fails with a panic. This is needed because we can't
+                # get the exit code of the jailer. In newpid_clone.c we are
+                # not waiting for the process and we always return 0 if the
+                # clone was successful (which in most cases will be) and we
+                # don't do anything if the jailer was not started
+                # successfully.
+                if _p.stderr.decode().strip():
+                    raise Exception(_p.stderr.decode())
+
                 self.jailer_clone_pid = int(_p.stdout.decode().rstrip())
             else:
                 # This code path is not used at the moment, but I just feel
