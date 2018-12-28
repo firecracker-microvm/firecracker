@@ -184,7 +184,7 @@ def test_seccomp_applies_to_all_threads(test_microvm_with_api):
     test_microvm.start()
 
     # Get Firecracker PID so we can count the number of threads.
-    firecracker_pid = test_microvm._jailer_clone_pid
+    firecracker_pid = test_microvm.jailer_clone_pid
 
     # Get number of threads in Firecracker
     cmd = 'ps -T --no-headers -p {} | awk \'{{print $2}}\''.format(
