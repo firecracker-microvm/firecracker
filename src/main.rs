@@ -12,6 +12,7 @@ extern crate jailer;
 #[macro_use]
 extern crate logger;
 extern crate mmds;
+extern crate seccomp;
 extern crate vmm;
 
 use backtrace::Backtrace;
@@ -83,7 +84,7 @@ fn main() {
         .expect("Missing argument: api_sock");
 
     let mut instance_id = String::from(DEFAULT_INSTANCE_ID);
-    let mut seccomp_level = 0;
+    let mut seccomp_level = seccomp::SECCOMP_LEVEL_ADVANCED;
     let mut start_time_us = None;
     let mut start_time_cpu_us = None;
     let mut is_jailed = false;

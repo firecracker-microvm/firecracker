@@ -12,11 +12,12 @@ clap = "=2.27.1"
 serde_json = ">=1.0.9"
 
 api_server = { path = "api_server" }
-jailer = { path = "jailer" }
-logger = { path = "logger"}
-mmds = { path = "mmds" }
-vmm = { path = "vmm" }
 fc_util = { path = "fc_util" }
+jailer = { path = "jailer" }
+logger = { path = "logger" }
+mmds = { path = "mmds" }
+seccomp = { path = "seccomp" }
+vmm = { path = "vmm" }
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
