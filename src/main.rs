@@ -12,6 +12,7 @@ extern crate jailer;
 #[macro_use]
 extern crate logger;
 extern crate mmds;
+extern crate seccomp;
 extern crate vmm;
 
 use backtrace::Backtrace;
@@ -83,7 +84,7 @@ fn main() {
         .expect("Missing argument: api_sock");
 
     let mut instance_id = String::from(DEFAULT_INSTANCE_ID);
-    let mut seccomp_level = 0;
+    let mut seccomp_level = seccomp::SECCOMP_LEVEL_ADVANCED;
     let mut start_time_us = None;
     let mut start_time_cpu_us = None;
     let mut is_jailed = false;
@@ -126,7 +127,12 @@ fn main() {
         UnixDomainSocket::Path(bind_path)
     };
 
-    match server.bind_and_run(uds_path_or_fd, start_time_us, start_time_cpu_us) {
+    match server.bind_and_run(
+        uds_path_or_fd,
+        start_time_us,
+        start_time_cpu_us,
+        seccomp_level,
+    ) {
         Ok(_) => (),
         Err(Error::Io(inner)) => match inner.kind() {
             ErrorKind::AddrInUse => panic!(

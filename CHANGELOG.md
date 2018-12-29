@@ -3,15 +3,23 @@
 ## Unreleased
 
 ### Added
+
 - Documentation for Logger API Requests in `docs/api_requests/logger.md`.
 
 ### Changed
+
 - Updated the swagger definition of the `Logger` to specify the required fields
   and provide default values for optional fields.
+- Default `seccomp-level` is `2` (was previously 0).
+
+### Fixed
+
+- Seccomp filters are now applied to all Firecracker threads.
 
 ## [0.12.0]
 
 ### Added
+
 - The `/logger` API has a new field called `options`. This is an array of
   strings that specify additional logging configurations. The only supported
   value is `LogDirtyPages`.
@@ -31,6 +39,7 @@
 - Log messages use `anonymous-instance` as instance id if none is specified.
 
 ### Fixed
+
 - Fixed crash upon instance start on hosts without 1GB huge page support.
 - Fixed "fault_message" inconsistency between Open API specification and code base.
 - Ensure MMDS compatibility with C5's IMDS implementation.

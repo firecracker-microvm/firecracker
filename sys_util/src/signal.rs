@@ -55,7 +55,7 @@ fn SIGRTMAX() -> c_int {
 /// Verifies that a signal number is valid: for VCPU signals, it needs to be enclosed within the OS
 /// limits for realtime signals, and the remaining ones need to be between the minimum (SIGHUP) and
 /// maximum (SIGSYS) values.
-fn validate_signal_num(num: c_int, for_vcpu: bool) -> Result<c_int> {
+pub fn validate_signal_num(num: c_int, for_vcpu: bool) -> Result<c_int> {
     if for_vcpu {
         let actual_num = num + SIGRTMIN();
         if actual_num <= SIGRTMAX() {

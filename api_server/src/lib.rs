@@ -37,6 +37,7 @@ use http_service::ApiServerHttpService;
 use logger::{Metric, METRICS};
 use mmds::data_store::Mmds;
 use sys_util::EventFd;
+use vmm::default_syscalls;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::VmmAction;
 
@@ -83,6 +84,7 @@ impl ApiServer {
         path_or_fd: UnixDomainSocket<P>,
         start_time_us: Option<u64>,
         start_time_cpu_us: Option<u64>,
+        seccomp_level: u32,
     ) -> Result<()> {
         let mut core = Core::new().map_err(Error::Io)?;
         let handle = Rc::new(core.handle());
@@ -136,6 +138,16 @@ impl ApiServer {
                 Ok(())
             })
             .map_err(Error::Io);
+
+        // Load seccomp filters on the API thread.
+        // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
+        // altogether is the desired behaviour.
+        if let Err(e) = default_syscalls::set_seccomp_level(seccomp_level) {
+            panic!(
+                "Failed to set the requested seccomp filters on the API thread: Error: {:?}",
+                e
+            );
+        }
 
         // This runs forever, unless an error is returned somewhere within f (but nothing happens
         // for errors which might arise inside the connections we spawn from f, unless we explicitly
