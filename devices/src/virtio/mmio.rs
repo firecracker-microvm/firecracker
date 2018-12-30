@@ -120,7 +120,7 @@ impl MmioDevice {
             queue_select: 0,
             interrupt_status: Arc::new(AtomicUsize::new(0)),
             interrupt_evt: Some(EventFd::new()?),
-            driver_status: 0,
+            driver_status: DEVICE_INIT,
             config_generation: 0,
             queues: queues,
             queue_evts: queue_evts,
@@ -140,9 +140,8 @@ impl MmioDevice {
         self.interrupt_evt.as_ref()
     }
 
-    fn is_driver_ready(&self) -> bool {
-        let ready_bits = DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_DRIVER_OK | DEVICE_FEATURES_OK;
-        self.driver_status == ready_bits && self.driver_status & DEVICE_FAILED == 0
+    fn check_driver_status(&self, set: u32, clr: u32) -> bool {
+        self.driver_status & (set | clr) == set
     }
 
     fn are_queues_valid(&self) -> bool {
@@ -169,6 +168,76 @@ impl MmioDevice {
             true
         } else {
             false
+        }
+    }
+
+    fn update_queue_field<F: FnOnce(&mut Queue)>(&mut self, f: F) {
+        if self.check_driver_status(DEVICE_FEATURES_OK, DEVICE_DRIVER_OK | DEVICE_FAILED) {
+            self.with_queue_mut(f);
+        } else {
+            warn!(
+                "update virtio queue in invalid state 0x{:x}",
+                self.driver_status
+            );
+        }
+    }
+
+    /// Update driver status according to the state machine defined by VirtIO Spec 1.0.
+    /// Please refer to VirtIO Spec 1.0, section 2.1.1 and 3.1.1.
+    ///
+    /// The driver MUST update device status, setting bits to indicate the completed steps
+    /// of the driver initialization sequence specified in 3.1. The driver MUST NOT clear
+    /// a device status bit. If the driver sets the FAILED bit, the driver MUST later reset
+    /// the device before attempting to re-initialize.
+    fn update_driver_status(&mut self, v: u32) {
+        // match changed bits
+        match !self.driver_status & v {
+            DEVICE_ACKNOWLEDGE if self.driver_status == DEVICE_INIT => {
+                self.driver_status = v;
+            }
+            DEVICE_DRIVER if self.driver_status == DEVICE_ACKNOWLEDGE => {
+                self.driver_status = v;
+            }
+            DEVICE_FEATURES_OK if self.driver_status == (DEVICE_ACKNOWLEDGE | DEVICE_DRIVER) => {
+                self.driver_status = v;
+            }
+            DEVICE_DRIVER_OK
+                if self.driver_status
+                    == (DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK) =>
+            {
+                self.driver_status = v;
+                // If the driver incorrectly sets up the queues, the following
+                // check will fail and take the device into an unusable state.
+                if !self.device_activated && self.are_queues_valid() {
+                    if let Some(ref interrupt_evt) = self.interrupt_evt {
+                        if let Some(mem) = self.mem.take() {
+                            self.device
+                                .activate(
+                                    mem,
+                                    interrupt_evt.try_clone().expect("Failed to clone eventfd"),
+                                    self.interrupt_status.clone(),
+                                    self.queues.clone(),
+                                    self.queue_evts.split_off(0),
+                                )
+                                .expect("Failed to activate device");
+                            self.device_activated = true;
+                        }
+                    }
+                }
+            }
+            _ if (v & DEVICE_FAILED) != 0 => {
+                // TODO: stop device
+                self.driver_status |= DEVICE_FAILED;
+            }
+            _ if v == 0 => {
+                return; // TODO reset device status
+            }
+            _ => {
+                warn!(
+                    "invalid virtio driver status transition: 0x{:x} -> 0x{:x}",
+                    self.driver_status, v
+                );
+            }
         }
     }
 }
@@ -221,35 +290,55 @@ impl BusDevice for MmioDevice {
             *v = (*v & !0xffffffff) | (x as u64)
         }
 
-        let mut mut_q = false;
         match offset {
             0x00...0xff if data.len() == 4 => {
                 let v = LittleEndian::read_u32(data);
                 match offset {
                     0x14 => self.features_select = v,
-                    0x20 => self.device.ack_features(self.acked_features_select, v),
+                    0x20 => {
+                        if self
+                            .check_driver_status(DEVICE_DRIVER, DEVICE_FEATURES_OK | DEVICE_FAILED)
+                        {
+                            self.device.ack_features(self.acked_features_select, v);
+                        } else {
+                            warn!(
+                                "ack virtio features in invalid state 0x{:x}",
+                                self.driver_status
+                            );
+                            return;
+                        }
+                    }
                     0x24 => self.acked_features_select = v,
                     0x30 => self.queue_select = v,
-                    0x38 => mut_q = self.with_queue_mut(|q| q.size = v as u16),
-                    0x44 => mut_q = self.with_queue_mut(|q| q.ready = v == 1),
+                    0x38 => self.update_queue_field(|q| q.size = v as u16),
+                    0x44 => self.update_queue_field(|q| q.ready = v == 1),
                     0x64 => {
-                        self.interrupt_status
-                            .fetch_and(!(v as usize), Ordering::SeqCst);
+                        if self.check_driver_status(DEVICE_DRIVER_OK, 0) {
+                            self.interrupt_status
+                                .fetch_and(!(v as usize), Ordering::SeqCst);
+                        }
                     }
-                    0x70 => self.driver_status = v,
-                    0x80 => mut_q = self.with_queue_mut(|q| lo(&mut q.desc_table, v)),
-                    0x84 => mut_q = self.with_queue_mut(|q| hi(&mut q.desc_table, v)),
-                    0x90 => mut_q = self.with_queue_mut(|q| lo(&mut q.avail_ring, v)),
-                    0x94 => mut_q = self.with_queue_mut(|q| hi(&mut q.avail_ring, v)),
-                    0xa0 => mut_q = self.with_queue_mut(|q| lo(&mut q.used_ring, v)),
-                    0xa4 => mut_q = self.with_queue_mut(|q| hi(&mut q.used_ring, v)),
+                    0x70 => self.update_driver_status(v),
+                    0x80 => self.update_queue_field(|q| lo(&mut q.desc_table, v)),
+                    0x84 => self.update_queue_field(|q| hi(&mut q.desc_table, v)),
+                    0x90 => self.update_queue_field(|q| lo(&mut q.avail_ring, v)),
+                    0x94 => self.update_queue_field(|q| hi(&mut q.avail_ring, v)),
+                    0xa0 => self.update_queue_field(|q| lo(&mut q.used_ring, v)),
+                    0xa4 => self.update_queue_field(|q| hi(&mut q.used_ring, v)),
                     _ => {
                         warn!("unknown virtio mmio register write: 0x{:x}", offset);
                         return;
                     }
                 }
             }
-            0x100...0xfff => return self.device.write_config(offset - 0x100, data),
+            0x100...0xfff => {
+                if self.check_driver_status(DEVICE_DRIVER, DEVICE_FAILED) {
+                    return self.device.write_config(offset - 0x100, data);
+                } else {
+                    warn!("can not write to device config data area before driver is ready");
+                    return;
+                }
+            }
             _ => {
                 warn!(
                     "invalid virtio mmio write: 0x{:x}:0x{:x}",
@@ -257,27 +346,6 @@ impl BusDevice for MmioDevice {
                     data.len()
                 );
                 return;
-            }
-        }
-
-        if self.device_activated && mut_q {
-            warn!("virtio queue was changed after device was activated");
-        }
-
-        if !self.device_activated && self.is_driver_ready() && self.are_queues_valid() {
-            if let Some(ref interrupt_evt) = self.interrupt_evt {
-                if let Some(mem) = self.mem.take() {
-                    self.device
-                        .activate(
-                            mem,
-                            interrupt_evt.try_clone().expect("Failed to clone eventfd"),
-                            self.interrupt_status.clone(),
-                            self.queues.clone(),
-                            self.queue_evts.split_off(0),
-                        )
-                        .expect("Failed to activate device");
-                    self.device_activated = true;
-                }
             }
         }
     }
@@ -349,6 +417,12 @@ mod tests {
         }
     }
 
+    fn set_driver_status(d: &mut MmioDevice, status: u32) {
+        let mut buf = vec![0; 4];
+        LittleEndian::write_u32(&mut buf[..], status);
+        d.write(0x70, &buf[..]);
+    }
+
     #[test]
     fn test_new() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
@@ -364,9 +438,14 @@ mod tests {
 
         assert!(d.interrupt_evt().is_some());
 
-        assert!(!d.is_driver_ready());
-
         assert!(!d.are_queues_valid());
+
+        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE);
+        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
+        set_driver_status(
+            &mut d,
+            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK,
+        );
 
         d.queue_select = 0;
         assert_eq!(d.with_queue(0, |q| q.get_max_size()), 16);
@@ -447,6 +526,14 @@ mod tests {
         buf = buf_copy.to_vec();
         d.read(0xfd, &mut buf[..]);
         assert_eq!(buf[..], buf_copy[..]);
+
+        // Read from an invalid address in generic register range.
+        d.read(0xfb, &mut buf[..]);
+        assert_eq!(buf[..], buf_copy[..]);
+
+        // Read from an invalid length in generic register range.
+        d.read(0xfc, &mut buf[..3]);
+        assert_eq!(buf[..], buf_copy[..]);
     }
 
     #[test]
@@ -468,6 +555,32 @@ mod tests {
 
         buf.pop();
 
+        assert_eq!(d.driver_status, DEVICE_INIT);
+        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE);
+
+        // Acking features in invalid state shouldn't take effect.
+        assert_eq!(unsafe { *p }, 0x0);
+        d.acked_features_select = 0x0;
+        LittleEndian::write_u32(&mut buf[..], 1);
+        d.write(0x20, &buf[..]);
+        assert_eq!(unsafe { *p }, 0x0);
+
+        // Write to device specific configuration space should be ignored before setting DEVICE_DRIVER
+        let buf1 = vec![1; 0xeff];
+        for i in (0..0xeff).rev() {
+            let mut buf2 = vec![0; 0xeff];
+
+            d.write(0x100 + i as u64, &buf1[i..]);
+            d.read(0x100, &mut buf2[..]);
+
+            for j in 0..0xeff {
+                assert_eq!(buf2[j], 0);
+            }
+        }
+
+        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
+        assert_eq!(d.driver_status, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
+
         // now writes should work
         d.features_select = 0;
         LittleEndian::write_u32(&mut buf[..], 1);
@@ -484,6 +597,19 @@ mod tests {
         d.write(0x24, &buf[..]);
         assert_eq!(d.acked_features_select, 2);
 
+        set_driver_status(
+            &mut d,
+            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK,
+        );
+
+        // Acking features in invalid state shouldn't take effect.
+        assert_eq!(unsafe { *p }, 0x124);
+        d.acked_features_select = 0x0;
+        LittleEndian::write_u32(&mut buf[..], 1);
+        d.write(0x20, &buf[..]);
+        assert_eq!(unsafe { *p }, 0x124);
+
+        // Setup queues
         d.queue_select = 0;
         LittleEndian::write_u32(&mut buf[..], 3);
         d.write(0x30, &buf[..]);
@@ -499,16 +625,6 @@ mod tests {
         LittleEndian::write_u32(&mut buf[..], 1);
         d.write(0x44, &buf[..]);
         assert!(d.queues[0].ready);
-
-        d.interrupt_status.store(0b101010, Ordering::Relaxed);
-        LittleEndian::write_u32(&mut buf[..], 0b111);
-        d.write(0x64, &buf[..]);
-        assert_eq!(d.interrupt_status.load(Ordering::Relaxed), 0b101000);
-
-        assert_eq!(d.driver_status, 0);
-        LittleEndian::write_u32(&mut buf[..], 1);
-        d.write(0x70, &buf[..]);
-        assert_eq!(d.driver_status, 1);
 
         assert_eq!(d.queues[0].desc_table.0, 0);
         LittleEndian::write_u32(&mut buf[..], 123);
@@ -531,8 +647,27 @@ mod tests {
         d.write(0xa4, &buf[..]);
         assert_eq!(d.queues[0].used_ring.0, 125 + (125 << 32));
 
-        // Here we test writes/read into/from the device specific configuration space.
+        set_driver_status(
+            &mut d,
+            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK,
+        );
 
+        d.interrupt_status.store(0b101010, Ordering::Relaxed);
+        LittleEndian::write_u32(&mut buf[..], 0b111);
+        d.write(0x64, &buf[..]);
+        assert_eq!(d.interrupt_status.load(Ordering::Relaxed), 0b101000);
+
+        // Write to an invalid address in generic register range.
+        LittleEndian::write_u32(&mut buf[..], 0xf);
+        d.config_generation = 0;
+        d.write(0xfb, &mut buf[..]);
+        assert_eq!(d.config_generation, 0);
+
+        // Write to an invalid length in generic register range.
+        d.write(0xfc, &mut buf[..2]);
+        assert_eq!(d.config_generation, 0);
+
+        // Here we test writes/read into/from the device specific configuration space.
         let buf1 = vec![1; 0xeff];
         for i in (0..0xeff).rev() {
             let mut buf2 = vec![0; 0xeff];
@@ -553,42 +688,74 @@ mod tests {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
         let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
 
-        d.driver_status =
-            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_DRIVER_OK | DEVICE_FEATURES_OK;
-        assert!(d.is_driver_ready());
+        assert!(!d.are_queues_valid());
+        assert!(!d.device_activated);
+        assert_eq!(d.driver_status, DEVICE_INIT);
 
-        for q in d.queues.iter_mut() {
-            q.size = 16;
-            q.ready = true;
+        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE);
+        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
+        assert_eq!(d.driver_status, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
+
+        // invalid state transition should have no effect
+        set_driver_status(
+            &mut d,
+            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_DRIVER_OK,
+        );
+        assert_eq!(d.driver_status, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
+
+        set_driver_status(
+            &mut d,
+            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK,
+        );
+        assert_eq!(
+            d.driver_status,
+            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK
+        );
+
+        let mut buf = vec![0; 4];
+        for q in 0..d.queues.len() {
+            d.queue_select = q as u32;
+            LittleEndian::write_u32(&mut buf[..], 16);
+            d.write(0x38, &buf[..]);
+            LittleEndian::write_u32(&mut buf[..], 1);
+            d.write(0x44, &buf[..]);
         }
         assert!(d.are_queues_valid());
         assert!(!d.device_activated);
 
         // Device should be ready for activation now.
 
-        let buf = vec![0; 4];
-
         // A couple of invalid writes; will trigger warnings; shouldn't activate the device.
         d.write(0xa8, &buf[..]);
         d.write(0x1000, &buf[..]);
         assert!(!d.device_activated);
 
-        // We pretend the device is already activated; activation related logic shouldn't be called
-        // in this situation, even for a valid write.
-        d.device_activated = true;
-        d.write(0x30, &buf[..]);
-        assert!(d.mem.is_some());
-        assert!(d.interrupt_evt.is_some());
-
-        // Ok, we stop pretending the device is activated.
-        d.device_activated = false;
-
-        // We issue this write again to actually activate the device.
-        d.write(0x30, &buf[..]);
+        set_driver_status(
+            &mut d,
+            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK,
+        );
+        assert_eq!(
+            d.driver_status,
+            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK
+        );
         assert!(d.device_activated);
 
         // A write which changes the size of a queue after activation; currently only triggers
-        // a warning path.
+        // a warning path and have no effect on queue state.
+        LittleEndian::write_u32(&mut buf[..], 0);
+        d.queue_select = 0;
         d.write(0x44, &buf[..]);
+        d.read(0x44, &mut buf[..]);
+        assert_eq!(LittleEndian::read_u32(&buf[..]), 1);
+
+        LittleEndian::write_u32(&mut buf[..], 0x8f);
+        d.write(0x70, &buf[..]);
+        assert_eq!(d.driver_status, 0x8f);
+        // TODO: assert!(d.device_activated);
+
+        LittleEndian::write_u32(&mut buf[..], 0x0);
+        d.write(0x70, &buf[..]);
+        // TODO: assert_eq!(d.driver_status, 0x0);
+        // TODO: assert!(d.device_activated);
     }
 }
