@@ -9,7 +9,7 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 backtrace = {version = "=0.3.9", features = ["libunwind", "libbacktrace"], default-features = false}
 chrono = ">=0.4"
 clap = "=2.27.1"
-crossbeam-channel = "=0.3.3"
+crossbeam-channel = "=0.3.2"
 serde_json = ">=1.0.9"
 
 api_server = { path = "api_server" }
