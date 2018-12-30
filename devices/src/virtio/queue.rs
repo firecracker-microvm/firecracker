@@ -306,6 +306,15 @@ impl Queue {
                 used_ring_size
             );
             false
+        } else if desc_table.offset() & 0xf != 0 {
+            error!("virtio queue descriptor table breaks alignment contraints");
+            false
+        } else if avail_ring.offset() & 0x1 != 0 {
+            error!("virtio queue available ring breaks alignment contraints");
+            false
+        } else if used_ring.offset() & 0x3 != 0 {
+            error!("virtio queue used ring breaks alignment contraints");
+            false
         } else {
             true
         }
@@ -712,13 +721,19 @@ pub(crate) mod tests {
 
         q.desc_table = GuestAddress(0xffffffff);
         assert!(!q.is_valid(m));
+        q.desc_table = GuestAddress(0x1001);
+        assert!(!q.is_valid(m));
         q.desc_table = vq.dtable_start();
 
         q.avail_ring = GuestAddress(0xffffffff);
         assert!(!q.is_valid(m));
+        q.avail_ring = GuestAddress(0x1001);
+        assert!(!q.is_valid(m));
         q.avail_ring = vq.avail_start();
 
         q.used_ring = GuestAddress(0xffffffff);
+        assert!(!q.is_valid(m));
+        q.used_ring = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
         q.used_ring = vq.used_start();
 
