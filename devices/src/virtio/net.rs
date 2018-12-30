@@ -585,11 +585,7 @@ pub struct EpollConfig {
 }
 
 impl EpollConfig {
-    pub fn new(
-        first_token: u64,
-        epoll_raw_fd: RawFd,
-        sender: Sender<Box<EpollHandler>>,
-    ) -> Self {
+    pub fn new(first_token: u64, epoll_raw_fd: RawFd, sender: Sender<Box<EpollHandler>>) -> Self {
         EpollConfig {
             rx_tap_token: first_token + RX_TAP_EVENT as u64,
             rx_queue_token: first_token + RX_QUEUE_EVENT as u64,

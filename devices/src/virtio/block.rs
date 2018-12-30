@@ -391,11 +391,7 @@ pub struct EpollConfig {
 }
 
 impl EpollConfig {
-    pub fn new(
-        first_token: u64,
-        epoll_raw_fd: RawFd,
-        sender: Sender<Box<EpollHandler>>,
-    ) -> Self {
+    pub fn new(first_token: u64, epoll_raw_fd: RawFd, sender: Sender<Box<EpollHandler>>) -> Self {
         EpollConfig {
             q_avail_token: first_token + QUEUE_AVAIL_EVENT as u64,
             rate_limiter_token: first_token + RATE_LIMITER_EVENT as u64,

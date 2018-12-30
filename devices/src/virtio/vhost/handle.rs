@@ -105,11 +105,7 @@ pub struct VhostEpollConfig {
 }
 
 impl VhostEpollConfig {
-    pub fn new(
-        first_token: u64,
-        epoll_raw_fd: RawFd,
-        sender: Sender<Box<EpollHandler>>,
-    ) -> Self {
+    pub fn new(first_token: u64, epoll_raw_fd: RawFd, sender: Sender<Box<EpollHandler>>) -> Self {
         VhostEpollConfig {
             queue_evt_token: first_token,
             kill_token: first_token + 1,
