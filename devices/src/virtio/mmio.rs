@@ -183,8 +183,11 @@ impl BusDevice for MmioDevice {
                     0x08 => self.device.device_type(),
                     0x0c => VENDOR_ID, // vendor id
                     0x10 => {
-                        self.device.features(self.features_select)
-                            | if self.features_select == 1 { 0x1 } else { 0x0 }
+                        let mut features = self.device.features(self.features_select);
+                        if self.features_select == 1 {
+                            features |= 0x1; // enable support of VirtIO Version 1
+                        }
+                        features
                     }
                     0x34 => self.with_queue(0, |q| q.get_max_size() as u32),
                     0x44 => self.with_queue(0, |q| q.ready as u32),
