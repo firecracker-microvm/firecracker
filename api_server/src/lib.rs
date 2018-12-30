@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 extern crate chrono;
+extern crate crossbeam_channel;
 extern crate futures;
 extern crate hyper;
 extern crate serde;
@@ -25,9 +26,9 @@ use std::io;
 use std::os::unix::io::FromRawFd;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 
+use crossbeam_channel::Sender;
 use futures::{Future, Stream};
 use hyper::server::Http;
 use tokio_core::reactor::Core;
@@ -60,7 +61,7 @@ pub struct ApiServer {
     // VMM instance info directly accessible from the API thread.
     vmm_shared_info: Arc<RwLock<InstanceInfo>>,
     // Sender which allows passing messages to the VMM.
-    api_request_sender: Rc<mpsc::Sender<Box<VmmAction>>>,
+    api_request_sender: Rc<Sender<Box<VmmAction>>>,
     efd: Rc<EventFd>,
 }
 
@@ -68,7 +69,7 @@ impl ApiServer {
     pub fn new(
         mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_request_sender: mpsc::Sender<Box<VmmAction>>,
+        api_request_sender: Sender<Box<VmmAction>>,
     ) -> Result<Self> {
         Ok(ApiServer {
             mmds_info,

@@ -8,6 +8,8 @@
 use super::super::EpollHandlerPayload;
 use super::INTERRUPT_STATUS_USED_RING;
 
+use crossbeam_channel::Sender;
+
 use sys_util::EventFd;
 use vhost_backend::Vhost;
 use DeviceEventT;
@@ -15,7 +17,6 @@ use EpollHandler;
 
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc;
 use std::sync::Arc;
 
 pub const VHOST_IRQ_AVAILABLE: DeviceEventT = 0;
@@ -100,14 +101,14 @@ pub struct VhostEpollConfig {
     queue_evt_token: u64,
     kill_token: u64,
     epoll_raw_fd: RawFd,
-    sender: mpsc::Sender<Box<EpollHandler>>,
+    sender: Sender<Box<EpollHandler>>,
 }
 
 impl VhostEpollConfig {
     pub fn new(
         first_token: u64,
         epoll_raw_fd: RawFd,
-        sender: mpsc::Sender<Box<EpollHandler>>,
+        sender: Sender<Box<EpollHandler>>,
     ) -> Self {
         VhostEpollConfig {
             queue_evt_token: first_token,
@@ -116,7 +117,7 @@ impl VhostEpollConfig {
             sender,
         }
     }
-    pub fn get_sender(&self) -> mpsc::Sender<Box<EpollHandler>> {
+    pub fn get_sender(&self) -> Sender<Box<EpollHandler>> {
         self.sender.clone()
     }
 

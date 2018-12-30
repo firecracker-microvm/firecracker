@@ -13,8 +13,9 @@ use std::os::linux::fs::MetadataExt;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc;
 use std::sync::Arc;
+
+use crossbeam_channel::Sender;
 
 use super::{
     ActivateError, ActivateResult, DescriptorChain, EpollHandlerPayload, Queue, VirtioDevice,
@@ -386,14 +387,14 @@ pub struct EpollConfig {
     q_avail_token: u64,
     rate_limiter_token: u64,
     epoll_raw_fd: RawFd,
-    sender: mpsc::Sender<Box<EpollHandler>>,
+    sender: Sender<Box<EpollHandler>>,
 }
 
 impl EpollConfig {
     pub fn new(
         first_token: u64,
         epoll_raw_fd: RawFd,
-        sender: mpsc::Sender<Box<EpollHandler>>,
+        sender: Sender<Box<EpollHandler>>,
     ) -> Self {
         EpollConfig {
             q_avail_token: first_token + QUEUE_AVAIL_EVENT as u64,
@@ -611,9 +612,9 @@ mod tests {
     use self::tempfile::{tempfile, NamedTempFile};
     use super::*;
 
+    use crossbeam_channel::{unbounded, Receiver};
     use libc;
     use std::fs::{metadata, OpenOptions};
-    use std::sync::mpsc::Receiver;
     use std::thread;
     use std::time::Duration;
     use std::u32;
@@ -652,7 +653,7 @@ mod tests {
     impl DummyBlock {
         fn new(is_disk_read_only: bool) -> Self {
             let epoll_raw_fd = epoll::create(true).unwrap();
-            let (sender, _receiver) = mpsc::channel();
+            let (sender, _receiver) = unbounded();
 
             let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
 

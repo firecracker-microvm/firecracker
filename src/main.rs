@@ -4,6 +4,7 @@
 extern crate backtrace;
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
+extern crate crossbeam_channel;
 extern crate serde_json;
 
 extern crate api_server;
@@ -21,10 +22,10 @@ use clap::{App, Arg};
 use std::io::ErrorKind;
 use std::panic;
 use std::path::PathBuf;
-use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
 use api_server::{ApiServer, Error, UnixDomainSocket};
+use crossbeam_channel::unbounded;
 use jailer::FirecrackerContext;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
@@ -104,7 +105,7 @@ fn main() {
         id: instance_id,
     }));
     let mmds_info = MMDS.clone();
-    let (to_vmm, from_api) = channel();
+    let (to_vmm, from_api) = unbounded();
     let server =
         ApiServer::new(mmds_info, shared_info.clone(), to_vmm).expect("Cannot create API server");
 

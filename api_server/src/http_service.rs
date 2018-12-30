@@ -4,12 +4,12 @@
 use std::rc::Rc;
 use std::result;
 use std::str;
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 
 use futures::future::{self, Either};
 use futures::{Future, Stream};
 
+use crossbeam_channel::Sender;
 use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 
@@ -400,7 +400,7 @@ fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, 
 // with the VMM (so we don't forget to write to the EventFd).
 fn send_to_vmm(
     req: VmmAction,
-    sender: &mpsc::Sender<Box<VmmAction>>,
+    sender: &Sender<Box<VmmAction>>,
     send_event: &EventFd,
 ) -> result::Result<(), ()> {
     sender.send(Box::new(req)).map_err(|_| ())?;
@@ -417,7 +417,7 @@ pub struct ApiServerHttpService {
     // This allows sending messages to the VMM thread. It makes sense to use a Rc for the sender
     // (instead of cloning) because everything happens on a single thread, so there's no risk of
     // having races (if that was even a problem to begin with).
-    api_request_sender: Rc<mpsc::Sender<Box<VmmAction>>>,
+    api_request_sender: Rc<Sender<Box<VmmAction>>>,
     // We write to this EventFd to let the VMM know about new messages.
     vmm_send_event: Rc<EventFd>,
 }
@@ -426,7 +426,7 @@ impl ApiServerHttpService {
     pub fn new(
         mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_request_sender: Rc<mpsc::Sender<Box<VmmAction>>>,
+        api_request_sender: Rc<Sender<Box<VmmAction>>>,
         vmm_send_event: Rc<EventFd>,
     ) -> Self {
         ApiServerHttpService {

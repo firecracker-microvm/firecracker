@@ -16,9 +16,10 @@ use std::net::Ipv4Addr;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc;
 use std::sync::Arc;
 use std::vec::Vec;
+
+use crossbeam_channel::Sender;
 
 use super::{
     ActivateError, ActivateResult, EpollHandlerPayload, Queue, VirtioDevice, TYPE_NET,
@@ -580,14 +581,14 @@ pub struct EpollConfig {
     rx_rate_limiter_token: u64,
     tx_rate_limiter_token: u64,
     epoll_raw_fd: RawFd,
-    sender: mpsc::Sender<Box<EpollHandler>>,
+    sender: Sender<Box<EpollHandler>>,
 }
 
 impl EpollConfig {
     pub fn new(
         first_token: u64,
         epoll_raw_fd: RawFd,
-        sender: mpsc::Sender<Box<EpollHandler>>,
+        sender: Sender<Box<EpollHandler>>,
     ) -> Self {
         EpollConfig {
             rx_tap_token: first_token + RX_TAP_EVENT as u64,
@@ -893,7 +894,6 @@ impl VirtioDevice for Net {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc::Receiver;
     use std::thread;
     use std::time::Duration;
     use std::u32;
@@ -901,6 +901,7 @@ mod tests {
     use libc;
 
     use super::*;
+    use crossbeam_channel::{unbounded, Receiver};
     use memory_model::GuestAddress;
     use virtio::queue::tests::*;
 
@@ -936,7 +937,7 @@ mod tests {
     impl DummyNet {
         fn new(guest_mac: Option<&MacAddr>) -> Self {
             let epoll_raw_fd = epoll::create(true).unwrap();
-            let (sender, _receiver) = mpsc::channel();
+            let (sender, _receiver) = unbounded();
             let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
 
             DummyNet {
@@ -1242,7 +1243,7 @@ mod tests {
     #[test]
     fn test_error_tap_set_ip() {
         let epoll_raw_fd = epoll::create(true).unwrap();
-        let (sender, _receiver) = mpsc::channel();
+        let (sender, _receiver) = unbounded();
         let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
 
         match Net::new(
@@ -1262,7 +1263,7 @@ mod tests {
     #[test]
     fn test_error_tap_set_netmask() {
         let epoll_raw_fd = epoll::create(true).unwrap();
-        let (sender, _receiver) = mpsc::channel();
+        let (sender, _receiver) = unbounded();
         let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
 
         match Net::new(

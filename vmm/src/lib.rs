@@ -10,6 +10,7 @@
 //! machine (microVM).
 #![warn(missing_docs)]
 extern crate chrono;
+extern crate crossbeam_channel;
 extern crate epoll;
 extern crate futures;
 extern crate libc;
@@ -53,11 +54,11 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 use std::time::Duration;
 
+use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use libc::{c_void, siginfo_t};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
@@ -444,7 +445,7 @@ impl EpollContext {
     fn allocate_tokens(&mut self, count: usize) -> (u64, Sender<Box<EpollHandler>>) {
         let dispatch_base = self.dispatch_table.len() as u64;
         let device_idx = self.device_handlers.len();
-        let (sender, receiver) = channel();
+        let (sender, receiver) = unbounded();
 
         for x in 0..count {
             self.dispatch_table.push(Some(EpollDispatch::DeviceHandler(
@@ -1932,7 +1933,7 @@ mod tests {
             id: "TEST_ID".to_string(),
         }));
 
-        let (_to_vmm, from_api) = channel();
+        let (_to_vmm, from_api) = unbounded();
         let vmm = Vmm::new(
             shared_info,
             EventFd::new().expect("cannot create eventFD"),

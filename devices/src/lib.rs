@@ -7,6 +7,7 @@
 
 //! Emulates virtual and hardware devices.
 extern crate byteorder;
+extern crate crossbeam_channel;
 extern crate epoll;
 extern crate libc;
 
