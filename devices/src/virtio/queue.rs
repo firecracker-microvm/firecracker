@@ -9,10 +9,30 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use memory_model::{GuestAddress, GuestMemory};
+use memory_model::{DataInit, GuestAddress, GuestMemory};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
+
+// GuestMemory::read_obj_from_addr() will be used to fetch the descriptor,
+// which has an explicit constraint that the entire descriptor doesn't
+// cross the page boundary. Otherwise the descriptor may be splitted into
+// two mmap regions which causes failure of GuestMemory::read_obj_from_addr().
+//
+// The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
+// which fulfills the explicit constraint of GuestMemory::read_obj_from_addr().
+
+/// A virtio descriptor constraints with C representive.
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct Descriptor {
+    addr: u64,
+    len: u32,
+    flags: u16,
+    next: u16,
+}
+
+unsafe impl DataInit for Descriptor {}
 
 /// A virtio descriptor chain.
 pub struct DescriptorChain<'a> {
@@ -53,35 +73,11 @@ impl<'a> DescriptorChain<'a> {
             Some(a) => a,
             None => return None,
         };
-        // These reads can't fail unless Guest memory is hopelessly broken.
-        let addr = match mem.read_obj_from_addr::<u64>(desc_head) {
-            Ok(ret) => GuestAddress(ret as usize),
-            Err(_) => {
-                // TODO log address
-                error!("Failed to read from memory");
-                return None;
-            }
-        };
         if mem.checked_offset(desc_head, 16).is_none() {
             return None;
         }
-        let len: u32 = match mem.read_obj_from_addr(desc_head.unchecked_add(8)) {
-            Ok(ret) => ret,
-            Err(_) => {
-                // TODO log address
-                error!("Failed to read from memory");
-                return None;
-            }
-        };
-        let flags: u16 = match mem.read_obj_from_addr(desc_head.unchecked_add(12)) {
-            Ok(ret) => ret,
-            Err(_) => {
-                // TODO log address
-                error!("Failed to read from memory");
-                return None;
-            }
-        };
-        let next: u16 = match mem.read_obj_from_addr(desc_head.unchecked_add(14)) {
+        // These reads can't fail unless Guest memory is hopelessly broken.
+        let desc = match mem.read_obj_from_addr::<Descriptor>(desc_head) {
             Ok(ret) => ret,
             Err(_) => {
                 // TODO log address
@@ -95,10 +91,10 @@ impl<'a> DescriptorChain<'a> {
             queue_size: queue_size,
             ttl: queue_size,
             index: index,
-            addr: addr,
-            len: len,
-            flags: flags,
-            next: next,
+            addr: GuestAddress(desc.addr as usize),
+            len: desc.len,
+            flags: desc.flags,
+            next: desc.next,
         };
 
         if chain.is_valid() {
