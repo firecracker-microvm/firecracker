@@ -41,7 +41,7 @@ desired data store structure and contents. Here's a JSON example:
 
 Queries from the guest (more on them a bit later) will be applied to this
 structure. For example, a `GET` request for
-**http://169.254.169.254/latest/meta-data/ami-id** will return a response body
+`http://169.254.169.254/latest/meta-data/ami-id` will return a response body
 consisting of *ami-12345678*. The MMDS contents can be updated either via a
 subsequent `PUT` (that replaces them entirely), or using `PATCH` requests,
 which feed the JSON body into the merge functionality exposed by the
@@ -58,7 +58,7 @@ bottleneck first, which means any API resource may have this potential issue.
 
 For this example, the guest expects to find some sort of credentials (say, a
 secret access key) by issuing a `GET` request to
-*http://169.254.169.254/latest/meta-data/credentials/secret-key*. Most similar
+`http://169.254.169.254/latest/meta-data/credentials/secret-key`. Most similar
 use cases will encompass the following sequence of steps:
 
 1. Some agent running on the host sends a `PUT` request with the initial
@@ -70,7 +70,7 @@ use cases will encompass the following sequence of steps:
 1. The guest sends a `GET` request for the secret key, which is intercepted by
    the device model.
 1. The device model queries the data store, and gets the value associated with
-   the key. 
+   the key.
 1. An HTTP response is assembled and sent back to the guest.
 
 After a while, the host agent decides to rotate the secret key. It does so by
@@ -197,7 +197,7 @@ endpoint has a fixed size receive buffer, and a variable length response buffer
 (depending on the size of each response). TCP receive window semantics are used
 to ensure the guest does not overrun the receive buffer during normal operation
 (the connection has to drop segments otherwise). There can be at most one
-response pending at any given time. 
+response pending at any given time.
 
 Here are more details describing what happens when a segment is received by an
 MMDS endpoint (previously created when a SYN segment arrived at the TCP
