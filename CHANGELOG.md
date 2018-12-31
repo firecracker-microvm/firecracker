@@ -15,6 +15,7 @@
 - Updated the swagger definition of the `Logger` to specify the required fields
   and provide default values for optional fields.
 - Default `seccomp-level` is `2` (was previously 0).
+- API Resource IDs can only contain alphanumeric characters and underscores.
 
 ### Fixed
 
