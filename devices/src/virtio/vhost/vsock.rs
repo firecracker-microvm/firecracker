@@ -227,9 +227,12 @@ impl VirtioDevice for Vsock {
 
                 epoll::ctl(
                     self.epoll_config.get_raw_epoll_fd(),
-                    epoll::EPOLL_CTL_ADD,
+                    epoll::ControlOptions::EPOLL_CTL_ADD,
                     queue_evt_raw_fd,
-                    epoll::Event::new(epoll::EPOLLIN, self.epoll_config.get_queue_evt_token()),
+                    epoll::Event::new(
+                        epoll::Events::EPOLLIN,
+                        self.epoll_config.get_queue_evt_token(),
+                    ),
                 )
                 .map_err(ActivateError::EpollCtl)?;
 
