@@ -322,9 +322,6 @@ impl Queue {
 
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
     pub fn iter<'a, 'b>(&'b mut self, mem: &'a GuestMemory) -> AvailIter<'a, 'b> {
-        if !self.is_valid(mem) {
-            return AvailIter::new(mem, &mut self.next_avail);
-        }
         let queue_size = self.actual_size();
         let avail_ring = self.avail_ring;
 
