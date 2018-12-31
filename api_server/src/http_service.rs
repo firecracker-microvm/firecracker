@@ -72,8 +72,10 @@ pub fn json_fault_message<T: AsRef<str>>(msg: T) -> String {
 enum Error<'a> {
     // A generic error, with a given status code and message to be turned into a fault message.
     Generic(StatusCode, String),
-    // The resource ID is invalid.
+    // The resource ID is empty.
     EmptyID,
+    // The resource ID must only contain alphanumeric characters and '_'.
+    InvalidID,
     // The HTTP method & request path combination is not valid.
     InvalidPathMethod(&'a str, Method),
     // An error occurred when deserializing the json body of a request.
@@ -88,6 +90,12 @@ impl<'a> Into<hyper::Response> for Error<'a> {
             Error::EmptyID => json_response(
                 StatusCode::BadRequest,
                 json_fault_message("The ID cannot be empty."),
+            ),
+            Error::InvalidID => json_response(
+                StatusCode::BadRequest,
+                json_fault_message(
+                    "API Resource IDs can only contain alphanumeric characters and underscores.",
+                ),
             ),
             Error::InvalidPathMethod(path, method) => json_response(
                 StatusCode::BadRequest,
@@ -131,6 +139,14 @@ fn parse_actions_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<
 fn checked_id(id: &str) -> Result<&str> {
     // todo: are there any checks we want to do on id's?
     // not allow them to be empty strings maybe?
+    // check: ensure string is not empty
+    if id.len() == 0 {
+        return Err(Error::EmptyID);
+    }
+    // check: ensure string is alphanumeric
+    if !id.chars().all(|c| c == '_' || c.is_alphanumeric()) {
+        return Err(Error::InvalidID);
+    }
     Ok(id)
 }
 
@@ -644,6 +660,7 @@ mod tests {
                     sts == other_sts && err == other_err
                 }
                 (EmptyID, EmptyID) => true,
+                (InvalidID, InvalidID) => true,
                 (InvalidPathMethod(path, method), InvalidPathMethod(other_path, other_method)) => {
                     path == other_path && method == other_method
                 }
@@ -789,6 +806,9 @@ mod tests {
     #[test]
     fn test_checked_id() {
         assert!(checked_id("dummy").is_ok());
+        assert!(checked_id("dummy_1").is_ok());
+        assert!(checked_id("") == Err(Error::EmptyID));
+        assert!(checked_id("dummy!!") == Err(Error::InvalidID));
     }
 
     #[test]
