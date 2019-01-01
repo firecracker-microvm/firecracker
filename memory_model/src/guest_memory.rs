@@ -113,13 +113,24 @@ impl GuestMemory {
 
     /// Returns true if the given address is within the memory range available to the guest.
     pub fn address_in_range(&self, addr: GuestAddress) -> bool {
-        addr < self.end_addr()
+        for region in self.regions.iter() {
+            if addr >= region.guest_base && addr < region_end(region) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Returns the address plus the offset if it is in range.
-    pub fn checked_offset(&self, addr: GuestAddress, offset: usize) -> Option<GuestAddress> {
-        addr.checked_add(offset)
-            .and_then(|a| if a < self.end_addr() { Some(a) } else { None })
+    pub fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
+        if let Some(addr) = base.checked_add(offset) {
+            for region in self.regions.iter() {
+                if addr >= region.guest_base && addr < region_end(region) {
+                    return Some(addr);
+                }
+            }
+        }
+        None
     }
 
     /// Returns the size of the memory region in bytes.
@@ -469,17 +480,19 @@ mod tests {
         );
 
         let start_addr1 = GuestAddress(0x0);
-        let start_addr2 = GuestAddress(0x400);
+        let start_addr2 = GuestAddress(0x800);
         let guest_mem =
             GuestMemory::new(&vec![(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
         assert_eq!(guest_mem.num_regions(), 2);
         assert!(guest_mem.address_in_range(GuestAddress(0x200)));
-        assert!(guest_mem.address_in_range(GuestAddress(0x600)));
-        let end_addr = GuestAddress(0x800);
+        assert!(!guest_mem.address_in_range(GuestAddress(0x600)));
+        assert!(guest_mem.address_in_range(GuestAddress(0xa00)));
+        let end_addr = GuestAddress(0xc00);
         assert!(!guest_mem.address_in_range(end_addr));
         assert_eq!(guest_mem.end_addr(), end_addr);
-        assert!(guest_mem.checked_offset(start_addr1, 0x700).is_some());
-        assert!(guest_mem.checked_offset(start_addr2, 0x800).is_none());
+        assert!(guest_mem.checked_offset(start_addr1, 0x900).is_some());
+        assert!(guest_mem.checked_offset(start_addr1, 0x700).is_none());
+        assert!(guest_mem.checked_offset(start_addr2, 0xc00).is_none());
     }
 
     #[test]
