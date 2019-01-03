@@ -35,7 +35,7 @@ const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 
 fn main() {
     LOGGER
-        .init(DEFAULT_INSTANCE_ID, None, None, vec![])
+        .preinit(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
 
     // If the signal handler can't be set, it's OK to panic.
@@ -101,6 +101,7 @@ fn main() {
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,
         id: instance_id,
+        vmm_version: crate_version!().to_string(),
     }));
     let mmds_info = MMDS.clone();
     let (to_vmm, from_api) = channel();
@@ -157,6 +158,7 @@ mod tests {
     use self::tempfile::NamedTempFile;
     use super::*;
 
+    use logger::AppInfo;
     use std::fs::File;
     use std::io::BufRead;
     use std::io::BufReader;
@@ -222,9 +224,10 @@ mod tests {
         // Initialize the logger
         LOGGER
             .init(
+                &AppInfo::new("Firecracker", "1.0"),
                 "TEST-ID",
-                Some(log_file_temp.path().to_str().unwrap().to_string()),
-                Some(metrics_file_temp.path().to_str().unwrap().to_string()),
+                log_file_temp.path().to_str().unwrap().to_string(),
+                metrics_file_temp.path().to_str().unwrap().to_string(),
                 vec![],
             )
             .expect("Could not initialize logger.");

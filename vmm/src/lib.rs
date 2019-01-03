@@ -70,7 +70,7 @@ use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use kvm::*;
 use logger::error::LoggerError;
-use logger::{Level, LogOption, Metric, LOGGER, METRICS};
+use logger::{AppInfo, Level, LogOption, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use serde_json::Value;
 pub use sigsys_handler::setup_sigsys_handler;
@@ -1646,9 +1646,11 @@ impl Vmm {
         }
 
         let instance_id;
+        let firecracker_version;
         {
             let guard = self.shared_info.read().unwrap();
             instance_id = guard.id.clone();
+            firecracker_version = guard.vmm_version.clone();
         }
 
         match api_logger.level {
@@ -1668,9 +1670,10 @@ impl Vmm {
 
         LOGGER
             .init(
+                &AppInfo::new("Firecracker", &firecracker_version),
                 &instance_id,
-                Some(api_logger.log_fifo),
-                Some(api_logger.metrics_fifo),
+                api_logger.log_fifo,
+                api_logger.metrics_fifo,
                 options,
             )
             .map(|_| VmmData::Empty)
@@ -1974,6 +1977,7 @@ mod tests {
         let shared_info = Arc::new(RwLock::new(InstanceInfo {
             state,
             id: "TEST_ID".to_string(),
+            vmm_version: "1.0".to_string(),
         }));
 
         let (_to_vmm, from_api) = channel();

@@ -12,10 +12,12 @@ use std::fmt;
 pub enum LoggerError {
     /// First attempt at initialization failed.
     NeverInitialized(String),
+    /// The logger is locked while preinitializing.
+    IsPreinitializing,
+    /// The logger is locked while initializing
+    IsInitializing,
     /// The logger does not allow reinitialization.
     AlreadyInitialized,
-    /// Attempt to initialize with one pipe and one standard output stream as destinations.
-    DifferentDestinations,
     /// Invalid logger option specified.
     InvalidLogOption(String),
     /// Opening named pipe fails.
@@ -36,13 +38,17 @@ impl fmt::Display for LoggerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
             LoggerError::NeverInitialized(ref e) => format!("{}", e),
+            LoggerError::IsPreinitializing => format!(
+                "{}",
+                "The logger is preinitializing. Can't perform the requested action right now."
+            ),
+            LoggerError::IsInitializing => format!(
+                "{}",
+                "The logger is initializing. Can't perform the requested action right now."
+            ),
             LoggerError::AlreadyInitialized => {
                 format!("{}", "Reinitialization of logger not allowed.")
             }
-            LoggerError::DifferentDestinations => format!(
-                "{}",
-                "Initialization with one pipe and one standard output stream not allowed."
-            ),
             LoggerError::InvalidLogOption(ref s) => format!("Invalid log option: {}", s),
             LoggerError::OpenFIFO(ref e) => {
                 format!("Failed to open pipe. Error: {}", e.description())
@@ -88,12 +94,13 @@ mod tests {
         );
 
         assert_eq!(
-            format!("{:?}", LoggerError::DifferentDestinations),
-            "DifferentDestinations"
+            format!("{}", LoggerError::IsPreinitializing),
+            "The logger is preinitializing. Can't perform the requested action right now."
         );
+
         assert_eq!(
-            format!("{}", LoggerError::DifferentDestinations),
-            "Initialization with one pipe and one standard output stream not allowed."
+            format!("{}", LoggerError::IsInitializing),
+            "The logger is initializing. Can't perform the requested action right now."
         );
 
         assert!(format!(
