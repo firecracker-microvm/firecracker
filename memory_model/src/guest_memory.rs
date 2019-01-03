@@ -32,6 +32,10 @@ pub enum Error {
     MemoryRegionOverlap,
     /// No memory regions were provided for initializing the guest memory.
     NoMemoryRegions,
+    /// Invalid address space region type
+    InvalidASRegionType,
+    /// Invalid operation for address space
+    InvalidASOperation,
 }
 type Result<T> = result::Result<T, Error>;
 
@@ -43,6 +47,13 @@ pub struct MemoryRegion {
 }
 
 impl MemoryRegion {
+    pub fn new(mapping: MemoryMapping, guest_base: GuestAddress) -> Self {
+        MemoryRegion {
+            mapping,
+            guest_base,
+        }
+    }
+
     pub fn size(&self) -> usize {
         self.mapping.size()
     }
@@ -89,6 +100,13 @@ impl GuestMemory {
         Ok(GuestMemory {
             regions: Arc::new(regions),
         })
+    }
+
+    /// Creates a container for guest memory regions.
+    pub fn from_regions(regions: Vec<MemoryRegion>) -> Self {
+        GuestMemory {
+            regions: Arc::new(regions),
+        }
     }
 
     /// Returns the end address of memory.
