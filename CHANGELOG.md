@@ -5,6 +5,8 @@
 ### Added
 
 - Documentation for Logger API Requests in `docs/api_requests/logger.md`.
+- Documentation for Actions API Requests in `docs/api_requests/actions.md`.
+- Documentation for MMDS in `docs/mmds.md`.
 
 ### Changed
 
@@ -15,6 +17,8 @@
 ### Fixed
 
 - Seccomp filters are now applied to all Firecracker threads.
+- Enforce minimum length of 1 character for the jailer ID.
+- Exit with error code when starting the jailer process fails.
 
 ## [0.12.0]
 
