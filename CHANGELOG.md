@@ -7,6 +7,7 @@
 - Documentation for development environment setup on AWS.
 
 ### Changed
+- Log the app version when the `Logger` is initialized.
 
 - Pretty print panic information.
 
