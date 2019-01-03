@@ -1230,9 +1230,7 @@ impl Vmm {
     fn run_control(&mut self) -> Result<()> {
         const EPOLL_EVENTS_LEN: usize = 100;
 
-        let mut events = Vec::<epoll::Event>::with_capacity(EPOLL_EVENTS_LEN);
-        // Safe as we pass to set_len the value passed to with_capacity.
-        unsafe { events.set_len(EPOLL_EVENTS_LEN) };
+        let mut events = vec![epoll::Event::new(epoll::Events::empty(), 0); EPOLL_EVENTS_LEN];
 
         let epoll_raw_fd = self.epoll_context.epoll_raw_fd;
 
@@ -2246,9 +2244,7 @@ mod tests {
         let epev = epev.unwrap();
 
         let evpoll_events_len = 10;
-        let mut events = Vec::<epoll::Event>::with_capacity(evpoll_events_len);
-        // Safe as we pass to set_len the value passed to with_capacity.
-        unsafe { events.set_len(evpoll_events_len) };
+        let mut events = vec![epoll::Event::new(epoll::Events::empty(), 0); evpoll_events_len];
 
         // epoll should have no pending events
         let epollret = epoll::wait(ep.epoll_raw_fd, 0, &mut events[..]);
@@ -2284,9 +2280,8 @@ mod tests {
         let epev = ep.add_event(evfd, EpollDispatch::Exit).unwrap();
 
         let evpoll_events_len = 10;
-        let mut events = Vec::<epoll::Event>::with_capacity(evpoll_events_len);
-        // Safe as we pass to set_len the value passed to with_capacity.
-        unsafe { events.set_len(evpoll_events_len) };
+
+        let mut events = vec![epoll::Event::new(epoll::Events::empty(), 0); evpoll_events_len];
 
         // raise the event
         assert!(epev.fd.write(1).is_ok());
@@ -2309,9 +2304,7 @@ mod tests {
         let epev = ep.add_event(evfd, EpollDispatch::Exit).unwrap();
 
         let evpoll_events_len = 10;
-        let mut events = Vec::<epoll::Event>::with_capacity(evpoll_events_len);
-        // Safe as we pass to set_len the value passed to with_capacity.
-        unsafe { events.set_len(evpoll_events_len) };
+        let mut events = vec![epoll::Event::new(epoll::Events::empty(), 0); evpoll_events_len];
 
         // raise the event
         assert!(epev.fd.write(1).is_ok());
