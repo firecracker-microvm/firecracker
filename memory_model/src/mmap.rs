@@ -22,6 +22,8 @@ use DataInit;
 pub enum Error {
     /// Requested memory out of range.
     InvalidAddress,
+    /// Requested offset is out of range of `libc::off_t`.
+    InvalidOffset,
     /// Requested memory range spans past the end of the region.
     InvalidRange(usize, usize),
     /// Couldn't read from the given source.
@@ -35,7 +37,8 @@ pub enum Error {
 }
 type Result<T> = std::result::Result<T, Error>;
 
-/// Wraps an anonymous shared memory mapping in the current process.
+/// Wraps a shared memory mapping in the current process.
+#[derive(Debug)]
 pub struct MemoryMapping {
     addr: *mut u8,
     size: usize,
@@ -81,6 +84,24 @@ impl MemoryMapping {
     /// * `fd` - File descriptor to mmap from.
     /// * `size` - Size of memory region in bytes.
     pub fn from_fd(fd: &AsRawFd, size: usize) -> Result<MemoryMapping> {
+        MemoryMapping::from_fd_offset(fd, size, 0)
+    }
+
+    /// Maps the `size` bytes starting at `offset` bytes of the given `fd`.
+    ///
+    /// # Arguments
+    /// * `fd` - File descriptor to mmap from.
+    /// * `size` - Size of memory region in bytes.
+    /// * `offset` - Offset in bytes from the beginning of `fd` to start the mmap.
+    pub fn from_fd_offset(fd: &AsRawFd, size: usize, offset: usize) -> Result<MemoryMapping> {
+        if offset > libc::off_t::max_value() as usize {
+            return Err(Error::InvalidOffset);
+        }
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+        if offset & (page_size - 1) != 0 {
+            return Err(Error::InvalidOffset);
+        }
+
         // This is safe because we are creating a mapping in a place not already used by any other
         // area in this process.
         let addr = unsafe {
@@ -90,7 +111,7 @@ impl MemoryMapping {
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED,
                 fd.as_raw_fd(),
-                0,
+                offset as libc::off_t,
             )
         };
         if addr.is_null() {
@@ -431,5 +452,29 @@ mod tests {
         let buf = &mut [0u8; 16];
         assert_eq!(mem_map.read_slice(buf, 0).unwrap(), sample_buf.len());
         assert_eq!(buf[0..sample_buf.len()], sample_buf[..]);
+
+        match MemoryMapping::from_fd_offset(&f, sample_buf.len(), 1).unwrap_err() {
+            Error::InvalidOffset => {}
+            _ => assert!(false),
+        }
+
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+        match MemoryMapping::from_fd_offset(
+            &f,
+            sample_buf.len(),
+            (libc::off_t::max_value() as usize + 2 * page_size) & !(page_size - 1),
+        )
+        .unwrap_err()
+        {
+            Error::InvalidOffset => {}
+            _ => assert!(false),
+        }
+
+        let more_buf = &[0; 4096];
+        assert!(f.write_all(more_buf).is_ok());
+        let mem_map = MemoryMapping::from_fd_offset(&f, sample_buf.len(), 4096).unwrap();
+        let buf = &mut [0u8; 16];
+        assert_eq!(mem_map.read_slice(buf, 0).unwrap(), sample_buf.len());
+        assert_eq!(buf[0..sample_buf.len()], [0u8; 5]);
     }
 }
