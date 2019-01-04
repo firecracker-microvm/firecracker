@@ -182,6 +182,25 @@ impl MmioDevice {
         }
     }
 
+    fn reset(&mut self) {
+        if self.device_activated {
+            warn!("reset device while it's still in active state");
+            return;
+        }
+        self.features_select = 0;
+        self.acked_features_select = 0;
+        self.queue_select = 0;
+        self.interrupt_status.store(0, Ordering::SeqCst);
+        self.driver_status = 0;
+        // . Keep interrupt_evt and queue_evts as is. There may be pending
+        //   notifications in those eventfds, but nothing will happen other
+        //   than supurious wakeups.
+        // . Do not reset config_generation and keep it monotonically increasing
+        for queue in self.queues.as_mut_slice() {
+            *queue = Queue::new(queue.get_max_size());
+        }
+    }
+
     /// Update driver status according to the state machine defined by VirtIO Spec 1.0.
     /// Please refer to VirtIO Spec 1.0, section 2.1.1 and 3.1.1.
     ///
@@ -210,10 +229,10 @@ impl MmioDevice {
                 // check will fail and take the device into an unusable state.
                 if !self.device_activated && self.are_queues_valid() {
                     if let Some(ref interrupt_evt) = self.interrupt_evt {
-                        if let Some(mem) = self.mem.take() {
+                        if let Some(ref mem) = self.mem {
                             self.device
                                 .activate(
-                                    mem,
+                                    mem.clone(),
                                     interrupt_evt.try_clone().expect("Failed to clone eventfd"),
                                     self.interrupt_status.clone(),
                                     self.queues.clone(),
@@ -226,11 +245,25 @@ impl MmioDevice {
                 }
             }
             _ if (v & DEVICE_FAILED) != 0 => {
-                // TODO: stop device
+                // TODO: notify backend driver to stop the device
                 self.driver_status |= DEVICE_FAILED;
             }
             _ if v == 0 => {
-                return; // TODO reset device status
+                if self.device_activated {
+                    match self.device.reset() {
+                        Some((_interrupt_evt, mut queue_evts)) => {
+                            self.device_activated = false;
+                            self.queue_evts.append(&mut queue_evts);
+                        }
+                        // Backend device driver doesn't support reset,
+                        // just mark the device as FAILED.
+                        None => {
+                            self.driver_status |= DEVICE_FAILED;
+                            return;
+                        }
+                    }
+                }
+                self.reset();
             }
             _ => {
                 warn!(
@@ -363,11 +396,16 @@ impl BusDevice for MmioDevice {
 #[cfg(test)]
 mod tests {
     use byteorder::{ByteOrder, LittleEndian};
+    use std::sync::atomic::ATOMIC_USIZE_INIT;
 
     use super::*;
 
+    static DEVICE_RESET_ENABLED: AtomicUsize = ATOMIC_USIZE_INIT;
+
     struct DummyDevice {
         acked_features: u32,
+        interrupt_evt: Option<EventFd>,
+        queue_evts: Option<Vec<EventFd>>,
         config_bytes: [u8; 0xeff],
     }
 
@@ -375,6 +413,8 @@ mod tests {
         fn new() -> Self {
             DummyDevice {
                 acked_features: 0,
+                interrupt_evt: None,
+                queue_evts: None,
                 config_bytes: [0; 0xeff],
             }
         }
@@ -408,12 +448,25 @@ mod tests {
         fn activate(
             &mut self,
             _mem: GuestMemory,
-            _interrupt_evt: EventFd,
+            interrupt_evt: EventFd,
             _status: Arc<AtomicUsize>,
             _queues: Vec<Queue>,
-            _queue_evts: Vec<EventFd>,
+            queue_evts: Vec<EventFd>,
         ) -> ActivateResult {
+            self.interrupt_evt = Some(interrupt_evt);
+            self.queue_evts = Some(queue_evts);
             Ok(())
+        }
+
+        fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
+            if self.interrupt_evt.is_some() && DEVICE_RESET_ENABLED.load(Ordering::SeqCst) != 0 {
+                Some((
+                    self.interrupt_evt.take().unwrap(),
+                    self.queue_evts.take().unwrap(),
+                ))
+            } else {
+                None
+            }
         }
     }
 
@@ -747,15 +800,68 @@ mod tests {
         d.write(0x44, &buf[..]);
         d.read(0x44, &mut buf[..]);
         assert_eq!(LittleEndian::read_u32(&buf[..]), 1);
+    }
 
+    fn activate_device(d: &mut MmioDevice) {
+        set_driver_status(d, DEVICE_ACKNOWLEDGE);
+        set_driver_status(d, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
+        set_driver_status(d, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK);
+
+        // Setup queue data structures
+        let mut buf = vec![0; 4];
+        for q in 0..d.queues.len() {
+            d.queue_select = q as u32;
+            LittleEndian::write_u32(&mut buf[..], 16);
+            d.write(0x38, &buf[..]);
+            LittleEndian::write_u32(&mut buf[..], 1);
+            d.write(0x44, &buf[..]);
+        }
+        assert!(d.are_queues_valid());
+        assert!(!d.device_activated);
+
+        // Device should be ready for activation now.
+        set_driver_status(
+            d,
+            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK,
+        );
+        assert_eq!(
+            d.driver_status,
+            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK
+        );
+        assert!(d.device_activated);
+    }
+
+    #[test]
+    fn test_bus_device_reset() {
+        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
+        let mut buf = vec![0; 4];
+
+        assert!(!d.are_queues_valid());
+        assert!(!d.device_activated);
+        assert_eq!(d.driver_status, 0);
+        activate_device(&mut d);
+
+        // Marking device as FAILED should not affect device_activated state
         LittleEndian::write_u32(&mut buf[..], 0x8f);
         d.write(0x70, &buf[..]);
         assert_eq!(d.driver_status, 0x8f);
-        // TODO: assert!(d.device_activated);
+        assert!(d.device_activated);
 
+        // Nothing happens when backend driver doesn't support reset
+        DEVICE_RESET_ENABLED.store(0, Ordering::SeqCst);
         LittleEndian::write_u32(&mut buf[..], 0x0);
         d.write(0x70, &buf[..]);
-        // TODO: assert_eq!(d.driver_status, 0x0);
-        // TODO: assert!(d.device_activated);
+        assert_eq!(d.driver_status, 0x8f);
+        assert!(d.device_activated);
+
+        DEVICE_RESET_ENABLED.store(1, Ordering::SeqCst);
+        LittleEndian::write_u32(&mut buf[..], 0x0);
+        d.write(0x70, &buf[..]);
+        assert_eq!(d.driver_status, 0x0);
+        assert!(!d.device_activated);
+
+        DEVICE_RESET_ENABLED.store(0, Ordering::SeqCst);
+        activate_device(&mut d);
     }
 }
