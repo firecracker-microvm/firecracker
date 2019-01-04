@@ -11,6 +11,7 @@ destroy microvms.
 """
 
 import os
+from queue import Queue
 import re
 from subprocess import run, PIPE
 
@@ -98,7 +99,10 @@ class Microvm:
         }
 
         # Deal with memory monitoring.
-        self.monitor_memory = monitor_memory
+        if monitor_memory:
+            self._memory_events_queue = Queue()
+        else:
+            self._memory_events_queue = None
 
         # External clone/exec tool, because Python can't into clone
         self.newpid_cloner_path = newpid_cloner_path
@@ -113,6 +117,10 @@ class Microvm:
                 'screen -XS {} kill'.format(self._session_name),
                 shell=True
             )
+
+        if self._memory_events_queue and not self._memory_events_queue.empty():
+            raise mem_tools.MemoryUsageExceededException(
+                self._memory_events_queue.get())
 
     @property
     def api_session(self):
@@ -180,6 +188,16 @@ class Microvm:
     def ssh_config(self, key, value):
         """Set the dict values inside this configuration."""
         self._ssh_config.__setattr__(key, value)
+
+    @property
+    def memory_events_queue(self):
+        """Get the memory usage events queue."""
+        return self._memory_events_queue
+
+    @memory_events_queue.setter
+    def memory_events_queue(self, queue):
+        """Set the memory usage events queue."""
+        self._memory_events_queue = queue
 
     def create_jailed_resource(self, path):
         """Create a hard link to some resource inside this microvm."""
@@ -332,10 +350,11 @@ class Microvm:
         )
         assert self._api_session.is_good_response(response.status_code)
 
-        if self.monitor_memory:
+        if self.memory_events_queue:
             mem_tools.threaded_memory_monitor(
                 mem_size_mib,
-                self.jailer_clone_pid
+                self.jailer_clone_pid,
+                self._memory_events_queue
             )
 
         # Add a kernel to start booting from.
