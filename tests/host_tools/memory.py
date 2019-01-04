@@ -11,7 +11,18 @@ MAX_MEMORY = 5 * 1024
 MEMORY_COP_TIMEOUT = 1
 
 
-def threaded_memory_monitor(mem_size_mib, pid):
+class MemoryUsageExceededException(Exception):
+    """A custom exception containing details on excessive memory usage."""
+
+    def __init__(self, usage):
+        """Compose the error message containing the memory consumption."""
+        super(MemoryUsageExceededException, self).__init__(
+            'Memory usage exceeded maximum threshold. Usage: {} MiB.\n'
+            .format(usage)
+        )
+
+
+def threaded_memory_monitor(mem_size_mib, pid, exceeded_queue):
     """Spawns a thread that monitors memory consumption of a process.
 
     If at some point the memory used exceeds mem_size_mib, the calling thread
@@ -19,17 +30,18 @@ def threaded_memory_monitor(mem_size_mib, pid):
     """
     memory_cop_thread = Thread(target=_memory_cop, args=(
         mem_size_mib,
-        pid
+        pid,
+        exceeded_queue
     ))
     memory_cop_thread.start()
 
 
-def _memory_cop(mem_size_mib, pid):
+def _memory_cop(mem_size_mib, pid, exceeded_queue):
     """Thread for monitoring memory consumption of some pid.
 
     `pmap` is used to compute the memory overhead. If it exceeds
-    the maximum value, the process exits immediately, failing any running
-    test.
+    the maximum value, it is pushed in a thread safe queue and memory
+    monitoring ceases. It is up to the caller to check the queue.
     """
     pmap_cmd = 'pmap -xq {}'.format(pid)
     while True:
@@ -46,11 +58,6 @@ def _memory_cop(mem_size_mib, pid):
         for line in pmap_out:
             tokens = line.split()
             if not tokens:
-                # This should occur when Firecracker exited cleanly and
-                # `pmap` isn't writing anything to `stdout` anymore.
-                # However, in the current state of things, Firecracker
-                # (at least sometimes) remains as a zombie, and `pmap`
-                # always outputs, even though memory consumption is 0.
                 break
             try:
                 total_size = int(tokens[1])
@@ -65,13 +72,10 @@ def _memory_cop(mem_size_mib, pid):
             mem_total += rss
 
         if mem_total > MAX_MEMORY:
-            print('ERROR! Memory usage exceeded limit: {}'
-                  .format(mem_total))
-            exit(-1)
+            exceeded_queue.put(mem_total)
+            return
 
         if not mem_total:
-            # Until we have a reliable way to a) kill Firecracker, b) know
-            # Firecracker is dead, this will have to do.
             return
 
         time.sleep(MEMORY_COP_TIMEOUT)
