@@ -69,6 +69,7 @@ use fc_util::now_cputime_us;
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use kvm::*;
+use logger::error::LoggerError;
 use logger::{Level, LogOption, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use serde_json::Value;
@@ -212,6 +213,9 @@ pub enum VmmAction {
     ConfigureLogger(LoggerConfig, OutcomeSender),
     /// Get the configuration of the microVM. The action response is sent using the `OutcomeSender`.
     GetVmConfiguration(OutcomeSender),
+    /// Flush the metrics. This action can only be called after the logger has been configured.
+    /// The response is sent using the `OutcomeSender`.
+    FlushMetrics(OutcomeSender),
     /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
     /// input. This action can only be called before the microVM has booted. The response
     /// is sent using the `OutcomeSender`.
@@ -776,6 +780,31 @@ impl Vmm {
         self.kernel_config = Some(kernel_config);
     }
 
+    fn flush_metrics(&mut self) -> std::result::Result<VmmData, VmmActionError> {
+        if let Err(e) = self.write_metrics() {
+            if let LoggerError::NeverInitialized(s) = e {
+                return Err(VmmActionError::Logger(
+                    ErrorKind::User,
+                    LoggerConfigError::FlushMetrics(s),
+                ));
+            } else {
+                return Err(VmmActionError::Logger(
+                    ErrorKind::Internal,
+                    LoggerConfigError::FlushMetrics(e.to_string()),
+                ));
+            }
+        }
+        Ok(VmmData::Empty)
+    }
+
+    fn write_metrics(&mut self) -> result::Result<(), LoggerError> {
+        // If we're logging dirty pages, post the metrics on how many dirty pages there are.
+        if LOGGER.flags() | LogOption::LogDirtyPages as usize > 0 {
+            METRICS.memory.dirty_pages.add(self.get_dirty_page_count());
+        }
+        LOGGER.log_metrics()
+    }
+
     fn init_guest_memory(&mut self) -> std::result::Result<(), StartMicrovmError> {
         let mem_size = self
             .vm_config
@@ -1299,7 +1328,12 @@ impl Vmm {
                             });
                         }
                         EpollDispatch::WriteMetrics => {
-                            self.write_metrics();
+                            self.write_metrics_event.fd.read();
+                            // Please note that, since LOGGER has no output file configured yet, it will write to
+                            // stdout, so logging will interfere with console output.
+                            if let Err(e) = self.write_metrics() {
+                                error!("Failed to log metrics: {}", e);
+                            }
                         }
                     }
                 }
@@ -1332,19 +1366,6 @@ impl Vmm {
             return dirty_pages;
         }
         0
-    }
-
-    fn write_metrics(&mut self) {
-        self.write_metrics_event.fd.read();
-        // If we're logging dirty pages, post the metrics on how many dirty pages there are.
-        if LOGGER.flags() | LogOption::LogDirtyPages as usize > 0 {
-            METRICS.memory.dirty_pages.add(self.get_dirty_page_count());
-        }
-        // Please note that, since LOGGER has no output file configured yet, it will write to
-        // stdout, so logging will interfere with console output.
-        if let Err(e) = LOGGER.log_metrics() {
-            error!("Failed to log metrics: {}", e);
-        }
     }
 
     fn configure_boot_source(
@@ -1674,6 +1695,9 @@ impl Vmm {
             VmmAction::ConfigureLogger(logger_description, sender) => {
                 Vmm::send_response(self.init_logger(logger_description), sender);
             }
+            VmmAction::FlushMetrics(sender) => {
+                Vmm::send_response(self.flush_metrics(), sender);
+            }
             VmmAction::GetVmConfiguration(sender) => {
                 Vmm::send_response(
                     Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
@@ -1742,6 +1766,7 @@ impl PartialEq for VmmAction {
                 &VmmAction::RescanBlockDevice(ref other_req, _),
             ) => req == other_req,
             (&VmmAction::StartMicroVm(_), &VmmAction::StartMicroVm(_)) => true,
+            (&VmmAction::FlushMetrics(_), &VmmAction::FlushMetrics(_)) => true,
             _ => false,
         }
     }
@@ -1799,6 +1824,8 @@ mod tests {
     use super::*;
 
     use std::fs::File;
+    use std::io::BufRead;
+    use std::io::BufReader;
     use std::sync::atomic::AtomicUsize;
 
     use self::tempfile::NamedTempFile;
@@ -2705,7 +2732,29 @@ mod tests {
             show_log_origin: true,
             options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
         };
+        // Flushing metrics before initializing logger is erroneous.
+        let err = vmm.flush_metrics();
+        assert!(err.is_err());
+        assert_eq!(
+            format!("{:?}", err.unwrap_err()),
+            "Logger(Internal, FlushMetrics(\"Logger was not initialized.\"))"
+        );
+
         assert!(vmm.init_logger(desc).is_ok());
+
+        assert!(vmm.flush_metrics().is_ok());
+        let f = File::open(metrics_file).unwrap();
+        let mut reader = BufReader::new(f);
+
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert!(line.contains("utc_timestamp_ms"));
+
+        // It is safe to do that because the tests are run sequentially (so no other test may be
+        // writing to the same file.
+        assert!(vmm.flush_metrics().is_ok());
+        reader.read_line(&mut line).unwrap();
+        assert!(line.contains("utc_timestamp_ms"));
     }
 
     #[cfg(target_arch = "x86_64")]

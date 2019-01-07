@@ -58,13 +58,16 @@ fn default_log_options() -> Value {
 pub enum LoggerConfigError {
     /// Cannot initialize the logger due to bad user input.
     InitializationFailure(String),
+    /// Cannot flush the metrics.
+    FlushMetrics(String),
 }
 
 impl Display for LoggerConfigError {
     fn fmt(&self, f: &mut Formatter) -> Result {
         use self::LoggerConfigError::*;
         match *self {
-            InitializationFailure(ref err_msg) => write!(f, "{}", err_msg),
+            InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
+            FlushMetrics(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
         }
     }
 }
