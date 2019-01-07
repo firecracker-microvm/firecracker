@@ -13,9 +13,11 @@ extern crate libc;
 
 extern crate kvm_gen;
 extern crate memory_model;
+#[macro_use]
 extern crate sys_util;
 
 mod cap;
+mod ioctl_defs;
 
 use std::fs::File;
 use std::os::raw::*;
@@ -31,6 +33,7 @@ use sys_util::{
 };
 
 pub use cap::*;
+use ioctl_defs::*;
 pub use kvm_gen::KVM_API_VERSION;
 
 /// Taken from Linux Kernel v4.14.13 (arch/x86/include/asm/kvm_host.h)
