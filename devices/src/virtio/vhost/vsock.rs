@@ -46,13 +46,7 @@ impl Vsock {
     /// Create a new virtio-vsock device with the given VM cid.
     pub fn new(cid: u64, mem: &GuestMemory, epoll_config: VhostEpollConfig) -> Result<Vsock> {
         let fd = VhostVsockFd::new(mem).map_err(Error::VhostOpen)?;
-
-        let avail_features = 1 << VIRTIO_F_NOTIFY_ON_EMPTY
-            | 1 << VIRTIO_RING_F_INDIRECT_DESC
-            | 1 << VIRTIO_RING_F_EVENT_IDX
-            | 1 << VHOST_F_LOG_ALL
-            | 1 << VIRTIO_F_ANY_LAYOUT
-            | 1 << VIRTIO_F_VERSION_1;
+        let avail_features = fd.get_features().map_err(Error::VhostGetFeatures)?;
 
         Ok(Vsock {
             vsock_fd: Some(fd),
@@ -169,10 +163,8 @@ impl VirtioDevice for Vsock {
                 // Preliminary setup for vhost net.
                 vsock_fd.set_owner().map_err(Error::VhostSetOwner)?;
 
-                let avail_features = vsock_fd.get_features().map_err(Error::VhostGetFeatures)?;
-                let features: u64 = self.acked_features & avail_features;
                 vsock_fd
-                    .set_features(features)
+                    .set_features(self.acked_features)
                     .map_err(Error::VhostSetFeatures)?;
 
                 vsock_fd.set_mem_table().map_err(Error::VhostSetMemTable)?;
