@@ -152,7 +152,7 @@ name = "cpuid"
 version = "0.1.0"
 dependencies = [
  "kvm 0.1.0",
- "kvm_gen 0.1.0",
+ "kvm_wrapper 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -355,19 +355,16 @@ name = "kvm"
 version = "0.1.0"
 dependencies = [
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "kvm_gen 0.1.0",
+ "kvm_wrapper 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.45 (registry+https://github.com/rust-lang/crates.io-index)",
  "memory_model 0.1.0",
  "sys_util 0.1.0",
 ]
 
 [[package]]
-name = "kvm_gen"
+name = "kvm_wrapper"
 version = "0.1.0"
-dependencies = [
- "libc 0.2.45 (registry+https://github.com/rust-lang/crates.io-index)",
- "sys_util 0.1.0",
-]
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "language-tags"
@@ -1257,7 +1254,7 @@ version = "0.1.0"
 dependencies = [
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "kvm 0.1.0",
- "kvm_gen 0.1.0",
+ "kvm_wrapper 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.45 (registry+https://github.com/rust-lang/crates.io-index)",
  "memory_model 0.1.0",
  "rand 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1295,6 +1292,7 @@ dependencies = [
 "checksum itoa 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "1306f3464951f30e30d12373d31c79fbd52d236e5e896fd92f96ec7babbbe60b"
 "checksum json-patch 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "2d3d2367729ae7dbae9780aa98a65514b982227a8d3761b7bd47553eef6577ca"
 "checksum kernel32-sys 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"
+"checksum kvm_wrapper 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ba7f605daa1f8eab2109db21d086d0055ce8399dfb974c6286f7f02ea78b8382"
 "checksum language-tags 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "a91d884b6667cd606bb5a69aa0c99ba811a115fc68915e7056ec08a46e93199a"
 "checksum lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a374c89b9db55895453a74c1e38861d9deec0b01b405a82516e9d5de4820dea1"
 "checksum lazycell 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "b294d6fa9ee409a054354afc4352b0b9ef7ca222c69b8812cbea9e7d2bf3783f"

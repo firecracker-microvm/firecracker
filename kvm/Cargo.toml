@@ -4,9 +4,9 @@ version = "0.1.0"
 authors = ["The Chromium OS Authors"]
 
 [dependencies]
+kvm_wrapper = ">=0.1.0"
 libc = ">=0.2.39"
 
-kvm_gen = { path = "../kvm_gen" }
 memory_model = { path = "../memory_model" }
 sys_util = { path = "../sys_util" }
 

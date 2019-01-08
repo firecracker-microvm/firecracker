@@ -7,7 +7,7 @@
 
 extern crate byteorder;
 extern crate kvm;
-extern crate kvm_gen;
+extern crate kvm_wrapper;
 extern crate libc;
 extern crate memory_model;
 extern crate sys_util;
