@@ -12,16 +12,18 @@ written in Rust with a focus on safety and security. Thanks go to:
 * [Daniel Verkamp](https://github.com/danielverkamp) <dverkamp@chromium.org>
 * [Stephen Barber](https://github.com/smibarber) <smbarber@chromium.org>
 * [Chirantan Ekbote](https://github.com/jynnantonix) <chirantan@chromium.org>
-* [Jason D. Clinton](https://github.com/jclinton) jclinton@chromium.org
+* [Jason D. Clinton](https://github.com/jclinton) <jclinton@chromium.org>
 * Sonny Rao <sonnyrao@chromium.org>
 
 
 Contributors to the Firecracker repository:
 
+* Aaron Hill <aa1ronham@gmail.com>
 * Adrian Catangiu <acatan@amazon.com>
 * Alakesh <alakeshh@amazon.com>
 * Aleksa Sarai <cyphar@cyphar.com>
 * Alex Chan <a.chan@wellcome.ac.uk>
+* Alex Glikson <alex.glikson@gmail.com>
 * Alexandra Ghecenco <aghecen@amazon.com>
 * Alexandra Iordache <aghecen@amazon.com>
 * Alexandru Agache <aagch@amazon.com>
@@ -29,6 +31,8 @@ Contributors to the Firecracker repository:
 * Andreea Florescu <fandree@amazon.com>
 * Arun Gupta <arun.gupta@gmail.com>
 * Bogdan Ionita <bci@amazon.com>
+* Chinmay Kousik <chinmaykousik1@gmail.com>
+* Chris Christensen <christianchristensen@gmail.com>
 * Christopher Diehl <diehl.chris24@gmail.com>
 * Constantin Musca <mcostin@amazon.com>
 * Dan Horobeanu <dhr@amazon.com>
@@ -39,16 +43,23 @@ Contributors to the Firecracker repository:
 * Greg Dunn <gregdunn@amazon.com>
 * Henri Yandell <hyandell@users.noreply.github.com>
 * James Turnbull <james@lovedthanlost.net>
+* Josh Abraham <sinisterpatrician@gmail.com>
+* Liu Jiang <gerry@linux.alibaba.com>
+* Liu Jiang <liu.jiang@alibaba-inc.com>
 * maciejhirsz <maciej.hirsz@gmail.com>
 * Massimiliano Torromeo <massimiliano.torromeo@gmail.com>
 * Matt Wilson <msw@amazon.com>
+* Nathan Sizemore <nathanrsizemore@gmail.com>
 * Nicolas Mesa <nicolasmesa@gmail.com>
 * Noah Meyerhans <nmeyerha@amazon.com>
+* Peng Tao <bergwolf@gmail.com>
 * Radu Matei Lăcraru <ral@amazon.com>
 * Radu Weiss <raduweis@amazon.com>
 * Ram Sripracha <ramsri@amazon.com>
+* Robert Grimes <rmzgrimes@gmail.com>
 * Rolf Neugebauer <neugebar@amazon.com>
 * Sam Jackson <sam@clique.app>
+* Sean Lavine <freewil@users.noreply.github.com>
 * Sripracha <ramsri@amazon.com>
 * Tim Bannister <tim@scalefactory.com>
 * Tim Deegan <tdeegan@amazon.com>
