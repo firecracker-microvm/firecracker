@@ -11,7 +11,7 @@
 
 extern crate libc;
 
-extern crate kvm_gen;
+extern crate kvm_wrapper;
 extern crate memory_model;
 #[macro_use]
 extern crate sys_util;
@@ -25,7 +25,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use libc::{open, EINVAL, ENOSPC, O_RDWR};
 
-use kvm_gen::*;
+use kvm_wrapper::*;
 use memory_model::MemoryMapping;
 use sys_util::{errno_result, Error, EventFd, Result};
 use sys_util::{
@@ -34,7 +34,7 @@ use sys_util::{
 
 pub use cap::*;
 use ioctl_defs::*;
-pub use kvm_gen::KVM_API_VERSION;
+pub use kvm_wrapper::KVM_API_VERSION;
 
 /// Taken from Linux Kernel v4.14.13 (arch/x86/include/asm/kvm_host.h)
 pub const MAX_KVM_CPUID_ENTRIES: usize = 80;
@@ -1449,7 +1449,9 @@ mod tests {
                 .unwrap_err(),
             badf_error
         );
-        assert_eq!(faulty_vcpu_fd.get_lapic().unwrap_err(), badf_error);
+        // kvm_lapic_state does not implement debug by default so we cannot
+        // use unwrap_err here.
+        assert!(faulty_vcpu_fd.get_lapic().is_err());
         assert_eq!(
             faulty_vcpu_fd
                 .set_lapic(&unsafe { std::mem::zeroed() })

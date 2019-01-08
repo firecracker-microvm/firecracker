@@ -9,7 +9,7 @@
 //! Utility for configuring the CPUID (CPU identification) for the guest microVM.
 
 extern crate kvm;
-extern crate kvm_gen;
+extern crate kvm_wrapper;
 
 use std::result;
 
@@ -288,7 +288,7 @@ fn get_brand_string() -> PartialError<BrandString, brand_string::Error> {
 mod tests {
     use super::*;
     use kvm::{Kvm, MAX_KVM_CPUID_ENTRIES};
-    use kvm_gen::kvm_cpuid_entry2;
+    use kvm_wrapper::kvm_cpuid_entry2;
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]

@@ -4,5 +4,6 @@ version = "0.1.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
+kvm_wrapper = ">=0.1.0"
+
 kvm = { path = "../kvm" }
-kvm_gen = { path = "../kvm_gen" }
