@@ -18,8 +18,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 
+/// Event for injecting IRQ into guest.
 pub const VHOST_IRQ_AVAILABLE: DeviceEventT = 0;
+/// Event for stopping the vhost device.
 pub const KILL_EVENT: DeviceEventT = 1;
+// VHOST_IRQ_AVAILABLE and KILL_EVENT. KILL_EVENT is unused yet.
+pub const VHOST_EVENTS_COUNT: usize = 2;
 
 pub struct VhostEpollHandler<T: Vhost> {
     vhost_dev: T,

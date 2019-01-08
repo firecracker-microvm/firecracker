@@ -477,7 +477,8 @@ impl EpollContext {
 
     #[cfg(feature = "vsock")]
     fn allocate_virtio_vsock_tokens(&mut self) -> virtio::vhost::handle::VhostEpollConfig {
-        let (dispatch_base, sender) = self.allocate_tokens(2);
+        let (dispatch_base, sender) =
+            self.allocate_tokens(virtio::vhost::handle::VHOST_EVENTS_COUNT);
         virtio::vhost::handle::VhostEpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
