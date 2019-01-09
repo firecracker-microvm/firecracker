@@ -4,9 +4,7 @@ version = "0.13.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-# Hardcoding `backtrace`'s version to work around unit test failure triggered by `autocfg` newly introduced dependency.
-# Opened https://github.com/alexcrichton/backtrace-rs/issues/146.
-backtrace = {version = "=0.3.9", features = ["libunwind", "libbacktrace"], default-features = false}
+backtrace = {version = "0.3", features = ["libunwind", "libbacktrace"], default-features = false}
 chrono = ">=0.4"
 clap = "=2.27.1"
 serde_json = ">=1.0.9"
