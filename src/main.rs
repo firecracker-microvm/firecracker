@@ -49,7 +49,6 @@ fn main() {
         // from which the panic originated.
         error!("Panic occurred: {:?}", info);
         METRICS.vmm.panic_count.inc();
-
         let bt = Backtrace::new();
         error!("{:?}", bt);
 
@@ -172,10 +171,9 @@ mod tests {
     fn validate_backtrace(
         log_path: &str,
         expectations: &[(&'static str, &'static str, &'static str)],
-    ) {
+    ) -> bool {
         let f = File::open(log_path).unwrap();
         let reader = BufReader::new(f);
-        let mut pass = false;
         let mut expectation_iter = expectations.iter();
         let mut expected_words = expectation_iter.next().unwrap();
 
@@ -191,10 +189,9 @@ mod tests {
                 expected_words = w;
                 continue;
             }
-            pass = true;
-            break;
+            return true;
         }
-        assert!(pass);
+        return false;
     }
 
     #[test]
@@ -237,16 +234,17 @@ mod tests {
         let _ = panic::catch_unwind(|| {
             panic!("Oh, noes!");
         });
-
         // Look for the expected backtrace inside the log
-        validate_backtrace(
-            log_file.as_str(),
-            &[
-                // Lines containing these words should have appeared in the log, in this order
-                ("ERROR", "main.rs", "Panic occurred"),
-                ("ERROR", "main.rs", "stack backtrace:"),
-                ("0:", "0x", "backtrace::"),
-            ],
+        assert!(
+            validate_backtrace(
+                log_file.as_str(),
+                &[
+                    // Lines containing these words should have appeared in the log, in this order
+                    ("ERROR", "main.rs", "Panic occurred"),
+                    ("ERROR", "main.rs", "stack backtrace:"),
+                    ("0:", "0x", "firecracker::main::"),
+                ],
+            ) || println!("Could not validate backtrace!\n {:?}", Backtrace::new()) != ()
         );
 
         // Clean up
