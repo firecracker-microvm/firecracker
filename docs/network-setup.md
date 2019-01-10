@@ -14,7 +14,7 @@ Then you have a few options for routing traffic out of the tap device, through y
 
 ```bash
 DEV=eth0
-sudo ip addr add 169.254.0.1/24 dev tap0
+sudo ip addr add 172.16.0.1/24 dev tap0
 sudo ip link set tap0 up
 sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
 sudo iptables -t nat -A POSTROUTING -o $DEV -j MASQUERADE
@@ -46,8 +46,8 @@ Alternatively, if you are using firectl, add `--tap-device=veth0/AA:FC:00:00:00:
 Once you have booted the guest, bring up networking within the guest:
 
 ```bash
-ip addr add 169.254.0.2/24 dev eth0
-ip route add default via 169.254.0.1 dev eth0
+ip addr add 172.16.0.2/24 dev eth0
+ip route add default via 172.16.0.1 dev eth0
 ```
 
 Now your guest should be able to route traffic to the internet (assuming that your host can get to the internet).
