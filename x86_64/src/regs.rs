@@ -9,11 +9,7 @@ use std::{mem, result};
 
 use gdt;
 use kvm;
-use kvm_gen::kvm_fpu;
-use kvm_gen::kvm_msr_entry;
-use kvm_gen::kvm_msrs;
-use kvm_gen::kvm_regs;
-use kvm_gen::kvm_sregs;
+use kvm_wrapper::{kvm_fpu, kvm_msr_entry, kvm_msrs, kvm_regs, kvm_sregs};
 use layout;
 use memory_model::{GuestAddress, GuestMemory};
 use sys_util;

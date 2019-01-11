@@ -12,6 +12,7 @@ extern crate jailer;
 #[macro_use]
 extern crate logger;
 extern crate mmds;
+extern crate seccomp;
 extern crate vmm;
 
 use backtrace::Backtrace;
@@ -48,7 +49,6 @@ fn main() {
         // from which the panic originated.
         error!("Panic occurred: {:?}", info);
         METRICS.vmm.panic_count.inc();
-
         let bt = Backtrace::new();
         error!("{:?}", bt);
 
@@ -83,7 +83,7 @@ fn main() {
         .expect("Missing argument: api_sock");
 
     let mut instance_id = String::from(DEFAULT_INSTANCE_ID);
-    let mut seccomp_level = 0;
+    let mut seccomp_level = seccomp::SECCOMP_LEVEL_ADVANCED;
     let mut start_time_us = None;
     let mut start_time_cpu_us = None;
     let mut is_jailed = false;
@@ -126,7 +126,12 @@ fn main() {
         UnixDomainSocket::Path(bind_path)
     };
 
-    match server.bind_and_run(uds_path_or_fd, start_time_us, start_time_cpu_us) {
+    match server.bind_and_run(
+        uds_path_or_fd,
+        start_time_us,
+        start_time_cpu_us,
+        seccomp_level,
+    ) {
         Ok(_) => (),
         Err(Error::Io(inner)) => match inner.kind() {
             ErrorKind::AddrInUse => panic!(
@@ -166,10 +171,9 @@ mod tests {
     fn validate_backtrace(
         log_path: &str,
         expectations: &[(&'static str, &'static str, &'static str)],
-    ) {
+    ) -> bool {
         let f = File::open(log_path).unwrap();
         let reader = BufReader::new(f);
-        let mut pass = false;
         let mut expectation_iter = expectations.iter();
         let mut expected_words = expectation_iter.next().unwrap();
 
@@ -185,10 +189,9 @@ mod tests {
                 expected_words = w;
                 continue;
             }
-            pass = true;
-            break;
+            return true;
         }
-        assert!(pass);
+        return false;
     }
 
     #[test]
@@ -231,16 +234,17 @@ mod tests {
         let _ = panic::catch_unwind(|| {
             panic!("Oh, noes!");
         });
-
         // Look for the expected backtrace inside the log
-        validate_backtrace(
-            log_file.as_str(),
-            &[
-                // Lines containing these words should have appeared in the log, in this order
-                ("ERROR", "main.rs", "Panic occurred"),
-                ("ERROR", "main.rs", "stack backtrace:"),
-                ("0:", "0x", "backtrace::"),
-            ],
+        assert!(
+            validate_backtrace(
+                log_file.as_str(),
+                &[
+                    // Lines containing these words should have appeared in the log, in this order
+                    ("ERROR", "main.rs", "Panic occurred"),
+                    ("ERROR", "main.rs", "stack backtrace:"),
+                    ("0:", "0x", "firecracker::main::"),
+                ],
+            ) || println!("Could not validate backtrace!\n {:?}", Backtrace::new()) != ()
         );
 
         // Clean up

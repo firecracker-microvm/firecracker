@@ -5,9 +5,9 @@ authors = ["The Chromium OS Authors"]
 
 [dependencies]
 byteorder = "=1.2.1"
+kvm_wrapper = ">=0.1.0"
 libc = ">=0.2.39"
 
-kvm_gen = { path = "../kvm_gen" }
 kvm = { path = "../kvm" }
 memory_model = { path = "../memory_model" }
 sys_util = { path = "../sys_util" }

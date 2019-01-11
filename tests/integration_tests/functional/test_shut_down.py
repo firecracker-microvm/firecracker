@@ -16,7 +16,7 @@ def test_reboot(test_microvm_with_ssh, network_config):
 
     # We don't need to monitor the memory for this test because we are
     # just rebooting and the process dies before pmap gets the RSS.
-    test_microvm.monitor_memory = False
+    test_microvm.memory_events_queue = None
 
     # Set up the microVM with 4 vCPUs, 256 MiB of RAM, 0 network ifaces, and
     # a root file system with the rw permission. The network interfaces is
@@ -27,11 +27,7 @@ def test_reboot(test_microvm_with_ssh, network_config):
     test_microvm.start()
 
     # Get Firecracker PID so we can count the number of threads.
-    cmd = 'lsof -U | grep {} | awk \'{{print $2}}\''.format(
-        test_microvm.api_socket
-    )
-    process = run(cmd, stdout=PIPE, stderr=PIPE, shell=True, check=True)
-    firecracker_pid = int(process.stdout.decode('utf-8').rstrip())
+    firecracker_pid = test_microvm.jailer_clone_pid
 
     # Get number of threads in Firecracker
     cmd = 'ps -o nlwp {} | tail -1 | awk \'{{print $1}}\''.format(

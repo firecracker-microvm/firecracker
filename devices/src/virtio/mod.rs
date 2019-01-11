@@ -26,6 +26,7 @@ pub use self::vhost::vsock::*;
 
 use super::EpollHandlerPayload;
 
+const DEVICE_INIT: u32 = 0x0;
 const DEVICE_ACKNOWLEDGE: u32 = 0x01;
 const DEVICE_DRIVER: u32 = 0x02;
 const DEVICE_DRIVER_OK: u32 = 0x04;
