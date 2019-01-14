@@ -70,6 +70,7 @@ const KVM_CREATE_VM: u64 = 0xae01;
 const KVM_CHECK_EXTENSION: u64 = 0xae03;
 const KVM_GET_VCPU_MMAP_SIZE: u64 = 0xae04;
 const KVM_CREATE_VCPU: u64 = 0xae41;
+const KVM_GET_DIRTY_LOG: u64 = 0x4010ae42;
 const KVM_SET_TSS_ADDR: u64 = 0xae47;
 const KVM_CREATE_IRQCHIP: u64 = 0xae60;
 const KVM_RUN: u64 = 0xae80;
@@ -265,6 +266,14 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
                         ),
                         SeccompRule::new(
                             vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_CREATE_VCPU)?],
+                            SeccompAction::Allow,
+                        ),
+                        SeccompRule::new(
+                            vec![SeccompCondition::new(
+                                1,
+                                SeccompCmpOp::Eq,
+                                KVM_GET_DIRTY_LOG,
+                            )?],
                             SeccompAction::Allow,
                         ),
                         SeccompRule::new(
