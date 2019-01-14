@@ -8,7 +8,7 @@ up in the configured logging FIFO.
 import json
 import os
 import re
-from time import strptime
+from time import sleep, strptime
 
 import host_tools.logging as log_tools
 
@@ -140,11 +140,13 @@ def test_dirty_page_metrics(test_microvm_with_api):
 
     microvm.start()
 
-    lines = metrics_fifo.sequential_reader(3)
-    for line in lines:
-        assert int(json.loads(line)['memory']['dirty_pages']) >= 0
-        # TODO force metrics flushing and get real data without waiting for
-        # Firecracker to flush periodically.
+    sleep(0.3)
+    response = microvm.actions.put(action_type='FlushMetrics')
+    assert microvm.api_session.is_good_response(response.status_code)
+
+    lines = metrics_fifo.sequential_reader(2)
+    assert int(json.loads(lines[0])['memory']['dirty_pages']) == 0
+    assert int(json.loads(lines[1])['memory']['dirty_pages']) > 0
 
 
 def log_file_contains_strings(log_fifo, string_list):
