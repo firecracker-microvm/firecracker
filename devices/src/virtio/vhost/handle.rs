@@ -13,7 +13,7 @@ use vhost_backend::Vhost;
 use DeviceEventT;
 use EpollHandler;
 
-use super::super::super::Error as DeviceErr;
+use super::super::super::Error as DeviceError;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -56,14 +56,12 @@ impl<T: Vhost> VhostEpollHandler<T> {
         }
     }
 
-    fn signal_used_queue(&self) -> std::result::Result<(), DeviceErr> {
+    fn signal_used_queue(&self) -> std::result::Result<(), DeviceError> {
         self.interrupt_status
             .fetch_or(INTERRUPT_STATUS_USED_RING as usize, Ordering::SeqCst);
-        if let Some(e) = self.interrupt_evt.write(1) {
-            Err(DeviceErr::FailedSignalingUsedQueue(e))
-        } else {
-            Ok(())
-        }
+        self.interrupt_evt
+            .write(1)
+            .map_err(|e| DeviceError::FailedSignalingUsedQueue(e))
     }
 
     pub fn get_queue_evt(&self) -> RawFd {
@@ -84,12 +82,12 @@ where
         device_event: DeviceEventT,
         _: u32,
         _: EpollHandlerPayload,
-    ) -> std::result::Result<(), DeviceErr> {
+    ) -> std::result::Result<(), DeviceError> {
         match device_event {
             VHOST_IRQ_AVAILABLE => {
                 if let Err(e) = self.queue_evt.read() {
                     error!("failed reading queue EventFd: {:?}", e);
-                    Err(DeviceErr::FailedReadingQueue {
+                    Err(DeviceError::FailedReadingQueue {
                         event_type: "EventFd",
                         underlying: e,
                     })
@@ -102,7 +100,7 @@ where
                 info!("vhost device removed");
                 Ok(())
             }
-            other => Err(DeviceErr::UnknownEvent {
+            other => Err(DeviceError::UnknownEvent {
                 device: "VhostEpollHandler",
                 event: other,
             }),
