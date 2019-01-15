@@ -430,6 +430,8 @@ definitions:
     properties:
       vcpu_count:
         type: integer
+        minimum: 1
+        maximum: 32
         description: Number of vCPUs (either 1 or an even number)
       mem_size_mib:
         type: integer
