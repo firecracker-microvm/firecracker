@@ -1089,8 +1089,12 @@ impl Vmm {
         let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
             memory_model::GuestMemoryError::MemoryNotInitialized,
         ))?;
-        let entry_addr = kernel_loader::load_kernel(vm_memory, &mut kernel_config.kernel_file)
-            .map_err(|e| StartMicrovmError::Loader(e))?;
+        let entry_addr = kernel_loader::load_kernel(
+            vm_memory,
+            &mut kernel_config.kernel_file,
+            x86_64::layout::HIMEM_START,
+        )
+        .map_err(|e| StartMicrovmError::Loader(e))?;
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)
             .map_err(|e| StartMicrovmError::Loader(e))?;
 

@@ -345,7 +345,6 @@ version = "0.1.0"
 dependencies = [
  "memory_model 0.1.0",
  "sys_util 0.1.0",
- "x86_64 0.1.0",
 ]
 
 [[package]]
