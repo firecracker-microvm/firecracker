@@ -21,7 +21,36 @@ outlined in the [Getting Started](getting-started.md) instructions).
 
 ### AWS
 
-`[TODO]`
+Firecracker development environment on AWS can be setup using bare metal instances.
+Follow these steps to create a bare metal instance.
+
+1. If you don't already have an AWS account, create one using the [AWS Portal](https://portal.aws.amazon.com/billing/signup).
+1. Login to [AWS console](https://console.aws.amazon.com/console/home?region=us-east-1). Bare metal instances are
+ only supported in `US East (N. Virginia)` region at this time. This 
+region is preselected for you in the Console.
+1. Click on `Launch a virtual machine` in `Build Solution` section.
+1. Firecracker requires a relatively new kernel, so you should use a recent 
+Linux distribution - such as `Ubuntu Server 18.04 LTS (HVM), SSD Volume Type`.
+1. In `Step 2`, scroll to the bottom and select `i3.metal` instance type. Click
+ on `Next: Configure Instance Details`.
+1. In `Step 3`, click on `Next: Add Storage`.
+1. In `Step 4`, click on `Next: Add Tags`.
+1. In `Step 5`, click on `Next: Configure Security Group`.
+1. In `Step 6`, take the default security group. This opens up port 22 and is 
+needed so that you can ssh into the machine later. Click on `Review and Launch`.
+1. Verify the details and click on `Launch`. If you do not have an existing 
+key pair, then you can select `Create a new key pair` to create a key pair. 
+This is needed so that you can use it later to ssh into the machine.
+1. Click on the instance id in the green box. Copy `Public DNS` from the 
+`Description` tab of the selected instance.
+1. Login to the newly created instance:
+
+   ```
+   ssh -i <ssh-key> ubuntu@<public-ip>
+   ```
+
+  Now you can continue with the Firecracker [Getting Started](getting-started.md)
+  instructions to use Firecracker to create a microVM.
 
 ### GCP
 
