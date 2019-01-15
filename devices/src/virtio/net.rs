@@ -32,7 +32,6 @@ use net_gen;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
-use virtio_gen::virtio_config::*;
 use virtio_gen::virtio_net::*;
 use {DeviceEventT, EpollHandler};
 
