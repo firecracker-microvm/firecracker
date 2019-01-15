@@ -1101,7 +1101,7 @@ mod tests {
     fn test_parse_machine_config_req() {
         let path = "/machine-config";
         let json = "{
-                \"vcpu_count\": 42,
+                \"vcpu_count\": 32,
                 \"mem_size_mib\": 1025,
                 \"ht_enabled\": true,
                 \"cpu_template\": \"T2\"
@@ -1118,7 +1118,7 @@ mod tests {
 
         // PUT
         let vm_config = VmConfig {
-            vcpu_count: Some(42),
+            vcpu_count: Some(32),
             mem_size_mib: Some(1025),
             ht_enabled: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
@@ -1145,6 +1145,20 @@ mod tests {
             String::from("Empty request."),
         ));
         assert!(parse_machine_config_req(path, Method::Put, &Chunk::from("{}")) == expected_err);
+
+        // Error Case: cpu count exceeds limitation
+        let json = "{
+                \"vcpu_count\": 33,
+                \"mem_size_mib\": 1025,
+                \"ht_enabled\": true,
+                \"cpu_template\": \"T2\"
+              }";
+        let body: Chunk = Chunk::from(json);
+        if let Err(Error::SerdeJson(e)) = parse_machine_config_req(path, Method::Put, &body) {
+            assert!(e.is_data());
+        } else {
+            assert!(false);
+        }
     }
 
     #[test]

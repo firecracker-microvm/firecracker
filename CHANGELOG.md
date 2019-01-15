@@ -5,6 +5,7 @@
 ### Added
 
 - Documentation for development environment setup on AWS.
+- Limit the maximum supported vCPUs to 32.
 
 ### Changed
 - Log the app version when the `Logger` is initialized.
