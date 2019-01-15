@@ -684,7 +684,7 @@ fn bindgen_test_layout_virtio_net_ctrl_hdr() {
 }
 pub type virtio_net_ctrl_ack = __u8;
 #[repr(C, packed)]
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct virtio_net_ctrl_mac {
     pub entries: __virtio32,
     pub macs: __IncompleteArrayField<[__u8; 6usize]>,
