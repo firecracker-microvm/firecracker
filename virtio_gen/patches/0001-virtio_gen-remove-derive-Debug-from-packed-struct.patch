@@ -1,0 +1,31 @@
+From 67247b7abc56a11d8cae7eb354994d818fb72e93 Mon Sep 17 00:00:00 2001
+From: Andreea Florescu <fandree@amazon.com>
+Date: Tue, 15 Jan 2019 18:30:07 +0200
+Subject: [PATCH] virtio_gen: remove derive Debug from packed struct
+
+Bindgen automatically adds derive debug on virtio_net_ctrl_mac, a packed
+structure. This generates a warning while building.
+
+Manually remove the Debug derive.
+
+Signed-off-by: Andreea Florescu <fandree@amazon.com>
+---
+ virtio_gen/src/virtio_net.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/virtio_gen/src/virtio_net.rs b/virtio_gen/src/virtio_net.rs
+index 0b68d09..a1c9dca 100644
+--- a/virtio_gen/src/virtio_net.rs
++++ b/virtio_gen/src/virtio_net.rs
+@@ -681,7 +681,7 @@ fn bindgen_test_layout_virtio_net_ctrl_hdr() {
+ }
+ pub type virtio_net_ctrl_ack = __u8;
+ #[repr(C, packed)]
+-#[derive(Debug, Default)]
++#[derive(Default)]
+ pub struct virtio_net_ctrl_mac {
+     pub entries: __virtio32,
+     pub macs: __IncompleteArrayField<[__u8; 6usize]>,
+-- 
+2.7.4
+
