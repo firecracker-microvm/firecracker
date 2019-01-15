@@ -12,7 +12,6 @@ use std::mem;
 
 use memory_model::{GuestAddress, GuestMemory};
 use sys_util;
-use x86_64;
 
 #[allow(non_camel_case_types)]
 mod elf;
@@ -42,9 +41,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// * `guest_mem` - The guest memory region the kernel is written to.
 /// * `kernel_image` - Input vmlinux image.
+/// * `start_address` - For x86_64, this is the start of the high memory. Kernel should reside above it.
 ///
 /// Returns the entry address of the kernel.
-pub fn load_kernel<F>(guest_mem: &GuestMemory, kernel_image: &mut F) -> Result<GuestAddress>
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn load_kernel<F>(
+    guest_mem: &GuestMemory,
+    kernel_image: &mut F,
+    start_address: usize,
+) -> Result<GuestAddress>
 where
     F: Read + Seek,
 {
@@ -75,7 +80,7 @@ where
         // If the program header is backwards, bail.
         return Err(Error::InvalidProgramHeaderOffset);
     }
-    if (ehdr.e_entry as usize) < x86_64::layout::HIMEM_START {
+    if (ehdr.e_entry as usize) < start_address {
         return Err(Error::InvalidEntryAddress);
     }
 
@@ -99,7 +104,7 @@ where
             .map_err(|_| Error::SeekKernelStart)?;
 
         let mem_offset = GuestAddress(phdr.p_paddr as usize);
-        if mem_offset.offset() < x86_64::layout::HIMEM_START {
+        if mem_offset.offset() < start_address {
             return Err(Error::InvalidProgramHeaderAddress);
         }
 
@@ -209,7 +214,7 @@ mod tests {
         let image = make_elf_bin();
         assert_eq!(
             Ok(GuestAddress(0x100000)),
-            load_kernel(&gm, &mut Cursor::new(&image))
+            load_kernel(&gm, &mut Cursor::new(&image), 0)
         );
     }
 
@@ -220,7 +225,7 @@ mod tests {
         bad_image[0x1] = 0x33;
         assert_eq!(
             Err(Error::InvalidElfMagicNumber),
-            load_kernel(&gm, &mut Cursor::new(&bad_image))
+            load_kernel(&gm, &mut Cursor::new(&bad_image), 0)
         );
     }
 
@@ -232,7 +237,7 @@ mod tests {
         bad_image[0x5] = 2;
         assert_eq!(
             Err(Error::BigEndianElfOnLittle),
-            load_kernel(&gm, &mut Cursor::new(&bad_image))
+            load_kernel(&gm, &mut Cursor::new(&bad_image), 0)
         );
     }
 
@@ -244,7 +249,7 @@ mod tests {
         bad_image[0x20] = 0x10;
         assert_eq!(
             Err(Error::InvalidProgramHeaderOffset),
-            load_kernel(&gm, &mut Cursor::new(&bad_image))
+            load_kernel(&gm, &mut Cursor::new(&bad_image), 0)
         );
     }
 }
