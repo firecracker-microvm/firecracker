@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Documentation for development environment setup on AWS.
+
+### Changed
+
+- Pretty print panic information.
+
+### Fixed
+
 ## [0.13.0]
 
 ### Added

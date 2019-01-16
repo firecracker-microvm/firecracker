@@ -18,7 +18,7 @@ RELEASE_BINARIES_REL_PATH = 'x86_64-unknown-linux-musl/release/'
 
 
 def cargo_build(path, flags='', extra_args=''):
-    """Use to ensure a single binary build and release path for all tests."""
+    """Trigger build depending on flags provided."""
     cmd = 'CARGO_TARGET_DIR={} cargo build {} {}'.format(
         path,
         flags,

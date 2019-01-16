@@ -616,12 +616,19 @@ impl Vmm {
         if let Some(device_idx) = self.drive_handler_id_map.get(drive_id) {
             match self.epoll_context.get_device_handler(*device_idx) {
                 Ok(handler) => {
-                    handler.handle_event(
+                    match handler.handle_event(
                         virtio::block::FS_UPDATE_EVENT,
                         *device_idx as u32,
                         EpollHandlerPayload::DrivePayload(disk_image),
-                    );
-                    Ok(())
+                    ) {
+                        Err(devices::Error::PayloadExpected) => {
+                            panic!("Received update disk image event with empty payload.")
+                        }
+                        Err(devices::Error::UnknownEvent { device, event }) => {
+                            panic!("Unknown event: {:?} {:?}", device, event)
+                        }
+                        _ => Ok(()),
+                    }
                 }
                 Err(e) => {
                     warn!("invalid handler for device {}: {:?}", device_idx, e);
@@ -1082,8 +1089,12 @@ impl Vmm {
         let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
             memory_model::GuestMemoryError::MemoryNotInitialized,
         ))?;
-        let entry_addr = kernel_loader::load_kernel(vm_memory, &mut kernel_config.kernel_file)
-            .map_err(|e| StartMicrovmError::Loader(e))?;
+        let entry_addr = kernel_loader::load_kernel(
+            vm_memory,
+            &mut kernel_config.kernel_file,
+            x86_64::layout::HIMEM_START,
+        )
+        .map_err(|e| StartMicrovmError::Loader(e))?;
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)
             .map_err(|e| StartMicrovmError::Loader(e))?;
 
@@ -1311,11 +1322,21 @@ impl Vmm {
                         EpollDispatch::DeviceHandler(device_idx, device_token) => {
                             METRICS.vmm.device_events.inc();
                             match self.epoll_context.get_device_handler(device_idx) {
-                                Ok(handler) => handler.handle_event(
-                                    device_token,
-                                    events[i].events,
-                                    EpollHandlerPayload::Empty,
-                                ),
+                                Ok(handler) => {
+                                    match handler.handle_event(
+                                        device_token,
+                                        events[i].events,
+                                        EpollHandlerPayload::Empty,
+                                    ) {
+                                        Err(devices::Error::PayloadExpected) => panic!(
+                                            "Received update disk image event with empty payload."
+                                        ),
+                                        Err(devices::Error::UnknownEvent { device, event }) => {
+                                            panic!("Unknown event: {:?} {:?}", device, event)
+                                        }
+                                        _ => (),
+                                    }
+                                }
                                 Err(e) => {
                                     warn!("invalid handler for device {}: {:?}", device_idx, e)
                                 }
@@ -1901,10 +1922,11 @@ mod tests {
             device_event: DeviceEventT,
             event_flags: u32,
             payload: EpollHandlerPayload,
-        ) {
+        ) -> std::result::Result<(), devices::Error> {
             self.evt = Some(device_event);
             self.flags = Some(event_flags);
             self.payload = Some(payload);
+            Ok(())
         }
     }
 

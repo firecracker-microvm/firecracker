@@ -24,7 +24,9 @@ extern crate vhost_backend;
 extern crate vhost_gen;
 extern crate virtio_gen;
 
+use rate_limiter::Error as RateLimiterError;
 use std::fs::File;
+use sys_util::Error as Errno;
 
 mod bus;
 pub mod legacy;
@@ -43,11 +45,29 @@ pub enum EpollHandlerPayload {
     Empty,
 }
 
+type Result<T> = std::result::Result<T, Error>;
+
 pub trait EpollHandler: Send {
     fn handle_event(
         &mut self,
         device_event: DeviceEventT,
         event_flags: u32,
         payload: EpollHandlerPayload,
-    );
+    ) -> Result<()>;
+}
+
+#[derive(Debug)]
+pub enum Error {
+    FailedReadingQueue {
+        event_type: &'static str,
+        underlying: Errno,
+    },
+    FailedReadTap,
+    FailedSignalingUsedQueue(Errno),
+    RateLimited(RateLimiterError),
+    PayloadExpected,
+    UnknownEvent {
+        device: &'static str,
+        event: DeviceEventT,
+    },
 }
