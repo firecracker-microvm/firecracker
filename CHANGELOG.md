@@ -3,9 +3,12 @@
 ## Unreleased
 
 ### Added
+
 - Documentation for development environment setup on AWS.
 
 ### Changed
+
+- Pretty print panic information.
 
 ### Fixed
 
