@@ -47,7 +47,7 @@ fn main() {
         // We're currently using the closure parameter, which is a &PanicInfo, for printing the
         // origin of the panic, including the payload passed to panic! and the source code location
         // from which the panic originated.
-        error!("Panic occurred: {:?}", info);
+        error!("Firecracker {}", info);
         METRICS.vmm.panic_count.inc();
         let bt = Backtrace::new();
         error!("{:?}", bt);
@@ -240,7 +240,7 @@ mod tests {
                 log_file.as_str(),
                 &[
                     // Lines containing these words should have appeared in the log, in this order
-                    ("ERROR", "main.rs", "Panic occurred"),
+                    ("ERROR", "main.rs", "Firecracker panicked at"),
                     ("ERROR", "main.rs", "stack backtrace:"),
                     ("0:", "0x", "firecracker::main::"),
                 ],
