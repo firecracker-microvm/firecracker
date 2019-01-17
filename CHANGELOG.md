@@ -9,8 +9,9 @@
 
 ### Changed
 - Log the app version when the `Logger` is initialized.
-
 - Pretty print panic information.
+- Firecracker terminates with exit code 148 when a non-whitelisted syscall
+is intercepted.
 
 ### Fixed
 
