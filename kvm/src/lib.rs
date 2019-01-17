@@ -20,17 +20,22 @@ mod cap;
 mod ioctl_defs;
 
 use std::fs::File;
+use std::io;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::result;
 
-use libc::{open, EINVAL, ENOSPC, O_RDWR};
+use libc::{open, EINVAL, O_RDWR};
 
 use kvm_bindings::*;
-use memory_model::MemoryMapping;
-use sys_util::{errno_result, Error, EventFd, Result};
+use memory_model::{MemoryMapping, MemoryMappingError};
+use sys_util::EventFd;
 use sys_util::{
     ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref, ioctl_with_val,
 };
+
+/// Wrapper over possible Kvm method Result.
+pub type Result<T> = result::Result<T, io::Error>;
 
 pub use cap::*;
 use ioctl_defs::*;
@@ -52,7 +57,7 @@ impl Kvm {
         // Safe because we give a constant nul-terminated string and verify the result.
         let ret = unsafe { open("/dev/kvm\0".as_ptr() as *const c_char, O_RDWR) };
         if ret < 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
 
         // Safe because we verify that ret is valid and we own the fd.
@@ -108,7 +113,7 @@ impl Kvm {
         if res > 0 {
             Ok(res as usize)
         } else {
-            errno_result()
+            Err(io::Error::last_os_error())
         }
     }
 
@@ -166,7 +171,7 @@ impl Kvm {
             ioctl_with_mut_ptr(self, KVM_GET_SUPPORTED_CPUID(), cpuid.as_mut_ptr())
         };
         if ret < 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
 
         Ok(cpuid)
@@ -194,7 +199,7 @@ impl Kvm {
                 run_size: run_mmap_size,
             })
         } else {
-            errno_result()
+            Err(io::Error::last_os_error())
         }
     }
 }
@@ -270,7 +275,7 @@ impl VmFd {
         if ret == 0 {
             Ok(())
         } else {
-            errno_result()
+            Err(io::Error::last_os_error())
         }
     }
 
@@ -289,7 +294,7 @@ impl VmFd {
         if ret == 0 {
             Ok(())
         } else {
-            errno_result()
+            Err(io::Error::last_os_error())
         }
     }
 
@@ -309,7 +314,7 @@ impl VmFd {
         if ret == 0 {
             Ok(())
         } else {
-            errno_result()
+            Err(io::Error::last_os_error())
         }
     }
 
@@ -329,7 +334,7 @@ impl VmFd {
         if ret == 0 {
             Ok(())
         } else {
-            errno_result()
+            Err(io::Error::last_os_error())
         }
     }
 
@@ -375,7 +380,7 @@ impl VmFd {
         if ret == 0 {
             Ok(())
         } else {
-            errno_result()
+            Err(io::Error::last_os_error())
         }
     }
 
@@ -423,7 +428,7 @@ impl VmFd {
         if ret == 0 {
             Ok(bitmap)
         } else {
-            errno_result()
+            Err(io::Error::last_os_error())
         }
     }
 
@@ -452,7 +457,7 @@ impl VmFd {
         if ret == 0 {
             Ok(())
         } else {
-            errno_result()
+            Err(io::Error::last_os_error())
         }
     }
 
@@ -469,15 +474,23 @@ impl VmFd {
         // Safe because we know that vm is a VM fd and we verify the return result.
         let vcpu_fd = unsafe { ioctl_with_val(&self.vm, KVM_CREATE_VCPU(), id as c_ulong) };
         if vcpu_fd < 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
 
         // Wrap the vcpu now in case the following ? returns early. This is safe because we verified
         // the value of the fd and we own the fd.
         let vcpu = unsafe { File::from_raw_fd(vcpu_fd) };
 
-        let run_mmap =
-            MemoryMapping::from_fd(&vcpu, self.run_size).map_err(|_| Error::new(ENOSPC))?;
+        let run_mmap = MemoryMapping::from_fd(&vcpu, self.run_size).map_err(|mmap_err| {
+            match mmap_err {
+                MemoryMappingError::SystemCallFailed(raw_os_err) => raw_os_err,
+                _ => {
+                    // MemoryMapping::from_fd should only return a SystemCallFailed error.
+                    // Otherwise we have an logical error in our code so we should panic.
+                    panic!("Received unexpected error: {:?}.", mmap_err);
+                }
+            }
+        })?;
 
         Ok(VcpuFd { vcpu, run_mmap })
     }
@@ -575,7 +588,7 @@ impl VcpuFd {
         let mut regs = unsafe { std::mem::zeroed() };
         let ret = unsafe { ioctl_with_mut_ref(self, KVM_GET_REGS(), &mut regs) };
         if ret != 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
         Ok(regs)
     }
@@ -592,7 +605,7 @@ impl VcpuFd {
         // correct amount of memory from our pointer, and we verify the return result.
         let ret = unsafe { ioctl_with_ref(self, KVM_SET_REGS(), regs) };
         if ret != 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
         Ok(())
     }
@@ -607,7 +620,7 @@ impl VcpuFd {
 
         let ret = unsafe { ioctl_with_mut_ref(self, KVM_GET_SREGS(), &mut regs) };
         if ret != 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
         Ok(regs)
     }
@@ -624,7 +637,7 @@ impl VcpuFd {
         // correct amount of memory from our pointer, and we verify the return result.
         let ret = unsafe { ioctl_with_ref(self, KVM_SET_SREGS(), sregs) };
         if ret != 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
         Ok(())
     }
@@ -642,7 +655,7 @@ impl VcpuFd {
             ioctl_with_mut_ref(self, KVM_GET_FPU(), &mut fpu)
         };
         if ret != 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
         Ok(fpu)
     }
@@ -662,7 +675,7 @@ impl VcpuFd {
             ioctl_with_ref(self, KVM_SET_FPU(), fpu)
         };
         if ret < 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
         Ok(())
     }
@@ -682,7 +695,7 @@ impl VcpuFd {
             ioctl_with_ptr(self, KVM_SET_CPUID2(), cpuid.as_ptr())
         };
         if ret < 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
         Ok(())
     }
@@ -702,7 +715,7 @@ impl VcpuFd {
             ioctl_with_mut_ref(self, KVM_GET_LAPIC(), &mut klapic)
         };
         if ret < 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
         Ok(klapic)
     }
@@ -723,7 +736,7 @@ impl VcpuFd {
             ioctl_with_ref(self, KVM_SET_LAPIC(), klapic)
         };
         if ret < 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
         Ok(())
     }
@@ -744,7 +757,7 @@ impl VcpuFd {
             ioctl_with_mut_ref(self, KVM_GET_MSRS(), msrs)
         };
         if ret < 0 {
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
         Ok(ret)
     }
@@ -765,7 +778,7 @@ impl VcpuFd {
         };
         if ret < 0 {
             // KVM_SET_MSRS actually returns the number of msr entries written.
-            return errno_result();
+            return Err(io::Error::last_os_error());
         }
         Ok(())
     }
@@ -808,7 +821,7 @@ impl VcpuFd {
                     match io.direction as u32 {
                         KVM_EXIT_IO_IN => Ok(VcpuExit::IoIn(port, data_slice)),
                         KVM_EXIT_IO_OUT => Ok(VcpuExit::IoOut(port, data_slice)),
-                        _ => Err(Error::new(EINVAL)),
+                        _ => Err(io::Error::from_raw_os_error(EINVAL)),
                     }
                 }
                 KVM_EXIT_HYPERCALL => Ok(VcpuExit::Hypercall),
@@ -851,7 +864,7 @@ impl VcpuFd {
                 r => panic!("unknown kvm exit reason: {}", r),
             }
         } else {
-            errno_result()
+            Err(io::Error::last_os_error())
         }
     }
 }
@@ -1378,103 +1391,89 @@ mod tests {
         }
     }
 
+    fn get_raw_errno<T>(result: super::Result<T>) -> i32 {
+        result.err().unwrap().raw_os_error().unwrap()
+    }
+
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
     fn faulty_kvm_fds_test() {
-        let badf_error = Error::new(libc::EBADF);
+        let badf_errno = libc::EBADF;
 
         let faulty_kvm = Kvm {
             kvm: unsafe { File::from_raw_fd(-1) },
         };
-        assert_eq!(faulty_kvm.get_vcpu_mmap_size().unwrap_err(), badf_error);
+        assert_eq!(get_raw_errno(faulty_kvm.get_vcpu_mmap_size()), badf_errno);
         let max_cpus = faulty_kvm.get_nr_vcpus();
         assert_eq!(max_cpus, 4);
         assert_eq!(
-            faulty_kvm.get_supported_cpuid(max_cpus).unwrap_err(),
-            badf_error
+            get_raw_errno(faulty_kvm.get_supported_cpuid(max_cpus)),
+            badf_errno
         );
 
-        assert_eq!(faulty_kvm.create_vm().err().unwrap(), badf_error);
+        assert_eq!(get_raw_errno(faulty_kvm.create_vm()), badf_errno);
         let faulty_vm_fd = VmFd {
             vm: unsafe { File::from_raw_fd(-1) },
             supported_cpuid: CpuId::new(max_cpus),
             run_size: 0,
         };
         assert_eq!(
-            faulty_vm_fd
-                .set_user_memory_region(0, 0, 0, 0, 0)
-                .unwrap_err(),
-            badf_error
+            get_raw_errno(faulty_vm_fd.set_user_memory_region(0, 0, 0, 0, 0)),
+            badf_errno
         );
-        assert_eq!(faulty_vm_fd.set_tss_address(0).unwrap_err(), badf_error);
-        assert_eq!(faulty_vm_fd.create_irq_chip().unwrap_err(), badf_error);
-        assert_eq!(faulty_vm_fd.create_pit2().unwrap_err(), badf_error);
+        assert_eq!(get_raw_errno(faulty_vm_fd.set_tss_address(0)), badf_errno);
+        assert_eq!(get_raw_errno(faulty_vm_fd.create_irq_chip()), badf_errno);
+        assert_eq!(get_raw_errno(faulty_vm_fd.create_pit2()), badf_errno);
         let event_fd = EventFd::new().unwrap();
         assert_eq!(
-            faulty_vm_fd
-                .register_ioevent(&event_fd, &IoeventAddress::Pio(0), 0u64)
-                .unwrap_err(),
-            badf_error
+            get_raw_errno(faulty_vm_fd.register_ioevent(&event_fd, &IoeventAddress::Pio(0), 0u64)),
+            badf_errno
         );
         assert_eq!(
-            faulty_vm_fd.register_irqfd(&event_fd, 0).unwrap_err(),
-            badf_error
+            get_raw_errno(faulty_vm_fd.register_irqfd(&event_fd, 0)),
+            badf_errno
         );
 
-        assert_eq!(faulty_vm_fd.create_vcpu(0).err().unwrap(), badf_error);
+        assert_eq!(get_raw_errno(faulty_vm_fd.create_vcpu(0)), badf_errno);
         let faulty_vcpu_fd = VcpuFd {
             vcpu: unsafe { File::from_raw_fd(-1) },
             run_mmap: MemoryMapping::new(10).unwrap(),
         };
-        assert_eq!(faulty_vcpu_fd.get_regs().unwrap_err(), badf_error);
+        assert_eq!(get_raw_errno(faulty_vcpu_fd.get_regs()), badf_errno);
         assert_eq!(
-            faulty_vcpu_fd
-                .set_regs(&unsafe { std::mem::zeroed() })
-                .unwrap_err(),
-            badf_error
+            get_raw_errno(faulty_vcpu_fd.set_regs(&unsafe { std::mem::zeroed() })),
+            badf_errno
         );
-        assert_eq!(faulty_vcpu_fd.get_sregs().unwrap_err(), badf_error);
+        assert_eq!(get_raw_errno(faulty_vcpu_fd.get_sregs()), badf_errno);
         assert_eq!(
-            faulty_vcpu_fd
-                .set_sregs(&unsafe { std::mem::zeroed() })
-                .unwrap_err(),
-            badf_error
+            get_raw_errno(faulty_vcpu_fd.set_sregs(&unsafe { std::mem::zeroed() })),
+            badf_errno
         );
-        assert_eq!(faulty_vcpu_fd.get_fpu().unwrap_err(), badf_error);
+        assert_eq!(get_raw_errno(faulty_vcpu_fd.get_fpu()), badf_errno);
         assert_eq!(
-            faulty_vcpu_fd
-                .set_fpu(&unsafe { std::mem::zeroed() })
-                .unwrap_err(),
-            badf_error
+            get_raw_errno(faulty_vcpu_fd.set_fpu(&unsafe { std::mem::zeroed() })),
+            badf_errno
         );
         assert_eq!(
-            faulty_vcpu_fd
-                .set_cpuid2(&unsafe { std::mem::zeroed() })
-                .unwrap_err(),
-            badf_error
+            get_raw_errno(faulty_vcpu_fd.set_cpuid2(&unsafe { std::mem::zeroed() })),
+            badf_errno
         );
         // kvm_lapic_state does not implement debug by default so we cannot
         // use unwrap_err here.
         assert!(faulty_vcpu_fd.get_lapic().is_err());
         assert_eq!(
-            faulty_vcpu_fd
-                .set_lapic(&unsafe { std::mem::zeroed() })
-                .unwrap_err(),
-            badf_error
+            get_raw_errno(faulty_vcpu_fd.set_lapic(&unsafe { std::mem::zeroed() })),
+            badf_errno
         );
         assert_eq!(
-            faulty_vcpu_fd
-                .get_msrs(&mut kvm_msrs::default())
-                .unwrap_err(),
-            badf_error
+            get_raw_errno(faulty_vcpu_fd.get_msrs(&mut kvm_msrs::default())),
+            badf_errno
         );
         assert_eq!(
-            faulty_vcpu_fd
-                .set_msrs(&unsafe { std::mem::zeroed() })
-                .unwrap_err(),
-            badf_error
+            get_raw_errno(faulty_vcpu_fd.set_msrs(&unsafe { std::mem::zeroed() })),
+            badf_errno
         );
-        assert_eq!(faulty_vcpu_fd.run().unwrap_err(), badf_error);
+        assert_eq!(get_raw_errno(faulty_vcpu_fd.run()), badf_errno);
     }
 
     #[test]

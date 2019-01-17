@@ -10,6 +10,7 @@ extern crate devices;
 extern crate logger;
 extern crate sys_util;
 
+use std::io;
 use std::result;
 
 use super::KvmContext;
@@ -39,22 +40,22 @@ pub enum Error {
     /// vCPU count is not initialized.
     VcpuCountNotInitialized,
     /// Cannot open the VM file descriptor.
-    VmFd(sys_util::Error),
+    VmFd(io::Error),
     /// Cannot open the VCPU file descriptor.
-    VcpuFd(sys_util::Error),
+    VcpuFd(io::Error),
     /// Cannot configure the microvm.
-    VmSetup(sys_util::Error),
+    VmSetup(io::Error),
     /// Cannot run the VCPUs.
-    VcpuRun(sys_util::Error),
+    VcpuRun(io::Error),
     /// The call to KVM_SET_CPUID2 failed.
-    SetSupportedCpusFailed(sys_util::Error),
+    SetSupportedCpusFailed(io::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM.
     NotEnoughMemorySlots,
     #[cfg(target_arch = "x86_64")]
     /// Cannot set the local interruption due to bad configuration.
     LocalIntConfiguration(arch::x86_64::interrupts::Error),
     /// Cannot set the memory regions.
-    SetUserMemoryRegion(sys_util::Error),
+    SetUserMemoryRegion(io::Error),
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the MSR registers
     MSRSConfiguration(arch::x86_64::regs::Error),
@@ -68,12 +69,12 @@ pub enum Error {
     /// Error configuring the floating point related registers
     FPUConfiguration(arch::x86_64::regs::Error),
     /// Cannot configure the IRQ.
-    Irq(sys_util::Error),
+    Irq(io::Error),
 }
 pub type Result<T> = result::Result<T, Error>;
 
-impl ::std::convert::From<sys_util::Error> for Error {
-    fn from(e: sys_util::Error) -> Error {
+impl ::std::convert::From<io::Error> for Error {
+    fn from(e: io::Error) -> Error {
         Error::SetUserMemoryRegion(e)
     }
 }
@@ -255,10 +256,7 @@ impl Vcpu {
     /// Note that the state of the VCPU and associated VM must be setup first for this to do
     /// anything useful.
     pub fn run(&self) -> Result<VcpuExit> {
-        match self.fd.run() {
-            Ok(v) => Ok(v),
-            Err(e) => return Err(Error::VcpuRun(<sys_util::Error>::new(e.errno()))),
-        }
+        self.fd.run().map_err(Error::VcpuRun)
     }
 }
 

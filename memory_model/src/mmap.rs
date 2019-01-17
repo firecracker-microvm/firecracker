@@ -9,15 +9,15 @@
 //! mmap object leaves scope.
 
 use std;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
 
 use libc;
 
-use sys_util;
 use DataInit;
 
+/// Errors associated with memory mapping.
 #[derive(Debug)]
 pub enum Error {
     /// Requested memory out of range.
@@ -25,13 +25,13 @@ pub enum Error {
     /// Requested memory range spans past the end of the region.
     InvalidRange(usize, usize),
     /// Couldn't read from the given source.
-    ReadFromSource(std::io::Error),
+    ReadFromSource(io::Error),
     /// `mmap` returned the given error.
-    SystemCallFailed(sys_util::Error),
+    SystemCallFailed(io::Error),
     /// Writing to memory failed
-    WriteToMemory(std::io::Error),
+    WriteToMemory(io::Error),
     /// Reading from memory failed
-    ReadFromMemory(std::io::Error),
+    ReadFromMemory(io::Error),
 }
 type Result<T> = std::result::Result<T, Error>;
 
@@ -67,7 +67,7 @@ impl MemoryMapping {
             )
         };
         if addr.is_null() {
-            return Err(Error::SystemCallFailed(sys_util::Error::last()));
+            return Err(Error::SystemCallFailed(io::Error::last_os_error()));
         }
         Ok(MemoryMapping {
             addr: addr as *mut u8,
@@ -94,7 +94,7 @@ impl MemoryMapping {
             )
         };
         if addr.is_null() {
-            return Err(Error::SystemCallFailed(sys_util::Error::last()));
+            return Err(Error::SystemCallFailed(io::Error::last_os_error()));
         }
         Ok(MemoryMapping {
             addr: addr as *mut u8,

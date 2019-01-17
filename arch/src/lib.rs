@@ -8,7 +8,6 @@ extern crate libc;
 extern crate arch_gen;
 extern crate kvm;
 extern crate memory_model;
-extern crate sys_util;
 
 use std::result;
 

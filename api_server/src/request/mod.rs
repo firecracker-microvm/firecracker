@@ -108,6 +108,8 @@ mod tests {
     use self::net_util::TapError;
     use super::*;
 
+    use std::io;
+
     use sys_util;
     use vmm::vmm_config::boot_source::BootSourceConfigError;
     use vmm::vmm_config::drive::DriveError;
@@ -295,7 +297,7 @@ mod tests {
         check_error_response(vmm_resp, StatusCode::InternalServerError);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
-            StartMicrovmError::DeviceVmRequest(sys_util::Error::new(22)),
+            StartMicrovmError::DeviceVmRequest(io::Error::from_raw_os_error(22)),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
         let vmm_resp = VmmActionError::StartMicrovm(
