@@ -17,6 +17,7 @@ pub const ALLOWED_SYSCALLS: &[i64] = &[
     libc::SYS_epoll_pwait,
     libc::SYS_exit,
     libc::SYS_exit_group,
+    libc::SYS_fcntl,
     libc::SYS_fstat,
     libc::SYS_futex,
     libc::SYS_ioctl,
@@ -41,10 +42,12 @@ const EPOLL_CTL_ADD: u64 = 1;
 const EPOLL_CTL_DEL: u64 = 2;
 
 // See include/uapi/asm-generic/fcntl.h in the kernel code.
+const FCNTL_FD_CLOEXEC: u64 = 1;
+const FCNTL_F_SETFD: u64 = 2;
+const O_CLOEXEC: u64 = 0x02000000;
+const O_NONBLOCK: u64 = 0x00004000;
 const O_RDONLY: u64 = 0x00000000;
 const O_RDWR: u64 = 0x00000002;
-const O_NONBLOCK: u64 = 0x00004000;
-const O_CLOEXEC: u64 = 0x02000000;
 
 // See include/uapi/linux/futex.h in the kernel code.
 const FUTEX_WAIT: u64 = 0;
@@ -162,6 +165,19 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
             (
                 libc::SYS_exit_group,
                 (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
+            ),
+            (
+                libc::SYS_fcntl,
+                (
+                    0,
+                    vec![SeccompRule::new(
+                        vec![
+                            SeccompCondition::new(1, SeccompCmpOp::Eq, FCNTL_F_SETFD)?,
+                            SeccompCondition::new(2, SeccompCmpOp::Eq, FCNTL_FD_CLOEXEC)?,
+                        ],
+                        SeccompAction::Allow,
+                    )],
+                ),
             ),
             (
                 libc::SYS_fstat,

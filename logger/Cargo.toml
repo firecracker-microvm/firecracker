@@ -5,7 +5,7 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
 chrono = ">=0.4"
-lazy_static = ">=0.2"
+lazy_static = ">=1.2"
 libc = ">=0.2.39"
 log = { version = "0.4", features = ["std"] }
 serde = ">=1.0.27"
