@@ -15,6 +15,8 @@ use std::result;
 
 use kvm::CpuId;
 
+/// Contains helper methods for bit operations.
+pub mod bit_helper;
 mod brand_string;
 /// Follows a C3 template in setting up the CPUID.
 pub mod c3_template;
@@ -22,6 +24,7 @@ mod cpu_leaf;
 /// Follows a T2 template in setting up the CPUID.
 pub mod t2_template;
 
+use bit_helper::BitHelper;
 use brand_string::BrandString;
 use brand_string::Reg as BsReg;
 use cpu_leaf::*;
@@ -81,69 +84,62 @@ pub fn filter_cpuid(
     for entry in entries.iter_mut() {
         match entry.function {
             0x1 => {
+                use leaf_0x1::*;
+
                 // X86 hypervisor feature
-                entry.ecx |= 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_SHIFT;
-                entry.ecx |= 1 << leaf_0x1::ecx::HYPERVISOR_SHIFT;
-                entry.ebx = ((cpu_id as u32) << leaf_0x1::ebx::APICID_SHIFT) as u32
-                    | (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_SHIFT);
-                entry.ebx |= max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_SHIFT;
-                // Make sure that HTT is disabled
-                entry.edx &= !(1 << leaf_0x1::edx::HTT_SHIFT);
-                // Max APIC IDs reserved field is Valid
+                entry
+                    .ecx
+                    .write_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX, true)
+                    .write_bit(ecx::HYPERVISOR_BITINDEX, true);
+
+                entry
+                    .ebx
+                    .write_bits_in_range(&ebx::APICID_BITRANGE, cpu_id as u32)
+                    .write_bits_in_range(&ebx::CLFLUSH_SIZE_BITRANGE, EBX_CLFLUSH_CACHELINE)
+                    .write_bits_in_range(&ebx::CPU_COUNT_BITRANGE, max_addr_cpu);
+
                 // A value of 1 for HTT indicates the value in CPUID.1.EBX[23:16]
-                // (the Maximum number of addressable IDs for logical processors in this package) is
-                // valid for the package
-                if cpu_count > 1 {
-                    entry.edx |= 1 << leaf_0x1::edx::HTT_SHIFT;
-                }
+                // (the Maximum number of addressable IDs for logical processors in this package)
+                // is valid for the package
+                entry.edx.write_bit(edx::HTT, cpu_count > 1);
             }
             0x4 => {
                 // Deterministic Cache Parameters Leaf
-                // Only use the last 3 bits of EAX[5:32] because the level is encoded in EAX[5:7]
-                let cache_level = (entry.eax >> leaf_0x4::eax::CACHE_LEVEL) & (0b111 as u32);
-                match cache_level {
+                use leaf_0x4::*;
+
+                match entry.eax.read_bits_in_range(&eax::CACHE_LEVEL_BITRANGE) {
                     // L1 & L2 Cache
                     1 | 2 => {
-                        // Set the maximum addressable IDS sharing the data cache to zero
-                        // when you only have 1 vcpu because there are no other threads on
-                        // the machine to share the data/instruction cache
-                        // This sets EAX[25:14]
-                        entry.eax &= !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE);
-                        if cpu_count > 1 && ht_enabled {
-                            // There are 2 hyperthreads sharing L1 & L2 caches
-                            entry.eax |= 1 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE;
-                        }
+                        // The L1 & L2 cache is shared by at most 2 hyperthreads
+                        entry.eax.write_bits_in_range(
+                            &eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE,
+                            (cpu_count > 1 && ht_enabled) as u32,
+                        );
                     }
                     // L3 Cache
                     3 => {
-                        // Set the maximum addressable IDS sharing the data cache to zero
-                        // when you only have 1 vcpu because there are no other logical cores on
-                        // the machine to share the data/instruction cache
-                        // This sets EAX[25:14]
-                        entry.eax &= !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE);
-                        if cpu_count > 1 {
-                            entry.eax |= ((cpu_count - 1) as u32)
-                                << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE;
-                        }
+                        // The L3 cache is shared among all the logical threads
+                        entry.eax.write_bits_in_range(
+                            &eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE,
+                            (cpu_count - 1) as u32,
+                        );
                     }
                     _ => (),
                 }
 
-                // Maximum number of addressable IDs for processor cores in the physical package
-                // should be the same on all cache levels
-                // This sets EAX[31:26]
-                entry.eax &= !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE);
-                if cpu_count >= 2 {
-                    // We don't handle properly the case where we have more than one socket
-                    // Put all cores in the same socket
-                    entry.eax |= ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE;
-                }
+                // Put all the cores in the same socket
+                entry.eax.write_bits_in_range(
+                    &eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE,
+                    (cpu_count - 1) as u32,
+                );
             }
             0x6 => {
+                use leaf_0x6::*;
+
                 // Disable Turbo Boost
-                entry.eax &= !(1 << leaf_0x6::eax::TURBO_BOOST_SHIFT);
-                // Clear X86 EPB feature.  No frequency selection in the hypervisor.
-                entry.ecx &= !(1 << leaf_0x6::ecx::EPB_SHIFT);
+                entry.eax.write_bit(eax::TURBO_BOOST_BITINDEX, false);
+                // Clear X86 EPB feature. No frequency selection in the hypervisor.
+                entry.ecx.write_bit(ecx::EPB_BITINDEX, false);
             }
             0xA => {
                 // Architectural Performance Monitor Leaf
@@ -154,65 +150,70 @@ pub fn filter_cpuid(
                 entry.edx = 0;
             }
             0xB => {
-                // Hide the actual topology of the underlying host
-                match entry.index {
-                    0 => {
-                        // Thread Level Topology; index = 0
-                        if cpu_count == 1 {
-                            // No APIC ID at the next level, set EAX to 0
-                            entry.eax = 0;
-                            // Set the numbers of logical processors to 1
-                            entry.ebx = 1;
-                            // There are no hyperthreads for 1 VCPU, set the level type = 2 (Core)
-                            entry.ecx =
-                                leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT;
-                        } else {
-                            if ht_enabled {
-                                // When HT is enabled, there are 2 logical cores at this level
-                                // To get the next level APIC ID, shift right with 1 because we have
-                                // maximum 2 hyperthreads per core that can be represented by 1 bit.
-                                entry.eax = 1;
-                                entry.ebx = 2;
-                            } else {
-                                // When HT is disabled, there is 1 logical core at this level
-                                // No bits used from the APIC id at the thread level
-                                entry.eax = 0;
-                                entry.ebx = 1;
-                            }
-
-                            // enforce this level to be of type thread
-                            entry.ecx =
-                                leaf_0xb::LEVEL_TYPE_THREAD << leaf_0xb::ecx::LEVEL_TYPE_SHIFT;
-                        }
-                    }
-                    1 => {
-                        // Core Level Processor Topology; index = 1
-                        entry.eax = LEAFBH_INDEX1_APICID_SHIFT;
-                        if cpu_count == 1 {
-                            // For 1 vCPU, this level is invalid
-                            entry.ebx = 0;
-                            // ECX[7:0] = entry.index; ECX[15:8] = 0 (Invalid Level)
-                            entry.ecx = (entry.index as u32)
-                                | (leaf_0xb::LEVEL_TYPE_INVALID << leaf_0xb::ecx::LEVEL_TYPE_SHIFT);
-                        } else {
-                            entry.ebx = cpu_count as u32;
-                            entry.ecx = (entry.index as u32)
-                                | (leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT);
-                        }
-                    }
-                    level => {
-                        // Core Level Processor Topology; index >=2
-                        // No other levels available; This should already be set to correctly,
-                        // and it is added here as a "re-enforcement" in case we run on
-                        // different hardware
-                        entry.eax = 0;
-                        entry.ebx = 0;
-                        entry.ecx = level;
-                    }
-                }
+                use leaf_0xb::*;
+                //reset eax, ebx, ecx
+                entry.eax = 0 as u32;
+                entry.ebx = 0 as u32;
+                entry.ecx = 0 as u32;
                 // EDX bits 31..0 contain x2APIC ID of current logical processor
                 // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
                 entry.edx = cpu_id as u32;
+                match entry.index {
+                    // Thread Level Topology; index = 0
+                    0 => {
+                        // To get the next level APIC ID, shift right with at most 1 because we have
+                        // maximum 2 hyperthreads per core that can be represented by 1 bit.
+                        entry.eax.write_bits_in_range(
+                            &eax::APICID_BITRANGE,
+                            (cpu_count > 1 && ht_enabled) as u32,
+                        );
+                        // When cpu_count == 1 or HT is disabled, there is 1 logical core at this level
+                        // Otherwise there are 2
+                        entry.ebx.write_bits_in_range(
+                            &ebx::NUM_LOGICAL_PROCESSORS_BITRANGE,
+                            1 + (cpu_count > 1 && ht_enabled) as u32,
+                        );
+
+                        entry.ecx.write_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE, {
+                            if cpu_count == 1 {
+                                // There are no hyperthreads for 1 VCPU, set the level type = 2 (Core)
+                                LEVEL_TYPE_CORE
+                            } else {
+                                LEVEL_TYPE_THREAD
+                            }
+                        });
+                    }
+                    // Core Level Processor Topology; index = 1
+                    1 => {
+                        entry
+                            .eax
+                            .write_bits_in_range(&eax::APICID_BITRANGE, LEAFBH_INDEX1_APICID);
+                        entry
+                            .ecx
+                            .write_bits_in_range(&ecx::LEVEL_NUMBER_BITRANGE, entry.index as u32);
+                        if cpu_count == 1 {
+                            // For 1 vCPU, this level is invalid
+                            entry
+                                .ecx
+                                .write_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE, LEVEL_TYPE_INVALID);
+                        } else {
+                            entry.ebx.write_bits_in_range(
+                                &ebx::NUM_LOGICAL_PROCESSORS_BITRANGE,
+                                cpu_count as u32,
+                            );
+                            entry
+                                .ecx
+                                .write_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE, LEVEL_TYPE_CORE);
+                        }
+                    }
+                    // Core Level Processor Topology; index >=2
+                    // No other levels available; This should already be set to correctly,
+                    // and it is added here as a "re-enforcement" in case we run on
+                    // different hardware
+                    level => {
+                        entry.ecx = level;
+                    }
+                }
             }
             0x80000002..=0x80000004 => {
                 entry.eax = bstr.get_reg_for_leaf(entry.function, BsReg::EAX);
@@ -237,7 +238,7 @@ const EBX_CLFLUSH_CACHELINE: u32 = 8; // Flush a cache line size.
 
 // The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to get a
 // unique topology of the next level. This allows 64 logical processors/package.
-const LEAFBH_INDEX1_APICID_SHIFT: u32 = 6;
+const LEAFBH_INDEX1_APICID: u32 = 6;
 
 const DEFAULT_BRAND_STRING: &[u8] = b"Intel(R) Xeon(R) Processor";
 
@@ -320,7 +321,7 @@ mod tests {
             // no of hyperthreads/core
             ebx: 1,
             // ECX[15:8] = 2 (Core Level)
-            ecx: leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            ecx: leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_BITRANGE.lsb_index,
             // EDX = APIC ID = 0
             edx: 0,
             padding: [0, 0, 0],
@@ -330,7 +331,7 @@ mod tests {
             function: 11,
             index: 1,
             flags: 1,
-            eax: LEAFBH_INDEX1_APICID_SHIFT,
+            eax: LEAFBH_INDEX1_APICID,
             ebx: 0,
             ecx: 1, // ECX[15:8] = 0 (Invalid Level) & ECX[7:0] = 1 (Level Number)
             edx: 0, // EDX = APIC ID = 0
@@ -415,10 +416,10 @@ mod tests {
             index: 0,
             flags: 0,
             eax: 0,
-            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_SHIFT)
-                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_SHIFT,
-            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_SHIFT
-                | 1 << leaf_0x1::ecx::HYPERVISOR_SHIFT,
+            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_BITRANGE.lsb_index)
+                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_BITRANGE.lsb_index,
+            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_BITINDEX
+                | 1 << leaf_0x1::ecx::HYPERVISOR_BITINDEX,
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -430,7 +431,8 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b10000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            eax: 0b10000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -444,7 +446,8 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            eax: 0b100000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -458,7 +461,8 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1000000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            eax: 0b1000000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -472,7 +476,8 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            eax: 0b1100000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -486,9 +491,9 @@ mod tests {
             function: 0x6,
             index: 0,
             flags: 0,
-            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_SHIFT),
+            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_BITINDEX),
             ebx: 0,
-            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_SHIFT),
+            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_BITINDEX),
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -516,7 +521,7 @@ mod tests {
             flags: 0,
             eax: 0,
             ebx: 1,
-            ecx: leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            ecx: leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_BITRANGE.lsb_index,
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -528,9 +533,9 @@ mod tests {
             function: 0xB,
             index: 1,
             flags: 0,
-            eax: LEAFBH_INDEX1_APICID_SHIFT,
+            eax: LEAFBH_INDEX1_APICID,
             ebx: 0,
-            ecx: 1 | (leaf_0xb::LEVEL_TYPE_INVALID << leaf_0xb::ecx::LEVEL_TYPE_SHIFT),
+            ecx: 1 | (leaf_0xb::LEVEL_TYPE_INVALID << leaf_0xb::ecx::LEVEL_TYPE_BITRANGE.lsb_index),
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -635,11 +640,11 @@ mod tests {
             index: 0,
             flags: 0,
             eax: 0,
-            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_SHIFT)
-                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_SHIFT,
-            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_SHIFT
-                | 1 << leaf_0x1::ecx::HYPERVISOR_SHIFT,
-            edx: 1 << leaf_0x1::edx::HTT_SHIFT,
+            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_BITRANGE.lsb_index)
+                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_BITRANGE.lsb_index,
+            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_BITINDEX
+                | 1 << leaf_0x1::ecx::HYPERVISOR_BITINDEX,
+            edx: 1 << leaf_0x1::edx::HTT,
             padding: [0, 0, 0],
         };
         {
@@ -650,8 +655,9 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b10000 & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
-                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            eax: 0b10000 & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | ((cpu_count - 1) as u32)
+                    << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -666,9 +672,10 @@ mod tests {
             index: 0,
             flags: 0,
             eax: 0b100000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
-                & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
-                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+                & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | ((cpu_count - 1) as u32)
+                    << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -683,9 +690,10 @@ mod tests {
             index: 0,
             flags: 0,
             eax: 0b1000000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
-                & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
-                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+                & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | ((cpu_count - 1) as u32)
+                    << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -699,10 +707,13 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
-                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE
-                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
-                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            eax: 0b1100000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+                | ((cpu_count - 1) as u32)
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index
+                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | ((cpu_count - 1) as u32)
+                    << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -716,9 +727,9 @@ mod tests {
             function: 0x6,
             index: 0,
             flags: 0,
-            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_SHIFT),
+            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_BITINDEX),
             ebx: 0,
-            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_SHIFT),
+            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_BITINDEX),
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -746,7 +757,7 @@ mod tests {
             flags: 0,
             eax: 0,
             ebx: 1,
-            ecx: leaf_0xb::LEVEL_TYPE_THREAD << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            ecx: leaf_0xb::LEVEL_TYPE_THREAD << leaf_0xb::ecx::LEVEL_TYPE_BITRANGE.lsb_index,
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -758,9 +769,9 @@ mod tests {
             function: 0xB,
             index: 1,
             flags: 0,
-            eax: LEAFBH_INDEX1_APICID_SHIFT,
+            eax: LEAFBH_INDEX1_APICID,
             ebx: cpu_count as u32,
-            ecx: 1 | leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            ecx: 1 | leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_BITRANGE.lsb_index,
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -864,10 +875,10 @@ mod tests {
             index: 0,
             flags: 0,
             eax: 0,
-            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_SHIFT)
-                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_SHIFT,
-            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_SHIFT
-                | 1 << leaf_0x1::ecx::HYPERVISOR_SHIFT,
+            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_BITRANGE.lsb_index)
+                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_BITRANGE.lsb_index,
+            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_BITINDEX
+                | 1 << leaf_0x1::ecx::HYPERVISOR_BITINDEX,
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -879,7 +890,8 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b10000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            eax: 0b10000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -893,7 +905,8 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            eax: 0b100000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -907,7 +920,8 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1000000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            eax: 0b1000000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -921,7 +935,8 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE),
+            eax: 0b1100000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -935,9 +950,9 @@ mod tests {
             function: 0x6,
             index: 0,
             flags: 0,
-            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_SHIFT),
+            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_BITINDEX),
             ebx: 0,
-            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_SHIFT),
+            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_BITINDEX),
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -965,7 +980,7 @@ mod tests {
             flags: 0,
             eax: 0,
             ebx: 1,
-            ecx: leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            ecx: leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_BITRANGE.lsb_index,
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -977,9 +992,9 @@ mod tests {
             function: 0xB,
             index: 1,
             flags: 0,
-            eax: LEAFBH_INDEX1_APICID_SHIFT,
+            eax: LEAFBH_INDEX1_APICID,
             ebx: 0,
-            ecx: 1 | (leaf_0xb::LEVEL_TYPE_INVALID << leaf_0xb::ecx::LEVEL_TYPE_SHIFT),
+            ecx: 1 | (leaf_0xb::LEVEL_TYPE_INVALID << leaf_0xb::ecx::LEVEL_TYPE_BITRANGE.lsb_index),
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -1084,11 +1099,11 @@ mod tests {
             index: 0,
             flags: 0,
             eax: 0,
-            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_SHIFT)
-                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_SHIFT,
-            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_SHIFT
-                | 1 << leaf_0x1::ecx::HYPERVISOR_SHIFT,
-            edx: 1 << leaf_0x1::edx::HTT_SHIFT,
+            ebx: (EBX_CLFLUSH_CACHELINE << leaf_0x1::ebx::CLFLUSH_SIZE_BITRANGE.lsb_index)
+                | max_addr_cpu << leaf_0x1::ebx::CPU_COUNT_BITRANGE.lsb_index,
+            ecx: 1 << leaf_0x1::ecx::TSC_DEADLINE_TIMER_BITINDEX
+                | 1 << leaf_0x1::ecx::HYPERVISOR_BITINDEX,
+            edx: 1 << leaf_0x1::edx::HTT,
             padding: [0, 0, 0],
         };
         {
@@ -1099,8 +1114,9 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b10000 & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
-                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            eax: 0b10000 & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | ((cpu_count - 1) as u32)
+                    << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -1114,10 +1130,12 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
-                | 1 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE
-                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
-                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            eax: 0b100000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+                | 1 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index
+                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | ((cpu_count - 1) as u32)
+                    << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -1131,10 +1149,12 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1000000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
-                | 1 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE
-                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
-                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            eax: 0b1000000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+                | 1 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index
+                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | ((cpu_count - 1) as u32)
+                    << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -1148,10 +1168,13 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1100000 & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE)
-                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE
-                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE)
-                | ((cpu_count - 1) as u32) << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE,
+            eax: 0b1100000
+                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+                | ((cpu_count - 1) as u32)
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index
+                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | ((cpu_count - 1) as u32)
+                    << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -1165,9 +1188,9 @@ mod tests {
             function: 0x6,
             index: 0,
             flags: 0,
-            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_SHIFT),
+            eax: 1 & !(1 << leaf_0x6::eax::TURBO_BOOST_BITINDEX),
             ebx: 0,
-            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_SHIFT),
+            ecx: 1 & !(1 << leaf_0x6::ecx::EPB_BITINDEX),
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -1195,7 +1218,7 @@ mod tests {
             flags: 0,
             eax: 1,
             ebx: 2,
-            ecx: leaf_0xb::LEVEL_TYPE_THREAD << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            ecx: leaf_0xb::LEVEL_TYPE_THREAD << leaf_0xb::ecx::LEVEL_TYPE_BITRANGE.lsb_index,
             edx: 0,
             padding: [0, 0, 0],
         };
@@ -1207,9 +1230,9 @@ mod tests {
             function: 0xB,
             index: 1,
             flags: 0,
-            eax: LEAFBH_INDEX1_APICID_SHIFT,
+            eax: LEAFBH_INDEX1_APICID,
             ebx: cpu_count as u32,
-            ecx: 1 | leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_SHIFT,
+            ecx: 1 | leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_BITRANGE.lsb_index,
             edx: 0,
             padding: [0, 0, 0],
         };
