@@ -11,7 +11,6 @@ libc = ">=0.2.39"
 arch_gen = { path = "../arch_gen" }
 kvm = { path = "../kvm" }
 memory_model = { path = "../memory_model" }
-sys_util = { path = "../sys_util" }
 
 [dev-dependencies]
 rand = ">=0.5.5"

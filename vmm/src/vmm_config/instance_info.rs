@@ -63,7 +63,7 @@ pub enum StartMicrovmError {
     /// The device manager was not configured.
     DeviceManager,
     /// Executing a VM request failed.
-    DeviceVmRequest(sys_util::Error),
+    DeviceVmRequest(std::io::Error),
     /// Cannot read from an Event file descriptor.
     EventFd,
     /// Memory regions are overlapping or mmap fails.

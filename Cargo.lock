@@ -48,7 +48,6 @@ dependencies = [
  "libc 0.2.47 (registry+https://github.com/rust-lang/crates.io-index)",
  "memory_model 0.1.0",
  "rand 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "sys_util 0.1.0",
 ]
 
 [[package]]
@@ -458,7 +457,6 @@ name = "memory_model"
 version = "0.1.0"
 dependencies = [
  "libc 0.2.47 (registry+https://github.com/rust-lang/crates.io-index)",
- "sys_util 0.1.0",
  "tempfile 3.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
