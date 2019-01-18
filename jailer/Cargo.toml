@@ -5,6 +5,7 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
 clap = ">=2.27.1"
+lazy_static = ">=1.2.0"
 libc = ">=0.2.39"
 regex = ">=1.0.0"
 serde = ">=1.0.27"

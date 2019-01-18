@@ -22,6 +22,7 @@ const CONTROLLER_PIDS: &str = "pids";
 
 // The list of cgroup controllers we're interested in.
 const CONTROLLERS: [&'static str; 3] = [CONTROLLER_CPU, CONTROLLER_CPUSET, CONTROLLER_PIDS];
+const CONTROLLERS_V2: [&'static str; 2] = [CONTROLLER_CPU, CONTROLLER_PIDS];
 const PROC_MOUNTS: &str = "/proc/mounts";
 const NODE_TO_CPULIST: &str = "/sys/devices/system/node/node";
 
@@ -125,6 +126,47 @@ fn inherit_from_parent(path: &mut PathBuf, file_name: &str) -> Result<()> {
     inherit_from_parent_aux(path, file_name, true)
 }
 
+lazy_static! {
+    static ref re_v1: Regex = Regex::new(
+        r"^(cgroup|none)[[:space:]](?P<dir>.*)[[:space:]]cgroup[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
+    ).map_err(Error::RegEx).expect("Could not compile cgroups v1 regex");
+
+    static ref re_v2: Regex = Regex::new(
+        r"^(cgroup|none)[[:space:]](?P<dir>.*)[[:space:]]cgroup2[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
+    ).map_err(Error::RegEx).expect("Could not compile cgroups v2 regex");
+}
+
+fn match_cgroups_v1(line: &String, controller: &str) -> Result<PathBuf> {
+    if let Some(capture) = re_v1.captures(&line) {
+        // We could do the search in a more efficient manner but eh.
+        let v: Vec<&str> = capture["options"].split(',').collect();
+        if v.contains(&controller) {
+            return Ok(PathBuf::from(&capture["dir"]));
+        } else {
+            return Err(Error::CgroupLineNotMatched(
+                line.clone(),
+                controller.to_string(),
+            ));
+        }
+    } else {
+        return Err(Error::CgroupLineNotMatched(
+            line.clone(),
+            controller.to_string(),
+        ));
+    }
+}
+
+fn match_cgroups_v2(line: &String, controller: &str) -> Result<PathBuf> {
+    if let Some(capture) = re_v2.captures(&line) {
+        return Ok(PathBuf::from(&capture["dir"]));
+    } else {
+        return Err(Error::CgroupLineNotMatched(
+            line.clone(),
+            controller.to_string(),
+        ));
+    }
+}
+
 impl Cgroup {
     pub fn new(id: &str, numa_node: u32, exec_file_name: &OsStr) -> Result<Self> {
         let f =
@@ -132,29 +174,29 @@ impl Cgroup {
 
         let mut found_controllers: HashMap<&'static str, PathBuf> =
             HashMap::with_capacity(CONTROLLERS.len());
+        let mut have_controllers_v2: bool = false;
 
-        // Regex courtesy of Filippo.
-        let re = Regex::new(
-            r"^(cgroup|none)[[:space:]](?P<dir>.*)[[:space:]]cgroup[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
-        ).map_err(Error::RegEx)?;
         for l in BufReader::new(f).lines() {
             let l = l.map_err(|e| Error::ReadLine(PathBuf::from(PROC_MOUNTS), e))?;
-            if let Some(capture) = re.captures(&l) {
-                // We could do the search in a more efficient manner but eh.
-                let v: Vec<&str> = capture["options"].split(',').collect();
-
-                for controller in CONTROLLERS.into_iter() {
-                    if v.contains(controller) {
-                        if let Some(_) =
-                            found_controllers.insert(controller, PathBuf::from(&capture["dir"]))
-                        {
-                            return Err(Error::CgroupLineNotUnique(
-                                PROC_MOUNTS.to_string(),
-                                controller.to_string(),
-                            ));
+            for controller in CONTROLLERS.into_iter() {
+                let v1 = match_cgroups_v1(&l, controller);
+                match v1 {
+                    Ok(v) => found_controllers.insert(controller, v),
+                    Err(_e) => {
+                        if CONTROLLERS_V2.contains(controller) {
+                            let v2 = match_cgroups_v2(&l, controller);
+                            match v2 {
+                                Ok(v) => {
+                                    have_controllers_v2 = true;
+                                    found_controllers.insert(controller, v)
+                                }
+                                Err(_e) => continue,
+                            }
+                        } else {
+                            continue;
                         }
                     }
-                }
+                };
             }
         }
 
@@ -215,8 +257,14 @@ impl Cgroup {
                 path_buf.pop();
             }
 
-            // And now add "tasks" to get the path of the corresponding tasks file.
-            path_buf.push("tasks");
+            if CONTROLLERS_V2.contains(&controller) && have_controllers_v2 {
+                // And now add "cgroup.procs" to get the path of the corresponding tasks file.
+                path_buf.push("cgroup.procs");
+            } else {
+                // cgroups v1
+                // And now add "tasks" to get the path of the corresponding tasks file.
+                path_buf.push("tasks");
+            }
             if !tasks_files.contains(&path_buf) {
                 tasks_files.push(path_buf);
             }
@@ -284,4 +332,31 @@ mod tests {
         let res = readln_special(&child_file).expect("Cannot read from file.");
         assert!(res == some_line);
     }
+
+    #[test]
+    fn test_match_cgroups_v1() {
+        let line =
+            String::from("cgroup /sys/fs/cgroup/cpuset cgroup rw,nosuid,nodev,relatime,cpuset 0 0");
+        let line_none =
+            String::from("none /sys/fs/cgroup/cpuset cgroup rw,nosuid,nodev,relatime,cpuset 0 0");
+        let result_cpuset = match_cgroups_v1(&line, CONTROLLER_CPUSET);
+        assert!(result_cpuset.is_ok());
+        let result_cpu = match_cgroups_v1(&line, CONTROLLER_CPU);
+        assert!(result_cpu.is_err());
+        let result_cpuset_none = match_cgroups_v1(&line_none, CONTROLLER_CPUSET);
+        assert!(result_cpuset_none.is_ok());
+    }
+
+    #[test]
+    fn test_match_cgroups_v2() {
+        let line_v1 =
+            String::from("cgroup /sys/fs/cgroup/cpu cgroup rw,nosuid,nodev,relatime,cpu 0 0");
+        let line_v2 =
+            String::from("none /sys/fs/cgroup/cpu cgroup2 rw,nosuid,nodev,relatime,cpu 0 0");
+        let result_cpu_v2 = match_cgroups_v2(&line_v2, CONTROLLER_CPU);
+        assert!(result_cpu_v2.is_ok());
+        let result_cpu_v1 = match_cgroups_v2(&line_v1, CONTROLLER_CPU);
+        assert!(result_cpu_v1.is_err());
+    }
+
 }

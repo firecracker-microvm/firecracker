@@ -3,6 +3,8 @@
 
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
+#[macro_use]
+extern crate lazy_static;
 extern crate libc;
 extern crate regex;
 extern crate serde;
@@ -50,6 +52,7 @@ pub enum Error {
     Canonicalize(PathBuf, io::Error),
     CgroupInheritFromParent(PathBuf, String),
     CgroupLineNotFound(String, String),
+    CgroupLineNotMatched(String, String),
     CgroupLineNotUnique(String, String),
     ChangeDevNetTunOwner(sys_util::Error),
     ChdirNewRoot(sys_util::Error),
@@ -119,6 +122,11 @@ impl fmt::Display for Error {
                 f,
                 "{} configurations not found in {}",
                 controller, proc_mounts
+            ),
+            CgroupLineNotMatched(ref line, ref controller) => write!(
+                f,
+                "{} configurations did not match line '{}'",
+                controller, line
             ),
             CgroupLineNotUnique(ref proc_mounts, ref controller) => write!(
                 f,
@@ -445,6 +453,13 @@ mod tests {
                 Error::CgroupLineNotFound(proc_mounts.to_string(), controller.to_string())
             ),
             "sysfs configurations not found in /proc/mounts",
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::CgroupLineNotMatched(proc_mounts.to_string(), controller.to_string())
+            ),
+            "sysfs configurations did not match line '/proc/mounts'",
         );
         assert_eq!(
             format!(
