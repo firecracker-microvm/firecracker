@@ -302,7 +302,10 @@ def _test_log_config(
     microvm.start()
 
     lines = log_fifo.sequential_reader(20)
-    for line in lines:
+    for idx, line in enumerate(lines):
+        if idx == 0:
+            assert line.startswith("Running Firecracker")
+            continue
         check_log_message(
             line,
             microvm.id,
