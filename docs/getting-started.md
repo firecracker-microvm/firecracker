@@ -70,6 +70,19 @@ On the EC2 instance, this binary can be downloaded as:
 curl -LOJ https://github.com/firecracker-microvm/firecracker/releases/download/v${latest}/firecracker-v${latest}
 ```
 
+Rename the binary to "firecracker":
+
+```
+mv firecracker-v${latest} firecracker
+```
+
+Make the binary executable:
+
+```
+chmod +x firecracker
+```
+
+
 If, instead, you'd like to build Firecracker yourself, you should check out
 the [Building From Source section](#building-from-source) in this doc.
 
