@@ -147,19 +147,15 @@ fn main() {
     ) {
         Ok(_) => (),
         Err(Error::Io(inner)) => match inner.kind() {
-            ErrorKind::AddrInUse => panic!(
-                "Failed to open the API socket: IO Error: {:?}",
-                Error::Io(inner)
-            ),
+            ErrorKind::AddrInUse => panic!("Failed to open the API socket: {:?}", Error::Io(inner)),
             _ => panic!(
-                "Failed to communicate with the API socket: IO Error: {:?}",
+                "Failed to communicate with the API socket: {:?}",
                 Error::Io(inner)
             ),
         },
-        Err(Error::Eventfd(inner)) => panic!(
-            "Failed to open the API socket: EventFd Error: {:?}",
-            Error::Eventfd(inner)
-        ),
+        Err(eventfd_err @ Error::Eventfd(_)) => {
+            panic!("Failed to open the API socket: {:?}", eventfd_err)
+        }
     }
 }
 

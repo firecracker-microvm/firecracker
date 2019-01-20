@@ -17,7 +17,7 @@ pub enum Error {
     /// Cannot add legacy device to Bus.
     BusError(devices::BusError),
     /// Cannot create EventFd.
-    EventFd(sys_util::Error),
+    EventFd(io::Error),
     /// Cannot set mode for terminal.
     StdinHandle(sys_util::Error),
 }
@@ -122,8 +122,8 @@ mod tests {
     #[test]
     fn test_debug_error() {
         assert_eq!(
-            format!("{:?}", Error::EventFd(sys_util::Error::new(0))),
-            "EventFd(Error(0))"
+            format!("{:?}", Error::EventFd(io::Error::from_raw_os_error(0))),
+            format!("EventFd({:?})", io::Error::from_raw_os_error(0))
         );
         assert_eq!(
             format!("{:?}", Error::StdinHandle(sys_util::Error::new(1))),

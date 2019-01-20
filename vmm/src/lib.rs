@@ -118,7 +118,7 @@ enum Error {
     /// An operation on the epoll instance failed due to resource exhaustion or bad configuration.
     EpollFd(io::Error),
     /// Cannot read from an Event file descriptor.
-    EventFd(sys_util::Error),
+    EventFd(std::io::Error),
     /// Describes a logical problem.
     GeneralFailure, // TODO: there are some cases in which this error should be replaced.
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have

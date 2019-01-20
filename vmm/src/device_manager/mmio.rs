@@ -6,8 +6,8 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::{Arc, Mutex};
+use std::{fmt, io};
 
 use devices;
 use kernel_cmdline;
@@ -24,9 +24,9 @@ pub enum Error {
     /// Could not create the mmio device to wrap a VirtioDevice.
     CreateMmioDevice(sys_util::Error),
     /// Failed to clone a queue's ioeventfd.
-    CloneIoeventFd(sys_util::Error),
+    CloneIoEventFd(io::Error),
     /// Failed to clone the mmio irqfd.
-    CloneIrqFd(sys_util::Error),
+    CloneIrqFd(io::Error),
     /// Appending to kernel command line failed.
     Cmdline(kernel_cmdline::Error),
     /// No more IRQs are available.
@@ -40,8 +40,8 @@ impl fmt::Display for Error {
         match self {
             &Error::BusError(ref e) => write!(f, "failed to perform bus operation: {:?}", e),
             &Error::CreateMmioDevice(ref e) => write!(f, "failed to create mmio device: {:?}", e),
-            &Error::CloneIoeventFd(ref e) => write!(f, "failed to clone ioeventfd: {:?}", e),
-            &Error::CloneIrqFd(ref e) => write!(f, "failed to clone irqfd: {:?}", e),
+            &Error::CloneIoEventFd(ref e) => write!(f, "failed to clone ioeventfd: {}", e),
+            &Error::CloneIrqFd(ref e) => write!(f, "failed to clone irqfd: {}", e),
             &Error::Cmdline(ref e) => {
                 write!(f, "unable to add device to kernel command line: {}", e)
             }
@@ -108,7 +108,7 @@ impl MMIODeviceManager {
             let io_addr =
                 IoeventAddress::Mmio(self.mmio_base + devices::virtio::NOTIFY_REG_OFFSET as u64);
             self.vm_requests.push(VmRequest::RegisterIoevent(
-                queue_evt.try_clone().map_err(Error::CloneIoeventFd)?,
+                queue_evt.try_clone().map_err(Error::CloneIoEventFd)?,
                 io_addr,
                 i as u32,
             ));
@@ -312,10 +312,19 @@ mod tests {
             format!("{}", e),
             "unable to add device to kernel command line: string contains an equals sign"
         );
-        let e = Error::CloneIoeventFd(sys_util::Error::new(0));
-        assert_eq!(format!("{}", e), "failed to clone ioeventfd: Error(0)");
-        let e = Error::CloneIrqFd(sys_util::Error::new(0));
-        assert_eq!(format!("{}", e), "failed to clone irqfd: Error(0)");
+        let e = Error::CloneIoEventFd(io::Error::from_raw_os_error(0));
+        assert_eq!(
+            format!("{}", e),
+            format!(
+                "failed to clone ioeventfd: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+        let e = Error::CloneIrqFd(io::Error::from_raw_os_error(0));
+        assert_eq!(
+            format!("{}", e),
+            format!("failed to clone irqfd: {}", io::Error::from_raw_os_error(0))
+        );
         let e = Error::UpdateFailed;
         assert_eq!(format!("{}", e), "failed to update the mmio device");
     }
