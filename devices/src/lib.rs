@@ -26,7 +26,7 @@ extern crate virtio_gen;
 
 use rate_limiter::Error as RateLimiterError;
 use std::fs::File;
-use sys_util::Error as Errno;
+use std::io;
 
 mod bus;
 pub mod legacy;
@@ -60,10 +60,10 @@ pub trait EpollHandler: Send {
 pub enum Error {
     FailedReadingQueue {
         event_type: &'static str,
-        underlying: Errno,
+        underlying: io::Error,
     },
     FailedReadTap,
-    FailedSignalingUsedQueue(Errno),
+    FailedSignalingUsedQueue(io::Error),
     RateLimited(RateLimiterError),
     PayloadExpected,
     UnknownEvent {
