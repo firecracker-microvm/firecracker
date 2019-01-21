@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 extern crate byteorder;
-extern crate kvm_wrapper;
+extern crate kvm_bindings;
 extern crate libc;
 
 extern crate arch_gen;

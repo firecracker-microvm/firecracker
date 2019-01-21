@@ -11,7 +11,7 @@
 
 extern crate libc;
 
-extern crate kvm_wrapper;
+extern crate kvm_bindings;
 extern crate memory_model;
 #[macro_use]
 extern crate sys_util;
@@ -25,7 +25,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use libc::{open, EINVAL, ENOSPC, O_RDWR};
 
-use kvm_wrapper::*;
+use kvm_bindings::*;
 use memory_model::MemoryMapping;
 use sys_util::{errno_result, Error, EventFd, Result};
 use sys_util::{
@@ -34,7 +34,7 @@ use sys_util::{
 
 pub use cap::*;
 use ioctl_defs::*;
-pub use kvm_wrapper::KVM_API_VERSION;
+pub use kvm_bindings::KVM_API_VERSION;
 
 /// Taken from Linux Kernel v4.14.13 (arch/x86/include/asm/kvm_host.h)
 pub const MAX_KVM_CPUID_ENTRIES: usize = 80;

@@ -10,7 +10,7 @@ use std::{mem, result};
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 use arch_gen::x86::msr_index;
 use kvm::VcpuFd;
-use kvm_wrapper::{kvm_fpu, kvm_msr_entry, kvm_msrs, kvm_regs, kvm_sregs};
+use kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_msrs, kvm_regs, kvm_sregs};
 use memory_model::{GuestAddress, GuestMemory};
 use sys_util;
 
