@@ -14,14 +14,3 @@ pub mod bootparam;
 pub mod mpspec;
 #[allow(non_upper_case_globals)]
 pub mod msr_index;
-
-// `boot_params` is just a series of ints, it is safe to initialize it.
-unsafe impl memory_model::DataInit for bootparam::boot_params {}
-// These `mpspec` types are only data, reading them from data is a safe initialization.
-unsafe impl memory_model::DataInit for mpspec::mpc_bus {}
-unsafe impl memory_model::DataInit for mpspec::mpc_cpu {}
-unsafe impl memory_model::DataInit for mpspec::mpc_intsrc {}
-unsafe impl memory_model::DataInit for mpspec::mpc_ioapic {}
-unsafe impl memory_model::DataInit for mpspec::mpc_table {}
-unsafe impl memory_model::DataInit for mpspec::mpc_lintsrc {}
-unsafe impl memory_model::DataInit for mpspec::mpf_intel {}

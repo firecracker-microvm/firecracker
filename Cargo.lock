@@ -53,9 +53,6 @@ dependencies = [
 [[package]]
 name = "arch_gen"
 version = "0.1.0"
-dependencies = [
- "memory_model 0.1.0",
-]
 
 [[package]]
 name = "atty"
