@@ -1,7 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use serde::{de, Deserialize};
 use std::fmt::{Display, Formatter, Result};
+
+/// Firecracker aims to support small scale workloads only, so limit the maximum
+/// vCPUs supported.
+pub const MAX_SUPPORTED_VCPUS: u8 = 32;
 
 /// Errors associated with configuring the microVM.
 #[derive(Debug, PartialEq)]
@@ -38,7 +43,11 @@ impl Display for VmConfigError {
 #[serde(deny_unknown_fields)]
 pub struct VmConfig {
     /// Number of vcpu to start.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "validate_vcpu_num"
+    )]
     pub vcpu_count: Option<u8>,
     /// The memory size in MiB.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -60,6 +69,22 @@ impl Default for VmConfig {
             cpu_template: None,
         }
     }
+}
+
+fn validate_vcpu_num<'de, D>(d: D) -> std::result::Result<Option<u8>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let val = Option::<u8>::deserialize(d)?;
+    if let Some(ref value) = val {
+        if *value > MAX_SUPPORTED_VCPUS {
+            return Err(de::Error::invalid_value(
+                de::Unexpected::Unsigned(*value as u64),
+                &"number of vCPUs exceeds the maximum limitation",
+            ));
+        }
+    }
+    Ok(val)
 }
 
 /// Template types available for configuring the CPU features that map

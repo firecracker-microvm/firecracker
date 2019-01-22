@@ -26,6 +26,8 @@ pub enum Error {
     AddressOverflow,
     /// Failure while zeroing out the memory for the MP table.
     Clear,
+    /// Number of CPUs exceeds the maximum supported CPUs
+    TooManyCpus,
     /// Failure to write the MP floating pointer.
     WriteMpfIntel,
     /// Failure to write MP CPU entry.
@@ -43,6 +45,11 @@ pub enum Error {
 }
 
 pub type Result<T> = result::Result<T, Error>;
+
+// With APIC/xAPIC, there are only 255 APIC IDs available. And IOAPIC occupies
+// one APIC ID, so only 254 CPUs at maximum may be supported. Actually it's
+// a large number for FC usecases.
+pub const MAX_SUPPORTED_CPUS: u32 = 254;
 
 // Convenience macro for making arrays of diverse character types.
 macro_rules! char_array {
@@ -90,6 +97,10 @@ fn compute_mp_size(num_cpus: u8) -> usize {
 
 /// Performs setup of the MP table for the given `num_cpus`.
 pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
+    if num_cpus as u32 > MAX_SUPPORTED_CPUS {
+        return Err(Error::TooManyCpus);
+    }
+
     // Used to keep track of the next base pointer into the MP table.
     let mut base_mp = GuestAddress(MPTABLE_START);
 
@@ -321,11 +332,13 @@ mod tests {
 
     #[test]
     fn cpu_entry_count() {
-        const MAX_CPUS: u8 = 0xff;
-        let mem =
-            GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(MAX_CPUS))]).unwrap();
+        let mem = GuestMemory::new(&[(
+            GuestAddress(MPTABLE_START),
+            compute_mp_size(MAX_SUPPORTED_CPUS as u8),
+        )])
+        .unwrap();
 
-        for i in 0..MAX_CPUS {
+        for i in 0..MAX_SUPPORTED_CPUS as u8 {
             setup_mptable(&mem, i).unwrap();
 
             let mpf_intel: mpspec::mpf_intel =
@@ -350,5 +363,15 @@ mod tests {
             }
             assert_eq!(cpu_count, i);
         }
+    }
+
+    #[test]
+    fn cpu_entry_count_max() {
+        let cpus = MAX_SUPPORTED_CPUS + 1;
+        let mem = GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(cpus as u8))])
+            .unwrap();
+
+        let result = setup_mptable(&mem, cpus as u8).unwrap_err();
+        assert_eq!(result, Error::TooManyCpus);
     }
 }
