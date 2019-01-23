@@ -24,6 +24,8 @@ mod cpu_leaf;
 /// Follows a T2 template in setting up the CPUID.
 pub mod t2_template;
 
+mod common;
+
 use bit_helper::BitHelper;
 use brand_string::BrandString;
 use brand_string::Reg as BsReg;
