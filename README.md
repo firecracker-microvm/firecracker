@@ -33,8 +33,11 @@ To read more about Firecracker, check out
 
 ## Getting Started
 
+To get started with Firecracker, download the latest
+[release](https://github.com/firecracker-microvm/firecracker/releases) binaries or build it from source.
+
 You can build Firecracker on any system that has Docker running (we use a
-development container). The simple steps to get & build Firecracker are:
+development container) as follows:
 
 ```bash
 git clone https://github.com/firecracker-microvm/firecracker

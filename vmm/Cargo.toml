@@ -14,7 +14,7 @@ serde_json = ">=1.0.9"
 time = ">=0.1.39"
 timerfd = ">=1.0"
 
-cpuid = { path = "../cpuid" }
+arch = { path = "../arch" }
 devices = { path = "../devices" }
 fc_util = { path = "../fc_util" }
 kernel = { path = "../kernel" }
@@ -26,7 +26,9 @@ net_util = { path = "../net_util"}
 rate_limiter = { path = "../rate_limiter" }
 seccomp = { path = "../seccomp" }
 sys_util = { path = "../sys_util" }
-x86_64 = { path = "../x86_64" }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+cpuid = { path = "../cpuid" }
 
 [dev-dependencies]
 tempfile = ">=3.0.2"

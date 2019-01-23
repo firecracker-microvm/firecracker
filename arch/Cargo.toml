@@ -1,13 +1,14 @@
 [package]
-name = "x86_64"
+name = "arch"
 version = "0.1.0"
 authors = ["The Chromium OS Authors"]
 
 [dependencies]
 byteorder = "=1.2.1"
-kvm_wrapper = ">=0.1.0"
+kvm-bindings = "0.1"
 libc = ">=0.2.39"
 
+arch_gen = { path = "../arch_gen" }
 kvm = { path = "../kvm" }
 memory_model = { path = "../memory_model" }
 sys_util = { path = "../sys_util" }

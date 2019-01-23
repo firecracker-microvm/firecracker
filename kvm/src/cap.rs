@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use kvm_wrapper::*;
+use kvm_bindings::*;
 
 /// A capability the kernel's KVM interface can possibly expose.
 #[derive(Clone, Copy, Debug)]

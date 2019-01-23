@@ -5,29 +5,33 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+extern crate arch;
 extern crate devices;
 extern crate logger;
 extern crate sys_util;
-extern crate x86_64;
 
 use std::result;
 
 use super::KvmContext;
+#[cfg(target_arch = "x86_64")]
 use cpuid::{c3_template, filter_cpuid, t2_template};
 use kvm::*;
 use logger::{LogOption, LOGGER};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
-use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
-use x86_64::{interrupts, regs};
+#[cfg(target_arch = "x86_64")]
+use vmm_config::machine_config::CpuFeaturesTemplate;
+use vmm_config::machine_config::VmConfig;
 
-pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
 const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
 pub enum Error {
+    #[cfg(target_arch = "x86_64")]
+    /// A call to cpuid instruction failed.
+    CpuId(cpuid::Error),
     /// Invalid guest memory configuration.
     GuestMemory(GuestMemoryError),
     /// Hyperthreading flag is not initialized.
@@ -46,18 +50,23 @@ pub enum Error {
     SetSupportedCpusFailed(sys_util::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM.
     NotEnoughMemorySlots,
+    #[cfg(target_arch = "x86_64")]
     /// Cannot set the local interruption due to bad configuration.
-    LocalIntConfiguration(interrupts::Error),
+    LocalIntConfiguration(arch::x86_64::interrupts::Error),
     /// Cannot set the memory regions.
     SetUserMemoryRegion(sys_util::Error),
+    #[cfg(target_arch = "x86_64")]
     /// Error configuring the MSR registers
-    MSRSConfiguration(regs::Error),
+    MSRSConfiguration(arch::x86_64::regs::Error),
+    #[cfg(target_arch = "x86_64")]
     /// Error configuring the general purpose registers
-    REGSConfiguration(regs::Error),
+    REGSConfiguration(arch::x86_64::regs::Error),
+    #[cfg(target_arch = "x86_64")]
     /// Error configuring the special registers
-    SREGSConfiguration(regs::Error),
+    SREGSConfiguration(arch::x86_64::regs::Error),
+    #[cfg(target_arch = "x86_64")]
     /// Error configuring the floating point related registers
-    FPUConfiguration(regs::Error),
+    FPUConfiguration(arch::x86_64::regs::Error),
     /// Cannot configure the IRQ.
     Irq(sys_util::Error),
 }
@@ -87,8 +96,7 @@ impl Vm {
         })
     }
 
-    /// Initializes the guest memory. Currently this is x86 specific
-    /// because of the TSS address setup.
+    /// Initializes the guest memory.
     pub fn memory_init(&mut self, guest_mem: GuestMemory, kvm_context: &KvmContext) -> Result<()> {
         if guest_mem.num_regions() > kvm_context.max_memslots() {
             return Err(Error::NotEnoughMemorySlots);
@@ -112,9 +120,9 @@ impl Vm {
         })?;
         self.guest_mem = Some(guest_mem);
 
-        let tss_addr = GuestAddress(KVM_TSS_ADDRESS);
+        #[cfg(target_arch = "x86_64")]
         self.fd
-            .set_tss_address(tss_addr.offset())
+            .set_tss_address(GuestAddress(arch::x86_64::layout::KVM_TSS_ADDRESS).offset())
             .map_err(Error::VmSetup)?;
 
         Ok(())
@@ -130,6 +138,7 @@ impl Vm {
         Ok(())
     }
 
+    #[cfg(target_arch = "x86_64")]
     /// Creates an in-kernel device model for the PIT.
     pub fn create_pit(&self) -> Result<()> {
         self.fd.create_pit2().map_err(Error::VmSetup)?;
@@ -153,6 +162,7 @@ impl Vm {
 
 /// A wrapper around creating and using a kvm-based VCPU.
 pub struct Vcpu {
+    #[cfg(target_arch = "x86_64")]
     cpuid: CpuId,
     fd: VcpuFd,
     id: u8,
@@ -161,23 +171,29 @@ pub struct Vcpu {
 impl Vcpu {
     /// Constructs a new VCPU for `vm`.
     ///
-    /// The `id` argument is the CPU number between [0, max vcpus).
+    /// # Arguments
+    ///
+    /// * `id` - Represents the CPU number between [0, max vcpus).
+    /// * `vm` - The virtual machine this vcpu will get attached to.
     pub fn new(id: u8, vm: &Vm) -> Result<Self> {
         let kvm_vcpu = vm.fd.create_vcpu(id).map_err(Error::VcpuFd)?;
-        // Initially the cpuid per vCPU is the one supported by this VM
+        // Initially the cpuid per vCPU is the one supported by this VM.
         Ok(Vcpu {
-            fd: kvm_vcpu,
+            #[cfg(target_arch = "x86_64")]
             cpuid: vm.fd.get_supported_cpuid(),
+            fd: kvm_vcpu,
             id,
         })
     }
 
-    /// /// Configures the vcpu and should be called once per vcpu from the vcpu's thread.
+    #[cfg(target_arch = "x86_64")]
+    /// Configures a x86_64 specific vcpu and should be called once per vcpu from the vcpu's thread.
     ///
     /// # Arguments
     ///
-    /// * `kernel_load_offset` - Offset from `guest_mem` at which the kernel starts.
-    /// nr cpus is required for checking populating the kvm_cpuid2 entry for ebx and edx registers
+    /// * `machine_config` - Specifies necessary info used for the CPUID configuration.
+    /// * `kernel_start_addr` - Offset from `guest_mem` at which the kernel starts.
+    /// * `vm` - The virtual machine this vcpu will get attached to.
     pub fn configure(
         &mut self,
         machine_config: &VmConfig,
@@ -216,21 +232,21 @@ impl Vcpu {
             .set_cpuid2(&self.cpuid)
             .map_err(Error::SetSupportedCpusFailed)?;
 
-        regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
+        arch::x86_64::regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
         // Safe to unwrap because this method is called after the VM is configured
         let vm_memory = vm
             .get_memory()
             .ok_or(Error::GuestMemory(GuestMemoryError::MemoryNotInitialized))?;
-        regs::setup_regs(
+        arch::x86_64::regs::setup_regs(
             &self.fd,
             kernel_start_addr.offset() as u64,
-            x86_64::layout::BOOT_STACK_POINTER as u64,
-            x86_64::layout::ZERO_PAGE_START as u64,
+            arch::x86_64::layout::BOOT_STACK_POINTER as u64,
+            arch::x86_64::layout::ZERO_PAGE_START as u64,
         )
         .map_err(Error::REGSConfiguration)?;
-        regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
-        regs::setup_sregs(vm_memory, &self.fd).map_err(Error::SREGSConfiguration)?;
-        interrupts::set_lint(&self.fd).map_err(Error::LocalIntConfiguration)?;
+        arch::x86_64::regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
+        arch::x86_64::regs::setup_sregs(vm_memory, &self.fd).map_err(Error::SREGSConfiguration)?;
+        arch::x86_64::interrupts::set_lint(&self.fd).map_err(Error::LocalIntConfiguration)?;
         Ok(())
     }
 
@@ -281,7 +297,7 @@ mod tests {
         assert_eq!(read_val, 67u8);
     }
 
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_configure_vcpu() {
         let kvm_fd = Kvm::new().unwrap();

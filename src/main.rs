@@ -21,6 +21,7 @@ use clap::{App, Arg};
 use std::io::ErrorKind;
 use std::panic;
 use std::path::PathBuf;
+use std::process;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
@@ -35,11 +36,14 @@ const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 
 fn main() {
     LOGGER
-        .init(DEFAULT_INSTANCE_ID, None, None, vec![])
+        .preinit(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
 
-    // If the signal handler can't be set, it's OK to panic.
-    vmm::setup_sigsys_handler().expect("Failed to register signal handler");
+    if let Err(e) = vmm::setup_sigsys_handler() {
+        error!("Failed to register signal handler: {}", e);
+        process::exit(vmm::FC_EXIT_CODE_GENERIC_ERROR as i32);
+    }
+
     // Start firecracker by setting up a panic hook, which will be called before
     // terminating as we're building with panic = "abort".
     // It's worth noting that the abort is caused by sending a SIG_ABORT signal to the process.
@@ -47,7 +51,7 @@ fn main() {
         // We're currently using the closure parameter, which is a &PanicInfo, for printing the
         // origin of the panic, including the payload passed to panic! and the source code location
         // from which the panic originated.
-        error!("Panic occurred: {:?}", info);
+        error!("Firecracker {}", info);
         METRICS.vmm.panic_count.inc();
         let bt = Backtrace::new();
         error!("{:?}", bt);
@@ -83,7 +87,15 @@ fn main() {
         .expect("Missing argument: api_sock");
 
     let mut instance_id = String::from(DEFAULT_INSTANCE_ID);
+
+    // We disable seccomp filtering when testing, because when running the test_gnutests
+    // integration test from test_unittests.py, an invalid syscall is issued, and we crash
+    // otherwise.
+    #[cfg(not(test))]
     let mut seccomp_level = seccomp::SECCOMP_LEVEL_ADVANCED;
+    #[cfg(test)]
+    let mut seccomp_level = seccomp::SECCOMP_LEVEL_NONE;
+
     let mut start_time_us = None;
     let mut start_time_cpu_us = None;
     let mut is_jailed = false;
@@ -101,6 +113,7 @@ fn main() {
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,
         id: instance_id,
+        vmm_version: crate_version!().to_string(),
     }));
     let mmds_info = MMDS.clone();
     let (to_vmm, from_api) = channel();
@@ -157,6 +170,7 @@ mod tests {
     use self::tempfile::NamedTempFile;
     use super::*;
 
+    use logger::AppInfo;
     use std::fs::File;
     use std::io::BufRead;
     use std::io::BufReader;
@@ -222,9 +236,10 @@ mod tests {
         // Initialize the logger
         LOGGER
             .init(
+                &AppInfo::new("Firecracker", "1.0"),
                 "TEST-ID",
-                Some(log_file_temp.path().to_str().unwrap().to_string()),
-                Some(metrics_file_temp.path().to_str().unwrap().to_string()),
+                log_file_temp.path().to_str().unwrap().to_string(),
+                metrics_file_temp.path().to_str().unwrap().to_string(),
                 vec![],
             )
             .expect("Could not initialize logger.");
@@ -240,7 +255,7 @@ mod tests {
                 log_file.as_str(),
                 &[
                     // Lines containing these words should have appeared in the log, in this order
-                    ("ERROR", "main.rs", "Panic occurred"),
+                    ("ERROR", "main.rs", "Firecracker panicked at"),
                     ("ERROR", "main.rs", "stack backtrace:"),
                     ("0:", "0x", "firecracker::main::"),
                 ],

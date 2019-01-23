@@ -5,10 +5,14 @@ extern crate libc;
 
 pub mod validators;
 
-#[cfg(target_arch = "x86_64")]
 pub fn timestamp_cycles() -> u64 {
+    #[cfg(target_arch = "x86_64")]
     // Safe because there's nothing that can go wrong with this call.
-    unsafe { std::arch::x86_64::_rdtsc() as u64 }
+    unsafe {
+        std::arch::x86_64::_rdtsc() as u64
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    0
 }
 
 fn timespec_to_us(time_struct: &libc::timespec) -> u64 {
