@@ -1,19 +1,22 @@
 # Changelog
 
-## Unreleased
+## [0.14.0]
 
 ### Added
 
-- Documentation for development environment setup on AWS.
+- Documentation for development environment setup on AWS in
+  `dev-machine-setup.md`.
+- Documentation for microVM networking setup in `docs/network-setup.md`.
 - Limit the maximum supported vCPUs to 32.
 
 ### Changed
 - Log the app version when the `Logger` is initialized.
 - Pretty print panic information.
 - Firecracker terminates with exit code 148 when a non-whitelisted syscall
-is intercepted.
+  is intercepted.
 
 ### Fixed
+- Fixed build with the `vsock` feature.
 
 ## [0.13.0]
 
@@ -67,7 +70,8 @@ is intercepted.
 ### Fixed
 
 - Fixed crash upon instance start on hosts without 1GB huge page support.
-- Fixed "fault_message" inconsistency between Open API specification and code base.
+- Fixed "fault_message" inconsistency between Open API specification and code
+  base.
 - Ensure MMDS compatibility with C5's IMDS implementation.
 - Corrected the swagger specification to ensure `OpenAPI 2.0` compatibility.
 
@@ -87,7 +91,7 @@ is intercepted.
 
 ### Changed
 
-- Improved MMDS network stack performance
+- Improved MMDS network stack performance.
 - If the logging system is not yet initialized (via `PUT /logger`), log events
   are now sent to stdout/stderr.
 - Moved the `instance_info_fails` metric under `get_api_requests`
