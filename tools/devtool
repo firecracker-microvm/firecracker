@@ -121,31 +121,31 @@ OPT_UNATTENDED=false
 #
 say() {
     [ -t 1 ] && [ -n "$TERM" ] \
-        && echo "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $@" \
-        || echo "[$MY_NAME] $@"
+        && echo "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $*" \
+        || echo "[$MY_NAME] $*"
 }
 
 # Send a decorated message to stdout, without a trailing new line
 #
 say_noln() {
     [ -t 1 ] && [ -n "$TERM" ] \
-        && echo -n "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $@" \
-        || echo "[$MY_NAME] $@"
+        && echo -n "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $*" \
+        || echo "[$MY_NAME] $*"
 }
 
 # Send a text message to stderr
 #
 say_err() {
     [ -t 2 ] && [ -n "$TERM" ] \
-        && echo "$(tput setaf 1)[$MY_NAME] $@$(tput sgr0)" 1>&2 \
-        || echo "[$MY_NAME] $@" 1>&2
+        && echo "$(tput setaf 1)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
+        || echo "[$MY_NAME] $*" 1>&2
 }
 
 # Send a warning-highlighted text to stdout
 say_warn() {
     [ -t 1 ] && [ -n "$TERM" ] \
-        && echo "$(tput setaf 3)[$MY_NAME] $@$(tput sgr0)" \
-        || echo "[$MY_NAME] $@"
+        && echo "$(tput setaf 3)[$MY_NAME] $*$(tput sgr0)" \
+        || echo "[$MY_NAME] $*"
 }
 
 # Exit with an error message and (optional) code
