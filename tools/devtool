@@ -103,9 +103,6 @@ CTR_FC_ROOT_DIR="/firecracker"
 # Full path to the build dir, as bind-mounted in the container.
 CTR_FC_BUILD_DIR="${CTR_FC_ROOT_DIR}/build"
 
-# Full path to the cargo registry dir, as bind-mounted in the container.
-CTR_CARGO_REGISTRY_DIR="$CTR_FC_BUILD_DIR/cargo_registry"
-
 # Full path to the cargo target dir, as bind-mounted in the container.
 CTR_CARGO_TARGET_DIR="$CTR_FC_BUILD_DIR/cargo_target"
 
