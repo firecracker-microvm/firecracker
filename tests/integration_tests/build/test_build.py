@@ -2,63 +2,50 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that check if both the debug and the release builds pass."""
 
+import itertools
 import os
+import pytest
 
 import host_tools.cargo_build as host  # pylint:disable=import-error
 
+FEATURES = ["", "vsock"]
+BUILD_TYPES = ["debug", "release"]
 
-CARGO_DEBUG_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, 'debug')
-CARGO_DEBUG_REL_PATH_FEATURES = os.path.join(
-    host.CARGO_BUILD_REL_PATH,
-    'debug-features'
+
+@pytest.mark.parametrize(
+    "features, build_type",
+    itertools.product(FEATURES, BUILD_TYPES)
 )
-CARGO_RELEASE_REL_PATH_FEATURES = os.path.join(
-    host.CARGO_BUILD_REL_PATH,
-    'release-features'
-)
+def test_build(test_session_root_path, features, build_type):
+    """
+    Test build using a cartesian product of possible features and build
+    types.
+    """
+    extra_args = ""
 
+    if build_type == "release":
+        extra_args += "--release "
 
-def test_build_debug(test_session_root_path):
-    """Test if a debug-mode build works."""
+    # The relative path of the binaries is computed using the build_type
+    # (either release or debug) and if any features are provided also using
+    # the features names.
+    # For example, a default release build with no features will end up in
+    # the relative directory "release", but for a vsock release build the
+    # relative directory will be "release-vsock".
+    rel_path = os.path.join(
+        host.CARGO_BUILD_REL_PATH,
+        build_type
+    )
+    if features:
+        rel_path += "-{}".format(features)
+        extra_args = "--features {} ".format(features)
+
     build_path = os.path.join(
         test_session_root_path,
-        CARGO_DEBUG_REL_PATH
+        rel_path
     )
-    host.cargo_build(build_path)
 
-
-def test_build_debug_with_features(test_session_root_path):
-    """Test if a debug-mode build works for supported features."""
-    build_path = os.path.join(
-        test_session_root_path,
-        CARGO_DEBUG_REL_PATH_FEATURES
-    )
-    # Building with multiple features is as simple as:
-    # cargo build --features "feature1 feature2". We are currently
-    # supporting only one features: vsock.
-    host.cargo_build(build_path, '--features "{}"'.format('vsock'))
-
-
-def test_build_release(test_session_root_path):
-    """Test if a release-mode build works."""
-    build_path = os.path.join(
-        test_session_root_path,
-        host.CARGO_RELEASE_REL_PATH
-    )
-    host.cargo_build(build_path, '--release')
-
-
-def test_build_release_with_features(test_session_root_path):
-    """Test if a release-mode build works for supported features."""
-    build_path = os.path.join(
-        test_session_root_path,
-        CARGO_RELEASE_REL_PATH_FEATURES
-    )
-    host.cargo_build(
-        build_path,
-        '--features "{}"'.format('vsock'),
-        '--release'
-    )
+    host.cargo_build(build_path, extra_args=extra_args)
 
 
 def test_arm_build_release(test_session_root_path):
@@ -69,6 +56,5 @@ def test_arm_build_release(test_session_root_path):
     )
     host.cargo_build(
         build_path,
-        '--target aarch64-unknown-linux-musl',
-        '--release'
+        '--target aarch64-unknown-linux-musl --release'
     )

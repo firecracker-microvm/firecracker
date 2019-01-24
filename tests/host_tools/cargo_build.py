@@ -17,11 +17,10 @@ CARGO_RELEASE_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, 'release')
 RELEASE_BINARIES_REL_PATH = 'x86_64-unknown-linux-musl/release/'
 
 
-def cargo_build(path, flags='', extra_args=''):
+def cargo_build(path, extra_args=''):
     """Trigger build depending on flags provided."""
-    cmd = 'CARGO_TARGET_DIR={} cargo build {} {}'.format(
+    cmd = 'CARGO_TARGET_DIR={} cargo build {}'.format(
         path,
-        flags,
         extra_args
     )
     run(cmd, shell=True, check=True)
@@ -54,7 +53,6 @@ def get_firecracker_binaries(root_path):
         )
         cargo_build(
             build_path,
-            flags='--release',
-            extra_args='>/dev/null 2>&1'
+            extra_args='--release >/dev/null 2>&1'
         )
     return fc_binary_path, jailer_binary_path
