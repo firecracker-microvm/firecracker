@@ -10,21 +10,21 @@ import host_tools.cargo_build as host  # pylint:disable=import-error
 
 FEATURES = ["", "vsock"]
 BUILD_TYPES = ["debug", "release"]
+TARGETS = ["x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"]
 
 
 @pytest.mark.parametrize(
-    "features, build_type",
-    itertools.product(FEATURES, BUILD_TYPES)
+    "features, build_type, target",
+    itertools.product(FEATURES, BUILD_TYPES, TARGETS)
 )
-def test_build(test_session_root_path, features, build_type):
+def test_build(test_session_root_path, features, build_type, target):
     """
     Test different builds.
 
-    Test builds using a cartesian product of possible features and build
-    types.
+    This will generate build tests using the cartesian product of all
+    features, build types (release/debug) and build targets (musl/gnu).
     """
-    extra_args = ""
-
+    extra_args = "--target {} ".format(target)
     if build_type == "release":
         extra_args += "--release "
 
