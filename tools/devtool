@@ -555,6 +555,10 @@ cmd_fmt() {
 
 main() {
 
+    if [ $# = 0 ]; then
+	die "No command provided. Please use \`$0 help\` for help."
+    fi
+
     # Parse main command line args.
     #
     while [ $# -gt 0 ]; do
