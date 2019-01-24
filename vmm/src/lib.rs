@@ -87,7 +87,8 @@ use vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkIn
 use vmm_config::vsock::{VsockDeviceConfig, VsockDeviceConfigs, VsockError};
 use vstate::{Vcpu, Vm};
 
-const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
+const DEFAULT_KERNEL_CMDLINE: &str =
+    "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0 clocksource=kvm-clock";
 const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u16 = 0x03f0;
 const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 const VCPU_RTSIG_OFFSET: i32 = 0;
