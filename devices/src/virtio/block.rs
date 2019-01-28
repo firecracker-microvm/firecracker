@@ -61,10 +61,13 @@ enum Error {
     DescriptorLengthTooSmall,
     /// Getting a block's metadata fails for any reason.
     GetFileMetadata,
+    /// The requested operation would cause a seek beyond disk end.
+    InvalidOffset,
 }
 
 #[derive(Debug)]
 enum ExecuteError {
+    BadRequest(Error),
     Flush(io::Error),
     Read(GuestMemoryError),
     Seek(io::Error),
@@ -75,6 +78,7 @@ enum ExecuteError {
 impl ExecuteError {
     fn status(&self) -> u32 {
         match self {
+            &ExecuteError::BadRequest(_) => VIRTIO_BLK_S_IOERR,
             &ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
             &ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
             &ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
@@ -161,7 +165,6 @@ struct Request {
 
 impl Request {
     fn parse(avail_desc: &DescriptorChain, mem: &GuestMemory) -> result::Result<Request, Error> {
-
         // The head contains the request type which MUST be readable.
         if avail_desc.is_write_only() {
             return Err(Error::UnexpectedWriteOnlyDescriptor);
@@ -177,7 +180,8 @@ impl Request {
 
         let data_desc;
         let status_desc;
-        let desc = avail_desc.next_descriptor()
+        let desc = avail_desc
+            .next_descriptor()
             .ok_or(Error::DescriptorChainTooShort)?;
 
         if !desc.has_next() {
@@ -186,10 +190,10 @@ impl Request {
             if req.request_type != RequestType::Flush {
                 return Err(Error::DescriptorChainTooShort);
             }
-        }
-        else {
+        } else {
             data_desc = desc;
-            status_desc = data_desc.next_descriptor()
+            status_desc = data_desc
+                .next_descriptor()
                 .ok_or(Error::DescriptorChainTooShort)?;
 
             if data_desc.is_write_only() && req.request_type == RequestType::Out {
@@ -223,11 +227,24 @@ impl Request {
     fn execute<T: Seek + Read + Write>(
         &self,
         disk: &mut T,
+        disk_nsectors: u64,
         mem: &GuestMemory,
         disk_id: &Vec<u8>,
     ) -> result::Result<u32, ExecuteError> {
+        let mut top: u64 = (self.data_len as u64) / SECTOR_SIZE;
+        if (self.data_len as u64) % SECTOR_SIZE != 0 {
+            top += 1;
+        }
+        top = top
+            .checked_add(self.sector)
+            .ok_or(ExecuteError::BadRequest(Error::InvalidOffset))?;
+        if top > disk_nsectors {
+            return Err(ExecuteError::BadRequest(Error::InvalidOffset));
+        }
+
         disk.seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
             .map_err(ExecuteError::Seek)?;
+
         match self.request_type {
             RequestType::In => {
                 mem.read_to_memory(self.data_addr, disk, self.data_len as usize)
@@ -248,6 +265,9 @@ impl Request {
                 Err(e) => return Err(ExecuteError::Flush(e)),
             },
             RequestType::GetDeviceID => {
+                if (self.data_len as usize) < disk_id.len() {
+                    return Err(ExecuteError::BadRequest(Error::InvalidOffset));
+                }
                 mem.write_slice_at_addr(&disk_id.as_slice(), self.data_addr)
                     .map_err(ExecuteError::Write)?;
             }
@@ -261,6 +281,7 @@ struct BlockEpollHandler {
     queues: Vec<Queue>,
     mem: GuestMemory,
     disk_image: File,
+    disk_nsectors: u64,
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
     queue_evt: EventFd,
@@ -303,20 +324,23 @@ impl BlockEpollHandler {
                             break;
                         }
                     }
-                    let status =
-                        match request.execute(&mut self.disk_image, &self.mem, &self.disk_image_id)
-                        {
-                            Ok(l) => {
-                                len = l;
-                                VIRTIO_BLK_S_OK
-                            }
-                            Err(e) => {
-                                error!("Failed to execute request: {:?}", e);
-                                METRICS.block.invalid_reqs_count.inc();
-                                len = 1; // We need at least 1 byte for the status.
-                                e.status()
-                            }
-                        };
+                    let status = match request.execute(
+                        &mut self.disk_image,
+                        self.disk_nsectors,
+                        &self.mem,
+                        &self.disk_image_id,
+                    ) {
+                        Ok(l) => {
+                            len = l;
+                            VIRTIO_BLK_S_OK
+                        }
+                        Err(e) => {
+                            error!("Failed to execute request: {:?}", e);
+                            METRICS.block.invalid_reqs_count.inc();
+                            len = 1; // We need at least 1 byte for the status.
+                            e.status()
+                        }
+                    };
                     // We use unwrap because the request parsing process already checked that the
                     // status_addr was valid.
                     self.mem
@@ -356,6 +380,11 @@ impl BlockEpollHandler {
 
     fn update_disk_image(&mut self, disk_image: File) -> result::Result<(), DeviceError> {
         self.disk_image = disk_image;
+        self.disk_nsectors = self
+            .disk_image
+            .seek(SeekFrom::End(0))
+            .map_err(DeviceError::IoError)?
+            / SECTOR_SIZE;
         self.disk_image_id = build_disk_image_id(&self.disk_image);
         METRICS.block.update_count.inc();
         Ok(())
@@ -436,6 +465,7 @@ impl EpollConfig {
 /// Virtio device for exposing block level read/write operations on a host file.
 pub struct Block {
     disk_image: Option<File>,
+    disk_nsectors: u64,
     avail_features: u64,
     acked_features: u64,
     config_space: Vec<u8>,
@@ -474,9 +504,7 @@ impl Block {
             );
         }
 
-        let mut avail_features =
-            (1u64 << VIRTIO_F_VERSION_1)
-            | (1u64 << VIRTIO_BLK_F_FLUSH);
+        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
 
         if is_disk_read_only {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
@@ -484,6 +512,7 @@ impl Block {
 
         Ok(Block {
             disk_image: Some(disk_image),
+            disk_nsectors: disk_size / SECTOR_SIZE,
             avail_features,
             acked_features: 0u64,
             config_space: build_config_space(disk_size),
@@ -589,6 +618,7 @@ impl VirtioDevice for Block {
                 queues,
                 mem,
                 disk_image,
+                disk_nsectors: self.disk_nsectors,
                 interrupt_status: status,
                 interrupt_evt,
                 queue_evt,
@@ -720,7 +750,8 @@ mod tests {
         assert!(vq.end().0 < 0x1000);
 
         let queues = vec![vq.create_queue()];
-        let disk_image = b.disk_image.take().unwrap();
+        let mut disk_image = b.disk_image.take().unwrap();
+        let disk_nsectors = disk_image.seek(SeekFrom::End(0)).unwrap() / SECTOR_SIZE;
         let status = Arc::new(AtomicUsize::new(0));
         let interrupt_evt = EventFd::new().unwrap();
         let queue_evt = EventFd::new().unwrap();
@@ -737,6 +768,7 @@ mod tests {
                 queues,
                 mem: mem.clone(),
                 disk_image,
+                disk_nsectors,
                 interrupt_status: status,
                 interrupt_evt,
                 queue_evt,
@@ -990,8 +1022,7 @@ mod tests {
 
         // Test `features()` and `ack_features()`.
         {
-            let features: u64 =
-                (1u64 << VIRTIO_BLK_F_RO)
+            let features: u64 = (1u64 << VIRTIO_BLK_F_RO)
                 | (1u64 << VIRTIO_F_VERSION_1)
                 | (1u64 << VIRTIO_BLK_F_FLUSH);
 
@@ -1151,7 +1182,10 @@ mod tests {
 
             // first desc no longer writable
             vq.dtable[0].flags.set(VIRTQ_DESC_F_NEXT);
+            vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             // let's generate a seek execute error caused by a very large sector number
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
+                .unwrap();
             m.write_obj_at_addr::<u64>(0xfffffffff, GuestAddress(0x1000 + 8))
                 .unwrap();
 
@@ -1170,7 +1204,12 @@ mod tests {
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
 
+            vq.dtable[1]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
             // set sector to a valid number but large enough that the full 0x1000 read will fail
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
+                .unwrap();
             m.write_obj_at_addr::<u64>(10, GuestAddress(0x1000 + 8))
                 .unwrap();
 
@@ -1306,6 +1345,7 @@ mod tests {
 
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
+            vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
 
             m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
                 .unwrap();
@@ -1341,6 +1381,26 @@ mod tests {
                     .trim_matches(chars_to_trim)
             );
             assert_eq!(received_device_id, expected_device_id);
+        }
+
+        {
+            // test that a device ID request will fail, if it fails to provide enough buffer space
+
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+            vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES - 1);
+
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
+                .unwrap();
+
+            invoke_handler_for_queue_event(&mut h);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR
+            );
         }
 
         // test the bandwidth rate limiter

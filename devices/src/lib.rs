@@ -70,4 +70,5 @@ pub enum Error {
         device: &'static str,
         event: DeviceEventT,
     },
+    IoError(io::Error),
 }
