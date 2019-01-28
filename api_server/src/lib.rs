@@ -21,12 +21,12 @@ extern crate vmm;
 mod http_service;
 pub mod request;
 
-use std::io;
 use std::os::unix::io::FromRawFd;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
+use std::{fmt, io};
 
 use futures::{Future, Stream};
 use hyper::server::Http;
@@ -41,10 +41,27 @@ use vmm::default_syscalls;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::VmmAction;
 
-#[derive(Debug)]
 pub enum Error {
     Io(io::Error),
-    Eventfd(sys_util::Error),
+    Eventfd(io::Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::Io(ref err) => write!(f, "IO error: {}", err),
+            Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
+        }
+    }
+}
+
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::Io(ref err) => write!(f, "IO error: {}", err),
+            Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
+        }
+    }
 }
 
 pub enum UnixDomainSocket<P> {
@@ -158,5 +175,38 @@ impl ApiServer {
 
     pub fn get_event_fd_clone(&self) -> Result<EventFd> {
         self.efd.try_clone().map_err(Error::Eventfd)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_messages() {
+        let e = Error::Io(io::Error::from_raw_os_error(0));
+        assert_eq!(
+            format!("{}", e),
+            format!("IO error: {}", io::Error::from_raw_os_error(0))
+        );
+        let e = Error::Eventfd(io::Error::from_raw_os_error(0));
+        assert_eq!(
+            format!("{}", e),
+            format!("EventFd error: {}", io::Error::from_raw_os_error(0))
+        );
+    }
+
+    #[test]
+    fn test_error_debug() {
+        let e = Error::Io(io::Error::from_raw_os_error(0));
+        assert_eq!(
+            format!("{:?}", e),
+            format!("IO error: {}", io::Error::from_raw_os_error(0))
+        );
+        let e = Error::Eventfd(io::Error::from_raw_os_error(0));
+        assert_eq!(
+            format!("{:?}", e),
+            format!("EventFd error: {}", io::Error::from_raw_os_error(0))
+        );
     }
 }

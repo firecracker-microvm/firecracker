@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::io::Cursor;
+use std::io::{self, Cursor};
 use std::mem;
 use std::result;
 
@@ -13,12 +13,11 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use kvm;
 use kvm_bindings::kvm_lapic_state;
-use sys_util;
 
 #[derive(Debug)]
 pub enum Error {
-    GetLapic(sys_util::Error),
-    SetLapic(sys_util::Error),
+    GetLapic(io::Error),
+    SetLapic(io::Error),
 }
 
 pub type Result<T> = result::Result<T, Error>;

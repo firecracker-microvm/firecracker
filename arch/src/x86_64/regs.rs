@@ -5,14 +5,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{mem, result};
+use std::{io, mem, result};
 
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 use arch_gen::x86::msr_index;
 use kvm::VcpuFd;
 use kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_msrs, kvm_regs, kvm_sregs};
 use memory_model::{GuestAddress, GuestMemory};
-use sys_util;
 
 // Initial pagetables.
 const PML4_START: usize = 0x9000;
@@ -22,15 +21,15 @@ const PDE_START: usize = 0xb000;
 #[derive(Debug)]
 pub enum Error {
     /// Failed to get SREGs for this CPU.
-    GetStatusRegisters(sys_util::Error),
+    GetStatusRegisters(io::Error),
     /// Failed to set base registers for this CPU.
-    SetBaseRegisters(sys_util::Error),
+    SetBaseRegisters(io::Error),
     /// Failed to configure the FPU.
-    SetFPURegisters(sys_util::Error),
+    SetFPURegisters(io::Error),
     /// Setting up MSRs failed.
-    SetModelSpecificRegisters(sys_util::Error),
+    SetModelSpecificRegisters(io::Error),
     /// Failed to set SREGs for this CPU.
-    SetStatusRegisters(sys_util::Error),
+    SetStatusRegisters(io::Error),
     /// Writing the GDT to RAM failed.
     WriteGDT,
     /// Writing the IDT to RAM failed.

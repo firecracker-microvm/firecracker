@@ -5,18 +5,20 @@
 extern crate kvm;
 extern crate sys_util;
 
+use std::io;
+
 use kvm::{IoeventAddress, VmFd};
-use sys_util::{Error as SysError, EventFd};
+use sys_util::EventFd;
 
 /// Indication of success or failure of a `VmRequest`.
 ///
 /// Success is usually indicated `VmResponse::Ok` unless there is data associated with the response.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum VmResponse {
     /// Indicates the request was executed successfully.
     Ok,
     /// Indicates the request encountered some error during execution.
-    Err(SysError),
+    Err(io::Error),
 }
 
 /// A request to the main process to perform some operation on the VM.

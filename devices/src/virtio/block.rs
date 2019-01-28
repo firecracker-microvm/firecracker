@@ -762,7 +762,7 @@ mod tests {
         h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
             .unwrap();
         // validate the queue operation finished successfully
-        assert_eq!(h.interrupt_evt.read(), Ok(2));
+        assert_eq!(h.interrupt_evt.read().unwrap(), 2);
     }
 
     #[test]
@@ -1325,7 +1325,7 @@ mod tests {
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
                 // assert that no operation actually completed (limiter blocked it)
-                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 1);
                 // make sure the data is still queued for processing
                 assert_eq!(vq.used.idx.get(), 0);
             }
@@ -1343,7 +1343,7 @@ mod tests {
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
                 // make sure the virtio queue operation completed this time
-                assert_eq!(h.interrupt_evt.read(), Ok(2));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 2);
 
                 // make sure the data queue advanced
                 assert_eq!(vq.used.idx.get(), 1);
@@ -1386,7 +1386,7 @@ mod tests {
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
                 // assert that no operation actually completed (limiter blocked it)
-                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 1);
                 // make sure the data is still queued for processing
                 assert_eq!(vq.used.idx.get(), 0);
             }
@@ -1403,7 +1403,7 @@ mod tests {
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
                 // assert that no operation actually completed (limiter blocked it)
-                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 1);
                 // make sure the data is still queued for processing
                 assert_eq!(vq.used.idx.get(), 0);
             }
@@ -1421,7 +1421,7 @@ mod tests {
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
                 // make sure the virtio queue operation completed this time
-                assert_eq!(h.interrupt_evt.read(), Ok(2));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 2);
 
                 // make sure the data queue advanced
                 assert_eq!(vq.used.idx.get(), 1);
