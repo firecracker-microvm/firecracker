@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Added missing `vmm_version` field to the InstanceInfo API swagger
+  definition, and marked several other mandatory fields as such.
+
 ## [0.14.0]
 
 ### Added
@@ -10,12 +17,14 @@
 - Limit the maximum supported vCPUs to 32.
 
 ### Changed
+
 - Log the app version when the `Logger` is initialized.
 - Pretty print panic information.
 - Firecracker terminates with exit code 148 when a non-whitelisted syscall
   is intercepted.
 
 ### Fixed
+
 - Fixed build with the `vsock` feature.
 
 ## [0.13.0]
