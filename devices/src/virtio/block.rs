@@ -84,7 +84,7 @@ impl ExecuteError {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum RequestType {
     In,
     Out,
@@ -161,26 +161,49 @@ struct Request {
 
 impl Request {
     fn parse(avail_desc: &DescriptorChain, mem: &GuestMemory) -> result::Result<Request, Error> {
+
         // The head contains the request type which MUST be readable.
         if avail_desc.is_write_only() {
             return Err(Error::UnexpectedWriteOnlyDescriptor);
         }
 
-        let request_type = request_type(&mem, avail_desc.addr)?;
-        let sector = sector(&mem, avail_desc.addr)?;
-        let data_desc = avail_desc
-            .next_descriptor()
-            .ok_or(Error::DescriptorChainTooShort)?;
-        let status_desc = data_desc
-            .next_descriptor()
+        let mut req = Request {
+            request_type: request_type(&mem, avail_desc.addr)?,
+            sector: sector(&mem, avail_desc.addr)?,
+            data_addr: GuestAddress(0),
+            data_len: 0,
+            status_addr: GuestAddress(0),
+        };
+
+        let data_desc;
+        let status_desc;
+        let desc = avail_desc.next_descriptor()
             .ok_or(Error::DescriptorChainTooShort)?;
 
-        if data_desc.is_write_only() && request_type == RequestType::Out {
-            return Err(Error::UnexpectedWriteOnlyDescriptor);
+        if !desc.has_next() {
+            status_desc = desc;
+            // Only flush requests are allowed to skip the data descriptor.
+            if req.request_type != RequestType::Flush {
+                return Err(Error::DescriptorChainTooShort);
+            }
         }
+        else {
+            data_desc = desc;
+            status_desc = data_desc.next_descriptor()
+                .ok_or(Error::DescriptorChainTooShort)?;
 
-        if !data_desc.is_write_only() && request_type == RequestType::In {
-            return Err(Error::UnexpectedReadOnlyDescriptor);
+            if data_desc.is_write_only() && req.request_type == RequestType::Out {
+                return Err(Error::UnexpectedWriteOnlyDescriptor);
+            }
+            if !data_desc.is_write_only() && req.request_type == RequestType::In {
+                return Err(Error::UnexpectedReadOnlyDescriptor);
+            }
+            if !data_desc.is_write_only() && req.request_type == RequestType::GetDeviceID {
+                return Err(Error::UnexpectedReadOnlyDescriptor);
+            }
+
+            req.data_addr = data_desc.addr;
+            req.data_len = data_desc.len;
         }
 
         // The status MUST always be writable.
@@ -192,13 +215,9 @@ impl Request {
             return Err(Error::DescriptorLengthTooSmall);
         }
 
-        Ok(Request {
-            request_type,
-            sector,
-            data_addr: data_desc.addr,
-            data_len: data_desc.len,
-            status_addr: status_desc.addr,
-        })
+        req.status_addr = status_desc.addr;
+
+        Ok(req)
     }
 
     fn execute<T: Seek + Read + Write>(
@@ -455,10 +474,12 @@ impl Block {
             );
         }
 
-        let mut avail_features = 1 << VIRTIO_F_VERSION_1;
+        let mut avail_features =
+            (1u64 << VIRTIO_F_VERSION_1)
+            | (1u64 << VIRTIO_BLK_F_FLUSH);
 
         if is_disk_read_only {
-            avail_features |= 1 << VIRTIO_BLK_F_RO;
+            avail_features |= 1u64 << VIRTIO_BLK_F_RO;
         };
 
         Ok(Block {
@@ -969,7 +990,10 @@ mod tests {
 
         // Test `features()` and `ack_features()`.
         {
-            let features: u64 = 1u64 << VIRTIO_BLK_F_RO | 1u64 << VIRTIO_F_VERSION_1;
+            let features: u64 =
+                (1u64 << VIRTIO_BLK_F_RO)
+                | (1u64 << VIRTIO_F_VERSION_1)
+                | (1u64 << VIRTIO_BLK_F_FLUSH);
 
             assert_eq!(b.features(0), features as u32);
             assert_eq!(b.features(1), (features >> 32) as u32);
@@ -1235,7 +1259,8 @@ mod tests {
         }
 
         {
-            // testing that the flush request completes successfully
+            // testing that the flush request completes successfully,
+            // when a data descriptor is provided
 
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
@@ -1251,6 +1276,29 @@ mod tests {
                 m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_OK
             );
+        }
+
+        {
+            // testing that the flush request completes successfully,
+            // without a data descriptor
+
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+            vq.dtable[0].next.set(2);
+
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH, GuestAddress(0x1000))
+                .unwrap();
+
+            invoke_handler_for_queue_event(&mut h);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
+                VIRTIO_BLK_S_OK
+            );
+
+            vq.dtable[0].next.set(1);
         }
 
         {
