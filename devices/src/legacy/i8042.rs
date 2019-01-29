@@ -6,7 +6,8 @@
 // found in the THIRD-PARTY file.
 
 use logger::{Metric, METRICS};
-use sys_util::{EventFd, Result};
+use std::{io, result};
+use sys_util::EventFd;
 
 use BusDevice;
 
@@ -24,8 +25,8 @@ impl I8042Device {
     }
 
     /// Returns a clone of the EventFd
-    pub fn get_eventfd_clone(&self) -> Result<EventFd> {
-        return self.reset_evt.try_clone();
+    pub fn get_eventfd_clone(&self) -> result::Result<EventFd, io::Error> {
+        self.reset_evt.try_clone()
     }
 }
 
@@ -74,7 +75,7 @@ mod tests {
         assert!(reset_evt.write(1).is_ok());
         let mut data = [RESET_CMD];
         i8042.write(0, &mut data);
-        assert_eq!(reset_evt.read(), Ok(2));
+        assert_eq!(reset_evt.read().unwrap(), 2);
 
         // Check if reading with offset 1 doesn't have side effects.
         i8042.read(1, &mut data);

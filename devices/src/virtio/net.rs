@@ -1487,7 +1487,7 @@ mod tests {
                 h.rx.queue = rxq.create_queue();
                 h.interrupt_evt.write(1).unwrap();
                 // The prev rx_single_frame_no_irq_coalescing() call should have written one more.
-                assert_eq!(h.interrupt_evt.read(), Ok(2));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 2);
             }
 
             {
@@ -1504,7 +1504,7 @@ mod tests {
                 rxq.used.idx.set(0);
                 h.rx.queue = rxq.create_queue();
                 h.interrupt_evt.write(1).unwrap();
-                assert_eq!(h.interrupt_evt.read(), Ok(2));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 2);
             }
 
             // set rx_count back to 0
@@ -1540,7 +1540,7 @@ mod tests {
             h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty)
                 .unwrap();
             assert!(h.rx.deferred_frame);
-            assert_eq!(h.interrupt_evt.read(), Ok(2));
+            assert_eq!(h.interrupt_evt.read().unwrap(), 2);
             // The #cfg(test) enabled version of read_tap always returns 1234 bytes (or the len of
             // the buffer, whichever is smaller).
             assert_eq!(rxq.used.ring[0].get().len, 1234);
@@ -1557,7 +1557,7 @@ mod tests {
             h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty)
                 .unwrap();
             assert!(h.rx.deferred_frame);
-            assert_eq!(h.interrupt_evt.read(), Ok(2));
+            assert_eq!(h.interrupt_evt.read().unwrap(), 2);
 
             // ... but the following shouldn't, because we emulate receiving much more data than
             // we can fit inside a single descriptor
@@ -1573,7 +1573,7 @@ mod tests {
                 h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty)
             );
             assert!(h.rx.deferred_frame);
-            assert_eq!(h.interrupt_evt.read(), Ok(2));
+            assert_eq!(h.interrupt_evt.read().unwrap(), 2);
 
             // A mismatch shows the reception was unsuccessful.
             assert_ne!(rxq.used.ring[0].get().len as usize, h.rx.bytes_read);
@@ -1592,7 +1592,7 @@ mod tests {
             h.interrupt_evt.write(1).unwrap();
             h.handle_event(RX_QUEUE_EVENT, 0, EpollHandlerPayload::Empty)
                 .unwrap();
-            assert_eq!(h.interrupt_evt.read(), Ok(2));
+            assert_eq!(h.interrupt_evt.read().unwrap(), 2);
         }
 
         {
@@ -1685,7 +1685,7 @@ mod tests {
                 assert!(h.get_rx_rate_limiter().is_blocked());
                 assert!(h.rx.deferred_frame);
                 // assert that no operation actually completed (limiter blocked it)
-                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 1);
                 // make sure the data is still queued for processing
                 assert_eq!(rxq.used.idx.get(), 0);
             }
@@ -1703,7 +1703,7 @@ mod tests {
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rx_rate_limiter().is_blocked());
                 // make sure the virtio queue operation completed this time
-                assert_eq!(h.interrupt_evt.read(), Ok(2));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 2);
                 // make sure the data queue advanced
                 assert_eq!(rxq.used.idx.get(), 1);
                 // The #cfg(test) enabled version of read_tap always returns 1234 bytes
@@ -1792,7 +1792,7 @@ mod tests {
                 assert!(h.get_rx_rate_limiter().is_blocked());
                 assert!(h.rx.deferred_frame);
                 // assert that no operation actually completed (limiter blocked it)
-                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 1);
                 // make sure the data is still queued for processing
                 assert_eq!(rxq.used.idx.get(), 0);
 
@@ -1802,7 +1802,7 @@ mod tests {
                 h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty)
                     .unwrap();
                 // assert that no operation actually completed, that the limiter blocked it
-                assert_eq!(h.interrupt_evt.read(), Ok(1));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 1);
                 // make sure the data is still queued for processing
                 assert_eq!(rxq.used.idx.get(), 0);
             }
@@ -1818,7 +1818,7 @@ mod tests {
                 h.handle_event(RX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
                     .unwrap();
                 // make sure the virtio queue operation completed this time
-                assert_eq!(h.interrupt_evt.read(), Ok(2));
+                assert_eq!(h.interrupt_evt.read().unwrap(), 2);
                 // make sure the data queue advanced
                 assert_eq!(rxq.used.idx.get(), 1);
                 // The #cfg(test) enabled version of read_tap always returns 1234 bytes
