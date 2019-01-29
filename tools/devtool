@@ -275,8 +275,40 @@ validate_version() {
     if [ -z "$version" ]; then
         die "Version cannot be empty."
     elif [[ ! "$version" =~ $version_regex ]]; then
-        die "Invalid version number: $version (expected: \$Major.\$Minor.\$Build).".
+        die "Invalid version number: $version (expected: \$Major.\$Minor.\$Build)."
     fi
+
+}
+
+# Compose the text for a new release tag using the information in the changelog,
+# between the two specified releases.
+# The following transformations are applied:
+# * `-` is replaced with `*` for unnumbered lists.
+# * section headers (`###`) are removed.
+#
+# Args:
+#   $1  previous version.
+#   $2  new version.
+#
+compose_tag_text() {
+    declare prev_ver="$1"
+    declare curr_ver="$2"
+    declare changelog="$FC_ROOT_DIR/CHANGELOG.md"
+
+    validate_version "$prev_ver"
+    validate_version "$curr_ver"
+
+    # Patterns for the sections in the changelog corresponding to the versions.
+    pat_prev="^##\s\[$prev_ver\]"
+    pat_curr="^##\s\[$curr_ver\]"
+
+    # Extract the section enclosed between the 2 headers and strip off the first
+    # 2 and last 2 lines (one is blank and one contains the header `## [A.B.C]`).
+    # Then, replace `-` with `*` and remove section headers.
+    sed "/$pat_curr/,/$pat_prev/!d" "$changelog" \
+      | sed '1,2d;$d' \
+      | sed "s/^-/*/g" \
+      | sed "s/^###\s//g"
 }
 
 # Helper function to run the dev container.
@@ -359,6 +391,11 @@ cmd_help() {
     echo "        -p, --privileged    Run the container as root, in privileged mode."
     echo "                            Running Firecracker via the jailer requires elevated"
     echo "                            privileges, though the build phase does not."
+    echo ""
+    echo "    tag <version>"
+    echo "        Create a git tag for the specified version. The tag message will contain "
+    echo "        the contents of CHANGELOG.md enclosed between the header corresponding to "
+    echo "        the specified version and the one corresponding to the previous version."
     echo ""
     echo "    test [-- [<pytest args>]]"
     echo "        Run the Firecracker integration tests."
@@ -629,6 +666,70 @@ cmd_prepare_release() {
     rm -f "$FC_ROOT_DIR/CHANGELOG.md="
 }
 
+# Create a tag for the specified release.
+# The tag text will be composed from the changelog contents enclosed between the
+# specified release number and the previous one.
+# Args:
+#   $1  release number.
+# Example: `devtool tag 0.42.0`
+#
+cmd_tag() {
+
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")      { cmd_help; exit 1;    } ;;
+            *)                  { version="$1"; break; } ;;
+        esac
+        shift
+    done
+
+    validate_version "$version"
+
+    declare pat_release="^## \[([0-9]+\.){2}[0-9]+\]"
+    declare changelog="$FC_ROOT_DIR/CHANGELOG.md"
+
+    grep -q "\[$version\]" "$changelog"
+    ok_or_die "No changelog entry for release $version can be found."
+
+    # We work with the assumption that the changelog has already been updated
+    # and contains a header (and a corresponding section) for the new release.
+
+    # Step 1: Get all release numbers.
+    all_releases=($(grep -E "$pat_release" "$changelog"))
+
+    # Step 2: Trim out headers (`##`).
+    all_releases=(${all_releases[@]//##*})
+
+    # Step 3: Walk the array until we come across the desired release number,
+    # then pick up the next one. Since the latest releases are at the top of the
+    # changelog, the next one in line will be the previous one chronologically.
+    # The array now contains all the release numbers in the changelog, enclosed
+    # in square brackets.
+    found=
+    for release in "${all_releases[@]}"; do
+        if [ ! -z "$found" ]; then
+            # Trim out square brackets.
+            prev_version=$(echo "$release" | awk -F"[][]" "{print \$2}")
+            break
+        elif [ "$release" == "[$version]" ]; then
+            found=1
+        fi
+    done
+
+    # Create tag.
+    tag_text=$(compose_tag_text "$prev_version" "$version")
+    say "Preparing to create tag..."
+    say "Tag: v$version"
+    say "Tag text:"
+    echo "$tag_text"
+    say "Continue with tag creation?"
+    get_user_confirmation || die "Tag not created."
+
+    git tag -a "v$version" -m "$tag_text"
+    ok_or_die "Tag v$version not created."
+    say "Tag v$version created."
+}
 
 main() {
 

@@ -29,6 +29,10 @@
   `net.tx_spoofed_mac_count`.
 - New API call: `PATCH /network-interfaces/`, used to update the rate limiters
   on a network interface, after the start of a microVM.
+- New `devtool` command: `prepare_release`. This updates the Firecracker
+  version, crate dependencies and credits in preparation for a new release.
+- New `devtool` command: `tag`. This creates a new git tag for the specified
+  release number, based on the changelog contents.
 
 ### Changed
 
