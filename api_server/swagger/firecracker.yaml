@@ -351,19 +351,24 @@ definitions:
         $ref: "#/definitions/RateLimiter"
 
   Error:
+    type: object
     properties:
       fault_message:
         type: string
         description: A description of the error condition
+        readOnly: true
 
   InstanceActionInfo:
     type: object
     description:
       Variant wrapper containing the real action.
+    required:
+      - action_type
     properties:
       action_type:
         description: Enumeration indicating what type of action is contained in the payload
         type: string
+        readOnly: true
         enum:
         - BlockDeviceRescan
         - FlushMetrics
@@ -372,21 +377,34 @@ definitions:
         type: string
 
   InstanceInfo:
+    type: object
+    description:
+      Describes MicroVM instance information.
+    required:
+      - id
+      - state
+      - vmm_version
     properties:
       id:
         description: MicroVM / instance ID.
         type: string
+        readOnly: true
       state:
         description:
           The current detailed state of the Firecracker instance.
           This value is read-only for the control-plane.
         type: string
+        readOnly: true
         enum:
           - Uninitialized
           - Starting
           - Running
           - Halting
           - Halted
+      vmm_version:
+        description: MicroVM hypervisor build version.
+        type: string
+        readOnly: true
 
   Logger:
     type: object
@@ -448,6 +466,7 @@ definitions:
       Defines a network interface.
     required:
       - iface_id
+      - host_dev_name
     properties:
       iface_id:
         type: string
@@ -505,6 +524,9 @@ definitions:
       Consumption from the token bucket is unbounded in speed which allows for bursts
       bound in size by the amount of tokens available.
       Once the token bucket is empty, consumption speed is bound by the refill_rate.
+    required:
+      - size
+      - refill_time
     properties:
       size:
         type: integer
