@@ -265,6 +265,20 @@ get_user_confirmation() {
     return 1
 }
 
+# Validate the user supplied version number.
+# It must be composed of 3 groups of integers separated by dot.
+#
+validate_version() {
+    declare version_regex="^([0-9]+.){2}[0-9]+$"
+    version="$1"
+
+    if [ -z "$version" ]; then
+        die "Version cannot be empty."
+    elif [[ ! "$version" =~ $version_regex ]]; then
+        die "Invalid version number: $version (expected: \$Major.\$Minor.\$Build).".
+    fi
+}
+
 # Helper function to run the dev container.
 # Usage: run_devctr <docker args> -- <container args>
 # Example: run_devctr --privileged -- bash -c "echo 'hello world'"
@@ -335,6 +349,10 @@ cmd_help() {
     echo ""
     echo "    help"
     echo "        Display this help message."
+    echo ""
+    echo "    prepare_release <version>"
+    echo "        Prepare a new Firecracker release by updating the version number, crate "
+    echo "        dependencies and credits."
     echo ""
     echo "    shell [--privileged]"
     echo "        Launch the development container and open an interactive BASH shell."
@@ -547,6 +565,57 @@ cmd_fmt() {
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
         cargo fmt --all
+}
+
+
+# Prepare a Firecracker release by updating the version, crate dependencies
+# and credits.
+# Example: `devtool release 0.42.0`
+#
+cmd_prepare_release() {
+
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")      { cmd_help; exit 1;    } ;;
+            *)                  { version="$1"; break; } ;;
+        esac
+        shift
+    done
+
+    validate_version "$version"
+
+    # Get current version from the swagger spec.
+    swagger="$FC_ROOT_DIR/api_server/swagger/firecracker.yaml"
+    curr_ver=$(grep "version: " "$swagger" | awk -F : '{print $2}' | tr -d ' ')
+
+    say "Updating from $curr_ver to $version ..."
+    get_user_confirmation || die "Aborted."
+
+    # Update version in files.
+    files_to_change=("$swagger"                         \
+                     "$FC_ROOT_DIR/Cargo.toml"          \
+                     "$FC_ROOT_DIR/jailer/Cargo.toml")
+    for file in "${files_to_change[@]}"; do
+        sed -i "s/$curr_ver/$version/g" "$file"
+    done
+    say "Updated version number in source files."
+
+    # Update crate dependencies.
+    run_devctr \
+        --user "$(id -u):$(id -g)" \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        -- \
+        cargo update
+    say "Updated crate dependencies."
+
+    # Update credits.
+    . "$FC_TOOLS_DIR/update-credits.sh"
+    say "Updated credits."
+
+    # Update changelog.
+    sed -i "s/\[Unreleased\]/\[$version\]/g" "$FC_ROOT_DIR/CHANGELOG.md"
+    say "Updated changelog."
 }
 
 
