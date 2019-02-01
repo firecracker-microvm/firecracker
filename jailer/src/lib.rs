@@ -54,6 +54,8 @@ pub enum Error {
     CgroupLineNotFound(String, String),
     CgroupLineNotUnique(String, String),
     ChangeDevNetTunOwner(sys_util::Error),
+    #[cfg(feature = "vsock")]
+    ChangeDevVhostVsockOwner(sys_util::Error),
     ChdirNewRoot(sys_util::Error),
     CloseNetNsFd(sys_util::Error),
     CloseDevNullFd(sys_util::Error),
@@ -72,6 +74,8 @@ pub enum Error {
     MissingParent(PathBuf),
     MkdirOldRoot(sys_util::Error),
     MknodDevNetTun(sys_util::Error),
+    #[cfg(feature = "vsock")]
+    MknodDevVhostVsock(sys_util::Error),
     MountBind(sys_util::Error),
     MountPropagationPrivate(sys_util::Error),
     NotAFile(PathBuf),
@@ -129,6 +133,10 @@ impl fmt::Display for Error {
             ChangeDevNetTunOwner(ref err) => {
                 write!(f, "Failed to change owner for /dev/net/tun: {}", err)
             }
+            #[cfg(feature = "vsock")]
+            ChangeDevVhostVsockOwner(ref err) => {
+                write!(f, "Failed to change owner for /dev/vhost-vsock: {}", err)
+            }
             ChdirNewRoot(ref err) => write!(f, "Failed to chdir into chroot directory: {}", err),
             CloseNetNsFd(ref err) => write!(f, "Failed to close netns fd: {}", err),
             CloseDevNullFd(ref err) => write!(f, "Failed to close /dev/null fd: {}", err),
@@ -175,6 +183,12 @@ impl fmt::Display for Error {
             MknodDevNetTun(ref err) => write!(
                 f,
                 "Failed to create /dev/net/tun via mknod inside the jail: {}",
+                err
+            ),
+            #[cfg(feature = "vsock")]
+            MknodDevVhostVsock(ref err) => write!(
+                f,
+                "Failed to create /dev/vhost-vsock via mknod inside the jail: {}",
                 err
             ),
             MountBind(ref err) => {
@@ -489,6 +503,11 @@ mod tests {
             format!("{}", Error::ChangeDevNetTunOwner(err42.clone())),
             "Failed to change owner for /dev/net/tun: Errno 42",
         );
+        #[cfg(feature = "vsock")]
+        assert_eq!(
+            format!("{}", Error::ChangeDevVhostVsockOwner(err42.clone())),
+            "Failed to change owner for /dev/vhost-vsock: Errno 42",
+        );
         assert_eq!(
             format!("{}", Error::ChdirNewRoot(err42.clone())),
             "Failed to chdir into chroot directory: Errno 42"
@@ -579,6 +598,11 @@ mod tests {
         assert_eq!(
             format!("{}", Error::MknodDevNetTun(err42.clone())),
             "Failed to create /dev/net/tun via mknod inside the jail: Errno 42",
+        );
+        #[cfg(feature = "vsock")]
+        assert_eq!(
+            format!("{}", Error::MknodDevVhostVsock(err42.clone())),
+            "Failed to create /dev/vhost-vsock via mknod inside the jail: Errno 42",
         );
         assert_eq!(
             format!("{}", Error::MountBind(err42.clone())),

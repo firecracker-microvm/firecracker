@@ -25,6 +25,8 @@ const STDERR_FILENO: libc::c_int = 2;
 
 const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
 const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
+#[cfg(feature = "vsock")]
+const DEV_VHOST_VSOCK_WITH_NUL: &[u8] = b"/dev/vhost-vsock\0";
 
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
@@ -234,6 +236,10 @@ impl Env {
         let dev_net_tun_path = CStr::from_bytes_with_nul(DEV_NET_TUN_WITH_NUL)
             .map_err(|_| Error::FromBytesWithNul(DEV_NET_TUN_WITH_NUL))?;
 
+        #[cfg(feature = "vsock")]
+        let dev_vhost_vsock_path = CStr::from_bytes_with_nul(DEV_VHOST_VSOCK_WITH_NUL)
+            .map_err(|_| Error::FromBytesWithNul(DEV_VHOST_VSOCK_WITH_NUL))?;
+
         // As per sysstat.h:
         // S_IFCHR -> character special device
         // S_IRUSR -> read permission, owner
@@ -254,6 +260,25 @@ impl Env {
 
         if unsafe { libc::chown(dev_net_tun_path.as_ptr(), self.uid(), self.gid()) } < 0 {
             return Err(Error::ChangeDevNetTunOwner(sys_util::Error::last()));
+        }
+
+        #[cfg(feature = "vsock")]
+        {
+            // Do the same for /dev/vhost_vsock with (major, minor) = (10, 241).
+            if unsafe {
+                libc::mknod(
+                    dev_vhost_vsock_path.as_ptr(),
+                    libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR,
+                    libc::makedev(10, 241),
+                )
+            } < 0
+            {
+                return Err(Error::MknodDevVhostVsock(sys_util::Error::last()));
+            }
+
+            if unsafe { libc::chown(dev_vhost_vsock_path.as_ptr(), self.uid(), self.gid()) } < 0 {
+                return Err(Error::ChangeDevVhostVsockOwner(sys_util::Error::last()));
+            }
         }
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
