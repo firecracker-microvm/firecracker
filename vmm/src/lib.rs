@@ -834,9 +834,13 @@ impl Vmm {
         let address_space = arch::create_address_space(mem_size).map_err(|_| {
             StartMicrovmError::GuestMemory(memory_model::GuestMemoryError::InvalidASOperation)
         })?;
+        let boot_mem_types = [
+            AddressRegionType::DefaultMemory,
+            AddressRegionType::BiosMemory,
+        ];
         self.guest_memory = Some(
             address_space
-                .map_guest_memory(&[AddressRegionType::DefaultMemory])
+                .map_guest_memory(&boot_mem_types)
                 .map_err(|e| StartMicrovmError::GuestMemory(e))?,
         );
         self.address_space = Some(address_space);
@@ -1117,7 +1121,10 @@ impl Vmm {
             .vm_config
             .vcpu_count
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
+        // It's safe to unwrap() because address_space is initalized in init_guest_memory()
+        let address_space = self.address_space.as_ref().unwrap();
         arch::configure_system(
+            address_space,
             vm_memory,
             kernel_config.cmdline_addr,
             cmdline_cstring.to_bytes().len() + 1,

@@ -22,6 +22,8 @@ use mmap::MemoryMapping;
 pub enum AddressRegionType {
     /// Normal memory accessible by CPUs and IO devices
     DefaultMemory,
+    /// Memory reserved for BIOS/VGA
+    BiosMemory,
     /// Memory accessible by CPUs only
     HighMemory,
     /// Memory for IO/DMA buffers
