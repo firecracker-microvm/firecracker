@@ -3,15 +3,15 @@
 
 pub mod layout;
 
-use memory_model::{AddressRegion, AddressRegionType, GuestAddress, GuestMemory};
+use memory_model::{AddressSpace, GuestAddress, GuestMemory};
 
 /// Stub function that needs to be implemented when aarch64 functionality is added.
-pub fn arch_memory_regions(size: usize) -> Vec<AddressRegion> {
-    vec![AddressRegion::new(
-        AddressRegionType::DefaultMemory,
-        GuestAddress(0),
-        size,
-    )]
+pub fn create_address_space(size: usize) -> Result<AddressSpace, super::Error> {
+    let address_space = AddressSpace::with_capacity(1);
+    address_space
+        .add_default_memory(GuestAddress(0), size)
+        .map_err(|_| super::Error::ZeroPagePastRamEnd)?;
+    Ok(address_space)
 }
 
 /// Stub function that needs to be implemented when aarch64 functionality is added.

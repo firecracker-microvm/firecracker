@@ -31,7 +31,7 @@ pub mod aarch64;
 
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
-    arch_memory_regions, configure_system, get_reserved_mem_addr, layout::CMDLINE_MAX_SIZE,
+    configure_system, create_address_space, get_reserved_mem_addr, layout::CMDLINE_MAX_SIZE,
     layout::CMDLINE_START,
 };
 
@@ -40,6 +40,6 @@ pub mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::{
-    arch_memory_regions, configure_system, get_32bit_gap_start as get_reserved_mem_addr,
+    configure_system, create_address_space, get_32bit_gap_start as get_reserved_mem_addr,
     layout::CMDLINE_MAX_SIZE, layout::CMDLINE_START,
 };
