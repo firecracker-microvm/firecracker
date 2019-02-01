@@ -30,6 +30,6 @@ lto = true
 panic = "abort"
 
 [features]
-vsock = ["api_server/vsock"]
+vsock = ["api_server/vsock", "jailer/vsock"]
 
 [workspace]
