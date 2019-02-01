@@ -14,7 +14,7 @@ pub mod regs;
 use std::mem;
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
-use memory_model::{GuestAddress, GuestMemory};
+use memory_model::{AddressRegion, AddressRegionType, GuestAddress, GuestMemory};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -39,7 +39,7 @@ const MEM_32BIT_GAP_SIZE: usize = (768 << 20);
 /// These should be used to configure the GuestMemory structure for the platform.
 /// For x86_64 all addresses are valid from the start of the kernel except a
 /// carve out at the end of 32bit address space.
-pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
+pub fn arch_memory_regions(size: usize) -> Vec<AddressRegion> {
     let memory_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
     let memory_gap_end = GuestAddress(FIRST_ADDR_PAST_32BITS);
     let requested_memory_size = GuestAddress(size);
@@ -47,12 +47,21 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 
     // case1: guest memory fits before the gap
     if requested_memory_size <= memory_gap_start {
-        regions.push((GuestAddress(0), size));
+        regions.push(AddressRegion::new(
+            AddressRegionType::DefaultMemory,
+            GuestAddress(0),
+            size,
+        ));
     // case2: guest memory extends beyond the gap
     } else {
         // push memory before the gap
-        regions.push((GuestAddress(0), memory_gap_start.offset()));
-        regions.push((
+        regions.push(AddressRegion::new(
+            AddressRegionType::DefaultMemory,
+            GuestAddress(0),
+            memory_gap_start.offset(),
+        ));
+        regions.push(AddressRegion::new(
+            AddressRegionType::DefaultMemory,
             memory_gap_end,
             requested_memory_size.offset_from(memory_gap_start),
         ));
@@ -168,16 +177,16 @@ mod tests {
     fn regions_lt_4gb() {
         let regions = arch_memory_regions(1usize << 29);
         assert_eq!(1, regions.len());
-        assert_eq!(GuestAddress(0), regions[0].0);
-        assert_eq!(1usize << 29, regions[0].1);
+        assert_eq!(GuestAddress(0), regions[0].get_base());
+        assert_eq!(1usize << 29, regions[0].get_size());
     }
 
     #[test]
     fn regions_gt_4gb() {
         let regions = arch_memory_regions((1usize << 32) + 0x8000);
         assert_eq!(2, regions.len());
-        assert_eq!(GuestAddress(0), regions[0].0);
-        assert_eq!(GuestAddress(1usize << 32), regions[1].0);
+        assert_eq!(GuestAddress(0), regions[0].get_base());
+        assert_eq!(GuestAddress(1usize << 32), regions[1].get_base());
     }
 
     #[test]
@@ -204,19 +213,19 @@ mod tests {
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = 128 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = GuestMemory::new(&arch_mem_regions).unwrap();
+        let gm = GuestMemory::from_address_regions(&arch_mem_regions).unwrap();
         configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = GuestMemory::new(&arch_mem_regions).unwrap();
+        let gm = GuestMemory::from_address_regions(&arch_mem_regions).unwrap();
         configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = GuestMemory::new(&arch_mem_regions).unwrap();
+        let gm = GuestMemory::from_address_regions(&arch_mem_regions).unwrap();
         configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
     }
 

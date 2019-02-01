@@ -11,6 +11,7 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 use std::{mem, result};
 
+use address_space::{AddressRegion, AddressRegionType};
 use guest_address::GuestAddress;
 use mmap::{self, MemoryMapping};
 use DataInit;
@@ -74,6 +75,19 @@ impl GuestMemory {
     /// Creates a container for guest memory regions.
     /// Valid memory regions are specified as a Vec of (Address, Size) tuples sorted by Address.
     pub fn new(ranges: &[(GuestAddress, usize)]) -> Result<GuestMemory> {
+        let mut vec = Vec::with_capacity(ranges.len());
+        ranges.iter().for_each(|ref range| {
+            vec.push(AddressRegion::new(
+                AddressRegionType::DefaultMemory,
+                range.0,
+                range.1,
+            ))
+        });
+        Self::from_address_regions(&vec)
+    }
+
+    /// Creates a container for guest memory regions from address regions.
+    pub fn from_address_regions(ranges: &[AddressRegion]) -> Result<GuestMemory> {
         if ranges.is_empty() {
             return Err(Error::NoMemoryRegions);
         }
@@ -84,16 +98,22 @@ impl GuestMemory {
                 if last
                     .guest_base
                     .checked_add(last.mapping.size())
-                    .map_or(true, |a| a > range.0)
+                    .map_or(true, |a| a > range.get_base())
                 {
                     return Err(Error::MemoryRegionOverlap);
                 }
             }
 
-            let mapping = MemoryMapping::new(range.1).map_err(Error::MemoryMappingFailed)?;
+            let mapping = match range.get_fd() {
+                Some(_) => {
+                    MemoryMapping::from_fd_offset(range, range.get_size(), range.get_offset())
+                        .map_err(Error::MemoryMappingFailed)?
+                }
+                None => MemoryMapping::new(range.get_size()).map_err(Error::MemoryMappingFailed)?,
+            };
             regions.push(MemoryRegion {
                 mapping,
-                guest_base: range.0,
+                guest_base: range.get_base(),
             });
         }
 

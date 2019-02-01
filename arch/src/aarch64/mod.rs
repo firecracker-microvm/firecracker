@@ -3,11 +3,15 @@
 
 pub mod layout;
 
-use memory_model::{GuestAddress, GuestMemory};
+use memory_model::{AddressRegion, AddressRegionType, GuestAddress, GuestMemory};
 
 /// Stub function that needs to be implemented when aarch64 functionality is added.
-pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
-    vec![(GuestAddress(0), size)]
+pub fn arch_memory_regions(size: usize) -> Vec<AddressRegion> {
+    vec![AddressRegion::new(
+        AddressRegionType::DefaultMemory,
+        GuestAddress(0),
+        size,
+    )]
 }
 
 /// Stub function that needs to be implemented when aarch64 functionality is added.
