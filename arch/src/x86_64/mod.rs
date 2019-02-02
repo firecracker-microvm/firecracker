@@ -97,6 +97,11 @@ pub fn create_address_space(size: usize) -> Result<AddressSpace, Error> {
         )?;
     }
 
+    // Add address region for MMIO
+    address_space
+        .add_device_memory(memory_gap_start, memory_gap_end.offset_from(memory_gap_start))
+        .map_err(|_| Error::AddressSpaceSetup)?;
+
     Ok(address_space)
 }
 
@@ -192,7 +197,7 @@ mod tests {
     #[test]
     fn regions_lt_4gb() {
         let space = create_address_space(1usize << 29).unwrap();
-        assert_eq!(3, space.len());
+        assert_eq!(4, space.len());
 
         let region = space.get_region(0).unwrap();
         assert_eq!(GuestAddress(0), region.get_base());
@@ -206,7 +211,7 @@ mod tests {
     #[test]
     fn regions_gt_4gb() {
         let space = create_address_space((1usize << 32) + 0x8000).unwrap();
-        assert_eq!(4, space.len());
+        assert_eq!(5, space.len());
 
         let region = space.get_region(0).unwrap();
         assert_eq!(GuestAddress(0), region.get_base());
