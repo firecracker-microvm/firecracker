@@ -43,12 +43,17 @@ class Microvm:
         fc_binary_path,
         jailer_binary_path,
         microvm_id,
+        build_feature='',
         monitor_memory=True,
         newpid_cloner_path=None
     ):
         """Set up microVM attributes, paths, and data structures."""
         # Unique identifier for this machine.
         self._microvm_id = microvm_id
+
+        # This is used in tests to identify if the microvm was started
+        # using a vsock build or a default build.
+        self.build_feature = build_feature
 
         # Compose the paths to the resources specific to this microvm.
         self._path = os.path.join(resource_path, microvm_id)
@@ -59,7 +64,9 @@ class Microvm:
 
         # The binaries this microvm will use to start.
         self._fc_binary_path = fc_binary_path
+        assert os.path.exists(self._fc_binary_path)
         self._jailer_binary_path = jailer_binary_path
+        assert os.path.exists(self._jailer_binary_path)
 
         # Create the jailer context associated with this microvm.
         self._jailer = JailerContext(

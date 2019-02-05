@@ -142,14 +142,18 @@ def test_images_s3_bucket():
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(test_images_s3_bucket())
 
 
-def init_microvm(root_path, cloner_path):
+def init_microvm(root_path, cloner_path, features=''):
     """Auxiliary function for instantiating a microvm and setting it up."""
     microvm_id = str(uuid.uuid4())
-    fc_binary, jailer_binary = build_tools.get_firecracker_binaries(root_path)
+    fc_binary, jailer_binary = build_tools.get_firecracker_binaries(
+        root_path,
+        features
+    )
     vm = Microvm(
         resource_path=root_path,
         fc_binary_path=fc_binary,
         jailer_binary_path=jailer_binary,
+        build_feature=features,
         microvm_id=microvm_id,
         newpid_cloner_path=cloner_path
     )
@@ -211,15 +215,19 @@ def newpid_cloner_path(test_session_root_path):
     yield bin_path
 
 
-@pytest.fixture
-def microvm(test_session_root_path, newpid_cloner_path):
+@pytest.fixture(params=['', 'vsock'])
+def microvm(request, test_session_root_path, newpid_cloner_path):
     """Instantiate a microvm."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
     # Make sure the necessary binaries are there before instantiating the
     # microvm.
-    vm = init_microvm(test_session_root_path, newpid_cloner_path)
+    vm = init_microvm(
+        test_session_root_path,
+        newpid_cloner_path,
+        features=request.param
+    )
     yield vm
     vm.kill()
 
