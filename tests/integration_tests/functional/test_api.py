@@ -3,11 +3,30 @@
 """Tests that ensure the correctness of the Firecracker API."""
 
 import os
+import pytest
 
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
 import host_tools.network as net_tools
 
+def test_dummy_test(test_microvm_with_api):
+    """Dummy test in which we check the build feature."""
+    if test_microvm_with_api.build_feature == 'vsock':
+        print("This is a microvm built with the vsock feature enabled.")
+
+def test_dummy_only_for_vsock_build(test_microvm_with_api):
+    """Dummy test that is executed only for vsock builds."""
+    if test_microvm_with_api.build_feature != 'vsock':
+        pytest.skip("This test is meant only for vsock builds")
+
+    assert test_microvm_with_api.build_feature == 'vsock'
+
+def test_dummy_only_default_build(test_microvm_with_api):
+    """Dummy test that is executed only for default builds."""
+    if test_microvm_with_api.build_feature != '':
+        pytest.skip("This test is meant only for default builds")
+
+    assert test_microvm_with_api.build_feature == ''
 
 def test_api_happy_start(test_microvm_with_api):
     """Test a regular microvm API start sequence."""
