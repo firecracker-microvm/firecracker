@@ -10,6 +10,7 @@ use seccomp::{
 /// Taken from the musl repo (i.e arch/x86_64/bits/syscall.h).
 pub const ALLOWED_SYSCALLS: &[i64] = &[
     libc::SYS_accept,
+    libc::SYS_brk,
     libc::SYS_clock_gettime,
     libc::SYS_close,
     libc::SYS_dup,
@@ -124,6 +125,10 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
         vec![
             (
                 libc::SYS_accept,
+                (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
+            ),
+            (
+                libc::SYS_brk,
                 (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
             ),
             (
