@@ -1268,8 +1268,11 @@ impl Vmm {
             error!("Failed to log metrics while stopping: {}", e);
         }
 
-        // Exit from Firecracker using the provided exit code.
-        std::process::exit(exit_code);
+        // Exit from Firecracker using the provided exit code. Safe because we're terminating
+        // the process anyway.
+        unsafe {
+            libc::_exit(exit_code);
+        }
     }
 
     fn is_instance_initialized(&self) -> bool {
