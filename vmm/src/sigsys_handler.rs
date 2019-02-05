@@ -125,6 +125,7 @@ mod tests {
 
         // Syscalls that have to be allowed in order for the test to work.
         const REQUIRED_SYSCALLS: &[i64] = &[
+            libc::SYS_brk,
             libc::SYS_exit,
             libc::SYS_futex,
             libc::SYS_munmap,
