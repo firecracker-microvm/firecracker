@@ -7,6 +7,9 @@
 - Added missing `vmm_version` field to the InstanceInfo API swagger
   definition, and marked several other mandatory fields as such.
 
+### Fixed
+- virtio-blk: VIRTIO_BLK_T_FLUSH now working as expected.
+
 ## [0.14.0]
 
 ### Added
