@@ -402,7 +402,7 @@ class Vsock:
         """Attach a new vsock device."""
         datax = cls.create_json(**args)
         return Vsock.__api_session.put(
-            "{}/{}".format(Vsock.__vsock_cfg_url, args['id']),
+            "{}/{}".format(Vsock.__vsock_cfg_url, args['vsock_id']),
             json=datax
         )
 
@@ -411,7 +411,7 @@ class Vsock:
         """Apply an update to some vsock device."""
         datax = cls.create_json(**args)
         return Vsock.__api_session.patch(
-            "{}/{}".format(Vsock.__vsock_cfg_url, args['id']),
+            "{}/{}".format(Vsock.__vsock_cfg_url, args['vsock_id']),
             json=datax
         )
 

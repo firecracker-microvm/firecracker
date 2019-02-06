@@ -50,10 +50,13 @@ def get_firecracker_binaries(root_path, features=''):
     Returns the location of the firecracker related binaries eventually after
     building them in case they do not exist at the specified root_path.
     """
+    extra_args = '--release >/dev/null 2>&1'
+
     if features == '':
         cargo_binaries_rel_path = CARGO_RELEASE_REL_PATH
     elif features == 'vsock':
         cargo_binaries_rel_path = CARGO_RELEASE_VSOCK_REL_PATH
+        extra_args = '--features vsock ' + extra_args
     else:
         raise UnknownFeatureException
 
@@ -78,6 +81,6 @@ def get_firecracker_binaries(root_path, features=''):
         )
         cargo_build(
             build_path,
-            extra_args='--release >/dev/null 2>&1'
+            extra_args
         )
     return fc_binary_path, jailer_binary_path
