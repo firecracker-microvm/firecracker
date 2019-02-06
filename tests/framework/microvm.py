@@ -24,7 +24,7 @@ from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import Actions, BootSource, Drive, Logger, MMDS, \
-    MachineConfigure, Network
+    MachineConfigure, Network, Vsock
 
 
 class Microvm:
@@ -95,6 +95,7 @@ class Microvm:
         self.mmds = None
         self.network = None
         self.machine_cfg = None
+        self.vsock = None
 
         # The ssh config dictionary is populated with information about how
         # to connect to a microVM that has ssh capability. The path of the
@@ -252,12 +253,13 @@ class Microvm:
         self.boot = BootSource(self._api_socket, self._api_session)
         self.drive = Drive(self._api_socket, self._api_session)
         self.logger = Logger(self._api_socket, self._api_session)
-        self.mmds = MMDS(self._api_socket, self._api_session)
-        self.network = Network(self._api_socket, self._api_session)
         self.machine_cfg = MachineConfigure(
             self._api_socket,
             self._api_session
         )
+        self.mmds = MMDS(self._api_socket, self._api_session)
+        self.network = Network(self._api_socket, self._api_session)
+        self.vsock = Vsock(self._api_socket, self._api_session)
 
         jailer_param_list = self._jailer.construct_param_list()
 
