@@ -5,6 +5,8 @@
 import os
 import time
 
+import pytest
+
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
 import host_tools.network as net_tools
@@ -720,3 +722,50 @@ def _drive_patch(test_microvm):
         path_on_host=test_microvm.create_jailed_resource(fs.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+
+def test_api_vsock(test_microvm_with_api):
+    """Test vsock related API commands."""
+    if test_microvm_with_api.build_feature != 'vsock':
+        pytest.skip("This test is meant only for vsock builds.")
+
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+    test_microvm.basic_config()
+
+    response = test_microvm.vsock.put(
+        vsock_id='vsock1',
+        guest_cid=15
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Adding another vsock should be fine.
+    response = test_microvm.vsock.put(
+        vsock_id='vsock2',
+        guest_cid=16
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Updating an existing vsock is currently fine.
+    response = test_microvm.vsock.put(
+        vsock_id='vsock2',
+        guest_cid=166
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # No other vsock action is allowed after booting the VM.
+    test_microvm.start()
+
+    # Updating an existing vsock should not be fine at this point.
+    response = test_microvm.vsock.put(
+        vsock_id='vsock1',
+        guest_cid=17
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Attaching a new vsock device should not be fine at this point.
+    response = test_microvm.vsock.put(
+        vsock_id='vsock3',
+        guest_cid=18
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
