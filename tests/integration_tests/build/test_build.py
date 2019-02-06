@@ -18,7 +18,9 @@ BUILD_TYPES = ["debug", "release"]
 )
 def test_build(test_session_root_path, features, build_type):
     """
-    Test build using a cartesian product of possible features and build
+    Test different builds.
+
+    Test builds using a cartesian product of possible features and build
     types.
     """
     extra_args = ""

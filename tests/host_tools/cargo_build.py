@@ -26,7 +26,9 @@ RELEASE_BINARIES_REL_PATH = 'x86_64-unknown-linux-musl/release/'
 
 class UnknownFeatureException(Exception):
     """Exception Class for invalid build feature."""
+
     def __init__(self):
+        """Just a constructor."""
         Exception.__init__(
             self,
             "Trying to get build binaries for unknown feature!"
@@ -48,7 +50,6 @@ def get_firecracker_binaries(root_path, features=''):
     Returns the location of the firecracker related binaries eventually after
     building them in case they do not exist at the specified root_path.
     """
-
     if features == '':
         cargo_binaries_rel_path = CARGO_RELEASE_REL_PATH
     elif features == 'vsock':
