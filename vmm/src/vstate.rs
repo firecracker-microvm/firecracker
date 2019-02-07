@@ -13,6 +13,8 @@ extern crate sys_util;
 use std::io;
 use std::result;
 
+use kvm_bindings::{kvm_pit_config, KVM_PIT_SPEAKER_DUMMY};
+
 use super::KvmContext;
 #[cfg(target_arch = "x86_64")]
 use cpuid::{c3_template, filter_cpuid, t2_template};
@@ -148,7 +150,11 @@ impl Vm {
     #[cfg(target_arch = "x86_64")]
     /// Creates an in-kernel device model for the PIT.
     pub fn create_pit(&self) -> Result<()> {
-        self.fd.create_pit2().map_err(Error::VmSetup)?;
+        let mut pit_config = kvm_pit_config::default();
+        // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
+        // (i.e. KVM_SPEAKER_BASE_ADDRESS) does not trigger an exit to user space.
+        pit_config.flags = KVM_PIT_SPEAKER_DUMMY;
+        self.fd.create_pit2(pit_config).map_err(Error::VmSetup)?;
         Ok(())
     }
 
