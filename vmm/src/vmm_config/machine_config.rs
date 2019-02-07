@@ -79,7 +79,7 @@ where
     if let Some(ref value) = val {
         if *value > MAX_SUPPORTED_VCPUS {
             return Err(de::Error::invalid_value(
-                de::Unexpected::Unsigned(*value as u64),
+                de::Unexpected::Unsigned(u64::from(*value)),
                 &"number of vCPUs exceeds the maximum limitation",
             ));
         }

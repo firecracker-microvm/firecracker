@@ -242,16 +242,15 @@ impl Vcpu {
                 self.id, e
             );
         }
-        match machine_config.cpu_template {
-            Some(template) => match template {
+        if let Some(template) = machine_config.cpu_template {
+            match template {
                 CpuFeaturesTemplate::T2 => {
                     t2_template::set_cpuid_entries(self.cpuid.mut_entries_slice())
                 }
                 CpuFeaturesTemplate::C3 => {
                     c3_template::set_cpuid_entries(self.cpuid.mut_entries_slice())
                 }
-            },
-            None => (),
+            }
         }
 
         self.fd

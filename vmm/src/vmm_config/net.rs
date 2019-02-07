@@ -177,17 +177,17 @@ impl NetworkInterfaceConfigs {
     }
 
     fn get_index_of_mac(&self, mac: &MacAddr) -> Option<usize> {
-        return self
+        self
             .if_list
             .iter()
-            .position(|netif| netif.guest_mac == Some(*mac));
+            .position(|netif| netif.guest_mac == Some(*mac))
     }
 
-    fn get_index_of_dev_name(&self, host_dev_name: &String) -> Option<usize> {
-        return self
+    fn get_index_of_dev_name(&self, host_dev_name: &str) -> Option<usize> {
+        self
             .if_list
             .iter()
-            .position(|netif| &netif.host_dev_name == host_dev_name);
+            .position(|netif| &netif.host_dev_name == host_dev_name)
     }
 
     fn validate_update(
