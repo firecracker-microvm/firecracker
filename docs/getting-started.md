@@ -251,6 +251,25 @@ arguments is available via:
 tools/devtool --help
 ```
 
+### Alternative: Building Firecracker using glibc
+
+The toolchain that Firecracker is tested against and that is recommended for
+building production releases is the one that is automatically used by building
+using `devtool`. In this configuration, Firecracker is currently built as a
+static binary linked against the [musl](https://www.musl-libc.org/) libc
+implementation.
+
+Firecracker also builds using [glibc](https://www.gnu.org/software/libc/)
+toolchains, such as the default Rust toolchains provided in certain Linux
+distributions:
+
+```bash
+cargo build --target x86_64-unknown-linux-gnu
+```
+
+That being said, Firecracker binaries built without `devtool` are always
+considered experimental and should not be used in production.
+
 ## Running the Integration Test Suite
 
 You can also use our development tool to run the integration test suite:
