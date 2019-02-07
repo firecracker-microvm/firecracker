@@ -703,19 +703,21 @@ impl Logger {
     fn log_helper(&self, msg: String, maybe_forced_destination: Option<Destination>) {
         let destination = maybe_forced_destination
             .map(|forced_destination| forced_destination as usize)
-            .unwrap_or(self.level_info.writer());
+            .unwrap_or_else(|| self.level_info.writer());
 
         // We have the awkward IF's for now because we can't use just "<enum_variant> as usize
         // on the left side of a match arm for some reason.
         match destination {
             x if x == Destination::Pipe as usize => {
                 // Unwrap is safe cause the Destination is a Pipe.
-                if let Err(_) = log_to_fifo(
+                if log_to_fifo(
                     msg,
                     self.log_fifo_guard()
                         .as_mut()
                         .expect("Failed to write to fifo due to poisoned lock"),
-                ) {
+                )
+                .is_err()
+                {
                     // No reason to log the error to stderr here, just increment the metric.
                     METRICS.logger.missed_log_count.inc();
                 }
@@ -756,14 +758,14 @@ impl Logger {
                 }
                 Err(e) => {
                     METRICS.logger.metrics_fails.inc();
-                    return Err(LoggerError::LogMetricFailure(e.description().to_string()));
+                    Err(LoggerError::LogMetricFailure(e.description().to_string()))
                 }
             }
         } else {
             METRICS.logger.metrics_fails.inc();
-            return Err(LoggerError::LogMetricFailure(
+            Err(LoggerError::LogMetricFailure(
                 "Logger was not initialized.".to_string(),
-            ));
+            ))
         }
     }
 }
