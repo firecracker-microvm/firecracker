@@ -288,19 +288,19 @@ const BPF_K: u16 = 0x00;
 
 // Return codes for BPF programs.
 // See /usr/include/linux/seccomp.h .
-const SECCOMP_RET_ALLOW: u32 = 0x7fff0000;
-const SECCOMP_RET_ERRNO: u32 = 0x00050000;
-const SECCOMP_RET_KILL: u32 = 0x00000000;
-const SECCOMP_RET_LOG: u32 = 0x7ffc0000;
-const SECCOMP_RET_TRACE: u32 = 0x7ff00000;
-const SECCOMP_RET_TRAP: u32 = 0x00030000;
-const SECCOMP_RET_MASK: u32 = 0x0000ffff;
+const SECCOMP_RET_ALLOW: u32 = 0x7fff_0000;
+const SECCOMP_RET_ERRNO: u32 = 0x0005_0000;
+const SECCOMP_RET_KILL: u32 = 0x0000_0000;
+const SECCOMP_RET_LOG: u32 = 0x7ffc_0000;
+const SECCOMP_RET_TRACE: u32 = 0x7ff0_0000;
+const SECCOMP_RET_TRAP: u32 = 0x0003_0000;
+const SECCOMP_RET_MASK: u32 = 0x0000_ffff;
 
 // x86_64 architecture identifier.
 // See /usr/include/linux/audit.h .
 // Defined as:
 // `#define AUDIT_ARCH_X86_64	(EM_X86_64|__AUDIT_ARCH_64BIT|__AUDIT_ARCH_LE)`
-const AUDIT_ARCH_X86_64: u32 = 62 | 0x80000000 | 0x40000000;
+const AUDIT_ARCH_X86_64: u32 = 62 | 0x8000_0000 | 0x4000_0000;
 
 // The maximum number of a syscall argument.
 // A syscall can have at most 6 arguments.
@@ -508,9 +508,9 @@ impl SeccompCondition {
     fn into_eq_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, lsb, 0, offset),
         ]
     }
@@ -524,10 +524,10 @@ impl SeccompCondition {
     fn into_ge_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, lsb, 0, offset),
         ]
     }
@@ -541,10 +541,10 @@ impl SeccompCondition {
     fn into_gt_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, lsb, 0, offset),
         ]
     }
@@ -558,10 +558,10 @@ impl SeccompCondition {
     fn into_le_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, lsb, offset, 0),
         ]
     }
@@ -575,10 +575,10 @@ impl SeccompCondition {
     fn into_lt_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, lsb, offset, 0),
         ]
     }
@@ -599,10 +599,10 @@ impl SeccompCondition {
         let (mask_msb, mask_lsb) = ((mask >> 32) as u32, mask as u32);
 
         vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
             BPF_STMT(BPF_ALU + BPF_AND + BPF_K, mask_msb),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 3),
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_STMT(BPF_ALU + BPF_AND + BPF_K, mask_lsb),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, lsb, 0, offset),
         ]
@@ -617,9 +617,9 @@ impl SeccompCondition {
     fn into_ne_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
         vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, msb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, lsb_offset as u32),
+            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, lsb, offset, 0),
         ]
     }
@@ -714,7 +714,7 @@ impl SeccompRule {
         // The two initial jump statements are prepended to the rule.
         let rule_jumps = vec![
             BPF_STMT(BPF_JMP + BPF_JA, 1),
-            BPF_STMT(BPF_JMP + BPF_JA, offset as u32 + 1),
+            BPF_STMT(BPF_JMP + BPF_JA, u32::from(offset) + 1),
         ];
         rule_len += rule_jumps.len();
         accumulator.push(rule_jumps);
@@ -748,7 +748,7 @@ impl SeccompRule {
     ) {
         // Tries to detect whether prepending the current condition will produce an unjumpable
         // offset (since BPF jumps are a maximum of 255 instructions).
-        if *offset as u16 + CONDITION_MAX_LEN + 1 > ::std::u8::MAX as u16 {
+        if u16::from(*offset) + CONDITION_MAX_LEN + 1 > u16::from(::std::u8::MAX) {
             // If that is the case, three additional helper jumps are prepended and the offset
             // is reset to 1.
             //
@@ -761,8 +761,8 @@ impl SeccompRule {
             // case of the last rule chain.
             let helper_jumps = vec![
                 BPF_STMT(BPF_JMP + BPF_JA, 2),
-                BPF_STMT(BPF_JMP + BPF_JA, *offset as u32 + 1),
-                BPF_STMT(BPF_JMP + BPF_JA, *offset as u32 + 1),
+                BPF_STMT(BPF_JMP + BPF_JA, u32::from(*offset) + 1),
+                BPF_STMT(BPF_JMP + BPF_JA, u32::from(*offset) + 1),
             ];
             *rule_len += helper_jumps.len();
             accumulator.push(helper_jumps);
@@ -790,7 +790,7 @@ impl SeccompFilterContext {
     ) -> Result<Self> {
         // All inserted syscalls must have at least one rule, otherwise BPF code will break.
         for (_, value) in rules.iter() {
-            if value.1.len() == 0 {
+            if value.1.is_empty() {
                 return Err(Error::EmptyRulesVector);
             }
         }
@@ -819,7 +819,7 @@ impl SeccompFilterContext {
         mut rules: Vec<SeccompRule>,
     ) -> Result<()> {
         // All inserted syscalls must have at least one rule, otherwise BPF code will break.
-        if rules.len() == 0 {
+        if rules.is_empty() {
             return Err(Error::EmptyRulesVector);
         }
 
@@ -840,7 +840,7 @@ impl SeccompFilterContext {
         let mut context_len = 1;
         accumulator.push(vec![BPF_STMT(
             BPF_LD + BPF_W + BPF_ABS,
-            SECCOMP_DATA_NR_OFFSET as u32,
+            u32::from(SECCOMP_DATA_NR_OFFSET),
         )]);
 
         // Orders syscalls by priority, the highest number represents the highest priority.
@@ -902,7 +902,7 @@ impl SeccompFilterContext {
     ) -> Result<()> {
         // The rules of the chain are translated into BPF statements.
         let chain: Vec<_> = chain.into_iter().map(|rule| rule.into_bpf()).collect();
-        let chain_len = chain.iter().map(|rule| rule.len()).fold(0, |a, b| a + b);
+        let chain_len: usize = chain.iter().map(|rule| rule.len()).sum();
 
         // The chain starts with a comparison checking the loaded syscall number against the
         // syscall number of the chain.
