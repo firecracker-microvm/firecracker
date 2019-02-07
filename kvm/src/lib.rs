@@ -25,7 +25,7 @@ use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::result;
 
-use libc::{open, EINVAL, O_RDWR};
+use libc::{open, EINVAL, O_CLOEXEC, O_RDWR};
 
 use kvm_bindings::*;
 use memory_model::{MemoryMapping, MemoryMappingError};
@@ -54,14 +54,10 @@ pub struct Kvm {
 impl Kvm {
     /// Opens `/dev/kvm/` and returns a `Kvm` object on success.
     pub fn new() -> Result<Self> {
-        // Safe because we give a constant nul-terminated string and verify the result.
-        let ret = unsafe { open("/dev/kvm\0".as_ptr() as *const c_char, O_RDWR) };
-        if ret < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
+        // Open `/dev/kvm` using `O_CLOEXEC` flag.
+        let fd = Self::open_with_cloexec(true)?;
         // Safe because we verify that ret is valid and we own the fd.
-        Ok(unsafe { Self::new_with_fd_number(ret) })
+        Ok(unsafe { Self::new_with_fd_number(fd) })
     }
 
     /// Creates a new Kvm object assuming `fd` represents an existing open file descriptor
@@ -74,6 +70,23 @@ impl Kvm {
     pub unsafe fn new_with_fd_number(fd: RawFd) -> Self {
         Kvm {
             kvm: File::from_raw_fd(fd),
+        }
+    }
+
+    /// Opens `/dev/kvm` and returns the fd number on success.
+    ///
+    /// # Arguments
+    ///
+    /// * `close_on_exec`: If true opens `/dev/kvm` using the `O_CLOEXEC` flag.
+    ///
+    pub fn open_with_cloexec(close_on_exec: bool) -> Result<RawFd> {
+        let open_flags = O_RDWR | if close_on_exec { O_CLOEXEC } else { 0 };
+        // Safe because we give a constant nul-terminated string and verify the result.
+        let ret = unsafe { open("/dev/kvm\0".as_ptr() as *const c_char, open_flags) };
+        if ret < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(ret)
         }
     }
 
