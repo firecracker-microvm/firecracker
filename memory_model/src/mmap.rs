@@ -313,6 +313,7 @@ impl MemoryMapping {
         std::slice::from_raw_parts(self.addr, self.size)
     }
 
+    #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> &mut [u8] {
         // This is safe because we mapped the area at addr ourselves, so this slice will not
         // overflow. However, it is possible to alias.

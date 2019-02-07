@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use std::io::{self, Cursor};
-use std::mem;
 use std::result;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -32,7 +31,7 @@ fn get_klapic_reg(klapic: &kvm_lapic_state, reg_offset: usize) -> u32 {
     let sliceu8 = unsafe {
         // This array is only accessed as parts of a u32 word, so interpret it as a u8 array.
         // Cursors are only readable on arrays of u8, not i8(c_char).
-        mem::transmute::<&[i8], &[u8]>(&klapic.regs[reg_offset..])
+        &*(&klapic.regs[reg_offset..] as *const [i8] as *const [u8])
     };
     let mut reader = Cursor::new(sliceu8);
     // Following call can't fail if the offsets defined above are correct.
@@ -45,7 +44,7 @@ fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u32) {
     let sliceu8 = unsafe {
         // This array is only accessed as parts of a u32 word, so interpret it as a u8 array.
         // Cursors are only readable on arrays of u8, not i8(c_char).
-        mem::transmute::<&mut [i8], &mut [u8]>(&mut klapic.regs[reg_offset..])
+        &mut *(&mut klapic.regs[reg_offset..] as *mut [i8] as *mut [u8])
     };
     let mut writer = Cursor::new(sliceu8);
     // Following call can't fail if the offsets defined above are correct.
