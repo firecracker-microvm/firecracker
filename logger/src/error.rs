@@ -37,17 +37,17 @@ pub enum LoggerError {
 impl fmt::Display for LoggerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
-            LoggerError::NeverInitialized(ref e) => format!("{}", e),
-            LoggerError::IsPreinitializing => format!(
-                "{}",
+            LoggerError::NeverInitialized(ref e) => e.to_string(),
+            LoggerError::IsPreinitializing => {
                 "The logger is preinitializing. Can't perform the requested action right now."
-            ),
-            LoggerError::IsInitializing => format!(
-                "{}",
+                    .to_string()
+            }
+            LoggerError::IsInitializing => {
                 "The logger is initializing. Can't perform the requested action right now."
-            ),
+                    .to_string()
+            }
             LoggerError::AlreadyInitialized => {
-                format!("{}", "Reinitialization of logger not allowed.")
+                "Reinitialization of logger not allowed.".to_string()
             }
             LoggerError::InvalidLogOption(ref s) => format!("Invalid log option: {}", s),
             LoggerError::OpenFIFO(ref e) => {
@@ -59,9 +59,9 @@ impl fmt::Display for LoggerError {
             LoggerError::LogFlush(ref e) => {
                 format!("Failed to flush logs. Error: {}", e.description())
             }
-            LoggerError::MutexLockFailure(ref e) => format!("{}", e),
-            LoggerError::LogMetricFailure(ref e) => format!("{}", e),
-            LoggerError::LogMetricRateLimit => format!("{}", "Metric will not yet be logged."),
+            LoggerError::MutexLockFailure(ref e) => e.to_string(),
+            LoggerError::LogMetricFailure(ref e) => e.to_string(),
+            LoggerError::LogMetricRateLimit => "Metric will not yet be logged.".to_string(),
         };
         write!(f, "{}", printable)
     }

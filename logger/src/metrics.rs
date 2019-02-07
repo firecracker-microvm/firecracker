@@ -59,7 +59,7 @@ pub struct SimpleMetric(AtomicUsize);
 
 impl Metric for SimpleMetric {
     fn add(&self, value: usize) {
-        let ref count = self.0;
+        let count = &self.0;
         count.store(count.load(Ordering::Relaxed) + value, Ordering::Relaxed);
     }
 

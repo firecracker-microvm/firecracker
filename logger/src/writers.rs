@@ -22,7 +22,7 @@ pub struct PipeLogWriter {
 }
 
 impl PipeLogWriter {
-    pub fn new(fifo_path: &String) -> Result<PipeLogWriter> {
+    pub fn new(fifo_path: &str) -> Result<PipeLogWriter> {
         let fifo = PathBuf::from(fifo_path);
         match OpenOptions::new()
             .custom_flags(O_NONBLOCK)
@@ -33,15 +33,15 @@ impl PipeLogWriter {
             Ok(t) => Ok(PipeLogWriter {
                 line_writer: Mutex::new(LineWriter::new(t)),
             }),
-            Err(e) => return Err(LoggerError::OpenFIFO(e)),
+            Err(e) => Err(LoggerError::OpenFIFO(e)),
         }
     }
 
-    pub fn write(&self, msg: &String) -> Result<()> {
+    pub fn write(&self, msg: &str) -> Result<()> {
         let mut line_writer = self.get_line_writer()?;
         line_writer
             .write_all(msg.as_bytes())
-            .map_err(|e| LoggerError::LogWrite(e))
+            .map_err(LoggerError::LogWrite)
     }
 
     fn get_line_writer(&self) -> Result<(MutexGuard<LineWriter<File>>)> {
