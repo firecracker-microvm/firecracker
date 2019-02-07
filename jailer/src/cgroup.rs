@@ -21,7 +21,7 @@ const CPUSET_MEMS: &str = "cpuset.mems";
 const CONTROLLER_PIDS: &str = "pids";
 
 // The list of cgroup controllers we're interested in.
-const CONTROLLERS: [&'static str; 3] = [CONTROLLER_CPU, CONTROLLER_CPUSET, CONTROLLER_PIDS];
+const CONTROLLERS: [&str; 3] = [CONTROLLER_CPU, CONTROLLER_CPUSET, CONTROLLER_PIDS];
 const PROC_MOUNTS: &str = "/proc/mounts";
 const NODE_TO_CPULIST: &str = "/sys/devices/system/node/node";
 
@@ -143,16 +143,16 @@ impl Cgroup {
                 // We could do the search in a more efficient manner but eh.
                 let v: Vec<&str> = capture["options"].split(',').collect();
 
-                for controller in CONTROLLERS.into_iter() {
-                    if v.contains(controller) {
-                        if let Some(_) =
-                            found_controllers.insert(controller, PathBuf::from(&capture["dir"]))
-                        {
-                            return Err(Error::CgroupLineNotUnique(
-                                PROC_MOUNTS.to_string(),
-                                controller.to_string(),
-                            ));
-                        }
+                for controller in CONTROLLERS.iter() {
+                    if v.contains(controller)
+                        && found_controllers
+                            .insert(controller, PathBuf::from(&capture["dir"]))
+                            .is_some()
+                    {
+                        return Err(Error::CgroupLineNotUnique(
+                            PROC_MOUNTS.to_string(),
+                            controller.to_string(),
+                        ));
                     }
                 }
             }
@@ -162,7 +162,7 @@ impl Cgroup {
 
         if keys_len < CONTROLLERS.len() {
             // We return an error about the first one we didn't find.
-            for controller in CONTROLLERS.into_iter() {
+            for controller in CONTROLLERS.iter() {
                 if !found_controllers.contains_key(controller) {
                     return Err(Error::CgroupLineNotFound(
                         PROC_MOUNTS.to_string(),
