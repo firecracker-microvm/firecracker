@@ -179,9 +179,16 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
         // length in request_from_bytes(). For some reason it seems nicer leaving it as is.
         self.bytes.len()
     }
+
+    /// Check if the frame is empty
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.bytes.len() == 0
+    }
 }
 
 impl<'a, T: NetworkBytesMut> EthIPv4ArpFrame<'a, T> {
+    #[allow(clippy::too_many_arguments)]
     fn write_raw(
         buf: T,
         htype: u16,

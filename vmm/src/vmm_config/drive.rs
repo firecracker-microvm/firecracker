@@ -95,6 +95,7 @@ impl BlockDeviceConfig {
 }
 
 /// Wrapper for the collection that holds all the Block Devices Configs
+#[derive(Default)]
 pub struct BlockDeviceConfigs {
     /// A list of `BlockDeviceConfig` objects.
     pub config_list: VecDeque<BlockDeviceConfig>,
@@ -131,15 +132,13 @@ impl BlockDeviceConfigs {
 
     /// Gets the index of the device with the specified `drive_id` if it exists in the list.
     pub fn get_index_of_drive_id(&self, drive_id: &str) -> Option<usize> {
-        self
-            .config_list
+        self.config_list
             .iter()
             .position(|cfg| cfg.drive_id.eq(drive_id))
     }
 
     fn get_index_of_drive_path(&self, drive_path: &PathBuf) -> Option<usize> {
-        self
-            .config_list
+        self.config_list
             .iter()
             .position(|cfg| cfg.path_on_host.eq(drive_path))
     }

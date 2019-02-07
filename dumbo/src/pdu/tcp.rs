@@ -64,7 +64,8 @@ bitflags! {
         /// SYN flag.
         const SYN = 1 << 1;
         /// FIN flag.
-        const FIN = 1 << 0;
+        #[allow(clippy::identity_op)]
+        const FIN = 1;
     }
 }
 
@@ -188,6 +189,12 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
         self.bytes.len()
     }
 
+    /// Checks if the segment is empty
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.bytes.len() == 0
+    }
+
     /// Returns a slice which contains the payload of the segment.
     #[inline]
     pub fn payload(&self) -> &[u8] {
@@ -218,15 +225,15 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
         sum += b >> 16;
 
         let len = self.len();
-        sum += PROTOCOL_TCP as u32;
+        sum += u32::from(PROTOCOL_TCP);
         sum += len as u32;
 
         for i in 0..len / 2 {
-            sum += self.bytes.ntohs_unchecked(i * 2) as u32;
+            sum += u32::from(self.bytes.ntohs_unchecked(i * 2));
         }
 
         if len % 2 != 0 {
-            sum += (self.bytes[len - 1] as u32) << 8;
+            sum += u32::from(self.bytes[len - 1]) << 8;
         }
 
         while sum >> 16 != 0 {
@@ -438,6 +445,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     ///    we should read from that buffer. When `None`, the TCP segment will carry no payload.
     /// * `compute_checksum` - May contain the pair addresses from the enclosing IPv4 packet, which
     ///    are required for TCP checksum computation. Skip the checksum altogether when `None`.
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn write_segment<R: ByteBuffer + ?Sized>(
         buf: T,
@@ -488,6 +496,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     ///    we should read from that buffer. When `None`, the TCP segment will carry no payload.
     // Marked inline because a lot of code vanishes after constant folding when
     // we don't add TCP options, or when mss_remaining is actually a constant, etc.
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn write_incomplete_segment<R: ByteBuffer + ?Sized>(
         buf: T,

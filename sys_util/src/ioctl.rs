@@ -89,10 +89,10 @@ pub const _IOC_DIRSHIFT: c_uint = 30;
 pub const _IOC_NONE: c_uint = 0;
 pub const _IOC_WRITE: c_uint = 1;
 pub const _IOC_READ: c_uint = 2;
-pub const IOC_IN: c_uint = 1073741824;
-pub const IOC_OUT: c_uint = 2147483648;
-pub const IOC_INOUT: c_uint = 3221225472;
-pub const IOCSIZE_MASK: c_uint = 1073676288;
+pub const IOC_IN: c_uint = 1_073_741_824;
+pub const IOC_OUT: c_uint = 2_147_483_648;
+pub const IOC_INOUT: c_uint = 3_221_225_472;
+pub const IOCSIZE_MASK: c_uint = 1_073_676_288;
 pub const IOCSIZE_SHIFT: c_uint = 16;
 
 // The type of the `req` parameter is different for the `musl` library. This will enable

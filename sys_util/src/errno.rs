@@ -36,7 +36,7 @@ impl Error {
 
     /// Gets the `errno` for this error.
     ///
-    pub fn errno(&self) -> i32 {
+    pub fn errno(self) -> i32 {
         self.0
     }
 }

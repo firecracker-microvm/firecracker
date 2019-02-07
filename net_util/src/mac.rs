@@ -46,7 +46,7 @@ impl MacAddr {
         // TODO: using something like std::mem::uninitialized could avoid the extra initialization,
         // if this ever becomes a performance bottleneck.
         let mut bytes = [0u8; MAC_ADDR_LEN];
-        &bytes[..].copy_from_slice(&src[..]);
+        bytes[..].copy_from_slice(&src[..]);
 
         MacAddr { bytes }
     }
@@ -65,7 +65,7 @@ impl MacAddr {
         &self.bytes
     }
 
-    pub fn to_string(&self) -> String {
+    pub fn to_string(self) -> String {
         let b = &self.bytes;
         format!(
             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",

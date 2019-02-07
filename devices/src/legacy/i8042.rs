@@ -63,6 +63,7 @@ const SB_I8042_CMD_DATA: u8 = 1 << 3; // i8042 expecting command parameter at po
 const SB_KBD_ENABLED: u8 = 1 << 4; // 1 = kbd enabled, 0 = kbd locked
 
 /// i8042 control register bits
+#[allow(clippy::identity_op)]
 const CB_KBD_INT: u8 = 1 << 0; // kbd interrupt enabled
 const CB_POST_OK: u8 = 1 << 2; // POST ok (should always be 1)
 

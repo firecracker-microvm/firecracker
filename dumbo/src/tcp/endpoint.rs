@@ -243,7 +243,7 @@ impl Endpoint {
             None
         };
 
-        return match self.connection.write_next_segment(
+        match self.connection.write_next_segment(
             buf,
             mss_reserved,
             tcp_payload_src,
@@ -254,7 +254,7 @@ impl Endpoint {
                 METRICS.mmds.tx_errors.inc();
                 None
             }
-        };
+        }
     }
 
     #[inline]

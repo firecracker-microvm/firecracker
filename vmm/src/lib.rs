@@ -261,6 +261,7 @@ impl Display for VmmActionError {
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum VmmAction {
     /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
     /// action can only be called before the microVM has booted. The response is sent using the
@@ -1334,6 +1335,7 @@ impl Vmm {
         }
     }
 
+    #[allow(clippy::unused_label)]
     fn run_control(&mut self) -> Result<()> {
         const EPOLL_EVENTS_LEN: usize = 100;
 
@@ -1345,8 +1347,8 @@ impl Vmm {
         'poll: loop {
             let num_events = epoll::wait(epoll_raw_fd, -1, &mut events[..]).map_err(Error::Poll)?;
 
-            for i in 0..num_events {
-                let dispatch_idx = events[i].data as usize;
+            for event in events.iter().take(num_events) {
+                let dispatch_idx = event.data as usize;
 
                 if let Some(dispatch_type) = self.epoll_context.dispatch_table[dispatch_idx] {
                     match dispatch_type {
@@ -1391,7 +1393,7 @@ impl Vmm {
                                 Ok(handler) => {
                                     match handler.handle_event(
                                         device_token,
-                                        events[i].events,
+                                        event.events,
                                         EpollHandlerPayload::Empty,
                                     ) {
                                         Err(devices::Error::PayloadExpected) => panic!(

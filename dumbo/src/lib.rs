@@ -25,6 +25,9 @@ pub trait ByteBuffer: Index<usize, Output = u8> {
     /// Returns the length of the buffer.
     fn len(&self) -> usize;
 
+    /// Checks if the buffer is empty.
+    fn is_empty(&self) -> bool;
+
     /// Reads `buf.len()` bytes from `buf` into the inner buffer, starting at `offset`.
     ///
     /// # Panics
@@ -37,6 +40,11 @@ impl ByteBuffer for [u8] {
     #[inline]
     fn len(&self) -> usize {
         self.len()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     #[inline]

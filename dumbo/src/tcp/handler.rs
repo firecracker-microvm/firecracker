@@ -216,16 +216,16 @@ impl TcpIPv4Handler {
 
         match outcome {
             RecvSegmentOutcome::EndpointDone => {
-                self.remove_connection(&tuple);
-                return Ok(RecvEvent::EndpointDone);
+                self.remove_connection(tuple);
+                Ok(RecvEvent::EndpointDone)
             }
             RecvSegmentOutcome::EndpointRunning(status) => {
-                if !self.check_next_segment_status(&tuple, status) {
+                if !self.check_next_segment_status(tuple, status) {
                     // The connection may not have been a member of active_connection, but it's
                     // more straightforward to cover both cases this way.
                     self.active_connections.remove(&tuple);
                 }
-                return Ok(RecvEvent::Nothing);
+                Ok(RecvEvent::Nothing)
             }
             RecvSegmentOutcome::NewConnection => {
                 let endpoint = match Endpoint::new_with_defaults(&segment) {
@@ -236,40 +236,37 @@ impl TcpIPv4Handler {
                 if self.connections.len() >= self.max_connections {
                     if let Some(evict_tuple) = self.find_evictable_connection() {
                         // The unwrap() is safe because evict_tuple must be present as a key.
-                        let rst_config = self
-                            .connections
-                            .get(&evict_tuple)
-                            .unwrap()
+                        let rst_config = self.connections[&evict_tuple]
                             .connection()
                             .make_rst_config();
-                        self.enqueue_rst_config(&evict_tuple, rst_config);
-                        self.remove_connection(&evict_tuple);
+                        self.enqueue_rst_config(evict_tuple, rst_config);
+                        self.remove_connection(evict_tuple);
                         self.add_connection(tuple, endpoint);
                         return Ok(RecvEvent::NewConnectionReplacing);
                     } else {
                         // No room to accept the new connection. Try to enqueue a RST, and forget
                         // about it.
-                        self.enqueue_rst(&tuple, &segment);
+                        self.enqueue_rst(tuple, &segment);
                         return Ok(RecvEvent::NewConnectionDropped);
                     }
                 } else {
                     self.add_connection(tuple, endpoint);
-                    return Ok(RecvEvent::NewConnectionSuccessful);
+                    Ok(RecvEvent::NewConnectionSuccessful)
                 }
             }
             RecvSegmentOutcome::UnexpectedSegment(enqueue_rst) => {
                 if enqueue_rst {
-                    self.enqueue_rst(&tuple, &segment);
+                    self.enqueue_rst(tuple, &segment);
                 }
-                return Ok(RecvEvent::UnexpectedSegment);
+                Ok(RecvEvent::UnexpectedSegment)
             }
         }
     }
 
-    fn check_timeout(&mut self, value: u64, tuple: &ConnectionTuple) {
+    fn check_timeout(&mut self, value: u64, tuple: ConnectionTuple) {
         match self.next_timeout {
-            Some((t, _)) if t > value => self.next_timeout = Some((value, *tuple)),
-            None => self.next_timeout = Some((value, *tuple)),
+            Some((t, _)) if t > value => self.next_timeout = Some((value, tuple)),
+            None => self.next_timeout = Some((value, tuple)),
             _ => (),
         };
     }
@@ -294,17 +291,17 @@ impl TcpIPv4Handler {
     // been there already).
     fn check_next_segment_status(
         &mut self,
-        tuple: &ConnectionTuple,
+        tuple: ConnectionTuple,
         status: NextSegmentStatus,
     ) -> bool {
         if let Some((_, timeout_tuple)) = self.next_timeout {
-            if *tuple == timeout_tuple {
+            if tuple == timeout_tuple {
                 self.find_next_timeout();
             }
         }
         match status {
             NextSegmentStatus::Available => {
-                self.active_connections.insert(*tuple);
+                self.active_connections.insert(tuple);
                 return true;
             }
             NextSegmentStatus::Timeout(value) => self.check_timeout(value, tuple),
@@ -314,17 +311,17 @@ impl TcpIPv4Handler {
     }
 
     fn add_connection(&mut self, tuple: ConnectionTuple, endpoint: Endpoint) {
-        self.check_next_segment_status(&tuple, endpoint.next_segment_status());
+        self.check_next_segment_status(tuple, endpoint.next_segment_status());
         self.connections.insert(tuple, endpoint);
     }
 
-    fn remove_connection(&mut self, tuple: &ConnectionTuple) {
+    fn remove_connection(&mut self, tuple: ConnectionTuple) {
         // Just in case it's in there somewhere.
-        self.active_connections.remove(tuple);
-        self.connections.remove(tuple);
+        self.active_connections.remove(&tuple);
+        self.connections.remove(&tuple);
 
         if let Some((_, timeout_tuple)) = self.next_timeout {
-            if timeout_tuple == *tuple {
+            if timeout_tuple == tuple {
                 self.find_next_timeout();
             }
         }
@@ -340,14 +337,14 @@ impl TcpIPv4Handler {
         None
     }
 
-    fn enqueue_rst_config(&mut self, tuple: &ConnectionTuple, cfg: RstConfig) {
+    fn enqueue_rst_config(&mut self, tuple: ConnectionTuple, cfg: RstConfig) {
         // We simply forgo sending any RSTs if the queue is already full.
         if self.rst_queue.len() < self.max_pending_resets {
-            self.rst_queue.push((*tuple, cfg));
+            self.rst_queue.push((tuple, cfg));
         }
     }
 
-    fn enqueue_rst<T: NetworkBytes>(&mut self, tuple: &ConnectionTuple, s: &TcpSegment<T>) {
+    fn enqueue_rst<T: NetworkBytes>(&mut self, tuple: ConnectionTuple, s: &TcpSegment<T>) {
         self.enqueue_rst_config(tuple, RstConfig::new(&s));
     }
 
@@ -454,13 +451,13 @@ impl TcpIPv4Handler {
 
         if let Some((tuple, is_done)) = writer_status {
             if is_done {
-                self.remove_connection(&tuple);
+                self.remove_connection(tuple);
                 event = WriteEvent::EndpointDone;
             } else {
                 // The unwrap is safe because tuple is present as a key in self.connections if we
                 // got here.
-                let status = self.connections.get(&tuple).unwrap().next_segment_status();
-                if !self.check_next_segment_status(&tuple, status) {
+                let status = self.connections[&tuple].next_segment_status();
+                if !self.check_next_segment_status(tuple, status) {
                     self.active_connections.remove(&tuple);
                 }
             }

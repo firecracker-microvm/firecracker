@@ -142,6 +142,7 @@ impl Display for NetworkInterfaceError {
 }
 
 /// A wrapper over the list of the `NetworkInterfaceConfig` that the microvm has configured.
+#[derive(Default)]
 pub struct NetworkInterfaceConfigs {
     if_list: Vec<NetworkInterfaceConfig>,
 }
@@ -176,18 +177,16 @@ impl NetworkInterfaceConfigs {
         }
     }
 
-    fn get_index_of_mac(&self, mac: &MacAddr) -> Option<usize> {
-        self
-            .if_list
+    fn get_index_of_mac(&self, mac: MacAddr) -> Option<usize> {
+        self.if_list
             .iter()
-            .position(|netif| netif.guest_mac == Some(*mac))
+            .position(|netif| netif.guest_mac == Some(mac))
     }
 
     fn get_index_of_dev_name(&self, host_dev_name: &str) -> Option<usize> {
-        self
-            .if_list
+        self.if_list
             .iter()
-            .position(|netif| &netif.host_dev_name == host_dev_name)
+            .position(|netif| netif.host_dev_name == host_dev_name)
     }
 
     fn validate_update(
@@ -199,7 +198,7 @@ impl NetworkInterfaceConfigs {
         // network interface that has the same mac address as the one specified in new_config.
         // If the same mac is used in another network interface config, return error.
         if new_config.guest_mac.is_some() {
-            let mac_index = self.get_index_of_mac(&new_config.guest_mac.unwrap());
+            let mac_index = self.get_index_of_mac(new_config.guest_mac.unwrap());
             if mac_index.is_some() && mac_index.unwrap() != index {
                 return Err(NetworkInterfaceError::GuestMacAddressInUse(
                     new_config.guest_mac.unwrap().to_string(),
@@ -248,7 +247,7 @@ impl NetworkInterfaceConfigs {
         // Check that there is no other interface in the list that has the same mac.
         if new_config.guest_mac.is_some()
             && self
-                .get_index_of_mac(&new_config.guest_mac.unwrap())
+                .get_index_of_mac(new_config.guest_mac.unwrap())
                 .is_some()
         {
             return Err(NetworkInterfaceError::GuestMacAddressInUse(

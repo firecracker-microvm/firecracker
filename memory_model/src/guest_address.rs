@@ -25,34 +25,34 @@ impl GuestAddress {
     ///   let addr = GuestAddress(0x150);
     ///   assert_eq!(addr.offset_from(base), 0x50usize);
     /// ```
-    pub fn offset_from(&self, base: GuestAddress) -> usize {
+    pub fn offset_from(self, base: GuestAddress) -> usize {
         self.0 - base.0
     }
 
     /// Returns the address as a usize offset from 0x0.
     /// Use this when a raw number is needed to pass to the kernel.
-    pub fn offset(&self) -> usize {
+    pub fn offset(self) -> usize {
         self.0
     }
 
     /// Returns the result of the add or None if there is overflow.
-    pub fn checked_add(&self, other: usize) -> Option<GuestAddress> {
+    pub fn checked_add(self, other: usize) -> Option<GuestAddress> {
         self.0.checked_add(other).map(GuestAddress)
     }
 
     /// Returns the result of the base address + the size.
     /// Only use this when `offset` is guaranteed not to overflow.
-    pub fn unchecked_add(&self, offset: usize) -> GuestAddress {
+    pub fn unchecked_add(self, offset: usize) -> GuestAddress {
         GuestAddress(self.0 + offset)
     }
 
     /// Returns the result of the subtraction of None if there is underflow.
-    pub fn checked_sub(&self, other: usize) -> Option<GuestAddress> {
+    pub fn checked_sub(self, other: usize) -> Option<GuestAddress> {
         self.0.checked_sub(other).map(GuestAddress)
     }
 
     /// Returns the bitwise and of the address with the given mask.
-    pub fn mask(&self, mask: u64) -> GuestAddress {
+    pub fn mask(self, mask: u64) -> GuestAddress {
         GuestAddress(self.0 & mask as usize)
     }
 }

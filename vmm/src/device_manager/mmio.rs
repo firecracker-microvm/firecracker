@@ -105,8 +105,9 @@ impl MMIODeviceManager {
         let mmio_device = devices::virtio::MmioDevice::new(self.guest_mem.clone(), device)
             .map_err(Error::CreateMmioDevice)?;
         for (i, queue_evt) in mmio_device.queue_evts().iter().enumerate() {
-            let io_addr =
-                IoeventAddress::Mmio(self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET));
+            let io_addr = IoeventAddress::Mmio(
+                self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
+            );
             self.vm_requests.push(VmRequest::RegisterIoevent(
                 queue_evt.try_clone().map_err(Error::CloneIoEventFd)?,
                 io_addr,
