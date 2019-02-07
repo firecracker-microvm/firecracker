@@ -33,9 +33,9 @@ pub struct Headers {
 impl Headers {
     /// By default Requests are created with no headers.
     pub fn default() -> Headers {
-        return Headers {
+        Headers {
             headers: HashMap::new(),
-        };
+        }
     }
 
     /// Adds a new header to the list.
