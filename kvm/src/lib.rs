@@ -323,11 +323,7 @@ impl VmFd {
     /// Note that this call can only succeed after a call to `Vm::create_irq_chip`.
     ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn create_pit2(&self) -> Result<()> {
-        let mut pit_config = kvm_pit_config::default();
-        // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
-        // (i.e. KVM_SPEAKER_BASE_ADDRESS) does not trigger an exit to user space.
-        pit_config.flags = KVM_PIT_SPEAKER_DUMMY;
+    pub fn create_pit2(&self, pit_config: kvm_pit_config) -> Result<()> {
         // Safe because we know that our file is a VM fd, we know the kernel will only read the
         // correct amount of memory from our pointer, and we verify the return result.
         let ret = unsafe { ioctl_with_ref(self, KVM_CREATE_PIT2(), &pit_config) };
@@ -1093,7 +1089,7 @@ mod tests {
     fn create_pit2() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        assert!(vm.create_pit2().is_ok());
+        assert!(vm.create_pit2(kvm_pit_config::default()).is_ok());
     }
 
     #[test]
@@ -1423,7 +1419,10 @@ mod tests {
         );
         assert_eq!(get_raw_errno(faulty_vm_fd.set_tss_address(0)), badf_errno);
         assert_eq!(get_raw_errno(faulty_vm_fd.create_irq_chip()), badf_errno);
-        assert_eq!(get_raw_errno(faulty_vm_fd.create_pit2()), badf_errno);
+        assert_eq!(
+            get_raw_errno(faulty_vm_fd.create_pit2(kvm_pit_config::default())),
+            badf_errno
+        );
         let event_fd = EventFd::new().unwrap();
         assert_eq!(
             get_raw_errno(faulty_vm_fd.register_ioevent(&event_fd, &IoeventAddress::Pio(0), 0u64)),

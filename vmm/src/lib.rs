@@ -12,6 +12,7 @@
 extern crate chrono;
 extern crate epoll;
 extern crate futures;
+extern crate kvm_bindings;
 extern crate libc;
 extern crate serde;
 #[macro_use]
