@@ -41,7 +41,7 @@ use {DeviceEventT, EpollHandler};
 const MAX_BUFFER_SIZE: usize = 65562;
 const QUEUE_SIZE: u16 = 256;
 const NUM_QUEUES: usize = 2;
-const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE; NUM_QUEUES];
+const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE; NUM_QUEUES];
 
 // A frame is available for reading from the tap device to receive in the guest.
 const RX_TAP_EVENT: DeviceEventT = 0;
@@ -209,7 +209,7 @@ impl NetEpollHandler {
                 .rate_limiter
                 .manual_replenish(self.rx.bytes_read as u64, TokenType::Bytes);
         }
-        return success;
+        success
     }
 
     // Copies a single frame from `self.rx.frame_buf` into the guest. Returns true
@@ -271,9 +271,9 @@ impl NetEpollHandler {
         if write_count >= self.rx.bytes_read {
             METRICS.net.rx_bytes_count.add(write_count);
             METRICS.net.rx_packets_count.inc();
-            return true;
+            true
         } else {
-            return false;
+            false
         }
     }
 
@@ -417,20 +417,13 @@ impl NetEpollHandler {
             let mut next_desc = Some(avail_desc);
 
             self.tx.iovec.clear();
-            loop {
-                match next_desc {
-                    Some(desc) => {
-                        if desc.is_write_only() {
-                            break;
-                        }
-                        self.tx.iovec.push((desc.addr, desc.len as usize));
-                        read_count += desc.len as usize;
-                        next_desc = desc.next_descriptor();
-                    }
-                    None => {
-                        break;
-                    }
+            while let Some(desc) = next_desc {
+                if desc.is_write_only() {
+                    break;
                 }
+                self.tx.iovec.push((desc.addr, desc.len as usize));
+                read_count += desc.len as usize;
+                next_desc = desc.next_descriptor();
             }
 
             // If limiter.consume() fails it means there is no more TokenType::Bytes
@@ -544,13 +537,11 @@ impl EpollHandler for NetEpollHandler {
                     if self.rate_limited_rx_single_frame() {
                         self.rx.deferred_frame = false;
                         self.process_rx()
+                    } else if self.rx.deferred_irqs {
+                        self.rx.deferred_irqs = false;
+                        self.signal_used_queue()
                     } else {
-                        if self.rx.deferred_irqs {
-                            self.rx.deferred_irqs = false;
-                            self.signal_used_queue()
-                        } else {
-                            Ok(())
-                        }
+                        Ok(())
                     }
                 } else {
                     self.process_rx()
@@ -645,11 +636,11 @@ impl EpollConfig {
         sender: mpsc::Sender<Box<EpollHandler>>,
     ) -> Self {
         EpollConfig {
-            rx_tap_token: first_token + RX_TAP_EVENT as u64,
-            rx_queue_token: first_token + RX_QUEUE_EVENT as u64,
-            tx_queue_token: first_token + TX_QUEUE_EVENT as u64,
-            rx_rate_limiter_token: first_token + RX_RATE_LIMITER_EVENT as u64,
-            tx_rate_limiter_token: first_token + TX_RATE_LIMITER_EVENT as u64,
+            rx_tap_token: first_token + u64::from(RX_TAP_EVENT),
+            rx_queue_token: first_token + u64::from(RX_QUEUE_EVENT),
+            tx_queue_token: first_token + u64::from(TX_QUEUE_EVENT),
+            rx_rate_limiter_token: first_token + u64::from(RX_RATE_LIMITER_EVENT),
+            tx_rate_limiter_token: first_token + u64::from(TX_RATE_LIMITER_EVENT),
             epoll_raw_fd,
             sender,
         }
@@ -781,8 +772,8 @@ impl VirtioDevice for Net {
 
     fn ack_features(&mut self, page: u32, value: u32) {
         let mut v = match page {
-            0 => value as u64,
-            1 => (value as u64) << 32,
+            0 => u64::from(value),
+            1 => u64::from(value) << 32,
             _ => {
                 warn!("Cannot acknowledge unknown features page: {}", page);
                 0u64
@@ -808,7 +799,7 @@ impl VirtioDevice for Net {
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
             // This write can't fail, offset and end are checked against config_len.
-            data.write(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
+            data.write_all(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
                 .unwrap();
         }
     }
@@ -849,10 +840,11 @@ impl VirtioDevice for Net {
             let tx_queue = queues.remove(0);
             let rx_queue_evt = queue_evts.remove(0);
             let tx_queue_evt = queue_evts.remove(0);
-            let mut mmds_ns = None;
-            if self.allow_mmds_requests {
-                mmds_ns = Some(MmdsNetworkStack::new_with_defaults());
-            }
+            let mut mmds_ns = if self.allow_mmds_requests {
+                Some(MmdsNetworkStack::new_with_defaults())
+            } else {
+                None
+            };
             let handler = NetEpollHandler {
                 rx: RxVirtio::new(
                     rx_queue,

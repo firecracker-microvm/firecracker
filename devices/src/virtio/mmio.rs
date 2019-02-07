@@ -19,7 +19,7 @@ use BusDevice;
 const VENDOR_ID: u32 = 0;
 
 //required by the virtio mmio device register layout at offset 0 from base
-const MMIO_MAGIC_VALUE: u32 = 0x74726976;
+const MMIO_MAGIC_VALUE: u32 = 0x7472_6976;
 
 //current version specified by the mmio standard (legacy devices used 1 here)
 const MMIO_VERSION: u32 = 2;
@@ -113,7 +113,7 @@ impl MmioDevice {
             .map(|&s| Queue::new(s))
             .collect();
         Ok(MmioDevice {
-            device: device,
+            device,
             device_activated: false,
             features_select: 0,
             acked_features_select: 0,
@@ -122,8 +122,8 @@ impl MmioDevice {
             interrupt_evt: Some(EventFd::new()?),
             driver_status: DEVICE_INIT,
             config_generation: 0,
-            queues: queues,
-            queue_evts: queue_evts,
+            queues,
+            queue_evts,
             mem: Some(mem),
         })
     }
@@ -291,7 +291,7 @@ impl BusDevice for MmioDevice {
                         }
                         features
                     }
-                    0x34 => self.with_queue(0, |q| q.get_max_size() as u32),
+                    0x34 => self.with_queue(0, |q| u32::from(q.get_max_size())),
                     0x44 => self.with_queue(0, |q| q.ready as u32),
                     0x60 => self.interrupt_status.load(Ordering::SeqCst) as u32,
                     0x70 => self.driver_status,
@@ -316,11 +316,11 @@ impl BusDevice for MmioDevice {
 
     fn write(&mut self, offset: u64, data: &[u8]) {
         fn hi(v: &mut GuestAddress, x: u32) {
-            *v = (*v & 0xffffffff) | ((x as u64) << 32)
+            *v = (*v & 0xffff_ffff) | (u64::from(x) << 32)
         }
 
         fn lo(v: &mut GuestAddress, x: u32) {
-            *v = (*v & !0xffffffff) | (x as u64)
+            *v = (*v & !0xffff_ffff) | u64::from(x)
         }
 
         match offset {
@@ -366,7 +366,7 @@ impl BusDevice for MmioDevice {
             }
             0x100...0xfff => {
                 if self.check_driver_status(DEVICE_DRIVER, DEVICE_FAILED) {
-                    return self.device.write_config(offset - 0x100, data);
+                    self.device.write_config(offset - 0x100, data)
                 } else {
                     warn!("can not write to device config data area before driver is ready");
                     return;
