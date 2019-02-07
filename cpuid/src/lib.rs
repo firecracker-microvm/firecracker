@@ -76,7 +76,7 @@ pub fn filter_cpuid(
     kvm_cpuid: &mut CpuId,
 ) -> Result<()> {
     let entries = kvm_cpuid.mut_entries_slice();
-    let max_addr_cpu = get_max_addressable_lprocessors(cpu_count)? as u32;
+    let max_addr_cpu = u32::from(get_max_addressable_lprocessors(cpu_count)?);
 
     let res = get_brand_string();
     let bstr = res.0;
@@ -215,7 +215,7 @@ pub fn filter_cpuid(
                     }
                 }
             }
-            0x80000002..=0x80000004 => {
+            0x8000_0002..=0x8000_0004 => {
                 entry.eax = bstr.get_reg_for_leaf(entry.function, BsReg::EAX);
                 entry.ebx = bstr.get_reg_for_leaf(entry.function, BsReg::EBX);
                 entry.ecx = bstr.get_reg_for_leaf(entry.function, BsReg::ECX);
@@ -247,8 +247,8 @@ const DEFAULT_BRAND_STRING: &[u8] = b"Intel(R) Xeon(R) Processor";
 /// The maximum number of addressable logical CPUs is computed as the closest power of 2
 /// higher or equal to the CPU count configured by the user.
 fn get_max_addressable_lprocessors(cpu_count: u8) -> Result<u8> {
-    let mut max_addressable_lcpu = (cpu_count as f64).log2().ceil();
-    max_addressable_lcpu = (2 as f64).powf(max_addressable_lcpu);
+    let mut max_addressable_lcpu = f64::from(cpu_count).log2().ceil();
+    max_addressable_lcpu = f64::from(2).powf(max_addressable_lcpu);
     // check that this number is still an u8
     if max_addressable_lcpu > u8::max_value().into() {
         return Err(Error::VcpuCountOverflow);
@@ -274,7 +274,7 @@ fn get_brand_string() -> PartialError<BrandString, brand_string::Error> {
         if host_bstr.starts_with(b"Intel") {
             if let Some(freq) = host_bstr.find_freq() {
                 let mut v3 = vec![];
-                v3.extend_from_slice(" @ ".as_bytes());
+                v3.extend_from_slice(b" @ ");
                 v3.extend_from_slice(freq);
                 if let Err(e) = bstr.push_bytes(&v3) {
                     return (bstr, Some(e));
