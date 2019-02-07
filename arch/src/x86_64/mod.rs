@@ -92,9 +92,9 @@ pub fn configure_system(
     num_cpus: u8,
 ) -> super::Result<()> {
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
-    const KERNEL_HDR_MAGIC: u32 = 0x53726448;
+    const KERNEL_HDR_MAGIC: u32 = 0x5372_6448;
     const KERNEL_LOADER_OTHER: u8 = 0xff;
-    const KERNEL_MIN_ALIGNMENT_BYTES: u32 = 0x1000000; // Must be non-zero.
+    const KERNEL_MIN_ALIGNMENT_BYTES: u32 = 0x0100_0000; // Must be non-zero.
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
     let end_32bit_gap_start = GuestAddress(get_32bit_gap_start());
 

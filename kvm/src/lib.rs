@@ -387,10 +387,10 @@ impl VmFd {
         if std::mem::size_of::<T>() > 0 {
             flags |= 1 << kvm_ioeventfd_flag_nr_datamatch
         }
-        match addr {
-            &IoeventAddress::Pio(_) => flags |= 1 << kvm_ioeventfd_flag_nr_pio,
-            _ => {}
-        };
+        if let IoeventAddress::Pio(_) = *addr {
+            flags |= 1 << kvm_ioeventfd_flag_nr_pio
+        }
+
         let ioeventfd = kvm_ioeventfd {
             datamatch: datamatch.into(),
             len: std::mem::size_of::<T>() as u32,
@@ -443,12 +443,11 @@ impl VmFd {
         let mut bitmap = vec![0; bitmap_size];
         let b_data = bitmap.as_mut_ptr() as *mut c_void;
         let dirtylog = kvm_dirty_log {
-            slot: slot,
+            slot,
             padding1: 0,
             __bindgen_anon_1: kvm_dirty_log__bindgen_ty_1 {
                 dirty_bitmap: b_data,
             },
-            ..Default::default()
         };
         // Safe because we know that our file is a VM fd, and we know that the amount of memory
         // we allocated for the bitmap is at least one bit per page.
@@ -476,7 +475,7 @@ impl VmFd {
     pub fn register_irqfd(&self, evt: &EventFd, gsi: u32) -> Result<()> {
         let irqfd = kvm_irqfd {
             fd: evt.as_raw_fd() as u32,
-            gsi: gsi,
+            gsi,
             ..Default::default()
         };
         // Safe because we know that our file is a VM fd, we know the kernel will only read the
@@ -500,6 +499,7 @@ impl VmFd {
     ///
     pub fn create_vcpu(&self, id: u8) -> Result<VcpuFd> {
         // Safe because we know that vm is a VM fd and we verify the return result.
+        #[allow(clippy::cast_lossless)]
         let vcpu_fd = unsafe { ioctl_with_val(&self.vm, KVM_CREATE_VCPU(), id as c_ulong) };
         if vcpu_fd < 0 {
             return Err(io::Error::last_os_error());
@@ -812,11 +812,14 @@ impl VcpuFd {
     }
 
     /// Returns a reference to the `kvm_run` structure obtained by mmap-ing the associated `VcpuFd`.
-    ///
+    #[allow(clippy::mut_from_ref)]
     fn get_run(&self) -> &mut kvm_run {
         // Safe because we know we mapped enough memory to hold the kvm_run struct because the
         // kernel told us how large it was.
-        unsafe { &mut *(self.run_mmap.as_ptr() as *mut kvm_run) }
+        #[allow(clippy::cast_ptr_alignment)]
+        unsafe {
+            &mut *(self.run_mmap.as_ptr() as *mut kvm_run)
+        }
     }
 
     /// Triggers the running of the current virtual CPU returning an exit reason.
@@ -846,7 +849,7 @@ impl VcpuFd {
                     let data_slice = unsafe {
                         std::slice::from_raw_parts_mut::<u8>(data_ptr as *mut u8, data_size)
                     };
-                    match io.direction as u32 {
+                    match u32::from(io.direction) {
                         KVM_EXIT_IO_IN => Ok(VcpuExit::IoIn(port, data_slice)),
                         KVM_EXIT_IO_OUT => Ok(VcpuExit::IoOut(port, data_slice)),
                         _ => Err(io::Error::from_raw_os_error(EINVAL)),
@@ -970,12 +973,14 @@ impl CpuId {
 
     /// Get a  pointer so it can be passed to the kernel. Using this pointer is unsafe.
     ///
+    #[allow(clippy::cast_ptr_alignment)]
     pub fn as_ptr(&self) -> *const kvm_cpuid2 {
         &self.kvm_cpuid[0]
     }
 
     /// Get a mutable pointer so it can be passed to the kernel. Using this pointer is unsafe.
     ///
+    #[allow(clippy::cast_ptr_alignment)]
     pub fn as_mut_ptr(&mut self) -> *mut kvm_cpuid2 {
         &mut self.kvm_cpuid[0]
     }
