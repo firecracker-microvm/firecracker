@@ -69,14 +69,14 @@ impl BrandString {
     /// of the host CPU.
     pub fn from_host_cpuid() -> Result<Self, Error> {
         let mut this = Self::new();
-        let mut cpuid_regs = unsafe { host_cpuid(0x80000000) };
+        let mut cpuid_regs = unsafe { host_cpuid(0x8000_0000) };
 
-        if cpuid_regs.eax < 0x80000004 {
+        if cpuid_regs.eax < 0x8000_0004 {
             // Brand string not supported by the host CPU
             return Err(Error::NotSupported);
         }
 
-        for leaf in 0x80000002..=0x80000004 {
+        for leaf in 0x8000_0002..=0x8000_0004 {
             cpuid_regs = unsafe { host_cpuid(leaf) };
             this.set_reg_for_leaf(leaf, Reg::EAX, cpuid_regs.eax);
             this.set_reg_for_leaf(leaf, Reg::EBX, cpuid_regs.ebx);
@@ -116,7 +116,7 @@ impl BrandString {
         // It's ok not to validate parameters here, leaf and reg should
         // both be compile-time constants. If there's something wrong with them,
         // that's a programming error and we should panic anyway.
-        self.reg_buf[(leaf - 0x80000002) as usize * 4 + reg as usize]
+        self.reg_buf[(leaf - 0x8000_0002) as usize * 4 + reg as usize]
     }
 
     /// Sets the value for the given leaf/register pair.
@@ -127,7 +127,7 @@ impl BrandString {
         // It's ok not to validate parameters here, leaf and reg should
         // both be compile-time constants. If there's something wrong with them,
         // that's a programming error and we should panic anyway.
-        self.reg_buf[(leaf - 0x80000002) as usize * 4 + reg as usize] = val;
+        self.reg_buf[(leaf - 0x8000_0002) as usize * 4 + reg as usize] = val;
     }
 
     /// Gets an immutable `u8` slice view into the brand string buffer.
@@ -149,7 +149,7 @@ impl BrandString {
 
     /// Asserts whether or not there is enough room to append `src` to the brand string.
     fn check_push(&mut self, src: &[u8]) -> bool {
-        !(src.len() > Self::MAX_LEN - self.len)
+        src.len() <= Self::MAX_LEN - self.len
     }
 
     /// Appends `src` to the brand string if there is enough room to append it.
