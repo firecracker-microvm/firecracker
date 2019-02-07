@@ -61,7 +61,7 @@ impl PartialOrd for BusRange {
 ///
 /// This doesn't have any restrictions on what kind of device or address space this applies to. The
 /// only restriction is that no two devices can overlap in this address space.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Bus {
     devices: BTreeMap<BusRange, Arc<Mutex<BusDevice>>>,
 }

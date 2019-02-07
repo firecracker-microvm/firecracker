@@ -45,12 +45,12 @@ fn validate_payload(action_body: &ActionBody) -> Result<(), String> {
                     }
                     Ok(())
                 }
-                None => return Err("Payload is required for block device rescan.".to_string()),
+                None => Err("Payload is required for block device rescan.".to_string()),
             }
         }
         ActionType::FlushMetrics | ActionType::InstanceStart | ActionType::SendCtrlAltDel => {
             // Neither FlushMetrics nor InstanceStart should have a payload.
-            if !action_body.payload.is_none() {
+            if action_body.payload.is_some() {
                 return Err(format!(
                     "{:?} does not support a payload.",
                     action_body.action_type

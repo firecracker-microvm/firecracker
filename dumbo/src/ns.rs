@@ -120,7 +120,7 @@ impl MmdsNetworkStack {
         } else {
             METRICS.mmds.rx_bad_eth.inc();
         }
-        return false;
+        false
     }
 
     fn detour_arp(&mut self, eth: EthernetFrame<&[u8]>) -> bool {
@@ -251,9 +251,8 @@ impl MmdsNetworkStack {
             .tcp_handler
             .write_next_packet(eth_unsized.inner_mut().payload_mut())?;
 
-        match event {
-            WriteEvent::EndpointDone => METRICS.mmds.connections_destroyed.inc(),
-            _ => (),
+        if let WriteEvent::EndpointDone = event {
+            METRICS.mmds.connections_destroyed.inc()
         }
 
         if let Some(packet_len) = maybe_len {

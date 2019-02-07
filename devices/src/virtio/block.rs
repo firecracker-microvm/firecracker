@@ -147,9 +147,7 @@ fn build_disk_image_id(disk_image: &File) -> Vec<u8> {
             // This will also zero out any leftover bytes.
             let disk_id = m.as_bytes();
             let bytes_to_copy = cmp::min(disk_id.len(), VIRTIO_BLK_ID_BYTES as usize);
-            for i in 0..bytes_to_copy {
-                default_disk_image_id[i] = disk_id[i];
-            }
+            default_disk_image_id[..bytes_to_copy].clone_from_slice(&disk_id[..bytes_to_copy])
         }
     }
     default_disk_image_id
@@ -224,6 +222,7 @@ impl Request {
         Ok(req)
     }
 
+    #[allow(clippy::ptr_arg)]
     fn execute<T: Seek + Read + Write>(
         &self,
         disk: &mut T,

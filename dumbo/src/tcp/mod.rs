@@ -59,8 +59,8 @@ impl RstConfig {
 
     /// Returns the sequence number, acknowledgement number, and TCP flags (not counting `NS`) that
     /// must be set on the outgoing `RST` segment.
-    pub fn seq_ack_tcp_flags(&self) -> (u32, u32, TcpFlags) {
-        match *self {
+    pub fn seq_ack_tcp_flags(self) -> (u32, u32, TcpFlags) {
+        match self {
             RstConfig::Seq(seq) => (seq, 0, TcpFlags::RST),
             RstConfig::Ack(ack) => (0, ack, TcpFlags::RST | TcpFlags::ACK),
         }

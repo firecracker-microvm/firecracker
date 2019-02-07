@@ -212,6 +212,12 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
         self.bytes.len()
     }
 
+    /// Checks if the inner byte sequence is empty or not
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.bytes.len() == 0
+    }
+
     /// Computes and returns the packet header checksum using the provided header length.
     ///
     /// A nice description of how this works can be found [here]. May panic for invalid values of
@@ -225,7 +231,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     pub fn compute_checksum_unchecked(&self, header_len: usize) -> u16 {
         let mut sum = 0u32;
         for i in 0..header_len / 2 {
-            sum += self.bytes.ntohs_unchecked(i * 2) as u32;
+            sum += u32::from(self.bytes.ntohs_unchecked(i * 2));
         }
 
         while sum >> 16 != 0 {
@@ -307,7 +313,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
     /// Sets the values of the `flags` and `fragment offset` header fields.
     #[inline]
     pub fn set_flags_and_fragment_offset(&mut self, flags: u8, fragment_offset: u16) -> &mut Self {
-        let value = ((flags as u16) << 13) | fragment_offset;
+        let value = (u16::from(flags) << 13) | fragment_offset;
         self.bytes
             .htons_unchecked(FLAGS_AND_FRAGMENTOFF_OFFSET, value);
         self

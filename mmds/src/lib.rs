@@ -33,7 +33,7 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
     match request {
         Ok(request) => {
             let uri = request.uri().get_abs_path();
-            if uri.len() == 0 {
+            if uri.is_empty() {
                 return build_response(
                     request.http_version(),
                     StatusCode::BadRequest,
@@ -61,21 +61,21 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                         MmdsError::NotFound => {
                             // NotFound
                             let error_msg = format!("Resource not found: {}.", uri);
-                            return build_response(
+                            build_response(
                                 request.http_version(),
                                 StatusCode::NotFound,
                                 Body::new(error_msg),
-                            );
+                            )
                         }
                         MmdsError::UnsupportedValueType => {
                             // InternalServerError
                             let error_msg =
                                 format!("The resource {} has an invalid format.", uri.to_string());
-                            return build_response(
+                            build_response(
                                 request.http_version(),
                                 StatusCode::InternalServerError,
                                 Body::new(error_msg),
-                            );
+                            )
                         }
                     }
                 }

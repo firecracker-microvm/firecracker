@@ -142,8 +142,8 @@ fn frame_bytes_from_buf_mut(buf: &mut [u8]) -> &mut [u8] {
 fn init_vnet_hdr(buf: &mut [u8]) {
     // The buffer should be larger than vnet_hdr_len.
     // TODO: any better way to set all these bytes to 0? Or is this optimized by the compiler?
-    for i in 0..vnet_hdr_len() {
-        buf[i] = 0;
+    for i in &mut buf[0..vnet_hdr_len()] {
+        *i = 0;
     }
 }
 
@@ -466,7 +466,7 @@ impl NetEpollHandler {
             if Self::write_to_mmds_or_tap(
                 self.mmds_ns.as_mut(),
                 &mut self.tx.rate_limiter,
-                &mut self.tx.frame_buf[..read_count],
+                &self.tx.frame_buf[..read_count],
                 &mut self.tap,
                 self.guest_mac,
             ) && !self.rx.deferred_frame
