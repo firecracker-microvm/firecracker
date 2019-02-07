@@ -116,7 +116,7 @@ impl BlockDeviceConfigs {
 
     /// Checks whether any of the added BlockDevice is the root.
     pub fn has_root_block_device(&self) -> bool {
-        return self.has_root_block;
+        self.has_root_block
     }
 
     /// Checks whether the root device has read-only permisssions.
@@ -130,18 +130,18 @@ impl BlockDeviceConfigs {
     }
 
     /// Gets the index of the device with the specified `drive_id` if it exists in the list.
-    pub fn get_index_of_drive_id(&self, drive_id: &String) -> Option<usize> {
-        return self
+    pub fn get_index_of_drive_id(&self, drive_id: &str) -> Option<usize> {
+        self
             .config_list
             .iter()
-            .position(|cfg| cfg.drive_id.eq(drive_id));
+            .position(|cfg| cfg.drive_id.eq(drive_id))
     }
 
     fn get_index_of_drive_path(&self, drive_path: &PathBuf) -> Option<usize> {
-        return self
+        self
             .config_list
             .iter()
-            .position(|cfg| cfg.path_on_host.eq(drive_path));
+            .position(|cfg| cfg.path_on_host.eq(drive_path))
     }
 
     /// Inserts `block_device_config` in the block device configuration list.

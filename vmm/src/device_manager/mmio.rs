@@ -37,16 +37,16 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Error::BusError(ref e) => write!(f, "failed to perform bus operation: {:?}", e),
-            &Error::CreateMmioDevice(ref e) => write!(f, "failed to create mmio device: {:?}", e),
-            &Error::CloneIoEventFd(ref e) => write!(f, "failed to clone ioeventfd: {}", e),
-            &Error::CloneIrqFd(ref e) => write!(f, "failed to clone irqfd: {}", e),
-            &Error::Cmdline(ref e) => {
+        match *self {
+            Error::BusError(ref e) => write!(f, "failed to perform bus operation: {:?}", e),
+            Error::CreateMmioDevice(ref e) => write!(f, "failed to create mmio device: {:?}", e),
+            Error::CloneIoEventFd(ref e) => write!(f, "failed to clone ioeventfd: {}", e),
+            Error::CloneIrqFd(ref e) => write!(f, "failed to clone irqfd: {}", e),
+            Error::Cmdline(ref e) => {
                 write!(f, "unable to add device to kernel command line: {}", e)
             }
-            &Error::IrqsExhausted => write!(f, "no more IRQs are available"),
-            &Error::UpdateFailed => write!(f, "failed to update the mmio device"),
+            Error::IrqsExhausted => write!(f, "no more IRQs are available"),
+            Error::UpdateFailed => write!(f, "failed to update the mmio device"),
         }
     }
 }
@@ -82,9 +82,9 @@ impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
     pub fn new(guest_mem: GuestMemory, mmio_base: u64) -> MMIODeviceManager {
         MMIODeviceManager {
-            guest_mem: guest_mem,
+            guest_mem,
             vm_requests: Vec::new(),
-            mmio_base: mmio_base,
+            mmio_base,
             irq: IRQ_BASE,
             bus: devices::Bus::new(),
             id_to_addr_map: HashMap::new(),
@@ -106,7 +106,7 @@ impl MMIODeviceManager {
             .map_err(Error::CreateMmioDevice)?;
         for (i, queue_evt) in mmio_device.queue_evts().iter().enumerate() {
             let io_addr =
-                IoeventAddress::Mmio(self.mmio_base + devices::virtio::NOTIFY_REG_OFFSET as u64);
+                IoeventAddress::Mmio(self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET));
             self.vm_requests.push(VmRequest::RegisterIoevent(
                 queue_evt.try_clone().map_err(Error::CloneIoEventFd)?,
                 io_addr,
@@ -123,7 +123,7 @@ impl MMIODeviceManager {
 
         self.bus
             .insert(Arc::new(Mutex::new(mmio_device)), self.mmio_base, MMIO_LEN)
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
 
         // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
         // to kernel commandline for virtio mmio devices to get recognized
@@ -163,8 +163,8 @@ impl MMIODeviceManager {
     }
 
     /// Gets the address of the specified device on the bus.
-    pub fn get_address(&self, id: &String) -> Option<&u64> {
-        return self.id_to_addr_map.get(id.as_str());
+    pub fn get_address(&self, id: &str) -> Option<&u64> {
+        self.id_to_addr_map.get(id)
     }
 
     /// Removing the address of a device will generate an error when you try to update the

@@ -59,7 +59,7 @@ extern "C" fn sigsys_handler(
     // Sanity check. The condition should never be true.
     if num != si_signo || num != libc::SIGSYS || si_code != SYS_SECCOMP_CODE as i32 {
         // Safe because we're terminating the process anyway.
-        unsafe { libc::_exit(super::FC_EXIT_CODE_UNEXPECTED_ERROR as i32) };
+        unsafe { libc::_exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) };
     }
 
     // Other signals which might do async unsafe things incompatible with the rest of this
@@ -80,7 +80,7 @@ extern "C" fn sigsys_handler(
     // running unit tests.
     #[cfg(not(test))]
     unsafe {
-        libc::_exit(super::FC_EXIT_CODE_BAD_SYSCALL as i32)
+        libc::_exit(i32::from(super::FC_EXIT_CODE_BAD_SYSCALL))
     };
 }
 

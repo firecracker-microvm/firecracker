@@ -45,10 +45,10 @@ const EPOLL_CTL_DEL: u64 = 2;
 // See include/uapi/asm-generic/fcntl.h in the kernel code.
 const FCNTL_FD_CLOEXEC: u64 = 1;
 const FCNTL_F_SETFD: u64 = 2;
-const O_CLOEXEC: u64 = 0x02000000;
-const O_NONBLOCK: u64 = 0x00004000;
-const O_RDONLY: u64 = 0x00000000;
-const O_RDWR: u64 = 0x00000002;
+const O_CLOEXEC: u64 = 0x0200_0000;
+const O_NONBLOCK: u64 = 0x0000_4000;
+const O_RDONLY: u64 = 0x0000_0000;
+const O_RDWR: u64 = 0x0000_0002;
 
 // See include/uapi/linux/futex.h in the kernel code.
 const FUTEX_WAIT: u64 = 0;
@@ -72,28 +72,28 @@ const KVM_CREATE_VM: u64 = 0xae01;
 const KVM_CHECK_EXTENSION: u64 = 0xae03;
 const KVM_GET_VCPU_MMAP_SIZE: u64 = 0xae04;
 const KVM_CREATE_VCPU: u64 = 0xae41;
-const KVM_GET_DIRTY_LOG: u64 = 0x4010ae42;
+const KVM_GET_DIRTY_LOG: u64 = 0x4010_ae42;
 const KVM_SET_TSS_ADDR: u64 = 0xae47;
 const KVM_CREATE_IRQCHIP: u64 = 0xae60;
 const KVM_RUN: u64 = 0xae80;
-const KVM_SET_MSRS: u64 = 0x4008ae89;
-const KVM_SET_CPUID2: u64 = 0x4008ae90;
-const KVM_SET_USER_MEMORY_REGION: u64 = 0x4020ae46;
-const KVM_IRQFD: u64 = 0x4020ae76;
-const KVM_CREATE_PIT2: u64 = 0x4040ae77;
-const KVM_IOEVENTFD: u64 = 0x4040ae79;
-const KVM_SET_REGS: u64 = 0x4090ae82;
-const KVM_SET_SREGS: u64 = 0x4138ae84;
-const KVM_SET_FPU: u64 = 0x41a0ae8d;
-const KVM_SET_LAPIC: u64 = 0x4400ae8f;
-const KVM_GET_SREGS: u64 = 0x8138ae83;
-const KVM_GET_LAPIC: u64 = 0x8400ae8e;
-const KVM_GET_SUPPORTED_CPUID: u64 = 0xc008ae05;
+const KVM_SET_MSRS: u64 = 0x4008_ae89;
+const KVM_SET_CPUID2: u64 = 0x4008_ae90;
+const KVM_SET_USER_MEMORY_REGION: u64 = 0x4020_ae46;
+const KVM_IRQFD: u64 = 0x4020_ae76;
+const KVM_CREATE_PIT2: u64 = 0x4040_ae77;
+const KVM_IOEVENTFD: u64 = 0x4040_ae79;
+const KVM_SET_REGS: u64 = 0x4090_ae82;
+const KVM_SET_SREGS: u64 = 0x4138_ae84;
+const KVM_SET_FPU: u64 = 0x41a0_ae8d;
+const KVM_SET_LAPIC: u64 = 0x4400_ae8f;
+const KVM_GET_SREGS: u64 = 0x8138_ae83;
+const KVM_GET_LAPIC: u64 = 0x8400_ae8e;
+const KVM_GET_SUPPORTED_CPUID: u64 = 0xc008_ae05;
 
 // See include/uapi/linux/if_tun.h in the kernel code.
-const TUNSETIFF: u64 = 0x400454ca;
-const TUNSETOFFLOAD: u64 = 0x400454d0;
-const TUNSETVNETHDRSZ: u64 = 0x400454d8;
+const TUNSETIFF: u64 = 0x4004_54ca;
+const TUNSETOFFLOAD: u64 = 0x4004_54d0;
+const TUNSETVNETHDRSZ: u64 = 0x4004_54d8;
 
 // See include/uapi/asm-generic/mman-common.h in the kernel code.
 const PROT_NONE: u64 = 0x0;
