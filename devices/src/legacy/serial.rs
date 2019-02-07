@@ -162,10 +162,10 @@ impl Serial {
     fn handle_write(&mut self, offset: u8, v: u8) -> Result<()> {
         match offset as u8 {
             DLAB_LOW if self.is_dlab_set() => {
-                self.baud_divisor = (self.baud_divisor & 0xff00) | v as u16
+                self.baud_divisor = (self.baud_divisor & 0xff00) | u16::from(v)
             }
             DLAB_HIGH if self.is_dlab_set() => {
-                self.baud_divisor = (self.baud_divisor & 0x00ff) | ((v as u16) << 8)
+                self.baud_divisor = (self.baud_divisor & 0x00ff) | (u16::from(v) << 8)
             }
             DATA => {
                 if self.is_loop() {

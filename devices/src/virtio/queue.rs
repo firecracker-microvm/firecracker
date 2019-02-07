@@ -73,9 +73,8 @@ impl<'a> DescriptorChain<'a> {
             Some(a) => a,
             None => return None,
         };
-        if mem.checked_offset(desc_head, 16).is_none() {
-            return None;
-        }
+        mem.checked_offset(desc_head, 16)?;
+
         // These reads can't fail unless Guest memory is hopelessly broken.
         let desc = match mem.read_obj_from_addr::<Descriptor>(desc_head) {
             Ok(ret) => ret,
@@ -86,11 +85,11 @@ impl<'a> DescriptorChain<'a> {
             }
         };
         let chain = DescriptorChain {
-            mem: mem,
-            desc_table: desc_table,
-            queue_size: queue_size,
+            mem,
+            desc_table,
+            queue_size,
             ttl: queue_size,
-            index: index,
+            index,
             addr: GuestAddress(desc.addr as usize),
             len: desc.len,
             flags: desc.flags,
@@ -105,16 +104,11 @@ impl<'a> DescriptorChain<'a> {
     }
 
     fn is_valid(&self) -> bool {
-        if self
+        !(self
             .mem
             .checked_offset(self.addr, self.len as usize)
             .is_none()
-            || (self.has_next() && self.next >= self.queue_size)
-        {
-            false
-        } else {
-            true
-        }
+            || (self.has_next() && self.next >= self.queue_size))
     }
 
     /// Gets if this descriptor chain has another descriptor chain linked after it.
@@ -162,7 +156,7 @@ pub struct AvailIter<'a, 'b> {
 impl<'a, 'b> AvailIter<'a, 'b> {
     pub fn new(mem: &'a GuestMemory, q_next_avail: &'b mut Wrapping<u16>) -> AvailIter<'a, 'b> {
         AvailIter {
-            mem: mem,
+            mem,
             desc_table: GuestAddress(0),
             avail_ring: GuestAddress(0),
             next_index: Wrapping(0),
@@ -336,12 +330,12 @@ impl Queue {
         };
 
         AvailIter {
-            mem: mem,
+            mem,
             desc_table: self.desc_table,
-            avail_ring: avail_ring,
+            avail_ring,
             next_index: self.next_avail,
             last_index: Wrapping(last_index),
-            queue_size: queue_size,
+            queue_size,
             next_avail: &mut self.next_avail,
         }
     }
@@ -361,7 +355,8 @@ impl Queue {
         let used_elem = used_ring.unchecked_add(4 + next_used * 8);
 
         // These writes can't fail as we are guaranteed to be within the descriptor ring.
-        mem.write_obj_at_addr(desc_index as u32, used_elem).unwrap();
+        mem.write_obj_at_addr(u32::from(desc_index), used_elem)
+            .unwrap();
         mem.write_obj_at_addr(len as u32, used_elem.unchecked_add(4))
             .unwrap();
 

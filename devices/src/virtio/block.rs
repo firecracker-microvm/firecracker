@@ -34,7 +34,7 @@ const SECTOR_SHIFT: u8 = 9;
 pub const SECTOR_SIZE: u64 = (0x01 as u64) << SECTOR_SHIFT;
 const QUEUE_SIZE: u16 = 256;
 const NUM_QUEUES: usize = 1;
-const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
+const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE];
 
 // New descriptors are pending on the virtio queue.
 const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
@@ -77,13 +77,13 @@ enum ExecuteError {
 
 impl ExecuteError {
     fn status(&self) -> u32 {
-        match self {
-            &ExecuteError::BadRequest(_) => VIRTIO_BLK_S_IOERR,
-            &ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
-            &ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
-            &ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
-            &ExecuteError::Write(_) => VIRTIO_BLK_S_IOERR,
-            &ExecuteError::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
+        match *self {
+            ExecuteError::BadRequest(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::Write(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
         }
     }
 }
@@ -231,8 +231,8 @@ impl Request {
         mem: &GuestMemory,
         disk_id: &Vec<u8>,
     ) -> result::Result<u32, ExecuteError> {
-        let mut top: u64 = (self.data_len as u64) / SECTOR_SIZE;
-        if (self.data_len as u64) % SECTOR_SIZE != 0 {
+        let mut top: u64 = u64::from(self.data_len) / SECTOR_SIZE;
+        if u64::from(self.data_len) % SECTOR_SIZE != 0 {
             top += 1;
         }
         top = top
@@ -315,7 +315,7 @@ impl BlockEpollHandler {
                         // budget and rate limiting is in effect.
                         if !self
                             .rate_limiter
-                            .consume(request.data_len as u64, TokenType::Bytes)
+                            .consume(u64::from(request.data_len), TokenType::Bytes)
                         {
                             rate_limited = true;
                             // Revert the OPS consume().
@@ -454,8 +454,8 @@ impl EpollConfig {
         sender: mpsc::Sender<Box<EpollHandler>>,
     ) -> Self {
         EpollConfig {
-            q_avail_token: first_token + QUEUE_AVAIL_EVENT as u64,
-            rate_limiter_token: first_token + RATE_LIMITER_EVENT as u64,
+            q_avail_token: first_token + u64::from(QUEUE_AVAIL_EVENT),
+            rate_limiter_token: first_token + u64::from(RATE_LIMITER_EVENT),
             epoll_raw_fd,
             sender,
         }
@@ -546,8 +546,8 @@ impl VirtioDevice for Block {
 
     fn ack_features(&mut self, page: u32, value: u32) {
         let mut v = match page {
-            0 => value as u64,
-            1 => (value as u64) << 32,
+            0 => u64::from(value),
+            1 => u64::from(value) << 32,
             _ => {
                 warn!("Cannot acknowledge unknown features page.");
                 0u64
@@ -574,7 +574,7 @@ impl VirtioDevice for Block {
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
             // This write can't fail, offset and end are checked against config_len.
-            data.write(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
+            data.write_all(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
                 .unwrap();
         }
     }

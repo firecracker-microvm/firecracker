@@ -58,7 +58,7 @@ const CMD_WRITE_OUTP: u8 = 0xD1; // Write output port
 const CMD_RESET_CPU: u8 = 0xFE; // Reset CPU
 
 /// i8042 status register bits
-const SB_OUT_DATA_AVAIL: u8 = 1 << 0; // Data available at port 0x60
+const SB_OUT_DATA_AVAIL: u8 = 1; // Data available at port 0x60
 const SB_I8042_CMD_DATA: u8 = 1 << 3; // i8042 expecting command parameter at port 0x60
 const SB_KBD_ENABLED: u8 = 1 << 4; // 1 = kbd enabled, 0 = kbd locked
 
