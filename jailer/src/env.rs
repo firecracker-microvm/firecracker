@@ -63,7 +63,7 @@ impl Env {
         // should not fail.
         let id = get_value(&args, "id")?;
 
-        validators::validate_instance_id(id).map_err(|e| Error::InvalidInstanceId(e))?;
+        validators::validate_instance_id(id).map_err(Error::InvalidInstanceId)?;
 
         let numa_node_str = get_value(&args, "numa_node")?;
         let numa_node = numa_node_str
@@ -113,7 +113,7 @@ impl Env {
         // they are all unsigned integers.
         let seccomp_level = get_value(&args, "seccomp-level")?
             .parse::<u32>()
-            .map_err(|err| Error::SeccompLevel(err))?;
+            .map_err(Error::SeccompLevel)?;
 
         Ok(Env {
             id: id.to_string(),
