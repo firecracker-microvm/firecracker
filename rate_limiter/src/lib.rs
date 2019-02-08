@@ -351,6 +351,24 @@ impl<'de> Deserialize<'de> for RateLimiter {
 }
 
 impl RateLimiter {
+    // description
+    fn make_bucket(
+        total_capacity: u64,
+        one_time_burst: Option<u64>,
+        complete_refill_time_ms: u64,
+    ) -> Option<TokenBucket> {
+        // If either token bucket capacity or refill time is 0, disable limiting.
+        if total_capacity != 0 && complete_refill_time_ms != 0 {
+            Some(TokenBucket::new(
+                total_capacity,
+                one_time_burst,
+                complete_refill_time_ms,
+            ))
+        } else {
+            None
+        }
+    }
+
     /// Creates a new Rate Limiter that can limit on both bytes/s and ops/s.
     ///
     /// # Arguments
@@ -380,28 +398,17 @@ impl RateLimiter {
         ops_one_time_burst: Option<u64>,
         ops_complete_refill_time_ms: u64,
     ) -> io::Result<Self> {
-        // If either bytes token bucket capacity or refill time is 0, disable limiting on bytes/s.
-        let bytes_token_bucket = if bytes_total_capacity != 0 && bytes_complete_refill_time_ms != 0
-        {
-            Some(TokenBucket::new(
-                bytes_total_capacity,
-                bytes_one_time_burst,
-                bytes_complete_refill_time_ms,
-            ))
-        } else {
-            None
-        };
+        let bytes_token_bucket = Self::make_bucket(
+            bytes_total_capacity,
+            bytes_one_time_burst,
+            bytes_complete_refill_time_ms,
+        );
 
-        // If either ops token bucket capacity or refill time is 0, disable limiting on ops/s.
-        let ops_token_bucket = if ops_total_capacity != 0 && ops_complete_refill_time_ms != 0 {
-            Some(TokenBucket::new(
-                ops_total_capacity,
-                ops_one_time_burst,
-                ops_complete_refill_time_ms,
-            ))
-        } else {
-            None
-        };
+        let ops_token_bucket = Self::make_bucket(
+            ops_total_capacity,
+            ops_one_time_burst,
+            ops_complete_refill_time_ms,
+        );
 
         // If limiting is disabled on all token types, don't even create a timer fd.
         let timer_fd = if bytes_token_bucket.is_some() || ops_token_bucket.is_some() {
@@ -498,6 +505,22 @@ impl RateLimiter {
             None => Err(Error::SpuriousRateLimiterEvent(
                 "Rate limiter event handler called without a present timer",
             )),
+        }
+    }
+
+    /// Updates the parameters of the token buckets associated with this RateLimiter.
+    // TODO: Pls note that, right now, the buckets buckets become full after being updated.
+    pub fn update_buckets(&mut self, bytes: Option<TokenBucket>, ops: Option<TokenBucket>) {
+        // TODO: We have to call make_bucket instead of directly assigning the bytes and/or ops
+        // because the input buckets are likely build via deserialization, which currently does not
+        // properly set up their internal state.
+
+        if let Some(b) = bytes {
+            self.bandwidth = Self::make_bucket(b.size, b.one_time_burst, b.refill_time);
+        }
+
+        if let Some(b) = ops {
+            self.ops = Self::make_bucket(b.size, b.one_time_burst, b.refill_time);
         }
     }
 
@@ -833,5 +856,35 @@ mod tests {
         let jstr = r#"{
         }"#;
         assert!(serde_json::from_str::<RateLimiter>(jstr).is_ok());
+    }
+
+    #[test]
+    fn test_update_buckets() {
+        let jstr = r#"{
+            "bandwidth": { "size": 1000, "one_time_burst": 2000,  "refill_time": 1000 },
+            "ops": { "size": 10, "one_time_burst": 20, "refill_time": 1000 }
+        }"#;
+
+        let mut x: RateLimiter = serde_json::from_str(jstr).unwrap();
+
+        let initial_bw = x.bandwidth.clone();
+        let initial_ops = x.ops.clone();
+
+        x.update_buckets(None, None);
+        assert_eq!(x.bandwidth, initial_bw);
+        assert_eq!(x.ops, initial_ops);
+
+        let new_bw = TokenBucket::new(123, None, 57);
+        let new_ops = TokenBucket::new(321, Some(12346), 89);
+        x.update_buckets(Some(new_bw.clone()), Some(new_ops.clone()));
+
+        // We have manually adjust the last_update field, because it changes when update_buckets()
+        // constructs new buckets (and thus gets a different value for last_update). We do this so
+        // it makes sense to test the following assertions.
+        x.bandwidth.as_mut().unwrap().last_update = new_bw.last_update;
+        x.ops.as_mut().unwrap().last_update = new_ops.last_update;
+
+        assert_eq!(x.bandwidth, Some(new_bw));
+        assert_eq!(x.ops, Some(new_ops));
     }
 }
