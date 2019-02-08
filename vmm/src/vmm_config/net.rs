@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter, Result};
+use std::io;
 use std::result;
 
+use super::super::Error as VmmInternalError;
+use super::RateLimiterConfig;
+use devices;
 use net_util::{MacAddr, Tap, TapError};
 use rate_limiter::RateLimiter;
 
@@ -60,15 +64,38 @@ impl NetworkInterfaceConfig {
     }
 }
 
+/// The data fed into a network iface update request. Currently, only the RX and TX rate limiters
+/// can be updated.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkInterfaceUpdateConfig {
+    /// The net iface ID, as provided by the user at iface creation time.
+    pub iface_id: String,
+    /// New RX rate limiter config. Only provided data will be updated. I.e. if any optional data
+    /// is missing, it will not be nullified, but left unchanged.
+    pub rx_rate_limiter: Option<RateLimiterConfig>,
+    /// New TX rate limiter config. Only provided data will be updated. I.e. if any optional data
+    /// is missing, it will not be nullified, but left unchanged.
+    pub tx_rate_limiter: Option<RateLimiterConfig>,
+}
+
 /// Errors associated with `NetworkInterfaceConfig`.
 #[derive(Debug)]
 pub enum NetworkInterfaceError {
     /// The MAC address is already in use.
     GuestMacAddressInUse(String),
+    /// Error retrieving device handler during update.
+    EpollHandlerNotFound(VmmInternalError),
     /// The host device name is already in use.
     HostDeviceNameInUse(String),
+    /// Couldn't find the interface to update (patch).
+    DeviceIdNotFound,
     /// Cannot open/create tap device.
     OpenTap(TapError),
+    /// Downstream error from a RateLimiter.
+    RateLimiterError(io::Error),
+    /// Error updating (patching) the rate limiters.
+    RateLimiterUpdateFailed(devices::Error),
     /// The update is not allowed after booting the microvm.
     UpdateNotAllowedPostBoot,
 }
@@ -82,11 +109,15 @@ impl Display for NetworkInterfaceError {
                 "{}",
                 format!("The guest MAC address {} is already in use.", mac_addr)
             ),
+            EpollHandlerNotFound(ref e) => {
+                write!(f, "Error retrieving device epoll handler: {:?}", e)
+            }
             HostDeviceNameInUse(ref host_dev_name) => write!(
                 f,
                 "{}",
                 format!("The host device name {} is already in use.", host_dev_name)
             ),
+            DeviceIdNotFound => write!(f, "Invalid interface ID - not found."),
             OpenTap(ref e) => {
                 // We are propagating the Tap Error. This error can contain
                 // imbricated quotes which would result in an invalid json.
@@ -100,6 +131,10 @@ impl Display for NetworkInterfaceError {
                     tap_err
                 )
             }
+            RateLimiterError(ref e) => {
+                write!(f, "Unable to create rate limiter: {}", e.to_string())
+            }
+            RateLimiterUpdateFailed(ref e) => write!(f, "Unable to update rate limiter: {:?}", e),
             UpdateNotAllowedPostBoot => {
                 write!(f, "The update operation is not allowed after boot.",)
             }

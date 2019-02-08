@@ -59,7 +59,7 @@ pub const NET_EVENTS_COUNT: usize = 5;
 // This is not a true DeviceEvent, as we explicitly invoke the handler with this value as a
 // parameter when the VMM handles as PATCH rate limiters request. Thus, there's not epoll event
 // associated with it.
-const PATCH_RATE_LIMITERS: DeviceEventT = 5;
+pub const PATCH_RATE_LIMITERS_FAKE_EVENT: DeviceEventT = NET_EVENTS_COUNT as DeviceEventT;
 
 #[derive(Debug)]
 pub enum Error {
@@ -605,9 +605,13 @@ impl EpollHandler for NetEpollHandler {
                     }
                 }
             }
-            PATCH_RATE_LIMITERS => {
-                if let EpollHandlerPayload::PatchRateLimiters(rx_bytes, rx_ops, tx_bytes, tx_ops) =
-                    payload
+            PATCH_RATE_LIMITERS_FAKE_EVENT => {
+                if let EpollHandlerPayload::NetRateLimiterPayload {
+                    rx_bytes,
+                    rx_ops,
+                    tx_bytes,
+                    tx_ops,
+                } = payload
                 {
                     self.rx.rate_limiter.update_buckets(rx_bytes, rx_ops);
                     self.tx.rate_limiter.update_buckets(tx_bytes, tx_ops);
@@ -1941,14 +1945,14 @@ mod tests {
         let tx_ops = TokenBucket::new(1009, Some(1010), 1011);
 
         h.handle_event(
-            PATCH_RATE_LIMITERS,
+            PATCH_RATE_LIMITERS_FAKE_EVENT,
             0,
-            EpollHandlerPayload::PatchRateLimiters(
-                Some(rx_bytes.clone()),
-                Some(rx_ops.clone()),
-                Some(tx_bytes.clone()),
-                Some(tx_ops.clone()),
-            ),
+            EpollHandlerPayload::NetRateLimiterPayload {
+                rx_bytes: Some(rx_bytes.clone()),
+                rx_ops: Some(rx_ops.clone()),
+                tx_bytes: Some(tx_bytes.clone()),
+                tx_ops: Some(tx_ops.clone()),
+            },
         )
         .unwrap();
 
