@@ -25,7 +25,7 @@ use super::{
     ActivateError, ActivateResult, EpollHandlerPayload, Queue, VirtioDevice, TYPE_NET,
     VIRTIO_MMIO_INT_VRING,
 };
-use dumbo::ns::MmdsNetworkStack;
+use dumbo::{ns::MmdsNetworkStack, pdu::ethernet::EthernetFrame};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use net_gen;
@@ -156,6 +156,7 @@ struct NetEpollHandler {
     #[allow(dead_code)]
     acked_features: u64,
     mmds_ns: Option<MmdsNetworkStack>,
+    guest_mac: Option<MacAddr>,
 
     #[cfg(test)]
     test_mutators: tests::TestMutators,
@@ -282,6 +283,7 @@ impl NetEpollHandler {
         rate_limiter: &mut RateLimiter,
         frame_buf: &[u8],
         tap: &mut Tap,
+        guest_mac: Option<MacAddr>,
     ) -> bool {
         if let Some(ns) = mmds_ns {
             if ns.detour_frame(frame_bytes_from_buf(frame_buf)) {
@@ -295,7 +297,19 @@ impl NetEpollHandler {
                 return true;
             }
         }
+
         // This frame goes to the TAP.
+
+        // Check for guest MAC spoofing.
+        if let Some(mac) = guest_mac {
+            let _ = EthernetFrame::from_bytes(&frame_buf[vnet_hdr_len()..]).and_then(|eth_frame| {
+                if mac != eth_frame.src_mac() {
+                    METRICS.net.tx_spoofed_mac_count.inc();
+                }
+                Ok(())
+            });
+        }
+
         let write_result = tap.write(frame_buf);
         match write_result {
             Ok(_) => {
@@ -459,6 +473,7 @@ impl NetEpollHandler {
                 &mut self.tx.rate_limiter,
                 &mut self.tx.frame_buf[..read_count],
                 &mut self.tap,
+                self.guest_mac,
             ) && !self.rx.deferred_frame
             {
                 // MMDS consumed this frame/request, let's also try to process the response.
@@ -726,6 +741,16 @@ impl Net {
             allow_mmds_requests,
         )
     }
+
+    fn guest_mac(&self) -> Option<MacAddr> {
+        if self.config_space.len() < MAC_ADDR_LEN {
+            None
+        } else {
+            Some(MacAddr::from_bytes_unchecked(
+                &self.config_space[..MAC_ADDR_LEN],
+            ))
+        }
+    }
 }
 
 impl VirtioDevice for Net {
@@ -839,6 +864,7 @@ impl VirtioDevice for Net {
                 interrupt_evt,
                 acked_features: self.acked_features,
                 mmds_ns,
+                guest_mac: self.guest_mac(),
 
                 #[cfg(test)]
                 test_mutators: tests::TestMutators::default(),
@@ -1119,6 +1145,7 @@ mod tests {
                 acked_features: n.acked_features,
                 mmds_ns: Some(MmdsNetworkStack::new_with_defaults()),
                 test_mutators,
+                guest_mac: None,
             },
             txq,
             rxq,
@@ -1364,6 +1391,7 @@ mod tests {
                 &mut h.tx.rate_limiter,
                 &h.tx.frame_buf[..packet_len],
                 &mut h.tap,
+                Some(sha),
             ))
         );
 
@@ -1372,6 +1400,75 @@ mod tests {
             &METRICS.mmds.tx_frames,
             1,
             h.read_from_mmds_or_tap().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_mac_spoofing_detection() {
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
+
+        let guest_mac = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
+        let not_guest_mac = MacAddr::parse_str("33:33:33:33:33:33").unwrap();
+        let guest_ip = Ipv4Addr::new(10, 1, 2, 3);
+        let dst_mac = MacAddr::parse_str("22:22:22:22:22:22").unwrap();
+        let dst_ip = Ipv4Addr::new(10, 1, 1, 1);
+
+        let packet_len;
+        {
+            // Create an ethernet frame.
+            let eth_frame_i = ethernet::EthernetFrame::write_incomplete(
+                frame_bytes_from_buf_mut(&mut h.tx.frame_buf),
+                dst_mac,
+                guest_mac,
+                ethernet::ETHERTYPE_ARP,
+            )
+            .ok()
+            .unwrap();
+            // Set its length to hold an ARP request.
+            let mut eth_frame_complete =
+                eth_frame_i.with_payload_len_unchecked(arp::ETH_IPV4_FRAME_LEN);
+
+            // Save the total frame length.
+            packet_len =
+                vnet_hdr_len() + eth_frame_complete.payload_offset() + arp::ETH_IPV4_FRAME_LEN;
+
+            // Create the ARP request.
+            let arp_req = arp::EthIPv4ArpFrame::write_request(
+                eth_frame_complete.payload_mut(),
+                guest_mac,
+                guest_ip,
+                dst_mac,
+                dst_ip,
+            );
+            // Validate success.
+            assert!(arp_req.is_ok());
+        }
+
+        // Check that a legit MAC doesn't affect the spoofed MAC metric.
+        check_metric_after_block!(
+            &METRICS.net.tx_spoofed_mac_count,
+            0,
+            NetEpollHandler::write_to_mmds_or_tap(
+                h.mmds_ns.as_mut(),
+                &mut h.tx.rate_limiter,
+                &h.tx.frame_buf[..packet_len],
+                &mut h.tap,
+                Some(guest_mac),
+            )
+        );
+
+        // Check that a spoofed MAC increases our spoofed MAC metric.
+        check_metric_after_block!(
+            &METRICS.net.tx_spoofed_mac_count,
+            1,
+            NetEpollHandler::write_to_mmds_or_tap(
+                h.mmds_ns.as_mut(),
+                &mut h.tx.rate_limiter,
+                &h.tx.frame_buf[..packet_len],
+                &mut h.tap,
+                Some(not_guest_mac),
+            )
         );
     }
 

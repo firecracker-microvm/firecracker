@@ -6,6 +6,8 @@
 - New API action: SendCtrlAltDel, used to initiate a graceful shutdown,
   if the guest has driver support for i8042 and AT Keyboard. See
   [the docs](docs/api_requests/actions.md#sendctrlaltdel) for details.
+- New metric counting the number of egress packets with a spoofed MAC:
+  `net.tx_spoofed_mac_count`.
 
 ### Changed
 
