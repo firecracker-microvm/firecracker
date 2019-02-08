@@ -93,6 +93,7 @@ fn gcd(x: u64, y: u64) -> u64 {
 pub struct TokenBucket {
     // Bucket defining traits.
     size: u64,
+    // Initial burst size (number of free initial tokens, that can be consumed at no cost)
     one_time_burst: Option<u64>,
     // Complete refill time in milliseconds.
     refill_time: u64,
@@ -410,13 +411,12 @@ impl RateLimiter {
             ops_complete_refill_time_ms,
         );
 
-        // If limiting is disabled on all token types, don't even create a timer fd.
-        let timer_fd = if bytes_token_bucket.is_some() || ops_token_bucket.is_some() {
-            // create TimerFd using monotonic clock, as nonblocking FD and set close-on-exec
-            Some(TimerFd::new_custom(ClockId::Monotonic, true, true)?)
-        } else {
-            None
-        };
+        // TODO: Self::timer_fd should not be an `Option` anymore; clean that up.
+        //
+        // We'll need a timer_fd, even if our current config effectively disables rate limiting,
+        // because `Self::update_buckets()` might re-enable it later, and we might be
+        // seccomp-blocked from creating the timer_fd at that time.
+        let timer_fd = Some(TimerFd::new_custom(ClockId::Monotonic, true, true)?);
 
         Ok(RateLimiter {
             bandwidth: bytes_token_bucket,
@@ -509,7 +509,7 @@ impl RateLimiter {
     }
 
     /// Updates the parameters of the token buckets associated with this RateLimiter.
-    // TODO: Pls note that, right now, the buckets buckets become full after being updated.
+    // TODO: Pls note that, right now, the buckets become full after being updated.
     pub fn update_buckets(&mut self, bytes: Option<TokenBucket>, ops: Option<TokenBucket>) {
         // TODO: We have to call make_bucket instead of directly assigning the bytes and/or ops
         // because the input buckets are likely build via deserialization, which currently does not
@@ -673,8 +673,6 @@ mod tests {
             "SpuriousRateLimiterEvent(\
              \"Rate limiter event handler called without a present timer\")"
         );
-        // raw FD for this disabled rate-limiter should be -1
-        assert_eq!(l.as_raw_fd(), -1);
     }
 
     #[test]

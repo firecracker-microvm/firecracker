@@ -43,12 +43,12 @@ pub enum EpollHandlerPayload {
     DrivePayload(File),
     /// Used to mutate current RateLimiter settings. The buckets are rx_bytes, rx_ops,
     /// tx_bytes, and tx_ops, respectively.
-    PatchRateLimiters(
-        Option<TokenBucket>,
-        Option<TokenBucket>,
-        Option<TokenBucket>,
-        Option<TokenBucket>,
-    ),
+    NetRateLimiterPayload {
+        rx_bytes: Option<TokenBucket>,
+        rx_ops: Option<TokenBucket>,
+        tx_bytes: Option<TokenBucket>,
+        tx_ops: Option<TokenBucket>,
+    },
     /// Events that do not need a payload.
     Empty,
 }

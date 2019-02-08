@@ -477,14 +477,6 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
 
-    # Partial updates to network interfaces are not allowed.
-    response = test_microvm.network.patch(
-        iface_id='1',
-        guest_mac='06:00:00:00:00:02'
-    )
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Invalid request method" in response.text
-
     # Partial updates to the logger configuration are not allowed.
     response = test_microvm.logger.patch(level='Error')
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
@@ -544,14 +536,6 @@ def test_api_patch_post_boot(test_microvm_with_api):
 
     # Partial updates to the machine configuration are not allowed.
     response = test_microvm.machine_cfg.patch(vcpu_count=4)
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Invalid request method" in response.text
-
-    # Partial updates to network interfaces are not allowed.
-    response = test_microvm.network.patch(
-        iface_id='1',
-        guest_mac='06:00:00:00:00:02'
-    )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
 

@@ -24,7 +24,7 @@ use vmm::vmm_config::drive::BlockDeviceConfig;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::logger::LoggerConfig;
 use vmm::vmm_config::machine_config::VmConfig;
-use vmm::vmm_config::net::NetworkInterfaceConfig;
+use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 #[cfg(feature = "vsock")]
 use vmm::vmm_config::vsock::VsockDeviceConfig;
 use vmm::VmmAction;
@@ -332,6 +332,20 @@ fn parse_netif_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a
                 .into_parsed_request(Some(id_from_path.to_string()), method)
                 .map_err(|s| {
                     METRICS.put_api_requests.network_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
+        }
+        1 if method == Method::Patch => {
+            METRICS.patch_api_requests.network_count.inc();
+
+            Ok(serde_json::from_slice::<NetworkInterfaceUpdateConfig>(body)
+                .map_err(|e| {
+                    METRICS.patch_api_requests.network_fails.inc();
+                    Error::SerdeJson(e)
+                })?
+                .into_parsed_request(Some(id_from_path.to_string()), method)
+                .map_err(|s| {
+                    METRICS.patch_api_requests.network_fails.inc();
                     Error::Generic(StatusCode::BadRequest, s)
                 })?)
         }
@@ -1207,10 +1221,10 @@ mod tests {
                 == Err(Error::SerdeJson(get_dummy_serde_error()))
         );
 
-        // Error Case: Invalid Path.
+        // Error Case: Invalid method.
         assert!(
-            parse_netif_req(path, Method::Patch, &body,)
-                == Err(Error::InvalidPathMethod(path, Method::Patch))
+            parse_netif_req(path, Method::Options, &body,)
+                == Err(Error::InvalidPathMethod(path, Method::Options))
         )
     }
 

@@ -7,7 +7,7 @@ use futures::sync::oneshot;
 use hyper::Method;
 
 use request::{IntoParsedRequest, ParsedRequest};
-use vmm::vmm_config::net::NetworkInterfaceConfig;
+use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 use vmm::VmmAction;
 
 impl IntoParsedRequest for NetworkInterfaceConfig {
@@ -26,6 +26,27 @@ impl IntoParsedRequest for NetworkInterfaceConfig {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
             VmmAction::InsertNetworkDevice(self, sender),
+            receiver,
+        ))
+    }
+}
+
+impl IntoParsedRequest for NetworkInterfaceUpdateConfig {
+    fn into_parsed_request(
+        self,
+        id_from_path: Option<String>,
+        _: Method,
+    ) -> result::Result<ParsedRequest, String> {
+        let id_from_path = id_from_path.unwrap_or(String::new());
+        if id_from_path != self.iface_id {
+            return Err(String::from(
+                "The id from the path does not match the id from the body!",
+            ));
+        }
+
+        let (sender, receiver) = oneshot::channel();
+        Ok(ParsedRequest::Sync(
+            VmmAction::UpdateNetworkInterface(self, sender),
             receiver,
         ))
     }

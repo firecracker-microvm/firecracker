@@ -274,7 +274,6 @@ paths:
       summary: Creates a network interface.
       description:
         Creates new network interface with ID specified by iface_id path parameter.
-        Updating existing interfaces is currently not allowed.
       operationId: putGuestNetworkInterfaceByID
       parameters:
       - name: iface_id
@@ -293,6 +292,34 @@ paths:
           description: Network interface created/updated
         400:
           description: Network interface cannot be created due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    patch:
+      summary: Updates the rate limiters applied to a network interface.
+      description:
+        Updates the rate limiters applied to a network interface.
+      operationId: patchGuestNetworkInterfaceByID
+      parameters:
+        - name: iface_id
+          in: path
+          description: The id of the guest network interface
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: A subset of the guest network interface properties
+          required: true
+          schema:
+            $ref: "#/definitions/PartialNetworkInterface"
+      responses:
+        204:
+          description: Network interface updated
+        400:
+          description: Network interface cannot be updated due to bad input
           schema:
             $ref: "#/definitions/Error"
         default:
@@ -500,6 +527,21 @@ definitions:
       path_on_host:
         type: string
         description: Host level path for the guest drive
+
+  PartialNetworkInterface:
+    type: object
+    description:
+      Defines a partial network interface structure, used to update the rate limiters
+      for that interface, after microvm start.
+    required:
+      - iface_id
+    properties:
+      iface_id:
+        type: string
+      rx_rate_limiter:
+        $ref: "#/definitions/RateLimiter"
+      tx_rate_limiter:
+        $ref: "#/definitions/RateLimiter"
 
   RateLimiter:
     type: object
