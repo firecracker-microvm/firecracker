@@ -94,6 +94,7 @@ pub struct TokenBucket {
     // Bucket defining traits.
     size: u64,
     one_time_burst: Option<u64>,
+    // Complete refill time in milliseconds.
     refill_time: u64,
 
     // Internal state descriptors.
@@ -217,6 +218,26 @@ impl TokenBucket {
             }
         }
         self.budget = std::cmp::min(self.budget + tokens, self.size);
+    }
+
+    /// Returns the capacity of the token bucket.
+    pub fn capacity(&self) -> u64 {
+        self.size
+    }
+
+    /// Returns the remaining one time burst budget.
+    pub fn one_time_burst(&self) -> u64 {
+        self.one_time_burst.unwrap_or(0)
+    }
+
+    /// Returns the time in milliseconds required to to completely fill the bucket.
+    pub fn refill_time_ms(&self) -> u64 {
+        self.refill_time
+    }
+
+    /// Returns the current budget (one time burst allowance notwithstanding).
+    pub fn budget(&self) -> u64 {
+        self.budget
     }
 }
 
@@ -479,6 +500,16 @@ impl RateLimiter {
             )),
         }
     }
+
+    /// Returns an immutable view of the inner bandwidth token bucket.
+    pub fn bandwidth(&self) -> Option<&TokenBucket> {
+        self.bandwidth.as_ref()
+    }
+
+    /// Returns an immutable view of the inner ops token bucket.
+    pub fn ops(&self) -> Option<&TokenBucket> {
+        self.ops.as_ref()
+    }
 }
 
 impl AsRawFd for RateLimiter {
@@ -517,14 +548,6 @@ mod tests {
             self.last_update = time::precise_time_ns();
         }
 
-        fn get_capacity(&self) -> u64 {
-            self.size
-        }
-
-        fn get_current_budget(&self) -> u64 {
-            self.budget
-        }
-
         fn get_last_update(&self) -> u64 {
             self.last_update
         }
@@ -535,10 +558,6 @@ mod tests {
 
         fn get_processed_refill_time(&self) -> u64 {
             self.processed_refill_time
-        }
-
-        fn get_one_time_burst(&self) -> u64 {
-            self.one_time_burst.unwrap_or(0)
         }
     }
 
@@ -555,8 +574,8 @@ mod tests {
     fn test_token_bucket_create() {
         let before = time::precise_time_ns();
         let tb = TokenBucket::new(1000, None, 1000);
-        assert_eq!(tb.get_capacity(), 1000);
-        assert_eq!(tb.get_current_budget(), 1000);
+        assert_eq!(tb.capacity(), 1000);
+        assert_eq!(tb.budget(), 1000);
         assert!(tb.get_last_update() >= before);
         assert!(tb.get_last_update() <= time::precise_time_ns());
         assert_eq!(tb.get_processed_capacity(), 1);
@@ -587,11 +606,11 @@ mod tests {
         let mut tb = TokenBucket::new(capacity, None, refill_ms as u64);
 
         assert!(tb.reduce(123));
-        assert_eq!(tb.get_current_budget(), capacity - 123);
+        assert_eq!(tb.budget(), capacity - 123);
 
         thread::sleep(Duration::from_millis(123));
         assert!(tb.reduce(1));
-        assert_eq!(tb.get_current_budget(), capacity - 1);
+        assert_eq!(tb.budget(), capacity - 1);
         assert!(tb.reduce(100));
         assert!(!tb.reduce(capacity));
 
@@ -599,9 +618,9 @@ mod tests {
         let mut tb = TokenBucket::new(1000, Some(1100), 1000);
         // safely assuming the thread can run these 3 commands in less than 500ms
         assert!(tb.reduce(1000));
-        assert_eq!(tb.get_one_time_burst(), 100);
+        assert_eq!(tb.one_time_burst(), 100);
         assert!(tb.reduce(500));
-        assert_eq!(tb.get_one_time_burst(), 0);
+        assert_eq!(tb.one_time_burst(), 0);
         assert!(tb.reduce(500));
         assert!(!tb.reduce(500));
         thread::sleep(Duration::from_millis(500));
@@ -609,8 +628,8 @@ mod tests {
 
         let before = time::precise_time_ns();
         tb.reset();
-        assert_eq!(tb.get_capacity(), 1000);
-        assert_eq!(tb.get_current_budget(), 1000);
+        assert_eq!(tb.capacity(), 1000);
+        assert_eq!(tb.budget(), 1000);
         assert!(tb.get_last_update() >= before);
         assert!(tb.get_last_update() <= time::precise_time_ns());
     }
@@ -636,6 +655,23 @@ mod tests {
     }
 
     #[test]
+    fn test_rate_limiter_new() {
+        let l = RateLimiter::new(1000, Some(1001), 1002, 1003, Some(1004), 1005).unwrap();
+
+        let bw = l.bandwidth.unwrap();
+        assert_eq!(bw.capacity(), 1000);
+        assert_eq!(bw.one_time_burst(), 1001);
+        assert_eq!(bw.refill_time_ms(), 1002);
+        assert_eq!(bw.budget(), 1000);
+
+        let ops = l.ops.unwrap();
+        assert_eq!(ops.capacity(), 1003);
+        assert_eq!(ops.one_time_burst(), 1004);
+        assert_eq!(ops.refill_time_ms(), 1005);
+        assert_eq!(ops.budget(), 1003);
+    }
+
+    #[test]
     fn test_rate_limiter_manual_replenish() {
         // rate limiter with limit of 1000 bytes/s and 1000 ops/s
         let mut l = RateLimiter::new(1000, None, 1000, 1000, None, 1000).unwrap();
@@ -645,14 +681,14 @@ mod tests {
         l.manual_replenish(23, TokenType::Bytes);
         {
             let bytes_tb = l.get_token_bucket(TokenType::Bytes).unwrap();
-            assert_eq!(bytes_tb.get_current_budget(), 900);
+            assert_eq!(bytes_tb.budget(), 900);
         }
         // consume 123 ops
         assert!(l.consume(123, TokenType::Ops));
         l.manual_replenish(23, TokenType::Ops);
         {
             let bytes_tb = l.get_token_bucket(TokenType::Ops).unwrap();
-            assert_eq!(bytes_tb.get_current_budget(), 900);
+            assert_eq!(bytes_tb.budget(), 900);
         }
     }
 
