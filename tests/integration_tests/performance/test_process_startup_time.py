@@ -30,7 +30,7 @@ def test_startup_time(test_microvm_with_api):
         log_fifo=microvm.create_jailed_resource(log_fifo.path),
         metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path)
     )
-    assert microvm.api_session.is_good_response(response.status_code)
+    assert microvm.api_session.is_status_no_content(response.status_code)
 
     microvm.start()
     time.sleep(0.4)

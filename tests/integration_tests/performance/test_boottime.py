@@ -129,7 +129,7 @@ def _configure_vm(microvm, network_info=None):
         show_level=False,
         show_log_origin=False
     )
-    assert microvm.api_session.is_good_response(response.status_code)
+    assert microvm.api_session.is_status_no_content(response.status_code)
 
     microvm.start()
     return log_fifo, _tap if network_info else None
