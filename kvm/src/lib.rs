@@ -203,12 +203,8 @@ impl Kvm {
             // Safe because we verify the value of ret and we are the owners of the fd.
             let vm_file = unsafe { File::from_raw_fd(ret) };
             let run_mmap_size = self.get_vcpu_mmap_size()?;
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            let kvm_cpuid: CpuId = self.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)?;
             Ok(VmFd {
                 vm: vm_file,
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                supported_cpuid: kvm_cpuid,
                 run_size: run_mmap_size,
             })
         } else {
@@ -242,19 +238,10 @@ impl Into<u64> for NoDatamatch {
 /// A wrapper around creating and using a VM.
 pub struct VmFd {
     vm: File,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    supported_cpuid: CpuId,
     run_size: usize,
 }
 
 impl VmFd {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    /// Returns a clone of the system supported CPUID values associated with this VmFd
-    ///
-    pub fn get_supported_cpuid(&self) -> CpuId {
-        self.supported_cpuid.clone()
-    }
-
     /// Creates/modifies a guest physical memory slot using `KVM_SET_USER_MEMORY_REGION`.
     ///
     /// See the documentation on the `KVM_SET_USER_MEMORY_REGION` ioctl.
@@ -1042,24 +1029,13 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         if kvm.check_extension(Cap::ExtCpuid) {
             let vm = kvm.create_vm().unwrap();
-            let mut cpuid = vm.get_supported_cpuid();
+            let mut cpuid = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
             assert!(cpuid.mut_entries_slice().len() <= MAX_KVM_CPUID_ENTRIES);
             let nr_vcpus = kvm.get_nr_vcpus();
             for cpu_id in 0..nr_vcpus {
                 let vcpu = vm.create_vcpu(cpu_id as u8).unwrap();
-                vcpu.set_cpuid2(&mut cpuid).unwrap();
+                vcpu.set_cpuid2(&cpuid).unwrap();
             }
-        }
-    }
-
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    #[test]
-    fn test_get_cpuid_features() {
-        let kvm = Kvm::new().unwrap();
-        if kvm.check_extension(Cap::ExtCpuid) {
-            let vm = kvm.create_vm().unwrap();
-            let mut cpuid = vm.get_supported_cpuid();
-            assert!(cpuid.mut_entries_slice().len() <= MAX_KVM_CPUID_ENTRIES);
         }
     }
 
@@ -1423,7 +1399,6 @@ mod tests {
         assert_eq!(get_raw_errno(faulty_kvm.create_vm()), badf_errno);
         let faulty_vm_fd = VmFd {
             vm: unsafe { File::from_raw_fd(-1) },
-            supported_cpuid: CpuId::new(max_cpus),
             run_size: 0,
         };
         assert_eq!(
