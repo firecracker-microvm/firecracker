@@ -348,7 +348,7 @@ class Microvm:
             ht_enabled=ht_enabled,
             mem_size_mib=mem_size_mib
         )
-        assert self._api_session.is_good_response(response.status_code)
+        assert self._api_session.is_status_no_content(response.status_code)
 
         if self.memory_events_queue:
             mem_tools.threaded_memory_monitor(
@@ -361,7 +361,7 @@ class Microvm:
         response = self.boot.put(
             kernel_image_path=self.create_jailed_resource(self.kernel_file)
         )
-        assert self._api_session.is_good_response(response.status_code)
+        assert self._api_session.is_status_no_content(response.status_code)
 
         if add_root_device:
             # Add the root file system with rw permissions.
@@ -371,7 +371,7 @@ class Microvm:
                 is_root_device=True,
                 is_read_only=False
             )
-            assert self._api_session.is_good_response(response.status_code)
+            assert self._api_session.is_status_no_content(response.status_code)
 
     def ssh_network_config(
             self,
@@ -417,7 +417,7 @@ class Microvm:
             tx_rate_limiter=tx_rate_limiter,
             rx_rate_limiter=rx_rate_limiter
         )
-        assert self._api_session.is_good_response(response.status_code)
+        assert self._api_session.is_status_no_content(response.status_code)
 
         self.ssh_config['hostname'] = guest_ip
         return tap, host_ip, guest_ip
@@ -428,4 +428,4 @@ class Microvm:
         This function has asserts to validate that the microvm boot success.
         """
         response = self.actions.put(action_type='InstanceStart')
-        assert self._api_session.is_good_response(response.status_code)
+        assert self._api_session.is_status_no_content(response.status_code)
