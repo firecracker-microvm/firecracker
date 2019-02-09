@@ -24,7 +24,7 @@ extern crate vhost_backend;
 extern crate vhost_gen;
 extern crate virtio_gen;
 
-use rate_limiter::Error as RateLimiterError;
+use rate_limiter::{Error as RateLimiterError, TokenBucket};
 use std::fs::File;
 use std::io;
 
@@ -41,6 +41,14 @@ pub type DeviceEventT = u16;
 pub enum EpollHandlerPayload {
     /// DrivePayload(disk_image)
     DrivePayload(File),
+    /// Used to mutate current RateLimiter settings. The buckets are rx_bytes, rx_ops,
+    /// tx_bytes, and tx_ops, respectively.
+    PatchRateLimiters(
+        Option<TokenBucket>,
+        Option<TokenBucket>,
+        Option<TokenBucket>,
+        Option<TokenBucket>,
+    ),
     /// Events that do not need a payload.
     Empty,
 }
