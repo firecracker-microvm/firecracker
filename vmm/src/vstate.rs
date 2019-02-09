@@ -84,6 +84,8 @@ impl ::std::convert::From<io::Error> for Error {
 /// A wrapper around creating and using a VM.
 pub struct Vm {
     fd: VmFd,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    supported_cpuid: CpuId,
     guest_mem: Option<GuestMemory>,
 }
 
@@ -92,11 +94,22 @@ impl Vm {
     pub fn new(kvm: &Kvm) -> Result<Self> {
         //create fd for interacting with kvm-vm specific functions
         let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
-
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        let cpuid = kvm
+            .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
+            .map_err(Error::VmFd)?;
         Ok(Vm {
             fd: vm_fd,
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            supported_cpuid: cpuid,
             guest_mem: None,
         })
+    }
+
+    /// Returns a clone of the supported `CpuId` for this Vm.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub fn get_supported_cpuid(&self) -> CpuId {
+        self.supported_cpuid.clone()
     }
 
     /// Initializes the guest memory.
@@ -193,7 +206,7 @@ impl Vcpu {
         // Initially the cpuid per vCPU is the one supported by this VM.
         Ok(Vcpu {
             #[cfg(target_arch = "x86_64")]
-            cpuid: vm.fd.get_supported_cpuid(),
+            cpuid: vm.get_supported_cpuid(),
             fd: kvm_vcpu,
             id,
         })
