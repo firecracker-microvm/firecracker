@@ -56,6 +56,11 @@ const TX_RATE_LIMITER_EVENT: DeviceEventT = 4;
 // Number of DeviceEventT events supported by this implementation.
 pub const NET_EVENTS_COUNT: usize = 5;
 
+// This is not a true DeviceEvent, as we explicitly invoke the handler with this value as a
+// parameter when the VMM handles as PATCH rate limiters request. Thus, there's not epoll event
+// associated with it.
+const PATCH_RATE_LIMITERS: DeviceEventT = 5;
+
 #[derive(Debug)]
 pub enum Error {
     /// Open tap device failed.
@@ -504,7 +509,7 @@ impl EpollHandler for NetEpollHandler {
         &mut self,
         device_event: DeviceEventT,
         _: u32,
-        _: EpollHandlerPayload,
+        payload: EpollHandlerPayload,
     ) -> result::Result<(), DeviceError> {
         match device_event {
             RX_QUEUE_EVENT => {
@@ -598,6 +603,17 @@ impl EpollHandler for NetEpollHandler {
                         error!("Failed to get tx rate-limiter event: {:?}", e);
                         Err(DeviceError::RateLimited(e))
                     }
+                }
+            }
+            PATCH_RATE_LIMITERS => {
+                if let EpollHandlerPayload::PatchRateLimiters(rx_bytes, rx_ops, tx_bytes, tx_ops) =
+                    payload
+                {
+                    self.rx.rate_limiter.update_buckets(rx_bytes, rx_ops);
+                    self.tx.rate_limiter.update_buckets(tx_bytes, tx_ops);
+                    Ok(())
+                } else {
+                    Err(DeviceError::PayloadExpected)
                 }
             }
             other => Err(DeviceError::UnknownEvent {
@@ -951,6 +967,7 @@ mod tests {
     use virtio::queue::tests::*;
 
     use dumbo::pdu::{arp, ethernet};
+    use rate_limiter::TokenBucket;
 
     /// Will read $metric, run the code in $block, then assert metric has increased by $delta.
     macro_rules! check_metric_after_block {
@@ -1484,14 +1501,13 @@ mod tests {
     fn test_invalid_event_handler() {
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
-        let r = h.handle_event(
-            NET_EVENTS_COUNT as DeviceEventT,
-            0,
-            EpollHandlerPayload::Empty,
-        );
+
+        let bad_event = 1000;
+
+        let r = h.handle_event(bad_event as DeviceEventT, 0, EpollHandlerPayload::Empty);
         match r {
             Err(DeviceError::UnknownEvent { event, device }) => {
-                assert_eq!(event, NET_EVENTS_COUNT as DeviceEventT);
+                assert_eq!(event, bad_event as DeviceEventT);
                 assert_eq!(device, "net");
             }
             _ => panic!("invalid"),
@@ -1909,5 +1925,42 @@ mod tests {
                 assert_eq!(rxq.used.ring[0].get().len, 1234);
             }
         }
+    }
+
+    #[test]
+    fn test_patch_rate_limiters() {
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let (mut h, _, _) = default_test_netepollhandler(&mem, TestMutators::default());
+
+        h.set_rx_rate_limiter(RateLimiter::new(10, None, 10, 2, None, 2).unwrap());
+        h.set_tx_rate_limiter(RateLimiter::new(10, None, 10, 2, None, 2).unwrap());
+
+        let rx_bytes = TokenBucket::new(1000, Some(1001), 1002);
+        let rx_ops = TokenBucket::new(1003, Some(1004), 1005);
+        let tx_bytes = TokenBucket::new(1006, Some(1007), 1008);
+        let tx_ops = TokenBucket::new(1009, Some(1010), 1011);
+
+        h.handle_event(
+            PATCH_RATE_LIMITERS,
+            0,
+            EpollHandlerPayload::PatchRateLimiters(
+                Some(rx_bytes.clone()),
+                Some(rx_ops.clone()),
+                Some(tx_bytes.clone()),
+                Some(tx_ops.clone()),
+            ),
+        )
+        .unwrap();
+
+        let compare_buckets = |a: &TokenBucket, b: &TokenBucket| {
+            assert_eq!(a.capacity(), b.capacity());
+            assert_eq!(a.one_time_burst(), b.one_time_burst());
+            assert_eq!(a.refill_time_ms(), b.refill_time_ms());
+        };
+
+        compare_buckets(h.get_rx_rate_limiter().bandwidth().unwrap(), &rx_bytes);
+        compare_buckets(h.get_rx_rate_limiter().ops().unwrap(), &rx_ops);
+        compare_buckets(h.get_tx_rate_limiter().bandwidth().unwrap(), &tx_bytes);
+        compare_buckets(h.get_tx_rate_limiter().ops().unwrap(), &tx_ops);
     }
 }
