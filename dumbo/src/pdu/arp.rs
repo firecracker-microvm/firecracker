@@ -393,6 +393,7 @@ mod tests {
             assert_eq!(f.spa(), spa);
             assert_eq!(f.tha(), tha);
             assert_eq!(f.tpa(), tpa);
+            assert_eq!(f.is_empty(), false);
         }
 
         // Now let's try to parse a request.
