@@ -725,6 +725,7 @@ mod tests {
 
             // Payload was smaller than mss_left after options.
             assert_eq!(p.len(), header_len + b.len());
+            assert_eq!(p.is_empty(), p.len() == 0);
 
             p.len()
             // Mutable borrow of a goes out of scope.

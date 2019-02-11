@@ -230,6 +230,7 @@ mod tests {
             assert_eq!(f2.ethertype(), ethertype);
             assert_eq!(f2.payload()[1], 132);
             assert_eq!(f2.len(), f2.bytes.len());
+            assert_eq!(f2.is_empty(), f2.bytes.len() == 0);
         }
 
         {

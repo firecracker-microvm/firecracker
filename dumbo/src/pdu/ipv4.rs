@@ -556,6 +556,7 @@ mod tests {
             assert_eq!(p.version_and_header_len(), (IPV4_VERSION, header_len));
             assert_eq!(p.dscp_and_ecn(), (0, 0));
             assert_eq!(p.total_len() as usize, buf_len);
+            assert_eq!(p.is_empty(), false);
             assert_eq!(p.identification(), 0);
             assert_eq!(p.flags_and_fragment_offset(), (0, 0));
             assert_eq!(p.ttl(), DEFAULT_TTL);
