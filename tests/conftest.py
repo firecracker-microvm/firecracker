@@ -142,7 +142,7 @@ def test_images_s3_bucket():
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(test_images_s3_bucket())
 
 
-def init_microvm(root_path, cloner_path, features=''):
+def init_microvm(root_path, aux_binary_paths, features=''):
     """Auxiliary function for instantiating a microvm and setting it up."""
     microvm_id = str(uuid.uuid4())
     fc_binary, jailer_binary = build_tools.get_firecracker_binaries(
@@ -155,7 +155,7 @@ def init_microvm(root_path, cloner_path, features=''):
         jailer_binary_path=jailer_binary,
         build_feature=features,
         microvm_id=microvm_id,
-        newpid_cloner_path=cloner_path
+        aux_bin_paths=aux_binary_paths
     )
     vm.setup()
     return vm
@@ -196,15 +196,11 @@ def test_session_tmp_path(test_session_root_path):
     shutil.rmtree(tmp_path)
 
 
-@pytest.fixture(scope='session')
-def newpid_cloner_path(test_session_root_path):
-    """Build an external tool that can properly use the clone() syscall."""
-    # pylint: disable=redefined-outer-name
-    # The fixture pattern causes a pylint false positive for that rule.
-    bin_path = os.path.join(test_session_root_path, "newpid_cloner")
-    compile_cmd = "musl-gcc {} -o {} -static -O3".format(
-        "host_tools/newpid_cloner.c",
-        bin_path
+def _gcc_compile(src_file, output_file):
+    """Build a source file with gcc."""
+    compile_cmd = 'gcc {} -o {} -static -O3'.format(
+        src_file,
+        output_file
     )
     run(
         compile_cmd,
@@ -212,11 +208,34 @@ def newpid_cloner_path(test_session_root_path):
         check=True
     )
 
-    yield bin_path
+
+@pytest.fixture(scope='session')
+def aux_bin_paths(test_session_root_path):
+    """Build external tools.
+
+    They currently consist of a binary that can properly use the clone()
+    syscall, and a very simple vsock client/server application.
+    """
+    # pylint: disable=redefined-outer-name
+    # The fixture pattern causes a pylint false positive for that rule.
+    cloner_bin_path = os.path.join(test_session_root_path, 'newpid_cloner')
+    _gcc_compile(
+        'host_tools/newpid_cloner.c',
+        cloner_bin_path
+    )
+    test_vsock_bin_path = os.path.join(test_session_root_path, 'test_vsock')
+    _gcc_compile(
+        "host_tools/test_vsock.c",
+        test_vsock_bin_path
+    )
+    yield {
+        'cloner': cloner_bin_path,
+        'test_vsock': test_vsock_bin_path
+    }
 
 
 @pytest.fixture(params=['', 'vsock'])
-def microvm(request, test_session_root_path, newpid_cloner_path):
+def microvm(request, test_session_root_path, aux_bin_paths):
     """Instantiate a microvm."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
@@ -225,7 +244,7 @@ def microvm(request, test_session_root_path, newpid_cloner_path):
     # microvm.
     vm = init_microvm(
         test_session_root_path,
-        newpid_cloner_path,
+        aux_bin_paths,
         features=request.param
     )
     yield vm
@@ -268,7 +287,7 @@ def test_microvm_any(request, microvm):
 def test_multiple_microvms(
         test_session_root_path,
         context,
-        newpid_cloner_path
+        aux_bin_paths
 ):
     """Yield one or more microvms based on the context provided.
 
@@ -284,7 +303,7 @@ def test_multiple_microvms(
 
     # When the context specifies multiple microvms, we use the first vm to
     # populate the other ones by hardlinking its resources.
-    first_vm = init_microvm(test_session_root_path, newpid_cloner_path)
+    first_vm = init_microvm(test_session_root_path, aux_bin_paths)
     MICROVM_S3_FETCHER.init_vm_resources(
         microvm_resources,
         first_vm
@@ -295,7 +314,7 @@ def test_multiple_microvms(
     # asserts that the `how_many` parameter is always positive
     # (i.e strictly greater than 0).
     for _ in range(how_many - 1):
-        vm = init_microvm(test_session_root_path, newpid_cloner_path)
+        vm = init_microvm(test_session_root_path, aux_bin_paths)
         MICROVM_S3_FETCHER.hardlink_vm_resources(
             microvm_resources,
             first_vm,
