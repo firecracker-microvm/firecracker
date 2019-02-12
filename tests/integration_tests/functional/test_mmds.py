@@ -25,31 +25,8 @@ def test_mmds(test_microvm_with_ssh, network_config):
 
     # The MMDS is empty at this point.
     response = test_microvm.mmds.get()
-    assert response.status_code == 200
+    assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == {}
-
-    # Test that patch return NotFound when the MMDS is not initialized.
-    dummy_json = {
-        'latest': {
-            'meta-data': {
-                'ami-id': 'dummy'
-            }
-        }
-    }
-    response = test_microvm.mmds.patch(json=dummy_json)
-    assert response.status_code == 404
-    fault_json = {
-        "fault_message": "The MMDS resource does not exist."
-    }
-    assert response.json() == fault_json
-
-    # Test that using the same json with a PUT request, the MMDS data-store is
-    # created.
-    response = test_microvm.mmds.put(json=dummy_json)
-    assert response.status_code == 204
-
-    response = test_microvm.mmds.get()
-    assert response.json() == dummy_json
 
     # PUT only allows full updates.
     # The json used in MMDS is based on the one from the Instance Meta-data
@@ -78,9 +55,10 @@ def test_mmds(test_microvm_with_ssh, network_config):
         }
     }
     response = test_microvm.mmds.put(json=data_store)
-    assert response.status_code == 204
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == data_store
 
     # Change only the subnet id using PATCH method.
@@ -101,11 +79,12 @@ def test_mmds(test_microvm_with_ssh, network_config):
     }
 
     response = test_microvm.mmds.patch(json=patch_json)
-    assert response.status_code == 204
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     net_ifaces = data_store['latest']['meta-data']['network']['interfaces']
     net_ifaces['macs']['02:29:96:8f:6a:2d']['subnet-id'] = 'subnet-12345'
     response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == data_store
 
     # Now we start the guest and attempt to read some MMDS contents.
@@ -168,3 +147,38 @@ def test_mmds(test_microvm_with_ssh, network_config):
         ['ami-id', 'reservation-id', 'local-hostname', 'public-hostname',
          'network/']
     )
+
+
+def test_mmds_dummy(test_microvm_with_ssh):
+    """Test the API and guest facing features of the Micro MetaData Service."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    # The MMDS is empty at this point.
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {}
+
+    # Test that patch return NotFound when the MMDS is not initialized.
+    dummy_json = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'dummy'
+            }
+        }
+    }
+    response = test_microvm.mmds.patch(json=dummy_json)
+    assert test_microvm.api_session.is_status_not_found(response.status_code)
+    fault_json = {
+        "fault_message": "The MMDS resource does not exist."
+    }
+    assert response.json() == fault_json
+
+    # Test that using the same json with a PUT request, the MMDS data-store is
+    # created.
+    response = test_microvm.mmds.put(json=dummy_json)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == dummy_json

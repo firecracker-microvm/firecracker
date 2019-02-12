@@ -22,7 +22,27 @@ class Session(requests_unixsocket.Session):
             """Return `True` for all HTTP 2xx response codes."""
             return 200 <= response < 300
 
+        def is_status_ok(response: int):
+            """Return `True` when HTTP response code is 200 OK."""
+            return response == 200
+
+        def is_status_no_content(response: int):
+            """Return `True` when HTTP response code is 204 NoContent."""
+            return response == 204
+
+        def is_status_bad_request(response: int):
+            """Return `True` when HTTP response code is 400 BadRequest."""
+            return response == 400
+
+        def is_status_not_found(response: int):
+            """Return `True` when HTTP response code is 404 NotFound."""
+            return response == 404
+
         self.is_good_response = is_good_response
+        self.is_status_ok = is_status_ok
+        self.is_status_no_content = is_status_no_content
+        self.is_status_bad_request = is_status_bad_request
+        self.is_status_not_found = is_status_not_found
 
     @decorators.timed_request
     def get(self, url, **kwargs):
