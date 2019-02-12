@@ -35,6 +35,7 @@ class SSHConnection:
         self.netns_file_path = ssh_config['netns_file_path']
         self.ssh_client = SSHClient()  # pylint: disable=no-value-for-parameter
         self.ssh_client.set_missing_host_key_policy(AutoAddPolicy())
+        self.ssh_config = ssh_config
         assert os.path.exists(ssh_config['ssh_key_path'])
 
         # Retry to connect to the host as long as the delay between calls
@@ -49,19 +50,19 @@ class SSHConnection:
 
         if self.netns_file_path:
             with Namespace(self.netns_file_path, 'net'):
-                self.initial_connect(ssh_config)
+                self.initial_connect()
         else:
-            self.initial_connect(ssh_config)
+            self.initial_connect()
 
-    def initial_connect(self, ssh_config):
+    def initial_connect(self):
         """Create an initial SSH client connection (retry until it works)."""
         retry_call(
             self.ssh_client.connect,
-            fargs=[ssh_config['hostname']],
+            fargs=[self.ssh_config['hostname']],
             fkwargs={
                 'look_for_keys': False,
-                'username': ssh_config['username'],
-                'key_filename': ssh_config['ssh_key_path']
+                'username': self.ssh_config['username'],
+                'key_filename': self.ssh_config['ssh_key_path']
             },
             exceptions=ssh_exception.NoValidConnectionsError,
             delay=1,
@@ -75,6 +76,38 @@ class SSHConnection:
             with Namespace(self.netns_file_path, 'net'):
                 return self.ssh_client.exec_command(cmd_string)
         return self.ssh_client.exec_command(cmd_string)
+
+    @staticmethod
+    def _scp_file_helper(cmd):
+        retry_call(
+            run,
+            fargs=[cmd],
+            fkwargs={
+                'shell': True,
+                'check': True
+            },
+            exceptions=ssh_exception.NoValidConnectionsError,
+            delay=1,
+            backoff=2,
+            max_delay=32
+        )
+
+    def scp_file(self, local_path, remote_path):
+        """Copy a files to the VM using scp."""
+        cmd = ('scp -o StrictHostKeyChecking=no'
+               ' -o UserKnownHostsFile=/dev/null'
+               ' -i {} {} {}@{}:{}').format(
+            self.ssh_config['ssh_key_path'],
+            local_path,
+            self.ssh_config['username'],
+            self.ssh_config['hostname'],
+            remote_path
+        )
+        if self.netns_file_path:
+            with Namespace(self.netns_file_path, 'net'):
+                self._scp_file_helper(cmd)
+        else:
+            self._scp_file_helper(cmd)
 
     def close(self):
         """Close the SSH connection."""

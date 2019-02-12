@@ -35,6 +35,7 @@ RUN apt-get update \
         make \
         musl-tools \
         net-tools \
+        openssh-client \
         pkgconf \
         python \
         python3 \
