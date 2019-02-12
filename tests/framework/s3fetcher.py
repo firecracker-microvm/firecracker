@@ -152,7 +152,7 @@ class MicrovmImageS3Fetcher:
                 # Add the key path to the config dictionary and set
                 # permissions.
                 microvm.ssh_config['ssh_key_path'] = microvm_dest_path
-                os.chmod(microvm_dest_path, 400)
+                os.chmod(microvm_dest_path, 0o400)
 
     def hardlink_vm_resources(
             self,
@@ -196,7 +196,7 @@ class MicrovmImageS3Fetcher:
                 # Add the key path to the config dictionary and set
                 # permissions.
                 to_microvm.ssh_config['ssh_key_path'] = microvm_dest_path
-                os.chmod(microvm_dest_path, 400)
+                os.chmod(microvm_dest_path, 0o400)
 
     def list_microvm_images(self, capability_filter: List[str] = None):
         """Return microvm images with the specified capabilities."""
