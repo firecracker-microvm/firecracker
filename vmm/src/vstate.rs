@@ -129,12 +129,18 @@ impl Vm {
         Ok(())
     }
 
-    /// This function creates the irq chip and adds 2 interrupt events to the IRQ.
-    pub fn setup_irqchip(&self, com_evt_1_3: &EventFd, com_evt_2_4: &EventFd) -> Result<()> {
+    /// This function creates the irq chip and adds 3 interrupt events to the IRQ.
+    pub fn setup_irqchip(
+        &self,
+        com_evt_1_3: &EventFd,
+        com_evt_2_4: &EventFd,
+        kbd_evt: &EventFd,
+    ) -> Result<()> {
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
 
         self.fd.register_irqfd(com_evt_1_3, 4).map_err(Error::Irq)?;
         self.fd.register_irqfd(com_evt_2_4, 3).map_err(Error::Irq)?;
+        self.fd.register_irqfd(kbd_evt, 1).map_err(Error::Irq)?;
 
         Ok(())
     }
@@ -305,8 +311,9 @@ mod tests {
         assert!(vm.memory_init(gm, &kvm).is_ok());
         let dummy_eventfd_1 = EventFd::new().unwrap();
         let dummy_eventfd_2 = EventFd::new().unwrap();
+        let dummy_kbd_eventfd = EventFd::new().unwrap();
 
-        vm.setup_irqchip(&dummy_eventfd_1, &dummy_eventfd_2)
+        vm.setup_irqchip(&dummy_eventfd_1, &dummy_eventfd_2, &dummy_kbd_eventfd)
             .unwrap();
         vm.create_pit().unwrap();
 

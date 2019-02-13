@@ -640,7 +640,6 @@ impl Logger {
                 // The mutex shouldn't be poisoned before init otherwise panic!.
                 let mut g = LOGGER.log_fifo_guard();
                 *g = Some(t);
-                LOGGER.level_info.set_writer(Destination::Pipe);
             }
             Err(ref e) => {
                 STATE.store(UNINITIALIZED, Ordering::SeqCst);
@@ -676,9 +675,12 @@ impl Logger {
 
         set_max_level(Level::Trace.to_level_filter());
 
+        self.log_helper(
+            format!("Running {} v{}", app_info.name, app_info.version),
+            Some(Destination::Pipe),
+        );
+        LOGGER.level_info.set_writer(Destination::Pipe);
         STATE.store(INITIALIZED, Ordering::SeqCst);
-
-        self.log_helper(format!("Running {} v{}", app_info.name, app_info.version));
 
         Ok(())
     }
@@ -686,10 +688,14 @@ impl Logger {
     // In a future PR we'll update the way things are written to the selected destination to avoid
     // the creation and allocation of unnecessary intermediate Strings. The log_helper method takes
     // care of the common logic involved in both writing regular log messages, and dumping metrics.
-    fn log_helper(&self, msg: String) {
+    fn log_helper(&self, msg: String, maybe_forced_destination: Option<Destination>) {
+        let destination = maybe_forced_destination
+            .map(|forced_destination| forced_destination as usize)
+            .unwrap_or(self.level_info.writer());
+
         // We have the awkward IF's for now because we can't use just "<enum_variant> as usize
         // on the left side of a match arm for some reason.
-        match self.level_info.writer() {
+        match destination {
             x if x == Destination::Pipe as usize => {
                 // Unwrap is safe cause the Destination is a Pipe.
                 if let Err(_) = log_to_fifo(
@@ -770,7 +776,7 @@ impl Log for Logger {
                 record.args()
             );
 
-            self.log_helper(msg);
+            self.log_helper(msg, None);
         }
     }
 

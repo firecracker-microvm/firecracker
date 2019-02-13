@@ -65,6 +65,7 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use device_manager::legacy::LegacyDeviceManager;
 use device_manager::mmio::MMIODeviceManager;
+use devices::legacy::I8042DeviceError;
 use devices::virtio;
 use devices::{DeviceEventT, EpollHandler, EpollHandlerPayload};
 use fc_util::now_cputime_us;
@@ -88,7 +89,18 @@ use vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkIn
 use vmm_config::vsock::{VsockDeviceConfig, VsockDeviceConfigs, VsockError};
 use vstate::{Vcpu, Vm};
 
-const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
+/// Default guest kernel command line:
+/// - `reboot=k` shut down the guest on reboot, instead of well... rebooting;
+/// - `panic=1` on panic, reboot after 1 second;
+/// - `pci=off` do not scan for PCI devices (save boot time);
+/// - `nomodules` disable loadable kernel module support;
+/// - `8250.nr_uarts=0` disable 8250 serial interface;
+/// - `i8042.noaux` do not probe the i8042 controller for an attached mouse (save boot time);
+/// - `i8042.nomux` do not probe i8042 for a multiplexing controller (save boot time);
+/// - `i8042.nopnp` do not use ACPIPnP to discover KBD/AUX controllers (save boot time);
+/// - `i8042.dumbkbd` do not attempt to control kbd state via the i8042 (save boot time).
+const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0 \
+                                      i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd";
 const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u16 = 0x03f0;
 const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 const VCPU_RTSIG_OFFSET: i32 = 0;
@@ -185,6 +197,9 @@ pub enum VmmActionError {
     /// The action `StartMicroVm` failed either because of bad user input (`ErrorKind::User`) or
     /// an internal error (`ErrorKind::Internal`).
     StartMicrovm(ErrorKind, StartMicrovmError),
+    /// The action `SendCtrlAltDel` failed. Details are provided by the device-specific error
+    /// `I8042DeviceError`.
+    SendCtrlAltDel(ErrorKind, I8042DeviceError),
     #[cfg(feature = "vsock")]
     /// The action `insert_vsock_device` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
@@ -203,6 +218,7 @@ impl VmmActionError {
             MachineConfig(ref kind, _) => kind,
             NetworkConfig(ref kind, _) => kind,
             StartMicrovm(ref kind, _) => kind,
+            SendCtrlAltDel(ref kind, _) => kind,
             #[cfg(feature = "vsock")]
             VsockConfig(ref kind, _) => kind,
         }
@@ -220,6 +236,7 @@ impl Display for VmmActionError {
             MachineConfig(_, ref err) => write!(f, "{}", err.to_string()),
             NetworkConfig(_, ref err) => write!(f, "{}", err.to_string()),
             StartMicrovm(_, ref err) => write!(f, "{}", err.to_string()),
+            SendCtrlAltDel(_, ref err) => write!(f, "{}", err.to_string()),
             #[cfg(feature = "vsock")]
             VsockConfig(_, ref err) => write!(f, "{}", err.to_string()),
         }
@@ -265,6 +282,9 @@ pub enum VmmAction {
     /// Launch the microVM. This action can only be called before the microVM has booted.
     /// The response is sent using the `OutcomeSender`.
     StartMicroVm(OutcomeSender),
+    /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
+    /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
+    SendCtrlAltDel(OutcomeSender),
     /// Update the path of an existing block device. The data associated with this variant
     /// represents the `drive_id` and the `path_on_host`. The response is sent using
     /// the `OutcomeSender`.
@@ -878,6 +898,7 @@ impl Vmm {
             .setup_irqchip(
                 &self.legacy_device_manager.com_evt_1_3,
                 &self.legacy_device_manager.com_evt_2_4,
+                &self.legacy_device_manager.kbd_evt,
             )
             .map_err(|e| StartMicrovmError::ConfigureVm(e))?;
         #[cfg(target_arch = "x86_64")]
@@ -934,7 +955,7 @@ impl Vmm {
                 .i8042
                 .lock()
                 .expect("Failed to start VCPUs due to poisoned i8042 lock")
-                .get_eventfd_clone()
+                .get_reset_evt_clone()
                 .map_err(|_| StartMicrovmError::EventFd)?;
 
             let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(StartMicrovmError::Vcpu)?;
@@ -1125,7 +1146,7 @@ impl Vmm {
             .i8042
             .lock()
             .expect("Failed to register events on the event fd due to poisoned lock")
-            .get_eventfd_clone()
+            .get_reset_evt_clone()
             .map_err(|_| StartMicrovmError::EventFd)?;
         let exit_epoll_evt = self
             .epoll_context
@@ -1200,6 +1221,16 @@ impl Vmm {
             METRICS.logger.missed_metrics_count.inc();
         }
 
+        Ok(VmmData::Empty)
+    }
+
+    fn send_ctrl_alt_del(&mut self) -> std::result::Result<VmmData, VmmActionError> {
+        self.legacy_device_manager
+            .i8042
+            .lock()
+            .expect("i8042 lock was poisoned")
+            .trigger_ctrl_alt_del()
+            .map_err(|e| VmmActionError::SendCtrlAltDel(ErrorKind::Internal, e))?;
         Ok(VmmData::Empty)
     }
 
@@ -1719,6 +1750,9 @@ impl Vmm {
             VmmAction::StartMicroVm(sender) => {
                 Vmm::send_response(self.start_microvm(), sender);
             }
+            VmmAction::SendCtrlAltDel(sender) => {
+                Vmm::send_response(self.send_ctrl_alt_del(), sender);
+            }
             VmmAction::SetVmConfiguration(machine_config_body, sender) => {
                 Vmm::send_response(self.set_vm_configuration(machine_config_body), sender);
             }
@@ -1765,6 +1799,7 @@ impl PartialEq for VmmAction {
                 &VmmAction::RescanBlockDevice(ref other_req, _),
             ) => req == other_req,
             (&VmmAction::StartMicroVm(_), &VmmAction::StartMicroVm(_)) => true,
+            (&VmmAction::SendCtrlAltDel(_), &VmmAction::SendCtrlAltDel(_)) => true,
             (&VmmAction::FlushMetrics(_), &VmmAction::FlushMetrics(_)) => true,
             _ => false,
         }

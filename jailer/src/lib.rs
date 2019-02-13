@@ -323,12 +323,21 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
 fn sanitize_process() {
     // First thing to do is make sure we don't keep any inherited FDs
     // other that IN, OUT and ERR.
+    if let Ok(paths) = fs::read_dir("/proc/self/fd") {
+        for maybe_path in paths {
+            if maybe_path.is_err() {
+                continue;
+            }
 
-    // Safe because sysconf is available on all flavors of Linux.
-    let fd_size = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } as i32;
-    for i in 3..fd_size {
-        // Safe because close() cannot fail when passed a valid parameter.
-        unsafe { libc::close(i) };
+            let file_name = maybe_path.unwrap().file_name();
+            let fd_str = file_name.to_str().unwrap_or("0");
+            let fd = fd_str.parse::<i32>().unwrap_or(0);
+
+            if fd > 2 {
+                // Safe because close() cannot fail when passed a valid parameter.
+                unsafe { libc::close(fd) };
+            }
+        }
     }
 }
 
@@ -411,6 +420,32 @@ fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::os::unix::io::AsRawFd;
+
+    #[test]
+    fn test_sanitize_process() {
+        let n = 100;
+
+        let tmp_dir_path = "/tmp/jailer/tests/sanitize_process";
+        assert!(fs::create_dir_all(tmp_dir_path).is_ok());
+
+        let mut fds = Vec::new();
+        for i in 0..n {
+            let maybe_file = File::create(format!("{}/{}", tmp_dir_path, i));
+            assert!(maybe_file.is_ok());
+            fds.push(maybe_file.unwrap().as_raw_fd());
+        }
+
+        sanitize_process();
+
+        for fd in fds {
+            let is_fd_opened = unsafe { libc::fcntl(fd, libc::F_GETFD) } == 0;
+            assert_eq!(is_fd_opened, false);
+        }
+
+        assert!(fs::remove_dir_all(tmp_dir_path).is_ok());
+    }
 
     #[test]
     fn test_error_display() {
