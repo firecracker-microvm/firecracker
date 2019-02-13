@@ -19,6 +19,8 @@
 
 ### Fixed
 - virtio-blk: VIRTIO_BLK_T_FLUSH now working as expected.
+- Vsock devices can be attached when starting Firecracker using the jailer.
+- Vsock devices work properly when seccomp filtering is enabled.
 
 ## [0.14.0]
 
