@@ -15,7 +15,7 @@ outlined in the [Getting Started](getting-started.md) instructions).
 
 ### Local Virtual Machine
 
-`[TODO]`
+`Testing
 
 ## Cloud
 
