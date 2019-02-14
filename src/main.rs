@@ -222,10 +222,11 @@ mod tests {
             }
             return true;
         }
-        return false;
+        false
     }
 
     #[test]
+    #[allow(clippy::unit_cmp)]
     fn test_main() {
         const FIRECRACKER_INIT_TIMEOUT_MILLIS: u64 = 100;
 

@@ -363,7 +363,7 @@ fn parse_vsocks_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
 
     match path_tokens[1..].len() {
         1 if method == Method::Put => Ok(serde_json::from_slice::<VsockDeviceConfig>(body)
-            .map_err(|e| Error::SerdeJson(e))?
+            .map_err(Error::SerdeJson)?
             .into_parsed_request(Some(id_from_path.to_string()), method)
             .map_err(|s| {
                 METRICS.put_api_requests.network_fails.inc();

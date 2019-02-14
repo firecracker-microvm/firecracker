@@ -850,7 +850,7 @@ impl Vmm {
             let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
 
             let vsock_box = Box::new(
-                devices::virtio::Vsock::new(cfg.guest_cid as u64, guest_mem, epoll_config)
+                devices::virtio::Vsock::new(u64::from(cfg.guest_cid), guest_mem, epoll_config)
                     .map_err(StartMicrovmError::CreateVsockDevice)?,
             );
             device_manager
