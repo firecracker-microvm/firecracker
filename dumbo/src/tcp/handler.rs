@@ -235,7 +235,6 @@ impl TcpIPv4Handler {
 
                 if self.connections.len() >= self.max_connections {
                     if let Some(evict_tuple) = self.find_evictable_connection() {
-                        // The unwrap() is safe because evict_tuple must be present as a key.
                         let rst_config = self.connections[&evict_tuple]
                             .connection()
                             .make_rst_config();

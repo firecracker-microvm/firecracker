@@ -61,15 +61,15 @@ impl<T: Vhost> VhostEpollHandler<T> {
             .fetch_or(INTERRUPT_STATUS_USED_RING as usize, Ordering::SeqCst);
         self.interrupt_evt
             .write(1)
-            .map_err(|e| DeviceError::FailedSignalingUsedQueue(e))
+            .map_err(DeviceError::FailedSignalingUsedQueue)
     }
 
     pub fn get_queue_evt(&self) -> RawFd {
-        return self.queue_evt.as_raw_fd();
+        self.queue_evt.as_raw_fd()
     }
 
     pub fn get_device(&self) -> &T {
-        return &self.vhost_dev;
+        &self.vhost_dev
     }
 }
 
