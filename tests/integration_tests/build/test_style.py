@@ -76,6 +76,16 @@ def test_python_style():
     )
 
 
+def test_rust_clippy():
+    """Fails if clippy generates any error, warnings are ignored."""
+    run(
+        'cargo clippy --all-targets --all-features',
+        shell=True,
+        check=True,
+        stdout=PIPE
+    )
+
+
 def test_yaml_style():
     """Fail if our swagger specification is malformed."""
     yaml_spec = os.path.normpath(
