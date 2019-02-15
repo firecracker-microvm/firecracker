@@ -5,6 +5,7 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
 chrono = ">=0.4"
+kvm-bindings = "0.1"
 libc = ">=0.2.39"
 epoll = "=4.0.1"
 futures = ">=0.1.18"

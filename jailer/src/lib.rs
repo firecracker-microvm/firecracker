@@ -10,6 +10,7 @@ extern crate serde;
 extern crate serde_derive;
 
 extern crate fc_util;
+extern crate kvm;
 extern crate sys_util;
 
 mod cgroup;
@@ -29,6 +30,7 @@ use clap::{App, Arg, ArgMatches};
 
 use env::Env;
 use fc_util::validators;
+use kvm::Kvm;
 
 pub const KVM_FD: i32 = 3;
 pub const LISTENER_FD: i32 = 4;
@@ -74,7 +76,6 @@ pub enum Error {
     MountPropagationPrivate(sys_util::Error),
     NotAFile(PathBuf),
     NumaNode(String),
-    OpenDevKvm(sys_util::Error),
     OpenDevNull(sys_util::Error),
     OsStringParsing(PathBuf, OsString),
     PivotRoot(sys_util::Error),
@@ -190,7 +191,6 @@ impl fmt::Display for Error {
                 format!("{:?} is not a file", path).replace("\"", "")
             ),
             NumaNode(ref node) => write!(f, "Invalid numa node: {}", node),
-            OpenDevKvm(ref err) => write!(f, "Failed to open /dev/kvm: {}", err),
             OpenDevNull(ref err) => write!(f, "Failed to open /dev/null: {}", err),
             OsStringParsing(ref path, _) => write!(
                 f,
@@ -323,28 +323,34 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
 fn sanitize_process() {
     // First thing to do is make sure we don't keep any inherited FDs
     // other that IN, OUT and ERR.
+    if let Ok(paths) = fs::read_dir("/proc/self/fd") {
+        for maybe_path in paths {
+            if maybe_path.is_err() {
+                continue;
+            }
 
-    // Safe because sysconf is available on all flavors of Linux.
-    let fd_size = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } as i32;
-    for i in 3..fd_size {
-        // Safe because close() cannot fail when passed a valid parameter.
-        unsafe { libc::close(i) };
+            let file_name = maybe_path.unwrap().file_name();
+            let fd_str = file_name.to_str().unwrap_or("0");
+            let fd = fd_str.parse::<i32>().unwrap_or(0);
+
+            if fd > 2 {
+                // Safe because close() cannot fail when passed a valid parameter.
+                unsafe { libc::close(fd) };
+            }
+        }
     }
 }
 
-fn open_dev_kvm() -> Result<i32> {
-    // Safe because we use a constant null-terminated string and verify the result.
-    let ret = unsafe { libc::open("/dev/kvm\0".as_ptr() as *const libc::c_char, libc::O_RDWR) };
+fn open_dev_kvm() -> Result<()> {
+    // The following unwrap will only fail when `/dev/kvm` cannot be open in which case
+    // it is better to panic and finish the execution.
+    let kvm_fd = Kvm::open_with_cloexec(false).unwrap();
 
-    if ret < 0 {
-        return Err(Error::OpenDevKvm(sys_util::Error::last()));
+    if kvm_fd != KVM_FD {
+        return Err(Error::UnexpectedKvmFd(kvm_fd));
     }
 
-    if ret != KVM_FD {
-        return Err(Error::UnexpectedKvmFd(ret));
-    }
-
-    Ok(ret)
+    Ok(())
 }
 
 pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Result<()> {
@@ -411,6 +417,32 @@ fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::os::unix::io::AsRawFd;
+
+    #[test]
+    fn test_sanitize_process() {
+        let n = 100;
+
+        let tmp_dir_path = "/tmp/jailer/tests/sanitize_process";
+        assert!(fs::create_dir_all(tmp_dir_path).is_ok());
+
+        let mut fds = Vec::new();
+        for i in 0..n {
+            let maybe_file = File::create(format!("{}/{}", tmp_dir_path, i));
+            assert!(maybe_file.is_ok());
+            fds.push(maybe_file.unwrap().as_raw_fd());
+        }
+
+        sanitize_process();
+
+        for fd in fds {
+            let is_fd_opened = unsafe { libc::fcntl(fd, libc::F_GETFD) } == 0;
+            assert_eq!(is_fd_opened, false);
+        }
+
+        assert!(fs::remove_dir_all(tmp_dir_path).is_ok());
+    }
 
     #[test]
     fn test_error_display() {
@@ -563,10 +595,6 @@ mod tests {
         assert_eq!(
             format!("{}", Error::NumaNode(id.to_string())),
             "Invalid numa node: foobar",
-        );
-        assert_eq!(
-            format!("{}", Error::OpenDevKvm(err42.clone())),
-            "Failed to open /dev/kvm: Errno 42",
         );
         assert_eq!(
             format!("{}", Error::OpenDevNull(err42.clone())),

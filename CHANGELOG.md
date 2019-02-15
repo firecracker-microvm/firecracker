@@ -2,10 +2,23 @@
 
 ## [Unreleased]
 
+### Added
+- New API action: SendCtrlAltDel, used to initiate a graceful shutdown,
+  if the guest has driver support for i8042 and AT Keyboard. See
+  [the docs](docs/api_requests/actions.md#sendctrlaltdel) for details.
+- New metric counting the number of egress packets with a spoofed MAC:
+  `net.tx_spoofed_mac_count`.
+
 ### Changed
 
 - Added missing `vmm_version` field to the InstanceInfo API swagger
   definition, and marked several other mandatory fields as such.
+- New default command line for guest kernel:
+  `reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0
+  i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd`.
+
+### Fixed
+- virtio-blk: VIRTIO_BLK_T_FLUSH now working as expected.
 
 ## [0.14.0]
 
