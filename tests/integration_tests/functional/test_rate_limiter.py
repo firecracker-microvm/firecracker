@@ -85,6 +85,7 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
     test_microvm.start()
 
     _check_tx_rate_limiting(test_microvm, guest_ips, host_ips)
+    _check_tx_rate_limit_patch(test_microvm, guest_ips, host_ips)
 
 
 def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
@@ -145,6 +146,7 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
     test_microvm.start()
 
     _check_rx_rate_limiting(test_microvm, guest_ips)
+    _check_rx_rate_limit_patch(test_microvm, guest_ips)
 
 
 def _check_tx_rate_limiting(test_microvm, guest_ips, host_ips):
@@ -334,6 +336,103 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
             )
             < MAX_TIME_DIFF
     )
+
+
+def _check_tx_rate_limit_patch(test_microvm, guest_ips, host_ips):
+    """Patch the TX rate limiters and check the new limits."""
+    bucket_size = int(RATE_LIMIT_BYTES / 2)
+    bandwidth_kb = int(bucket_size / (RATE_LIMIT_REFILL_TIME/1000.0) / 1024)
+
+    # Check that a TX rate limiter can be applied to a previously unlimited
+    # interface.
+    _patch_iface_bw(test_microvm, "1", "TX", bucket_size)
+    _check_tx_bandwidth(test_microvm, guest_ips[0], host_ips[0], bandwidth_kb)
+
+    # Check that a TX rate limiter can be updated.
+    _patch_iface_bw(test_microvm, "2", "TX", bucket_size)
+    _check_tx_bandwidth(test_microvm, guest_ips[1], host_ips[1], bandwidth_kb)
+
+
+def _check_rx_rate_limit_patch(test_microvm, guest_ips):
+    """Patch the RX rate limiters and check the new limits."""
+    bucket_size = int(RATE_LIMIT_BYTES / 2)
+    bandwidth_kb = int(bucket_size / (RATE_LIMIT_REFILL_TIME/1000.0) / 1024)
+
+    # Check that an RX rate limiter can be applied to a previously unlimited
+    # interface.
+    _patch_iface_bw(test_microvm, "1", "RX", bucket_size)
+    _check_rx_bandwidth(test_microvm, guest_ips[0], bandwidth_kb)
+
+    # Check that an RX rate limiter can be updated.
+    _patch_iface_bw(test_microvm, "2", "RX", bucket_size)
+    _check_rx_bandwidth(test_microvm, guest_ips[1], bandwidth_kb)
+
+
+def _check_tx_bandwidth(
+        test_microvm,
+        guest_ip,
+        host_ip,
+        expected_bw_kb
+):
+    """Check that the rate-limited TX bandwidth is close to what we expect.
+
+    At this point, a daemonized iperf3 server is expected to be running on
+    the host.
+    """
+    iperf_cmd = "{} -c {} -t {} -f KBytes".format(
+        IPERF_BINARY,
+        host_ip,
+        IPERF_TRANSMIT_TIME
+    )
+
+    iperf_out = _run_iperf_on_guest(test_microvm, iperf_cmd, guest_ip)
+    _, observed_bw = _process_iperf_output(iperf_out)
+
+    diff_pc = _get_difference(observed_bw, expected_bw_kb)
+    assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
+
+
+def _check_rx_bandwidth(
+        test_microvm,
+        guest_ip,
+        expected_bw_kb
+):
+    """Check that the rate-limited RX bandwidth is close to what we expect.
+
+    At this point, a daemonized iperf3 server is expected to be running on
+    the guest.
+    """
+    iperf_cmd = "{} {} -c {} -t {} -f KBytes".format(
+        test_microvm.jailer.netns_cmd_prefix(),
+        IPERF_BINARY,
+        guest_ip,
+        IPERF_TRANSMIT_TIME
+    )
+    iperf_out = _run_local_iperf(iperf_cmd)
+    _, observed_bw = _process_iperf_output(iperf_out)
+
+    diff_pc = _get_difference(observed_bw, expected_bw_kb)
+    assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
+
+
+def _patch_iface_bw(test_microvm, iface_id, rx_or_tx, new_bucket_size):
+    """Update the bandwidth rate limiter for a given interface.
+
+    Update the `rx_or_tx` rate limiter, on interface `iface_id` to the
+    new `bucket_size`.
+    """
+    assert rx_or_tx in ['RX', 'TX']
+    args = {
+        'iface_id': iface_id,
+        "{}_rate_limiter".format(rx_or_tx.lower()): {
+            'bandwidth': {
+                'size': new_bucket_size,
+                'refill_time': RATE_LIMIT_REFILL_TIME
+            }
+        }
+    }
+    resp = test_microvm.network.patch(**args)
+    assert test_microvm.api_session.is_status_no_content(resp.status_code)
 
 
 def _start_iperf_on_guest(test_microvm, hostname):
