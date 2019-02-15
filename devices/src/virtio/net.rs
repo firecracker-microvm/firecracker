@@ -79,7 +79,6 @@ struct TxVirtio {
     rate_limiter: RateLimiter,
     queue: Queue,
     iovec: Vec<(GuestAddress, usize)>,
-    used_desc_heads: [u16; QUEUE_SIZE as usize],
     frame_buf: [u8; MAX_BUFFER_SIZE],
 }
 
@@ -91,7 +90,6 @@ impl TxVirtio {
             rate_limiter,
             queue,
             iovec: Vec::with_capacity(tx_queue_max_size),
-            used_desc_heads: [0u16; QUEUE_SIZE as usize],
             frame_buf: [0u8; MAX_BUFFER_SIZE],
         }
     }
@@ -393,7 +391,6 @@ impl NetEpollHandler {
 
     fn process_tx(&mut self) -> result::Result<(), DeviceError> {
         let mut rate_limited = false;
-        let mut used_count = 0;
 
         // The MMDS network stack works like a state machine, based on synchronous calls, and
         // without being added to any event loop. If any frame is accepted by the MMDS, we also
@@ -401,7 +398,7 @@ impl NetEpollHandler {
         // with the MMDS network stack.
         let mut process_rx_for_mmds = false;
 
-        for avail_desc in self.tx.queue.iter(&self.mem) {
+        while let Some(avail_desc) = self.tx.queue.iter(&self.mem).next() {
             // If limiter.consume() fails it means there is no more TokenType::Ops
             // budget and rate limiting is in effect.
             if !self.tx.rate_limiter.consume(1, TokenType::Ops) {
@@ -480,23 +477,12 @@ impl NetEpollHandler {
                 process_rx_for_mmds = true;
             }
 
-            self.tx.used_desc_heads[used_count] = head_index;
-            used_count += 1;
+            self.tx.queue.add_used(&self.mem, head_index, 0);
         }
         if rate_limited {
             // If rate limiting kicked in, queue had advanced one element that we aborted
             // processing; go back one element so it can be processed next time.
             self.tx.queue.go_to_previous_position();
-        }
-
-        if used_count != 0 {
-            // TODO(performance - Issue #425): find a way around RUST mutability enforcements to
-            // allow calling queue.add_used() inside the loop. This would lead to better distribution
-            // of descriptor usage between the firecracker thread and the guest tx thread.
-            // One option to do this is to call queue.add_used() from a static function.
-            for &desc_index in &self.tx.used_desc_heads[..used_count] {
-                self.tx.queue.add_used(&self.mem, desc_index, 0);
-            }
         }
 
         // An incoming frame for the MMDS may trigger the transmission of a new message.
