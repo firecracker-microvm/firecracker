@@ -299,6 +299,8 @@ pub struct NetDeviceMetrics {
     pub tx_queue_event_count: SharedMetric,
     /// Number of events associated with the rate limiter installed on the transmitting path.
     pub tx_rate_limiter_event_count: SharedMetric,
+    /// Number of packets with a spoofed mac, sent by the guest.
+    pub tx_spoofed_mac_count: SharedMetric,
 }
 
 /// Metrics for the seccomp filtering.

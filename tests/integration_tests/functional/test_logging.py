@@ -136,13 +136,13 @@ def test_dirty_page_metrics(test_microvm_with_api):
         show_log_origin=False,
         options=['LogDirtyPages']
     )
-    assert microvm.api_session.is_good_response(response.status_code)
+    assert microvm.api_session.is_status_no_content(response.status_code)
 
     microvm.start()
 
     sleep(0.3)
     response = microvm.actions.put(action_type='FlushMetrics')
-    assert microvm.api_session.is_good_response(response.status_code)
+    assert microvm.api_session.is_status_no_content(response.status_code)
 
     lines = metrics_fifo.sequential_reader(2)
     assert int(json.loads(lines[0])['memory']['dirty_pages']) == 0
@@ -187,13 +187,13 @@ def test_api_requests_logs(test_microvm_with_api):
         show_log_origin=True,
         options=[]
     )
-    assert response.status_code == 204
+    assert microvm.api_session.is_status_no_content(response.status_code)
 
     expected_log_strings = []
 
     # Check that a Put request on /machine-config is logged.
     response = microvm.machine_cfg.put(vcpu_count=4)
-    assert microvm.api_session.is_good_response(response.status_code)
+    assert microvm.api_session.is_status_no_content(response.status_code)
     # We are not interested in the actual body. Just check that the log
     # message also has the string "body" in it.
     expected_log_strings.append(
@@ -204,7 +204,7 @@ def test_api_requests_logs(test_microvm_with_api):
     # Check that a Get request on /machine-config is logged without the
     # body.
     response = microvm.machine_cfg.get()
-    assert response.status_code == 200
+    assert microvm.api_session.is_status_ok(response.status_code)
     expected_log_strings.append(
         "The API server received a synchronous Get request "
         "on \"/machine-config\"."
@@ -219,19 +219,19 @@ def test_api_requests_logs(test_microvm_with_api):
         }
     }
     response = microvm.mmds.put(json=dummy_json)
-    assert response.status_code == 204
+    assert microvm.api_session.is_status_no_content(response.status_code)
     expected_log_strings.append(
         "The API server received a synchronous Put request on \"/mmds\"."
     )
 
     response = microvm.mmds.patch(json=dummy_json)
-    assert response.status_code == 204
+    assert microvm.api_session.is_status_no_content(response.status_code)
     expected_log_strings.append(
         "The API server received a synchronous Patch request on \"/mmds\"."
     )
 
     response = microvm.mmds.get()
-    assert response.status_code == 200
+    assert microvm.api_session.is_status_ok(response.status_code)
     expected_log_strings.append(
         "The API server received a synchronous Get request on \"/mmds\"."
     )
@@ -255,7 +255,7 @@ def test_flush_metrics(test_microvm_with_api):
         log_fifo=microvm.create_jailed_resource(log_fifo.path),
         metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path)
     )
-    assert response.status_code == 204
+    assert microvm.api_session.is_status_no_content(response.status_code)
 
     microvm.start()
 
@@ -265,7 +265,7 @@ def test_flush_metrics(test_microvm_with_api):
     how_many_flushes = 3
     for _ in range(how_many_flushes):
         response = microvm.actions.put(action_type='FlushMetrics')
-        assert response.status_code == 204
+        assert microvm.api_session.is_status_no_content(response.status_code)
     lines = metrics_fifo.sequential_reader(how_many_flushes)
     assert len(lines) == how_many_flushes
 
@@ -297,7 +297,7 @@ def _test_log_config(
         show_log_origin=show_origin,
         options=options
     )
-    assert microvm.api_session.is_good_response(response.status_code)
+    assert microvm.api_session.is_status_no_content(response.status_code)
 
     microvm.start()
 

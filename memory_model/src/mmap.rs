@@ -66,7 +66,7 @@ impl MemoryMapping {
                 0,
             )
         };
-        if addr.is_null() {
+        if addr == libc::MAP_FAILED {
             return Err(Error::SystemCallFailed(io::Error::last_os_error()));
         }
         Ok(MemoryMapping {
@@ -93,7 +93,7 @@ impl MemoryMapping {
                 0,
             )
         };
-        if addr.is_null() {
+        if addr == libc::MAP_FAILED {
             return Err(Error::SystemCallFailed(io::Error::last_os_error()));
         }
         Ok(MemoryMapping {
@@ -338,12 +338,44 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::mem;
+    use std::os::unix::io::FromRawFd;
     use std::path::Path;
 
     #[test]
     fn basic_map() {
         let m = MemoryMapping::new(1024).unwrap();
         assert_eq!(1024, m.size());
+    }
+
+    #[test]
+    fn map_invalid_size() {
+        let res = MemoryMapping::new(0);
+        match res {
+            Ok(_) => panic!("should panic!"),
+            Err(err) => {
+                if let Error::SystemCallFailed(e) = err {
+                    assert_eq!(e.raw_os_error(), Some(libc::EINVAL));
+                } else {
+                    panic!("unexpected error: {:?}", err);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn map_invalid_fd() {
+        let fd = unsafe { std::fs::File::from_raw_fd(-1) };
+        let res = MemoryMapping::from_fd(&fd, 1024);
+        match res {
+            Ok(_) => panic!("should panic!"),
+            Err(err) => {
+                if let Error::SystemCallFailed(e) = err {
+                    assert_eq!(e.raw_os_error(), Some(libc::EBADF));
+                } else {
+                    panic!("unexpected error: {:?}", err);
+                }
+            }
+        }
     }
 
     #[test]
