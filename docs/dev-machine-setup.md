@@ -11,11 +11,53 @@ outlined in the [Getting Started](getting-started.md) instructions).
 
 ### Local Bare-Metal Machine
 
-`[TODO]`
+
 
 ### Local Virtual Machine
 
-`[TODO]`
+Firecracker can also be installed in a Proxmox VM which uses KVM as Hypervisor. The nested option on the host where Proxmox is running must be enabled. In the following example nested virtualization has not been enabled yet ("N" No) so to check nested virtualization in your Proxmox host excecute the following command:
+
+   ```
+   cat /sys/module/kvm_intel/parameters/nested
+   N
+   ```
+
+To enable nested virtualization follow these steps:
+
+   ```
+   echo "options kvm-intel nested=Y" > /etc/modprobe.d/kvm-intel.conf
+   ```
+
+   ```
+   modprobe -r kvm_intel
+   ```
+
+   ```
+   modprobe kvm_intel
+   ```
+
+   ```
+   reboot
+   ```
+
+After the Proxmox host reboot, the nested option should be enabled ("Y" Yes)
+ 
+   ```
+   cat /sys/module/kvm_intel/parameters/nested
+   Y
+   ```
+
+Now create a new Linux VM where Firecracker will be running, Alpine or Ubuntu Server distros will be good a choice. Use the following specifications and please set the Processor type to "Host" when selecting the CPU:
+
+   ```
+   Memory: 4 GB
+   Processors: 2 (1 socket, 2 cores) Type: Host
+   Hard Disk: 50 GB
+   Network Device: 1 
+   ```
+Once the installation of the Linux operating system has finished and the Proxmox VM is up and running, open an SSH connection to the VM and continue with the Firecracker [Getting Started](getting-started.md) instructions to use Firecracker to create a microVM.
+
+
 
 ## Cloud
 
