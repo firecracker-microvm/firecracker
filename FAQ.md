@@ -151,6 +151,21 @@ mapping:
 /network-interfaces/0 -> eth1
 ```
 
+### How can I gracefully reboot the guest? How can I gracefully poweroff the guest?
+
+Firecracker does not implement ACPI and PM devices, therefore operations like
+gracefully rebooting or powering off the guest are supported in unconventional ways.
+
+Running the `poweroff` or `halt` commands inside a Linux guest will bring it down but
+Firecracker process remains unaware of the guest shutdown so it lives on.
+
+Running the `reboot` command in a Linux guest will gracefully bring down the guest
+system and also bring a graceful end to the Firecracker process.
+
+Issuing a `SendCtrlAltDel` action command through the Firecracker API will generate a
+`Ctrl + Alt + Del` keyboard event in the guest resulting in a clean reboot on most
+guest Linux systems.
+
 ### We are seeing page allocation failures from Firecracker in the `dmesg` output.
 
 If you see errors like ...
