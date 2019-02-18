@@ -269,7 +269,7 @@ pub struct RateLimiter {
     bandwidth: Option<TokenBucket>,
     ops: Option<TokenBucket>,
 
-    timer_fd: Option<TimerFd>,
+    timer_fd: TimerFd,
     // Internal flag that quickly determines timer state.
     timer_active: bool,
 }
@@ -411,12 +411,10 @@ impl RateLimiter {
             ops_complete_refill_time_ms,
         );
 
-        // TODO: Self::timer_fd should not be an `Option` anymore; clean that up.
-        //
         // We'll need a timer_fd, even if our current config effectively disables rate limiting,
         // because `Self::update_buckets()` might re-enable it later, and we might be
         // seccomp-blocked from creating the timer_fd at that time.
-        let timer_fd = Some(TimerFd::new_custom(ClockId::Monotonic, true, true)?);
+        let timer_fd = TimerFd::new_custom(ClockId::Monotonic, true, true)?;
 
         Ok(RateLimiter {
             bandwidth: bytes_token_bucket,
@@ -449,8 +447,6 @@ impl RateLimiter {
             // Register the timer; don't care about its previous state
             // safe to unwrap: timer is definitely Some() since we have a bucket.
             self.timer_fd
-                .as_mut()
-                .expect("Failed to consume rate limiter token due to invalid timer fd")
                 .set_state(TIMER_REFILL_STATE, SetTimeFlags::Default);
             self.timer_active = true;
         }
@@ -489,22 +485,14 @@ impl RateLimiter {
     ///
     /// If the rate limiter is disabled or is not blocked, an error is returned.
     pub fn event_handler(&mut self) -> Result<(), Error> {
-        match self.timer_fd.as_mut() {
-            Some(timer_fd) => {
-                // Read the timer_fd and report error if there was no event.
-                match timer_fd.read() {
-                    0 => Err(Error::SpuriousRateLimiterEvent(
-                        "Rate limiter event handler called without a present timer",
-                    )),
-                    _ => {
-                        self.timer_active = false;
-                        Ok(())
-                    }
-                }
-            }
-            None => Err(Error::SpuriousRateLimiterEvent(
+        match self.timer_fd.read() {
+            0 => Err(Error::SpuriousRateLimiterEvent(
                 "Rate limiter event handler called without a present timer",
             )),
+            _ => {
+                self.timer_active = false;
+                Ok(())
+            }
         }
     }
 
@@ -543,10 +531,7 @@ impl AsRawFd for RateLimiter {
     /// Will return a negative value if rate limiting is disabled on both
     /// token types.
     fn as_raw_fd(&self) -> RawFd {
-        match self.timer_fd.as_ref() {
-            Some(timer_fd) => timer_fd.as_raw_fd(),
-            None => -1,
-        }
+        self.timer_fd.as_raw_fd()
     }
 }
 
