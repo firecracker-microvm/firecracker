@@ -37,12 +37,18 @@ to integrate with container ecosystems.
 The Firecracker VMM is built to be processor agnostic. Today, it can run on
 Intel processors. AMD and ARM processors will be supported in the near future.
 
-### Can Firecracker be used with Kubernetes, Docker, or Kata containers today?
+### Can Firecracker be used with Kata containers, Kubernetes or Docker today?
 
-Not yet. We are making Firecracker open source because it provides a
-meaningfully different approach to security for running containers. We hope that
-others in the communities that build open source container technology find it
-useful. We are working to make Firecracker integrate naturally with the
+Since release
+[1.5.0](https://github.com/kata-containers/runtime/releases/tag/1.5.0)
+of Kata Containers, support for the Firecracker VMM has been included.
+Docker CLI and Kubernetes can be used with Firecracker when configured
+with Kata containers, but there are limitations with Kubernetes use cases.
+There is also a work in progress on
+[Firecracker-containerd](https://github.com/firecracker-microvm/firecracker-containerd)
+to enable containerd to manage containers as Firecracker microVMs. We hope
+that others in the communities that build open source container technology find
+it useful. We are working to make Firecracker integrate naturally with the
 container ecosystem, with the goal to provide seamless integration in the future
 to provide more choices in how container workloads are isolated.
 
