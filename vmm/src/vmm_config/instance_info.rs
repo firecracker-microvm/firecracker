@@ -57,6 +57,8 @@ pub enum StartMicrovmError {
     /// Internal errors are due to resource exhaustion.
     /// Users errors are due to invalid permissions.
     CreateNetDevice(devices::virtio::Error),
+    /// Failed to create a `RateLimiter` object.
+    CreateRateLimiter(std::io::Error),
     #[cfg(feature = "vsock")]
     /// Creating a vsock device can only fail if the /dev/vhost-vsock device cannot be open.
     CreateVsockDevice(devices::virtio::vhost::Error),
@@ -125,6 +127,7 @@ impl Display for StartMicrovmError {
                  the file was deleted/corrupted. Error number: {}",
                 err.errno().to_string()
             ),
+            CreateRateLimiter(ref err) => write!(f, "Cannot create RateLimiter: {}", err),
             #[cfg(feature = "vsock")]
             CreateVsockDevice(ref err) => {
                 let mut err_msg = format!("{:?}", err);
