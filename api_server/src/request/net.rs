@@ -55,14 +55,14 @@ impl IntoParsedRequest for NetworkInterfaceUpdateConfig {
 #[cfg(test)]
 mod tests {
     extern crate net_util;
-    extern crate rate_limiter;
+    extern crate vmm;
 
     use self::net_util::MacAddr;
     use super::*;
 
     use serde_json;
 
-    use self::rate_limiter::RateLimiter;
+    use self::vmm::vmm_config::RateLimiterConfig;
 
     fn get_dummy_netif(
         iface_id: String,
@@ -117,8 +117,8 @@ mod tests {
             iface_id: String::from("foo"),
             host_dev_name: String::from("bar"),
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
-            rx_rate_limiter: Some(RateLimiter::default()),
-            tx_rate_limiter: Some(RateLimiter::default()),
+            rx_rate_limiter: Some(RateLimiterConfig::default()),
+            tx_rate_limiter: Some(RateLimiterConfig::default()),
             allow_mmds_requests: true,
             tap: None,
         };

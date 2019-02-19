@@ -9,7 +9,6 @@ use super::super::Error as VmmInternalError;
 use super::RateLimiterConfig;
 use devices;
 use net_util::{MacAddr, Tap, TapError};
-use rate_limiter::RateLimiter;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -23,9 +22,9 @@ pub struct NetworkInterfaceConfig {
     /// Guest MAC address.
     pub guest_mac: Option<MacAddr>,
     /// Rate Limiter for received packages.
-    pub rx_rate_limiter: Option<RateLimiter>,
+    pub rx_rate_limiter: Option<RateLimiterConfig>,
     /// Rate Limiter for transmitted packages.
-    pub tx_rate_limiter: Option<RateLimiter>,
+    pub tx_rate_limiter: Option<RateLimiterConfig>,
     #[serde(default = "default_allow_mmds_requests")]
     /// If this field is set, the device model will reply to HTTP GET
     /// requests sent to the MMDS address via this interface. In this case,
@@ -297,8 +296,8 @@ mod tests {
             iface_id: String::from(id),
             host_dev_name: String::from(name),
             guest_mac: Some(MacAddr::parse_str(mac).unwrap()),
-            rx_rate_limiter: Some(RateLimiter::default()),
-            tx_rate_limiter: Some(RateLimiter::default()),
+            rx_rate_limiter: Some(RateLimiterConfig::default()),
+            tx_rate_limiter: Some(RateLimiterConfig::default()),
             allow_mmds_requests: false,
             tap: None,
         }

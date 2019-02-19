@@ -745,13 +745,21 @@ impl Vmm {
             let (epoll_config, handler_idx) = epoll_context.allocate_virtio_block_tokens();
             self.drive_handler_id_map
                 .insert(drive_config.drive_id.clone(), handler_idx);
+            let rate_limiter = match drive_config.rate_limiter {
+                Some(rlim_cfg) => Some(
+                    rlim_cfg
+                        .into_rate_limiter()
+                        .map_err(StartMicrovmError::CreateRateLimiter)?,
+                ),
+                None => None,
+            };
 
             let block_box = Box::new(
                 devices::virtio::Block::new(
                     block_file,
                     drive_config.is_read_only,
                     epoll_config,
-                    drive_config.rate_limiter.take(),
+                    rate_limiter,
                 )
                 .map_err(StartMicrovmError::CreateBlockDevice)?,
             );
@@ -783,8 +791,20 @@ impl Vmm {
                 .insert(cfg.iface_id.clone(), handler_idx);
 
             let allow_mmds_requests = cfg.allow_mmds_requests();
-            let rx_rate_limiter = cfg.rx_rate_limiter.take();
-            let tx_rate_limiter = cfg.tx_rate_limiter.take();
+            let rx_rate_limiter = match cfg.rx_rate_limiter {
+                Some(rlim) => Some(
+                    rlim.into_rate_limiter()
+                        .map_err(StartMicrovmError::CreateRateLimiter)?,
+                ),
+                None => None,
+            };
+            let tx_rate_limiter = match cfg.tx_rate_limiter {
+                Some(rlim) => Some(
+                    rlim.into_rate_limiter()
+                        .map_err(StartMicrovmError::CreateRateLimiter)?,
+                ),
+                None => None,
+            };
 
             if let Some(tap) = cfg.take_tap() {
                 let net_box = Box::new(
@@ -1565,41 +1585,23 @@ impl Vmm {
 
             // Check if we need to update the RX rate limiter.
             if let Some(new_rlim_cfg) = new_cfg.rx_rate_limiter {
-                if let Some(ref mut old_rlim) = old_cfg.rx_rate_limiter {
+                if let Some(ref mut old_rlim_cfg) = old_cfg.rx_rate_limiter {
                     // We already have an RX rate limiter set, so we'll update it.
-                    old_rlim.update_buckets(
-                        new_rlim_cfg.bandwidth.map(|b| b.into_token_bucket()),
-                        new_rlim_cfg.ops.map(|b| b.into_token_bucket()),
-                    );
+                    old_rlim_cfg.update(&new_rlim_cfg);
                 } else {
                     // No old RX rate limiter; create one now.
-                    old_cfg.rx_rate_limiter =
-                        Some(new_rlim_cfg.into_rate_limiter().map_err(|e| {
-                            VmmActionError::NetworkConfig(
-                                ErrorKind::Internal,
-                                NetworkInterfaceError::RateLimiterError(e),
-                            )
-                        })?);
+                    old_cfg.rx_rate_limiter = Some(new_rlim_cfg);
                 }
             }
 
             // Check if we need to update the TX rate limiter.
             if let Some(new_rlim_cfg) = new_cfg.tx_rate_limiter {
-                if let Some(ref mut old_rlim) = old_cfg.tx_rate_limiter {
+                if let Some(ref mut old_rlim_cfg) = old_cfg.tx_rate_limiter {
                     // We already have a TX rate limiter set, so we'll update it.
-                    old_rlim.update_buckets(
-                        new_rlim_cfg.bandwidth.map(|b| b.into_token_bucket()),
-                        new_rlim_cfg.ops.map(|b| b.into_token_bucket()),
-                    );
+                    old_rlim_cfg.update(&new_rlim_cfg);
                 } else {
                     // No old TX rate limiter; create one now.
-                    old_cfg.tx_rate_limiter =
-                        Some(new_rlim_cfg.into_rate_limiter().map_err(|e| {
-                            VmmActionError::NetworkConfig(
-                                ErrorKind::Internal,
-                                NetworkInterfaceError::RateLimiterError(e),
-                            )
-                        })?);
+                    old_cfg.tx_rate_limiter = Some(new_rlim_cfg);
                 }
             }
 
