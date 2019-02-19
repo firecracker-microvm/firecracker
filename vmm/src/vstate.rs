@@ -17,10 +17,9 @@ use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_
 use super::KvmContext;
 use arch;
 #[cfg(target_arch = "x86_64")]
-use cpuid::{c3_template, filter_cpuid, t2_template};
+use cpuid::{c3, filter_cpuid, t2};
 use kvm::*;
 use logger::{LogOption, LOGGER};
-use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
 #[cfg(target_arch = "x86_64")]
@@ -228,29 +227,20 @@ impl Vcpu {
         vm: &Vm,
     ) -> Result<()> {
         // the MachineConfiguration has defaults for ht_enabled and vcpu_count hence it is safe to unwrap
-        if let Err(e) = filter_cpuid(
+        filter_cpuid(
             self.id,
             machine_config
                 .vcpu_count
                 .ok_or(Error::VcpuCountNotInitialized)?,
             machine_config.ht_enabled.ok_or(Error::HTNotInitialized)?,
             &mut self.cpuid,
-        ) {
-            // For the moment, we do not have a showstopper error returned by the `filter_cpuid`.
-            METRICS.vcpu.fitler_cpuid.inc();
-            error!(
-                "Failure in configuring CPUID for vcpu {:?}: {:?}",
-                self.id, e
-            );
-        }
+        )
+        .map_err(Error::CpuId)?;
+
         if let Some(template) = machine_config.cpu_template {
             match template {
-                CpuFeaturesTemplate::T2 => {
-                    t2_template::set_cpuid_entries(self.cpuid.mut_entries_slice())
-                }
-                CpuFeaturesTemplate::C3 => {
-                    c3_template::set_cpuid_entries(self.cpuid.mut_entries_slice())
-                }
+                CpuFeaturesTemplate::T2 => t2::set_cpuid_entries(self.cpuid.mut_entries_slice()),
+                CpuFeaturesTemplate::C3 => c3::set_cpuid_entries(self.cpuid.mut_entries_slice()),
             }
         }
 
