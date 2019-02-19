@@ -136,8 +136,8 @@ pub enum Error {
     EpollFd(io::Error),
     /// Cannot read from an Event file descriptor.
     EventFd(std::io::Error),
-    /// Describes a logical problem.
-    GeneralFailure, // TODO: there are some cases in which this error should be replaced.
+    /// An event arrived for a device, but the dispatcher can't find the event (epoll) handler.
+    DeviceEventHandlerNotFound,
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
     /// permission to open the file descriptor.
     Kvm(io::Error),
@@ -161,11 +161,21 @@ impl std::fmt::Debug for Error {
         use self::Error::*;
 
         match self {
-            // This only implements Debug for the most common Firecracker error
-            // which is the one coming from KVM at the time.
-            // TODO: implement debug for the other errors as well.
+            ApiChannel => write!(f, "ApiChannel: error receiving data from the API server"),
+            CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
+            EpollFd(e) => write!(f, "Epoll fd error: {:?}", e),
+            EventFd(e) => write!(f, "Event fd error: {}", e.to_string()),
+            DeviceEventHandlerNotFound => write!(
+                f,
+                "Device event handler not found. This might point to a guest device driver issue."
+            ),
             Kvm(ref os_err) => write!(f, "Cannot open /dev/kvm. Error: {}", os_err.to_string()),
-            _ => write!(f, "{:?}", self),
+            KvmApiVersion(ver) => write!(f, "Bad KVM API version: {}", ver),
+            KvmCap(cap) => write!(f, "Missing KVM capability: {:?}", cap),
+            Poll(e) => write!(f, "Epoll wait failed: {}", e.to_string()),
+            Serial(e) => write!(f, "Error writing to the serial console: {:?}", e),
+            TimerFd(e) => write!(f, "Error creating timer fd: {}", e.to_string()),
+            Vm(e) => write!(f, "Error opening VM fd: {:?}", e),
         }
     }
 }
@@ -250,6 +260,7 @@ impl Display for VmmActionError {
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
+#[derive(Debug)]
 pub enum VmmAction {
     /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
     /// action can only be called before the microVM has booted. The response is sent using the
@@ -543,7 +554,7 @@ impl EpollContext {
                 let received = maybe
                     .receiver
                     .try_recv()
-                    .map_err(|_| Error::GeneralFailure)?;
+                    .map_err(|_| Error::DeviceEventHandlerNotFound)?;
                 Ok(maybe.handler.get_or_insert(received).as_mut())
             }
         }
@@ -1947,6 +1958,10 @@ impl PartialEq for VmmAction {
                 &VmmAction::InsertNetworkDevice(ref other_net_dev, _),
             ) => net_dev == other_net_dev,
             (
+                &VmmAction::UpdateNetworkInterface(ref net_dev, _),
+                &VmmAction::UpdateNetworkInterface(ref other_net_dev, _),
+            ) => net_dev == other_net_dev,
+            (
                 &VmmAction::RescanBlockDevice(ref req, _),
                 &VmmAction::RescanBlockDevice(ref other_req, _),
             ) => req == other_req,
@@ -2019,6 +2034,7 @@ mod tests {
     use devices::virtio::ActivateResult;
     use net_util::MacAddr;
     use vmm_config::machine_config::CpuFeaturesTemplate;
+    use vmm_config::{RateLimiterConfig, TokenBucketConfig};
 
     impl Vmm {
         fn get_kernel_cmdline_str(&self) -> &str {
@@ -2310,6 +2326,98 @@ mod tests {
             tap: None,
         };
         assert!(vmm.insert_net_device(network_interface).is_err());
+    }
+
+    #[test]
+    fn test_update_net_device() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+
+        let tbc_1mtps = TokenBucketConfig {
+            size: 1024 * 1024,
+            one_time_burst: None,
+            refill_time: 1000,
+        };
+        let tbc_2mtps = TokenBucketConfig {
+            size: 2 * 1024 * 1024,
+            one_time_burst: None,
+            refill_time: 1000,
+        };
+
+        vmm.insert_net_device(NetworkInterfaceConfig {
+            iface_id: String::from("1"),
+            host_dev_name: String::from("hostname5"),
+            guest_mac: None,
+            rx_rate_limiter: Some(RateLimiterConfig {
+                bandwidth: Some(tbc_1mtps),
+                ops: None,
+            }),
+            tx_rate_limiter: None,
+            allow_mmds_requests: false,
+            tap: None,
+        })
+        .unwrap();
+
+        vmm.update_net_device(NetworkInterfaceUpdateConfig {
+            iface_id: "1".to_string(),
+            rx_rate_limiter: Some(RateLimiterConfig {
+                bandwidth: None,
+                ops: Some(tbc_2mtps),
+            }),
+            tx_rate_limiter: Some(RateLimiterConfig {
+                bandwidth: None,
+                ops: Some(tbc_2mtps),
+            }),
+        })
+        .unwrap();
+
+        {
+            let nic_1: &mut NetworkInterfaceConfig =
+                vmm.network_interface_configs.iter_mut().next().unwrap();
+            // The RX bandwidth should be unaffected.
+            assert_eq!(nic_1.rx_rate_limiter.unwrap().bandwidth.unwrap(), tbc_1mtps);
+            // The RX ops should be set to 2mtps.
+            assert_eq!(nic_1.rx_rate_limiter.unwrap().ops.unwrap(), tbc_2mtps);
+            // The TX bandwith should be unlimited (unaffected).
+            assert_eq!(nic_1.tx_rate_limiter.unwrap().bandwidth, None);
+            // The TX ops should be set to 2mtps.
+            assert_eq!(nic_1.tx_rate_limiter.unwrap().ops.unwrap(), tbc_2mtps);
+        }
+
+        vmm.init_guest_memory().unwrap();
+        vmm.default_kernel_config();
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let mut device_manager =
+            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        vmm.attach_net_devices(&mut device_manager).unwrap();
+        vmm.set_instance_state(InstanceState::Running);
+
+        // The update should fail before device activation.
+        assert!(vmm
+            .update_net_device(NetworkInterfaceUpdateConfig {
+                iface_id: "1".to_string(),
+                rx_rate_limiter: None,
+                tx_rate_limiter: None,
+            })
+            .is_err());
+
+        // Fake device activation by explicitly setting a dummy epoll handler.
+        vmm.epoll_context.device_handlers[0].handler = Some(Box::new(DummyEpollHandler {
+            evt: None,
+            flags: None,
+            payload: None,
+        }));
+        vmm.update_net_device(NetworkInterfaceUpdateConfig {
+            iface_id: "1".to_string(),
+            rx_rate_limiter: Some(RateLimiterConfig {
+                bandwidth: Some(tbc_2mtps),
+                ops: None,
+            }),
+            tx_rate_limiter: Some(RateLimiterConfig {
+                bandwidth: Some(tbc_1mtps),
+                ops: None,
+            }),
+        })
+        .unwrap();
     }
 
     #[test]

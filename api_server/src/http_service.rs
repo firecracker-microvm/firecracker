@@ -1225,7 +1225,50 @@ mod tests {
         assert!(
             parse_netif_req(path, Method::Options, &body,)
                 == Err(Error::InvalidPathMethod(path, Method::Options))
-        )
+        );
+
+        // PATCH tests
+
+        // Fail when path ID != body ID.
+        assert!(NetworkInterfaceUpdateConfig {
+            iface_id: "1".to_string(),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+        }
+        .into_parsed_request(Some("2".to_string()), Method::Patch)
+        .is_err());
+
+        let json = r#"{
+            "iface_id": "1",
+            "rx_rate_limiter": {
+                "bandwidth": {
+                    "size": 1024,
+                    "refill_time": 100
+                }
+            }
+        }"#;
+        let body = Chunk::from(json);
+        let nuc = serde_json::from_slice::<NetworkInterfaceUpdateConfig>(json.as_bytes()).unwrap();
+        let nuc_pr = nuc
+            .into_parsed_request(Some("1".to_string()), Method::Patch)
+            .unwrap();
+        match parse_netif_req(&"/network-interfaces/1", Method::Patch, &body) {
+            Ok(pr) => assert!(nuc_pr.eq(&pr)),
+            _ => assert!(false),
+        };
+
+        let json = r#"{
+            "iface_id": "1",
+            "invalid_key": true
+        }"#;
+        let body = Chunk::from(json);
+        assert!(parse_netif_req(&"/network-interfaces/1", Method::Patch, &body).is_err());
+
+        let json = r#"{
+            "iface_id": "1"
+        }"#;
+        let body = Chunk::from(json);
+        assert!(parse_netif_req(&"/network-interfaces/2", Method::Patch, &body).is_err());
     }
 
     #[test]

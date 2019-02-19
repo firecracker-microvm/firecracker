@@ -86,3 +86,63 @@ impl RateLimiterConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_limiter_configs() {
+        const SIZE: u64 = 1024 * 1024;
+        const ONE_TIME_BURST: u64 = 1024;
+        const REFILL_TIME: u64 = 1000;
+
+        let b = TokenBucketConfig {
+            size: SIZE,
+            one_time_burst: Some(ONE_TIME_BURST),
+            refill_time: REFILL_TIME,
+        }
+        .into_token_bucket();
+        assert_eq!(b.capacity(), SIZE);
+        assert_eq!(b.one_time_burst(), ONE_TIME_BURST);
+        assert_eq!(b.refill_time_ms(), REFILL_TIME);
+
+        let mut rlconf = RateLimiterConfig {
+            bandwidth: Some(TokenBucketConfig {
+                size: SIZE,
+                one_time_burst: Some(ONE_TIME_BURST),
+                refill_time: REFILL_TIME,
+            }),
+            ops: Some(TokenBucketConfig {
+                size: SIZE * 2,
+                one_time_burst: None,
+                refill_time: REFILL_TIME * 2,
+            }),
+        };
+        let rl = rlconf.into_rate_limiter().unwrap();
+        assert_eq!(rl.bandwidth().unwrap().capacity(), SIZE);
+        assert_eq!(rl.bandwidth().unwrap().one_time_burst(), ONE_TIME_BURST);
+        assert_eq!(rl.bandwidth().unwrap().refill_time_ms(), REFILL_TIME);
+        assert_eq!(rl.ops().unwrap().capacity(), SIZE * 2);
+        assert_eq!(rl.ops().unwrap().one_time_burst(), 0);
+        assert_eq!(rl.ops().unwrap().refill_time_ms(), REFILL_TIME * 2);
+
+        rlconf.update(&RateLimiterConfig {
+            bandwidth: Some(TokenBucketConfig {
+                size: SIZE * 2,
+                one_time_burst: Some(ONE_TIME_BURST * 2),
+                refill_time: REFILL_TIME * 2,
+            }),
+            ops: None,
+        });
+        assert_eq!(rlconf.bandwidth.unwrap().size, SIZE * 2);
+        assert_eq!(
+            rlconf.bandwidth.unwrap().one_time_burst,
+            Some(ONE_TIME_BURST * 2)
+        );
+        assert_eq!(rlconf.bandwidth.unwrap().refill_time, REFILL_TIME * 2);
+        assert_eq!(rlconf.ops.unwrap().size, SIZE * 2);
+        assert_eq!(rlconf.ops.unwrap().one_time_burst, None);
+        assert_eq!(rlconf.ops.unwrap().refill_time, REFILL_TIME * 2);
+    }
+}
