@@ -17,8 +17,6 @@ use std::ffi::{CString, NulError, OsString};
 use std::fmt;
 use std::fs;
 use std::io;
-use std::os::unix::io::AsRawFd;
-use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::result;
 
@@ -26,8 +24,6 @@ use clap::{App, Arg, ArgMatches};
 
 use env::Env;
 use fc_util::validators;
-
-pub const LISTENER_FD: i32 = 3;
 
 const SOCKET_FILE_NAME: &str = "api.socket";
 
@@ -75,7 +71,6 @@ pub enum Error {
     UmountOldRoot(sys_util::Error),
     UnexpectedListenerFd(i32),
     UnshareNewNs(sys_util::Error),
-    UnixListener(io::Error),
     UnsetCloexec(sys_util::Error),
     Write(PathBuf, io::Error),
 }
@@ -205,7 +200,6 @@ impl fmt::Display for Error {
             UnshareNewNs(ref err) => {
                 write!(f, "Failed to unshare into new mount namespace: {}", err)
             }
-            UnixListener(ref err) => write!(f, "Failed to bind to the Unix socket: {}", err),
             UnsetCloexec(ref err) => write!(
                 f,
                 "Failed to unset the O_CLOEXEC flag on the socket fd: {}",
@@ -338,36 +332,7 @@ pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Resu
     fs::create_dir_all(env.chroot_dir())
         .map_err(|e| Error::CreateDir(env.chroot_dir().to_owned(), e))?;
 
-    // The unwrap should not fail, since the end of chroot_dir looks like ..../<id>/root
-    let listener = UnixListener::bind(
-        env.chroot_dir()
-            .parent()
-            .ok_or(Error::MissingParent(env.chroot_dir().to_path_buf()))?
-            .join(SOCKET_FILE_NAME),
-    )
-    .map_err(|e| Error::UnixListener(e))?;
-
-    let listener_fd = listener.as_raw_fd();
-    if listener_fd != LISTENER_FD {
-        return Err(Error::UnexpectedListenerFd(listener_fd));
-    }
-
-    // It turns out Rust is so safe, it opens everything with FD_CLOEXEC, which we have to unset.
-
-    // This is safe because we know fd and the cmd are valid.
-    let mut fd_flags = unsafe { libc::fcntl(listener_fd, libc::F_GETFD, 0) };
-    if fd_flags < 0 {
-        return Err(Error::GetOldFdFlags(sys_util::Error::last()));
-    }
-
-    fd_flags &= !libc::FD_CLOEXEC;
-
-    // This is safe because we know the fd, the cmd, and the last arg are valid.
-    if unsafe { libc::fcntl(listener_fd, libc::F_SETFD, fd_flags) } < 0 {
-        return Err(Error::UnsetCloexec(sys_util::Error::last()));
-    }
-
-    env.run()
+    env.run(SOCKET_FILE_NAME)
 }
 
 /// Turns an AsRef<Path> into a CString (c style string).
@@ -633,10 +598,6 @@ mod tests {
         assert_eq!(
             format!("{}", Error::UnshareNewNs(err42.clone())),
             "Failed to unshare into new mount namespace: Errno 42",
-        );
-        assert_eq!(
-            format!("{}", Error::UnixListener(io::Error::from_raw_os_error(2))),
-            format!("Failed to bind to the Unix socket: {}", err2_str),
         );
         assert_eq!(
             format!("{}", Error::UnsetCloexec(err42.clone())),

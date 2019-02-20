@@ -26,6 +26,7 @@ const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
 const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
 #[cfg(feature = "vsock")]
 const DEV_VHOST_VSOCK_WITH_NUL: &[u8] = b"/dev/vhost-vsock\0";
+const ROOT_PATH_WITH_NUL: &[u8] = b"/\0";
 
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
@@ -179,7 +180,7 @@ impl Env {
         }
     }
 
-    pub fn run(mut self) -> Result<()> {
+    pub fn run(mut self, socket_file_name: &str) -> Result<()> {
         // We need to create the equivalent of /dev/net inside the jail.
         self.chroot_dir.push("dev/net");
 
@@ -276,6 +277,17 @@ impl Env {
         // Do the same for /dev/vhost_vsock with (major, minor) = (10, 241).
         self.mknod_and_own_dev(DEV_VHOST_VSOCK_WITH_NUL, 10, 241)?;
 
+        // Change ownership of the jail root to Firecracker's UID and GID. This is necessary
+        // so Firecracker can create the unix domain socket in its own jail.
+        let jail_root_path = CStr::from_bytes_with_nul(ROOT_PATH_WITH_NUL)
+            .map_err(|_| Error::FromBytesWithNul(ROOT_PATH_WITH_NUL))?;
+        if unsafe { libc::chown(jail_root_path.as_ptr(), self.uid(), self.gid()) } < 0 {
+            return Err(Error::ChangeFileOwner(
+                sys_util::Error::last(),
+                std::str::from_utf8(ROOT_PATH_WITH_NUL).unwrap(),
+            ));
+        }
+
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(fd) = dev_null {
             // Call setsid(). Safe because it's a library function.
@@ -297,10 +309,10 @@ impl Env {
         Err(Error::Exec(
             Command::new(chroot_exec_file)
                 .arg(format!("--id={}", self.id))
-                .arg("--jailed")
                 .arg(format!("--seccomp-level={}", self.seccomp_level))
                 .arg(format!("--start-time-us={}", self.start_time_us))
                 .arg(format!("--start-time-cpu-us={}", self.start_time_cpu_us))
+                .arg(format!("--api-sock=/{}", socket_file_name))
                 .stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())

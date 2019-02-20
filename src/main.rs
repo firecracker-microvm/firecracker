@@ -26,7 +26,7 @@ use std::process;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
-use api_server::{ApiServer, Error, UnixDomainSocket};
+use api_server::{ApiServer, Error};
 use fc_util::validators::validate_instance_id;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
@@ -89,11 +89,6 @@ fn main() {
                 }),
         )
         .arg(
-            Arg::with_name("jailed")
-                .long("jailed")
-                .help("Let Firecracker know it's running inside a jail."),
-        )
-        .arg(
             Arg::with_name("seccomp-level")
                 .long("seccomp-level")
                 .help(
@@ -143,27 +138,15 @@ fn main() {
         .parse::<u32>()
         .unwrap();
 
-    let (is_jailed, start_time_us, start_time_cpu_us) = if cmd_arguments.is_present("jailed") {
-        (
-            true,
-            Some(
-                cmd_arguments
-                    .value_of("start-time-us")
-                    .expect("'start-time-us' parameter expected when running jailed.")
-                    .parse::<u64>()
-                    .expect("'start-time-us' parameter expected to be of <u64> type."),
-            ),
-            Some(
-                cmd_arguments
-                    .value_of("start-time-cpu-us")
-                    .expect("'start-time-cpu-us' parameter expected when running jailed.")
-                    .parse::<u64>()
-                    .expect("'start-time-cpu-us' parameter expected to be of <u64> type."),
-            ),
-        )
-    } else {
-        (false, None, None)
-    };
+    let start_time_us = cmd_arguments.value_of("start-time-us").map(|s| {
+        s.parse::<u64>()
+            .expect("'start-time-us' parameter expected to be of 'u64' type.")
+    });
+
+    let start_time_cpu_us = cmd_arguments.value_of("start-time-cpu-us").map(|s| {
+        s.parse::<u64>()
+            .expect("'start-time-cpu_us' parameter expected to be of 'u64' type.")
+    });
 
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,
@@ -182,18 +165,7 @@ fn main() {
     let _vmm_thread_handle =
         vmm::start_vmm_thread(shared_info, api_event_fd, from_api, seccomp_level);
 
-    let uds_path_or_fd = if is_jailed {
-        UnixDomainSocket::Fd(jailer::LISTENER_FD)
-    } else {
-        UnixDomainSocket::Path(bind_path)
-    };
-
-    match server.bind_and_run(
-        uds_path_or_fd,
-        start_time_us,
-        start_time_cpu_us,
-        seccomp_level,
-    ) {
+    match server.bind_and_run(bind_path, start_time_us, start_time_cpu_us, seccomp_level) {
         Ok(_) => (),
         Err(Error::Io(inner)) => match inner.kind() {
             ErrorKind::AddrInUse => panic!("Failed to open the API socket: {:?}", Error::Io(inner)),
