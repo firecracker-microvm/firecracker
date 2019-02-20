@@ -323,13 +323,14 @@ class Microvm:
                                          .format(screen_pid)
                                          ).read().strip()
 
-        # Wait for the jailer to create resources needed.
+        # Wait for the jailer to create resources needed, and Firecracker to
+        # create its API socket.
         # We expect the jailer to start within 80 ms. However, we wait for
-        # 1 sec since we are rechecking the existence of the socket 500 times
-        # and leave 0.002 delay between them.
+        # 1 sec since we are rechecking the existence of the socket 5 times
+        # and leave 0.2 delay between them.
         self._wait_create()
 
-    @retry(delay=0.100, tries=10)
+    @retry(delay=0.2, tries=5)
     def _wait_create(self):
         """Wait until the API socket and chroot folder are available."""
         os.stat(self._jailer.api_socket_path())

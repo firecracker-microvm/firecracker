@@ -21,8 +21,7 @@ extern crate vmm;
 mod http_service;
 pub mod request;
 
-use std::os::unix::io::FromRawFd;
-use std::path::Path;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
@@ -64,11 +63,6 @@ impl fmt::Debug for Error {
     }
 }
 
-pub enum UnixDomainSocket<P> {
-    Path(P),
-    Fd(i32),
-}
-
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct ApiServer {
@@ -96,9 +90,9 @@ impl ApiServer {
     }
 
     // TODO: does tokio_uds also support abstract domain sockets?
-    pub fn bind_and_run<P: AsRef<Path>>(
+    pub fn bind_and_run(
         &self,
-        path_or_fd: UnixDomainSocket<P>,
+        path: PathBuf,
         start_time_us: Option<u64>,
         start_time_cpu_us: Option<u64>,
         seccomp_level: u32,
@@ -106,18 +100,7 @@ impl ApiServer {
         let mut core = Core::new().map_err(Error::Io)?;
         let handle = Rc::new(core.handle());
 
-        let listener = match path_or_fd {
-            UnixDomainSocket::Path(path) => UnixListener::bind(path, &handle).map_err(Error::Io)?,
-            UnixDomainSocket::Fd(fd) => {
-                // Safe because we assume fd is a valid file descriptor number, associated with a
-                // previously bound UnixListener.
-                UnixListener::from_listener(
-                    unsafe { std::os::unix::net::UnixListener::from_raw_fd(fd) },
-                    &handle,
-                )
-                .map_err(Error::Io)?
-            }
-        };
+        let listener = UnixListener::bind(path, &handle).map_err(Error::Io)?;
 
         if let Some(start_time) = start_time_us {
             let delta_us = (chrono::Utc::now().timestamp_nanos() / 1000) as u64 - start_time;
