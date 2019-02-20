@@ -245,7 +245,6 @@ dependencies = [
  "logger 0.1.0",
  "mmds 0.1.0",
  "seccomp 0.1.0",
- "serde_json 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "vmm 0.1.0",
 ]
@@ -340,9 +339,6 @@ dependencies = [
  "kvm 0.1.0",
  "libc 0.2.47 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.27 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_json 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "sys_util 0.1.0",
  "tempfile 3.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

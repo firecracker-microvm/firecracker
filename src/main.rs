@@ -5,7 +5,6 @@
 extern crate backtrace;
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
-extern crate serde_json;
 
 extern crate api_server;
 extern crate fc_util;
@@ -28,7 +27,7 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
 use api_server::{ApiServer, Error, UnixDomainSocket};
-use jailer::FirecrackerContext;
+use fc_util::validators::validate_instance_id;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
@@ -79,10 +78,46 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("context")
-                .long("context")
-                .help("Additional parameters sent to Firecracker.")
-                .takes_value(true),
+            Arg::with_name("id")
+                .long("id")
+                .help("MicroVM unique identifier")
+                .default_value(DEFAULT_API_SOCK_PATH)
+                .takes_value(true)
+                .default_value(DEFAULT_INSTANCE_ID)
+                .validator(|s: String| -> Result<(), String> {
+                    validate_instance_id(&s).map_err(|e| format!("{}", e))
+                }),
+        )
+        .arg(
+            Arg::with_name("jailed")
+                .long("jailed")
+                .help("Let Firecracker know it's running inside a jail."),
+        )
+        .arg(
+            Arg::with_name("seccomp-level")
+                .long("seccomp-level")
+                .help(
+                    "Level of seccomp filtering.\n
+                            - Level 0: No filtering.\n
+                            - Level 1: Seccomp filtering by syscall number.\n
+                            - Level 2: Seccomp filtering by syscall number and argument values.\n
+                        ",
+                )
+                .takes_value(true)
+                .default_value("2")
+                .possible_values(&["0", "1", "2"]),
+        )
+        .arg(
+            Arg::with_name("start-time-us")
+                .long("start-time-us")
+                .takes_value(true)
+                .hidden(true),
+        )
+        .arg(
+            Arg::with_name("start-time-cpu-us")
+                .long("start-time-cpu-us")
+                .takes_value(true)
+                .hidden(true),
         )
         .get_matches();
 
@@ -91,29 +126,44 @@ fn main() {
         .map(|s| PathBuf::from(s))
         .expect("Missing argument: api_sock");
 
-    let mut instance_id = String::from(DEFAULT_INSTANCE_ID);
+    // It's safe to unwrap here because clap's been provided with a default value
+    let instance_id = cmd_arguments.value_of("id").unwrap().to_string();
 
     // We disable seccomp filtering when testing, because when running the test_gnutests
     // integration test from test_unittests.py, an invalid syscall is issued, and we crash
     // otherwise.
-    #[cfg(not(test))]
-    let mut seccomp_level = seccomp::SECCOMP_LEVEL_ADVANCED;
     #[cfg(test)]
-    let mut seccomp_level = seccomp::SECCOMP_LEVEL_NONE;
+    let seccomp_level = seccomp::SECCOMP_LEVEL_NONE;
+    #[cfg(not(test))]
+    // It's safe to unwrap here because clap's been provided with a default value,
+    // and allowed values are guaranteed to parse to u32.
+    let seccomp_level = cmd_arguments
+        .value_of("seccomp-level")
+        .unwrap()
+        .parse::<u32>()
+        .unwrap();
 
-    let mut start_time_us = None;
-    let mut start_time_cpu_us = None;
-    let mut is_jailed = false;
-
-    if let Some(s) = cmd_arguments.value_of("context") {
-        let context =
-            serde_json::from_str::<FirecrackerContext>(s).expect("Invalid context format");
-        is_jailed = context.jailed;
-        instance_id = context.id;
-        seccomp_level = context.seccomp_level;
-        start_time_us = Some(context.start_time_us);
-        start_time_cpu_us = Some(context.start_time_cpu_us);
-    }
+    let (is_jailed, start_time_us, start_time_cpu_us) = if cmd_arguments.is_present("jailed") {
+        (
+            true,
+            Some(
+                cmd_arguments
+                    .value_of("start-time-us")
+                    .expect("'start-time-us' parameter expected when running jailed.")
+                    .parse::<u64>()
+                    .expect("'start-time-us' parameter expected to be of <u64> type."),
+            ),
+            Some(
+                cmd_arguments
+                    .value_of("start-time-cpu-us")
+                    .expect("'start-time-cpu-us' parameter expected when running jailed.")
+                    .parse::<u64>()
+                    .expect("'start-time-cpu-us' parameter expected to be of <u64> type."),
+            ),
+        )
+    } else {
+        (false, None, None)
+    };
 
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,

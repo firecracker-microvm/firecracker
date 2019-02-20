@@ -6,7 +6,6 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 [dependencies]
 chrono = ">=0.4"
 clap = "=2.27.1"
-serde_json = ">=1.0.9"
 
 api_server = { path = "api_server" }
 fc_util = { path = "fc_util" }
