@@ -76,6 +76,7 @@ use kvm::*;
 use logger::error::LoggerError;
 use logger::{AppInfo, Level, LogOption, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
+#[cfg(target_arch = "aarch64")]
 use serde_json::Value;
 pub use sigsys_handler::setup_sigsys_handler;
 use sys_util::{register_signal_handler, EventFd, Terminal};
@@ -833,11 +834,18 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
-    fn write_metrics(&mut self) -> result::Result<(), LoggerError> {
+    #[cfg(target_arch = "x86_64")]
+    fn log_dirty_pages(&mut self) {
         // If we're logging dirty pages, post the metrics on how many dirty pages there are.
         if LOGGER.flags() | LogOption::LogDirtyPages as usize > 0 {
             METRICS.memory.dirty_pages.add(self.get_dirty_page_count());
         }
+    }
+
+    fn write_metrics(&mut self) -> result::Result<(), LoggerError> {
+        // The dirty pages are only available on x86_64.
+        #[cfg(target_arch = "x86_64")]
+        self.log_dirty_pages();
         LOGGER.log_metrics()
     }
 
@@ -963,8 +971,11 @@ impl Vmm {
             let seccomp_level = self.seccomp_level;
             // It is safe to unwrap the ht_enabled flag because the machine configure
             // has default values for all fields.
+
+            #[cfg(target_arch = "x86_64")]
             vcpu.configure(&self.vm_config, entry_addr, &self.vm)
                 .map_err(StartMicrovmError::VcpuConfigure)?;
+
             vcpu_handles.push(
                 thread::Builder::new()
                     .name(format!("fc_vcpu{}", cpu_id))
@@ -1673,10 +1684,10 @@ impl Vmm {
         LOGGER.set_include_origin(api_logger.show_log_origin, api_logger.show_log_origin);
         LOGGER.set_include_level(api_logger.show_level);
 
-        let options = match api_logger.options {
-            Value::Array(options) => options,
-            _ => vec![],
-        };
+        #[cfg(target_arch = "aarch64")]
+        let options: &Vec<Value> = &vec![];
+        #[cfg(target_arch = "x86_64")]
+        let options = api_logger.options.as_array().unwrap();
 
         LOGGER
             .init(
@@ -1858,6 +1869,7 @@ mod tests {
 
     use super::*;
 
+    use serde_json::Value;
     use std::fs::File;
     use std::io::BufRead;
     use std::io::BufReader;

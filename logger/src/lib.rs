@@ -64,7 +64,13 @@
 //!          libc::mkfifo(metrics.as_bytes().as_ptr() as *const i8, 0o644);
 //!     }
 //!     // Initialize the logger to log to a FIFO that was created beforehand.
-//!     assert!(LOGGER.deref().init(&AppInfo::new("Firecracker", "1.0"), "MY-INSTANCE", logs, metrics, vec![]).is_ok());
+//!     assert!(LOGGER.deref().init(
+//!                 &AppInfo::new("Firecracker", "1.0"),
+//!                 "MY-INSTANCE",
+//!                 logs,
+//!                 metrics,
+//!                 &vec![]
+//!             ).is_ok());
 //!     // The following messages should appear in the `log_file_temp` file.
 //!     warn!("this is a warning");
 //!     error!("this is an error");
@@ -509,7 +515,7 @@ impl Logger {
         }
     }
 
-    fn set_flags(options: Vec<Value>) -> Result<()> {
+    fn set_flags(options: &Vec<Value>) -> Result<()> {
         let mut flags = 0;
         for option in options.iter() {
             if let Value::String(s_opt) = option {
@@ -613,7 +619,13 @@ impl Logger {
     /// use std::ops::Deref;
     ///
     /// fn main() {
-    ///     LOGGER.deref().init(&AppInfo::new("Firecracker", "1.0"), "MY-INSTANCE", "/tmp/log".to_string(), "/tmp/metrics".to_string(), vec![]);
+    ///     LOGGER.deref().init(
+    ///         &AppInfo::new("Firecracker", "1.0"),
+    ///         "MY-INSTANCE",
+    ///         "/tmp/log".to_string(),
+    ///         "/tmp/metrics".to_string(),
+    ///         &vec![]
+    ///     );
     /// }
     /// ```
     pub fn init(
@@ -622,7 +634,7 @@ impl Logger {
         instance_id: &str,
         log_pipe: String,
         metrics_pipe: String,
-        options: Vec<Value>,
+        options: &Vec<Value>,
     ) -> Result<()> {
         self.try_lock(INITIALIZING)?;
 
@@ -862,7 +874,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{:?}",
-                l.init(&app_info, TEST_INSTANCE_ID, log_file.clone(), metrics_file.clone(), vec![Value::Bool(true)])
+                l.init(&app_info, TEST_INSTANCE_ID, log_file.clone(), metrics_file.clone(), &vec![Value::Bool(true)])
                     .err()
             ),
             "Some(NeverInitialized(\"Could not set option flags: Invalid log option: Bool(true)\"))"
@@ -875,7 +887,7 @@ mod tests {
                     TEST_INSTANCE_ID,
                     log_file.clone(),
                     metrics_file.clone(),
-                    vec![Value::String("foobar".to_string())]
+                    &vec![Value::String("foobar".to_string())]
                 )
                 .err()
             ),
@@ -901,7 +913,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 log_file.clone(),
                 metrics_file.clone(),
-                vec![Value::String("LogDirtyPages".to_string())]
+                &vec![Value::String("LogDirtyPages".to_string())]
             )
             .is_ok());
 
@@ -914,7 +926,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 log_file.clone(),
                 metrics_file.clone(),
-                vec![]
+                &vec![]
             )
             .is_err());
 
@@ -952,7 +964,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 String::from(""),
                 metrics_file.clone(),
-                vec![]
+                &vec![]
             )
             .is_err());
 
@@ -961,7 +973,7 @@ mod tests {
             TEST_INSTANCE_ID,
             log_file.clone(),
             String::from(""),
-            vec![],
+            &vec![],
         );
         assert!(res.is_err());
 
@@ -996,7 +1008,7 @@ mod tests {
                     TEST_INSTANCE_ID,
                     log_file.clone(),
                     metrics_file.clone(),
-                    vec![]
+                    &vec![]
                 )
                 .err()
             ),
