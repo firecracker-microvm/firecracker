@@ -5,9 +5,6 @@
 extern crate clap;
 extern crate libc;
 extern crate regex;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
 
 extern crate fc_util;
 extern crate kvm;
@@ -36,16 +33,6 @@ pub const KVM_FD: i32 = 3;
 pub const LISTENER_FD: i32 = 4;
 
 const SOCKET_FILE_NAME: &str = "api.socket";
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct FirecrackerContext {
-    pub id: String,
-    pub jailed: bool,
-    pub seccomp_level: u32,
-    pub start_time_us: u64,
-    pub start_time_cpu_us: u64,
-}
 
 #[derive(Debug)]
 pub enum Error {

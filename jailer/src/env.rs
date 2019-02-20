@@ -1,8 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-extern crate serde_json;
-
 use std::ffi::CStr;
 use std::fs::{self, canonicalize, File};
 use std::os::unix::io::IntoRawFd;
@@ -17,7 +15,7 @@ use cgroup::Cgroup;
 use chroot::chroot;
 use fc_util::validators;
 use sys_util;
-use {Error, FirecrackerContext, Result};
+use {Error, Result};
 
 const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
@@ -299,20 +297,13 @@ impl Env {
             }
         }
 
-        let context = FirecrackerContext {
-            id: self.id.clone(),
-            jailed: true,
-            seccomp_level: self.seccomp_level,
-            start_time_us: self.start_time_us,
-            start_time_cpu_us: self.start_time_cpu_us,
-        };
-
         Err(Error::Exec(
             Command::new(chroot_exec_file)
-                .arg(format!(
-                    "--context={}",
-                    serde_json::to_string(&context).expect("Failed to serialize context")
-                ))
+                .arg(format!("--id={}", self.id))
+                .arg("--jailed")
+                .arg(format!("--seccomp-level={}", self.seccomp_level))
+                .arg(format!("--start-time-us={}", self.start_time_us))
+                .arg(format!("--start-time-cpu-us={}", self.start_time_cpu_us))
                 .stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
