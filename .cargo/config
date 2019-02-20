@@ -5,4 +5,5 @@ target = "x86_64-unknown-linux-musl"
 # On aarch64 musl depends on some libgcc functions (i.e `__addtf3` and other `*tf3` functions) for logic that uses
 # long double. Such functions are not builtin in the rust compiler, so we need to get them from libgcc.
 # No need for the `crt_static` flag as rustc appends it by default.
+linker = "aarch64-linux-gnu-gcc"
 rustflags = [ "-C", "link-arg=-lgcc" ]
