@@ -913,6 +913,7 @@ pub struct CpuId {
     allocated_len: usize,
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 impl Clone for CpuId {
     fn clone(&self) -> Self {
         let mut kvm_cpuid = Vec::with_capacity(self.kvm_cpuid.len());
