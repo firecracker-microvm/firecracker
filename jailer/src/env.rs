@@ -21,6 +21,7 @@ const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
 const STDERR_FILENO: libc::c_int = 2;
 
+const DEV_KVM_WITH_NUL: &[u8] = b"/dev/kvm\0";
 const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
 const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
 #[cfg(feature = "vsock")]
@@ -140,6 +141,44 @@ impl Env {
         self.uid
     }
 
+    fn mknod_and_own_dev(
+        &self,
+        dev_path_str: &'static [u8],
+        dev_major: u32,
+        dev_minor: u32,
+    ) -> Result<()> {
+        let dev_path = CStr::from_bytes_with_nul(dev_path_str)
+            .map_err(|_| Error::FromBytesWithNul(dev_path_str))?;
+        // As per sysstat.h:
+        // S_IFCHR -> character special device
+        // S_IRUSR -> read permission, owner
+        // S_IWUSR -> write permission, owner
+        // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
+        // more clarity.
+        if unsafe {
+            libc::mknod(
+                dev_path.as_ptr(),
+                libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR,
+                libc::makedev(dev_major, dev_minor),
+            )
+        } < 0
+        {
+            return Err(Error::MknodDev(
+                sys_util::Error::last(),
+                std::str::from_utf8(dev_path_str).unwrap(),
+            ));
+        }
+
+        if unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) } < 0 {
+            Err(Error::ChangeFileOwner(
+                sys_util::Error::last(),
+                std::str::from_utf8(dev_path_str).unwrap(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn run(mut self) -> Result<()> {
         // We need to create the equivalent of /dev/net inside the jail.
         self.chroot_dir.push("dev/net");
@@ -223,61 +262,19 @@ impl Env {
         // Jail self.
         chroot(self.chroot_dir())?;
 
-        // Here we are creating the /dev/net/tun device inside the jailer.
+        // Here we are creating the /dev/kvm and /dev/net/tun devices inside the jailer.
         // Following commands can be translated into bash like this:
         // $: mkdir -p $chroot_dir/dev/net
         // $: dev_net_tun_path={$chroot_dir}/"tun"
         // $: mknod $dev_net_tun_path c 10 200
-        // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the minor
-        // and major for the /dev/net/tun device.
-
-        let dev_net_tun_path = CStr::from_bytes_with_nul(DEV_NET_TUN_WITH_NUL)
-            .map_err(|_| Error::FromBytesWithNul(DEV_NET_TUN_WITH_NUL))?;
-
+        // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the major
+        // and minor for the /dev/net/tun device.
+        self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, 10, 200)?;
+        // Do the same for /dev/kvm with (major, minor) = (10, 232).
+        self.mknod_and_own_dev(DEV_KVM_WITH_NUL, 10, 232)?;
         #[cfg(feature = "vsock")]
-        let dev_vhost_vsock_path = CStr::from_bytes_with_nul(DEV_VHOST_VSOCK_WITH_NUL)
-            .map_err(|_| Error::FromBytesWithNul(DEV_VHOST_VSOCK_WITH_NUL))?;
-
-        // As per sysstat.h:
-        // S_IFCHR -> character special device
-        // S_IRUSR -> read permission, owner
-        // S_IWUSR -> write permission, owner
-        // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
-        // more clarity.
-
-        if unsafe {
-            libc::mknod(
-                dev_net_tun_path.as_ptr(),
-                libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR,
-                libc::makedev(10, 200),
-            )
-        } < 0
-        {
-            return Err(Error::MknodDevNetTun(sys_util::Error::last()));
-        }
-
-        if unsafe { libc::chown(dev_net_tun_path.as_ptr(), self.uid(), self.gid()) } < 0 {
-            return Err(Error::ChangeDevNetTunOwner(sys_util::Error::last()));
-        }
-
-        #[cfg(feature = "vsock")]
-        {
-            // Do the same for /dev/vhost_vsock with (major, minor) = (10, 241).
-            if unsafe {
-                libc::mknod(
-                    dev_vhost_vsock_path.as_ptr(),
-                    libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR,
-                    libc::makedev(10, 241),
-                )
-            } < 0
-            {
-                return Err(Error::MknodDevVhostVsock(sys_util::Error::last()));
-            }
-
-            if unsafe { libc::chown(dev_vhost_vsock_path.as_ptr(), self.uid(), self.gid()) } < 0 {
-                return Err(Error::ChangeDevVhostVsockOwner(sys_util::Error::last()));
-            }
-        }
+        // Do the same for /dev/vhost_vsock with (major, minor) = (10, 241).
+        self.mknod_and_own_dev(DEV_VHOST_VSOCK_WITH_NUL, 10, 241)?;
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(fd) = dev_null {

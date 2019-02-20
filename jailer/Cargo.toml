@@ -9,7 +9,6 @@ libc = ">=0.2.39"
 regex = ">=1.0.0"
 
 fc_util = { path = "../fc_util" }
-kvm = { path = "../kvm" }
 sys_util = { path = "../sys_util" }
 
 [dev-dependencies]

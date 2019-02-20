@@ -7,7 +7,6 @@ extern crate libc;
 extern crate regex;
 
 extern crate fc_util;
-extern crate kvm;
 extern crate sys_util;
 
 mod cgroup;
@@ -27,10 +26,8 @@ use clap::{App, Arg, ArgMatches};
 
 use env::Env;
 use fc_util::validators;
-use kvm::Kvm;
 
-pub const KVM_FD: i32 = 3;
-pub const LISTENER_FD: i32 = 4;
+pub const LISTENER_FD: i32 = 3;
 
 const SOCKET_FILE_NAME: &str = "api.socket";
 
@@ -40,9 +37,7 @@ pub enum Error {
     CgroupInheritFromParent(PathBuf, String),
     CgroupLineNotFound(String, String),
     CgroupLineNotUnique(String, String),
-    ChangeDevNetTunOwner(sys_util::Error),
-    #[cfg(feature = "vsock")]
-    ChangeDevVhostVsockOwner(sys_util::Error),
+    ChangeFileOwner(sys_util::Error, &'static str),
     ChdirNewRoot(sys_util::Error),
     CloseNetNsFd(sys_util::Error),
     CloseDevNullFd(sys_util::Error),
@@ -60,9 +55,7 @@ pub enum Error {
     MissingArgument(&'static str),
     MissingParent(PathBuf),
     MkdirOldRoot(sys_util::Error),
-    MknodDevNetTun(sys_util::Error),
-    #[cfg(feature = "vsock")]
-    MknodDevVhostVsock(sys_util::Error),
+    MknodDev(sys_util::Error, &'static str),
     MountBind(sys_util::Error),
     MountPropagationPrivate(sys_util::Error),
     NotAFile(PathBuf),
@@ -80,7 +73,6 @@ pub enum Error {
     SetSid(sys_util::Error),
     Uid(String),
     UmountOldRoot(sys_util::Error),
-    UnexpectedKvmFd(i32),
     UnexpectedListenerFd(i32),
     UnshareNewNs(sys_util::Error),
     UnixListener(io::Error),
@@ -117,12 +109,8 @@ impl fmt::Display for Error {
                 "Found more than one cgroups configuration line in {} for {}",
                 proc_mounts, controller
             ),
-            ChangeDevNetTunOwner(ref err) => {
-                write!(f, "Failed to change owner for /dev/net/tun: {}", err)
-            }
-            #[cfg(feature = "vsock")]
-            ChangeDevVhostVsockOwner(ref err) => {
-                write!(f, "Failed to change owner for /dev/vhost-vsock: {}", err)
+            ChangeFileOwner(ref err, ref filename) => {
+                write!(f, "Failed to change owner for {}: {}", filename, err)
             }
             ChdirNewRoot(ref err) => write!(f, "Failed to chdir into chroot directory: {}", err),
             CloseNetNsFd(ref err) => write!(f, "Failed to close netns fd: {}", err),
@@ -167,16 +155,10 @@ impl fmt::Display for Error {
                 "Failed to create the jail root directory before pivoting root: {}",
                 err
             ),
-            MknodDevNetTun(ref err) => write!(
+            MknodDev(ref err, ref devname) => write!(
                 f,
-                "Failed to create /dev/net/tun via mknod inside the jail: {}",
-                err
-            ),
-            #[cfg(feature = "vsock")]
-            MknodDevVhostVsock(ref err) => write!(
-                f,
-                "Failed to create /dev/vhost-vsock via mknod inside the jail: {}",
-                err
+                "Failed to create {} via mknod inside the jail: {}",
+                devname, err
             ),
             MountBind(ref err) => {
                 write!(f, "Failed to bind mount the jail root directory: {}", err)
@@ -217,7 +199,6 @@ impl fmt::Display for Error {
             SetSid(ref err) => write!(f, "Failed to daemonize: setsid: {}", err),
             Uid(ref uid) => write!(f, "Invalid uid: {}", uid),
             UmountOldRoot(ref err) => write!(f, "Failed to unmount the old jail root: {}", err),
-            UnexpectedKvmFd(fd) => write!(f, "Unexpected value for the /dev/kvm fd: {}", fd),
             UnexpectedListenerFd(fd) => {
                 write!(f, "Unexpected value for the socket listener fd: {}", fd)
             }
@@ -342,18 +323,6 @@ fn sanitize_process() {
     }
 }
 
-fn open_dev_kvm() -> Result<()> {
-    // The following unwrap will only fail when `/dev/kvm` cannot be open in which case
-    // it is better to panic and finish the execution.
-    let kvm_fd = Kvm::open_with_cloexec(false).unwrap();
-
-    if kvm_fd != KVM_FD {
-        return Err(Error::UnexpectedKvmFd(kvm_fd));
-    }
-
-    Ok(())
-}
-
 pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Result<()> {
     // We open /dev/kvm and create the listening socket. These file descriptors will be
     // passed on to Firecracker post exec, and used via knowing their values in advance.
@@ -362,7 +331,6 @@ pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Resu
     // starve the host of resources? (cgroups should take care of that, but do they currently?)
 
     sanitize_process();
-    open_dev_kvm()?;
 
     let env = Env::new(args, start_time_us, start_time_cpu_us)?;
 
@@ -487,13 +455,8 @@ mod tests {
             "Found more than one cgroups configuration line in /proc/mounts for sysfs",
         );
         assert_eq!(
-            format!("{}", Error::ChangeDevNetTunOwner(err42.clone())),
+            format!("{}", Error::ChangeFileOwner(err42.clone(), "/dev/net/tun")),
             "Failed to change owner for /dev/net/tun: Errno 42",
-        );
-        #[cfg(feature = "vsock")]
-        assert_eq!(
-            format!("{}", Error::ChangeDevVhostVsockOwner(err42.clone())),
-            "Failed to change owner for /dev/vhost-vsock: Errno 42",
         );
         assert_eq!(
             format!("{}", Error::ChdirNewRoot(err42.clone())),
@@ -583,13 +546,8 @@ mod tests {
             "Failed to create the jail root directory before pivoting root: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::MknodDevNetTun(err42.clone())),
+            format!("{}", Error::MknodDev(err42.clone(), "/dev/net/tun")),
             "Failed to create /dev/net/tun via mknod inside the jail: Errno 42",
-        );
-        #[cfg(feature = "vsock")]
-        assert_eq!(
-            format!("{}", Error::MknodDevVhostVsock(err42.clone())),
-            "Failed to create /dev/vhost-vsock via mknod inside the jail: Errno 42",
         );
         assert_eq!(
             format!("{}", Error::MountBind(err42.clone())),
@@ -667,10 +625,6 @@ mod tests {
         assert_eq!(
             format!("{}", Error::UmountOldRoot(err42.clone())),
             "Failed to unmount the old jail root: Errno 42",
-        );
-        assert_eq!(
-            format!("{}", Error::UnexpectedKvmFd(42)),
-            "Unexpected value for the /dev/kvm fd: 42",
         );
         assert_eq!(
             format!("{}", Error::UnexpectedListenerFd(42)),
