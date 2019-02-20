@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 //! This crate implements a high level wrapper over BPF instructions for seccomp filtering.
 //!
 //! # Seccomp Filtering Levels
