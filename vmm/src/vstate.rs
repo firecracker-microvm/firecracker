@@ -289,23 +289,19 @@ impl Vcpu {
 mod tests {
     use super::*;
 
-    use std::os::unix::io::AsRawFd;
-
     #[test]
     fn create_vm() {
-        let kvm_fd = Kvm::new().unwrap();
-        let kvm = KvmContext::new(Some(kvm_fd.as_raw_fd())).unwrap();
+        let kvm = KvmContext::new().unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
-        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
+        let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
         assert!(vm.memory_init(gm, &kvm).is_ok());
     }
 
     #[test]
     fn get_memory() {
-        let kvm_fd = Kvm::new().unwrap();
-        let kvm = KvmContext::new(Some(kvm_fd.as_raw_fd())).unwrap();
+        let kvm = KvmContext::new().unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
-        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
+        let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
         assert!(vm.memory_init(gm, &kvm).is_ok());
         let obj_addr = GuestAddress(0xf0);
         vm.get_memory()
@@ -323,10 +319,9 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_configure_vcpu() {
-        let kvm_fd = Kvm::new().unwrap();
-        let kvm = KvmContext::new(Some(kvm_fd.as_raw_fd())).unwrap();
+        let kvm = KvmContext::new().unwrap();
         let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
-        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
+        let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
         assert!(vm.memory_init(gm, &kvm).is_ok());
         let dummy_eventfd_1 = EventFd::new().unwrap();
         let dummy_eventfd_2 = EventFd::new().unwrap();
@@ -385,9 +380,8 @@ mod tests {
         let load_addr = GuestAddress(0x1000);
         let mem = GuestMemory::new(&vec![(load_addr, mem_size)]).unwrap();
 
-        let kvm_fd = Kvm::new().expect("new kvm failed");
-        let kvm = KvmContext::new(Some(kvm_fd.as_raw_fd())).unwrap();
-        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
+        let kvm = KvmContext::new().unwrap();
+        let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
         assert!(vm.memory_init(mem, &kvm).is_ok());
         vm.get_memory()
             .unwrap()

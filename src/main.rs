@@ -179,14 +179,8 @@ fn main() {
         .get_event_fd_clone()
         .expect("Cannot clone API eventFD.");
 
-    let kvm_fd = if is_jailed {
-        Some(jailer::KVM_FD)
-    } else {
-        None
-    };
-
     let _vmm_thread_handle =
-        vmm::start_vmm_thread(shared_info, api_event_fd, from_api, seccomp_level, kvm_fd);
+        vmm::start_vmm_thread(shared_info, api_event_fd, from_api, seccomp_level);
 
     let uds_path_or_fd = if is_jailed {
         UnixDomainSocket::Fd(jailer::LISTENER_FD)
