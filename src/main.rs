@@ -236,7 +236,7 @@ mod tests {
                 "TEST-ID",
                 log_file_temp.path().to_str().unwrap().to_string(),
                 metrics_file_temp.path().to_str().unwrap().to_string(),
-                vec![],
+                &vec![],
             )
             .expect("Could not initialize logger.");
 
