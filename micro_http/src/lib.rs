@@ -1,6 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 //! Minimal implementation of the [HTTP/1.0](https://tools.ietf.org/html/rfc1945)
 //! and [HTTP/1.1](https://www.ietf.org/rfc/rfc2616.txt) protocols.
 //!

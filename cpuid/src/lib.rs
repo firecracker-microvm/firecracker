@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 //! Utility for configuring the CPUID (CPU identification) for the guest microVM.
 
 extern crate kvm;

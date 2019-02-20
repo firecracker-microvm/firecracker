@@ -32,8 +32,13 @@ pub struct BitRange {
     pub lsb_index: u32,
 }
 
+/// Trait containing helper methods for [`BitRange`](struct.BitRange.html)
+///
+/// The methods are needed for:
+/// - checking if the `BitRange` is valid for a type `T`
+/// - creating masks for a type `T`
 pub trait BitRangeExt<T> {
-    /// Returns a value of type T that has all the bits in the specified bit range set to 1.
+    /// Returns a value of type `T` that has all the bits in the specified bit range set to 1.
     ///
     /// # Example
     ///
@@ -56,7 +61,7 @@ pub trait BitRangeExt<T> {
     /// ```
     fn get_mask(&self) -> T;
 
-    /// Checks if the current BitRange is valid for type T.
+    /// Checks if the current BitRange is valid for type `T`.
     ///
     fn is_valid(&self) -> bool;
 
