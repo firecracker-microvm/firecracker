@@ -515,7 +515,7 @@ impl Logger {
         }
     }
 
-    fn set_flags(options: &Vec<Value>) -> Result<()> {
+    fn set_flags(options: &[Value]) -> Result<()> {
         let mut flags = 0;
         for option in options.iter() {
             if let Value::String(s_opt) = option {
@@ -634,7 +634,7 @@ impl Logger {
         instance_id: &str,
         log_pipe: String,
         metrics_pipe: String,
-        options: &Vec<Value>,
+        options: &[Value],
     ) -> Result<()> {
         self.try_lock(INITIALIZING)?;
 

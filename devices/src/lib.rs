@@ -38,6 +38,7 @@ pub type DeviceEventT = u16;
 
 /// The payload is used to handle events where the internal state of the VirtIO device
 /// needs to be changed.
+#[allow(clippy::large_enum_variant)]
 pub enum EpollHandlerPayload {
     /// DrivePayload(disk_image)
     DrivePayload(File),
