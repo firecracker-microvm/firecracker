@@ -13,7 +13,7 @@ extern crate sys_util;
 use std::io;
 use std::result;
 
-use kvm_bindings::{kvm_pit_config, KVM_PIT_SPEAKER_DUMMY};
+use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
 
 use super::KvmContext;
 #[cfg(target_arch = "x86_64")]
@@ -125,14 +125,15 @@ impl Vm {
             } else {
                 0
             };
-            // Safe because the guest regions are guaranteed not to overlap.
-            self.fd.set_user_memory_region(
-                index as u32,
-                guest_addr.offset() as u64,
-                size as u64,
-                host_addr as u64,
+
+            let memory_region = kvm_userspace_memory_region {
+                slot: index as u32,
+                guest_phys_addr: guest_addr.offset() as u64,
+                memory_size: size as u64,
+                userspace_addr: host_addr as u64,
                 flags,
-            )
+            };
+            self.fd.set_user_memory_region(memory_region)
         })?;
         self.guest_mem = Some(guest_mem);
 

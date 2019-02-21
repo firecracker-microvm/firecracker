@@ -278,32 +278,12 @@ impl VmFd {
     ///
     /// See the documentation on the `KVM_SET_USER_MEMORY_REGION` ioctl.
     ///
-    /// # Arguments
-    ///
-    /// * `slot` - Guest memory slot identifier.
-    /// * `guest_phys_addr` - Physical address in the guest's space.
-    /// * `memory_size` - Size of the memory region.
-    /// * `userspace_addr` - Starting address of the userspace allocated memory.
-    /// * `flags` - Memory flags. Currently supported: `KVM_MEM_LOG_DIRTY_PAGES`,
-    ///             `KVM_MEM_READONLY`.
-    ///
     pub fn set_user_memory_region(
         &self,
-        slot: u32,
-        guest_phys_addr: u64,
-        memory_size: u64,
-        userspace_addr: u64,
-        flags: u32,
+        user_memory_region: kvm_userspace_memory_region,
     ) -> Result<()> {
-        let region = kvm_userspace_memory_region {
-            slot,
-            flags,
-            guest_phys_addr,
-            memory_size,
-            userspace_addr,
-        };
-
-        let ret = unsafe { ioctl_with_ref(self, KVM_SET_USER_MEMORY_REGION(), &region) };
+        let ret =
+            unsafe { ioctl_with_ref(self, KVM_SET_USER_MEMORY_REGION(), &user_memory_region) };
         if ret == 0 {
             Ok(())
         } else {
@@ -1061,15 +1041,16 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
 
         assert!(mem
-            .with_regions(
-                |index, guest_addr, size, host_addr| vm.set_user_memory_region(
-                    index as u32,
-                    guest_addr.offset() as u64,
-                    size as u64,
-                    host_addr as u64,
-                    0,
-                )
-            )
+            .with_regions(|index, guest_addr, size, host_addr| {
+                let mem_region = kvm_userspace_memory_region {
+                    slot: index as u32,
+                    guest_phys_addr: guest_addr.offset() as u64,
+                    memory_size: size as u64,
+                    userspace_addr: host_addr as u64,
+                    flags: 0,
+                };
+                vm.set_user_memory_region(mem_region)
+            })
             .is_err());
     }
 
@@ -1107,7 +1088,14 @@ mod tests {
     fn set_invalid_memory_test() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        assert!(vm.set_user_memory_region(0, 0, 0, 0, 0).is_err());
+        let invalid_mem_region = kvm_userspace_memory_region {
+            slot: 0,
+            guest_phys_addr: 0,
+            memory_size: 0,
+            userspace_addr: 0,
+            flags: 0,
+        };
+        assert!(vm.set_user_memory_region(invalid_mem_region).is_err());
     }
 
     #[test]
@@ -1350,14 +1338,15 @@ mod tests {
 
         let vm_fd = kvm.create_vm().expect("new VmFd failed");
         mem.with_regions(|index, guest_addr, size, host_addr| {
+            let mem_region = kvm_userspace_memory_region {
+                slot: index as u32,
+                guest_phys_addr: guest_addr.offset() as u64,
+                memory_size: size as u64,
+                userspace_addr: host_addr as u64,
+                flags: KVM_MEM_LOG_DIRTY_PAGES,
+            };
             // Safe because the guest regions are guaranteed not to overlap.
-            vm_fd.set_user_memory_region(
-                index as u32,
-                guest_addr.offset() as u64,
-                size as u64,
-                host_addr as u64,
-                KVM_MEM_LOG_DIRTY_PAGES,
-            )
+            vm_fd.set_user_memory_region(mem_region)
         })
         .expect("Cannot configure guest memory");
         mem.write_slice_at_addr(&code, load_addr)
@@ -1451,8 +1440,15 @@ mod tests {
             vm: unsafe { File::from_raw_fd(-1) },
             run_size: 0,
         };
+        let invalid_mem_region = kvm_userspace_memory_region {
+            slot: 0,
+            guest_phys_addr: 0,
+            memory_size: 0,
+            userspace_addr: 0,
+            flags: 0,
+        };
         assert_eq!(
-            get_raw_errno(faulty_vm_fd.set_user_memory_region(0, 0, 0, 0, 0)),
+            get_raw_errno(faulty_vm_fd.set_user_memory_region(invalid_mem_region)),
             badf_errno
         );
         assert_eq!(get_raw_errno(faulty_vm_fd.set_tss_address(0)), badf_errno);
