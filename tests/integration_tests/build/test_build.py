@@ -59,3 +59,16 @@ def test_build_release_with_features(test_session_root_path):
         '--features "{}"'.format('vsock'),
         '--release'
     )
+
+
+def test_arm_build_release(test_session_root_path):
+    """Test cross compilation for arm in release mode."""
+    build_path = os.path.join(
+        test_session_root_path,
+        'arm-build'
+    )
+    host.cargo_build(
+        build_path,
+        '--target aarch64-unknown-linux-musl',
+        '--release'
+    )

@@ -168,6 +168,14 @@ Firecracker to run:
 Cannot create VMM.: Vm(VmFd(Error(12)))
 ```
 
+Note that if the following error appears when trying to start
+Firecracker, then there is not eonugh free memory on your
+system for Firecracker to run:
+
+```
+Cannot create VMM.: Vm(VmFd(Error(12)))
+```
+
 In your **second shell** prompt:
 
 - get the kernel and rootfs, if you don't have any available:
