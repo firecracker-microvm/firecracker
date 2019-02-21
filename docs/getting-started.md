@@ -160,6 +160,13 @@ rm -f /tmp/firecracker.socket
 ```bash
 ./firecracker --api-sock /tmp/firecracker.socket
 ```
+Note that if the following error appears when trying to run
+Firecracker, then there is not eonugh free memory on your
+system for Firecracker to run:
+
+```
+Cannot create VMM.: Vm(VmFd(Error(12)))
+```
 
 In your **second shell** prompt:
 
