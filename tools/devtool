@@ -79,7 +79,7 @@ DEVCTR_IMAGE="fcuvm/dev:v3"
 MY_NAME="Firecracker $(basename "$0")"
 
 # Full path to the Firecracker tools dir on the host.
-FC_TOOLS_DIR=$(cd "$(dirname $0)" && pwd)
+FC_TOOLS_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # Full path to the Firecracker sources dir on the host.
 FC_ROOT_DIR=$(cd "${FC_TOOLS_DIR}/.." && pwd)
@@ -585,6 +585,12 @@ cmd_prepare_release() {
 
     validate_version "$version"
 
+    # We'll be needing the dev container later on.
+    ensure_devctr
+
+    # The cargo registry dir needs to be there for `cargo update`.
+    ensure_build_dir
+
     # Get current version from the swagger spec.
     swagger="$FC_ROOT_DIR/api_server/swagger/firecracker.yaml"
     curr_ver=$(grep "version: " "$swagger" | awk -F : '{print $2}' | tr -d ' ')
@@ -596,26 +602,31 @@ cmd_prepare_release() {
     files_to_change=("$swagger"                         \
                      "$FC_ROOT_DIR/Cargo.toml"          \
                      "$FC_ROOT_DIR/jailer/Cargo.toml")
+    say "Updating source files:"
     for file in "${files_to_change[@]}"; do
-        sed -i "s/$curr_ver/$version/g" "$file"
+        say "- $file"
+        # Dirty hack to make this work on both macOS/BSD and Linux.
+        sed -i="" "s/$curr_ver/$version/g" "$file"
+        rm -f "${file}="
     done
-    say "Updated version number in source files."
 
     # Update crate dependencies.
+    say "Updating crate dependencies..."
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
         cargo update
-    say "Updated crate dependencies."
+    ok_or_die "cargo update failed."
 
     # Update credits.
-    . "$FC_TOOLS_DIR/update-credits.sh"
-    say "Updated credits."
+    say "Updating credits..."
+    "$FC_TOOLS_DIR/update-credits.sh"
 
     # Update changelog.
-    sed -i "s/\[Unreleased\]/\[$version\]/g" "$FC_ROOT_DIR/CHANGELOG.md"
-    say "Updated changelog."
+    say "Updating changelog..."
+    sed -i="" "s/\[Unreleased\]/\[$version\]/g" "$FC_ROOT_DIR/CHANGELOG.md"
+    rm -f "$FC_ROOT_DIR/CHANGELOG.md="
 }
 
 

@@ -111,8 +111,8 @@ impl<'a> RequestLine<'a> {
     }
 
     // Returns the minimum length of a valid request. The request must contain
-    // the method (GET), the URI (minmum 1 character), the HTTP method(HTTP/DIGIT.DIGIT) and
-    // 3 separators (SP/LF).
+    // the method (GET), the URI (minmum 1 character), the HTTP version(HTTP/DIGIT.DIGIT) and
+    // 3 separators (2 SP + 1 LF).
     fn min_len() -> usize {
         Method::Get.raw().len() + 1 + Version::Http10.raw().len() + 3
     }

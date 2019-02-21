@@ -10,6 +10,7 @@ extern crate serde;
 extern crate serde_derive;
 
 extern crate fc_util;
+extern crate kvm;
 extern crate sys_util;
 
 mod cgroup;
@@ -29,6 +30,7 @@ use clap::{App, Arg, ArgMatches};
 
 use env::Env;
 use fc_util::validators;
+use kvm::Kvm;
 
 pub const KVM_FD: i32 = 3;
 pub const LISTENER_FD: i32 = 4;
@@ -74,7 +76,6 @@ pub enum Error {
     MountPropagationPrivate(sys_util::Error),
     NotAFile(PathBuf),
     NumaNode(String),
-    OpenDevKvm(sys_util::Error),
     OpenDevNull(sys_util::Error),
     OsStringParsing(PathBuf, OsString),
     PivotRoot(sys_util::Error),
@@ -190,7 +191,6 @@ impl fmt::Display for Error {
                 format!("{:?} is not a file", path).replace("\"", "")
             ),
             NumaNode(ref node) => write!(f, "Invalid numa node: {}", node),
-            OpenDevKvm(ref err) => write!(f, "Failed to open /dev/kvm: {}", err),
             OpenDevNull(ref err) => write!(f, "Failed to open /dev/null: {}", err),
             OsStringParsing(ref path, _) => write!(
                 f,
@@ -341,19 +341,16 @@ fn sanitize_process() {
     }
 }
 
-fn open_dev_kvm() -> Result<i32> {
-    // Safe because we use a constant null-terminated string and verify the result.
-    let ret = unsafe { libc::open("/dev/kvm\0".as_ptr() as *const libc::c_char, libc::O_RDWR) };
+fn open_dev_kvm() -> Result<()> {
+    // The following unwrap will only fail when `/dev/kvm` cannot be open in which case
+    // it is better to panic and finish the execution.
+    let kvm_fd = Kvm::open_with_cloexec(false).unwrap();
 
-    if ret < 0 {
-        return Err(Error::OpenDevKvm(sys_util::Error::last()));
+    if kvm_fd != KVM_FD {
+        return Err(Error::UnexpectedKvmFd(kvm_fd));
     }
 
-    if ret != KVM_FD {
-        return Err(Error::UnexpectedKvmFd(ret));
-    }
-
-    Ok(ret)
+    Ok(())
 }
 
 pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Result<()> {
@@ -598,10 +595,6 @@ mod tests {
         assert_eq!(
             format!("{}", Error::NumaNode(id.to_string())),
             "Invalid numa node: foobar",
-        );
-        assert_eq!(
-            format!("{}", Error::OpenDevKvm(err42.clone())),
-            "Failed to open /dev/kvm: Errno 42",
         );
         assert_eq!(
             format!("{}", Error::OpenDevNull(err42.clone())),
