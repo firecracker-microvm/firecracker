@@ -191,3 +191,15 @@ Possible mitigations are:
   kernel so as to use `vmalloc` instead of `kmalloc` for them.
 - Reduce memory pressure on the host.
 
+### Error appears when starting Firecracker.
+
+```
+Cannot create VMM.: Vm(VmFd(Error(12)))
+```
+
+If the above error appears when trying to start
+Firecracker, then there is not enough free memory on your system for
+Firecracker to run.
+
+
+
