@@ -8,6 +8,8 @@
   [the docs](docs/api_requests/actions.md#sendctrlaltdel) for details.
 - New metric counting the number of egress packets with a spoofed MAC:
   `net.tx_spoofed_mac_count`.
+- New struct member - `InstanceInfo::vcpus` - the list of running vCPUs
+  and their host thread IDs.
 
 ### Changed
 

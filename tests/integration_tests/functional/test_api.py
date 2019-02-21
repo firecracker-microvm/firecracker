@@ -4,6 +4,7 @@
 
 import os
 import time
+import urllib.parse
 
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
@@ -20,6 +21,37 @@ def test_api_happy_start(test_microvm_with_api):
     test_microvm.basic_config()
 
     test_microvm.start()
+
+
+def test_api_instance_info(test_microvm_with_api):
+    """Test the basic `GET /` API call."""
+    vcpu_count = 4
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+    test_microvm.basic_config(vcpu_count=vcpu_count)
+    test_microvm.start()
+
+    time.sleep(1)
+
+    resp = test_microvm.api_session.get("http+unix://{}/".format(
+        urllib.parse.quote_plus(test_microvm.api_socket)
+    ))
+    assert test_microvm.api_session.is_good_response(resp.status_code)
+
+    info = resp.json()
+    for key in ['id', 'state', 'vmm_version', 'vcpus']:
+        assert key in info
+    assert info['state'] == 'Running'
+    assert len(info['vcpus']) == vcpu_count
+
+    # We always start the jailer in a new PID namespace, so the thread IDs
+    # will be:
+    # 1: jailer / firecracker api thread
+    # 2: firecracker VMM thread
+    # 3 .. (3 + vcpu_count): vCPU threads
+    tids = [x['thread_id'] for x in info['vcpus']]
+    expected_tids = [x for x in range(3, 3+vcpu_count)]
+    assert tids == expected_tids
 
 
 def test_api_put_update_pre_boot(test_microvm_with_api):

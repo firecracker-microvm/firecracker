@@ -119,6 +119,7 @@ fn main() {
         state: InstanceState::Uninitialized,
         id: instance_id,
         vmm_version: crate_version!().to_string(),
+        vcpus: Vec::new(),
     }));
     let mmds_info = MMDS.clone();
     let (to_vmm, from_api) = channel();

@@ -385,6 +385,7 @@ definitions:
       - id
       - state
       - vmm_version
+      - vcpus
     properties:
       id:
         description: MicroVM / instance ID.
@@ -406,6 +407,11 @@ definitions:
         description: MicroVM hypervisor build version.
         type: string
         readOnly: true
+      vcpus:
+        description: The list of running vCPUs.
+        type: array
+        items:
+            $ref: "#definitions/VcpuInfo"
 
   Logger:
     type: object
@@ -513,6 +519,24 @@ definitions:
       ops:
         $ref: "#/definitions/TokenBucket"
         description: Token bucket with operations as tokens
+
+  VcpuInfo:
+    type: object
+    description: Describes a running vCPU thread.
+    required:
+      - id
+      - thread_id
+    properties:
+      id:
+        type: integer
+        description: vCPU ID (index).
+        minimum: 0
+      thread_id:
+        type: integer
+        description:
+          The ID of the host thread used to run this vCPU.
+        format: i64
+        minimum: 0
 
   TokenBucket:
     type: object

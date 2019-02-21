@@ -30,6 +30,15 @@ pub enum InstanceState {
     Halted,
 }
 
+#[derive(Copy, Clone, Debug, Serialize)]
+/// vCPU info
+pub struct VcpuInfo {
+    /// vCPU ID/index (guest CPU #).
+    pub id: u8,
+    /// Host thread ID.
+    pub thread_id: usize,
+}
+
 /// The strongly typed that contains general information about the microVM.
 #[derive(Debug, Serialize)]
 pub struct InstanceInfo {
@@ -39,6 +48,8 @@ pub struct InstanceInfo {
     pub state: InstanceState,
     /// The version of the VMM that runs the microVM.
     pub vmm_version: String,
+    /// The list of running vCPUs.
+    pub vcpus: Vec<VcpuInfo>,
 }
 
 /// Errors associated with starting the instance.

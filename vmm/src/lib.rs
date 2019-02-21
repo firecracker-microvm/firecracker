@@ -83,7 +83,7 @@ use sys_util::{register_signal_handler, EventFd, Terminal};
 use vm_control::VmResponse;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
-use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
+use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError, VcpuInfo};
 use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError};
@@ -975,11 +975,22 @@ impl Vmm {
             #[cfg(target_arch = "x86_64")]
             vcpu.configure(&self.vm_config, entry_addr, &self.vm)
                 .map_err(StartMicrovmError::VcpuConfigure)?;
-
+            let shared_info = self.shared_info.clone();
             vcpu_handles.push(
                 thread::Builder::new()
                     .name(format!("fc_vcpu{}", cpu_id))
                     .spawn(move || {
+                        {
+                            // Add this vCPU to the instance info struct, under a write lock.
+                            let thread_id = unsafe { libc::syscall(libc::SYS_gettid) } as usize;
+                            let mut si_guard = shared_info
+                                .write()
+                                .expect("Vmm::instance_info lock poisoned");
+                            si_guard.vcpus.push(VcpuInfo {
+                                id: cpu_id,
+                                thread_id,
+                            });
+                        }
                         unsafe {
                             extern "C" fn handle_signal(_: i32, _: *mut siginfo_t, _: *mut c_void) {
                             }
@@ -2004,6 +2015,7 @@ mod tests {
             state,
             id: "TEST_ID".to_string(),
             vmm_version: "1.0".to_string(),
+            vcpus: Vec::new(),
         }));
 
         let (_to_vmm, from_api) = channel();
