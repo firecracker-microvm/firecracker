@@ -3,9 +3,6 @@
 
 use seccomp::{Error, SeccompFilterContext};
 
-/// List of allowed syscalls.
-pub const ALLOWED_SYSCALLS: &[i64] = &[];
-
 /// The default context containing the white listed syscall rules required by `Firecracker` to
 /// function.
 pub fn default_context() -> Result<SeccompFilterContext, Error> {
