@@ -437,7 +437,6 @@ struct sock_filter {
 // BPF structure definition for filter array.
 // See /usr/include/linux/filter.h .
 #[repr(C)]
-#[derive(Debug)]
 struct sock_fprog {
     pub len: ::std::os::raw::c_ushort,
     pub filter: *const sock_filter,
@@ -1050,6 +1049,8 @@ mod tests {
     // Checks that rule gets translated correctly into BPF statements.
     #[test]
     fn test_rule_bpf_output() {
+        assert!(SeccompCondition::new(6, SeccompCmpOp::Eq, 1).is_err());
+
         // Builds rule.
         let rule = SeccompRule::new(
             vec![
@@ -1170,6 +1171,10 @@ mod tests {
                                 ],
                                 SeccompAction::Allow,
                             ),
+                            SeccompRule::new(
+                                vec![SeccompCondition::new(2, SeccompCmpOp::Ge, 42).unwrap()],
+                                SeccompAction::Allow,
+                            ),
                         ],
                     ),
                 ),
@@ -1217,8 +1222,16 @@ mod tests {
             BPF_JUMP(0x15, 0, 0, 3),
             BPF_STMT(0x20, 32),
             BPF_JUMP(0x25, 20, 0, 1),
-            BPF_STMT(0x06, 0x7fff_0000),
-            BPF_STMT(0x06, 0x0003_0000),
+            BPF_STMT(0x06, 0x7fff0000),
+            BPF_STMT(0x05, 1),
+            BPF_STMT(0x05, 7),
+            BPF_STMT(0x20, 36),
+            BPF_JUMP(0x25, 0, 3, 0),
+            BPF_JUMP(0x15, 0, 0, 3),
+            BPF_STMT(0x20, 32),
+            BPF_JUMP(0x35, 42, 0, 1),
+            BPF_STMT(0x06, 0x7fff0000),
+            BPF_STMT(0x06, 0x00030000),
             BPF_JUMP(0x15, 9, 0, 1),
             BPF_STMT(0x05, 1),
             BPF_STMT(0x05, 8),
@@ -1321,5 +1334,15 @@ mod tests {
             format!("{}", Error::Load(42)),
             "Failed to load seccomp rules into the kernel with error 42."
         );
+    }
+
+    #[test]
+    fn test_from_seccomp_action() {
+        assert_eq!(0x7fff0000, u32::from(SeccompAction::Allow));
+        assert_eq!(0x0005002a, u32::from(SeccompAction::Errno(42)));
+        assert_eq!(0x00000000, u32::from(SeccompAction::Kill));
+        assert_eq!(0x7ffc0000, u32::from(SeccompAction::Log));
+        assert_eq!(0x7ff0002a, u32::from(SeccompAction::Trace(42)));
+        assert_eq!(0x00030000, u32::from(SeccompAction::Trap));
     }
 }

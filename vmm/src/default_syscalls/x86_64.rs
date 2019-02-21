@@ -678,6 +678,9 @@ mod tests {
     ];
 
     fn add_syscalls_install_context(mut context: SeccompFilterContext) {
+        // Test error case: add empty rule array.
+        assert!(context.add_rules(0, 0, vec![],).is_err());
+        // Add "Allow" rule for each syscall.
         for syscall in EXTRA_SYSCALLS.iter() {
             assert!(context
                 .add_rules(
