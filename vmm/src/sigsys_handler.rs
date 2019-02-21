@@ -92,7 +92,7 @@ mod tests {
 
     use libc::cpu_set_t;
 
-    use seccomp::{setup_seccomp, SeccompLevel};
+    use seccomp::{allow_syscall, setup_seccomp, SeccompAction, SeccompFilterContext};
 
     // This function is used when running unit tests, so all the unsafes are safe.
     fn cpu_count() -> usize {
@@ -122,21 +122,26 @@ mod tests {
     fn test_signal_handler() {
         assert!(setup_sigsys_handler().is_ok());
 
-        // Syscalls that have to be allowed in order for the test to work.
-        const REQUIRED_SYSCALLS: &[i64] = &[
-            libc::SYS_brk,
-            libc::SYS_exit,
-            libc::SYS_futex,
-            libc::SYS_munmap,
-            libc::SYS_rt_sigprocmask,
-            libc::SYS_rt_sigreturn,
-            libc::SYS_sched_getaffinity,
-            libc::SYS_set_tid_address,
-            libc::SYS_sigaltstack,
-            libc::SYS_write,
-        ];
+        let context = SeccompFilterContext::new(
+            vec![
+                allow_syscall(libc::SYS_brk),
+                allow_syscall(libc::SYS_exit),
+                allow_syscall(libc::SYS_futex),
+                allow_syscall(libc::SYS_munmap),
+                allow_syscall(libc::SYS_rt_sigprocmask),
+                allow_syscall(libc::SYS_rt_sigreturn),
+                allow_syscall(libc::SYS_sched_getaffinity),
+                allow_syscall(libc::SYS_set_tid_address),
+                allow_syscall(libc::SYS_sigaltstack),
+                allow_syscall(libc::SYS_write),
+            ]
+            .into_iter()
+            .collect(),
+            SeccompAction::Trap,
+        )
+        .unwrap();
 
-        assert!(setup_seccomp(SeccompLevel::Basic(REQUIRED_SYSCALLS)).is_ok());
+        assert!(setup_seccomp(context).is_ok());
         assert_eq!(METRICS.seccomp.num_faults.count(), 0);
 
         // Calls the blacklisted SYS_getpid.
