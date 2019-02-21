@@ -94,7 +94,7 @@ pub fn filter_cpuid(
 
                 entry
                     .ebx
-                    .write_bits_in_range(&ebx::APICID_BITRANGE, cpu_id as u32)
+                    .write_bits_in_range(&ebx::APICID_BITRANGE, u32::from(cpu_id))
                     .write_bits_in_range(&ebx::CLFLUSH_SIZE_BITRANGE, EBX_CLFLUSH_CACHELINE)
                     .write_bits_in_range(&ebx::CPU_COUNT_BITRANGE, max_addr_cpu);
 
@@ -121,7 +121,7 @@ pub fn filter_cpuid(
                         // The L3 cache is shared among all the logical threads
                         entry.eax.write_bits_in_range(
                             &eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE,
-                            (cpu_count - 1) as u32,
+                            u32::from(cpu_count - 1),
                         );
                     }
                     _ => (),
@@ -130,7 +130,7 @@ pub fn filter_cpuid(
                 // Put all the cores in the same socket
                 entry.eax.write_bits_in_range(
                     &eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE,
-                    (cpu_count - 1) as u32,
+                    u32::from(cpu_count - 1),
                 );
             }
             0x6 => {
@@ -157,7 +157,7 @@ pub fn filter_cpuid(
                 entry.ecx = 0 as u32;
                 // EDX bits 31..0 contain x2APIC ID of current logical processor
                 // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
-                entry.edx = cpu_id as u32;
+                entry.edx = u32::from(cpu_id);
                 match entry.index {
                     // Thread Level Topology; index = 0
                     0 => {
@@ -199,7 +199,7 @@ pub fn filter_cpuid(
                         } else {
                             entry.ebx.write_bits_in_range(
                                 &ebx::NUM_LOGICAL_PROCESSORS_BITRANGE,
-                                cpu_count as u32,
+                                u32::from(cpu_count),
                             );
                             entry
                                 .ecx

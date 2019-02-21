@@ -108,18 +108,18 @@ const MAP_NORESERVE: u64 = 0x4000;
 
 #[cfg(feature = "vsock")]
 mod vsock_ioctls {
-    pub const VHOST_GET_FEATURES: u64 = 0x8008af00;
-    pub const VHOST_SET_FEATURES: u64 = 0x4008af00;
-    pub const VHOST_SET_OWNER: u64 = 0x0000af01;
-    pub const VHOST_SET_MEM_TABLE: u64 = 0x4008af03;
-    pub const VHOST_SET_VRING_NUM: u64 = 0x4008af10;
-    pub const VHOST_SET_VRING_ADDR: u64 = 0x4028af11;
-    pub const VHOST_SET_VRING_BASE: u64 = 0x4008af12;
-    pub const VHOST_GET_VRING_BASE: u64 = 0xc008af12;
-    pub const VHOST_SET_VRING_KICK: u64 = 0x4008af20;
-    pub const VHOST_SET_VRING_CALL: u64 = 0x4008af21;
-    pub const VHOST_VSOCK_SET_GUEST_CID: u64 = 0x4008af60;
-    pub const VHOST_VSOCK_SET_RUNNING: u64 = 0x4004af61;
+    pub const VHOST_GET_FEATURES: u64 = 0x8008_af00;
+    pub const VHOST_SET_FEATURES: u64 = 0x4008_af00;
+    pub const VHOST_SET_OWNER: u64 = 0x0000_af01;
+    pub const VHOST_SET_MEM_TABLE: u64 = 0x4008_af03;
+    pub const VHOST_SET_VRING_NUM: u64 = 0x4008_af10;
+    pub const VHOST_SET_VRING_ADDR: u64 = 0x4028_af11;
+    pub const VHOST_SET_VRING_BASE: u64 = 0x4008_af12;
+    pub const VHOST_GET_VRING_BASE: u64 = 0xc008_af12;
+    pub const VHOST_SET_VRING_KICK: u64 = 0x4008_af20;
+    pub const VHOST_SET_VRING_CALL: u64 = 0x4008_af21;
+    pub const VHOST_VSOCK_SET_GUEST_CID: u64 = 0x4008_af60;
+    pub const VHOST_VSOCK_SET_RUNNING: u64 = 0x4004_af61;
 }
 
 /// Applies the configured level of seccomp filtering to the current thread.
@@ -702,7 +702,7 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
     {
         let mut rule = create_common_ioctl_seccomp_rule()?;
         rule.append(&mut create_vsock_ioctl_seccomp_rule()?);
-        return Ok(rule);
+        Ok(rule)
     }
     #[cfg(not(feature = "vsock"))]
     Ok(create_common_ioctl_seccomp_rule()?)
