@@ -8,7 +8,7 @@
 //! Virtual Machine Monitor that leverages the Linux Kernel-based Virtual Machine (KVM),
 //! and other virtualization features to run a single lightweight micro-virtual
 //! machine (microVM).
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 extern crate chrono;
 extern crate epoll;
 extern crate futures;

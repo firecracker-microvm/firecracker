@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
 //! A safe wrapper around the kernel's KVM interface.
 
