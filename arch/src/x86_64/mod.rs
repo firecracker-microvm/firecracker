@@ -14,7 +14,18 @@ pub mod regs;
 use std::mem;
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
-use memory_model::{GuestAddress, GuestMemory};
+use memory_model::{DataInit, GuestAddress, GuestMemory};
+
+// This is a workaround to the Rust enforcement specifying that any implementation of a foreign
+// trait (in this case `DataInit`) where:
+// *    the type that is implementing the trait is foreign or
+// *    all of the parameters being passed to the trait (if there are any) are also foreign
+// is prohibited.
+#[derive(Copy, Clone)]
+struct BootParamsWrapper(boot_params);
+
+// It is safe to initialize BootParamsWrap which is a wrapper over `boot_params` (a series of ints).
+unsafe impl DataInit for BootParamsWrapper {}
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -92,35 +103,35 @@ pub fn configure_system(
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(guest_mem, num_cpus).map_err(Error::MpTableSetup)?;
 
-    let mut params: boot_params = Default::default();
+    let mut params: BootParamsWrapper = BootParamsWrapper(boot_params::default());
 
-    params.hdr.type_of_loader = KERNEL_LOADER_OTHER;
-    params.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
-    params.hdr.header = KERNEL_HDR_MAGIC;
-    params.hdr.cmd_line_ptr = cmdline_addr.offset() as u32;
-    params.hdr.cmdline_size = cmdline_size as u32;
-    params.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
+    params.0.hdr.type_of_loader = KERNEL_LOADER_OTHER;
+    params.0.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
+    params.0.hdr.header = KERNEL_HDR_MAGIC;
+    params.0.hdr.cmd_line_ptr = cmdline_addr.offset() as u32;
+    params.0.hdr.cmdline_size = cmdline_size as u32;
+    params.0.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
 
-    add_e820_entry(&mut params, 0, EBDA_START, E820_RAM)?;
+    add_e820_entry(&mut params.0, 0, EBDA_START, E820_RAM)?;
 
     let mem_end = guest_mem.end_addr();
     if mem_end < end_32bit_gap_start {
         add_e820_entry(
-            &mut params,
+            &mut params.0,
             himem_start.offset() as u64,
             mem_end.offset_from(himem_start) as u64,
             E820_RAM,
         )?;
     } else {
         add_e820_entry(
-            &mut params,
+            &mut params.0,
             himem_start.offset() as u64,
             end_32bit_gap_start.offset_from(himem_start) as u64,
             E820_RAM,
         )?;
         if mem_end > first_addr_past_32bits {
             add_e820_entry(
-                &mut params,
+                &mut params.0,
                 first_addr_past_32bits.offset() as u64,
                 mem_end.offset_from(first_addr_past_32bits) as u64,
                 E820_RAM,
