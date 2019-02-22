@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.15.0]
 
 ### Added
 - New API action: SendCtrlAltDel, used to initiate a graceful shutdown,
