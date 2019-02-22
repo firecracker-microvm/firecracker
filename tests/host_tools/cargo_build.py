@@ -35,12 +35,14 @@ class UnknownFeatureException(Exception):
         )
 
 
-def cargo_build(path, extra_args=''):
+def cargo_build(path, extra_args='', src_dir=''):
     """Trigger build depending on flags provided."""
     cmd = 'CARGO_TARGET_DIR={} cargo build {}'.format(
         path,
         extra_args
     )
+    if src_dir:
+        cmd = 'cd {} && {}'.format(src_dir, cmd)
     run(cmd, shell=True, check=True)
 
 
