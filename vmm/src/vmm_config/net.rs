@@ -290,7 +290,6 @@ mod tests {
 
     use super::*;
     use net_util::MacAddr;
-    use VmmActionError::NetworkConfig;
 
     fn create_netif(id: &str, name: &str, mac: &str) -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
