@@ -14,6 +14,6 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
 }
 
 /// Applies the configured level of seccomp filtering to the current thread.
-pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
+pub fn set_seccomp_level(_seccomp_level: u32) -> Result<(), Error> {
     Ok(())
 }
