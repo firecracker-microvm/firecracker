@@ -25,16 +25,50 @@ The generic requirements are explained below:
 
 - **Linux 4.14+**
 
-  Firecracker currently supports physical Linux x86_64 hosts, running kernel
-  version 4.14 or later.
+Firecracker currently supports physical Linux x86_64 hosts, running kernel
+version 4.14 or later. Please check first if your Linux host supports
+vitualization running as root the following command:
+
+```
+egrep '(vmx|svm)' --color=always /proc/cpuinfo
+```
+
+you should see the following answer (number of flags depends of the number
+of cores on the CPU):
+
+```
+flags: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe$
+flags: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe$
+```
+
+if no answer appears, then virtualization is not supported by your CPU.
 
 - **KVM**
 
-  Please make sure that:
-  1. you have KVM enabled in your Linux kernel, and
-  2. you have read/write access to `/dev/kvm`.
-     If you need help setting up access to `/dev/kvm`, you should check out
-     [Appendix A](#appendix-a-setting-up-kvm-access).
+Please make sure that you have KVM enabled in your Linux kernel, to do so
+you can run:
+
+```
+lsmod | grep '^kvm'
+```
+
+you should see an answer like the following:
+
+```
+kvm_intel             172032  0
+kvm                   544768  1 kvm_intel
+```
+
+or
+
+```
+kvm_amd                86016  0
+kvm                   598016  1 kvm_amd
+```
+
+You also need to have read/write access to `/dev/kvm`. If you need help
+setting up access to `/dev/kvm`, you should check out
+[Appendix A](#appendix-a-setting-up-kvm-access).
 
 <details>
 
