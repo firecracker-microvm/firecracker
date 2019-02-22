@@ -8,6 +8,7 @@ ARG TMP_BUILD_DIR=/tmp/build
 ARG FIRECRACKER_SRC_DIR="/firecracker"
 ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
 ARG CARGO_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_registry"
+ARG CARGO_GIT_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_git_registry"
 
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
@@ -24,6 +25,7 @@ RUN apt-get update \
         file \
         g++ \
         gcc \
+        gcc-aarch64-linux-gnu \
         iperf3 \
         iproute2 \
         jq \
@@ -49,7 +51,6 @@ RUN apt-get update \
     && python3 -m pip install \
         boto3 \
         nsenter \
-        paramiko \
         pycodestyle \
         pydocstyle \
         pylint \
@@ -66,12 +67,16 @@ RUN apt-get update \
 RUN mkdir "$TMP_BUILD_DIR" \
     && curl https://sh.rustup.rs -sSf | sh -s -- -y \
         && rustup target add x86_64-unknown-linux-musl \
+        && rustup target add aarch64-unknown-linux-musl \
         && rustup component add rustfmt \
+        && rustup component add clippy-preview \
         && cd "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
             && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
+        && rm -rf "$CARGO_HOME/git" \
+        && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git" \
     && cd / \
     && rm -rf "$TMP_BUILD_DIR"
     
