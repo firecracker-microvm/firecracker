@@ -20,7 +20,7 @@ def tmp_basic_jailer(test_session_root_path):
     binaries_srcdir = os.path.normpath(
         os.path.join(
             os.getcwd(),
-            'integration_tests/security/demo_advanced_seccomp/'
+            'integration_tests/security/demo_seccomp/'
         )
     )
     build_path = os.path.join(
@@ -62,7 +62,7 @@ def tmp_advanced_seccomp_binaries(test_session_root_path):
     binaries_srcdir = os.path.normpath(
         os.path.join(
             os.getcwd(),
-            'integration_tests/security/demo_advanced_seccomp/'
+            'integration_tests/security/demo_seccomp/'
         )
     )
     build_path = os.path.join(
