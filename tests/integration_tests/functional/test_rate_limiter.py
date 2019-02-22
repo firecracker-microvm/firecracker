@@ -445,7 +445,6 @@ def _start_iperf_on_guest(test_microvm, hostname):
 
     # Wait for the iperf daemon to start.
     time.sleep(2)
-    ssh_connection.close()
 
 
 def _run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
@@ -456,7 +455,6 @@ def _run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
     assert stderr.read().decode('utf-8') == ''
 
     out = stdout.read().decode('utf-8')
-    ssh_connection.close()
     return out
 
 
