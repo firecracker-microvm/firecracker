@@ -10,7 +10,7 @@ use std::env::args;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
-use seccomp::{allow_syscall, setup_seccomp, SeccompAction, SeccompFilterContext};
+use seccomp::{setup_seccomp, SeccompAction, SeccompFilterContext};
 use seccomp_rules::*;
 
 fn main() {

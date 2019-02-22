@@ -6,84 +6,16 @@ import os
 
 from subprocess import run, PIPE
 
-import pytest
 
-import host_tools.cargo_build as host  # pylint:disable=import-error
-
-
-@pytest.fixture(scope='session')
-def seccomp_test_binaries(test_session_root_path):
-    """Build the demo jailers and binaries required for the seccomp tests.
-
-    :return: The paths of the built binaries.
-    """
-    binaries_srcdir = os.path.normpath(
-        os.path.join(
-            os.getcwd(),
-            'integration_tests/security/demo_seccomp/'
-        )
-    )
-    build_path = os.path.join(
-        test_session_root_path,
-        host.CARGO_RELEASE_REL_PATH
-    )
-    run("cd {} && CARGO_TARGET_DIR={} cargo build --release".format(
-        binaries_srcdir, build_path), shell=True, check=True)
-
-    release_binaries_path = os.path.join(
-        host.CARGO_RELEASE_REL_PATH,
-        host.RELEASE_BINARIES_REL_PATH
-    )
-    release_binaries_path = os.path.join(
-        test_session_root_path,
-        release_binaries_path
-    )
-    demo_basic_jailer = os.path.normpath(
-        os.path.join(
-            release_binaries_path,
-            'demo_basic_jailer'
-        )
-    )
-    demo_advanced_jailer = os.path.normpath(
-        os.path.join(
-            release_binaries_path,
-            'demo_advanced_jailer'
-        )
-    )
-    demo_harmless_firecracker = os.path.normpath(
-        os.path.join(
-            release_binaries_path,
-            'demo_harmless_firecracker'
-        )
-    )
-    demo_malicious_firecracker = os.path.normpath(
-        os.path.join(
-            release_binaries_path,
-            'demo_malicious_firecracker'
-        )
-    )
-
-    yield \
-        demo_basic_jailer, \
-        demo_advanced_jailer, \
-        demo_harmless_firecracker, \
-        demo_malicious_firecracker
-
-    os.remove(demo_basic_jailer)
-    os.remove(demo_advanced_jailer)
-    os.remove(demo_harmless_firecracker)
-    os.remove(demo_malicious_firecracker)
-
-
-def test_seccomp_ls(seccomp_test_binaries):
+def test_seccomp_ls(aux_bin_paths):
     """Assert that the seccomp filters deny a blacklisted syscall."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
-    # Path to the `ls` binary, which attempts to execute `SYS_access`,
-    # blacklisted for Firecracker.
+    # Path to the `ls` binary, which attempts to execute the blacklisted
+    # `SYS_access`.
     ls_command_path = '/bin/ls'
-    demo_jailer, _, _, _ = seccomp_test_binaries
+    demo_jailer = aux_bin_paths['demo_basic_jailer']
 
     assert os.path.exists(demo_jailer)
 
@@ -95,47 +27,46 @@ def test_seccomp_ls(seccomp_test_binaries):
     assert outcome.returncode != 0
 
 
-def test_advanced_seccomp_harmless(seccomp_test_binaries):
+def test_advanced_seccomp_harmless(aux_bin_paths):
     """
-    Test `demo_harmless_firecracker`.
+    Test `demo_harmless`.
 
-    Test that the built demo jailer allows the built demo harmless firecracker.
+    Test that the advanced demo jailer allows the harmless demo binary.
     """
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
-    _, demo_advanced_jailer, demo_harmless_firecracker, _ = \
-        seccomp_test_binaries
+    demo_advanced_jailer = aux_bin_paths['demo_advanced_jailer']
+    demo_harmless = aux_bin_paths['demo_harmless']
 
     assert os.path.exists(demo_advanced_jailer)
-    assert os.path.exists(demo_harmless_firecracker)
+    assert os.path.exists(demo_harmless)
 
-    outcome = run([demo_advanced_jailer, demo_harmless_firecracker])
+    outcome = run([demo_advanced_jailer, demo_harmless])
 
-    # The demo harmless firecracker should have terminated gracefully.
+    # The demo harmless binary should have terminated gracefully.
     assert outcome.returncode == 0
 
 
-def test_advanced_seccomp_malicious(seccomp_test_binaries):
+def test_advanced_seccomp_malicious(aux_bin_paths):
     """
-    Test `demo_malicious_firecracker`.
+    Test `demo_malicious`.
 
-    Test that the built demo jailer denies the built demo malicious
-    firecracker.
+    Test that the basic demo jailer denies the malicious demo binary.
     """
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
-    _, demo_advanced_jailer, _, demo_malicious_firecracker = \
-        seccomp_test_binaries
+    demo_advanced_jailer = aux_bin_paths['demo_advanced_jailer']
+    demo_malicious = aux_bin_paths['demo_malicious']
 
     assert os.path.exists(demo_advanced_jailer)
-    assert os.path.exists(demo_malicious_firecracker)
+    assert os.path.exists(demo_malicious)
 
-    outcome = run([demo_advanced_jailer, demo_malicious_firecracker])
+    outcome = run([demo_advanced_jailer, demo_malicious])
 
-    # The demo malicious firecracker should have received `SIGSYS`.
-    assert outcome.returncode != 0
+    # The demo malicious binary should have received `SIGSYS`.
+    assert outcome.returncode == -31
 
 
 def test_seccomp_applies_to_all_threads(test_microvm_with_api):

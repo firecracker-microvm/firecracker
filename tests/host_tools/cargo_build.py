@@ -43,6 +43,7 @@ def cargo_build(path, extra_args='', src_dir=''):
     )
     if src_dir:
         cmd = 'cd {} && {}'.format(src_dir, cmd)
+
     run(cmd, shell=True, check=True)
 
 
