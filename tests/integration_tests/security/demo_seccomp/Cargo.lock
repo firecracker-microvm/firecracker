@@ -1,5 +1,5 @@
 [[package]]
-name = "demo_advanced_seccomp"
+name = "demo_seccomp"
 version = "0.1.0"
 dependencies = [
  "libc 0.2.48 (registry+https://github.com/rust-lang/crates.io-index)",
