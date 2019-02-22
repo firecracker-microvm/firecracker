@@ -44,7 +44,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// * `start_address` - For x86_64, this is the start of the high memory. Kernel should reside above it.
 ///
 /// Returns the entry address of the kernel.
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn load_kernel<F>(
     guest_mem: &GuestMemory,
     kernel_image: &mut F,

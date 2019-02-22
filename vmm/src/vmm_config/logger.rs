@@ -41,6 +41,7 @@ pub struct LoggerConfig {
     #[serde(default)]
     pub show_log_origin: bool,
     /// Additional logging options.
+    #[cfg(target_arch = "x86_64")]
     #[serde(default = "default_log_options")]
     pub options: Value,
 }
