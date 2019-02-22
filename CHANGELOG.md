@@ -8,6 +8,8 @@
   [the docs](docs/api_requests/actions.md#sendctrlaltdel) for details.
 - New metric counting the number of egress packets with a spoofed MAC:
   `net.tx_spoofed_mac_count`.
+- New API call: `PATCH /network-interfaces/`, used to update the rate limiters
+  on a network interface, after the start of a microVM.
 
 ### Changed
 
