@@ -177,6 +177,7 @@ paths:
         Gets the machine configuration of the VM. When called before the PUT operation, it
         will return the default values for the vCPU count (=1), memory size (=128 MiB).
         By default Hyperthreading is disabled and there is no CPU Template.
+      operationId: getMachineConfiguration
       responses:
         200:
           description: OK
