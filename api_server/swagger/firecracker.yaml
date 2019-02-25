@@ -396,7 +396,6 @@ definitions:
       action_type:
         description: Enumeration indicating what type of action is contained in the payload
         type: string
-        readOnly: true
         enum:
         - BlockDeviceRescan
         - FlushMetrics
@@ -417,13 +416,11 @@ definitions:
       id:
         description: MicroVM / instance ID.
         type: string
-        readOnly: true
       state:
         description:
           The current detailed state of the Firecracker instance.
           This value is read-only for the control-plane.
         type: string
-        readOnly: true
         enum:
           - Uninitialized
           - Starting
@@ -433,7 +430,6 @@ definitions:
       vmm_version:
         description: MicroVM hypervisor build version.
         type: string
-        readOnly: true
 
   Logger:
     type: object

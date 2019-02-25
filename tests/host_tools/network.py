@@ -7,11 +7,11 @@ import socket
 import struct
 import threading
 
+from io import BytesIO
 from subprocess import run, PIPE
 
-from paramiko import AutoAddPolicy, SSHClient, ssh_exception
 from nsenter import Namespace
-from retry.api import retry_call
+from retry import retry
 
 
 class SSHConnection:
@@ -33,64 +33,15 @@ class SSHConnection:
     def __init__(self, ssh_config):
         """Instantiate a SSH client and connect to a microVM."""
         self.netns_file_path = ssh_config['netns_file_path']
-        self.ssh_client = SSHClient()  # pylint: disable=no-value-for-parameter
-        self.ssh_client.set_missing_host_key_policy(AutoAddPolicy())
         self.ssh_config = ssh_config
         assert os.path.exists(ssh_config['ssh_key_path'])
 
-        # Retry to connect to the host as long as the delay between calls
-        # is less than 30 seconds. Sleep 1, 2, 4, 8, ... seconds between
-        # attempts. These parameters might need additional tweaking when we
-        # add tests with 1000 Firecracker microvm.
-
-        # TODO: If a microvm runs in a particular network namespace, we have to
-        # temporarily switch to that namespace when doing something that routes
-        # packets over the network, otherwise the destination will not be
-        # reachable. Use a better setup/solution at some point!
-
-        if self.netns_file_path:
-            with Namespace(self.netns_file_path, 'net'):
-                self.initial_connect()
-        else:
-            self.initial_connect()
-
-    def initial_connect(self):
-        """Create an initial SSH client connection (retry until it works)."""
-        retry_call(
-            self.ssh_client.connect,
-            fargs=[self.ssh_config['hostname']],
-            fkwargs={
-                'look_for_keys': False,
-                'username': self.ssh_config['username'],
-                'key_filename': self.ssh_config['ssh_key_path']
-            },
-            exceptions=ssh_exception.NoValidConnectionsError,
-            delay=1,
-            backoff=2,
-            max_delay=32
-        )
+        self._init_connection()
 
     def execute_command(self, cmd_string):
         """Execute the command passed as a string in the ssh context."""
-        if self.netns_file_path:
-            with Namespace(self.netns_file_path, 'net'):
-                return self.ssh_client.exec_command(cmd_string)
-        return self.ssh_client.exec_command(cmd_string)
-
-    @staticmethod
-    def _scp_file_helper(cmd):
-        retry_call(
-            run,
-            fargs=[cmd],
-            fkwargs={
-                'shell': True,
-                'check': True
-            },
-            exceptions=ssh_exception.NoValidConnectionsError,
-            delay=1,
-            backoff=2,
-            max_delay=32
-        )
+        exit_code, stdout, stderr = self._exec(cmd_string)
+        return exit_code, BytesIO(stdout), BytesIO(stderr)
 
     def scp_file(self, local_path, remote_path):
         """Copy a files to the VM using scp."""
@@ -105,17 +56,56 @@ class SSHConnection:
         )
         if self.netns_file_path:
             with Namespace(self.netns_file_path, 'net'):
-                self._scp_file_helper(cmd)
+                run(cmd, shell=True, check=True)
         else:
-            self._scp_file_helper(cmd)
+            run(cmd, shell=True, check=True)
 
-    def close(self):
-        """Close the SSH connection."""
+    @retry(ConnectionError, delay=0.1, tries=20)
+    def _init_connection(self):
+        """Create an initial SSH client connection (retry until it works).
+
+        Since we're connecting to a microVM we just started, we'll probably
+        have to wait for it to boot up and start the SSH server.
+        We'll keep trying to execute a remote command that can't fail
+        (`/bin/true`), until we get a successful (0) exit code.
+        """
+        ecode, _, _ = self._exec("true")
+        if ecode != 0:
+            raise ConnectionError
+
+    def _exec(self, cmd):
+        """Private function that handles the ssh client invocation."""
+        def _exec_raw(_cmd):
+            cp = run([
+                "ssh",
+                "-q",
+                "-o", "ConnectTimeout=1",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-i", self.ssh_config["ssh_key_path"],
+                "{}@{}".format(
+                    self.ssh_config["username"],
+                    self.ssh_config["hostname"]
+                ),
+                _cmd
+            ], stdout=PIPE, stderr=PIPE)
+            _res = (
+                cp.returncode,
+                cp.stdout,
+                cp.stderr
+            )
+            return _res
+
+        # TODO: If a microvm runs in a particular network namespace, we have to
+        # temporarily switch to that namespace when doing something that routes
+        # packets over the network, otherwise the destination will not be
+        # reachable. Use a better setup/solution at some point!
         if self.netns_file_path:
             with Namespace(self.netns_file_path, 'net'):
-                self.ssh_client.close()
+                res = _exec_raw(cmd)
         else:
-            self.ssh_client.close()
+            res = _exec_raw(cmd)
+        return res
 
 
 class NoMoreIPsError(Exception):

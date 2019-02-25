@@ -68,7 +68,7 @@ def _check_cpu_topology(test_microvm, expected_cpu_topology):
     assert stderr.read().decode("utf-8") == ''
     # Read the stdout of lscpu line by line to check the relevant information.
     while True:
-        line = stdout.readline()
+        line = stdout.readline().decode('utf-8')
         if line != '':
             [key, value] = list(map(lambda x: x.strip(), line.split(':')))
             if key in expected_cpu_topology.keys():
@@ -76,8 +76,6 @@ def _check_cpu_topology(test_microvm, expected_cpu_topology):
                     "%s does not have the expected value" % key
         else:
             break
-
-    ssh_connection.close()
 
 
 def test_brand_string(test_microvm_with_ssh, network_config):
@@ -116,7 +114,8 @@ def test_brand_string(test_microvm_with_ssh, network_config):
     _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
     assert stderr.read().decode("utf-8") == ''
 
-    mo = re.search("^model name\\s+:\\s+(.+)$", stdout.readline().rstrip())
+    line = stdout.readline().decode('utf-8').rstrip()
+    mo = re.search("^model name\\s+:\\s+(.+)$", line)
     assert mo
     guest_brand_string = mo.group(1)
     assert guest_brand_string

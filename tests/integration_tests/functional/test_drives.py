@@ -53,8 +53,6 @@ def test_rescan(test_microvm_with_ssh, network_config):
         fs.size()
     )
 
-    ssh_connection.close()
-
 
 def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
     """Test the output reported by blockdev when booting from /dev/vda."""
@@ -225,9 +223,7 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
     _, stdout, stderr = ssh_connection.execute_command(blksize_cmd)
     assert stderr.read().decode("utf-8") == ''
     stdout.readline()  # skip "SIZE"
-    assert stdout.readline().strip() == size_bytes_str
-
-    ssh_connection.close()
+    assert stdout.readline().decode('utf-8').strip() == size_bytes_str
 
 
 def _check_scratch_size(ssh_connection, size):
@@ -237,7 +233,7 @@ def _check_scratch_size(ssh_connection, size):
     )
 
     assert stderr.read().decode('utf-8') == ''
-    assert stdout.readline().strip() == str(size)
+    assert stdout.readline().decode('utf-8').strip() == str(size)
 
 
 def _process_blockdev_output(blockdev_out, assert_dict, keys_array):
