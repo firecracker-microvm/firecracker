@@ -9,13 +9,19 @@ use seccomp::{
 /// List of allowed syscalls necessary for correct functioning on x86_64 architectures.
 /// Taken from the musl repo (i.e arch/x86_64/bits/syscall.h).
 pub const ALLOWED_SYSCALLS: &[i64] = &[
+    #[cfg(target_env = "musl")]
     libc::SYS_accept,
+    #[cfg(target_env = "gnu")]
+    libc::SYS_accept4,
     libc::SYS_brk,
     libc::SYS_clock_gettime,
     libc::SYS_close,
     libc::SYS_dup,
     libc::SYS_epoll_ctl,
+    #[cfg(target_env = "musl")]
     libc::SYS_epoll_pwait,
+    #[cfg(target_env = "gnu")]
+    libc::SYS_epoll_wait,
     libc::SYS_exit,
     libc::SYS_exit_group,
     libc::SYS_fcntl,
@@ -27,7 +33,10 @@ pub const ALLOWED_SYSCALLS: &[i64] = &[
     libc::SYS_madvise,
     libc::SYS_mmap,
     libc::SYS_munmap,
+    #[cfg(target_env = "musl")]
     libc::SYS_open,
+    #[cfg(target_env = "gnu")]
+    libc::SYS_openat,
     libc::SYS_pipe,
     libc::SYS_read,
     libc::SYS_readv,
