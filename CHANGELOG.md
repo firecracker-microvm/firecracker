@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Dropped the JSON-formatted `context` command-line parameter from Firecracker
+  in favor of individual classic command-line parameters.
+- When running with `jailer` the location of the API socket has changed to
+  `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
+
 ## [0.15.0]
 
 ### Added
