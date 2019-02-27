@@ -1114,7 +1114,7 @@ mod tests {
     fn set_tss_address() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        assert!(vm.set_tss_address(0xfffbd000).is_ok());
+        assert!(vm.set_tss_address(0xfffb_d000).is_ok());
     }
 
     #[test]
@@ -1151,10 +1151,10 @@ mod tests {
             .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc2), 0x1337u16)
             .unwrap();
         vm_fd
-            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc4), 0xdeadbeefu32)
+            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc4), 0xdead_beefu32)
             .unwrap();
         vm_fd
-            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc8), 0xdeadbeefdeadbeefu64)
+            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc8), 0xdead_beef_dead_beefu64)
             .unwrap();
     }
 
@@ -1231,7 +1231,6 @@ mod tests {
     #[test]
     fn lapic_test() {
         use std::io::Cursor;
-        use std::mem;
         //we might get read of byteorder if we replace 5h3 mem::transmute with something safer
         use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
         //as per https://github.com/torvalds/linux/arch/x86/kvm/lapic.c
@@ -1249,18 +1248,19 @@ mod tests {
         let value = 2 as u32;
         //try to write and read the APIC_ICR	0x300
         let write_slice =
-            unsafe { mem::transmute::<&mut [i8], &mut [u8]>(&mut klapic.regs[reg_offset..]) };
+            unsafe { &mut *(&mut klapic.regs[reg_offset..] as *mut [i8] as *mut [u8]) };
         let mut writer = Cursor::new(write_slice);
         writer.write_u32::<LittleEndian>(value).unwrap();
         vcpu.set_lapic(&klapic).unwrap();
         klapic = vcpu.get_lapic().unwrap();
-        let read_slice = unsafe { mem::transmute::<&[i8], &[u8]>(&klapic.regs[reg_offset..]) };
+        let read_slice = unsafe { &*(&klapic.regs[reg_offset..] as *const [i8] as *const [u8]) };
         let mut reader = Cursor::new(read_slice);
         assert_eq!(reader.read_u32::<LittleEndian>().unwrap(), value);
     }
 
     #[cfg(target_arch = "x86_64")]
     #[test]
+    #[allow(clippy::cast_ptr_alignment)]
     fn msrs_test() {
         use std::mem;
         let kvm = Kvm::new().unwrap();
@@ -1269,12 +1269,12 @@ mod tests {
         let mut configured_entry_vec = Vec::<kvm_msr_entry>::new();
 
         configured_entry_vec.push(kvm_msr_entry {
-            index: 0x00000174,
+            index: 0x0000_0174,
             data: 0x0,
             ..Default::default()
         });
         configured_entry_vec.push(kvm_msr_entry {
-            index: 0x00000175,
+            index: 0x0000_0175,
             data: 0x1,
             ..Default::default()
         });
@@ -1294,11 +1294,11 @@ mod tests {
         //now test that GET_MSRS returns the same
         let wanted_kvm_msrs_entries = [
             kvm_msr_entry {
-                index: 0x00000174,
+                index: 0x0000_0174,
                 ..Default::default()
             },
             kvm_msr_entry {
-                index: 0x00000175,
+                index: 0x0000_0175,
                 ..Default::default()
             },
         ];
@@ -1334,9 +1334,9 @@ mod tests {
         let code = [
             0xba, 0xf8, 0x03, /* mov $0x3f8, %dx */
             0x00, 0xd8, /* add %bl, %al */
-            0x04, '0' as u8, /* add $'0', %al */
-            0xee,      /* out %al, %dx */
-            0xec,      /* in %dx, %al */
+            0x04, b'0', /* add $'0', %al */
+            0xee, /* out %al, %dx */
+            0xec, /* in %dx, %al */
             0xc6, 0x06, 0x00, 0x20, 0x00, /* movl $0, (0x2000) */
             0x8a, 0x16, 0x00, 0x20, /* movl (0x2000), %dl */
             0xf4, /* hlt */
@@ -1344,7 +1344,7 @@ mod tests {
 
         let mem_size = 0x40000;
         let load_addr = GuestAddress(0x1000);
-        let mem = GuestMemory::new(&vec![(load_addr, mem_size)]).unwrap();
+        let mem = GuestMemory::new(&[(load_addr, mem_size)]).unwrap();
 
         let kvm = Kvm::new().expect("new Kvm failed");
 
@@ -1388,7 +1388,7 @@ mod tests {
                 VcpuExit::IoOut(addr, data) => {
                     assert_eq!(addr, 0x3f8);
                     assert_eq!(data.len(), 1);
-                    assert_eq!(data[0], '5' as u8);
+                    assert_eq!(data[0], b'5');
                 }
                 VcpuExit::MmioRead(addr, data) => {
                     assert_eq!(addr, 0x2000);

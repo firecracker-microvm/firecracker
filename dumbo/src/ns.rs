@@ -347,13 +347,14 @@ mod tests {
         }
 
         fn next_frame_as_ipv4_packet<'a>(&mut self, buf: &'a mut [u8]) -> IPv4Packet<&'a [u8]> {
-            let len = self.write_next_frame(buf.as_mut()).unwrap().get();
+            let len = self.write_next_frame(buf).unwrap().get();
             let eth = EthernetFrame::from_bytes(&buf[..len]).unwrap();
             IPv4Packet::from_bytes(&buf[eth.payload_offset()..len], true).unwrap()
         }
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_ns() {
         let mut ns = MmdsNetworkStack::new_with_defaults();
         assert_eq!(ns.mac_addr, MacAddr::parse_str(DEFAULT_MAC_ADDR).unwrap());

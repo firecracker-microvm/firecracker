@@ -232,14 +232,15 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_brand_string() {
         #[inline]
         fn pack_u32(src: &[u8]) -> u32 {
             assert!(src.len() >= 4);
-            src[0] as u32
-                | ((src[1] as u32) << 8)
-                | ((src[2] as u32) << 16)
-                | ((src[3] as u32) << 24)
+            u32::from(src[0])
+                | (u32::from(src[1]) << 8)
+                | (u32::from(src[2]) << 16)
+                | (u32::from(src[3]) << 24)
         }
 
         const TEST_STR: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -249,24 +250,24 @@ mod tests {
         //
         {
             for i in 0_usize..=1_usize {
-                let eax_offs = (4 * 4) * i + 0;
+                let eax_offs = (4 * 4) * i;
                 let ebx_offs = (4 * 4) * i + 4;
                 let ecx_offs = (4 * 4) * i + 8;
                 let edx_offs = (4 * 4) * i + 12;
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x80000002 + i as u32, Reg::EAX),
+                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::EAX),
                     pack_u32(&TEST_STR[eax_offs..(eax_offs + 4)])
                 );
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x80000002 + i as u32, Reg::EBX),
+                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::EBX),
                     pack_u32(&TEST_STR[ebx_offs..(ebx_offs + 4)])
                 );
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x80000002 + i as u32, Reg::ECX),
+                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::ECX),
                     pack_u32(&TEST_STR[ecx_offs..(ecx_offs + 4)])
                 );
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x80000002 + i as u32, Reg::EDX),
+                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::EDX),
                     pack_u32(&TEST_STR[edx_offs..(edx_offs + 4)])
                 );
             }
@@ -278,8 +279,8 @@ mod tests {
 
         // Test mutable bitwise casting and finding the frequency substring
         //
-        bstr.set_reg_for_leaf(0x80000003, Reg::EBX, pack_u32(b"5.20"));
-        bstr.set_reg_for_leaf(0x80000003, Reg::ECX, pack_u32(b"GHz "));
+        bstr.set_reg_for_leaf(0x8000_0003, Reg::EBX, pack_u32(b"5.20"));
+        bstr.set_reg_for_leaf(0x8000_0003, Reg::ECX, pack_u32(b"GHz "));
         assert_eq!(bstr.find_freq().unwrap(), b"5.20GHz");
 
         let _overflow: [u8; 50] = [b'a'; 50];
@@ -319,7 +320,7 @@ mod tests {
         //
         match BrandString::from_host_cpuid() {
             Ok(bstr) => {
-                for leaf in 0x80000002..=0x80000004_u32 {
+                for leaf in 0x8000_0002..=0x8000_0004_u32 {
                     let host_regs = unsafe { host_cpuid(leaf) };
                     assert_eq!(bstr.get_reg_for_leaf(leaf, Reg::EAX), host_regs.eax);
                     assert_eq!(bstr.get_reg_for_leaf(leaf, Reg::EBX), host_regs.ebx);
@@ -330,8 +331,8 @@ mod tests {
             Err(Error::NotSupported) => {
                 // from_host_cpuid() should only fail if the host CPU doesn't support
                 // CPUID leaves up to 0x80000004, so let's make sure that's what happened.
-                let host_regs = unsafe { host_cpuid(0x80000000) };
-                assert!(host_regs.eax < 0x80000004);
+                let host_regs = unsafe { host_cpuid(0x8000_0000) };
+                assert!(host_regs.eax < 0x8000_0004);
             }
             _ => assert!(
                 false,

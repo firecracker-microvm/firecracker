@@ -329,6 +329,7 @@ mod tests {
 
     use clap_app;
 
+    #[allow(clippy::too_many_arguments)]
     fn make_args<'a>(
         node: &str,
         id: &str,

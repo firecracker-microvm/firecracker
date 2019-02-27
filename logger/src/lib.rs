@@ -847,6 +847,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_init() {
         let app_info = AppInfo::new(TEST_APP_NAME, TEST_APP_VERSION);
 
@@ -876,7 +877,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{:?}",
-                l.init(&app_info, TEST_INSTANCE_ID, log_file.clone(), metrics_file.clone(), &vec![Value::Bool(true)])
+                l.init(&app_info, TEST_INSTANCE_ID, log_file.clone(), metrics_file.clone(), &[Value::Bool(true)])
                     .err()
             ),
             "Some(NeverInitialized(\"Could not set option flags: Invalid log option: Bool(true)\"))"
@@ -889,7 +890,7 @@ mod tests {
                     TEST_INSTANCE_ID,
                     log_file.clone(),
                     metrics_file.clone(),
-                    &vec![Value::String("foobar".to_string())]
+                    &[Value::String("foobar".to_string())]
                 )
                 .err()
             ),
@@ -915,7 +916,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 log_file.clone(),
                 metrics_file.clone(),
-                &vec![Value::String("LogDirtyPages".to_string())]
+                &[Value::String("LogDirtyPages".to_string())]
             )
             .is_ok());
 
@@ -928,7 +929,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 log_file.clone(),
                 metrics_file.clone(),
-                &vec![]
+                &[]
             )
             .is_err());
 
@@ -966,7 +967,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 String::from(""),
                 metrics_file.clone(),
-                &vec![]
+                &[]
             )
             .is_err());
 
@@ -975,7 +976,7 @@ mod tests {
             TEST_INSTANCE_ID,
             log_file.clone(),
             String::from(""),
-            &vec![],
+            &[],
         );
         assert!(res.is_err());
 
@@ -1010,7 +1011,7 @@ mod tests {
                     TEST_INSTANCE_ID,
                     log_file.clone(),
                     metrics_file.clone(),
-                    &vec![]
+                    &[]
                 )
                 .err()
             ),

@@ -492,6 +492,7 @@ mod tests {
         TcpSegment::from_bytes(p.payload_mut(), None).unwrap()
     }
 
+    #[allow(clippy::type_complexity)]
     fn write_next<'a>(
         h: &mut TcpIPv4Handler,
         buf: &'a mut [u8],
@@ -546,6 +547,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_handler() {
         let mut buf = [0u8; 100];
         let mut buf2 = [0u8; 2000];
@@ -695,13 +697,7 @@ mod tests {
 
         // Let's ACK the SYNACK.
         {
-            let seq = h
-                .connections
-                .get(&remote_tuple)
-                .unwrap()
-                .connection()
-                .first_not_sent()
-                .0;
+            let seq = h.connections[&remote_tuple].connection().first_not_sent().0;
             inner_tcp_mut(&mut p)
                 .set_flags_after_ns(TcpFlags::ACK)
                 .set_ack_number(seq);

@@ -109,6 +109,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::eq_op)]
     fn cmp() {
         let a = GuestAddress(0x300);
         let b = GuestAddress(0x301);
@@ -135,8 +136,8 @@ mod tests {
 
     #[test]
     fn checked_add_overflow() {
-        let a = GuestAddress(0xffffffffffffff55);
-        assert_eq!(Some(GuestAddress(0xffffffffffffff57)), a.checked_add(2));
+        let a = GuestAddress(0xffff_ffff_ffff_ff55);
+        assert_eq!(Some(GuestAddress(0xffff_ffff_ffff_ff57)), a.checked_add(2));
         assert!(a.checked_add(0xf0).is_none());
     }
 

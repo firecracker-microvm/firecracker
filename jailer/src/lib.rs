@@ -378,6 +378,7 @@ mod tests {
         assert!(fs::remove_dir_all(tmp_dir_path).is_ok());
     }
 
+    #[allow(clippy::cyclomatic_complexity)]
     #[test]
     fn test_error_display() {
         let path = PathBuf::from("/foo");
@@ -420,19 +421,19 @@ mod tests {
             "Found more than one cgroups configuration line in /proc/mounts for sysfs",
         );
         assert_eq!(
-            format!("{}", Error::ChangeFileOwner(err42.clone(), "/dev/net/tun")),
+            format!("{}", Error::ChangeFileOwner(err42, "/dev/net/tun")),
             "Failed to change owner for /dev/net/tun: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::ChdirNewRoot(err42.clone())),
+            format!("{}", Error::ChdirNewRoot(err42)),
             "Failed to chdir into chroot directory: Errno 42"
         );
         assert_eq!(
-            format!("{}", Error::CloseNetNsFd(err42.clone())),
+            format!("{}", Error::CloseNetNsFd(err42)),
             "Failed to close netns fd: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::CloseDevNullFd(err42.clone())),
+            format!("{}", Error::CloseDevNullFd(err42)),
             "Failed to close /dev/null fd: Errno 42",
         );
         assert_eq!(
@@ -461,7 +462,7 @@ mod tests {
             "Encountered interior \\0 while parsing a string",
         );
         assert_eq!(
-            format!("{}", Error::Dup2(err42.clone())),
+            format!("{}", Error::Dup2(err42)),
             "Failed to duplicate fd: Errno 42",
         );
         assert_eq!(
@@ -484,7 +485,7 @@ mod tests {
             "Failed to decode string from byte array: [47, 0]",
         );
         assert_eq!(
-            format!("{}", Error::GetOldFdFlags(err42.clone())),
+            format!("{}", Error::GetOldFdFlags(err42)),
             "Failed to get flags from fd: Errno 42",
         );
         assert_eq!(
@@ -507,19 +508,19 @@ mod tests {
             "File /foo/bar doesn't have a parent",
         );
         assert_eq!(
-            format!("{}", Error::MkdirOldRoot(err42.clone())),
+            format!("{}", Error::MkdirOldRoot(err42)),
             "Failed to create the jail root directory before pivoting root: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::MknodDev(err42.clone(), "/dev/net/tun")),
+            format!("{}", Error::MknodDev(err42, "/dev/net/tun")),
             "Failed to create /dev/net/tun via mknod inside the jail: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::MountBind(err42.clone())),
+            format!("{}", Error::MountBind(err42)),
             "Failed to bind mount the jail root directory: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::MountPropagationPrivate(err42.clone())),
+            format!("{}", Error::MountPropagationPrivate(err42)),
             "Failed to change the propagation type to private: Errno 42",
         );
         assert_eq!(
@@ -531,7 +532,7 @@ mod tests {
             "Invalid numa node: foobar",
         );
         assert_eq!(
-            format!("{}", Error::OpenDevNull(err42.clone())),
+            format!("{}", Error::OpenDevNull(err42)),
             "Failed to open /dev/null: Errno 42",
         );
         assert_eq!(
@@ -542,7 +543,7 @@ mod tests {
             "Failed to parse path /foo/bar into an OsString",
         );
         assert_eq!(
-            format!("{}", Error::PivotRoot(err42.clone())),
+            format!("{}", Error::PivotRoot(err42)),
             "Failed to pivot root: Errno 42",
         );
         assert_eq!(
@@ -564,7 +565,7 @@ mod tests {
             format!("Regex failed: {:?}", err_regex),
         );
         assert_eq!(
-            format!("{}", Error::RmOldRootDir(err42.clone())),
+            format!("{}", Error::RmOldRootDir(err42)),
             "Failed to remove old jail root directory: Errno 42",
         );
         assert_eq!(
@@ -576,11 +577,11 @@ mod tests {
             format!("Failed to change current directory: {}", err2_str),
         );
         assert_eq!(
-            format!("{}", Error::SetNetNs(err42.clone())),
+            format!("{}", Error::SetNetNs(err42)),
             "Failed to join network namespace: netns: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::SetSid(err42.clone())),
+            format!("{}", Error::SetSid(err42)),
             "Failed to daemonize: setsid: Errno 42",
         );
         assert_eq!(
@@ -588,7 +589,7 @@ mod tests {
             "Invalid uid: foobar",
         );
         assert_eq!(
-            format!("{}", Error::UmountOldRoot(err42.clone())),
+            format!("{}", Error::UmountOldRoot(err42)),
             "Failed to unmount the old jail root: Errno 42",
         );
         assert_eq!(
@@ -596,11 +597,11 @@ mod tests {
             "Unexpected value for the socket listener fd: 42",
         );
         assert_eq!(
-            format!("{}", Error::UnshareNewNs(err42.clone())),
+            format!("{}", Error::UnshareNewNs(err42)),
             "Failed to unshare into new mount namespace: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::UnsetCloexec(err42.clone())),
+            format!("{}", Error::UnsetCloexec(err42)),
             "Failed to unset the O_CLOEXEC flag on the socket fd: Errno 42",
         );
         assert_eq!(

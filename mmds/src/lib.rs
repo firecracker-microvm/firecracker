@@ -208,7 +208,7 @@ mod tests {
 
         let request = b"GET http://169.254.169.254/age HTTP/1.0\r\n";
         let mut expected_response = Response::new(Version::Http10, StatusCode::InternalServerError);
-        let body = format!("The resource /age has an invalid format.");
+        let body = "The resource /age has an invalid format.".to_string();
         expected_response.set_body(Body::new(body));
         let actual_response = parse_request(request);
         assert!(expected_response.status() == actual_response.status());

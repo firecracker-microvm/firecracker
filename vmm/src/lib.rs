@@ -2033,7 +2033,7 @@ mod tests {
             }
         }
 
-        fn remove_addr(&mut self, id: &String) {
+        fn remove_addr(&mut self, id: &str) {
             self.mmio_device_manager
                 .as_mut()
                 .unwrap()
@@ -2151,14 +2151,13 @@ mod tests {
         }));
 
         let (_to_vmm, from_api) = channel();
-        let vmm = Vmm::new(
+        Vmm::new(
             shared_info,
             EventFd::new().expect("cannot create eventFD"),
             from_api,
             seccomp::SECCOMP_LEVEL_ADVANCED,
         )
-        .expect("Cannot Create VMM");
-        return vmm;
+        .expect("Cannot Create VMM")
     }
 
     #[test]
@@ -2281,7 +2280,7 @@ mod tests {
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
             host_dev_name: String::from("hostname2"),
-            guest_mac: Some(mac.clone()),
+            guest_mac: Some(mac),
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
@@ -2408,6 +2407,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_machine_configuration() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
 
@@ -2869,7 +2869,6 @@ mod tests {
         // Test rescan_block_device with invalid ID.
         match vmm.rescan_block_device(&"foo".to_string()) {
             Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
-                ()
             }
             _ => assert!(false),
         }
@@ -2886,7 +2885,6 @@ mod tests {
         vmm.remove_addr(&scratch_id);
         match vmm.rescan_block_device(&scratch_id) {
             Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
-                ()
             }
             _ => assert!(false),
         }

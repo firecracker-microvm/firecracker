@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn field_parse() {
-        let gdt = gdt_entry(0xA09B, 0x100000, 0xfffff);
+        let gdt = gdt_entry(0xA09B, 0x10_0000, 0xfffff);
         let seg = kvm_segment_from_gdt(gdt, 0);
         // 0xA09B
         // 'A'
@@ -108,7 +108,7 @@ mod tests {
         // 'B'
         assert_eq!(0xB, seg.type_);
         // base and limit
-        assert_eq!(0x100000, seg.base);
+        assert_eq!(0x10_0000, seg.base);
         assert_eq!(0xfffff, seg.limit);
         assert_eq!(0x0, seg.unusable);
     }

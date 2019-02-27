@@ -1114,6 +1114,7 @@ mod tests {
         n.activate(mem.clone(), interrupt_evt, status, queues, queue_evts)
     }
 
+    #[allow(clippy::needless_lifetimes)]
     fn default_test_netepollhandler<'a>(
         mem: &'a GuestMemory,
         test_mutators: TestMutators,
@@ -1173,6 +1174,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_virtio_device() {
         let mac = MacAddr::parse_str("11:22:33:44:55:66").unwrap();
         let mut dummy = DummyNet::new(Some(&mac));

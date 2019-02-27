@@ -719,7 +719,7 @@ mod tests {
     #[test]
     fn test_basic_seccomp() {
         let mut rules = ALLOWED_SYSCALLS.to_vec();
-        rules.extend(vec![
+        rules.extend(&[
             libc::SYS_clone,
             libc::SYS_mprotect,
             libc::SYS_rt_sigprocmask,
@@ -733,7 +733,7 @@ mod tests {
     fn test_advanced_seccomp() {
         // Sets up context with additional rules required by the test.
         let mut context = default_context().unwrap();
-        for rule in vec![
+        for rule in &[
             libc::SYS_clone,
             libc::SYS_mprotect,
             libc::SYS_rt_sigprocmask,
@@ -742,7 +742,7 @@ mod tests {
         ] {
             assert!(context
                 .add_rules(
-                    rule,
+                    *rule,
                     None,
                     vec![seccomp::SeccompRule::new(
                         vec![],

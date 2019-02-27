@@ -1070,7 +1070,7 @@ pub(crate) mod tests {
                 mss: 1100,
                 mss_reserved: 0,
                 local_rwnd_size: 10000,
-                remote_isn: 12345678,
+                remote_isn: 12_345_678,
                 rto_period: 100_000,
                 rto_count_max: 3,
                 now: 0,
@@ -1127,8 +1127,7 @@ pub(crate) mod tests {
             buf: &'a mut [u8],
             data_buf: &[u8],
         ) -> TcpSegment<'a, &'a mut [u8]> {
-            let segment =
-                self.write_segment_helper(buf, false, Some((data_buf.as_ref(), data_buf.len())));
+            let segment = self.write_segment_helper(buf, false, Some((data_buf, data_buf.len())));
             assert_eq!(segment.payload_len(), data_buf.len());
             segment
         }
@@ -1266,6 +1265,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_connection() {
         // These are used to support some segments we play around with.
         let mut buf1 = [0u8; 100];
@@ -1313,7 +1313,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             c.remote_rwnd_edge,
-            c.first_not_sent + Wrapping(t.remote_window_size as u32)
+            c.first_not_sent + Wrapping(u32::from(t.remote_window_size))
         );
         check_syn_received(&c);
 
@@ -1563,14 +1563,14 @@ pub(crate) mod tests {
         // The mss is 1100, and the remote window is 11000, so we can send 10 data packets.
         let max = 10;
         let remote_isn = t.remote_isn;
-        let mss = t.mss as u32;
+        let mss = u32::from(t.mss);
 
         for i in 0..max {
             // Using the expects to get the value of i if there's an error.
             let s = t
                 .write_next_segment(&mut c, payload_src)
-                .expect(format!("{}", i).as_ref())
-                .expect(format!("{}", i).as_ref());
+                .unwrap_or_else(|_| panic!("{}", i))
+                .unwrap_or_else(|| panic!("{}", i));
 
             // Again, the 1 accounts for the sequence number taken up by the SYN.
             assert_eq!(s.sequence_number(), conn_isn.wrapping_add(1 + i * mss));

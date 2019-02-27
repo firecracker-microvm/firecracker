@@ -422,13 +422,14 @@ mod tests {
 
     impl VirtioDevice for DummyDevice {
         fn device_type(&self) -> u32 {
-            return 123;
+            123
         }
 
         fn queue_max_sizes(&self) -> &[u16] {
             &[16, 32]
         }
 
+        #[allow(clippy::needless_range_loop)]
         fn read_config(&self, offset: u64, data: &mut [u8]) {
             for i in 0..data.len() {
                 data[i] = self.config_bytes[offset as usize + i];
@@ -436,8 +437,8 @@ mod tests {
         }
 
         fn write_config(&mut self, offset: u64, data: &[u8]) {
-            for i in 0..data.len() {
-                self.config_bytes[offset as usize + i] = data[i];
+            for (i, item) in data.iter().enumerate() {
+                self.config_bytes[offset as usize + i] = *item;
             }
         }
 
@@ -590,6 +591,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_bus_device_write() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
 
@@ -626,8 +628,8 @@ mod tests {
             d.write(0x100 + i as u64, &buf1[i..]);
             d.read(0x100, &mut buf2[..]);
 
-            for j in 0..0xeff {
-                assert_eq!(buf2[j], 0);
+            for item in buf2.iter().take(0xeff) {
+                assert_eq!(*item, 0);
             }
         }
 
@@ -705,19 +707,19 @@ mod tests {
             DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK,
         );
 
-        d.interrupt_status.store(0b101010, Ordering::Relaxed);
+        d.interrupt_status.store(0b10_1010, Ordering::Relaxed);
         LittleEndian::write_u32(&mut buf[..], 0b111);
         d.write(0x64, &buf[..]);
-        assert_eq!(d.interrupt_status.load(Ordering::Relaxed), 0b101000);
+        assert_eq!(d.interrupt_status.load(Ordering::Relaxed), 0b10_1000);
 
         // Write to an invalid address in generic register range.
         LittleEndian::write_u32(&mut buf[..], 0xf);
         d.config_generation = 0;
-        d.write(0xfb, &mut buf[..]);
+        d.write(0xfb, &buf[..]);
         assert_eq!(d.config_generation, 0);
 
         // Write to an invalid length in generic register range.
-        d.write(0xfc, &mut buf[..2]);
+        d.write(0xfc, &buf[..2]);
         assert_eq!(d.config_generation, 0);
 
         // Here we test writes/read into/from the device specific configuration space.
@@ -728,8 +730,8 @@ mod tests {
             d.write(0x100 + i as u64, &buf1[i..]);
             d.read(0x100, &mut buf2[..]);
 
-            for j in 0..i {
-                assert_eq!(buf2[j], 0);
+            for item in buf2.iter().take(i) {
+                assert_eq!(*item, 0);
             }
 
             assert_eq!(buf1[i..], buf2[i..]);

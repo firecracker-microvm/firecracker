@@ -187,7 +187,7 @@ mod tests {
     impl<'a> PartialEq for Request<'a> {
         fn eq(&self, other: &Request) -> bool {
             // Ignore the other fields of Request for now because they are not used.
-            return self.request_line == other.request_line;
+            self.request_line == other.request_line
         }
     }
 
