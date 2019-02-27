@@ -460,21 +460,17 @@ impl VmFd {
     /// * `memory_size` - Size of the memory region.
     ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_and_reset_dirty_page_bitmap(
-        &self,
-        slot: u32,
-        memory_size: usize,
-    ) -> Result<Vec<u64>> {
-        let memsize_multiplier = 4096 * 64;
-        // Assert that the memory size is a multiple of 128k (which it must be, because the config
-        // is in megabytes).
-        assert!(
-            memory_size % memsize_multiplier == 0,
-            "memory size {} is not a multiple of 128kB",
-            memory_size
-        );
-        // Create a vec with at least one bit per page of guest memory in this slot.
-        let bitmap_size = memory_size / memsize_multiplier;
+    pub fn get_dirty_log(&self, slot: u32, memory_size: usize) -> Result<Vec<u64>> {
+        // Compute the length of the bitmap needed for all dirty pages in one memory slot.
+        // One memory page is 4KiB (4096 bits) and KVM_GET_DIRTY_LOG returns one dirty bit for
+        // each page.
+        let page_size = 4 << 10;
+
+        let div_round_up = |dividend, divisor| (dividend + divisor - 1) / divisor;
+        // For ease of access we are saving the bitmap in a u64 vector. If `mem_size` is not a
+        // multiple of `page_size * 64`, we use a ceil function to compute the capacity of the
+        // bitmap. This way we make sure that all dirty pages are added to the bitmap.
+        let bitmap_size = div_round_up(memory_size, page_size * 64);
         let mut bitmap = vec![0; bitmap_size];
         let b_data = bitmap.as_mut_ptr() as *mut c_void;
         let dirtylog = kvm_dirty_log {
@@ -1390,7 +1386,7 @@ mod tests {
             0xf4, /* hlt */
         ];
 
-        let mem_size = 0x40000;
+        let mem_size = 0x4000;
         let load_addr = mmap_anonymous(mem_size);
         let guest_addr: u64 = 0x1000;
         let slot: u32 = 0;
@@ -1451,8 +1447,7 @@ mod tests {
                     // The code snippet dirties 2 pages:
                     // * one when the code itself is loaded in memory;
                     // * and one more from the `movl` that writes to address 0x2000
-                    let dirty_pages_bitmap =
-                        vm.get_and_reset_dirty_page_bitmap(slot, mem_size).unwrap();
+                    let dirty_pages_bitmap = vm.get_dirty_log(slot, mem_size).unwrap();
                     let dirty_pages = dirty_pages_bitmap
                         .into_iter()
                         .map(|page| page.count_ones())
