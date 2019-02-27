@@ -376,7 +376,6 @@ dependencies = [
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "kvm-bindings 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.47 (registry+https://github.com/rust-lang/crates.io-index)",
- "memory_model 0.1.0",
  "sys_util 0.1.0",
 ]
 
