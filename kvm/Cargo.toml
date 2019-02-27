@@ -7,7 +7,6 @@ authors = ["The Chromium OS Authors"]
 kvm-bindings = "0.1"
 libc = ">=0.2.39"
 
-memory_model = { path = "../memory_model" }
 sys_util = { path = "../sys_util" }
 
 [dev-dependencies]

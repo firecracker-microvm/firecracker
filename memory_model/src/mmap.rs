@@ -10,7 +10,6 @@
 
 use std;
 use std::io::{self, Read, Write};
-use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
 
 use libc;
@@ -63,33 +62,6 @@ impl MemoryMapping {
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_ANONYMOUS | libc::MAP_SHARED | libc::MAP_NORESERVE,
                 -1,
-                0,
-            )
-        };
-        if addr == libc::MAP_FAILED {
-            return Err(Error::SystemCallFailed(io::Error::last_os_error()));
-        }
-        Ok(MemoryMapping {
-            addr: addr as *mut u8,
-            size,
-        })
-    }
-
-    /// Maps the first `size` bytes of the given `fd`.
-    ///
-    /// # Arguments
-    /// * `fd` - File descriptor to mmap from.
-    /// * `size` - Size of memory region in bytes.
-    pub fn from_fd(fd: &AsRawFd, size: usize) -> Result<MemoryMapping> {
-        // This is safe because we are creating a mapping in a place not already used by any other
-        // area in this process.
-        let addr = unsafe {
-            libc::mmap(
-                null_mut(),
-                size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED,
-                fd.as_raw_fd(),
                 0,
             )
         };
@@ -339,7 +311,6 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::mem;
-    use std::os::unix::io::FromRawFd;
     use std::path::Path;
 
     #[test]
@@ -356,22 +327,6 @@ mod tests {
             Err(err) => {
                 if let Error::SystemCallFailed(e) = err {
                     assert_eq!(e.raw_os_error(), Some(libc::EINVAL));
-                } else {
-                    panic!("unexpected error: {:?}", err);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn map_invalid_fd() {
-        let fd = unsafe { std::fs::File::from_raw_fd(-1) };
-        let res = MemoryMapping::from_fd(&fd, 1024);
-        match res {
-            Ok(_) => panic!("should panic!"),
-            Err(err) => {
-                if let Error::SystemCallFailed(e) = err {
-                    assert_eq!(e.raw_os_error(), Some(libc::EBADF));
                 } else {
                     panic!("unexpected error: {:?}", err);
                 }
@@ -452,17 +407,5 @@ mod tests {
             mem_map.write_from_memory(2, &mut sink, mem::size_of::<u32>())
         );
         assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
-    }
-
-    #[test]
-    fn mapped_file_read() {
-        let mut f = tempfile().unwrap();
-        let sample_buf = &[1, 2, 3, 4, 5];
-        assert!(f.write_all(sample_buf).is_ok());
-
-        let mem_map = MemoryMapping::from_fd(&f, sample_buf.len()).unwrap();
-        let buf = &mut [0u8; 16];
-        assert_eq!(mem_map.read_slice(buf, 0).unwrap(), sample_buf.len());
-        assert_eq!(buf[0..sample_buf.len()], sample_buf[..]);
     }
 }

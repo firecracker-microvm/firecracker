@@ -12,7 +12,6 @@
 extern crate libc;
 
 extern crate kvm_bindings;
-extern crate memory_model;
 #[macro_use]
 extern crate sys_util;
 
@@ -24,12 +23,12 @@ use std::io;
 use std::mem::size_of;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::ptr::null_mut;
 use std::result;
 
 use libc::{open, EINVAL, O_CLOEXEC, O_RDWR};
 
 use kvm_bindings::*;
-use memory_model::{MemoryMapping, MemoryMappingError};
 use sys_util::EventFd;
 use sys_util::{
     ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref, ioctl_with_val,
@@ -267,6 +266,62 @@ impl Into<u64> for NoDatamatch {
     }
 }
 
+/// A safe wrapper over the `kvm_run` struct.
+///
+/// The wrapper is needed for sending the pointer to `kvm_run` between
+/// threads as raw pointers do not implement `Send` and `Sync`.
+pub struct KvmRunWrapper {
+    kvm_run_ptr: *mut u8,
+}
+
+// Send and Sync aren't automatically inherited for the raw address pointer.
+// Accessing that pointer is only done through the stateless interface which
+// allows the object to be shared by multiple threads without a decrease in
+// safety.
+unsafe impl Send for KvmRunWrapper {}
+unsafe impl Sync for KvmRunWrapper {}
+
+impl KvmRunWrapper {
+    /// Maps the first `size` bytes of the given `fd`.
+    ///
+    /// # Arguments
+    /// * `fd` - File descriptor to mmap from.
+    /// * `size` - Size of memory region in bytes.
+    pub fn from_fd(fd: &AsRawFd, size: usize) -> Result<KvmRunWrapper> {
+        // This is safe because we are creating a mapping in a place not already used by any other
+        // area in this process.
+        let addr = unsafe {
+            libc::mmap(
+                null_mut(),
+                size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd.as_raw_fd(),
+                0,
+            )
+        };
+        if addr == libc::MAP_FAILED {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok(KvmRunWrapper {
+            kvm_run_ptr: addr as *mut u8,
+        })
+    }
+
+    /// Returns a mutable reference to `kvm_run`.
+    ///
+    #[allow(clippy::mut_from_ref)]
+    pub fn as_mut_ref(&self) -> &mut kvm_run {
+        // Safe because we know we mapped enough memory to hold the `kvm_run` struct because the
+        // kernel told us how large it was.
+        #[allow(clippy::cast_ptr_alignment)]
+        unsafe {
+            &mut *(self.kvm_run_ptr as *mut kvm_run)
+        }
+    }
+}
+
 /// A wrapper around creating and using a VM.
 pub struct VmFd {
     vm: File,
@@ -489,18 +544,9 @@ impl VmFd {
         // the value of the fd and we own the fd.
         let vcpu = unsafe { File::from_raw_fd(vcpu_fd) };
 
-        let run_mmap = MemoryMapping::from_fd(&vcpu, self.run_size).map_err(|mmap_err| {
-            match mmap_err {
-                MemoryMappingError::SystemCallFailed(raw_os_err) => raw_os_err,
-                _ => {
-                    // MemoryMapping::from_fd should only return a SystemCallFailed error.
-                    // Otherwise we have an logical error in our code so we should panic.
-                    panic!("Received unexpected error: {:?}.", mmap_err);
-                }
-            }
-        })?;
+        let kvm_run_ptr = KvmRunWrapper::from_fd(&vcpu, self.run_size)?;
 
-        Ok(VcpuFd { vcpu, run_mmap })
+        Ok(VcpuFd { vcpu, kvm_run_ptr })
     }
 }
 
@@ -583,7 +629,7 @@ pub enum VcpuExit<'a> {
 /// A wrapper around creating and using a kvm related VCPU fd
 pub struct VcpuFd {
     vcpu: File,
-    run_mmap: MemoryMapping,
+    kvm_run_ptr: KvmRunWrapper,
 }
 
 impl VcpuFd {
@@ -791,24 +837,13 @@ impl VcpuFd {
         Ok(())
     }
 
-    /// Returns a reference to the `kvm_run` structure obtained by mmap-ing the associated `VcpuFd`.
-    #[allow(clippy::mut_from_ref)]
-    fn get_run(&self) -> &mut kvm_run {
-        // Safe because we know we mapped enough memory to hold the kvm_run struct because the
-        // kernel told us how large it was.
-        #[allow(clippy::cast_ptr_alignment)]
-        unsafe {
-            &mut *(self.run_mmap.as_ptr() as *mut kvm_run)
-        }
-    }
-
     /// Triggers the running of the current virtual CPU returning an exit reason.
     ///
     pub fn run(&self) -> Result<VcpuExit> {
         // Safe because we know that our file is a VCPU fd and we verify the return result.
         let ret = unsafe { ioctl(self, KVM_RUN()) };
         if ret == 0 {
-            let run = self.get_run();
+            let run = self.kvm_run_ptr.as_mut_ref();
             match run.exit_reason {
                 // make sure you treat all possible exit reasons from include/uapi/linux/kvm.h corresponding
                 // when upgrading to a different kernel version
@@ -953,14 +988,12 @@ impl CpuId {
 
     /// Get a  pointer so it can be passed to the kernel. Using this pointer is unsafe.
     ///
-    #[allow(clippy::cast_ptr_alignment)]
     pub fn as_ptr(&self) -> *const kvm_cpuid2 {
         &self.kvm_cpuid[0]
     }
 
     /// Get a mutable pointer so it can be passed to the kernel. Using this pointer is unsafe.
     ///
-    #[allow(clippy::cast_ptr_alignment)]
     pub fn as_mut_ptr(&mut self) -> *mut kvm_cpuid2 {
         &mut self.kvm_cpuid[0]
     }
@@ -972,8 +1005,6 @@ mod tests {
 
     use super::*;
 
-    use memory_model::{GuestAddress, GuestMemory};
-
     // as per https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/fpu/internal.h
     pub const KVM_FPU_CWD: usize = 0x37f;
     pub const KVM_FPU_MXCSR: usize = 0x1f80;
@@ -981,6 +1012,34 @@ mod tests {
     impl VmFd {
         fn get_run_size(&self) -> usize {
             self.run_size
+        }
+    }
+
+    // Helper function for mmap an anonymous memory of `size`.
+    // Panics if the mmap fails.
+    fn mmap_anonymous(size: usize) -> *mut u8 {
+        let addr = unsafe {
+            libc::mmap(
+                null_mut(),
+                size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_ANONYMOUS | libc::MAP_SHARED | libc::MAP_NORESERVE,
+                -1,
+                0,
+            )
+        };
+        if addr == libc::MAP_FAILED {
+            panic!("mmap failed.");
+        }
+
+        return addr as *mut u8;
+    }
+
+    impl KvmRunWrapper {
+        fn new(size: usize) -> Self {
+            KvmRunWrapper {
+                kvm_run_ptr: mmap_anonymous(size),
+            }
         }
     }
 
@@ -1022,36 +1081,33 @@ mod tests {
     }
 
     #[test]
-    fn trigger_exceeded_memory_slots() {
-        let kvm = Kvm::new().expect("new Kvm failed");
+    fn test_faulty_memory_region_slot() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
         let max_mem_slots = kvm.get_nr_memslots();
 
-        // Below we are creating an array representing memory regions with a dimension that is
-        // bigger than the maximum allowed slots.
         let mem_size = 1 << 20;
-        let start_addr = GuestAddress(0x0);
-        let mut mem_vec = vec![];
-        for i in 1..=max_mem_slots + 1 {
-            mem_vec.push((
-                start_addr.checked_add(i as usize * mem_size).unwrap(),
-                mem_size,
-            ))
-        }
-        let mem = GuestMemory::new(&mem_vec).unwrap();
-        let vm = kvm.create_vm().unwrap();
+        let userspace_addr = mmap_anonymous(mem_size) as u64;
+        let region_addr: usize = 0x0;
 
-        assert!(mem
-            .with_regions(|index, guest_addr, size, host_addr| {
-                let mem_region = kvm_userspace_memory_region {
-                    slot: index as u32,
-                    guest_phys_addr: guest_addr.offset() as u64,
-                    memory_size: size as u64,
-                    userspace_addr: host_addr as u64,
-                    flags: 0,
-                };
-                vm.set_user_memory_region(mem_region)
-            })
-            .is_err());
+        // KVM is checking that the memory region slot is less than KVM_CAP_NR_MEMSLOTS.
+        // Valid slots are in the interval [0, KVM_CAP_NR_MEMSLOTS).
+        let mem_region = kvm_userspace_memory_region {
+            slot: max_mem_slots as u32,
+            guest_phys_addr: region_addr as u64,
+            memory_size: mem_size as u64,
+            userspace_addr: userspace_addr as u64,
+            flags: 0,
+        };
+
+        // KVM returns -EINVAL (22) when the slot > KVM_CAP_NR_MEMSLOTS.
+        assert_eq!(
+            vm.set_user_memory_region(mem_region)
+                .unwrap_err()
+                .raw_os_error()
+                .unwrap(),
+            22
+        );
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1318,6 +1374,10 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn run_code_test() {
+        use std::io::Write;
+
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
         // This example based on https://lwn.net/Articles/658511/
         let code = [
             0xba, 0xf8, 0x03, /* mov $0x3f8, %dx */
@@ -1331,28 +1391,26 @@ mod tests {
         ];
 
         let mem_size = 0x40000;
-        let load_addr = GuestAddress(0x1000);
-        let mem = GuestMemory::new(&[(load_addr, mem_size)]).unwrap();
+        let load_addr = mmap_anonymous(mem_size);
+        let guest_addr: u64 = 0x1000;
+        let slot: u32 = 0;
+        let mem_region = kvm_userspace_memory_region {
+            slot,
+            guest_phys_addr: guest_addr,
+            memory_size: mem_size as u64,
+            userspace_addr: load_addr as u64,
+            flags: KVM_MEM_LOG_DIRTY_PAGES,
+        };
+        vm.set_user_memory_region(mem_region).unwrap();
 
-        let kvm = Kvm::new().expect("new Kvm failed");
+        unsafe {
+            // Get a mutable slice of `mem_size` from `load_addr`.
+            // This is safe because we mapped it before.
+            let mut slice = std::slice::from_raw_parts_mut(load_addr, mem_size);
+            slice.write(&code).unwrap();
+        }
 
-        let vm_fd = kvm.create_vm().expect("new VmFd failed");
-        mem.with_regions(|index, guest_addr, size, host_addr| {
-            let mem_region = kvm_userspace_memory_region {
-                slot: index as u32,
-                guest_phys_addr: guest_addr.offset() as u64,
-                memory_size: size as u64,
-                userspace_addr: host_addr as u64,
-                flags: KVM_MEM_LOG_DIRTY_PAGES,
-            };
-            // Safe because the guest regions are guaranteed not to overlap.
-            vm_fd.set_user_memory_region(mem_region)
-        })
-        .expect("Cannot configure guest memory");
-        mem.write_slice_at_addr(&code, load_addr)
-            .expect("Writing code to memory failed");
-
-        let vcpu_fd = vm_fd.create_vcpu(0).expect("new VcpuFd failed");
+        let vcpu_fd = vm.create_vcpu(0).expect("new VcpuFd failed");
 
         let mut vcpu_sregs = vcpu_fd.get_sregs().expect("get sregs failed");
         assert_ne!(vcpu_sregs.cs.base, 0);
@@ -1362,7 +1420,8 @@ mod tests {
         vcpu_fd.set_sregs(&vcpu_sregs).expect("set sregs failed");
 
         let mut vcpu_regs = vcpu_fd.get_regs().expect("get regs failed");
-        vcpu_regs.rip = 0x1000;
+        // Set the Instruction Pointer to the guest address where we loaded the code.
+        vcpu_regs.rip = guest_addr;
         vcpu_regs.rax = 2;
         vcpu_regs.rbx = 3;
         vcpu_regs.rflags = 2;
@@ -1389,24 +1448,15 @@ mod tests {
                     assert_eq!(data[0], 0);
                 }
                 VcpuExit::Hlt => {
-                    let dirty_pages = mem.map_and_fold(
-                        0,
-                        |(slot, memory_region)| {
-                            let bitmap = vm_fd
-                                .get_and_reset_dirty_page_bitmap(slot as u32, memory_region.size());
-                            match bitmap {
-                                Ok(v) => v
-                                    .iter()
-                                    .fold(0, |init, page| init + page.count_ones() as usize),
-                                Err(_) => 0,
-                            }
-                        },
-                        |dirty_pages, region_dirty_pages| dirty_pages + region_dirty_pages,
-                    );
-
                     // The code snippet dirties 2 pages:
                     // * one when the code itself is loaded in memory;
-                    // * and one more from the `movl` that writes to address 0x2000.
+                    // * and one more from the `movl` that writes to address 0x2000
+                    let dirty_pages_bitmap =
+                        vm.get_and_reset_dirty_page_bitmap(slot, mem_size).unwrap();
+                    let dirty_pages = dirty_pages_bitmap
+                        .into_iter()
+                        .map(|page| page.count_ones())
+                        .fold(0, |dirty_page_count, i| dirty_page_count + i);
                     assert_eq!(dirty_pages, 2);
                     break;
                 }
@@ -1470,7 +1520,7 @@ mod tests {
         assert_eq!(get_raw_errno(faulty_vm_fd.create_vcpu(0)), badf_errno);
         let faulty_vcpu_fd = VcpuFd {
             vcpu: unsafe { File::from_raw_fd(-1) },
-            run_mmap: MemoryMapping::new(10).unwrap(),
+            kvm_run_ptr: KvmRunWrapper::new(10),
         };
         assert_eq!(get_raw_errno(faulty_vcpu_fd.get_regs()), badf_errno);
         assert_eq!(
