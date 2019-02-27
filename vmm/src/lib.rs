@@ -1442,7 +1442,7 @@ impl Vmm {
                     let bitmap = self
                         .vm
                         .get_fd()
-                        .get_and_reset_dirty_page_bitmap(slot as u32, memory_region.size());
+                        .get_dirty_log(slot as u32, memory_region.size());
                     match bitmap {
                         Ok(v) => v
                             .iter()
