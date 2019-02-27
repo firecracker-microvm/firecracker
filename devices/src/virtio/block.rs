@@ -720,7 +720,7 @@ mod tests {
             f.set_len(0x1000).unwrap();
 
             // Rate limiting is enabled but with a high operation rate (10 million ops/s).
-            let rate_limiter = RateLimiter::new(0, None, 0, 100000, None, 10).unwrap();
+            let rate_limiter = RateLimiter::new(0, None, 0, 100_000, None, 10).unwrap();
             DummyBlock {
                 block: Block::new(f, is_disk_read_only, epoll_config, Some(rate_limiter)).unwrap(),
                 epoll_raw_fd,
@@ -739,6 +739,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::needless_lifetimes)]
     fn default_test_blockepollhandler<'a>(
         mem: &'a GuestMemory,
     ) -> (BlockEpollHandler, VirtQueue<'a>) {
@@ -759,9 +760,7 @@ mod tests {
         let mut disk_image_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
         let disk_image_id_bytes = disk_image_id_str.as_bytes();
         let bytes_to_copy = cmp::min(disk_image_id_bytes.len(), VIRTIO_BLK_ID_BYTES as usize);
-        for i in 0..bytes_to_copy {
-            disk_image_id[i] = disk_image_id_bytes[i];
-        }
+        disk_image_id[..bytes_to_copy].clone_from_slice(&disk_image_id_bytes[..bytes_to_copy]);
         (
             BlockEpollHandler {
                 queues,
@@ -859,12 +858,12 @@ mod tests {
         // number is expected to be found 8 bytes after the address provided as parameter to the
         // sector() function.
 
-        m.write_obj_at_addr::<u64>(123454321, a.checked_add(8).unwrap())
+        m.write_obj_at_addr::<u64>(123_454_321, a.checked_add(8).unwrap())
             .unwrap();
-        assert_eq!(sector(m, a).unwrap(), 123454321);
+        assert_eq!(sector(m, a).unwrap(), 123_454_321);
 
         // Reading from a slightly different address should not lead a correct result in this case.
-        assert_ne!(sector(m, a.checked_add(1).unwrap()).unwrap(), 123454321);
+        assert_ne!(sector(m, a.checked_add(1).unwrap()).unwrap(), 123_454_321);
 
         // The provided address is outside the valid memory range.
         assert!(sector(m, a.checked_add(0x1000).unwrap()).is_err());
@@ -977,6 +976,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_virtio_device() {
         let mut dummy = DummyBlock::new(true);
         let b = dummy.block();
@@ -1129,6 +1129,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_handler() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, vq) = default_test_blockepollhandler(&m);
@@ -1185,7 +1186,7 @@ mod tests {
             // let's generate a seek execute error caused by a very large sector number
             m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
                 .unwrap();
-            m.write_obj_at_addr::<u64>(0xfffffffff, GuestAddress(0x1000 + 8))
+            m.write_obj_at_addr::<u64>(0x000f_ffff_ffff, GuestAddress(0x1000 + 8))
                 .unwrap();
 
             invoke_handler_for_queue_event(&mut h);
@@ -1261,7 +1262,7 @@ mod tests {
             // make data read only, 8 bytes in len, and set the actual value to be written
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(8);
-            m.write_obj_at_addr::<u64>(123456789, data_addr).unwrap();
+            m.write_obj_at_addr::<u64>(123_456_789, data_addr).unwrap();
 
             invoke_handler_for_queue_event(&mut h);
             assert_eq!(vq.used.idx.get(), 1);
@@ -1293,7 +1294,7 @@ mod tests {
                 m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_OK
             );
-            assert_eq!(m.read_obj_from_addr::<u64>(data_addr).unwrap(), 123456789);
+            assert_eq!(m.read_obj_from_addr::<u64>(data_addr).unwrap(), 123_456_789);
         }
 
         {
@@ -1373,12 +1374,10 @@ mod tests {
                 VIRTIO_BLK_ID_BYTES as usize
             );
             let chars_to_trim: &[char] = &['\u{0}'];
-            let received_device_id = format!(
-                "{}",
-                String::from_utf8(buf.to_ascii_lowercase())
-                    .unwrap()
-                    .trim_matches(chars_to_trim)
-            );
+            let received_device_id = String::from_utf8(buf.to_ascii_lowercase())
+                .unwrap()
+                .trim_matches(chars_to_trim)
+                .to_string();
             assert_eq!(received_device_id, expected_device_id);
         }
 
@@ -1418,7 +1417,7 @@ mod tests {
             // make data read only, 8 bytes in len, and set the actual value to be written
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(8);
-            m.write_obj_at_addr::<u64>(123456789, data_addr).unwrap();
+            m.write_obj_at_addr::<u64>(123_456_789, data_addr).unwrap();
 
             // following write procedure should fail because of bandwidth rate limiting
             {
@@ -1479,7 +1478,7 @@ mod tests {
             // make data read only, 8 bytes in len, and set the actual value to be written
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(8);
-            m.write_obj_at_addr::<u64>(123456789, data_addr).unwrap();
+            m.write_obj_at_addr::<u64>(123_456_789, data_addr).unwrap();
 
             // following write procedure should fail because of ops rate limiting
             {
@@ -1549,9 +1548,9 @@ mod tests {
             let mut id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
             let str_id = format!("{}{}{}", mdata.st_dev(), mdata.st_rdev(), mdata.st_ino());
             let part_id = str_id.as_bytes();
-            for i in 0..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize) {
-                id[i] = part_id[i];
-            }
+            id[..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize)].clone_from_slice(
+                &part_id[..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize)],
+            );
 
             let file = OpenOptions::new()
                 .read(true)

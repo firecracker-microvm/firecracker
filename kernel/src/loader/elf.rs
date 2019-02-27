@@ -90,6 +90,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::zero_ptr)]
     fn bindgen_test_layout_elf64_phdr() {
         assert_eq!(
             ::std::mem::size_of::<elf64_phdr>(),
@@ -184,6 +185,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::zero_ptr)]
     fn bindgen_test_layout_elf64_hdr() {
         assert_eq!(
             ::std::mem::size_of::<elf64_hdr>(),

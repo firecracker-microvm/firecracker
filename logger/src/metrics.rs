@@ -455,7 +455,7 @@ mod tests {
         // but it something fails, then we definitely have a problem :-s
 
         const NUM_THREADS_TO_SPAWN: usize = 4;
-        const NUM_INCREMENTS_PER_THREAD: usize = 100000;
+        const NUM_INCREMENTS_PER_THREAD: usize = 10_0000;
         const M2_INITIAL_COUNT: usize = 123;
 
         m2.add(M2_INITIAL_COUNT);

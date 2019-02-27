@@ -548,7 +548,7 @@ pub(crate) mod tests {
         // We try to make sure things are aligned properly :-s
         pub fn new(start: GuestAddress, mem: &'a GuestMemory, qsize: u16) -> Self {
             // power of 2?
-            assert!(qsize > 0 && qsize & qsize - 1 == 0);
+            assert!(qsize > 0 && qsize & (qsize - 1) == 0);
 
             let mut dtable = Vec::with_capacity(qsize as usize);
 
@@ -627,10 +627,10 @@ pub(crate) mod tests {
         assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 16).is_none());
 
         // desc_table address is way off
-        assert!(DescriptorChain::checked_new(m, GuestAddress(0xffffffffff), 16, 0).is_none());
+        assert!(DescriptorChain::checked_new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0).is_none());
 
         // the addr field of the descriptor is way off
-        vq.dtable[0].addr.set(0xfffffffffff);
+        vq.dtable[0].addr.set(0x0fff_ffff_ffff);
         assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
 
         // let's create some invalid chains
@@ -639,7 +639,7 @@ pub(crate) mod tests {
             // the addr field of the desc is ok now
             vq.dtable[0].addr.set(0x1000);
             // ...but the length is too large
-            vq.dtable[0].len.set(0xffffffff);
+            vq.dtable[0].len.set(0xffff_ffff);
             assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
         }
 
@@ -707,19 +707,19 @@ pub(crate) mod tests {
 
         // or if the various addresses are off
 
-        q.desc_table = GuestAddress(0xffffffff);
+        q.desc_table = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
         q.desc_table = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
         q.desc_table = vq.dtable_start();
 
-        q.avail_ring = GuestAddress(0xffffffff);
+        q.avail_ring = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
         q.avail_ring = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
         q.avail_ring = vq.avail_start();
 
-        q.used_ring = GuestAddress(0xffffffff);
+        q.used_ring = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
         q.used_ring = GuestAddress(0x1001);
         assert!(!q.is_valid(m));

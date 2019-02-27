@@ -401,11 +401,7 @@ mod tests {
 
         // Find the network interface with the provided name.
         let interfaces = datalink::interfaces();
-        let interface = interfaces
-            .into_iter()
-            .filter(interface_name_matches)
-            .next()
-            .unwrap();
+        let interface = interfaces.into_iter().find(interface_name_matches).unwrap();
 
         if let Ok(Ethernet(tx, rx)) = datalink::channel(&interface, Default::default()) {
             (interface.mac_address(), tx, rx)

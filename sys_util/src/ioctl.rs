@@ -15,6 +15,7 @@ use std::os::unix::io::AsRawFd;
 macro_rules! ioctl_ioc_nr {
     ($name:ident, $dir:expr, $ty:expr, $nr:expr, $size:expr) => {
         #[allow(non_snake_case)]
+        #[allow(clippy::cast_lossless)]
         pub fn $name() -> ::std::os::raw::c_ulong {
             (($dir << $crate::ioctl::_IOC_DIRSHIFT)
                 | ($ty << $crate::ioctl::_IOC_TYPESHIFT)
@@ -152,9 +153,9 @@ mod tests {
 
     #[test]
     fn ioctl_macros() {
-        assert_eq!(0x0000AE01, KVM_CREATE_VM());
-        assert_eq!(0x800454CF, TUNGETFEATURES());
-        assert_eq!(0x400454D9, TUNSETQUEUE());
-        assert_eq!(0xC004AE02, KVM_GET_MSR_INDEX_LIST());
+        assert_eq!(0x0000_AE01, KVM_CREATE_VM());
+        assert_eq!(0x8004_54CF, TUNGETFEATURES());
+        assert_eq!(0x4004_54D9, TUNSETQUEUE());
+        assert_eq!(0xC004_AE02, KVM_GET_MSR_INDEX_LIST());
     }
 }

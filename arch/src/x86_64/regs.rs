@@ -287,7 +287,7 @@ mod tests {
     use memory_model::{GuestAddress, GuestMemory};
 
     fn create_guest_mem() -> GuestMemory {
-        GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap()
+        GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap()
     }
 
     fn read_u64(gm: &GuestMemory, offset: usize) -> u64 {
@@ -302,9 +302,9 @@ mod tests {
         configure_segments_and_sregs(&gm, &mut sregs).unwrap();
 
         assert_eq!(0x0, read_u64(&gm, BOOT_GDT_OFFSET));
-        assert_eq!(0xaf9b000000ffff, read_u64(&gm, BOOT_GDT_OFFSET + 8));
-        assert_eq!(0xcf93000000ffff, read_u64(&gm, BOOT_GDT_OFFSET + 16));
-        assert_eq!(0x8f8b000000ffff, read_u64(&gm, BOOT_GDT_OFFSET + 24));
+        assert_eq!(0xaf_9b00_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 8));
+        assert_eq!(0xcf_9300_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 16));
+        assert_eq!(0x8f_8b00_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 24));
         assert_eq!(0x0, read_u64(&gm, BOOT_IDT_OFFSET));
 
         assert_eq!(0, sregs.cs.base);
@@ -363,6 +363,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_ptr_alignment)]
     fn test_setup_msrs() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
@@ -410,7 +411,7 @@ mod tests {
         let vcpu = vm.create_vcpu(0).unwrap();
 
         let expected_regs: kvm_regs = kvm_regs {
-            rflags: 0x0000000000000002u64,
+            rflags: 0x0000_0000_0000_0002u64,
             rip: 1,
             rsp: 2,
             rbp: 2,

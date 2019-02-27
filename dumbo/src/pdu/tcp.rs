@@ -629,12 +629,12 @@ mod tests {
         assert_eq!(p.destination_port(), 322);
 
         assert_eq!(p.sequence_number(), 0);
-        p.set_sequence_number(1234567);
-        assert_eq!(p.sequence_number(), 1234567);
+        p.set_sequence_number(1_234_567);
+        assert_eq!(p.sequence_number(), 1_234_567);
 
         assert_eq!(p.ack_number(), 0);
-        p.set_ack_number(345234);
-        assert_eq!(p.ack_number(), 345234);
+        p.set_ack_number(345_234);
+        assert_eq!(p.ack_number(), 345_234);
 
         assert_eq!(p.header_len_rsvd_ns(), (0, 0, false));
         assert_eq!(p.header_len(), 0);
@@ -662,6 +662,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::len_zero)]
     fn test_constructors() {
         let mut a = [1u8; 1460];
         let b = [2u8; 1000];
@@ -671,8 +672,8 @@ mod tests {
         let dst_addr = Ipv4Addr::new(192, 168, 44, 77);
         let src_port = 1234;
         let dst_port = 5678;
-        let seq_number = 11111222;
-        let ack_number = 34566543;
+        let seq_number = 11_111_222;
+        let ack_number = 34_566_543;
         let flags_after_ns = Flags::SYN | Flags::RST;
         let window_size = 19999;
         let mss_left = 1460;

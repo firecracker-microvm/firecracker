@@ -286,7 +286,7 @@ mod tests {
     use super::*;
 
     fn table_entry_size(type_: u8) -> usize {
-        match type_ as u32 {
+        match u32::from(type_) {
             mpspec::MP_PROCESSOR => mem::size_of::<MpcCpuWrapper>(),
             mpspec::MP_BUS => mem::size_of::<MpcBusWrapper>(),
             mpspec::MP_IOAPIC => mem::size_of::<MpcIoapicWrapper>(),
@@ -390,7 +390,7 @@ mod tests {
                     .checked_add(table_entry_size(entry_type))
                     .unwrap();
                 assert!(entry_offset <= mpc_end);
-                if entry_type as u32 == mpspec::MP_PROCESSOR {
+                if u32::from(entry_type) == mpspec::MP_PROCESSOR {
                     cpu_count += 1;
                 }
             }

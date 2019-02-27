@@ -210,9 +210,9 @@ mod tests {
         assert!(bus.read(0x16, &mut [0, 0, 0, 0]));
         assert!(bus.write(0x16, &[0, 0, 0, 0]));
         assert!(!bus.read(0x20, &mut [0, 0, 0, 0]));
-        assert!(!bus.write(0x20, &mut [0, 0, 0, 0]));
+        assert!(!bus.write(0x20, &[0, 0, 0, 0]));
         assert!(!bus.read(0x06, &mut [0, 0, 0, 0]));
-        assert!(!bus.write(0x06, &mut [0, 0, 0, 0]));
+        assert!(!bus.write(0x06, &[0, 0, 0, 0]));
     }
 
     #[test]
@@ -239,14 +239,14 @@ mod tests {
         assert!(BusRange(0x10, 2) < BusRange(0x12, 3));
 
         let bus_range = BusRange(0x10, 2);
-        assert_eq!(bus_range, bus_range.clone());
+        assert_eq!(bus_range, bus_range);
 
         let mut bus = Bus::new();
         let mut data = [1, 2, 3, 4];
         assert!(bus
             .insert(Arc::new(Mutex::new(DummyDevice)), 0x10, 0x10)
             .is_ok());
-        assert!(bus.write(0x10, &mut data));
+        assert!(bus.write(0x10, &data));
         let bus_clone = bus.clone();
         assert!(bus.read(0x10, &mut data));
         assert_eq!(data, [1, 2, 3, 4]);

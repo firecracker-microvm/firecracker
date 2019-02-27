@@ -309,10 +309,10 @@ mod tests {
             NetworkInterfaceConfig {
                 iface_id: self.iface_id.clone(),
                 host_dev_name: self.host_dev_name.clone(),
-                guest_mac: self.guest_mac.clone(),
+                guest_mac: self.guest_mac,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
-                allow_mmds_requests: self.allow_mmds_requests.clone(),
+                allow_mmds_requests: self.allow_mmds_requests,
                 tap: None,
             }
         }

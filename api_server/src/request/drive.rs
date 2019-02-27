@@ -257,8 +257,8 @@ mod tests {
             rate_limiter: None,
         };
         assert!(
-            &desc.into_parsed_request(Some(String::from("foo")), Method::Options)
-                == &Err(String::from("Invalid method."))
+            desc.into_parsed_request(Some(String::from("foo")), Method::Options)
+                == Err(String::from("Invalid method."))
         );
 
         // BlockDeviceConfig doesn't implement Clone so we have to define multiple identical vars.

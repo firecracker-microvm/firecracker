@@ -291,7 +291,7 @@ mod tests {
     #[test]
     fn create_vm() {
         let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
         assert!(vm.memory_init(gm, &kvm).is_ok());
     }
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn get_memory() {
         let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x1000)]).unwrap();
+        let gm = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
         assert!(vm.memory_init(gm, &kvm).is_ok());
         let obj_addr = GuestAddress(0xf0);
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn test_configure_vcpu() {
         let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
         assert!(vm.memory_init(gm, &kvm).is_ok());
         let dummy_eventfd_1 = EventFd::new().unwrap();
@@ -356,7 +356,7 @@ mod tests {
         };
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let gm = GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let gm = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
 
         assert!(vm.memory_init(gm, &kvm).is_err());
     }
@@ -368,16 +368,16 @@ mod tests {
         let code = [
             0xba, 0xf8, 0x03, /* mov $0x3f8, %dx */
             0x00, 0xd8, /* add %bl, %al */
-            0x04, '0' as u8, /* add $'0', %al */
-            0xee,      /* out %al, (%dx) */
-            0xb0, '\n' as u8, /* mov $'\n', %al */
-            0xee,       /* out %al, (%dx) */
-            0xf4,       /* hlt */
+            0x04, b'0', /* add $'0', %al */
+            0xee, /* out %al, (%dx) */
+            0xb0, b'\n', /* mov $'\n', %al */
+            0xee,  /* out %al, (%dx) */
+            0xf4,  /* hlt */
         ];
 
         let mem_size = 0x1000;
         let load_addr = GuestAddress(0x1000);
-        let mem = GuestMemory::new(&vec![(load_addr, mem_size)]).unwrap();
+        let mem = GuestMemory::new(&[(load_addr, mem_size)]).unwrap();
 
         let kvm = KvmContext::new().unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
@@ -387,7 +387,7 @@ mod tests {
             .write_slice_at_addr(&code, load_addr)
             .expect("Writing code to memory failed.");
 
-        let vcpu = Vcpu::new(0, &mut vm).expect("new vcpu failed");
+        let vcpu = Vcpu::new(0, &vm).expect("new vcpu failed");
 
         let mut vcpu_sregs = vcpu.fd.get_sregs().expect("get sregs failed");
         assert_ne!(vcpu_sregs.cs.base, 0);
@@ -407,10 +407,10 @@ mod tests {
             match vcpu.run().expect("run failed") {
                 VcpuExit::IoOut(0x3f8, data) => {
                     assert_eq!(data.len(), 1);
-                    io::stdout().write(data).unwrap();
+                    io::stdout().write_all(data).unwrap();
                 }
                 VcpuExit::Hlt => {
-                    io::stdout().write(b"KVM_EXIT_HLT\n").unwrap();
+                    io::stdout().write_all(b"KVM_EXIT_HLT\n").unwrap();
                     break;
                 }
                 r => panic!("unexpected exit reason: {:?}", r),

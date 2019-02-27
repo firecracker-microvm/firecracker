@@ -367,17 +367,17 @@ mod tests {
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[2].function = 0x4;
-            entries[2].eax = 0b100000;
+            entries[2].eax = 0b10_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[3].function = 0x4;
-            entries[3].eax = 0b1000000;
+            entries[3].eax = 0b100_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[4].function = 0x4;
-            entries[4].eax = 0b1100000;
+            entries[4].eax = 0b110_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
@@ -406,10 +406,10 @@ mod tests {
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
-            entries[10].function = 0x80000003;
+            entries[10].function = 0x8000_0003;
         }
         filter_cpuid(0, 1, false, &mut kvm_cpuid).unwrap();
-        let max_addr_cpu = get_max_addressable_lprocessors(1).unwrap() as u32;
+        let max_addr_cpu = u32::from(get_max_addressable_lprocessors(1).unwrap());
 
         let cpuid_f1 = kvm_cpuid_entry2 {
             function: 1,
@@ -432,7 +432,8 @@ mod tests {
             index: 0,
             flags: 0,
             eax: 0b10000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -446,8 +447,9 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b100000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
+            eax: 0b10_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -461,8 +463,9 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1000000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
+            eax: 0b100_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -476,8 +479,9 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1100000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
+            eax: 0b110_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -559,13 +563,13 @@ mod tests {
         }
         let bstr = get_brand_string().0;
         let cpuid_fother = kvm_cpuid_entry2 {
-            function: 0x80000003,
+            function: 0x8000_0003,
             index: 0,
             flags: 0,
-            eax: bstr.get_reg_for_leaf(0x80000003, BsReg::EAX),
-            ebx: bstr.get_reg_for_leaf(0x80000003, BsReg::EBX),
-            ecx: bstr.get_reg_for_leaf(0x80000003, BsReg::ECX),
-            edx: bstr.get_reg_for_leaf(0x80000003, BsReg::EDX),
+            eax: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EAX),
+            ebx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EBX),
+            ecx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::ECX),
+            edx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EDX),
             padding: [0, 0, 0],
         };
         {
@@ -590,17 +594,17 @@ mod tests {
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[2].function = 0x4;
-            entries[2].eax = 0b100000;
+            entries[2].eax = 0b10_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[3].function = 0x4;
-            entries[3].eax = 0b1000000;
+            entries[3].eax = 0b100_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[4].function = 0x4;
-            entries[4].eax = 0b1100000;
+            entries[4].eax = 0b110_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
@@ -629,11 +633,11 @@ mod tests {
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
-            entries[10].function = 0x80000003;
+            entries[10].function = 0x8000_0003;
         }
         let cpu_count = 3;
         filter_cpuid(0, cpu_count, false, &mut kvm_cpuid).unwrap();
-        let max_addr_cpu = get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
+        let max_addr_cpu = u32::from(get_max_addressable_lprocessors(cpu_count).unwrap());
 
         let cpuid_f1 = kvm_cpuid_entry2 {
             function: 1,
@@ -655,8 +659,9 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b10000 & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
-                | ((cpu_count - 1) as u32)
+            eax: 0b10000
+                & !(0b11_1111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | u32::from(cpu_count - 1)
                     << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
@@ -671,10 +676,11 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b100000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
-                & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
-                | ((cpu_count - 1) as u32)
+            eax: 0b10_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+                & !(0b11_1111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | u32::from(cpu_count - 1)
                     << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
@@ -689,10 +695,11 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1000000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
-                & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
-                | ((cpu_count - 1) as u32)
+            eax: 0b100_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+                & !(0b11_1111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | u32::from(cpu_count - 1)
                     << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
@@ -707,12 +714,13 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1100000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
-                | ((cpu_count - 1) as u32)
+            eax: 0b110_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+                | u32::from(cpu_count - 1)
                     << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index
-                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
-                | ((cpu_count - 1) as u32)
+                    & !(0b11_1111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | u32::from(cpu_count - 1)
                     << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
@@ -770,7 +778,7 @@ mod tests {
             index: 1,
             flags: 0,
             eax: LEAFBH_INDEX1_APICID,
-            ebx: cpu_count as u32,
+            ebx: u32::from(cpu_count),
             ecx: 1 | leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_BITRANGE.lsb_index,
             edx: 0,
             padding: [0, 0, 0],
@@ -795,13 +803,13 @@ mod tests {
         }
         let bstr = get_brand_string().0;
         let cpuid_fother = kvm_cpuid_entry2 {
-            function: 0x80000003,
+            function: 0x8000_0003,
             index: 0,
             flags: 0,
-            eax: bstr.get_reg_for_leaf(0x80000003, BsReg::EAX),
-            ebx: bstr.get_reg_for_leaf(0x80000003, BsReg::EBX),
-            ecx: bstr.get_reg_for_leaf(0x80000003, BsReg::ECX),
-            edx: bstr.get_reg_for_leaf(0x80000003, BsReg::EDX),
+            eax: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EAX),
+            ebx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EBX),
+            ecx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::ECX),
+            edx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EDX),
             padding: [0, 0, 0],
         };
         {
@@ -821,22 +829,22 @@ mod tests {
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[1].function = 0x4;
-            entries[1].eax = 0b10000;
+            entries[1].eax = 0b10_000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[2].function = 0x4;
-            entries[2].eax = 0b100000;
+            entries[2].eax = 0b10_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[3].function = 0x4;
-            entries[3].eax = 0b1000000;
+            entries[3].eax = 0b100_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[4].function = 0x4;
-            entries[4].eax = 0b1100000;
+            entries[4].eax = 0b110_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
@@ -865,10 +873,10 @@ mod tests {
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
-            entries[10].function = 0x80000003;
+            entries[10].function = 0x8000_0003;
         }
         filter_cpuid(0, 1, true, &mut kvm_cpuid).unwrap();
-        let max_addr_cpu = get_max_addressable_lprocessors(1).unwrap() as u32;
+        let max_addr_cpu = u32::from(get_max_addressable_lprocessors(1).unwrap());
 
         let cpuid_f1 = kvm_cpuid_entry2 {
             function: 1,
@@ -890,8 +898,9 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b10000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
+            eax: 0b1_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -905,8 +914,9 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b100000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
+            eax: 0b10_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -920,8 +930,9 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1000000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
+            eax: 0b100_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -935,8 +946,9 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1100000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
+            eax: 0b110_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index),
             ebx: 0,
             ecx: 0,
             edx: 0,
@@ -1018,13 +1030,13 @@ mod tests {
         }
         let bstr = get_brand_string().0;
         let cpuid_fother = kvm_cpuid_entry2 {
-            function: 0x80000003,
+            function: 0x8000_0003,
             index: 0,
             flags: 0,
-            eax: bstr.get_reg_for_leaf(0x80000003, BsReg::EAX),
-            ebx: bstr.get_reg_for_leaf(0x80000003, BsReg::EBX),
-            ecx: bstr.get_reg_for_leaf(0x80000003, BsReg::ECX),
-            edx: bstr.get_reg_for_leaf(0x80000003, BsReg::EDX),
+            eax: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EAX),
+            ebx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EBX),
+            ecx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::ECX),
+            edx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EDX),
             padding: [0, 0, 0],
         };
         {
@@ -1044,22 +1056,22 @@ mod tests {
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[1].function = 0x4;
-            entries[1].eax = 0b10000;
+            entries[1].eax = 0b1_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[2].function = 0x4;
-            entries[2].eax = 0b100000;
+            entries[2].eax = 0b10_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[3].function = 0x4;
-            entries[3].eax = 0b1000000;
+            entries[3].eax = 0b100_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
             entries[4].function = 0x4;
-            entries[4].eax = 0b1100000;
+            entries[4].eax = 0b110_0000;
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
@@ -1088,11 +1100,11 @@ mod tests {
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
-            entries[10].function = 0x80000003;
+            entries[10].function = 0x8000_0003;
         }
         let cpu_count = 3;
         filter_cpuid(0, cpu_count, true, &mut kvm_cpuid).unwrap();
-        let max_addr_cpu = get_max_addressable_lprocessors(cpu_count).unwrap() as u32;
+        let max_addr_cpu = u32::from(get_max_addressable_lprocessors(cpu_count).unwrap());
 
         let cpuid_f1 = kvm_cpuid_entry2 {
             function: 1,
@@ -1114,8 +1126,9 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b10000 & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
-                | ((cpu_count - 1) as u32)
+            eax: 0b1_0000
+                & !(0b11_1111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | u32::from(cpu_count - 1)
                     << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
@@ -1130,11 +1143,12 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b100000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+            eax: 0b10_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
                 | 1 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index
-                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
-                | ((cpu_count - 1) as u32)
+                    & !(0b11_1111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | u32::from(cpu_count - 1)
                     << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
@@ -1149,11 +1163,12 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1000000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+            eax: 0b100_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
                 | 1 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index
-                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
-                | ((cpu_count - 1) as u32)
+                    & !(0b11_1111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | u32::from(cpu_count - 1)
                     << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
@@ -1168,12 +1183,13 @@ mod tests {
             function: 0x4,
             index: 0,
             flags: 0,
-            eax: 0b1100000
-                & !(0b111111111111 << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
-                | ((cpu_count - 1) as u32)
+            eax: 0b110_0000
+                & !(0b1111_1111_1111
+                    << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index)
+                | u32::from(cpu_count - 1)
                     << leaf_0x4::eax::MAX_ADDR_IDS_SHARING_CACHE_BITRANGE.lsb_index
-                    & !(0b111111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
-                | ((cpu_count - 1) as u32)
+                    & !(0b11_1111 << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index)
+                | u32::from(cpu_count - 1)
                     << leaf_0x4::eax::MAX_ADDR_IDS_IN_PACKAGE_BITRANGE.lsb_index,
             ebx: 0,
             ecx: 0,
@@ -1231,7 +1247,7 @@ mod tests {
             index: 1,
             flags: 0,
             eax: LEAFBH_INDEX1_APICID,
-            ebx: cpu_count as u32,
+            ebx: u32::from(cpu_count),
             ecx: 1 | leaf_0xb::LEVEL_TYPE_CORE << leaf_0xb::ecx::LEVEL_TYPE_BITRANGE.lsb_index,
             edx: 0,
             padding: [0, 0, 0],
@@ -1256,13 +1272,13 @@ mod tests {
         }
         let bstr = get_brand_string().0;
         let cpuid_fother = kvm_cpuid_entry2 {
-            function: 0x80000003,
+            function: 0x8000_0003,
             index: 0,
             flags: 0,
-            eax: bstr.get_reg_for_leaf(0x80000003, BsReg::EAX),
-            ebx: bstr.get_reg_for_leaf(0x80000003, BsReg::EBX),
-            ecx: bstr.get_reg_for_leaf(0x80000003, BsReg::ECX),
-            edx: bstr.get_reg_for_leaf(0x80000003, BsReg::EDX),
+            eax: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EAX),
+            ebx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EBX),
+            ecx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::ECX),
+            edx: bstr.get_reg_for_leaf(0x8000_0003, BsReg::EDX),
             padding: [0, 0, 0],
         };
         {

@@ -253,7 +253,7 @@ mod tests {
         let dir = tempdir().expect("Cannot create temporary directory.");
         // This is /A/B/C .
         let dir2 = tempdir_in(dir.path()).expect("Cannot create temporary directory.");
-        let path2 = PathBuf::from(dir2.path());
+        let mut path2 = PathBuf::from(dir2.path());
         let result = inherit_from_parent(&mut PathBuf::from(&path2), "inexistent");
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("ReadToString"));
@@ -262,7 +262,7 @@ mod tests {
         // the grandparent file does not exist.
         let mut named_file = NamedTempFile::new_in(dir.path()).expect("Cannot create named file.");
         let result = inherit_from_parent(
-            &mut PathBuf::from(path2.clone()),
+            &mut path2.clone(),
             named_file.path().file_name().unwrap().to_str().unwrap(),
         );
         assert!(result.is_err());
@@ -277,7 +277,7 @@ mod tests {
         let some_line = "Parent line";
         writeln!(named_file, "{}", some_line).expect("Cannot write to file.");
         let result = inherit_from_parent(
-            &mut PathBuf::from(path2),
+            &mut path2,
             named_file.path().file_name().unwrap().to_str().unwrap(),
         );
         assert!(result.is_ok());

@@ -172,7 +172,7 @@ impl MMIODeviceManager {
     /// drive. The purpose of this method is to test error scenarios and should otherwise
     /// not be used.
     #[cfg(test)]
-    pub fn remove_address(&mut self, id: &String) {
+    pub fn remove_address(&mut self, id: &str) {
         self.id_to_addr_map.remove(id).unwrap();
     }
 }
@@ -185,7 +185,7 @@ mod tests {
     use memory_model::{GuestAddress, GuestMemory};
     use std::sync::atomic::AtomicUsize;
     use sys_util::EventFd;
-    const QUEUE_SIZES: &'static [u16] = &[64];
+    const QUEUE_SIZES: &[u16] = &[64];
 
     #[allow(dead_code)]
     #[derive(Clone)]
@@ -235,9 +235,8 @@ mod tests {
     fn register_device() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem =
-            GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd0000000);
+        let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd000_0000);
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
@@ -251,13 +250,12 @@ mod tests {
     fn register_too_many_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem =
-            GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd0000000);
+        let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd000_0000);
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
-        for _i in IRQ_BASE..(MAX_IRQ + 1) {
+        for _i in IRQ_BASE..=MAX_IRQ {
             device_manager
                 .register_device(dummy_box.clone(), &mut cmdline, None)
                 .unwrap();
@@ -292,9 +290,8 @@ mod tests {
     fn test_error_messages() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem =
-            GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let device_manager = MMIODeviceManager::new(guest_mem, 0xd0000000);
+        let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let device_manager = MMIODeviceManager::new(guest_mem, 0xd000_0000);
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let e = Error::Cmdline(
             cmdline
@@ -334,27 +331,25 @@ mod tests {
     fn test_update_drive() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem =
-            GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd0000000);
+        let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd000_0000);
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
 
         if let Ok(addr) =
             device_manager.register_device(dummy_box, &mut cmdline, Some(String::from("foo")))
         {
-            assert!(device_manager.update_drive(addr, 1048576).is_ok());
+            assert!(device_manager.update_drive(addr, 1_048_576).is_ok());
         }
-        assert!(device_manager.update_drive(0xbeef, 1048576).is_err());
+        assert!(device_manager.update_drive(0xbeef, 1_048_576).is_err());
     }
 
     #[test]
     fn test_get_address() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem =
-            GuestMemory::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd0000000);
+        let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd000_0000);
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
 

@@ -349,7 +349,7 @@ mod tests {
         // counter doesn't change (for 0 it blocks).
         assert!(reset_evt.write(1).is_ok());
         let mut data = [CMD_RESET_CPU];
-        i8042.write(OFS_STATUS, &mut data);
+        i8042.write(OFS_STATUS, &data);
         assert_eq!(reset_evt.read().unwrap(), 2);
 
         // Check if reading with offset 1 doesn't have side effects.
@@ -359,13 +359,13 @@ mod tests {
         // Check invalid `write`s.
         let before = METRICS.i8042.missed_write_count.count();
         // offset != 0.
-        i8042.write(1, &mut data);
+        i8042.write(1, &data);
         // data != CMD_RESET_CPU
         data[0] = CMD_RESET_CPU + 1;
-        i8042.write(1, &mut data);
+        i8042.write(1, &data);
         // data.len() != 1
-        let mut data = [CMD_RESET_CPU; 2];
-        i8042.write(1, &mut data);
+        let data = [CMD_RESET_CPU; 2];
+        i8042.write(1, &data);
         assert_eq!(METRICS.i8042.missed_write_count.count(), before + 3);
     }
 

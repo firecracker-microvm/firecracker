@@ -1101,7 +1101,7 @@ mod tests {
             BPF_JUMP(0x15, 0, 0, 3),
             BPF_STMT(0x20, 16 + lsb_offset),
             BPF_JUMP(0x15, 1, 0, 1),
-            BPF_STMT(0x06, 0x7fff0000),
+            BPF_STMT(0x06, 0x7fff_0000),
         ];
 
         // Compares translated rule with hardcoded BPF instructions.
@@ -1156,7 +1156,7 @@ mod tests {
                 BPF_JUMP(0x15, 0, 0, offset),
             ]);
         }
-        instructions.push(BPF_STMT(0x06, 0x7fff0000));
+        instructions.push(BPF_STMT(0x06, 0x7fff_0000));
 
         // Compares translated rule with hardcoded BPF instructions.
         assert_eq!(rule.into_bpf(), instructions);
@@ -1220,7 +1220,7 @@ mod tests {
             BPF_JUMP(0x15, 0, 0, 2),
             BPF_STMT(0x20, 32),
             BPF_JUMP(0x25, 14, 1, 0),
-            BPF_STMT(0x06, 0x7fff0000),
+            BPF_STMT(0x06, 0x7fff_0000),
             BPF_STMT(0x05, 1),
             BPF_STMT(0x05, 12),
             BPF_STMT(0x20, 36),
@@ -1233,8 +1233,8 @@ mod tests {
             BPF_JUMP(0x15, 0, 0, 3),
             BPF_STMT(0x20, 32),
             BPF_JUMP(0x25, 20, 0, 1),
-            BPF_STMT(0x06, 0x7fff0000),
-            BPF_STMT(0x06, 0x00030000),
+            BPF_STMT(0x06, 0x7fff_0000),
+            BPF_STMT(0x06, 0x0003_0000),
             BPF_JUMP(0x15, 9, 0, 1),
             BPF_STMT(0x05, 1),
             BPF_STMT(0x05, 8),
@@ -1244,9 +1244,9 @@ mod tests {
             BPF_STMT(0x20, 24),
             BPF_STMT(0x54, 0b100),
             BPF_JUMP(0x15, 36 & 0b100, 0, 1),
-            BPF_STMT(0x06, 0x7fff0000),
-            BPF_STMT(0x06, 0x00030000),
-            BPF_STMT(0x06, 0x00030000),
+            BPF_STMT(0x06, 0x7fff_0000),
+            BPF_STMT(0x06, 0x0003_0000),
+            BPF_STMT(0x06, 0x0003_0000),
         ];
 
         assert_eq!(context.into_bpf().unwrap(), instructions);
@@ -1291,7 +1291,7 @@ mod tests {
                     code: 21,
                     jt: 1,
                     jf: 0,
-                    k: 0xC000003E,
+                    k: 0xC000_003E,
                 },
                 sock_filter {
                     code: 6,
@@ -1327,7 +1327,7 @@ mod tests {
                     code: 6,
                     jt: 0,
                     jf: 0,
-                    k: 0x7FFF0000,
+                    k: 0x7FFF_0000,
                 },
             ];
             assert_eq!(ret, instructions);

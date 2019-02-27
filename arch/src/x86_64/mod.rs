@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn test_system_configuration() {
         let no_vcpus = 4;
-        let gm = GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let config_err = configure_system(&gm, GuestAddress(0), 0, 1);
         assert!(config_err.is_err());
         assert_eq!(

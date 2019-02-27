@@ -688,7 +688,7 @@ mod tests {
                 acc.extend_from_slice(&*chunk);
                 Ok::<_, hyper::Error>(acc)
             })
-            .and_then(move |value| Ok(value));
+            .and_then(Ok);
 
         String::from_utf8_lossy(
             &ret.wait()
@@ -1365,7 +1365,7 @@ mod tests {
 
         // Test all valid requests
         // Each request type is unit tested separately
-        for path in vec![
+        for path in &[
             "/boot-source",
             "/drives",
             "/machine-config",

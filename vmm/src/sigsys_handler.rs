@@ -113,7 +113,7 @@ mod tests {
         let mut num = 0;
         for i in 0..libc::CPU_SETSIZE as usize {
             if unsafe { libc::CPU_ISSET(i, &cpuset) } {
-                num = num + 1;
+                num += 1;
             }
         }
         num
