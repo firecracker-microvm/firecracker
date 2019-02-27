@@ -145,13 +145,22 @@ pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
     }
 }
 
+// The position of the flags parameter for open/openat.
+#[cfg(target_env = "musl")]
+const OPEN_FLAGS_POS: u8 = 1;
+#[cfg(target_env = "gnu")]
+const OPEN_FLAGS_POS: u8 = 2;
+
 /// The default context containing the white listed syscall rules required by `Firecracker` to
 /// function.
 pub fn default_context() -> Result<SeccompFilterContext, Error> {
     Ok(SeccompFilterContext::new(
         vec![
             (
+                #[cfg(target_env = "musl")]
                 libc::SYS_accept,
+                #[cfg(target_env = "gnu")]
+                libc::SYS_accept4,
                 (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
             ),
             (
@@ -187,7 +196,10 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
                 ),
             ),
             (
+                #[cfg(target_env = "musl")]
                 libc::SYS_epoll_pwait,
+                #[cfg(target_env = "gnu")]
+                libc::SYS_epoll_wait,
                 (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
             ),
             (
@@ -355,18 +367,27 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
                 (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
             ),
             (
+                #[cfg(target_env = "musl")]
                 libc::SYS_open,
+                #[cfg(target_env = "gnu")]
+                libc::SYS_openat,
                 (
                     0,
                     vec![
                         SeccompRule::new(vec![], SeccompAction::Allow),
+                        // FIXME The rules below are not used, because we
+                        // already allowed the access above.
                         SeccompRule::new(
-                            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, O_RDWR)?],
+                            vec![SeccompCondition::new(
+                                OPEN_FLAGS_POS,
+                                SeccompCmpOp::Eq,
+                                O_RDWR,
+                            )?],
                             SeccompAction::Allow,
                         ),
                         SeccompRule::new(
                             vec![SeccompCondition::new(
-                                1,
+                                OPEN_FLAGS_POS,
                                 SeccompCmpOp::Eq,
                                 O_RDWR | O_CLOEXEC,
                             )?],
@@ -374,19 +395,23 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
                         ),
                         SeccompRule::new(
                             vec![SeccompCondition::new(
-                                1,
+                                OPEN_FLAGS_POS,
                                 SeccompCmpOp::Eq,
                                 O_RDWR | O_NONBLOCK | O_CLOEXEC,
                             )?],
                             SeccompAction::Allow,
                         ),
                         SeccompRule::new(
-                            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, O_RDONLY)?],
+                            vec![SeccompCondition::new(
+                                OPEN_FLAGS_POS,
+                                SeccompCmpOp::Eq,
+                                O_RDONLY,
+                            )?],
                             SeccompAction::Allow,
                         ),
                         SeccompRule::new(
                             vec![SeccompCondition::new(
-                                1,
+                                OPEN_FLAGS_POS,
                                 SeccompCmpOp::Eq,
                                 O_RDONLY | O_CLOEXEC,
                             )?],
@@ -394,7 +419,7 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
                         ),
                         SeccompRule::new(
                             vec![SeccompCondition::new(
-                                1,
+                                OPEN_FLAGS_POS,
                                 SeccompCmpOp::Eq,
                                 O_RDONLY | O_NONBLOCK | O_CLOEXEC,
                             )?],
