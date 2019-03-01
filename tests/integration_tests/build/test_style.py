@@ -79,7 +79,7 @@ def test_python_style():
 def test_rust_clippy():
     """Fails if clippy generates any error, warnings are ignored."""
     run(
-        'cargo clippy --all-targets --all-features',
+        'cargo clippy --all-targets --all-features -- -D warnings',
         shell=True,
         check=True,
         stdout=PIPE
