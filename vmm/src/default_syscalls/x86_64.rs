@@ -14,10 +14,6 @@ const EPOLL_CTL_DEL: u64 = 2;
 // See include/uapi/asm-generic/fcntl.h in the kernel code.
 const FCNTL_FD_CLOEXEC: u64 = 1;
 const FCNTL_F_SETFD: u64 = 2;
-const O_CLOEXEC: u64 = 0x0200_0000;
-const O_NONBLOCK: u64 = 0x0000_4000;
-const O_RDONLY: u64 = 0x0000_0000;
-const O_RDWR: u64 = 0x0000_0002;
 
 // See include/uapi/linux/futex.h in the kernel code.
 const FUTEX_WAIT: u64 = 0;
@@ -295,68 +291,10 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
                 ),
             ),
             allow_syscall(libc::SYS_munmap),
-            (
-                #[cfg(target_env = "musl")]
-                libc::SYS_open,
-                #[cfg(target_env = "gnu")]
-                libc::SYS_openat,
-                (
-                    0,
-                    vec![
-                        SeccompRule::new(vec![], SeccompAction::Allow),
-                        // FIXME The rules below are not used, because we
-                        // already allowed the access above.
-                        SeccompRule::new(
-                            vec![SeccompCondition::new(
-                                OPEN_FLAGS_POS,
-                                SeccompCmpOp::Eq,
-                                O_RDWR,
-                            )?],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![SeccompCondition::new(
-                                OPEN_FLAGS_POS,
-                                SeccompCmpOp::Eq,
-                                O_RDWR | O_CLOEXEC,
-                            )?],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![SeccompCondition::new(
-                                OPEN_FLAGS_POS,
-                                SeccompCmpOp::Eq,
-                                O_RDWR | O_NONBLOCK | O_CLOEXEC,
-                            )?],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![SeccompCondition::new(
-                                OPEN_FLAGS_POS,
-                                SeccompCmpOp::Eq,
-                                O_RDONLY,
-                            )?],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![SeccompCondition::new(
-                                OPEN_FLAGS_POS,
-                                SeccompCmpOp::Eq,
-                                O_RDONLY | O_CLOEXEC,
-                            )?],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![SeccompCondition::new(
-                                OPEN_FLAGS_POS,
-                                SeccompCmpOp::Eq,
-                                O_RDONLY | O_NONBLOCK | O_CLOEXEC,
-                            )?],
-                            SeccompAction::Allow,
-                        ),
-                    ],
-                ),
-            ),
+            #[cfg(target_env = "musl")]
+            allow_syscall(libc::SYS_open),
+            #[cfg(target_env = "gnu")]
+            allow_syscall(libc::SYS_openat),
             allow_syscall(libc::SYS_pipe),
             allow_syscall(libc::SYS_read),
             allow_syscall(libc::SYS_readv),
