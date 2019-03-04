@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use seccomp::{
-    allow_syscall, setup_seccomp, Error, SeccompAction, SeccompCmpOp, SeccompCondition,
-    SeccompFilterContext, SeccompRule, SECCOMP_LEVEL_ADVANCED, SECCOMP_LEVEL_BASIC,
-    SECCOMP_LEVEL_NONE,
+    allow_syscall, allow_syscall_if, setup_seccomp, Error, SeccompAction, SeccompCmpOp::*,
+    SeccompCondition as Cond, SeccompFilterContext, SeccompRule, SECCOMP_LEVEL_ADVANCED,
+    SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
 };
 
 // See include/uapi/linux/eventpoll.h in the kernel code.
@@ -60,17 +60,6 @@ const TUNSETIFF: u64 = 0x4004_54ca;
 const TUNSETOFFLOAD: u64 = 0x4004_54d0;
 const TUNSETVNETHDRSZ: u64 = 0x4004_54d8;
 
-// See include/uapi/asm-generic/mman-common.h in the kernel code.
-const PROT_NONE: u64 = 0x0;
-const PROT_READ: u64 = 0x1;
-const PROT_WRITE: u64 = 0x2;
-
-// See include/uapi/asm-generic/mman.h in the kernel code.
-const MAP_SHARED: u64 = 0x01;
-const MAP_PRIVATE: u64 = 0x02;
-const MAP_ANONYMOUS: u64 = 0x20;
-const MAP_NORESERVE: u64 = 0x4000;
-
 #[cfg(feature = "vsock")]
 mod vsock_ioctls {
     pub const VHOST_GET_FEATURES: u64 = 0x8008_af00;
@@ -85,6 +74,28 @@ mod vsock_ioctls {
     pub const VHOST_SET_VRING_CALL: u64 = 0x4008_af21;
     pub const VHOST_VSOCK_SET_GUEST_CID: u64 = 0x4008_af60;
     pub const VHOST_VSOCK_SET_RUNNING: u64 = 0x4004_af61;
+}
+
+/// Shorthand for chaining `SeccompCondition`s with the `and` operator  in a `SeccompRule`.
+/// The rule will take the `Allow` action if _all_ the conditions are true.
+///
+/// [`Allow`]: enum.SeccompAction.html
+/// [`SeccompCondition`]: struct.SeccompCondition.html
+/// [`SeccompRule`]: struct.SeccompRule.html
+///
+macro_rules! and {
+    ($($x:expr,)*) => (SeccompRule::new(vec![$($x),*], SeccompAction::Allow));
+    ($($x:expr),*) => (SeccompRule::new(vec![$($x),*], SeccompAction::Allow))
+}
+
+/// Shorthand for chaining `SeccompRule`s with the `or` operator in a `SeccompFilterContext`.
+///
+/// [`SeccompFilterContext`]: struct.SeccompFilterContext.html
+/// [`SeccompRule`]: struct.SeccompRule.html
+///
+macro_rules! or {
+    ($($x:expr,)*) => (vec![$($x),*]);
+    ($($x:expr),*) => (vec![$($x),*])
 }
 
 /// Applies the configured level of seccomp filtering to the current thread.
@@ -118,21 +129,12 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
             allow_syscall(libc::SYS_clock_gettime),
             allow_syscall(libc::SYS_close),
             allow_syscall(libc::SYS_dup),
-            (
+            allow_syscall_if(
                 libc::SYS_epoll_ctl,
-                (
-                    0,
-                    vec![
-                        SeccompRule::new(
-                            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, EPOLL_CTL_ADD)?],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, EPOLL_CTL_DEL)?],
-                            SeccompAction::Allow,
-                        ),
-                    ],
-                ),
+                or![
+                    and![Cond::new(1, Eq, EPOLL_CTL_ADD)?],
+                    and![Cond::new(1, Eq, EPOLL_CTL_DEL)?],
+                ],
             ),
             #[cfg(target_env = "musl")]
             allow_syscall(libc::SYS_epoll_pwait),
@@ -140,156 +142,30 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
             allow_syscall(libc::SYS_epoll_wait),
             allow_syscall(libc::SYS_exit),
             allow_syscall(libc::SYS_exit_group),
-            (
+            allow_syscall_if(
                 libc::SYS_fcntl,
-                (
-                    0,
-                    vec![SeccompRule::new(
-                        vec![
-                            SeccompCondition::new(1, SeccompCmpOp::Eq, FCNTL_F_SETFD)?,
-                            SeccompCondition::new(2, SeccompCmpOp::Eq, FCNTL_FD_CLOEXEC)?,
-                        ],
-                        SeccompAction::Allow,
-                    )],
-                ),
+                or![and![
+                    Cond::new(1, Eq, FCNTL_F_SETFD)?,
+                    Cond::new(2, Eq, FCNTL_FD_CLOEXEC)?,
+                ]],
             ),
             allow_syscall(libc::SYS_fstat),
-            (
+            allow_syscall_if(
                 libc::SYS_futex,
-                (
-                    0,
-                    vec![
-                        SeccompRule::new(
-                            vec![SeccompCondition::new(
-                                1,
-                                SeccompCmpOp::Eq,
-                                FUTEX_WAIT_PRIVATE,
-                            )?],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![SeccompCondition::new(
-                                1,
-                                SeccompCmpOp::Eq,
-                                FUTEX_WAKE_PRIVATE,
-                            )?],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![SeccompCondition::new(
-                                1,
-                                SeccompCmpOp::Eq,
-                                FUTEX_REQUEUE_PRIVATE,
-                            )?],
-                            SeccompAction::Allow,
-                        ),
-                    ],
-                ),
+                or![
+                    and![Cond::new(1, Eq, FUTEX_WAIT_PRIVATE)?],
+                    and![Cond::new(1, Eq, FUTEX_WAKE_PRIVATE)?],
+                    and![Cond::new(1, Eq, FUTEX_REQUEUE_PRIVATE)?],
+                ],
             ),
-            (libc::SYS_ioctl, (0, create_ioctl_seccomp_rule()?)),
-            (
-                libc::SYS_lseek,
-                (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
-            ),
+            allow_syscall_if(libc::SYS_ioctl, create_ioctl_seccomp_rule()?),
             allow_syscall(libc::SYS_lseek),
             #[cfg(target_env = "musl")]
-            (
+            allow_syscall_if(
                 libc::SYS_madvise,
-                (
-                    0,
-                    vec![SeccompRule::new(
-                        vec![SeccompCondition::new(
-                            2,
-                            SeccompCmpOp::Eq,
-                            libc::MADV_DONTNEED as u64,
-                        )?],
-                        SeccompAction::Allow,
-                    )],
-                ),
+                or![and![Cond::new(2, Eq, libc::MADV_DONTNEED as u64)?],],
             ),
-            (
-                libc::SYS_mmap,
-                (
-                    0,
-                    vec![
-                        SeccompRule::new(vec![], SeccompAction::Allow),
-                        SeccompRule::new(
-                            vec![
-                                SeccompCondition::new(0, SeccompCmpOp::Eq, 0)?,
-                                SeccompCondition::new(2, SeccompCmpOp::Eq, PROT_NONE)?,
-                                SeccompCondition::new(
-                                    3,
-                                    SeccompCmpOp::Eq,
-                                    MAP_PRIVATE | MAP_ANONYMOUS,
-                                )?,
-                                SeccompCondition::new(4, SeccompCmpOp::Eq, -1i64 as u64)?,
-                                SeccompCondition::new(5, SeccompCmpOp::Eq, 0)?,
-                            ],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![
-                                SeccompCondition::new(0, SeccompCmpOp::Eq, 0)?,
-                                SeccompCondition::new(2, SeccompCmpOp::Eq, PROT_READ)?,
-                                SeccompCondition::new(3, SeccompCmpOp::Eq, MAP_SHARED)?,
-                                SeccompCondition::new(5, SeccompCmpOp::Eq, 0)?,
-                            ],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![
-                                SeccompCondition::new(0, SeccompCmpOp::Eq, 0)?,
-                                SeccompCondition::new(2, SeccompCmpOp::Eq, PROT_READ | PROT_WRITE)?,
-                                SeccompCondition::new(3, SeccompCmpOp::Eq, MAP_SHARED)?,
-                                SeccompCondition::new(5, SeccompCmpOp::Eq, 0)?,
-                            ],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![
-                                SeccompCondition::new(0, SeccompCmpOp::Eq, 0)?,
-                                SeccompCondition::new(2, SeccompCmpOp::Eq, PROT_READ | PROT_WRITE)?,
-                                SeccompCondition::new(
-                                    3,
-                                    SeccompCmpOp::Eq,
-                                    MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE,
-                                )?,
-                                SeccompCondition::new(4, SeccompCmpOp::Eq, -1i64 as u64)?,
-                                SeccompCondition::new(5, SeccompCmpOp::Eq, 0)?,
-                            ],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![
-                                SeccompCondition::new(0, SeccompCmpOp::Eq, 0)?,
-                                SeccompCondition::new(2, SeccompCmpOp::Eq, PROT_READ | PROT_WRITE)?,
-                                SeccompCondition::new(
-                                    3,
-                                    SeccompCmpOp::Eq,
-                                    MAP_PRIVATE | MAP_ANONYMOUS,
-                                )?,
-                                SeccompCondition::new(4, SeccompCmpOp::Eq, -1i64 as u64)?,
-                                SeccompCondition::new(5, SeccompCmpOp::Eq, 0)?,
-                            ],
-                            SeccompAction::Allow,
-                        ),
-                        SeccompRule::new(
-                            vec![
-                                SeccompCondition::new(0, SeccompCmpOp::Eq, 0)?,
-                                SeccompCondition::new(2, SeccompCmpOp::Eq, PROT_READ | PROT_WRITE)?,
-                                SeccompCondition::new(
-                                    3,
-                                    SeccompCmpOp::Eq,
-                                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
-                                )?,
-                                SeccompCondition::new(4, SeccompCmpOp::Eq, -1i64 as u64)?,
-                                SeccompCondition::new(5, SeccompCmpOp::Eq, 0)?,
-                            ],
-                            SeccompAction::Allow,
-                        ),
-                    ],
-                ),
-            ),
+            allow_syscall(libc::SYS_mmap),
             allow_syscall(libc::SYS_munmap),
             #[cfg(target_env = "musl")]
             allow_syscall(libc::SYS_open),
@@ -302,21 +178,14 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
             // can return. Otherwise we get stuck in a fault loop.
             allow_syscall(libc::SYS_rt_sigreturn),
             allow_syscall(libc::SYS_stat),
-            (
+            allow_syscall_if(
                 libc::SYS_tkill,
-                (
-                    0,
-                    vec![SeccompRule::new(
-                        vec![SeccompCondition::new(
-                            1,
-                            SeccompCmpOp::Eq,
-                            sys_util::validate_signal_num(super::super::VCPU_RTSIG_OFFSET, true)
-                                .map_err(|_| Error::InvalidArgumentNumber)?
-                                as u64,
-                        )?],
-                        SeccompAction::Allow,
-                    )],
-                ),
+                or![and![Cond::new(
+                    1,
+                    Eq,
+                    sys_util::validate_signal_num(super::super::VCPU_RTSIG_OFFSET, true)
+                        .map_err(|_| Error::InvalidArgumentNumber)? as u64,
+                )?]],
             ),
             allow_syscall(libc::SYS_timerfd_create),
             allow_syscall(libc::SYS_timerfd_settime),
@@ -330,261 +199,55 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
 }
 
 fn create_common_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
-    Ok(vec![
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, TCSETS)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, TCGETS)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, TIOCGWINSZ)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                KVM_CHECK_EXTENSION,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_CREATE_VM)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                KVM_GET_API_VERSION,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                KVM_GET_SUPPORTED_CPUID,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                KVM_GET_VCPU_MMAP_SIZE,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                KVM_CREATE_IRQCHIP,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_CREATE_PIT2)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_CREATE_VCPU)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                KVM_GET_DIRTY_LOG,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_IOEVENTFD)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_IRQFD)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                KVM_SET_TSS_ADDR,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                KVM_SET_USER_MEMORY_REGION,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, FIOCLEX)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, FIONBIO)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, TUNSETIFF)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, TUNSETOFFLOAD)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, TUNSETVNETHDRSZ)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_GET_LAPIC)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_GET_SREGS)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_RUN)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_SET_CPUID2)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_SET_FPU)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_SET_LAPIC)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_SET_MSRS)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_SET_REGS)?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(1, SeccompCmpOp::Eq, KVM_SET_SREGS)?],
-            SeccompAction::Allow,
-        ),
+    Ok(or![
+        and![Cond::new(1, Eq, TCSETS)?],
+        and![Cond::new(1, Eq, TCGETS)?],
+        and![Cond::new(1, Eq, TIOCGWINSZ)?],
+        and![Cond::new(1, Eq, KVM_CHECK_EXTENSION,)?],
+        and![Cond::new(1, Eq, KVM_CREATE_VM)?],
+        and![Cond::new(1, Eq, KVM_GET_API_VERSION,)?],
+        and![Cond::new(1, Eq, KVM_GET_SUPPORTED_CPUID,)?],
+        and![Cond::new(1, Eq, KVM_GET_VCPU_MMAP_SIZE,)?],
+        and![Cond::new(1, Eq, KVM_CREATE_IRQCHIP,)?],
+        and![Cond::new(1, Eq, KVM_CREATE_PIT2)?],
+        and![Cond::new(1, Eq, KVM_CREATE_VCPU)?],
+        and![Cond::new(1, Eq, KVM_GET_DIRTY_LOG,)?],
+        and![Cond::new(1, Eq, KVM_IOEVENTFD)?],
+        and![Cond::new(1, Eq, KVM_IRQFD)?],
+        and![Cond::new(1, Eq, KVM_SET_TSS_ADDR,)?],
+        and![Cond::new(1, Eq, KVM_SET_USER_MEMORY_REGION,)?],
+        and![Cond::new(1, Eq, FIOCLEX)?],
+        and![Cond::new(1, Eq, FIONBIO)?],
+        and![Cond::new(1, Eq, TUNSETIFF)?],
+        and![Cond::new(1, Eq, TUNSETOFFLOAD)?],
+        and![Cond::new(1, Eq, TUNSETVNETHDRSZ)?],
+        and![Cond::new(1, Eq, KVM_GET_LAPIC)?],
+        and![Cond::new(1, Eq, KVM_GET_SREGS)?],
+        and![Cond::new(1, Eq, KVM_RUN)?],
+        and![Cond::new(1, Eq, KVM_SET_CPUID2)?],
+        and![Cond::new(1, Eq, KVM_SET_FPU)?],
+        and![Cond::new(1, Eq, KVM_SET_LAPIC)?],
+        and![Cond::new(1, Eq, KVM_SET_MSRS)?],
+        and![Cond::new(1, Eq, KVM_SET_REGS)?],
+        and![Cond::new(1, Eq, KVM_SET_SREGS)?],
     ])
 }
 
 #[cfg(feature = "vsock")]
 fn create_vsock_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
-    Ok(vec![
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_GET_FEATURES,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_SET_FEATURES,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_SET_OWNER,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_SET_MEM_TABLE,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_SET_VRING_NUM,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_SET_VRING_ADDR,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_SET_VRING_BASE,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_GET_VRING_BASE,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_SET_VRING_KICK,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_SET_VRING_CALL,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_VSOCK_SET_GUEST_CID,
-            )?],
-            SeccompAction::Allow,
-        ),
-        SeccompRule::new(
-            vec![SeccompCondition::new(
-                1,
-                SeccompCmpOp::Eq,
-                vsock_ioctls::VHOST_VSOCK_SET_RUNNING,
-            )?],
-            SeccompAction::Allow,
-        ),
+    Ok(or![
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_GET_FEATURES,)?],
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_SET_FEATURES,)?],
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_SET_OWNER,)?],
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_SET_MEM_TABLE,)?],
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_SET_VRING_NUM,)?],
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_SET_VRING_ADDR,)?],
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_SET_VRING_BASE,)?],
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_GET_VRING_BASE,)?],
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_SET_VRING_KICK,)?],
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_SET_VRING_CALL,)?],
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_VSOCK_SET_GUEST_CID,)?],
+        and![Cond::new(1, Eq, vsock_ioctls::VHOST_VSOCK_SET_RUNNING,)?],
     ])
 }
 
@@ -617,13 +280,12 @@ mod tests {
 
     fn add_syscalls_install_context(mut context: SeccompFilterContext) {
         // Test error case: add empty rule array.
-        assert!(context.add_rules(0, 0, vec![],).is_err());
+        assert!(context.add_rules(0, vec![],).is_err());
         // Add "Allow" rule for each syscall.
         for syscall in EXTRA_SYSCALLS.iter() {
             assert!(context
                 .add_rules(
                     *syscall,
-                    0,
                     vec![SeccompRule::new(vec![], SeccompAction::Allow)],
                 )
                 .is_ok());

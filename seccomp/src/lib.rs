@@ -142,7 +142,7 @@
 //!     }
 //! }
 //!
-//! fn gen_rules() -> Vec<SyscallRuleSetWithPriority> {
+//! fn gen_rules() -> Vec<SyscallRuleSet> {
 //!     vec![
 //!         allow_syscall(libc::SYS_close),
 //!         allow_syscall(libc::SYS_execve),
@@ -168,13 +168,12 @@
 //!
 //!     gen_rules()
 //!         .into_iter()
-//!         .try_for_each(|(syscall_number, (priority, rules))| context.add_rules(syscall_number, priority, rules))
+//!         .try_for_each(|(syscall_number, rules)| context.add_rules(syscall_number, rules))
 //!         .unwrap();
 //!
 //!     context
 //!         .add_rules(
 //!             libc::SYS_write,
-//!             0,
 //!             vec![SeccompRule::new(
 //!                 vec![
 //!                     SeccompCondition::new(0, SeccompCmpOp::Eq, libc::STDOUT_FILENO as u64).unwrap(),
@@ -231,7 +230,7 @@
 
 extern crate libc;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
 /// Level of filtering that causes syscall numbers and parameters to be examined.
@@ -329,7 +328,7 @@ impl Display for Error {
         match *self {
             ContextTooLarge => write!(f, "The seccomp filter contains too many BPF instructions."),
             EmptyRulesVector => write!(f, "The seccomp rules vector is empty."),
-            IntoBpf => write!(f, "Failed to translate the seccomo rules into BPF."),
+            IntoBpf => write!(f, "Failed to translate the seccomp rules into BPF."),
             InvalidArgumentNumber => {
                 write!(f, "The seccomp rule contains an invalid argument number.")
             }
@@ -345,7 +344,6 @@ impl Display for Error {
 type Result<T> = std::result::Result<T, Error>;
 
 /// Comparison to perform when matching a condition.
-#[derive(PartialEq)]
 pub enum SeccompCmpOp {
     /// Argument value is equal to the specified value.
     Eq,
@@ -401,24 +399,31 @@ pub struct SeccompRule {
     action: SeccompAction,
 }
 
-/// Type that encapsulates a tuple (syscall number, (priority of rules, rule set)).
+/// Type that encapsulates a tuple (syscall number, rule set).
 ///
-pub type SyscallRuleSetWithPriority = (i64, (i64, Vec<SeccompRule>));
+pub type SyscallRuleSet = (i64, Vec<SeccompRule>);
 
-/// Builds the (priority, action set) tuple for allowing a syscall regardless of arguments.
+/// Builds the (syscall, rules) tuple for allowing a syscall regardless of arguments.
 ///
 #[inline(always)]
-pub fn allow_syscall(syscall_number: i64) -> SyscallRuleSetWithPriority {
+pub fn allow_syscall(syscall_number: i64) -> SyscallRuleSet {
     (
         syscall_number,
-        (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
+        vec![SeccompRule::new(vec![], SeccompAction::Allow)],
     )
+}
+
+/// Builds the (syscall, rules) tuple for allowing a syscall with certain arguments.
+///
+#[inline(always)]
+pub fn allow_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> SyscallRuleSet {
+    (syscall_number, rules)
 }
 
 /// Filter context containing rules assigned to syscall numbers.
 pub struct SeccompFilterContext {
-    /// Hash map, mapping a priority and a chain of rules to a syscall number.
-    rules: HashMap<i64, (i64, Vec<SeccompRule>)>,
+    /// Hash map, mapping a chain of rules to a syscall number.
+    rules: BTreeMap<i64, Vec<SeccompRule>>,
     /// Default action to apply to syscall numbers that do not exist in the hash map.
     default_action: SeccompAction,
 }
@@ -792,12 +797,12 @@ impl SeccompFilterContext {
     /// * `default_action` - Action taken for all syscalls that do not match any rule.
     ///
     pub fn new(
-        rules: HashMap<i64, (i64, Vec<SeccompRule>)>,
+        rules: BTreeMap<i64, Vec<SeccompRule>>,
         default_action: SeccompAction,
     ) -> Result<Self> {
         // All inserted syscalls must have at least one rule, otherwise BPF code will break.
         for (_, value) in rules.iter() {
-            if value.1.is_empty() {
+            if value.is_empty() {
                 return Err(Error::EmptyRulesVector);
             }
         }
@@ -808,23 +813,14 @@ impl SeccompFilterContext {
         })
     }
 
-    /// Adds rules to a syscall number in the filter context.
+    /// Adds rules for the specified syscall in the filter context.
     ///
     /// # Arguments
     ///
     /// * `syscall_number` - Syscall identifier.
-    /// * `default_priority` - Priority for the syscall's examination. The higher the value, the
-    ///                        earlier the syscall will be examined in its entry point in the
-    ///                        kernel. Frequent syscalls should have higher priority so that the
-    ///                        kernel wastes as little time as possible iterating through filters.
     /// * `rules` - Rules to be applied to the syscall.
     ///
-    pub fn add_rules(
-        &mut self,
-        syscall_number: i64,
-        priority: i64,
-        mut rules: Vec<SeccompRule>,
-    ) -> Result<()> {
+    pub fn add_rules(&mut self, syscall_number: i64, mut rules: Vec<SeccompRule>) -> Result<()> {
         // All inserted syscalls must have at least one rule, otherwise BPF code will break.
         if rules.is_empty() {
             return Err(Error::EmptyRulesVector);
@@ -832,8 +828,7 @@ impl SeccompFilterContext {
 
         self.rules
             .entry(syscall_number)
-            .or_insert_with(|| (priority, vec![]))
-            .1
+            .or_insert_with(|| vec![])
             .append(&mut rules);
 
         Ok(())
@@ -848,17 +843,7 @@ impl SeccompFilterContext {
         accumulator.push(EXAMINE_SYSCALL());
 
         // Orders syscalls by priority, the highest number represents the highest priority.
-        let mut iter = {
-            let mut vec: Vec<_> = self.rules.into_iter().collect();
-            accumulator.reserve_exact(vec.len() + 1);
-
-            // (syscall_number, (priority, rules)), thus .1 is (priority, rules), (.1).0 is
-            // priority.
-            vec.sort_by(|a, b| (a.1).0.cmp(&(b.1).0).reverse());
-
-            // Gets rid of priorities since syscalls were ordered.
-            vec.into_iter().map(|(a, (_, b))| (a, b))
-        };
+        let mut iter = self.rules.into_iter();
 
         // For each syscall adds its rule chain to the context.
         let default_action = u32::from(self.default_action);
@@ -942,8 +927,13 @@ impl SeccompFilterContext {
     /// Replaces the seccomp rules so as to allow every syscall contained in the rule set.
     ///
     pub fn allow_all(mut self) -> SeccompFilterContext {
-        for (_, syscall_rules) in self.rules.iter_mut() {
-            syscall_rules.1 = vec![SeccompRule::new(vec![], SeccompAction::Allow)];
+        // Pre-collect the keys to avoid the double borrow.
+        let syscalls: Vec<i64> = self.rules.keys().cloned().collect();
+        for syscall in syscalls {
+            self.rules.insert(
+                syscall,
+                vec![SeccompRule::new(vec![], SeccompAction::Allow)],
+            );
         }
         self
     }
@@ -1038,24 +1028,26 @@ fn VALIDATE_ARCHITECTURE() -> Vec<sock_filter> {
 fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
     vec![BPF_STMT(
         BPF_LD + BPF_W + BPF_ABS,
-        SECCOMP_DATA_NR_OFFSET as u32,
+        u32::from(SECCOMP_DATA_NR_OFFSET),
     )]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use SeccompCmpOp::*;
+    use SeccompCondition as Cond;
 
     // Checks that rule gets translated correctly into BPF statements.
     #[test]
     fn test_rule_bpf_output() {
-        assert!(SeccompCondition::new(6, SeccompCmpOp::Eq, 1).is_err());
+        assert!(Cond::new(6, Eq, 1).is_err());
 
         // Builds rule.
         let rule = SeccompRule::new(
             vec![
-                SeccompCondition::new(0, SeccompCmpOp::Eq, 1).unwrap(),
-                SeccompCondition::new(2, SeccompCmpOp::MaskedEq(0b1010), 14).unwrap(),
+                Cond::new(0, Eq, 1).unwrap(),
+                Cond::new(2, MaskedEq(0b1010), 14).unwrap(),
             ],
             SeccompAction::Allow,
         );
@@ -1100,9 +1092,9 @@ mod tests {
         // Builds rule.
         let mut conditions = Vec::with_capacity(43);
         for _ in 0..42 {
-            conditions.push(SeccompCondition::new(0, SeccompCmpOp::MaskedEq(0), 0).unwrap());
+            conditions.push(Cond::new(0, MaskedEq(0), 0).unwrap());
         }
-        conditions.push(SeccompCondition::new(0, SeccompCmpOp::Eq, 0).unwrap());
+        conditions.push(Cond::new(0, Eq, 0).unwrap());
         let rule = SeccompRule::new(conditions, SeccompAction::Allow);
 
         // Calculates architecture dependent argument value offsets.
@@ -1150,44 +1142,34 @@ mod tests {
     #[test]
     fn test_context_bpf_output() {
         // Compares translated context with hardcoded BPF program.
+        {
+            let mut empty_rule_map = BTreeMap::new();
+            empty_rule_map.insert(1, vec![]);
+            assert!(SeccompFilterContext::new(empty_rule_map, SeccompAction::Allow).is_err());
+        }
+
         let context = SeccompFilterContext::new(
             vec![
-                (
+                allow_syscall_if(
                     1,
-                    (
-                        1,
-                        vec![
-                            SeccompRule::new(
-                                vec![
-                                    SeccompCondition::new(2, SeccompCmpOp::Le, 14).unwrap(),
-                                    SeccompCondition::new(2, SeccompCmpOp::Ne, 10).unwrap(),
-                                ],
-                                SeccompAction::Allow,
-                            ),
-                            SeccompRule::new(
-                                vec![
-                                    SeccompCondition::new(2, SeccompCmpOp::Gt, 20).unwrap(),
-                                    SeccompCondition::new(2, SeccompCmpOp::Lt, 30).unwrap(),
-                                ],
-                                SeccompAction::Allow,
-                            ),
-                            SeccompRule::new(
-                                vec![SeccompCondition::new(2, SeccompCmpOp::Ge, 42).unwrap()],
-                                SeccompAction::Allow,
-                            ),
-                        ],
-                    ),
-                ),
-                (
-                    9,
-                    (
-                        0,
-                        vec![SeccompRule::new(
-                            vec![SeccompCondition::new(1, SeccompCmpOp::MaskedEq(0b100), 36)
-                                .unwrap()],
+                    vec![
+                        SeccompRule::new(
+                            vec![Cond::new(2, Le, 14).unwrap(), Cond::new(2, Ne, 10).unwrap()],
                             SeccompAction::Allow,
-                        )],
-                    ),
+                        ),
+                        SeccompRule::new(
+                            vec![Cond::new(2, Gt, 20).unwrap(), Cond::new(2, Lt, 30).unwrap()],
+                            SeccompAction::Allow,
+                        ),
+                        SeccompRule::new(vec![Cond::new(2, Ge, 42).unwrap()], SeccompAction::Allow),
+                    ],
+                ),
+                allow_syscall_if(
+                    9,
+                    vec![SeccompRule::new(
+                        vec![Cond::new(1, MaskedEq(0b100), 36).unwrap()],
+                        SeccompAction::Allow,
+                    )],
                 ),
             ]
             .into_iter()
@@ -1324,7 +1306,7 @@ mod tests {
         );
         assert_eq!(
             format!("{}", Error::IntoBpf),
-            "Failed to translate the seccomo rules into BPF."
+            "Failed to translate the seccomp rules into BPF."
         );
         assert_eq!(
             format!("{}", Error::InvalidArgumentNumber),

@@ -28,22 +28,19 @@ fn main() {
     // Adds rule to allow the harmless demo Firecracker.
     all_rules.push((
         libc::SYS_write,
-        (
-            0,
-            vec![SeccompRule::new(
-                vec![
-                    SeccompCondition::new(0, SeccompCmpOp::Eq, libc::STDOUT_FILENO as u64).unwrap(),
-                    SeccompCondition::new(2, SeccompCmpOp::Eq, 14).unwrap(),
-                ],
-                SeccompAction::Allow,
-            )],
-        ),
+        vec![SeccompRule::new(
+            vec![
+                SeccompCondition::new(0, SeccompCmpOp::Eq, libc::STDOUT_FILENO as u64).unwrap(),
+                SeccompCondition::new(2, SeccompCmpOp::Eq, 14).unwrap(),
+            ],
+            SeccompAction::Allow,
+        )],
     ));
 
     all_rules
         .into_iter()
-        .try_for_each(|(syscall_number, (priority, rules))| {
-            context.add_rules(syscall_number, priority, rules)
+        .try_for_each(|(syscall_number, rules)| {
+            context.add_rules(syscall_number, rules)
         })
         .unwrap();
 
