@@ -135,7 +135,7 @@ pub enum Error {
     /// An operation on the epoll instance failed due to resource exhaustion or bad configuration.
     EpollFd(io::Error),
     /// Cannot read from an Event file descriptor.
-    EventFd(std::io::Error),
+    EventFd(io::Error),
     /// An event arrived for a device, but the dispatcher can't find the event (epoll) handler.
     DeviceEventHandlerNotFound,
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
@@ -163,13 +163,13 @@ impl std::fmt::Debug for Error {
         match self {
             ApiChannel => write!(f, "ApiChannel: error receiving data from the API server"),
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
-            EpollFd(e) => write!(f, "Epoll fd error: {:?}", e),
+            EpollFd(e) => write!(f, "Epoll fd error: {}", e.to_string()),
             EventFd(e) => write!(f, "Event fd error: {}", e.to_string()),
             DeviceEventHandlerNotFound => write!(
                 f,
                 "Device event handler not found. This might point to a guest device driver issue."
             ),
-            Kvm(ref os_err) => write!(f, "Cannot open /dev/kvm. Error: {}", os_err.to_string()),
+            Kvm(os_err) => write!(f, "Cannot open /dev/kvm. Error: {}", os_err.to_string()),
             KvmApiVersion(ver) => write!(f, "Bad KVM API version: {}", ver),
             KvmCap(cap) => write!(f, "Missing KVM capability: {:?}", cap),
             Poll(e) => write!(f, "Epoll wait failed: {}", e.to_string()),
@@ -3105,5 +3105,150 @@ mod tests {
         assert!(vmm.legacy_device_manager.io_bus.get_device(0x060).is_some());
         let stdin_handle = io::stdin();
         stdin_handle.lock().set_canon_mode().unwrap();
+    }
+
+    #[test]
+    fn test_error_messages() {
+        // Enum `Error`
+
+        assert_eq!(
+            format!("{:?}", Error::ApiChannel),
+            "ApiChannel: error receiving data from the API server"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                Error::CreateLegacyDevice(device_manager::legacy::Error::EventFd(
+                    io::Error::from_raw_os_error(42)
+                ))
+            ),
+            format!(
+                "Error creating legacy device: EventFd({:?})",
+                io::Error::from_raw_os_error(42)
+            )
+        );
+        assert_eq!(
+            format!("{:?}", Error::EpollFd(io::Error::from_raw_os_error(42))),
+            "Epoll fd error: No message of desired type (os error 42)"
+        );
+        assert_eq!(
+            format!("{:?}", Error::EventFd(io::Error::from_raw_os_error(42))),
+            "Event fd error: No message of desired type (os error 42)"
+        );
+        assert_eq!(
+            format!("{:?}", Error::DeviceEventHandlerNotFound),
+            "Device event handler not found. This might point to a guest device driver issue."
+        );
+        assert_eq!(
+            format!("{:?}", Error::Kvm(io::Error::from_raw_os_error(42))),
+            "Cannot open /dev/kvm. Error: No message of desired type (os error 42)"
+        );
+        assert_eq!(
+            format!("{:?}", Error::KvmApiVersion(42)),
+            "Bad KVM API version: 42"
+        );
+        assert_eq!(
+            format!("{:?}", Error::KvmCap(Cap::Hlt)),
+            "Missing KVM capability: Hlt"
+        );
+        assert_eq!(
+            format!("{:?}", Error::Poll(io::Error::from_raw_os_error(42))),
+            "Epoll wait failed: No message of desired type (os error 42)"
+        );
+        assert_eq!(
+            format!("{:?}", Error::Serial(io::Error::from_raw_os_error(42))),
+            format!(
+                "Error writing to the serial console: {:?}",
+                io::Error::from_raw_os_error(42)
+            )
+        );
+        assert_eq!(
+            format!("{:?}", Error::TimerFd(io::Error::from_raw_os_error(42))),
+            "Error creating timer fd: No message of desired type (os error 42)"
+        );
+        assert_eq!(
+            format!("{:?}", Error::Vm(vstate::Error::HTNotInitialized)),
+            "Error opening VM fd: HTNotInitialized"
+        );
+
+        // Enum `ErrorKind`
+
+        assert_eq!(format!("{:?}", ErrorKind::User), "User");
+        assert_eq!(format!("{:?}", ErrorKind::Internal), "Internal");
+
+        // Enum VmmActionError
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::BootSource(
+                    ErrorKind::User,
+                    BootSourceConfigError::InvalidKernelCommandLine
+                )
+            ),
+            "BootSource(User, InvalidKernelCommandLine)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::DriveConfig(
+                    ErrorKind::User,
+                    DriveError::BlockDevicePathAlreadyExists
+                )
+            ),
+            "DriveConfig(User, BlockDevicePathAlreadyExists)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::Logger(
+                    ErrorKind::User,
+                    LoggerConfigError::InitializationFailure(String::from("foobar"))
+                )
+            ),
+            "Logger(User, InitializationFailure(\"foobar\"))"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::InvalidMemorySize)
+            ),
+            "MachineConfig(User, InvalidMemorySize)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::NetworkConfig(
+                    ErrorKind::User,
+                    NetworkInterfaceError::DeviceIdNotFound
+                )
+            ),
+            "NetworkConfig(User, DeviceIdNotFound)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::StartMicrovm(ErrorKind::User, StartMicrovmError::EventFd)
+            ),
+            "StartMicrovm(User, EventFd)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::SendCtrlAltDel(
+                    ErrorKind::User,
+                    I8042DeviceError::InternalBufferFull
+                )
+            ),
+            "SendCtrlAltDel(User, InternalBufferFull)"
+        );
+        #[cfg(feature = "vsock")]
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot)
+            ),
+            "VsockConfig(User, UpdateNotAllowedPostBoot)"
+        );
     }
 }
