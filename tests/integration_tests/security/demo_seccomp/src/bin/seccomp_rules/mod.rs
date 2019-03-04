@@ -3,10 +3,10 @@
 
 extern crate seccomp;
 
-use seccomp::{allow_syscall, SyscallRuleSetWithPriority};
+use seccomp::{allow_syscall, SyscallRuleSet};
 
 /// Returns a list of rules that allow syscalls required for running a rust program.
-pub fn rust_required_rules() -> Vec<SyscallRuleSetWithPriority> {
+pub fn rust_required_rules() -> Vec<SyscallRuleSet> {
     vec![
         allow_syscall(libc::SYS_sigaltstack),
         allow_syscall(libc::SYS_munmap),
@@ -15,7 +15,7 @@ pub fn rust_required_rules() -> Vec<SyscallRuleSetWithPriority> {
 }
 
 /// Returns a list of rules that allow syscalls required for executing another program.
-pub fn jailer_required_rules() -> Vec<SyscallRuleSetWithPriority> {
+pub fn jailer_required_rules() -> Vec<SyscallRuleSet> {
     vec![
         allow_syscall(libc::SYS_rt_sigprocmask),
         allow_syscall(libc::SYS_rt_sigaction),

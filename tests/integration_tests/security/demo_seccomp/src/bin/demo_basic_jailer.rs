@@ -25,8 +25,8 @@ fn main() {
     all_rules.extend(jailer_required_rules());
     all_rules
         .into_iter()
-        .try_for_each(|(syscall_number, (priority, rules))| {
-            context.add_rules(syscall_number, priority, rules)
+        .try_for_each(|(syscall_number, rules)| {
+            context.add_rules(syscall_number, rules)
         })
         .unwrap();
 
