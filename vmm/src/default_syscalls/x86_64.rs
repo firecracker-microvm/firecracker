@@ -158,6 +158,7 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
                     and![Cond::new(1, Eq, FUTEX_REQUEUE_PRIVATE)?],
                 ],
             ),
+            allow_syscall(libc::SYS_getrandom),
             allow_syscall_if(libc::SYS_ioctl, create_ioctl_seccomp_rule()?),
             allow_syscall(libc::SYS_lseek),
             #[cfg(target_env = "musl")]
