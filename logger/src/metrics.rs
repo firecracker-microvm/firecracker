@@ -29,8 +29,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use chrono;
 use serde::{Serialize, Serializer};
 
-const SYSCALL_MAX: usize = 350;
-
 /// Used for defining new types of metrics that can be either incremented with an unit
 /// or an arbitrary amount of units.
 // This trait helps with writing less code. It has to be in scope (via an use directive) in order
@@ -308,25 +306,10 @@ pub struct NetDeviceMetrics {
 }
 
 /// Metrics for the seccomp filtering.
-#[derive(Serialize)]
+#[derive(Default, Serialize)]
 pub struct SeccompMetrics {
-    /// Number of black listed syscalls.
-    pub bad_syscalls: Vec<SharedMetric>,
     /// Number of errors inside the seccomp filtering.
     pub num_faults: SharedMetric,
-}
-
-impl Default for SeccompMetrics {
-    fn default() -> SeccompMetrics {
-        let mut def_syscalls = vec![];
-        for _syscall in 0..SYSCALL_MAX {
-            def_syscalls.push(SharedMetric::default());
-        }
-        SeccompMetrics {
-            num_faults: SharedMetric::default(),
-            bad_syscalls: def_syscalls,
-        }
-    }
 }
 
 /// Metrics specific to the UART device.

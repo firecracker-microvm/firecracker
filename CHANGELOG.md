@@ -9,6 +9,10 @@
 - When running with `jailer` the location of the API socket has changed to
   `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
 
+### Removed
+
+- Removed the `seccomp.bad_syscalls` metric.
+
 ## [0.15.0]
 
 ### Added
