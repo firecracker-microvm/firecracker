@@ -175,15 +175,6 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             // can return. Otherwise we get stuck in a fault loop.
             allow_syscall(libc::SYS_rt_sigreturn),
             allow_syscall(libc::SYS_stat),
-            allow_syscall_if(
-                libc::SYS_tkill,
-                or![and![Cond::new(
-                    1,
-                    Eq,
-                    sys_util::validate_signal_num(super::super::VCPU_RTSIG_OFFSET, true)
-                        .map_err(|_| Error::InvalidArgumentNumber)? as u64,
-                )?]],
-            ),
             allow_syscall(libc::SYS_timerfd_create),
             allow_syscall(libc::SYS_timerfd_settime),
             allow_syscall(libc::SYS_write),

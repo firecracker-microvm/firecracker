@@ -21,6 +21,7 @@ extern crate serde_json;
 extern crate time;
 extern crate timerfd;
 
+extern crate arch;
 #[cfg(target_arch = "x86_64")]
 extern crate cpuid;
 extern crate devices;
@@ -29,7 +30,6 @@ extern crate kernel;
 extern crate kvm;
 #[macro_use]
 extern crate logger;
-extern crate arch;
 extern crate memory_model;
 extern crate net_util;
 extern crate rate_limiter;
@@ -55,13 +55,11 @@ use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::result;
-use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 use std::time::Duration;
 
-use libc::{c_void, siginfo_t};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use device_manager::legacy::LegacyDeviceManager;
@@ -79,7 +77,7 @@ use memory_model::{GuestAddress, GuestMemory};
 #[cfg(target_arch = "aarch64")]
 use serde_json::Value;
 pub use sigsys_handler::setup_sigsys_handler;
-use sys_util::{register_signal_handler, EventFd, Terminal};
+use sys_util::{EventFd, Terminal};
 use vm_control::VmResponse;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
@@ -106,13 +104,7 @@ use vstate::{Vcpu, Vm};
 /// - `i8042.dumbkbd` do not attempt to control kbd state via the i8042 (save boot time).
 const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0 \
                                       i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd";
-const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u16 = 0x03f0;
-const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
-const VCPU_RTSIG_OFFSET: i32 = 0;
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
-
-static START_INSTANCE_REQUEST_TS: AtomicUsize = ATOMIC_USIZE_INIT;
-static START_INSTANCE_REQUEST_CPU_TS: AtomicUsize = ATOMIC_USIZE_INIT;
 
 /// Success exit code.
 pub const FC_EXIT_CODE_OK: u8 = 0;
@@ -329,6 +321,21 @@ pub type OutcomeSender = oneshot::Sender<VmmRequestOutcome>;
 pub type OutcomeReceiver = oneshot::Receiver<VmmRequestOutcome>;
 
 type Result<T> = std::result::Result<T, Error>;
+
+/// Holds a micro-second resolution timestamp with both the real time and cpu time.
+#[derive(Clone, Default)]
+pub struct TimestampUs {
+    /// Real time in microseconds.
+    pub time_us: u64,
+    /// Cpu time in microseconds.
+    pub cputime_us: u64,
+}
+
+#[inline]
+/// Gets the wallclock timestamp as microseconds.
+fn get_time_us() -> u64 {
+    (chrono::Utc::now().timestamp_nanos() / 1000) as u64
+}
 
 /// Describes a KVM context that gets attached to the micro vm instance.
 /// It gives access to the functionality of the KVM wrapper as long as every required
@@ -581,7 +588,7 @@ struct Vmm {
     // Guest VM core resources.
     guest_memory: Option<GuestMemory>,
     kernel_config: Option<KernelConfig>,
-    vcpu_handles: Option<Vec<thread::JoinHandle<()>>>,
+    vcpus_handles: Vec<thread::JoinHandle<()>>,
     exit_evt: Option<EpollEvent<EventFd>>,
     vm: Vm,
 
@@ -642,7 +649,7 @@ impl Vmm {
             shared_info: api_shared_info,
             guest_memory: None,
             kernel_config: None,
-            vcpu_handles: None,
+            vcpus_handles: vec![],
             exit_evt: None,
             vm,
             mmio_device_manager: None,
@@ -988,14 +995,26 @@ impl Vmm {
     fn create_vcpus(
         &mut self,
         entry_addr: GuestAddress,
+        request_ts: TimestampUs,
     ) -> std::result::Result<Vec<Vcpu>, StartMicrovmError> {
         let vcpu_count = self
             .vm_config
             .vcpu_count
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
+
+        // `mmio_device_manager` is instantiated in `init_devices()`, which is called before
+        // `start_vcpus()`.
+        let device_manager = self
+            .mmio_device_manager
+            .as_ref()
+            .ok_or(StartMicrovmError::DeviceManager)?;
+
         for cpu_id in 0..vcpu_count {
-            let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(StartMicrovmError::Vcpu)?;
+            let io_bus = self.legacy_device_manager.io_bus.clone();
+            let mmio_bus = device_manager.bus.clone();
+            let mut vcpu = Vcpu::new(cpu_id, &self.vm, io_bus, mmio_bus, request_ts.clone())
+                .map_err(StartMicrovmError::Vcpu)?;
             #[cfg(target_arch = "x86_64")]
             vcpu.configure(&self.vm_config, entry_addr, &self.vm)
                 .map_err(StartMicrovmError::VcpuConfigure)?;
@@ -1016,23 +1035,13 @@ impl Vmm {
             "The number of vCPU fds is corrupted!"
         );
 
-        self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
-        // It is safe to unwrap since it's set just above.
-        let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
+        self.vcpus_handles.reserve(vcpu_count as usize);
 
-        let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
+        let vcpus_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
 
         // We're going in reverse so we can `.pop()` on the vec and still maintain order.
         for cpu_id in (0..vcpu_count).rev() {
-            let io_bus = self.legacy_device_manager.io_bus.clone();
-            // mmio_device_manager is instantiated in init_devices, which is called before
-            // start_vcpus.
-            let device_manager = self
-                .mmio_device_manager
-                .as_ref()
-                .ok_or(StartMicrovmError::DeviceManager)?;
-            let mmio_bus = device_manager.bus.clone();
-            let vcpu_thread_barrier = vcpu_thread_barrier.clone();
+            let vcpu_thread_barrier = vcpus_thread_barrier.clone();
             // If the lock is poisoned, it's OK to panic.
             let vcpu_exit_evt = self
                 .legacy_device_manager
@@ -1044,131 +1053,14 @@ impl Vmm {
 
             // `unwrap` is safe since we are asserting that the `vcpu_count` is equal to the number
             // of items of `vcpus` vector.
-            let vcpu = vcpus.pop().unwrap();
+            let mut vcpu = vcpus.pop().unwrap();
 
             let seccomp_level = self.seccomp_level;
-            // It is safe to unwrap the ht_enabled flag because the machine configure
-            // has default values for all fields.
-
-            vcpu_handles.push(
+            self.vcpus_handles.push(
                 thread::Builder::new()
                     .name(format!("fc_vcpu{}", cpu_id))
                     .spawn(move || {
-                        unsafe {
-                            extern "C" fn handle_signal(_: i32, _: *mut siginfo_t, _: *mut c_void) {
-                            }
-                            // This uses an async signal safe handler to kill the vcpu handles.
-                            register_signal_handler(
-                                VCPU_RTSIG_OFFSET,
-                                sys_util::SignalHandler::Siginfo(handle_signal),
-                                true,
-                            )
-                            .expect("Failed to register vcpu signal handler");
-                        }
-
-                        // Load seccomp filters for this vCPU thread.
-                        // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
-                        // altogether is the desired behaviour.
-                        if let Err(e) = default_syscalls::set_seccomp_level(seccomp_level) {
-                            panic!(
-                                "Failed to set the requested seccomp filters on vCPU {}:\
-                                 Error: {}",
-                                cpu_id, e
-                            );
-                        }
-
-                        vcpu_thread_barrier.wait();
-
-                        loop {
-                            match vcpu.run() {
-                                Ok(run) => match run {
-                                    VcpuExit::IoIn(addr, data) => {
-                                        io_bus.read(u64::from(addr), data);
-                                        METRICS.vcpu.exit_io_in.inc();
-                                    }
-                                    VcpuExit::IoOut(addr, data) => {
-                                        if addr == MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE
-                                            && data[0] == MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE
-                                        {
-                                            let now_cpu_us = now_cputime_us();
-                                            let now_us =
-                                                chrono::Utc::now().timestamp_nanos() / 1000;
-
-                                            let boot_time_us = now_us as usize
-                                                - START_INSTANCE_REQUEST_TS.load(Ordering::Acquire);
-                                            let boot_time_cpu_us = now_cpu_us as usize
-                                                - START_INSTANCE_REQUEST_CPU_TS
-                                                    .load(Ordering::Acquire);
-                                            warn!(
-                                                "Guest-boot-time = {:>6} us {} ms, \
-                                                 {:>6} CPU us {} CPU ms",
-                                                boot_time_us,
-                                                boot_time_us / 1000,
-                                                boot_time_cpu_us,
-                                                boot_time_cpu_us / 1000
-                                            );
-                                        }
-                                        io_bus.write(u64::from(addr), data);
-                                        METRICS.vcpu.exit_io_out.inc();
-                                    }
-                                    VcpuExit::MmioRead(addr, data) => {
-                                        mmio_bus.read(addr, data);
-                                        METRICS.vcpu.exit_mmio_read.inc();
-                                    }
-                                    VcpuExit::MmioWrite(addr, data) => {
-                                        mmio_bus.write(addr, data);
-                                        METRICS.vcpu.exit_mmio_write.inc();
-                                    }
-                                    VcpuExit::Hlt => {
-                                        info!("Received KVM_EXIT_HLT signal");
-                                        break;
-                                    }
-                                    VcpuExit::Shutdown => {
-                                        info!("Received KVM_EXIT_SHUTDOWN signal");
-                                        break;
-                                    }
-                                    // Documentation specifies that below kvm exits are considered
-                                    // errors.
-                                    VcpuExit::FailEntry => {
-                                        METRICS.vcpu.failures.inc();
-                                        error!("Received KVM_EXIT_FAIL_ENTRY signal");
-                                        break;
-                                    }
-                                    VcpuExit::InternalError => {
-                                        METRICS.vcpu.failures.inc();
-                                        error!("Received KVM_EXIT_INTERNAL_ERROR signal");
-                                        break;
-                                    }
-                                    r => {
-                                        METRICS.vcpu.failures.inc();
-                                        // TODO: Are we sure we want to finish running a vcpu upon
-                                        // receiving a vm exit that is not necessarily an error?
-                                        error!("Unexpected exit reason on vcpu run: {:?}", r);
-                                        break;
-                                    }
-                                },
-                                // The unwrap on raw_os_error can only fail if we have a logic
-                                // error in our code in which case it is better to panic.
-                                Err(vstate::Error::VcpuRun(ref e)) => {
-                                    match e.raw_os_error().unwrap() {
-                                        // Why do we check for these if we only return EINVAL?
-                                        libc::EAGAIN | libc::EINTR => {}
-                                        _ => {
-                                            METRICS.vcpu.failures.inc();
-                                            error!("Failure during vcpu run: {:?}", e);
-                                            break;
-                                        }
-                                    }
-                                }
-                                _ => (),
-                            }
-                        }
-
-                        // Nothing we need do for the success case.
-                        if let Err(e) = vcpu_exit_evt.write(1) {
-                            METRICS.vcpu.failures.inc();
-                            error!("Failed signaling vcpu exit event: {:?}", e);
-                        }
+                        vcpu.run(vcpu_thread_barrier, seccomp_level, vcpu_exit_evt);
                     })
                     .map_err(StartMicrovmError::VcpuSpawn)?,
             );
@@ -1180,7 +1072,7 @@ impl Vmm {
         default_syscalls::set_seccomp_level(self.seccomp_level)
             .map_err(StartMicrovmError::SeccompFilters)?;
 
-        vcpu_thread_barrier.wait();
+        vcpus_thread_barrier.wait();
 
         Ok(())
     }
@@ -1248,11 +1140,6 @@ impl Vmm {
     }
 
     fn start_microvm(&mut self) -> std::result::Result<VmmData, VmmActionError> {
-        START_INSTANCE_REQUEST_CPU_TS.store(now_cputime_us() as usize, Ordering::Release);
-        START_INSTANCE_REQUEST_TS.store(
-            (chrono::Utc::now().timestamp_nanos() / 1000) as usize,
-            Ordering::Release,
-        );
         info!("VMM received instance start command");
         if self.is_instance_initialized() {
             return Err(VmmActionError::StartMicrovm(
@@ -1260,6 +1147,10 @@ impl Vmm {
                 StartMicrovmError::MicroVMAlreadyRunning,
             ));
         }
+        let request_ts = TimestampUs {
+            time_us: get_time_us(),
+            cputime_us: now_cputime_us(),
+        };
 
         self.check_health()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::User, e))?;
@@ -1288,7 +1179,7 @@ impl Vmm {
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
         let vcpus = self
-            .create_vcpus(entry_addr)
+            .create_vcpus(entry_addr, request_ts)
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
         self.start_vcpus(vcpus)
@@ -1953,6 +1844,21 @@ impl Vmm {
             }
         };
         Ok(())
+    }
+
+    fn log_boot_time(t0_ts: &TimestampUs) {
+        let now_cpu_us = now_cputime_us();
+        let now_us = get_time_us();
+
+        let boot_time_us = now_us - t0_ts.time_us;
+        let boot_time_cpu_us = now_cpu_us - t0_ts.cputime_us;
+        info!(
+            "Guest-boot-time = {:>6} us {} ms, {:>6} CPU us {} CPU ms",
+            boot_time_us,
+            boot_time_us / 1000,
+            boot_time_cpu_us,
+            boot_time_cpu_us / 1000
+        );
     }
 }
 
@@ -3003,7 +2909,7 @@ mod tests {
         let desc = LoggerConfig {
             log_fifo: log_file.path().to_str().unwrap().to_string(),
             metrics_fifo: metrics_file.path().to_str().unwrap().to_string(),
-            level: LoggerLevel::Warning,
+            level: LoggerLevel::Info,
             show_level: true,
             show_log_origin: true,
             options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
@@ -3019,6 +2925,7 @@ mod tests {
         assert!(vmm.init_logger(desc).is_ok());
 
         assert!(vmm.flush_metrics().is_ok());
+
         let f = File::open(metrics_file).unwrap();
         let mut reader = BufReader::new(f);
 
@@ -3031,6 +2938,36 @@ mod tests {
         assert!(vmm.flush_metrics().is_ok());
         reader.read_line(&mut line).unwrap();
         assert!(line.contains("utc_timestamp_ms"));
+
+        // Validate logfile works.
+        warn!("this is a test");
+
+        let f = File::open(log_file).unwrap();
+        let mut reader = BufReader::new(f);
+
+        let mut line = String::new();
+        loop {
+            if line.contains("this is a test") {
+                break;
+            }
+            if reader.read_line(&mut line).unwrap() == 0 {
+                // If it ever gets here, this assert will fail.
+                assert!(line.contains("this is a test"));
+            }
+        }
+
+        // Validate logging the boot time works.
+        Vmm::log_boot_time(&TimestampUs::default());
+        let mut line = String::new();
+        loop {
+            if line.contains("Guest-boot-time =") {
+                break;
+            }
+            if reader.read_line(&mut line).unwrap() == 0 {
+                // If it ever gets here, this assert will fail.
+                assert!(line.contains("Guest-boot-time ="));
+            }
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -3058,7 +2995,28 @@ mod tests {
                 &vmm.legacy_device_manager.kbd_evt,
             )
             .expect("Cannot create IRQCHIP");
-        assert!(vmm.create_vcpus(GuestAddress(0x0)).is_ok());
+
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
+
+        let dummy_box = Box::new(DummyDevice { dummy: 0 });
+        // Use a dummy command line as it is not used in this test.
+        let _addr = device_manager
+            .register_device(
+                dummy_box,
+                &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
+                Some("bogus".to_string()),
+            )
+            .unwrap();
+
+        vmm.mmio_device_manager = Some(device_manager);
+        assert!(vmm
+            .create_vcpus(GuestAddress(0x0), TimestampUs::default())
+            .is_ok());
     }
 
     #[test]
