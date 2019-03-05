@@ -230,7 +230,7 @@ impl Display for StartMicrovmError {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
 
-                write!(f, "Cannot create a new vCPU file descriptor. {}", err_msg)
+                write!(f, "Cannot create a new vCPU. {}", err_msg)
             }
             VcpuConfigure(ref err) => {
                 let mut err_msg = format!("{:?}", err);

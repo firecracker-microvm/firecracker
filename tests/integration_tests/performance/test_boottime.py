@@ -125,7 +125,7 @@ def _configure_vm(microvm, network_info=None):
     response = microvm.logger.put(
         log_fifo=microvm.create_jailed_resource(log_fifo.path),
         metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
-        level='Warning',
+        level='Info',
         show_level=False,
         show_log_origin=False
     )

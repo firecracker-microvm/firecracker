@@ -5,21 +5,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-extern crate devices;
-extern crate logger;
-extern crate sys_util;
-
 use std::io;
 use std::result;
+use std::sync::{Arc, Barrier};
 
-use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
-
-use super::KvmContext;
+use super::{KvmContext, TimestampUs};
 use arch;
 #[cfg(target_arch = "x86_64")]
 use cpuid::{c3, filter_cpuid, t2};
+use default_syscalls;
 use kvm::*;
-use logger::{LogOption, LOGGER};
+use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
+use logger::{LogOption, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
 #[cfg(target_arch = "x86_64")]
@@ -27,6 +24,9 @@ use vmm_config::machine_config::CpuFeaturesTemplate;
 use vmm_config::machine_config::VmConfig;
 
 const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
+
+const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u16 = 0x03f0;
+const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
@@ -71,6 +71,10 @@ pub enum Error {
     FPUConfiguration(arch::x86_64::regs::Error),
     /// Cannot configure the IRQ.
     Irq(io::Error),
+    /// Cannot spawn a new vCPU thread.
+    VcpuSpawn(std::io::Error),
+    /// Unexpected KVM_RUN exit reason
+    VcpuUnhandledKvmExit,
 }
 pub type Result<T> = result::Result<T, Error>;
 
@@ -192,6 +196,9 @@ pub struct Vcpu {
     cpuid: CpuId,
     fd: VcpuFd,
     id: u8,
+    io_bus: devices::Bus,
+    mmio_bus: devices::Bus,
+    create_ts: TimestampUs,
 }
 
 impl Vcpu {
@@ -201,14 +208,24 @@ impl Vcpu {
     ///
     /// * `id` - Represents the CPU number between [0, max vcpus).
     /// * `vm` - The virtual machine this vcpu will get attached to.
-    pub fn new(id: u8, vm: &Vm) -> Result<Self> {
+    pub fn new(
+        id: u8,
+        vm: &Vm,
+        io_bus: devices::Bus,
+        mmio_bus: devices::Bus,
+        create_ts: TimestampUs,
+    ) -> Result<Self> {
         let kvm_vcpu = vm.fd.create_vcpu(id).map_err(Error::VcpuFd)?;
+
         // Initially the cpuid per vCPU is the one supported by this VM.
         Ok(Vcpu {
             #[cfg(target_arch = "x86_64")]
             cpuid: vm.get_supported_cpuid(),
             fd: kvm_vcpu,
             id,
+            io_bus,
+            mmio_bus,
+            create_ts,
         })
     }
 
@@ -261,18 +278,123 @@ impl Vcpu {
         Ok(())
     }
 
-    /// Runs the VCPU until it exits, returning the reason.
+    fn run_emulation(&mut self) -> Result<()> {
+        match self.fd.run() {
+            Ok(run) => match run {
+                VcpuExit::IoIn(addr, data) => {
+                    self.io_bus.read(u64::from(addr), data);
+                    METRICS.vcpu.exit_io_in.inc();
+                    Ok(())
+                }
+                VcpuExit::IoOut(addr, data) => {
+                    if addr == MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE
+                        && data[0] == MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE
+                    {
+                        super::Vmm::log_boot_time(&self.create_ts);
+                    }
+                    self.io_bus.write(u64::from(addr), data);
+                    METRICS.vcpu.exit_io_out.inc();
+                    Ok(())
+                }
+                VcpuExit::MmioRead(addr, data) => {
+                    self.mmio_bus.read(addr, data);
+                    METRICS.vcpu.exit_mmio_read.inc();
+                    Ok(())
+                }
+                VcpuExit::MmioWrite(addr, data) => {
+                    self.mmio_bus.write(addr, data);
+                    METRICS.vcpu.exit_mmio_write.inc();
+                    Ok(())
+                }
+                VcpuExit::Hlt => {
+                    info!("Received KVM_EXIT_HLT signal");
+                    Err(Error::VcpuUnhandledKvmExit)
+                }
+                VcpuExit::Shutdown => {
+                    info!("Received KVM_EXIT_SHUTDOWN signal");
+                    Err(Error::VcpuUnhandledKvmExit)
+                }
+                // Documentation specifies that below kvm exits are considered
+                // errors.
+                VcpuExit::FailEntry => {
+                    METRICS.vcpu.failures.inc();
+                    error!("Received KVM_EXIT_FAIL_ENTRY signal");
+                    Err(Error::VcpuUnhandledKvmExit)
+                }
+                VcpuExit::InternalError => {
+                    METRICS.vcpu.failures.inc();
+                    error!("Received KVM_EXIT_INTERNAL_ERROR signal");
+                    Err(Error::VcpuUnhandledKvmExit)
+                }
+                r => {
+                    METRICS.vcpu.failures.inc();
+                    // TODO: Are we sure we want to finish running a vcpu upon
+                    // receiving a vm exit that is not necessarily an error?
+                    error!("Unexpected exit reason on vcpu run: {:?}", r);
+                    Err(Error::VcpuUnhandledKvmExit)
+                }
+            },
+            // The unwrap on raw_os_error can only fail if we have a logic
+            // error in our code in which case it is better to panic.
+            Err(ref e) => {
+                match e.raw_os_error().unwrap() {
+                    // Why do we check for these if we only return EINVAL?
+                    libc::EAGAIN | libc::EINTR => Ok(()),
+                    _ => {
+                        METRICS.vcpu.failures.inc();
+                        error!("Failure during vcpu run: {}", e);
+                        Err(Error::VcpuUnhandledKvmExit)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Main loop of the vCPU thread.
     ///
+    ///
+    /// Runs the vCPU in KVM context in a loop. Handles KVM_EXITs then goes back in.
+    /// Also registers a signal handler to be able to kick this thread out of KVM_RUN.
     /// Note that the state of the VCPU and associated VM must be setup first for this to do
     /// anything useful.
-    pub fn run(&self) -> Result<VcpuExit> {
-        self.fd.run().map_err(Error::VcpuRun)
+    pub fn run(
+        &mut self,
+        thread_barrier: Arc<Barrier>,
+        seccomp_level: u32,
+        vcpu_exit_evt: EventFd,
+    ) {
+        // Load seccomp filters for this vCPU thread.
+        // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
+        // altogether is the desired behaviour.
+        if let Err(e) = default_syscalls::set_seccomp_level(seccomp_level) {
+            panic!(
+                "Failed to set the requested seccomp filters on vCPU {}: Error: {}",
+                self.id, e
+            );
+        }
+
+        thread_barrier.wait();
+
+        while self.run_emulation().is_ok() {}
+
+        // Nothing we need do for the success case.
+        if let Err(e) = vcpu_exit_evt.write(1) {
+            METRICS.vcpu.failures.inc();
+            error!("Failed signaling vcpu exit event: {}", e);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::thread;
+    use std::time::Duration;
+
+    use super::super::devices;
     use super::*;
+
+    use libc::{c_int, c_void, siginfo_t};
+    use sys_util::{register_signal_handler, Killable, SignalHandler};
 
     #[test]
     fn create_vm() {
@@ -301,9 +423,7 @@ mod tests {
         assert_eq!(read_val, 67u8);
     }
 
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn test_configure_vcpu() {
+    fn setup_vcpu() -> (Vm, Vcpu) {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
@@ -316,7 +436,23 @@ mod tests {
             .unwrap();
         vm.create_pit().unwrap();
 
-        let mut vcpu = Vcpu::new(1, &vm).unwrap();
+        let vcpu = Vcpu::new(
+            1,
+            &vm,
+            devices::Bus::new(),
+            devices::Bus::new(),
+            super::super::TimestampUs::default(),
+        )
+        .unwrap();
+
+        (vm, vcpu)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_configure_vcpu() {
+        let (vm, mut vcpu) = setup_vcpu();
+
         let vm_config = VmConfig::default();
         assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
 
@@ -329,6 +465,55 @@ mod tests {
         let mut vm_config = VmConfig::default();
         vm_config.cpu_template = Some(CpuFeaturesTemplate::C3);
         assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_run_vcpu() {
+        extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {}
+
+        let signum = 0;
+        // We install a signal handler for the specified signal; otherwise the whole process will
+        // be brought down when the signal is received, as part of the default behaviour. Signal
+        // handlers are global, so we install this before starting the thread.
+        unsafe {
+            register_signal_handler(signum, SignalHandler::Siginfo(handle_signal), true)
+                .expect("failed to register vcpu signal handler");
+        }
+
+        let (vm, mut vcpu) = setup_vcpu();
+
+        let vm_config = VmConfig::default();
+        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
+
+        let thread_barrier = Arc::new(Barrier::new(2));
+        let exit_evt = EventFd::new().unwrap();
+
+        let vcpu_thread_barrier = thread_barrier.clone();
+        let vcpu_exit_evt = exit_evt.try_clone().expect("eventfd clone failed");
+        let seccomp_level = 0;
+
+        let thread = thread::Builder::new()
+            .name("fc_vcpu0".to_string())
+            .spawn(move || {
+                vcpu.run(vcpu_thread_barrier, seccomp_level, vcpu_exit_evt);
+            })
+            .expect("failed to spawn thread ");
+
+        thread_barrier.wait();
+
+        // Wait to make sure the vcpu starts its KVM_RUN ioctl.
+        thread::sleep(Duration::from_millis(100));
+
+        // Kick the vcpu out of KVM_RUN.
+        thread.kill(signum).expect("failed to signal thread");
+
+        // Wait some more.
+        thread::sleep(Duration::from_millis(100));
+
+        // Validate vcpu handled the EINTR gracefully and didn't exit.
+        let err = exit_evt.read().unwrap_err();
+        assert_eq!(err.raw_os_error().unwrap(), libc::EAGAIN);
     }
 
     #[test]
@@ -373,7 +558,14 @@ mod tests {
             .write_slice_at_addr(&code, load_addr)
             .expect("Writing code to memory failed.");
 
-        let vcpu = Vcpu::new(0, &vm).expect("new vcpu failed");
+        let vcpu = Vcpu::new(
+            0,
+            &vm,
+            devices::Bus::new(),
+            devices::Bus::new(),
+            super::super::TimestampUs::default(),
+        )
+        .expect("new vcpu failed");
 
         let mut vcpu_sregs = vcpu.fd.get_sregs().expect("get sregs failed");
         assert_ne!(vcpu_sregs.cs.base, 0);
@@ -390,7 +582,7 @@ mod tests {
         vcpu.fd.set_regs(&vcpu_regs).expect("set regs failed");
 
         loop {
-            match vcpu.run().expect("run failed") {
+            match vcpu.fd.run().map_err(Error::VcpuRun).expect("run failed") {
                 VcpuExit::IoOut(0x3f8, data) => {
                     assert_eq!(data.len(), 1);
                     io::stdout().write_all(data).unwrap();
