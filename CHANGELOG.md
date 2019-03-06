@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A `madvise` call issued by the `musl` allocator was added to the seccomp
+  whitelist to prevent Firecracker from terminating abruptly when allocating
+  memory in certain conditions.
+
 ## [0.15.0]
 
 ### Added
