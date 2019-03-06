@@ -111,7 +111,6 @@ mod tests {
 
     use std::io;
 
-    use sys_util;
     use vmm::vmm_config::boot_source::BootSourceConfigError;
     use vmm::vmm_config::drive::DriveError;
     use vmm::vmm_config::instance_info::StartMicrovmError;
@@ -232,9 +231,7 @@ mod tests {
         // Tests for NetworkConfig Errors.
         let vmm_resp = VmmActionError::NetworkConfig(
             ErrorKind::User,
-            NetworkInterfaceError::OpenTap(TapError::OpenTun(std::io::Error::from_raw_os_error(
-                22,
-            ))),
+            NetworkInterfaceError::OpenTap(TapError::OpenTun(io::Error::from_raw_os_error(22))),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::NetworkConfig(
@@ -276,12 +273,12 @@ mod tests {
         check_error_response(vmm_resp, StatusCode::InternalServerError);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
-            StartMicrovmError::CreateBlockDevice(sys_util::Error::new(22)),
+            StartMicrovmError::CreateBlockDevice(io::Error::from_raw_os_error(22)),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
-            StartMicrovmError::OpenBlockDevice(std::io::Error::from_raw_os_error(22)),
+            StartMicrovmError::OpenBlockDevice(io::Error::from_raw_os_error(22)),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
@@ -292,7 +289,7 @@ mod tests {
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
             StartMicrovmError::CreateNetDevice(VirtioNetError::TapOpen(TapError::OpenTun(
-                std::io::Error::from_raw_os_error(22),
+                io::Error::from_raw_os_error(22),
             ))),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
@@ -322,7 +319,7 @@ mod tests {
         check_error_response(vmm_resp, StatusCode::InternalServerError);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
-            StartMicrovmError::VcpuSpawn(std::io::Error::from_raw_os_error(11)),
+            StartMicrovmError::VcpuSpawn(io::Error::from_raw_os_error(11)),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
     }

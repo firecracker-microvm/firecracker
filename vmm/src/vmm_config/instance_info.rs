@@ -9,7 +9,6 @@ use devices;
 use kernel::loader as kernel_loader;
 use memory_model::GuestMemoryError;
 use seccomp;
-use sys_util;
 use vstate;
 
 /// The microvm state. When Firecracker starts, the instance state is Uninitialized.
@@ -52,7 +51,7 @@ pub enum StartMicrovmError {
     ConfigureVm(vstate::Error),
     /// Unable to seek the block device backing file due to invalid permissions or
     /// the file was deleted/corrupted.
-    CreateBlockDevice(sys_util::Error),
+    CreateBlockDevice(std::io::Error),
     /// Split this at some point.
     /// Internal errors are due to resource exhaustion.
     /// Users errors are due to invalid permissions.
@@ -125,7 +124,7 @@ impl Display for StartMicrovmError {
                 f,
                 "Unable to seek the block device backing file due to invalid permissions or \
                  the file was deleted/corrupted. Error number: {}",
-                err.errno().to_string()
+                err
             ),
             CreateRateLimiter(ref err) => write!(f, "Cannot create RateLimiter: {}", err),
             #[cfg(feature = "vsock")]
