@@ -5,11 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use super::{errno_result, Error, Result};
+use super::SyscallReturnCode;
 use libc::{
     c_int, c_void, pthread_kill, pthread_t, sigaction, siginfo_t, EINVAL, SA_SIGINFO, SIGHUP,
     SIGSYS,
 };
+use std::io;
 use std::mem;
 use std::os::unix::thread::JoinHandleExt;
 use std::thread::JoinHandle;
@@ -52,10 +53,13 @@ fn SIGRTMAX() -> c_int {
     unsafe { __libc_current_sigrtmax() }
 }
 
-/// Verifies that a signal number is valid: for VCPU signals, it needs to be enclosed within the OS
-/// limits for realtime signals, and the remaining ones need to be between the minimum (SIGHUP) and
-/// maximum (SIGSYS) values.
-pub fn validate_signal_num(num: c_int, for_vcpu: bool) -> Result<c_int> {
+/// Verifies that a signal number is valid.
+///
+/// VCPU signals need to have values enclosed within the OS limits for realtime signals,
+/// and the remaining ones need to be between the minimum (SIGHUP) and maximum (SIGSYS) values.
+///
+/// Will return Ok(num) or Err(EINVAL).
+pub fn validate_signal_num(num: c_int, for_vcpu: bool) -> io::Result<c_int> {
     if for_vcpu {
         let actual_num = num + SIGRTMIN();
         if actual_num <= SIGRTMAX() {
@@ -64,7 +68,7 @@ pub fn validate_signal_num(num: c_int, for_vcpu: bool) -> Result<c_int> {
     } else if SIGHUP <= num && num <= SIGSYS {
         return Ok(num);
     }
-    Err(Error::new(EINVAL))
+    Err(io::Error::from_raw_os_error(EINVAL))
 }
 
 /// Registers `handler` as the signal handler of signum `num`.
@@ -77,13 +81,10 @@ pub unsafe fn register_signal_handler(
     num: i32,
     handler: SignalHandler,
     for_vcpu: bool,
-) -> Result<()> {
+) -> io::Result<()> {
     let num = validate_signal_num(num, for_vcpu)?;
     let act: sigaction = handler.into();
-    match sigaction(num, &act, ::std::ptr::null_mut()) {
-        0 => Ok(()),
-        _ => errno_result(),
-    }
+    SyscallReturnCode(sigaction(num, &act, ::std::ptr::null_mut())).into_empty_result()
 }
 
 /// Trait for threads that can be signalled via `pthread_kill`.
@@ -99,16 +100,12 @@ pub unsafe trait Killable {
     /// Sends the signal `num + SIGRTMIN` to this killable thread.
     ///
     /// The value of `num + SIGRTMIN` must not exceed `SIGRTMAX`.
-    fn kill(&self, num: i32) -> Result<()> {
+    fn kill(&self, num: i32) -> io::Result<()> {
         let num = validate_signal_num(num, true)?;
 
         // Safe because we ensure we are using a valid pthread handle, a valid signal number, and
         // check the return result.
-        let ret = unsafe { pthread_kill(self.pthread_handle(), num) };
-        if ret < 0 {
-            return errno_result();
-        }
-        Ok(())
+        SyscallReturnCode(unsafe { pthread_kill(self.pthread_handle(), num) }).into_empty_result()
     }
 }
 

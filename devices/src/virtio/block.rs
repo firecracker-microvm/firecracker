@@ -25,7 +25,6 @@ use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
-use sys_util::Result as SysResult;
 use virtio_gen::virtio_blk::*;
 use {DeviceEventT, EpollHandler};
 
@@ -493,7 +492,7 @@ impl Block {
         is_disk_read_only: bool,
         epoll_config: EpollConfig,
         rate_limiter: Option<RateLimiter>,
-    ) -> SysResult<Block> {
+    ) -> io::Result<Block> {
         let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
         if disk_size % SECTOR_SIZE != 0 {
             warn!(

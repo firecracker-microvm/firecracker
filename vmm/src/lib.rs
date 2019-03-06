@@ -148,7 +148,7 @@ pub enum Error {
     /// Epoll wait failed.
     Poll(io::Error),
     /// Write to the serial console failed.
-    Serial(sys_util::Error),
+    Serial(io::Error),
     /// Cannot create Timer file descriptor.
     TimerFd(io::Error),
     /// Cannot open the VM file descriptor.

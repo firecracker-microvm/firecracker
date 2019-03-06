@@ -7,7 +7,6 @@
 
 use std::fmt::{Display, Formatter};
 use std::io;
-use std::result;
 
 use libc::__errno_location;
 
@@ -16,7 +15,6 @@ use libc::__errno_location;
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Error(i32);
-pub type Result<T> = result::Result<T, Error>;
 
 impl Error {
     /// Constructs a new error with the given `errno`.
@@ -53,14 +51,6 @@ impl From<io::Error> for Error {
     }
 }
 
-/// Returns the last `errno` as a [`Result`] that is always an error.
-///
-/// [`Result`]: type.Result.html
-///
-pub fn errno_result<T>() -> Result<T> {
-    Err(Error::last())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,7 +63,7 @@ mod tests {
     fn invalid_fd() {
         let mut file = unsafe { File::from_raw_fd(-1) };
         assert!(file.write(b"test").is_err());
-        let last_err = errno_result::<i32>().unwrap_err();
+        let last_err = Error::last();
         assert_eq!(last_err, Error::new(libc::EBADF));
         assert_eq!(last_err.errno(), libc::EBADF);
         assert_eq!(last_err, Error::from(io::Error::last_os_error()));

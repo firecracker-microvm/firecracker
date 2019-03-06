@@ -12,7 +12,7 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
 use memory_model::{GuestAddress, GuestMemory};
-use sys_util::{EventFd, Result};
+use sys_util::EventFd;
 use BusDevice;
 
 //TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
@@ -102,7 +102,7 @@ pub struct MmioDevice {
 
 impl MmioDevice {
     /// Constructs a new MMIO transport for the given virtio device.
-    pub fn new(mem: GuestMemory, device: Box<VirtioDevice>) -> Result<MmioDevice> {
+    pub fn new(mem: GuestMemory, device: Box<VirtioDevice>) -> std::io::Result<MmioDevice> {
         let mut queue_evts = Vec::new();
         for _ in device.queue_max_sizes().iter() {
             queue_evts.push(EventFd::new()?)

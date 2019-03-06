@@ -13,7 +13,6 @@ use devices;
 use kernel_cmdline;
 use kvm::IoeventAddress;
 use memory_model::GuestMemory;
-use sys_util;
 use vm_control::VmRequest;
 
 /// Errors for MMIO device manager.
@@ -22,7 +21,7 @@ pub enum Error {
     /// Failed to perform an operation on the bus.
     BusError(devices::BusError),
     /// Could not create the mmio device to wrap a VirtioDevice.
-    CreateMmioDevice(sys_util::Error),
+    CreateMmioDevice(io::Error),
     /// Failed to clone a queue's ioeventfd.
     CloneIoEventFd(io::Error),
     /// Failed to clone the mmio irqfd.
@@ -38,8 +37,8 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::BusError(ref e) => write!(f, "failed to perform bus operation: {:?}", e),
-            Error::CreateMmioDevice(ref e) => write!(f, "failed to create mmio device: {:?}", e),
+            Error::BusError(ref e) => write!(f, "failed to perform bus operation: {}", e),
+            Error::CreateMmioDevice(ref e) => write!(f, "failed to create mmio device: {}", e),
             Error::CloneIoEventFd(ref e) => write!(f, "failed to clone ioeventfd: {}", e),
             Error::CloneIrqFd(ref e) => write!(f, "failed to clone irqfd: {}", e),
             Error::Cmdline(ref e) => {
@@ -315,21 +314,42 @@ mod tests {
             format!("{}", e),
             "unable to add device to kernel command line: string contains an equals sign"
         );
-        let e = Error::CloneIoEventFd(io::Error::from_raw_os_error(0));
         assert_eq!(
-            format!("{}", e),
+            format!("{}", Error::CloneIoEventFd(io::Error::from_raw_os_error(0))),
             format!(
                 "failed to clone ioeventfd: {}",
                 io::Error::from_raw_os_error(0)
             )
         );
-        let e = Error::CloneIrqFd(io::Error::from_raw_os_error(0));
         assert_eq!(
-            format!("{}", e),
+            format!("{}", Error::CloneIrqFd(io::Error::from_raw_os_error(0))),
             format!("failed to clone irqfd: {}", io::Error::from_raw_os_error(0))
         );
-        let e = Error::UpdateFailed;
-        assert_eq!(format!("{}", e), "failed to update the mmio device");
+        assert_eq!(
+            format!("{}", Error::UpdateFailed),
+            "failed to update the mmio device"
+        );
+        assert_eq!(
+            format!("{}", Error::BusError(devices::BusError::Overlap)),
+            format!(
+                "failed to perform bus operation: {}",
+                devices::BusError::Overlap
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::CreateMmioDevice(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "failed to create mmio device: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::IrqsExhausted),
+            "no more IRQs are available"
+        );
     }
 
     #[test]
