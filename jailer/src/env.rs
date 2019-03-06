@@ -14,7 +14,7 @@ use libc;
 use cgroup::Cgroup;
 use chroot::chroot;
 use fc_util::validators;
-use sys_util;
+use sys_util::SyscallReturnCode;
 use {Error, Result};
 
 const STDIN_FILENO: libc::c_int = 0;
@@ -31,10 +31,9 @@ const ROOT_PATH_WITH_NUL: &[u8] = b"/\0";
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
     // This is safe because we are using a library function with valid parameters.
-    if unsafe { libc::dup2(old_fd, new_fd) } < 0 {
-        return Err(Error::Dup2(sys_util::Error::last()));
-    }
-    Ok(())
+    SyscallReturnCode(unsafe { libc::dup2(old_fd, new_fd) })
+        .into_empty_result()
+        .map_err(Error::Dup2)
 }
 
 // Extracts an argument's value or returns a specific error if the argument is missing.
@@ -156,28 +155,19 @@ impl Env {
         // S_IWUSR -> write permission, owner
         // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
         // more clarity.
-        if unsafe {
+        SyscallReturnCode(unsafe {
             libc::mknod(
                 dev_path.as_ptr(),
                 libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR,
                 libc::makedev(dev_major, dev_minor),
             )
-        } < 0
-        {
-            return Err(Error::MknodDev(
-                sys_util::Error::last(),
-                std::str::from_utf8(dev_path_str).unwrap(),
-            ));
-        }
+        })
+        .into_empty_result()
+        .map_err(|e| Error::MknodDev(e, std::str::from_utf8(dev_path_str).unwrap()))?;
 
-        if unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) } < 0 {
-            Err(Error::ChangeFileOwner(
-                sys_util::Error::last(),
-                std::str::from_utf8(dev_path_str).unwrap(),
-            ))
-        } else {
-            Ok(())
-        }
+        SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
+            .into_empty_result()
+            .map_err(|e| Error::ChangeFileOwner(e, std::str::from_utf8(dev_path_str).unwrap()))
     }
 
     pub fn run(mut self, socket_file_name: &str) -> Result<()> {
@@ -228,15 +218,15 @@ impl Env {
                 .into_raw_fd();
 
             // Safe because we are passing valid parameters.
-            if unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) } < 0 {
-                return Err(Error::SetNetNs(sys_util::Error::last()));
-            }
+            SyscallReturnCode(unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) })
+                .into_empty_result()
+                .map_err(Error::SetNetNs)?;
 
             // Since we have ownership here, we also have to close the fd after joining the
             // namespace. Safe because we are passing valid parameters.
-            if unsafe { libc::close(netns_fd) } < 0 {
-                return Err(Error::CloseNetNsFd(sys_util::Error::last()));
-            }
+            SyscallReturnCode(unsafe { libc::close(netns_fd) })
+                .into_empty_result()
+                .map_err(Error::CloseNetNsFd)?;
         }
 
         // We have to setup cgroups at this point, because we can't do it anymore after chrooting.
@@ -246,16 +236,16 @@ impl Env {
         // If daemonization was requested, open /dev/null before chrooting.
         let dev_null = if self.daemonize {
             // Safe because we use a constant null-terminated string and verify the result.
-            let ret = unsafe {
-                libc::open(
-                    DEV_NULL_WITH_NUL.as_ptr() as *const libc::c_char,
-                    libc::O_RDWR,
-                )
-            };
-            if ret < 0 {
-                return Err(Error::OpenDevNull(sys_util::Error::last()));
-            }
-            Some(ret)
+            Some(
+                SyscallReturnCode(unsafe {
+                    libc::open(
+                        DEV_NULL_WITH_NUL.as_ptr() as *const libc::c_char,
+                        libc::O_RDWR,
+                    )
+                })
+                .into_result()
+                .map_err(Error::OpenDevNull)?,
+            )
         } else {
             None
         };
@@ -281,19 +271,18 @@ impl Env {
         // so Firecracker can create the unix domain socket in its own jail.
         let jail_root_path = CStr::from_bytes_with_nul(ROOT_PATH_WITH_NUL)
             .map_err(|_| Error::FromBytesWithNul(ROOT_PATH_WITH_NUL))?;
-        if unsafe { libc::chown(jail_root_path.as_ptr(), self.uid(), self.gid()) } < 0 {
-            return Err(Error::ChangeFileOwner(
-                sys_util::Error::last(),
-                std::str::from_utf8(ROOT_PATH_WITH_NUL).unwrap(),
-            ));
-        }
+        SyscallReturnCode(unsafe { libc::chown(jail_root_path.as_ptr(), self.uid(), self.gid()) })
+            .into_empty_result()
+            .map_err(|e| {
+                Error::ChangeFileOwner(e, std::str::from_utf8(ROOT_PATH_WITH_NUL).unwrap())
+            })?;
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(fd) = dev_null {
             // Call setsid(). Safe because it's a library function.
-            if unsafe { libc::setsid() } < 0 {
-                return Err(Error::SetSid(sys_util::Error::last()));
-            }
+            SyscallReturnCode(unsafe { libc::setsid() })
+                .into_empty_result()
+                .map_err(Error::SetSid)?;
 
             // Replace the stdio file descriptors with the /dev/null fd.
             dup2(fd, STDIN_FILENO)?;
@@ -301,9 +290,9 @@ impl Env {
             dup2(fd, STDERR_FILENO)?;
 
             // Safe because we are passing valid parameters, and checking the result.
-            if unsafe { libc::close(fd) } < 0 {
-                return Err(Error::CloseDevNullFd(sys_util::Error::last()));
-            }
+            SyscallReturnCode(unsafe { libc::close(fd) })
+                .into_empty_result()
+                .map_err(Error::CloseDevNullFd)?;
         }
 
         Err(Error::Exec(
