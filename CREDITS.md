@@ -49,11 +49,11 @@ Contributors to the Firecracker repository:
 * Josh Abraham <sinisterpatrician@gmail.com>
 * Julian Stecklina <jsteckli@amazon.de>
 * Liu Jiang <gerry@linux.alibaba.com>
-* Liu Jiang <liu.jiang@alibaba-inc.com>
 * Lloyd <lloydmeta@gmail.com>
 * lloydmeta <lloydmeta@gmail.com>
 * maciejhirsz <maciej.hirsz@gmail.com>
 * Marc Brooker <mbrooker@amazon.com>
+* Masatoshi Higuchi <matt9ucci@gmail.com>
 * Massimiliano Torromeo <massimiliano.torromeo@gmail.com>
 * Matt Wilson <msw@amazon.com>
 * Nathan Sizemore <nathanrsizemore@gmail.com>
@@ -68,7 +68,6 @@ Contributors to the Firecracker repository:
 * Rolf Neugebauer <neugebar@amazon.com>
 * Sam Jackson <sam@clique.app>
 * Sean Lavine <freewil@users.noreply.github.com>
-* Serban Iorga <serban300@gmail.com>
 * Serban Iorga <seriorga@amazon.com>
 * Sripracha <ramsri@amazon.com>
 * Tim Bannister <tim@scalefactory.com>

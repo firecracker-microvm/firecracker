@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.16.0]
 
 ### Changed
 
