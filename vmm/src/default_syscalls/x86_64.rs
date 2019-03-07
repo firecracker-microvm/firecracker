@@ -3,7 +3,7 @@
 
 use seccomp::{
     allow_syscall, allow_syscall_if, setup_seccomp, Error, SeccompAction, SeccompCmpOp::*,
-    SeccompCondition as Cond, SeccompFilterContext, SeccompRule, SECCOMP_LEVEL_ADVANCED,
+    SeccompCondition as Cond, SeccompFilter, SeccompRule, SECCOMP_LEVEL_ADVANCED,
     SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
 };
 
@@ -88,9 +88,9 @@ macro_rules! and {
     ($($x:expr),*) => (SeccompRule::new(vec![$($x),*], SeccompAction::Allow))
 }
 
-/// Shorthand for chaining `SeccompRule`s with the `or` operator in a `SeccompFilterContext`.
+/// Shorthand for chaining `SeccompRule`s with the `or` operator in a `SeccompFilter`.
 ///
-/// [`SeccompFilterContext`]: struct.SeccompFilterContext.html
+/// [`SeccompFilter`]: struct.SeccompFilter.html
 /// [`SeccompRule`]: struct.SeccompRule.html
 ///
 macro_rules! or {
@@ -99,27 +99,23 @@ macro_rules! or {
 }
 
 /// Applies the configured level of seccomp filtering to the current thread.
+///
 pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
     // Load seccomp filters before executing guest code.
     // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
     // altogether is the desired behaviour.
     match seccomp_level {
-        SECCOMP_LEVEL_ADVANCED => setup_seccomp(default_context()?),
-        SECCOMP_LEVEL_BASIC => setup_seccomp(default_context()?.allow_all()),
+        SECCOMP_LEVEL_ADVANCED => setup_seccomp(default_filter()?),
+        SECCOMP_LEVEL_BASIC => setup_seccomp(default_filter()?.allow_all()),
         SECCOMP_LEVEL_NONE | _ => Ok(()),
     }
 }
 
-// The position of the flags parameter for open/openat.
-#[cfg(target_env = "musl")]
-const OPEN_FLAGS_POS: u8 = 1;
-#[cfg(target_env = "gnu")]
-const OPEN_FLAGS_POS: u8 = 2;
-
-/// The default context containing the white listed syscall rules required by `Firecracker` to
+/// The default filter containing the white listed syscall rules required by `Firecracker` to
 /// function.
-pub fn default_context() -> Result<SeccompFilterContext, Error> {
-    Ok(SeccompFilterContext::new(
+///
+pub fn default_filter() -> Result<SeccompFilter, Error> {
+    Ok(SeccompFilter::new(
         vec![
             #[cfg(target_env = "musl")]
             allow_syscall(libc::SYS_accept),
@@ -279,30 +275,30 @@ mod tests {
         libc::SYS_sigaltstack,
     ];
 
-    fn add_syscalls_install_context(mut context: SeccompFilterContext) {
+    fn add_syscalls_install_filter(mut filter: SeccompFilter) {
         // Test error case: add empty rule array.
-        assert!(context.add_rules(0, vec![],).is_err());
+        assert!(filter.add_rules(0, vec![],).is_err());
         // Add "Allow" rule for each syscall.
         for syscall in EXTRA_SYSCALLS.iter() {
-            assert!(context
+            assert!(filter
                 .add_rules(
                     *syscall,
                     vec![SeccompRule::new(vec![], SeccompAction::Allow)],
                 )
                 .is_ok());
         }
-        assert!(seccomp::setup_seccomp(context).is_ok());
+        assert!(seccomp::setup_seccomp(filter).is_ok());
     }
 
     #[test]
     fn test_basic_seccomp() {
-        let context = default_context().unwrap().allow_all();
-        add_syscalls_install_context(context);
+        let filter = default_filter().unwrap().allow_all();
+        add_syscalls_install_filter(filter);
     }
 
     #[test]
     fn test_advanced_seccomp() {
-        let context = default_context().unwrap();
-        add_syscalls_install_context(context);
+        let filter = default_filter().unwrap();
+        add_syscalls_install_filter(filter);
     }
 }

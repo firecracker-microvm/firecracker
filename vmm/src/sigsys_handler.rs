@@ -92,7 +92,7 @@ mod tests {
 
     use libc::cpu_set_t;
 
-    use seccomp::{allow_syscall, setup_seccomp, SeccompAction, SeccompFilterContext};
+    use seccomp::{allow_syscall, setup_seccomp, SeccompAction, SeccompFilter};
 
     // This function is used when running unit tests, so all the unsafes are safe.
     fn cpu_count() -> usize {
@@ -122,7 +122,7 @@ mod tests {
     fn test_signal_handler() {
         assert!(setup_sigsys_handler().is_ok());
 
-        let context = SeccompFilterContext::new(
+        let filter = SeccompFilter::new(
             vec![
                 allow_syscall(libc::SYS_brk),
                 allow_syscall(libc::SYS_exit),
@@ -141,7 +141,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(setup_seccomp(context).is_ok());
+        assert!(setup_seccomp(filter).is_ok());
         assert_eq!(METRICS.seccomp.num_faults.count(), 0);
 
         // Calls the blacklisted SYS_getpid.

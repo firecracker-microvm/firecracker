@@ -10,7 +10,7 @@ use std::env::args;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
-use seccomp::{setup_seccomp, SeccompAction, SeccompFilterContext};
+use seccomp::{setup_seccomp, SeccompAction, SeccompFilter};
 use seccomp_rules::*;
 
 fn main() {
@@ -18,7 +18,7 @@ fn main() {
     let exec_file = &args[1];
 
     let mut context =
-        SeccompFilterContext::new(vec![].into_iter().collect(), SeccompAction::Trap).unwrap();
+        SeccompFilter::new(vec![].into_iter().collect(), SeccompAction::Trap).unwrap();
 
     // Adds required rules.
     let mut all_rules = rust_required_rules();
