@@ -15,7 +15,7 @@
 //!    syscall's arguments. Arguments whose values do not match the filtering rule will cause the
 //!    syscall to be denied.
 //!
-//! The desired filtering level is passed to the [`setup_seccomp`] function.
+//! The desired filtering level is passed to the [`apply`] function.
 //!
 //! ## Example with Filtering Disabled
 //!
@@ -68,7 +68,7 @@
 //!         SeccompAction::Trap,
 //!     )
 //!     .unwrap();
-//!     setup_seccomp(filter).unwrap();
+//!     filter.apply().unwrap();
 //!     unsafe {
 //!         libc::syscall(
 //!             libc::SYS_write,
@@ -184,7 +184,7 @@
 //!         )
 //!         .unwrap();
 //!
-//!     setup_seccomp(filter).unwrap();
+//!     filter.apply().unwrap();
 //!
 //!     unsafe {
 //!         libc::syscall(
@@ -220,7 +220,7 @@
 //! The code snippet above will print "Hello, world!" to stdout.
 //! The exit code will be 159.
 //!
-//! [`setup_seccomp`]: fn.setup_seccomp.html
+//! [`apply`]: struct.SeccompFilter.html#apply
 //! [`SeccompCondition`]: struct.SeccompCondition.html
 //! [`SeccompRule`]: struct.SeccompRule.html
 //! [`SeccompAction`]: enum.SeccompAction.html
@@ -422,7 +422,7 @@ pub fn allow_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> Syscall
 /// Filter containing rules assigned to syscall numbers.
 ///
 pub struct SeccompFilter {
-    /// Hash map, mapping a chain of rules to a syscall number.
+    /// Map of syscall numbers and corresponding rule chains.
     rules: BTreeMap<i64, Vec<SeccompRule>>,
     /// Default action to apply to syscall numbers that do not exist in the hash map.
     default_action: SeccompAction,
@@ -834,6 +834,47 @@ impl SeccompFilter {
         Ok(())
     }
 
+    /// Builds the array of filter instructions and sends them to the kernel.
+    ///
+    /// # Arguments
+    ///
+    /// * `level` - Filtering level.
+    ///
+    pub fn apply(self) -> Result<()> {
+        let mut bpf_filter = Vec::new();
+
+        bpf_filter.extend(VALIDATE_ARCHITECTURE());
+        bpf_filter.extend(self.into_bpf().map_err(|_| Error::Load(libc::EINVAL))?);
+
+        unsafe {
+            {
+                let rc = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+                if rc != 0 {
+                    return Err(Error::Load(*libc::__errno_location()));
+                }
+            }
+
+            let bpf_prog = sock_fprog {
+                len: bpf_filter.len() as u16,
+                filter: bpf_filter.as_ptr(),
+            };
+            let bpf_prog_ptr = &bpf_prog as *const sock_fprog;
+
+            {
+                let rc = libc::prctl(
+                    libc::PR_SET_SECCOMP,
+                    libc::SECCOMP_MODE_FILTER,
+                    bpf_prog_ptr,
+                );
+                if rc != 0 {
+                    return Err(Error::Load(*libc::__errno_location()));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Translates filter into BPF instructions.
     ///
     fn into_bpf(self) -> Result<Vec<sock_filter>> {
@@ -937,47 +978,6 @@ impl SeccompFilter {
         }
         self
     }
-}
-
-/// Builds the array of filter instructions and sends them to the kernel.
-///
-/// # Arguments
-///
-/// * `level` - Filtering level.
-///
-pub fn setup_seccomp(filter: SeccompFilter) -> Result<()> {
-    let mut bpf_filter = Vec::new();
-
-    bpf_filter.extend(VALIDATE_ARCHITECTURE());
-    bpf_filter.extend(filter.into_bpf().map_err(|_| Error::Load(libc::EINVAL))?);
-
-    unsafe {
-        {
-            let rc = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
-            if rc != 0 {
-                return Err(Error::Load(*libc::__errno_location()));
-            }
-        }
-
-        let bpf_prog = sock_fprog {
-            len: bpf_filter.len() as u16,
-            filter: bpf_filter.as_ptr(),
-        };
-        let bpf_prog_ptr = &bpf_prog as *const sock_fprog;
-
-        {
-            let rc = libc::prctl(
-                libc::PR_SET_SECCOMP,
-                libc::SECCOMP_MODE_FILTER,
-                bpf_prog_ptr,
-            );
-            if rc != 0 {
-                return Err(Error::Load(*libc::__errno_location()));
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// Builds a `jump` BPF instruction.
