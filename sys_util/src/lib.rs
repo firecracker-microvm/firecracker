@@ -13,13 +13,11 @@ use libc::c_int;
 #[macro_use]
 pub mod ioctl;
 
-mod errno;
 mod eventfd;
 mod signal;
 mod struct_util;
 mod terminal;
 
-pub use errno::Error;
 pub use eventfd::*;
 pub use ioctl::*;
 pub use signal::*;
