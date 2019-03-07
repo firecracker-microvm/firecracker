@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use seccomp::{
-    allow_syscall, allow_syscall_if, setup_seccomp, Error, SeccompAction, SeccompCmpOp::*,
+    allow_syscall, allow_syscall_if, Error, SeccompAction, SeccompCmpOp::*,
     SeccompCondition as Cond, SeccompFilter, SeccompRule, SECCOMP_LEVEL_ADVANCED,
     SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
 };
@@ -105,8 +105,8 @@ pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
     // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
     // altogether is the desired behaviour.
     match seccomp_level {
-        SECCOMP_LEVEL_ADVANCED => setup_seccomp(default_filter()?),
-        SECCOMP_LEVEL_BASIC => setup_seccomp(default_filter()?.allow_all()),
+        SECCOMP_LEVEL_ADVANCED => default_filter()?.apply(),
+        SECCOMP_LEVEL_BASIC => default_filter()?.allow_all().apply(),
         SECCOMP_LEVEL_NONE | _ => Ok(()),
     }
 }
@@ -287,7 +287,7 @@ mod tests {
                 )
                 .is_ok());
         }
-        assert!(seccomp::setup_seccomp(filter).is_ok());
+        assert!(filter.apply().is_ok());
     }
 
     #[test]
