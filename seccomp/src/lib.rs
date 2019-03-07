@@ -55,7 +55,7 @@
 //!
 //! fn main() {
 //!     let buf = "Hello, world!";
-//!     let context = SeccompFilterContext::new(
+//!     let filter = SeccompFilter::new(
 //!         vec![
 //!             allow_syscall(libc::SYS_close),
 //!             allow_syscall(libc::SYS_execve),
@@ -68,7 +68,7 @@
 //!         SeccompAction::Trap,
 //!     )
 //!     .unwrap();
-//!     setup_seccomp(context).unwrap();
+//!     setup_seccomp(filter).unwrap();
 //!     unsafe {
 //!         libc::syscall(
 //!             libc::SYS_write,
@@ -83,7 +83,7 @@
 //! The code snippet above will print "Hello, world!" to stdout and "Bad system call" to stderr.
 //! The exit code will be 159.
 //!
-//! ## Advanced Filtering: Conditions, Rules and Contexts
+//! ## Advanced Filtering: Conditions, Rules and Filters
 //!
 //! A system call is matched if it verifies a set of [`SeccompCondition`]s. Namely, the syscall
 //! number must match the one in the [`SeccompCondition`], and each of its arguments (in case of
@@ -93,7 +93,7 @@
 //! A [`SeccompRule`] is composed of a set of [`SeccompCondition`]s the syscall must match and the
 //! [`SeccompAction`] to be taken in case of a match.
 //!
-//! A [`SeccompFilterContext`] applies only to advanced filtering and is composed of a set of
+//! A [`SeccompFilter`] applies only to advanced filtering and is composed of a set of
 //! [`SeccompRule`]s and a default [`SeccompAction`]. The default action will be taken for the
 //! syscalls that do not match any of the rules.
 //!
@@ -163,15 +163,15 @@
 //!
 //!     unsafe { libc::sigaction(libc::SIGSYS, &act, ::std::ptr::null_mut()) };
 //!
-//!     let mut context =
-//!         SeccompFilterContext::new(vec![].into_iter().collect(), SeccompAction::Trap).unwrap();
+//!     let mut filter =
+//!         SeccompFilter::new(vec![].into_iter().collect(), SeccompAction::Trap).unwrap();
 //!
 //!     gen_rules()
 //!         .into_iter()
-//!         .try_for_each(|(syscall_number, rules)| context.add_rules(syscall_number, rules))
+//!         .try_for_each(|(syscall_number, rules)| filter.add_rules(syscall_number, rules))
 //!         .unwrap();
 //!
-//!     context
+//!     filter
 //!         .add_rules(
 //!             libc::SYS_write,
 //!             vec![SeccompRule::new(
@@ -184,7 +184,7 @@
 //!         )
 //!         .unwrap();
 //!
-//!     setup_seccomp(context).unwrap();
+//!     setup_seccomp(filter).unwrap();
 //!
 //!     unsafe {
 //!         libc::syscall(
@@ -224,7 +224,7 @@
 //! [`SeccompCondition`]: struct.SeccompCondition.html
 //! [`SeccompRule`]: struct.SeccompRule.html
 //! [`SeccompAction`]: enum.SeccompAction.html
-//! [`SeccompFilterContext`]: struct.SeccompFilterContext.html
+//! [`SeccompFilter`]: struct.SeccompFilter.html
 //! [`action`]: struct.SeccompRule.html#action
 //!
 
@@ -308,11 +308,10 @@ const SECCOMP_DATA_ARG_SIZE: u8 = 8;
 /// Seccomp errors.
 #[derive(Debug)]
 pub enum Error {
-    /// Filter context that when translated into BPF code, exceeds the maximum number of
-    /// instructions that a BPF program can have.
-    ContextTooLarge,
     /// Attempting to add an empty vector of rules to the rule chain of a syscall.
     EmptyRulesVector,
+    /// Filter exceeds the maximum number of instructions that a BPF program can have.
+    FilterTooLarge,
     /// Failed to translate rules into BPF.
     IntoBpf,
     /// Argument number that exceeds the maximum value.
@@ -326,8 +325,8 @@ impl Display for Error {
         use self::Error::*;
 
         match *self {
-            ContextTooLarge => write!(f, "The seccomp filter contains too many BPF instructions."),
             EmptyRulesVector => write!(f, "The seccomp rules vector is empty."),
+            FilterTooLarge => write!(f, "The seccomp filter contains too many BPF instructions."),
             IntoBpf => write!(f, "Failed to translate the seccomp rules into BPF."),
             InvalidArgumentNumber => {
                 write!(f, "The seccomp rule contains an invalid argument number.")
@@ -420,8 +419,9 @@ pub fn allow_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> Syscall
     (syscall_number, rules)
 }
 
-/// Filter context containing rules assigned to syscall numbers.
-pub struct SeccompFilterContext {
+/// Filter containing rules assigned to syscall numbers.
+///
+pub struct SeccompFilter {
     /// Hash map, mapping a chain of rules to a syscall number.
     rules: BTreeMap<i64, Vec<SeccompRule>>,
     /// Default action to apply to syscall numbers that do not exist in the hash map.
@@ -512,7 +512,7 @@ impl SeccompCondition {
     /// `seccomp` tries to match the next rule by jumping out of the current rule.
     ///
     /// In case the condition is part of the last rule, the jump offset is to the default action of
-    /// respective context.
+    /// respective filter.
     ///
     /// The most significant and least significant halves of the argument value are compared
     /// separately since the BPF operand and accumulator are 4 bytes whereas an argument value is 8.
@@ -765,12 +765,12 @@ impl SeccompRule {
             // is reset to 1.
             //
             // - The first jump continues the evaluation of the condition chain by jumping to
-            // the next condition or the action of the rule if the last condition was matched.
+            //   the next condition or the action of the rule if the last condition was matched.
             // - The second, jumps out of the rule, to the next rule or the default action of
-            // the context in case of the last rule in the rule chain of a syscall.
+            //   the filter in case of the last rule in the rule chain of a syscall.
             // - The third jumps out of the rule chain of the syscall, to the rule chain of the
-            // next syscall number to be checked or the default action of the context in the
-            // case of the last rule chain.
+            //   next syscall number to be checked or the default action of the filter in the
+            //   case of the last rule chain.
             let helper_jumps = vec![
                 BPF_STMT(BPF_JMP + BPF_JA, 2),
                 BPF_STMT(BPF_JMP + BPF_JA, u32::from(*offset) + 1),
@@ -788,8 +788,8 @@ impl SeccompRule {
     }
 }
 
-impl SeccompFilterContext {
-    /// Creates a new filter context with a set of rules and a default action.
+impl SeccompFilter {
+    /// Creates a new filter with a set of rules and a default action.
     ///
     /// # Arguments
     ///
@@ -813,7 +813,7 @@ impl SeccompFilterContext {
         })
     }
 
-    /// Adds rules for the specified syscall in the filter context.
+    /// Adds rules for the specified syscall in the filter.
     ///
     /// # Arguments
     ///
@@ -834,36 +834,36 @@ impl SeccompFilterContext {
         Ok(())
     }
 
-    /// Translates filter context into BPF instructions.
+    /// Translates filter into BPF instructions.
     ///
     fn into_bpf(self) -> Result<Vec<sock_filter>> {
         // The called syscall number is loaded.
         let mut accumulator = Vec::with_capacity(1);
-        let mut context_len = 1;
+        let mut filter_len = 1;
         accumulator.push(EXAMINE_SYSCALL());
 
         // Orders syscalls by priority, the highest number represents the highest priority.
         let mut iter = self.rules.into_iter();
 
-        // For each syscall adds its rule chain to the context.
+        // For each syscall adds its rule chain to the filter.
         let default_action = u32::from(self.default_action);
         iter.try_for_each(|(syscall_number, chain)| {
-            SeccompFilterContext::append_syscall_chain(
+            SeccompFilter::append_syscall_chain(
                 syscall_number,
                 chain,
                 default_action,
                 &mut accumulator,
-                &mut context_len,
+                &mut filter_len,
             )
         })?;
 
         // The default action is once again appended, it is reached if all syscall number
         // comparisons fail.
-        context_len += 1;
+        filter_len += 1;
         accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, default_action)]);
 
-        // Finally, builds the translated context by consuming the accumulator.
-        let mut result = Vec::with_capacity(context_len);
+        // Finally, builds the translated filter by consuming the accumulator.
+        let mut result = Vec::with_capacity(filter_len);
         accumulator
             .into_iter()
             .for_each(|mut instructions| result.append(&mut instructions));
@@ -871,7 +871,7 @@ impl SeccompFilterContext {
         Ok(result)
     }
 
-    /// Appends a chain of rules to an accumulator, updating the length of the context.
+    /// Appends a chain of rules to an accumulator, updating the length of the filter.
     ///
     /// # Arguments
     ///
@@ -879,15 +879,15 @@ impl SeccompFilterContext {
     /// * `chain` - The chain of rules for the specified syscall.
     /// * `default_action` - The action to be taken in none of the rules apply.
     /// * `accumulator` - The expanding BPF program.
-    /// * `context_len` - The size (in number of BPF statements) of the BPF program. This is
-    ///                   limited to 4096. If the limit is exceeded, the context is invalidated.
+    /// * `filter_len` - The size (in number of BPF statements) of the BPF program. This is
+    ///                  limited to 4096. If the limit is exceeded, the filter is invalidated.
     ///
     fn append_syscall_chain(
         syscall_number: i64,
         chain: Vec<SeccompRule>,
         default_action: u32,
         accumulator: &mut Vec<Vec<sock_filter>>,
-        context_len: &mut usize,
+        filter_len: &mut usize,
     ) -> Result<()> {
         // The rules of the chain are translated into BPF statements.
         let chain: Vec<_> = chain.into_iter().map(|rule| rule.into_bpf()).collect();
@@ -913,12 +913,12 @@ impl SeccompFilterContext {
         built_syscall.push(BPF_STMT(BPF_RET + BPF_K, default_action));
 
         // The chain is appended to the result.
-        *context_len += built_syscall.len();
+        *filter_len += built_syscall.len();
         accumulator.push(built_syscall);
 
         // BPF programs are limited to 4096 statements.
-        if *context_len >= BPF_MAX_LEN {
-            return Err(Error::ContextTooLarge);
+        if *filter_len >= BPF_MAX_LEN {
+            return Err(Error::FilterTooLarge);
         }
 
         Ok(())
@@ -926,7 +926,7 @@ impl SeccompFilterContext {
 
     /// Replaces the seccomp rules so as to allow every syscall contained in the rule set.
     ///
-    pub fn allow_all(mut self) -> SeccompFilterContext {
+    pub fn allow_all(mut self) -> SeccompFilter {
         // Pre-collect the keys to avoid the double borrow.
         let syscalls: Vec<i64> = self.rules.keys().cloned().collect();
         for syscall in syscalls {
@@ -945,11 +945,11 @@ impl SeccompFilterContext {
 ///
 /// * `level` - Filtering level.
 ///
-pub fn setup_seccomp(context: SeccompFilterContext) -> Result<()> {
-    let mut filters = Vec::new();
+pub fn setup_seccomp(filter: SeccompFilter) -> Result<()> {
+    let mut bpf_filter = Vec::new();
 
-    filters.extend(VALIDATE_ARCHITECTURE());
-    filters.extend(context.into_bpf().map_err(|_| Error::IntoBpf)?);
+    bpf_filter.extend(VALIDATE_ARCHITECTURE());
+    bpf_filter.extend(filter.into_bpf().map_err(|_| Error::Load(libc::EINVAL))?);
 
     unsafe {
         {
@@ -959,14 +959,18 @@ pub fn setup_seccomp(context: SeccompFilterContext) -> Result<()> {
             }
         }
 
-        let filter = sock_fprog {
-            len: filters.len() as u16,
-            filter: filters.as_ptr(),
+        let bpf_prog = sock_fprog {
+            len: bpf_filter.len() as u16,
+            filter: bpf_filter.as_ptr(),
         };
-        let filter_ptr = &filter as *const sock_fprog;
+        let bpf_prog_ptr = &bpf_prog as *const sock_fprog;
 
         {
-            let rc = libc::prctl(libc::PR_SET_SECCOMP, libc::SECCOMP_MODE_FILTER, filter_ptr);
+            let rc = libc::prctl(
+                libc::PR_SET_SECCOMP,
+                libc::SECCOMP_MODE_FILTER,
+                bpf_prog_ptr,
+            );
             if rc != 0 {
                 return Err(Error::Load(*libc::__errno_location()));
             }
@@ -1140,15 +1144,15 @@ mod tests {
     }
 
     #[test]
-    fn test_context_bpf_output() {
-        // Compares translated context with hardcoded BPF program.
+    fn test_filter_bpf_output() {
+        // Compares translated filter with hardcoded BPF program.
         {
             let mut empty_rule_map = BTreeMap::new();
             empty_rule_map.insert(1, vec![]);
-            assert!(SeccompFilterContext::new(empty_rule_map, SeccompAction::Allow).is_err());
+            assert!(SeccompFilter::new(empty_rule_map, SeccompAction::Allow).is_err());
         }
 
-        let context = SeccompFilterContext::new(
+        let filter = SeccompFilter::new(
             vec![
                 allow_syscall_if(
                     1,
@@ -1228,7 +1232,7 @@ mod tests {
             BPF_STMT(0x06, 0x0003_0000),
         ];
 
-        assert_eq!(context.into_bpf().unwrap(), instructions);
+        assert_eq!(filter.into_bpf().unwrap(), instructions);
     }
 
     #[test]
@@ -1297,12 +1301,12 @@ mod tests {
     #[test]
     fn test_error_messages() {
         assert_eq!(
-            format!("{}", Error::ContextTooLarge),
-            "The seccomp filter contains too many BPF instructions."
-        );
-        assert_eq!(
             format!("{}", Error::EmptyRulesVector),
             "The seccomp rules vector is empty."
+        );
+        assert_eq!(
+            format!("{}", Error::FilterTooLarge),
+            "The seccomp filter contains too many BPF instructions."
         );
         assert_eq!(
             format!("{}", Error::IntoBpf),
