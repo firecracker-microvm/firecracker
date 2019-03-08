@@ -33,6 +33,10 @@ pub enum Error {
     E820Configuration,
     /// Error writing MP table to memory.
     MpTableSetup(mptable::Error),
+    /// The zero page extends past the end of guest_mem.
+    ZeroPagePastRamEnd,
+    /// Error writing the zero page of guest memory.
+    ZeroPageSetup,
 }
 
 impl From<Error> for super::Error {
@@ -142,10 +146,10 @@ pub fn configure_system(
     let zero_page_addr = GuestAddress(layout::ZERO_PAGE_START);
     guest_mem
         .checked_offset(zero_page_addr, mem::size_of::<boot_params>())
-        .ok_or(super::Error::ZeroPagePastRamEnd)?;
+        .ok_or(Error::ZeroPagePastRamEnd)?;
     guest_mem
         .write_obj_at_addr(params, zero_page_addr)
-        .map_err(|_| super::Error::ZeroPageSetup)?;
+        .map_err(|_| Error::ZeroPageSetup)?;
 
     Ok(())
 }
