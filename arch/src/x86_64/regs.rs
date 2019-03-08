@@ -94,15 +94,18 @@ pub fn setup_msrs(vcpu: &VcpuFd) -> Result<()> {
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 /// * `boot_ip` - Starting instruction pointer.
-/// * `boot_sp` - Starting stack pointer.
-/// * `boot_si` - Must point to zero page address per Linux ABI.
-pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64, boot_sp: u64, boot_si: u64) -> Result<()> {
+pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64) -> Result<()> {
     let regs: kvm_regs = kvm_regs {
         rflags: 0x0000_0000_0000_0002u64,
         rip: boot_ip,
-        rsp: boot_sp,
-        rbp: boot_sp,
-        rsi: boot_si,
+        // Frame pointer. It gets a snapshot of the stack pointer (rsp) so that when adjustments are
+        // made to rsp (i.e. reserving space for local variables or pushing values on to the stack),
+        // local variables and function parameters are still accessible from a constant offset from rbp.
+        rsp: super::layout::BOOT_STACK_POINTER as u64,
+        // Starting stack pointer.
+        rbp: super::layout::BOOT_STACK_POINTER as u64,
+        // Must point to zero page address per Linux ABI. This is x86_64 specific.
+        rsi: super::layout::ZERO_PAGE_START as u64,
         ..Default::default()
     };
 
@@ -413,19 +416,13 @@ mod tests {
         let expected_regs: kvm_regs = kvm_regs {
             rflags: 0x0000_0000_0000_0002u64,
             rip: 1,
-            rsp: 2,
-            rbp: 2,
-            rsi: 3,
+            rsp: super::super::layout::BOOT_STACK_POINTER as u64,
+            rbp: super::super::layout::BOOT_STACK_POINTER as u64,
+            rsi: super::super::layout::ZERO_PAGE_START as u64,
             ..Default::default()
         };
 
-        setup_regs(
-            &vcpu,
-            expected_regs.rip,
-            expected_regs.rsp,
-            expected_regs.rsi,
-        )
-        .unwrap();
+        setup_regs(&vcpu, expected_regs.rip).unwrap();
 
         let actual_regs: kvm_regs = vcpu.get_regs().unwrap();
         assert_eq!(actual_regs, expected_regs);
