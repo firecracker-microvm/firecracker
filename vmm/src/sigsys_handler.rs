@@ -66,7 +66,6 @@ extern "C" fn sigsys_handler(
     // function are blocked due to the sa_mask used when registering the signal handler.
     let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) as usize };
     METRICS.seccomp.num_faults.inc();
-    METRICS.seccomp.bad_syscalls[syscall].inc();
     error!(
         "Shutting down VM after intercepting a bad syscall ({}).",
         syscall
@@ -138,8 +137,7 @@ mod tests {
         ];
 
         assert!(setup_seccomp(SeccompLevel::Basic(REQUIRED_SYSCALLS)).is_ok());
-        let sys_idx = libc::SYS_getpid as usize;
-        assert_eq!(METRICS.seccomp.bad_syscalls[sys_idx].count(), 0);
+        assert_eq!(METRICS.seccomp.num_faults.count(), 0);
 
         // Calls the blacklisted SYS_getpid.
         let _pid = process::id();
@@ -154,7 +152,7 @@ mod tests {
         // tests, so we use this as an heuristic to decide if we check the assertion.
         if cpu_count() > 1 {
             // The signal handler should let the program continue during unit tests.
-            assert_eq!(METRICS.seccomp.bad_syscalls[sys_idx].count(), 1);
+            assert_eq!(METRICS.seccomp.num_faults.count(), 1);
         }
     }
 }
