@@ -251,7 +251,7 @@ mod tests {
                 lsb_index: 2
             }
             .get_mask()
-                == 0b111100
+                == 0b11_1100
         );
         assert!(
             BitRange {
@@ -259,7 +259,7 @@ mod tests {
                 lsb_index: 2
             }
             .get_mask()
-                == 0b1111100
+                == 0b111_1100
         );
         assert!(
             BitRange {
@@ -267,7 +267,7 @@ mod tests {
                 lsb_index: 2
             }
             .get_mask()
-                == 0b11111100
+                == 0b1111_1100
         );
     }
 
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_read_bits() {
-        let val: u32 = 0b10000000000000000011010100010000;
+        let val: u32 = 0b1000_0000_0000_0000_0011_0101_0001_0000;
 
         // Test a couple of successive ranges
         assert!(
@@ -314,43 +314,43 @@ mod tests {
             val.read_bits_in_range(&BitRange {
                 msb_index: 7,
                 lsb_index: 2
-            }) == 0b000100
+            }) == 0b00_0100
         );
         assert!(
             val.read_bits_in_range(&BitRange {
                 msb_index: 8,
                 lsb_index: 2
-            }) == 0b1000100
+            }) == 0b100_0100
         );
         assert!(
             val.read_bits_in_range(&BitRange {
                 msb_index: 9,
                 lsb_index: 2
-            }) == 0b01000100
+            }) == 0b0100_0100
         );
         assert!(
             val.read_bits_in_range(&BitRange {
                 msb_index: 10,
                 lsb_index: 2
-            }) == 0b101000100
+            }) == 0b1_0100_0100
         );
         assert!(
             val.read_bits_in_range(&BitRange {
                 msb_index: 11,
                 lsb_index: 2
-            }) == 0b0101000100
+            }) == 0b01_0100_0100
         );
         assert!(
             val.read_bits_in_range(&BitRange {
                 msb_index: 12,
                 lsb_index: 2
-            }) == 0b10101000100
+            }) == 0b101_0100_0100
         );
         assert!(
             val.read_bits_in_range(&BitRange {
                 msb_index: 13,
                 lsb_index: 2
-            }) == 0b110101000100
+            }) == 0b1101_0100_0100
         );
 
         // Test max left and max right
@@ -358,19 +358,19 @@ mod tests {
             val.read_bits_in_range(&BitRange {
                 msb_index: 31,
                 lsb_index: 15
-            }) == 0b10000000000000000
+            }) == 0b1_0000_0000_0000_0000
         );
         assert!(
             val.read_bits_in_range(&BitRange {
                 msb_index: 14,
                 lsb_index: 0
-            }) == 0b011010100010000
+            }) == 0b011_0101_0001_0000
         );
         assert!(
             val.read_bits_in_range(&BitRange {
                 msb_index: 31,
                 lsb_index: 0
-            }) == 0b10000000000000000011010100010000
+            }) == 0b1000_0000_0000_0000_0011_0101_0001_0000
         );
     }
 
@@ -432,7 +432,7 @@ mod tests {
                     lsb_index: 2
                 },
                 0b0100
-            ) == &0b010000
+            ) == &0b01_0000
         );
         assert!(
             val.write_bits_in_range(
@@ -440,8 +440,8 @@ mod tests {
                     msb_index: 6,
                     lsb_index: 2
                 },
-                0b00100
-            ) == &0b0010000
+                0b0_0100
+            ) == &0b001_0000
         );
         assert!(
             val.write_bits_in_range(
@@ -449,8 +449,8 @@ mod tests {
                     msb_index: 7,
                     lsb_index: 2
                 },
-                0b000100
-            ) == &0b00010000
+                0b00_0100
+            ) == &0b0001_0000
         );
         assert!(
             val.write_bits_in_range(
@@ -458,8 +458,8 @@ mod tests {
                     msb_index: 8,
                     lsb_index: 2
                 },
-                0b1000100
-            ) == &0b100010000
+                0b100_0100
+            ) == &0b1_0001_0000
         );
         assert!(
             val.write_bits_in_range(
@@ -467,8 +467,8 @@ mod tests {
                     msb_index: 9,
                     lsb_index: 2
                 },
-                0b01000100
-            ) == &0b0100010000
+                0b0100_0100
+            ) == &0b01_0001_0000
         );
         assert!(
             val.write_bits_in_range(
@@ -476,8 +476,8 @@ mod tests {
                     msb_index: 10,
                     lsb_index: 2
                 },
-                0b101000100
-            ) == &0b10100010000
+                0b1_0100_0100
+            ) == &0b101_0001_0000
         );
         assert!(
             val.write_bits_in_range(
@@ -485,8 +485,8 @@ mod tests {
                     msb_index: 11,
                     lsb_index: 2
                 },
-                0b0101000100
-            ) == &0b010100010000
+                0b01_0100_0100
+            ) == &0b0101_0001_0000
         );
         assert!(
             val.write_bits_in_range(
@@ -494,8 +494,8 @@ mod tests {
                     msb_index: 12,
                     lsb_index: 2
                 },
-                0b10101000100
-            ) == &0b1010100010000
+                0b101_0100_0100
+            ) == &0b1_0101_0001_0000
         );
         assert!(
             val.write_bits_in_range(
@@ -503,8 +503,8 @@ mod tests {
                     msb_index: 13,
                     lsb_index: 2
                 },
-                0b110101000100
-            ) == &0b11010100010000
+                0b1101_0100_0100
+            ) == &0b11_0101_0001_0000
         );
 
         // Test max left and max right
@@ -515,8 +515,8 @@ mod tests {
                     msb_index: 31,
                     lsb_index: 15
                 },
-                0b10000000000000000
-            ) == &0b10000000000000000000000000000000
+                0b1_0000_0000_0000_0000
+            ) == &0b1000_0000_0000_0000_0000_0000_0000_0000
         );
         assert!(
             val.write_bits_in_range(
@@ -524,8 +524,8 @@ mod tests {
                     msb_index: 14,
                     lsb_index: 0
                 },
-                0b011010100010000
-            ) == &0b10000000000000000011010100010000
+                0b011_0101_0001_0000
+            ) == &0b1000_0000_0000_0000_0011_0101_0001_0000
         );
         assert!(
             val.write_bits_in_range(
@@ -533,8 +533,8 @@ mod tests {
                     msb_index: 31,
                     lsb_index: 0
                 },
-                0b10000000000000000011010100010000
-            ) == &0b10000000000000000011010100010000
+                0b1000_0000_0000_0000_0011_0101_0001_0000
+            ) == &0b1000_0000_0000_0000_0011_0101_0001_0000
         );
     }
 
@@ -572,6 +572,6 @@ mod tests {
             0b1011,
         );
 
-        assert!(val == 0b10110001010100000001100000010000);
+        assert!(val == 0b1011_0001_0101_0000_0001_1000_0001_0000);
     }
 }

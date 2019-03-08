@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Dropped the JSON-formatted `context` command-line parameter from Firecracker
+  in favor of individual classic command-line parameters.
+- When running with `jailer` the location of the API socket has changed to
+  `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
+
+### Fixed
+
+- A `madvise` call issued by the `musl` allocator was added to the seccomp
+  whitelist to prevent Firecracker from terminating abruptly when allocating
+  memory in certain conditions.
+
+### Removed
+
+- Removed the `seccomp.bad_syscalls` metric.
+
 ## [0.15.0]
 
 ### Added

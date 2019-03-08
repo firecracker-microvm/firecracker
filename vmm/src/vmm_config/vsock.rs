@@ -39,6 +39,7 @@ impl Display for VsockError {
 }
 
 /// A list with all the vsock devices.
+#[derive(Default)]
 pub struct VsockDeviceConfigs {
     configs: Vec<VsockDeviceConfig>,
 }

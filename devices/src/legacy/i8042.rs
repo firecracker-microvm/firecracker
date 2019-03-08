@@ -58,11 +58,12 @@ const CMD_WRITE_OUTP: u8 = 0xD1; // Write output port
 const CMD_RESET_CPU: u8 = 0xFE; // Reset CPU
 
 /// i8042 status register bits
-const SB_OUT_DATA_AVAIL: u8 = 1 << 0; // Data available at port 0x60
+const SB_OUT_DATA_AVAIL: u8 = 1; // Data available at port 0x60
 const SB_I8042_CMD_DATA: u8 = 1 << 3; // i8042 expecting command parameter at port 0x60
 const SB_KBD_ENABLED: u8 = 1 << 4; // 1 = kbd enabled, 0 = kbd locked
 
 /// i8042 control register bits
+#[allow(clippy::identity_op)]
 const CB_KBD_INT: u8 = 1 << 0; // kbd interrupt enabled
 const CB_POST_OK: u8 = 1 << 2; // POST ok (should always be 1)
 
@@ -348,7 +349,7 @@ mod tests {
         // counter doesn't change (for 0 it blocks).
         assert!(reset_evt.write(1).is_ok());
         let mut data = [CMD_RESET_CPU];
-        i8042.write(OFS_STATUS, &mut data);
+        i8042.write(OFS_STATUS, &data);
         assert_eq!(reset_evt.read().unwrap(), 2);
 
         // Check if reading with offset 1 doesn't have side effects.
@@ -358,13 +359,13 @@ mod tests {
         // Check invalid `write`s.
         let before = METRICS.i8042.missed_write_count.count();
         // offset != 0.
-        i8042.write(1, &mut data);
+        i8042.write(1, &data);
         // data != CMD_RESET_CPU
         data[0] = CMD_RESET_CPU + 1;
-        i8042.write(1, &mut data);
+        i8042.write(1, &data);
         // data.len() != 1
-        let mut data = [CMD_RESET_CPU; 2];
-        i8042.write(1, &mut data);
+        let data = [CMD_RESET_CPU; 2];
+        i8042.write(1, &data);
         assert_eq!(METRICS.i8042.missed_write_count.count(), before + 3);
     }
 

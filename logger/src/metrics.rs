@@ -29,8 +29,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use chrono;
 use serde::{Serialize, Serializer};
 
-const SYSCALL_MAX: usize = 350;
-
 /// Used for defining new types of metrics that can be either incremented with an unit
 /// or an arbitrary amount of units.
 // This trait helps with writing less code. It has to be in scope (via an use directive) in order
@@ -59,7 +57,7 @@ pub struct SimpleMetric(AtomicUsize);
 
 impl Metric for SimpleMetric {
     fn add(&self, value: usize) {
-        let ref count = self.0;
+        let count = &self.0;
         count.store(count.load(Ordering::Relaxed) + value, Ordering::Relaxed);
     }
 
@@ -308,25 +306,10 @@ pub struct NetDeviceMetrics {
 }
 
 /// Metrics for the seccomp filtering.
-#[derive(Serialize)]
+#[derive(Default, Serialize)]
 pub struct SeccompMetrics {
-    /// Number of black listed syscalls.
-    pub bad_syscalls: Vec<SharedMetric>,
     /// Number of errors inside the seccomp filtering.
     pub num_faults: SharedMetric,
-}
-
-impl Default for SeccompMetrics {
-    fn default() -> SeccompMetrics {
-        let mut def_syscalls = vec![];
-        for _syscall in 0..SYSCALL_MAX {
-            def_syscalls.push(SharedMetric::default());
-        }
-        SeccompMetrics {
-            num_faults: SharedMetric::default(),
-            bad_syscalls: def_syscalls,
-        }
-    }
 }
 
 /// Metrics specific to the UART device.
@@ -455,7 +438,7 @@ mod tests {
         // but it something fails, then we definitely have a problem :-s
 
         const NUM_THREADS_TO_SPAWN: usize = 4;
-        const NUM_INCREMENTS_PER_THREAD: usize = 100000;
+        const NUM_INCREMENTS_PER_THREAD: usize = 10_0000;
         const M2_INITIAL_COUNT: usize = 123;
 
         m2.add(M2_INITIAL_COUNT);

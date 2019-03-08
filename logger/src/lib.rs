@@ -515,7 +515,7 @@ impl Logger {
         }
     }
 
-    fn set_flags(options: &Vec<Value>) -> Result<()> {
+    fn set_flags(options: &[Value]) -> Result<()> {
         let mut flags = 0;
         for option in options.iter() {
             if let Value::String(s_opt) = option {
@@ -634,7 +634,7 @@ impl Logger {
         instance_id: &str,
         log_pipe: String,
         metrics_pipe: String,
-        options: &Vec<Value>,
+        options: &[Value],
     ) -> Result<()> {
         self.try_lock(INITIALIZING)?;
 
@@ -703,19 +703,21 @@ impl Logger {
     fn log_helper(&self, msg: String, maybe_forced_destination: Option<Destination>) {
         let destination = maybe_forced_destination
             .map(|forced_destination| forced_destination as usize)
-            .unwrap_or(self.level_info.writer());
+            .unwrap_or_else(|| self.level_info.writer());
 
         // We have the awkward IF's for now because we can't use just "<enum_variant> as usize
         // on the left side of a match arm for some reason.
         match destination {
             x if x == Destination::Pipe as usize => {
                 // Unwrap is safe cause the Destination is a Pipe.
-                if let Err(_) = log_to_fifo(
+                if log_to_fifo(
                     msg,
                     self.log_fifo_guard()
                         .as_mut()
                         .expect("Failed to write to fifo due to poisoned lock"),
-                ) {
+                )
+                .is_err()
+                {
                     // No reason to log the error to stderr here, just increment the metric.
                     METRICS.logger.missed_log_count.inc();
                 }
@@ -756,14 +758,14 @@ impl Logger {
                 }
                 Err(e) => {
                     METRICS.logger.metrics_fails.inc();
-                    return Err(LoggerError::LogMetricFailure(e.description().to_string()));
+                    Err(LoggerError::LogMetricFailure(e.description().to_string()))
                 }
             }
         } else {
             METRICS.logger.metrics_fails.inc();
-            return Err(LoggerError::LogMetricFailure(
+            Err(LoggerError::LogMetricFailure(
                 "Logger was not initialized.".to_string(),
-            ));
+            ))
         }
     }
 }
@@ -845,6 +847,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_init() {
         let app_info = AppInfo::new(TEST_APP_NAME, TEST_APP_VERSION);
 
@@ -874,7 +877,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{:?}",
-                l.init(&app_info, TEST_INSTANCE_ID, log_file.clone(), metrics_file.clone(), &vec![Value::Bool(true)])
+                l.init(&app_info, TEST_INSTANCE_ID, log_file.clone(), metrics_file.clone(), &[Value::Bool(true)])
                     .err()
             ),
             "Some(NeverInitialized(\"Could not set option flags: Invalid log option: Bool(true)\"))"
@@ -887,7 +890,7 @@ mod tests {
                     TEST_INSTANCE_ID,
                     log_file.clone(),
                     metrics_file.clone(),
-                    &vec![Value::String("foobar".to_string())]
+                    &[Value::String("foobar".to_string())]
                 )
                 .err()
             ),
@@ -913,7 +916,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 log_file.clone(),
                 metrics_file.clone(),
-                &vec![Value::String("LogDirtyPages".to_string())]
+                &[Value::String("LogDirtyPages".to_string())]
             )
             .is_ok());
 
@@ -926,7 +929,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 log_file.clone(),
                 metrics_file.clone(),
-                &vec![]
+                &[]
             )
             .is_err());
 
@@ -964,7 +967,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 String::from(""),
                 metrics_file.clone(),
-                &vec![]
+                &[]
             )
             .is_err());
 
@@ -973,7 +976,7 @@ mod tests {
             TEST_INSTANCE_ID,
             log_file.clone(),
             String::from(""),
-            &vec![],
+            &[],
         );
         assert!(res.is_err());
 
@@ -1008,7 +1011,7 @@ mod tests {
                     TEST_INSTANCE_ID,
                     log_file.clone(),
                     metrics_file.clone(),
-                    &vec![]
+                    &[]
                 )
                 .err()
             ),

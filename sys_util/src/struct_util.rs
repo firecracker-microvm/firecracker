@@ -38,6 +38,9 @@ pub unsafe fn read_struct<T: Copy, F: Read>(f: &mut F, out: &mut T) -> Result<()
 ///
 /// * `f` - The input to read from.  Often this is a file.
 /// * `len` - The number of structs to fill with data read from `f`.
+// This lint check is now deprecated - https://github.com/rust-lang/rust-clippy/pull/3478/files
+// we can safely allow this.
+#[allow(clippy::unsafe_vector_initialization)]
 pub unsafe fn read_struct_slice<T: Copy, F: Read>(f: &mut F, len: usize) -> Result<Vec<T>> {
     let mut out: Vec<T> = Vec::with_capacity(len);
     out.set_len(len);
@@ -67,7 +70,7 @@ mod tests {
     #[test]
     fn struct_basic_read() {
         let orig = TestRead {
-            a: 0x7766554433221100,
+            a: 0x7766_5544_3322_1100,
             b: 0x88,
             c: 0x99,
             d: 0xaa,
@@ -91,7 +94,7 @@ mod tests {
     #[test]
     fn struct_read_past_end() {
         let orig = TestRead {
-            a: 0x7766554433221100,
+            a: 0x7766_5544_3322_1100,
             b: 0x88,
             c: 0x99,
             d: 0xaa,
@@ -115,21 +118,21 @@ mod tests {
     fn struct_slice_read() {
         let orig = vec![
             TestRead {
-                a: 0x7766554433221100,
+                a: 0x7766_5544_3322_1100,
                 b: 0x88,
                 c: 0x99,
                 d: 0xaa,
                 e: 0xbb,
             },
             TestRead {
-                a: 0x7867564534231201,
+                a: 0x7867_5645_3423_1201,
                 b: 0x02,
                 c: 0x13,
                 d: 0x24,
                 e: 0x35,
             },
             TestRead {
-                a: 0x7a69584736251403,
+                a: 0x7a69_5847_3625_1403,
                 b: 0x04,
                 c: 0x15,
                 d: 0x26,

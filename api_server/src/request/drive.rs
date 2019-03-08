@@ -86,7 +86,7 @@ impl IntoParsedRequest for PatchDrivePayload {
                 let drive_id: String = self.get_string_field_unchecked("drive_id");
                 let path_on_host: String = self.get_string_field_unchecked("path_on_host");
 
-                let id_from_path = id_from_path.unwrap_or(String::new());
+                let id_from_path = id_from_path.unwrap_or_default();
                 if id_from_path != drive_id {
                     return Err(String::from(
                         "The id from the path does not match the id from the body!",
@@ -110,7 +110,7 @@ impl IntoParsedRequest for BlockDeviceConfig {
         id_from_path: Option<String>,
         method: Method,
     ) -> result::Result<ParsedRequest, String> {
-        let id_from_path = id_from_path.unwrap_or(String::new());
+        let id_from_path = id_from_path.unwrap_or_default();
         if id_from_path != self.drive_id {
             return Err(String::from(
                 "The id from the path does not match the id from the body!",
@@ -257,8 +257,8 @@ mod tests {
             rate_limiter: None,
         };
         assert!(
-            &desc.into_parsed_request(Some(String::from("foo")), Method::Options)
-                == &Err(String::from("Invalid method."))
+            desc.into_parsed_request(Some(String::from("foo")), Method::Options)
+                == Err(String::from("Invalid method."))
         );
 
         // BlockDeviceConfig doesn't implement Clone so we have to define multiple identical vars.

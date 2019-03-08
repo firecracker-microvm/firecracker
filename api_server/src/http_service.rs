@@ -140,7 +140,7 @@ fn checked_id(id: &str) -> Result<&str> {
     // todo: are there any checks we want to do on id's?
     // not allow them to be empty strings maybe?
     // check: ensure string is not empty
-    if id.len() == 0 {
+    if id.is_empty() {
         return Err(Error::EmptyID);
     }
     // check: ensure string is alphanumeric
@@ -188,15 +188,13 @@ fn parse_mmds_request<'a>(
 
     match path_tokens[1..].len() {
         0 if method == Method::Get => Ok(ParsedRequest::GetMMDS),
-        0 if method == Method::Put => {
-            match serde_json::from_slice(&body) {
-                Ok(val) => return Ok(ParsedRequest::PutMMDS(val)),
-                Err(e) => return Err(Error::SerdeJson(e)),
-            };
-        }
+        0 if method == Method::Put => match serde_json::from_slice(&body) {
+            Ok(val) => Ok(ParsedRequest::PutMMDS(val)),
+            Err(e) => Err(Error::SerdeJson(e)),
+        },
         0 if method == Method::Patch => match serde_json::from_slice(&body) {
-            Ok(val) => return Ok(ParsedRequest::PatchMMDS(val)),
-            Err(e) => return Err(Error::SerdeJson(e)),
+            Ok(val) => Ok(ParsedRequest::PatchMMDS(val)),
+            Err(e) => Err(Error::SerdeJson(e)),
         },
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
@@ -365,7 +363,7 @@ fn parse_vsocks_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'
 
     match path_tokens[1..].len() {
         1 if method == Method::Put => Ok(serde_json::from_slice::<VsockDeviceConfig>(body)
-            .map_err(|e| Error::SerdeJson(e))?
+            .map_err(Error::SerdeJson)?
             .into_parsed_request(Some(id_from_path.to_string()), method)
             .map_err(|s| {
                 METRICS.put_api_requests.network_fails.inc();
@@ -404,7 +402,7 @@ fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, 
     // We use path[1..] here to skip the initial '/'.
     let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
 
-    if path_tokens.len() == 0 {
+    if path_tokens.is_empty() {
         if method == Method::Get {
             return Ok(ParsedRequest::GetInstanceInfo);
         } else {
@@ -525,15 +523,14 @@ impl hyper::server::Service for ApiServerHttpService {
                         let mut mmds = mmds_info
                             .lock()
                             .expect("Failed to acquire lock on MMDS info");
-                        match mmds.is_initialized() {
-                            true => {
-                                mmds.patch_data(json_value);
-                                Either::A(future::ok(empty_response(StatusCode::NoContent)))
-                            }
-                            false => Either::A(future::ok(json_response(
+                        if mmds.is_initialized() {
+                            mmds.patch_data(json_value);
+                            Either::A(future::ok(empty_response(StatusCode::NoContent)))
+                        } else {
+                            Either::A(future::ok(json_response(
                                 StatusCode::NotFound,
                                 json_fault_message("The MMDS resource does not exist."),
-                            ))),
+                            )))
                         }
                     }
                     PutMMDS(json_value) => {
@@ -637,7 +634,7 @@ fn log_received_api_request(api_description: String) {
 /// * `path` - path of the API request
 /// * `body` - body of the API request
 ///
-fn describe(method: &Method, path: &String, body: &Option<String>) -> String {
+fn describe(method: &Method, path: &str, body: &Option<String>) -> String {
     match body {
         Some(value) => format!(
             "synchronous {:?} request on {:?} with body {:?}",
@@ -691,7 +688,7 @@ mod tests {
                 acc.extend_from_slice(&*chunk);
                 Ok::<_, hyper::Error>(acc)
             })
-            .and_then(move |value| Ok(value));
+            .and_then(Ok);
 
         String::from_utf8_lossy(
             &ret.wait()
@@ -1368,7 +1365,7 @@ mod tests {
 
         // Test all valid requests
         // Each request type is unit tested separately
-        for path in vec![
+        for path in &[
             "/boot-source",
             "/drives",
             "/machine-config",

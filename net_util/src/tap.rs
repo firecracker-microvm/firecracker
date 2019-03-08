@@ -45,7 +45,7 @@ pub struct Tap {
 
 impl PartialEq for Tap {
     fn eq(&self, other: &Tap) -> bool {
-        return self.if_name == other.if_name;
+        self.if_name == other.if_name
     }
 }
 
@@ -111,7 +111,7 @@ impl Tap {
         // Safe since only the name is accessed, and it's cloned out.
         Ok(Tap {
             tap_file: tuntap,
-            if_name: unsafe { ifreq.ifr_ifrn.ifrn_name.as_ref().clone() },
+            if_name: unsafe { *ifreq.ifr_ifrn.ifrn_name.as_ref() },
         })
     }
 
@@ -134,6 +134,7 @@ impl Tap {
         }
 
         // ioctl is safe. Called with a valid sock fd, and we check the return.
+        #[allow(clippy::cast_lossless)]
         let ret =
             unsafe { ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFADDR as c_ulong, &ifreq) };
         if ret < 0 {
@@ -157,6 +158,7 @@ impl Tap {
         }
 
         // ioctl is safe. Called with a valid sock fd, and we check the return.
+        #[allow(clippy::cast_lossless)]
         let ret =
             unsafe { ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFNETMASK as c_ulong, &ifreq) };
         if ret < 0 {
@@ -169,6 +171,7 @@ impl Tap {
     /// Set the offload flags for the tap interface.
     pub fn set_offload(&self, flags: c_uint) -> Result<()> {
         // ioctl is safe. Called with a valid tap fd, and we check the return.
+        #[allow(clippy::cast_lossless)]
         let ret =
             unsafe { ioctl_with_val(&self.tap_file, net_gen::TUNSETOFFLOAD(), flags as c_ulong) };
         if ret < 0 {
@@ -192,6 +195,7 @@ impl Tap {
         }
 
         // ioctl is safe. Called with a valid sock fd, and we check the return.
+        #[allow(clippy::cast_lossless)]
         let ret =
             unsafe { ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFFLAGS as c_ulong, &ifreq) };
         if ret < 0 {
@@ -338,7 +342,7 @@ mod tests {
                     str::from_utf8(udp.payload()).unwrap()
                 );
             }
-            println!("");
+            println!();
         }
     }
 
@@ -397,11 +401,7 @@ mod tests {
 
         // Find the network interface with the provided name.
         let interfaces = datalink::interfaces();
-        let interface = interfaces
-            .into_iter()
-            .filter(interface_name_matches)
-            .next()
-            .unwrap();
+        let interface = interfaces.into_iter().find(interface_name_matches).unwrap();
 
         if let Ok(Ethernet(tx, rx)) = datalink::channel(&interface, Default::default()) {
             (interface.mac_address(), tx, rx)

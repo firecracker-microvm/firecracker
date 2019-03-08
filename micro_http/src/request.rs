@@ -32,7 +32,7 @@ impl<'a> Uri<'a> {
     }
 
     fn try_from(bytes: &'a [u8]) -> Result<Self, RequestError> {
-        if bytes.len() == 0 {
+        if bytes.is_empty() {
             return Err(RequestError::InvalidUri("Empty URI not allowed."));
         }
         let utf8_slice =
@@ -57,7 +57,7 @@ impl<'a> Uri<'a> {
 
         if self.slice.starts_with(HTTP_SCHEME_PREFIX) {
             let without_scheme = &self.slice[HTTP_SCHEME_PREFIX.len()..];
-            if without_scheme.len() == 0 {
+            if without_scheme.is_empty() {
                 return "";
             }
             // The host in this case includes the port and contains the bytes after http:// up to
@@ -67,7 +67,7 @@ impl<'a> Uri<'a> {
                 None => "",
             }
         } else {
-            if self.slice.starts_with("/") {
+            if self.slice.starts_with('/') {
                 return &self.slice;
             }
 
@@ -187,7 +187,7 @@ mod tests {
     impl<'a> PartialEq for Request<'a> {
         fn eq(&self, other: &Request) -> bool {
             // Ignore the other fields of Request for now because they are not used.
-            return self.request_line == other.request_line;
+            self.request_line == other.request_line
         }
     }
 

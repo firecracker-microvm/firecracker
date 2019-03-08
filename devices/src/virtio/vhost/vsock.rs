@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 const QUEUE_SIZE: u16 = 256;
 const NUM_QUEUES: usize = 3;
-const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE; NUM_QUEUES];
+const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE; NUM_QUEUES];
 
 impl std::convert::From<super::Error> for ActivateError {
     fn from(error: super::Error) -> Self {
@@ -84,8 +84,8 @@ impl VirtioDevice for Vsock {
 
     fn ack_features(&mut self, page: u32, value: u32) {
         let mut v = match page {
-            0 => value as u64,
-            1 => (value as u64) << 32,
+            0 => u64::from(value),
+            1 => u64::from(value) << 32,
             _ => {
                 warn!(
                     "vsock: virtio-vsock device cannot ack unknown feature page: {}",
@@ -109,9 +109,9 @@ impl VirtioDevice for Vsock {
     fn read_config(&self, offset: u64, data: &mut [u8]) {
         match offset {
             0 if data.len() == 8 => LittleEndian::write_u64(data, self.cid),
-            0 if data.len() == 4 => LittleEndian::write_u32(data, (self.cid & 0xffffffff) as u32),
+            0 if data.len() == 4 => LittleEndian::write_u32(data, (self.cid & 0xffff_ffff) as u32),
             4 if data.len() == 4 => {
-                LittleEndian::write_u32(data, ((self.cid >> 32) & 0xffffffff) as u32)
+                LittleEndian::write_u32(data, ((self.cid >> 32) & 0xffff_ffff) as u32)
             }
             _ => warn!(
                 "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",

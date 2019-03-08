@@ -42,7 +42,7 @@ fn main() {
 
     if let Err(e) = vmm::setup_sigsys_handler() {
         error!("Failed to register signal handler: {}", e);
-        process::exit(vmm::FC_EXIT_CODE_GENERIC_ERROR as i32);
+        process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
     }
 
     // Start firecracker by setting up a panic hook, which will be called before
@@ -118,7 +118,7 @@ fn main() {
 
     let bind_path = cmd_arguments
         .value_of("api_sock")
-        .map(|s| PathBuf::from(s))
+        .map(PathBuf::from)
         .expect("Missing argument: api_sock");
 
     // It's safe to unwrap here because clap's been provided with a default value
@@ -222,10 +222,11 @@ mod tests {
             }
             return true;
         }
-        return false;
+        false
     }
 
     #[test]
+    #[allow(clippy::unit_cmp)]
     fn test_main() {
         const FIRECRACKER_INIT_TIMEOUT_MILLIS: u64 = 100;
 
@@ -257,7 +258,7 @@ mod tests {
                 "TEST-ID",
                 log_file_temp.path().to_str().unwrap().to_string(),
                 metrics_file_temp.path().to_str().unwrap().to_string(),
-                &vec![],
+                &[],
             )
             .expect("Could not initialize logger.");
 

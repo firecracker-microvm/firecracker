@@ -72,7 +72,7 @@ impl LegacyDeviceManager {
     pub fn register_devices(&mut self) -> Result<()> {
         self.io_bus
             .insert(self.stdio_serial.clone(), 0x3f8, 0x8)
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.io_bus
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
@@ -81,7 +81,7 @@ impl LegacyDeviceManager {
                 0x2f8,
                 0x8,
             )
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.io_bus
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
@@ -90,7 +90,7 @@ impl LegacyDeviceManager {
                 0x3e8,
                 0x8,
             )
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.io_bus
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
@@ -99,14 +99,14 @@ impl LegacyDeviceManager {
                 0x2e8,
                 0x8,
             )
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.stdin_handle
             .lock()
             .set_raw_mode()
-            .map_err(|e| Error::StdinHandle(e))?;
+            .map_err(Error::StdinHandle)?;
         self.io_bus
             .insert(self.i8042.clone(), 0x060, 0x5)
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         Ok(())
     }
 }

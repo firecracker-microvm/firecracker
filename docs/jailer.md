@@ -33,27 +33,23 @@ jailer --id <id> \
   redirect all three standard I/O file descriptors to `/dev/null`.
 - `--seccomp-level` specifies whether seccomp filters should be installed and
   how restrictive they should be. Possible values are:
-  - 0 (default): disabled.
+  - 0 : disabled.
   - 1 : basic filtering. This prohibits syscalls not whitelisted by
     Firecracker.
-  - 2 : advanced filtering. This adds further checks on some of the parameters
-    of the allowed syscalls.
+  - 2 (default): advanced filtering. This adds further checks on some of the
+    parameters of the allowed syscalls.
 
 ## Jailer Operation
 
 After starting, the Jailer goes through the following operations:
 
 - Validate **all provided paths** and the VM `id`.
-- Close all open file descriptors based on `sysconf(_SC_OPEN_MAX)` except input,
-  output and error.
-- Open `/dev/kvm` as *RW*, and bind a Unix domain socket listener to
-  `<chroot_base>/<exec_file_name>/<id>/api.socket`. `exec_file_name` is the
-  last path component of `exec_file` (for example, that would be `firecracker`
-  for `/usr/bin/firecracker`). Both descriptors remain open across exec-ing
-  into the target binary, which would be otherwise unable to open/create the
-  associated files.
+- Close all open file descriptors based on `/proc/<jailer-pid>/fd` except
+  input, output and error.
 - Create the `<chroot_base>/<exec_file_name>/<id>/root` folder, which will be
-  henceforth referred to as `chroot_dir`. Nothing is done if the path already
+  henceforth referred to as `chroot_dir`. `exec_file_name` is the
+  last path component of `exec_file` (for example, that would be `firecracker`
+  for `/usr/bin/firecracker`). Nothing is done if the path already
   exists (it should not, since `id` is supposed to be unique).
 - Copy `exec_file` to
   `<chroot_base>/<exec_file_name>/<id>/root/<exec_file_name>`.
@@ -72,19 +68,26 @@ After starting, the Jailer goes through the following operations:
   the current working directory to the new root, unmount the old root mount
   point, and call `chroot` into the current directory.
 - Use `mknod` to create a `/dev/net/tun` equivalent inside the jail.
+- Use `mknod` to create a `/dev/kvm` equivalent inside the jail.
+- When compiled with `vsock` support, use `mknod` to create a
+  `/dev/vhost_vsock` equivalent inside the jail.
+- Use `chown` to change ownership of the `chroot_dir` (root path `/` as seen
+  by the jailed firecracker), `/dev/net/tun`, `/dev/kvm`, and if compiled with
+  `vsock` support `/dev/vhost_vsock`. The ownership is changed to the provided
+  `uid:gid`.
 - If `--netns <netns>` is present, attempt to join the specified network
   namespace.
 - If `--daemonize` is specified, call `setsid()` and redirect `STDIN`,
   `STDOUT`, and `STDERR` to `/dev/null`.
 - Drop privileges via setting the provided `uid` and `gid`.
-- Exec into `<exec_file_name> --context=<context_json>`. `context_json` is a
-  structure to pass parameters from the jailer to Firecracker. The json string
-  includes the following keys:
-  - `id`: (`string`) - The `id` argument provided to the jailer.
-  - `jailed`: (`boolean`) value (`true` in this case) to let Firecracker know
-    that it's running inside a jail.
-  - `seccomp_level`: (`number`) the `--seccomp-level` argument provided to the
-    jailer.
+- Exec into `<exec_file_name> --id=<id> --api-sock=/api.socket
+  --seccomp-level=<level> --start-time-us=<opaque>
+  --start-time-cpu-us=<opaque>`.
+  Where:
+  - `id`: (`string`) - The `id` argument provided to jailer.
+  - `level`: (`number`) - the `--seccomp-level` argument provided to jailer.
+  - `opaque`: (`number`) time calculated by the jailer that it spent doing
+     its work.
 
 ## Example Run and Notes
 
@@ -97,19 +100,20 @@ the default `/srv/jailer` chroot base dir.
 We start by running:
 
 ``` bash
-/usr/bin/jailer --id 551e7604-e35c-42b3-b825-416853441234 --node 0 --exec-file \
-/usr/bin/firecracker --uid 123 --gid 100 --netns /var/run/netns/my_netns \
---daemonize
+/usr/bin/jailer --id 551e7604-e35c-42b3-b825-416853441234 --node 0 \
+--exec-file /usr/bin/firecracker --uid 123 --gid 100 \
+--netns /var/run/netns/my_netns --daemonize
 ```
 
 After opening the file descriptors mentioned in the previous section, the
 jailer will create the following resources (and all their prerequisites, such
 as the path which contains them):
 
-- `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/api.socket`
-  (created via `bind`)
 - `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root/firecracker`
   (copied from `/usr/bin/firecracker`)
+
+Firecracker will create its API socket at
+`/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root/api.socket`
 
 We are going to refer to
 `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root`
@@ -164,6 +168,11 @@ Create the special file `/dev/net/tun`, using `mknod(“/dev/net/tun”, S_IFCHR
 S_IRUSR | S_IWUSR, makedev(10, 200))`, and then call `chown(“/dev/net/tun”,
 123, 100)`, so Firecracker can use it after dropping privileges. This is
 required to use multiple TAP interfaces when running jailed.
+Do the same for `/dev/kvm` and, when compiled with `vsock` support,
+`/dev/vhost_vsock`.
+
+Change ownership of `<chroot_dir>` to `uid:gid` so that Firecracker can create
+its API socket there.
 
 Since the `--daemonize` flag is present, call `setsid()` to join a new
 session, a new process group, and to detach from the controlling terminal.
@@ -174,11 +183,16 @@ STDERR)`. Close `dev_null_fd`, because it is no longer necessary.
 Finally, the jailer switches the `uid` to `123`, and `gid` to `100`, and execs
 
 ```
-./firecracker --context={"id":"551e7604-e35c-42b3-b825-416853441234","jailed":true,"seccomp_level":0}
+./firecracker \
+  --id="551e7604-e35c-42b3-b825-416853441234" \
+  --api-sock=/api.socket \
+  --seccomp-level=2 \
+  --start-time-us=<opaque> \
+  --start-time-cpu-us=<opaque>
 ```
 
 We can now use the socket at
-`/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/api.socket`
+`/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root/api.socket`
 to interact with the VM.
 
 ### Observations

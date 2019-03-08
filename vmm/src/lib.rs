@@ -261,6 +261,7 @@ impl Display for VmmActionError {
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum VmmAction {
     /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
     /// action can only be called before the microVM has booted. The response is sent using the
@@ -537,7 +538,7 @@ impl EpollContext {
     }
 
     fn get_device_handler(&mut self, device_idx: usize) -> Result<&mut EpollHandler> {
-        let ref mut maybe = self.device_handlers[device_idx];
+        let maybe = &mut self.device_handlers[device_idx];
         match maybe.handler {
             Some(ref mut v) => Ok(v.as_mut()),
             None => {
@@ -663,7 +664,7 @@ impl Vmm {
 
     fn update_drive_handler(
         &mut self,
-        drive_id: &String,
+        drive_id: &str,
         disk_image: File,
     ) -> result::Result<(), DriveError> {
         if let Some(device_idx) = self.drive_handler_id_map.get(drive_id) {
@@ -728,7 +729,7 @@ impl Vmm {
                 .read(true)
                 .write(!drive_config.is_read_only)
                 .open(&drive_config.path_on_host)
-                .map_err(|e| StartMicrovmError::OpenBlockDevice(e))?;
+                .map_err(StartMicrovmError::OpenBlockDevice)?;
 
             if drive_config.is_root_device && drive_config.get_partuuid().is_some() {
                 kernel_config
@@ -849,7 +850,7 @@ impl Vmm {
             let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
 
             let vsock_box = Box::new(
-                devices::virtio::Vsock::new(cfg.guest_cid as u64, guest_mem, epoll_config)
+                devices::virtio::Vsock::new(u64::from(cfg.guest_cid), guest_mem, epoll_config)
                     .map_err(StartMicrovmError::CreateVsockDevice)?,
             );
             device_manager
@@ -948,18 +949,18 @@ impl Vmm {
                     ))?,
                 &self.kvm,
             )
-            .map_err(|e| StartMicrovmError::ConfigureVm(e))?;
+            .map_err(StartMicrovmError::ConfigureVm)?;
         self.vm
             .setup_irqchip(
                 &self.legacy_device_manager.com_evt_1_3,
                 &self.legacy_device_manager.com_evt_2_4,
                 &self.legacy_device_manager.kbd_evt,
             )
-            .map_err(|e| StartMicrovmError::ConfigureVm(e))?;
+            .map_err(StartMicrovmError::ConfigureVm)?;
         #[cfg(target_arch = "x86_64")]
         self.vm
             .create_pit()
-            .map_err(|e| StartMicrovmError::ConfigureVm(e))?;
+            .map_err(StartMicrovmError::ConfigureVm)?;
 
         // mmio_device_manager is instantiated in init_devices, which is called before init_microvm.
         let device_manager = self
@@ -1055,7 +1056,7 @@ impl Vmm {
                             match vcpu.run() {
                                 Ok(run) => match run {
                                     VcpuExit::IoIn(addr, data) => {
-                                        io_bus.read(addr as u64, data);
+                                        io_bus.read(u64::from(addr), data);
                                         METRICS.vcpu.exit_io_in.inc();
                                     }
                                     VcpuExit::IoOut(addr, data) => {
@@ -1080,7 +1081,7 @@ impl Vmm {
                                                 boot_time_cpu_us / 1000
                                             );
                                         }
-                                        io_bus.write(addr as u64, data);
+                                        io_bus.write(u64::from(addr), data);
                                         METRICS.vcpu.exit_io_out.inc();
                                     }
                                     VcpuExit::MmioRead(addr, data) => {
@@ -1150,7 +1151,7 @@ impl Vmm {
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
         default_syscalls::set_seccomp_level(self.seccomp_level)
-            .map_err(|e| StartMicrovmError::SeccompFilters(e))?;
+            .map_err(StartMicrovmError::SeccompFilters)?;
 
         vcpu_thread_barrier.wait();
 
@@ -1177,9 +1178,9 @@ impl Vmm {
             &mut kernel_config.kernel_file,
             arch::HIMEM_START,
         )
-        .map_err(|e| StartMicrovmError::Loader(e))?;
+        .map_err(StartMicrovmError::Loader)?;
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)
-            .map_err(|e| StartMicrovmError::Loader(e))?;
+            .map_err(StartMicrovmError::Loader)?;
 
         // The vcpu_count has a default value. We shouldn't have gotten to this point without
         // having set the vcpu count.
@@ -1193,7 +1194,7 @@ impl Vmm {
             cmdline_cstring.to_bytes().len() + 1,
             vcpu_count,
         )
-        .map_err(|e| StartMicrovmError::ConfigureSystem(e))?;
+        .map_err(StartMicrovmError::ConfigureSystem)?;
         Ok(entry_addr)
     }
 
@@ -1275,7 +1276,7 @@ impl Vmm {
             .set_state(timer_state, SetTimeFlags::Default);
 
         // Log the metrics straight away to check the process startup time.
-        if let Err(_) = LOGGER.log_metrics() {
+        if LOGGER.log_metrics().is_err() {
             METRICS.logger.missed_metrics_count.inc();
         }
 
@@ -1334,6 +1335,7 @@ impl Vmm {
         }
     }
 
+    #[allow(clippy::unused_label)]
     fn run_control(&mut self) -> Result<()> {
         const EPOLL_EVENTS_LEN: usize = 100;
 
@@ -1345,8 +1347,8 @@ impl Vmm {
         'poll: loop {
             let num_events = epoll::wait(epoll_raw_fd, -1, &mut events[..]).map_err(Error::Poll)?;
 
-            for i in 0..num_events {
-                let dispatch_idx = events[i].data as usize;
+            for event in events.iter().take(num_events) {
+                let dispatch_idx = event.data as usize;
 
                 if let Some(dispatch_type) = self.epoll_context.dispatch_table[dispatch_idx] {
                     match dispatch_type {
@@ -1357,7 +1359,7 @@ impl Vmm {
                                 }
                                 None => warn!("leftover exit-evt in epollcontext!"),
                             }
-                            self.stop(FC_EXIT_CODE_OK as i32);
+                            self.stop(i32::from(FC_EXIT_CODE_OK));
                         }
                         EpollDispatch::Stdin => {
                             let mut out = [0u8; 64];
@@ -1391,7 +1393,7 @@ impl Vmm {
                                 Ok(handler) => {
                                     match handler.handle_event(
                                         device_token,
-                                        events[i].events,
+                                        event.events,
                                         EpollHandlerPayload::Empty,
                                     ) {
                                         Err(devices::Error::PayloadExpected) => panic!(
@@ -1412,7 +1414,6 @@ impl Vmm {
                             self.api_event.fd.read().map_err(Error::EventFd)?;
                             self.run_vmm_action().unwrap_or_else(|_| {
                                 warn!("got spurious notification from api thread");
-                                ()
                             });
                         }
                         EpollDispatch::WriteMetrics => {
@@ -1441,7 +1442,7 @@ impl Vmm {
                     let bitmap = self
                         .vm
                         .get_fd()
-                        .get_and_reset_dirty_page_bitmap(slot as u32, memory_region.size());
+                        .get_dirty_log(slot as u32, memory_region.size());
                     match bitmap {
                         Ok(v) => v
                             .iter()
@@ -1473,7 +1474,7 @@ impl Vmm {
         })?;
         let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
         cmdline
-            .insert_str(kernel_cmdline.unwrap_or(String::from(DEFAULT_KERNEL_CMDLINE)))
+            .insert_str(kernel_cmdline.unwrap_or_else(|| String::from(DEFAULT_KERNEL_CMDLINE)))
             .map_err(|_| {
                 VmmActionError::BootSource(
                     ErrorKind::User,
@@ -1504,7 +1505,7 @@ impl Vmm {
 
         if let Some(vcpu_count_value) = machine_config.vcpu_count {
             // Check that the vcpu_count value is >=1.
-            if vcpu_count_value <= 0 {
+            if vcpu_count_value == 0 {
                 return Err(VmmActionError::MachineConfig(
                     ErrorKind::User,
                     VmConfigError::InvalidVcpuCount,
@@ -1514,7 +1515,7 @@ impl Vmm {
 
         if let Some(mem_size_mib_value) = machine_config.mem_size_mib {
             // TODO: add other memory checks
-            if mem_size_mib_value <= 0 {
+            if mem_size_mib_value == 0 {
                 return Err(VmmActionError::MachineConfig(
                     ErrorKind::User,
                     VmConfigError::InvalidMemorySize,
@@ -1721,7 +1722,7 @@ impl Vmm {
 
     fn rescan_block_device(
         &mut self,
-        drive_id: &String,
+        drive_id: &str,
     ) -> std::result::Result<VmmData, VmmActionError> {
         // Rescan can only happen after the guest is booted.
         if !self.is_instance_initialized() {
@@ -1994,11 +1995,11 @@ pub fn start_vmm_thread(
             match vmm.run_control() {
                 Ok(()) => {
                     info!("Gracefully terminated VMM control loop");
-                    vmm.stop(FC_EXIT_CODE_OK as i32)
+                    vmm.stop(i32::from(FC_EXIT_CODE_OK))
                 }
                 Err(e) => {
                     error!("Abruptly exited VMM control loop: {:?}", e);
-                    vmm.stop(FC_EXIT_CODE_GENERIC_ERROR as i32);
+                    vmm.stop(i32::from(FC_EXIT_CODE_GENERIC_ERROR));
                 }
             }
         })
@@ -2032,7 +2033,7 @@ mod tests {
             }
         }
 
-        fn remove_addr(&mut self, id: &String) {
+        fn remove_addr(&mut self, id: &str) {
             self.mmio_device_manager
                 .as_mut()
                 .unwrap()
@@ -2150,14 +2151,13 @@ mod tests {
         }));
 
         let (_to_vmm, from_api) = channel();
-        let vmm = Vmm::new(
+        Vmm::new(
             shared_info,
             EventFd::new().expect("cannot create eventFD"),
             from_api,
             seccomp::SECCOMP_LEVEL_ADVANCED,
         )
-        .expect("Cannot Create VMM");
-        return vmm;
+        .expect("Cannot Create VMM")
     }
 
     #[test]
@@ -2280,7 +2280,7 @@ mod tests {
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
             host_dev_name: String::from("hostname2"),
-            guest_mac: Some(mac.clone()),
+            guest_mac: Some(mac),
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
@@ -2407,6 +2407,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_machine_configuration() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
 
@@ -2868,7 +2869,6 @@ mod tests {
         // Test rescan_block_device with invalid ID.
         match vmm.rescan_block_device(&"foo".to_string()) {
             Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
-                ()
             }
             _ => assert!(false),
         }
@@ -2885,7 +2885,6 @@ mod tests {
         vmm.remove_addr(&scratch_id);
         match vmm.rescan_block_device(&scratch_id) {
             Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
-                ()
             }
             _ => assert!(false),
         }

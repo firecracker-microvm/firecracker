@@ -161,6 +161,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::empty_loop)]
     fn test_killing_thread() {
         let killable = thread::spawn(|| thread::current().id());
         let killable_id = killable.join().unwrap();

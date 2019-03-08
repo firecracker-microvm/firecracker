@@ -24,7 +24,7 @@ pub enum Error {
 pub type Result<T> = result::Result<T, Error>;
 
 // 1MB.  We don't put anything above here except the kernel itself.
-pub const HIMEM_START: usize = 0x100000;
+pub const HIMEM_START: usize = 0x0010_0000;
 
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;

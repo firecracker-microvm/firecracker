@@ -25,6 +25,9 @@ pub trait ByteBuffer: Index<usize, Output = u8> {
     /// Returns the length of the buffer.
     fn len(&self) -> usize;
 
+    /// Checks if the buffer is empty.
+    fn is_empty(&self) -> bool;
+
     /// Reads `buf.len()` bytes from `buf` into the inner buffer, starting at `offset`.
     ///
     /// # Panics
@@ -37,6 +40,11 @@ impl ByteBuffer for [u8] {
     #[inline]
     fn len(&self) -> usize {
         self.len()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     #[inline]
@@ -54,6 +62,10 @@ mod tests {
         buf.len()
     }
 
+    fn bb_is_empty<T: ByteBuffer + ?Sized>(buf: &T) -> bool {
+        buf.len() == 0
+    }
+
     fn bb_read_from_1<T: ByteBuffer + ?Sized>(src: &T, dst: &mut [u8]) {
         src.read_to_slice(1, dst);
     }
@@ -63,6 +75,7 @@ mod tests {
         let a = [1u8, 2, 3];
         let mut b = [0u8; 2];
         assert_eq!(bb_len(a.as_ref()), a.len());
+        assert_eq!(bb_is_empty(a.as_ref()), false);
         bb_read_from_1(a.as_ref(), b.as_mut());
         assert_eq!(b, [2, 3]);
     }

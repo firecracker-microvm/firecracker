@@ -84,7 +84,7 @@ mod tests {
     use super::*;
     use sys_util::{ioctl, ioctl_with_val};
 
-    const KVM_PATH: &'static str = "/dev/kvm\0";
+    const KVM_PATH: &str = "/dev/kvm\0";
 
     #[test]
     fn get_version() {

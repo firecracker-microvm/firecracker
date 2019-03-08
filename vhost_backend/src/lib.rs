@@ -97,6 +97,7 @@ pub trait Vhost: AsRawFd + std::marker::Sized {
         let mut bytes: Vec<u8> = vec![0; vec_size_bytes];
         // Convert bytes pointer to a vhost_memory mut ref. The vector has been
         // sized correctly to ensure it can hold vhost_memory and N regions.
+        #[allow(clippy::cast_ptr_alignment)]
         let vhost_memory: &mut vhost_memory =
             unsafe { &mut *(bytes.as_mut_ptr() as *mut vhost_memory) };
         vhost_memory.nregions = num_regions as u32;
@@ -134,7 +135,7 @@ pub trait Vhost: AsRawFd + std::marker::Sized {
     fn set_vring_num(&self, queue_index: usize, num: u16) -> Result<()> {
         let vring_state = vhost_vring_state {
             index: queue_index as u32,
-            num: num as u32,
+            num: u32::from(num),
         };
 
         // This ioctl is called on a valid vhost fd and has its
@@ -158,26 +159,18 @@ pub trait Vhost: AsRawFd + std::marker::Sized {
         let desc_table_size = 16 * queue_size as usize;
         let avail_ring_size = 6 + 2 * queue_size as usize;
         let used_ring_size = 6 + 8 * queue_size as usize;
-        if queue_size > queue_max_size || queue_size == 0 || (queue_size & (queue_size - 1)) != 0 {
-            false
-        } else if desc_addr
-            .checked_add(desc_table_size)
-            .map_or(true, |v| !self.mem().address_in_range(v))
-        {
-            false
-        } else if avail_addr
-            .checked_add(avail_ring_size)
-            .map_or(true, |v| !self.mem().address_in_range(v))
-        {
-            false
-        } else if used_addr
-            .checked_add(used_ring_size)
-            .map_or(true, |v| !self.mem().address_in_range(v))
-        {
-            false
-        } else {
-            true
-        }
+        !(queue_size > queue_max_size
+            || queue_size == 0
+            || (queue_size & (queue_size - 1)) != 0
+            || desc_addr
+                .checked_add(desc_table_size)
+                .map_or(true, |v| !self.mem().address_in_range(v))
+            || avail_addr
+                .checked_add(avail_ring_size)
+                .map_or(true, |v| !self.mem().address_in_range(v))
+            || used_addr
+                .checked_add(used_ring_size)
+                .map_or(true, |v| !self.mem().address_in_range(v)))
     }
 
     /// Set the addresses for a given vring.
@@ -191,6 +184,7 @@ pub trait Vhost: AsRawFd + std::marker::Sized {
     /// * `used_ring_addr` - Used ring buffer address.
     /// * `avail_ring_addr` - Available ring buffer address.
     /// * `log_addr` - Optional address for logging.
+    #[allow(clippy::too_many_arguments)]
     fn set_vring_addr(
         &self,
         queue_max_size: u16,
@@ -231,7 +225,7 @@ pub trait Vhost: AsRawFd + std::marker::Sized {
 
         let vring_addr = vhost_vring_addr {
             index: queue_index as u32,
-            flags: flags,
+            flags,
             desc_user_addr: desc_addr as u64,
             used_user_addr: used_addr as u64,
             avail_user_addr: avail_addr as u64,
@@ -255,7 +249,7 @@ pub trait Vhost: AsRawFd + std::marker::Sized {
     fn set_vring_base(&self, queue_index: usize, num: u16) -> Result<()> {
         let vring_state = vhost_vring_state {
             index: queue_index as u32,
-            num: num as u32,
+            num: u32::from(num),
         };
 
         // This ioctl is called on a valid vhost fd and has its
