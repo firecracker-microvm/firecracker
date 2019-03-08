@@ -11,7 +11,7 @@ JAILER_BINARY_NAME = 'jailer'
 """Jailer's binary name."""
 JAILER_DEFAULT_CHROOT = '/srv/jailer'
 """The default location for the chroot."""
-MAX_API_CALL_DURATION_MS = 100
+MAX_API_CALL_DURATION_MS = 300
 """Maximum accepted duration of an API call, in milliseconds."""
 MICROVM_KERNEL_RELPATH = 'kernel/'
 """Relative path to the location of the kernel file."""
