@@ -301,9 +301,12 @@ mod tests {
             StartMicrovmError::DeviceVmRequest(io::Error::from_raw_os_error(22)),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
+        #[cfg(target_arch = "x86_64")]
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
-            StartMicrovmError::ConfigureSystem(arch::Error::ZeroPagePastRamEnd),
+            StartMicrovmError::ConfigureSystem(arch::Error::X86_64Setup(
+                arch::x86_64::Error::ZeroPagePastRamEnd,
+            )),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
         let vmm_resp = VmmActionError::StartMicrovm(
