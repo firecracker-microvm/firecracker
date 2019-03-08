@@ -23,7 +23,7 @@ pub const ALLOWED_SYSCALLS: &[i64] = &[
     libc::SYS_futex,
     libc::SYS_ioctl,
     libc::SYS_lseek,
-    #[cfg(musl)]
+    #[cfg(target_env = "musl")]
     libc::SYS_madvise,
     libc::SYS_mmap,
     libc::SYS_munmap,
@@ -243,7 +243,7 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
                 libc::SYS_lseek,
                 (0, vec![SeccompRule::new(vec![], SeccompAction::Allow)]),
             ),
-            #[cfg(musl)]
+            #[cfg(target_env = "musl")]
             (
                 libc::SYS_madvise,
                 (
