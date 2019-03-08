@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.15.2]
+
+### Fixed
+
+- Corrected the conditional compilation of the seccomp rule for `madvise`.
+
 ## [0.15.1]
 
 ### Fixed
