@@ -53,11 +53,6 @@ impl fmt::Display for Error {
 
 type Result<T> = ::std::result::Result<T, Error>;
 
-/// Typically, on x86 systems 16 IRQs are used (0-15)
-/// Our device manager uses the IRQs from 5 to 16
-const MAX_IRQ: u32 = 15;
-const IRQ_BASE: u32 = 5;
-
 /// This represents the size of the mmio device specified to the kernel as a cmdline option
 /// It has to be larger than 0x100 (the offset where the configuration space starts from
 /// the beginning of the memory mapped device registers) + the size of the configuration space
@@ -75,17 +70,23 @@ pub struct MMIODeviceManager {
     guest_mem: GuestMemory,
     mmio_base: u64,
     irq: u32,
+    last_irq: u32,
     id_to_addr_map: HashMap<String, u64>,
 }
 
 impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
-    pub fn new(guest_mem: GuestMemory, mmio_base: u64) -> MMIODeviceManager {
+    pub fn new(
+        guest_mem: GuestMemory,
+        mmio_base: u64,
+        irq_interval: (u32, u32),
+    ) -> MMIODeviceManager {
         MMIODeviceManager {
             guest_mem,
             vm_requests: Vec::new(),
             mmio_base,
-            irq: IRQ_BASE,
+            irq: irq_interval.0,
+            last_irq: irq_interval.1,
             bus: devices::Bus::new(),
             id_to_addr_map: HashMap::new(),
         }
@@ -98,7 +99,7 @@ impl MMIODeviceManager {
         cmdline: &mut kernel_cmdline::Cmdline,
         id: Option<String>,
     ) -> Result<u64> {
-        if self.irq > MAX_IRQ {
+        if self.irq > self.last_irq {
             return Err(Error::IrqsExhausted);
         }
 
@@ -180,6 +181,7 @@ impl MMIODeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arch;
     use devices::virtio::{ActivateResult, VirtioDevice};
     use kernel_cmdline;
     use memory_model::{GuestAddress, GuestMemory};
@@ -236,7 +238,8 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd000_0000);
+        let mut device_manager =
+            MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
@@ -251,11 +254,12 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd000_0000);
+        let mut device_manager =
+            MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
-        for _i in IRQ_BASE..=MAX_IRQ {
+        for _i in arch::IRQ_BASE..=arch::IRQ_MAX {
             device_manager
                 .register_device(dummy_box.clone(), &mut cmdline, None)
                 .unwrap();
@@ -291,7 +295,8 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let device_manager = MMIODeviceManager::new(guest_mem, 0xd000_0000);
+        let device_manager =
+            MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let e = Error::Cmdline(
             cmdline
@@ -332,7 +337,8 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd000_0000);
+        let mut device_manager =
+            MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
 
@@ -349,7 +355,8 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let mut device_manager = MMIODeviceManager::new(guest_mem, 0xd000_0000);
+        let mut device_manager =
+            MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
 
