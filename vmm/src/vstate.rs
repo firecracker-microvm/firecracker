@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-extern crate arch;
 extern crate devices;
 extern crate logger;
 extern crate sys_util;
@@ -16,6 +15,7 @@ use std::result;
 use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
 
 use super::KvmContext;
+use arch;
 #[cfg(target_arch = "x86_64")]
 use cpuid::{c3_template, filter_cpuid, t2_template};
 use kvm::*;

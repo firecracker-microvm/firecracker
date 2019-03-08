@@ -16,10 +16,6 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// X86_64 specific error triggered during system configuration.
     X86_64Setup(x86_64::Error),
-    /// The zero page extends past the end of guest_mem.
-    ZeroPagePastRamEnd,
-    /// Error writing the zero page of guest memory.
-    ZeroPageSetup,
 }
 pub type Result<T> = result::Result<T, Error>;
 
