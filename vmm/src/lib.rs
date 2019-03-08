@@ -927,8 +927,11 @@ impl Vmm {
 
         // Instantiate the MMIO device manager.
         // 'mmio_base' address has to be an address which is protected by the kernel.
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
 
         self.attach_block_devices(&mut device_manager)?;
         self.attach_net_devices(&mut device_manager)?;
@@ -2372,8 +2375,11 @@ mod tests {
         vmm.init_guest_memory().unwrap();
         vmm.default_kernel_config();
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
         vmm.attach_net_devices(&mut device_manager).unwrap();
         vmm.set_instance_state(InstanceState::Running);
 
@@ -2648,8 +2654,11 @@ mod tests {
         vmm.default_kernel_config();
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
         assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
         assert!(vmm.get_kernel_cmdline_str().contains("root=/dev/vda"));
 
@@ -2672,8 +2681,11 @@ mod tests {
         vmm.default_kernel_config();
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
         assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
         assert!(vmm
             .get_kernel_cmdline_str()
@@ -2700,8 +2712,11 @@ mod tests {
         vmm.default_kernel_config();
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
         assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
         // Test that kernel commandline does not contain either /dev/vda or PARTUUID.
         assert!(!vmm.get_kernel_cmdline_str().contains("root=PARTUUID="));
@@ -2734,8 +2749,11 @@ mod tests {
         vmm.default_kernel_config();
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
 
         // test create network interface
         let network_interface = NetworkInterfaceConfig {
@@ -2830,8 +2848,11 @@ mod tests {
         assert!(vmm.guest_memory.is_some());
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
 
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         // Use a dummy command line as it is not used in this test.
