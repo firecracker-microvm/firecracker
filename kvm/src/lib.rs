@@ -1369,20 +1369,22 @@ mod tests {
 
     #[cfg(target_arch = "x86_64")]
     #[test]
-    fn run_code_test() {
+    fn test_run_code() {
         use std::io::Write;
 
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         // This example based on https://lwn.net/Articles/658511/
+        #[rustfmt::skip]
         let code = [
             0xba, 0xf8, 0x03, /* mov $0x3f8, %dx */
             0x00, 0xd8, /* add %bl, %al */
             0x04, b'0', /* add $'0', %al */
             0xee, /* out %al, %dx */
             0xec, /* in %dx, %al */
-            0xc6, 0x06, 0x00, 0x20, 0x00, /* movl $0, (0x2000) */
-            0x8a, 0x16, 0x00, 0x20, /* movl (0x2000), %dl */
+            0xc6, 0x06, 0x00, 0x80, 0x00, /* movl $0, (0x8000); This generates a MMIO Write.*/
+            0x8a, 0x16, 0x00, 0x80, /* movl (0x8000), %dl; This generates a MMIO Read.*/
+            0xc6, 0x06, 0x00, 0x20, 0x00, /* movl $0, (0x2000); Dirty one page in guest mem. */
             0xf4, /* hlt */
         ];
 
@@ -1423,6 +1425,9 @@ mod tests {
         vcpu_regs.rflags = 2;
         vcpu_fd.set_regs(&vcpu_regs).expect("set regs failed");
 
+        // Variables used for checking if MMIO Read & Write were performed.
+        let mut mmio_read = false;
+        let mut mmio_write = false;
         loop {
             match vcpu_fd.run().expect("run failed") {
                 VcpuExit::IoIn(addr, data) => {
@@ -1435,13 +1440,15 @@ mod tests {
                     assert_eq!(data[0], b'5');
                 }
                 VcpuExit::MmioRead(addr, data) => {
-                    assert_eq!(addr, 0x2000);
+                    assert_eq!(addr, 0x8000);
                     assert_eq!(data.len(), 1);
+                    mmio_read = true;
                 }
                 VcpuExit::MmioWrite(addr, data) => {
-                    assert_eq!(addr, 0x2000);
+                    assert_eq!(addr, 0x8000);
                     assert_eq!(data.len(), 1);
                     assert_eq!(data[0], 0);
+                    mmio_write = true;
                 }
                 VcpuExit::Hlt => {
                     // The code snippet dirties 2 pages:
@@ -1458,6 +1465,8 @@ mod tests {
                 r => panic!("unexpected exit reason: {:?}", r),
             }
         }
+        assert!(mmio_read);
+        assert!(mmio_write);
     }
 
     fn get_raw_errno<T>(result: super::Result<T>) -> i32 {
