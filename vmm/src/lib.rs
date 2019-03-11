@@ -983,15 +983,41 @@ impl Vmm {
         Ok(())
     }
 
-    fn start_vcpus(
+    // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) and configured before
+    // setting up the IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
+    // was already initialized.
+    // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
+    fn create_vcpus(
         &mut self,
         entry_addr: GuestAddress,
-    ) -> std::result::Result<(), StartMicrovmError> {
+    ) -> std::result::Result<Vec<Vcpu>, StartMicrovmError> {
+        let vcpu_count = self
+            .vm_config
+            .vcpu_count
+            .ok_or(StartMicrovmError::VcpusNotConfigured)?;
+        let mut vcpus = Vec::with_capacity(vcpu_count as usize);
+        for cpu_id in 0..vcpu_count {
+            let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(StartMicrovmError::Vcpu)?;
+            #[cfg(target_arch = "x86_64")]
+            vcpu.configure(&self.vm_config, entry_addr, &self.vm)
+                .map_err(StartMicrovmError::VcpuConfigure)?;
+            vcpus.push(vcpu);
+        }
+        Ok(vcpus)
+    }
+
+    fn start_vcpus(&mut self, mut vcpus: Vec<Vcpu>) -> std::result::Result<(), StartMicrovmError> {
         // vm_config has a default value for vcpu_count.
         let vcpu_count = self
             .vm_config
             .vcpu_count
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
+        assert_eq!(
+            vcpus.len(),
+            vcpu_count as usize,
+            "The number of vCPU fds is corrupted!"
+        );
+
         self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
         // It is safe to unwrap since it's set just above.
         let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
@@ -1017,14 +1043,13 @@ impl Vmm {
                 .get_reset_evt_clone()
                 .map_err(|_| StartMicrovmError::EventFd)?;
 
-            let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(StartMicrovmError::Vcpu)?;
+            // `unwrap` is safe since we are asserting that the `vcpu_count` is equal to the number
+            // of items of `vcpus` vector.
+            let vcpu = vcpus.pop().unwrap();
+
             let seccomp_level = self.seccomp_level;
             // It is safe to unwrap the ht_enabled flag because the machine configure
             // has default values for all fields.
-
-            #[cfg(target_arch = "x86_64")]
-            vcpu.configure(&self.vm_config, entry_addr, &self.vm)
-                .map_err(StartMicrovmError::VcpuConfigure)?;
 
             vcpu_handles.push(
                 thread::Builder::new()
@@ -1259,9 +1284,13 @@ impl Vmm {
 
         self.register_events()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
-        self.start_vcpus(entry_addr)
+
+        let vcpus = self
+            .create_vcpus(entry_addr)
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
+        self.start_vcpus(vcpus)
+            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
         // Use expect() to crash if the other thread poisoned this lock.
         self.shared_info
             .write()
@@ -3008,5 +3037,31 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert_eq!(vmm.get_dirty_page_count(), 0);
         // Booting an actual guest and getting real data is covered by `kvm::tests::run_code_test`.
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_create_vcpus() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.default_kernel_config();
+
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.guest_memory.is_some());
+        let kvm = KvmContext::new().unwrap();
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+
+        vmm.vm
+            .memory_init(guest_mem.clone(), &kvm)
+            .expect("Cannot initialize memory for test vm");
+        assert!(vmm.vm.get_memory().is_some());
+        // `KVM_CREATE_VCPU` fails if the irqchip is not created beforehand. This is x86_64 speciifc.
+        vmm.vm
+            .setup_irqchip(
+                &vmm.legacy_device_manager.com_evt_1_3,
+                &vmm.legacy_device_manager.com_evt_2_4,
+                &vmm.legacy_device_manager.kbd_evt,
+            )
+            .expect("Cannot create IRQCHIP");
+        assert!(vmm.create_vcpus(GuestAddress(0x0)).is_ok());
     }
 }
