@@ -34,7 +34,7 @@ const SECTOR_SHIFT: u8 = 9;
 pub const SECTOR_SIZE: u64 = (0x01 as u64) << SECTOR_SHIFT;
 const QUEUE_SIZE: u16 = 256;
 const NUM_QUEUES: usize = 1;
-const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE];
+const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE];
 
 // New descriptors are pending on the virtio queue.
 const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
@@ -61,10 +61,13 @@ enum Error {
     DescriptorLengthTooSmall,
     /// Getting a block's metadata fails for any reason.
     GetFileMetadata,
+    /// The requested operation would cause a seek beyond disk end.
+    InvalidOffset,
 }
 
 #[derive(Debug)]
 enum ExecuteError {
+    BadRequest(Error),
     Flush(io::Error),
     Read(GuestMemoryError),
     Seek(io::Error),
@@ -74,17 +77,18 @@ enum ExecuteError {
 
 impl ExecuteError {
     fn status(&self) -> u32 {
-        match self {
-            &ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
-            &ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
-            &ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
-            &ExecuteError::Write(_) => VIRTIO_BLK_S_IOERR,
-            &ExecuteError::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
+        match *self {
+            ExecuteError::BadRequest(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::Write(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum RequestType {
     In,
     Out,
@@ -143,9 +147,7 @@ fn build_disk_image_id(disk_image: &File) -> Vec<u8> {
             // This will also zero out any leftover bytes.
             let disk_id = m.as_bytes();
             let bytes_to_copy = cmp::min(disk_id.len(), VIRTIO_BLK_ID_BYTES as usize);
-            for i in 0..bytes_to_copy {
-                default_disk_image_id[i] = disk_id[i];
-            }
+            default_disk_image_id[..bytes_to_copy].clone_from_slice(&disk_id[..bytes_to_copy])
         }
     }
     default_disk_image_id
@@ -166,21 +168,44 @@ impl Request {
             return Err(Error::UnexpectedWriteOnlyDescriptor);
         }
 
-        let request_type = request_type(&mem, avail_desc.addr)?;
-        let sector = sector(&mem, avail_desc.addr)?;
-        let data_desc = avail_desc
-            .next_descriptor()
-            .ok_or(Error::DescriptorChainTooShort)?;
-        let status_desc = data_desc
+        let mut req = Request {
+            request_type: request_type(&mem, avail_desc.addr)?,
+            sector: sector(&mem, avail_desc.addr)?,
+            data_addr: GuestAddress(0),
+            data_len: 0,
+            status_addr: GuestAddress(0),
+        };
+
+        let data_desc;
+        let status_desc;
+        let desc = avail_desc
             .next_descriptor()
             .ok_or(Error::DescriptorChainTooShort)?;
 
-        if data_desc.is_write_only() && request_type == RequestType::Out {
-            return Err(Error::UnexpectedWriteOnlyDescriptor);
-        }
+        if !desc.has_next() {
+            status_desc = desc;
+            // Only flush requests are allowed to skip the data descriptor.
+            if req.request_type != RequestType::Flush {
+                return Err(Error::DescriptorChainTooShort);
+            }
+        } else {
+            data_desc = desc;
+            status_desc = data_desc
+                .next_descriptor()
+                .ok_or(Error::DescriptorChainTooShort)?;
 
-        if !data_desc.is_write_only() && request_type == RequestType::In {
-            return Err(Error::UnexpectedReadOnlyDescriptor);
+            if data_desc.is_write_only() && req.request_type == RequestType::Out {
+                return Err(Error::UnexpectedWriteOnlyDescriptor);
+            }
+            if !data_desc.is_write_only() && req.request_type == RequestType::In {
+                return Err(Error::UnexpectedReadOnlyDescriptor);
+            }
+            if !data_desc.is_write_only() && req.request_type == RequestType::GetDeviceID {
+                return Err(Error::UnexpectedReadOnlyDescriptor);
+            }
+
+            req.data_addr = data_desc.addr;
+            req.data_len = data_desc.len;
         }
 
         // The status MUST always be writable.
@@ -192,23 +217,33 @@ impl Request {
             return Err(Error::DescriptorLengthTooSmall);
         }
 
-        Ok(Request {
-            request_type,
-            sector,
-            data_addr: data_desc.addr,
-            data_len: data_desc.len,
-            status_addr: status_desc.addr,
-        })
+        req.status_addr = status_desc.addr;
+
+        Ok(req)
     }
 
+    #[allow(clippy::ptr_arg)]
     fn execute<T: Seek + Read + Write>(
         &self,
         disk: &mut T,
+        disk_nsectors: u64,
         mem: &GuestMemory,
         disk_id: &Vec<u8>,
     ) -> result::Result<u32, ExecuteError> {
+        let mut top: u64 = u64::from(self.data_len) / SECTOR_SIZE;
+        if u64::from(self.data_len) % SECTOR_SIZE != 0 {
+            top += 1;
+        }
+        top = top
+            .checked_add(self.sector)
+            .ok_or(ExecuteError::BadRequest(Error::InvalidOffset))?;
+        if top > disk_nsectors {
+            return Err(ExecuteError::BadRequest(Error::InvalidOffset));
+        }
+
         disk.seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
             .map_err(ExecuteError::Seek)?;
+
         match self.request_type {
             RequestType::In => {
                 mem.read_to_memory(self.data_addr, disk, self.data_len as usize)
@@ -229,6 +264,9 @@ impl Request {
                 Err(e) => return Err(ExecuteError::Flush(e)),
             },
             RequestType::GetDeviceID => {
+                if (self.data_len as usize) < disk_id.len() {
+                    return Err(ExecuteError::BadRequest(Error::InvalidOffset));
+                }
                 mem.write_slice_at_addr(&disk_id.as_slice(), self.data_addr)
                     .map_err(ExecuteError::Write)?;
             }
@@ -242,6 +280,7 @@ struct BlockEpollHandler {
     queues: Vec<Queue>,
     mem: GuestMemory,
     disk_image: File,
+    disk_nsectors: u64,
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
     queue_evt: EventFd,
@@ -275,7 +314,7 @@ impl BlockEpollHandler {
                         // budget and rate limiting is in effect.
                         if !self
                             .rate_limiter
-                            .consume(request.data_len as u64, TokenType::Bytes)
+                            .consume(u64::from(request.data_len), TokenType::Bytes)
                         {
                             rate_limited = true;
                             // Revert the OPS consume().
@@ -284,20 +323,23 @@ impl BlockEpollHandler {
                             break;
                         }
                     }
-                    let status =
-                        match request.execute(&mut self.disk_image, &self.mem, &self.disk_image_id)
-                        {
-                            Ok(l) => {
-                                len = l;
-                                VIRTIO_BLK_S_OK
-                            }
-                            Err(e) => {
-                                error!("Failed to execute request: {:?}", e);
-                                METRICS.block.invalid_reqs_count.inc();
-                                len = 1; // We need at least 1 byte for the status.
-                                e.status()
-                            }
-                        };
+                    let status = match request.execute(
+                        &mut self.disk_image,
+                        self.disk_nsectors,
+                        &self.mem,
+                        &self.disk_image_id,
+                    ) {
+                        Ok(l) => {
+                            len = l;
+                            VIRTIO_BLK_S_OK
+                        }
+                        Err(e) => {
+                            error!("Failed to execute request: {:?}", e);
+                            METRICS.block.invalid_reqs_count.inc();
+                            len = 1; // We need at least 1 byte for the status.
+                            e.status()
+                        }
+                    };
                     // We use unwrap because the request parsing process already checked that the
                     // status_addr was valid.
                     self.mem
@@ -337,6 +379,11 @@ impl BlockEpollHandler {
 
     fn update_disk_image(&mut self, disk_image: File) -> result::Result<(), DeviceError> {
         self.disk_image = disk_image;
+        self.disk_nsectors = self
+            .disk_image
+            .seek(SeekFrom::End(0))
+            .map_err(DeviceError::IoError)?
+            / SECTOR_SIZE;
         self.disk_image_id = build_disk_image_id(&self.disk_image);
         METRICS.block.update_count.inc();
         Ok(())
@@ -406,8 +453,8 @@ impl EpollConfig {
         sender: mpsc::Sender<Box<EpollHandler>>,
     ) -> Self {
         EpollConfig {
-            q_avail_token: first_token + QUEUE_AVAIL_EVENT as u64,
-            rate_limiter_token: first_token + RATE_LIMITER_EVENT as u64,
+            q_avail_token: first_token + u64::from(QUEUE_AVAIL_EVENT),
+            rate_limiter_token: first_token + u64::from(RATE_LIMITER_EVENT),
             epoll_raw_fd,
             sender,
         }
@@ -417,6 +464,7 @@ impl EpollConfig {
 /// Virtio device for exposing block level read/write operations on a host file.
 pub struct Block {
     disk_image: Option<File>,
+    disk_nsectors: u64,
     avail_features: u64,
     acked_features: u64,
     config_space: Vec<u8>,
@@ -455,14 +503,15 @@ impl Block {
             );
         }
 
-        let mut avail_features = 1 << VIRTIO_F_VERSION_1;
+        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
 
         if is_disk_read_only {
-            avail_features |= 1 << VIRTIO_BLK_F_RO;
+            avail_features |= 1u64 << VIRTIO_BLK_F_RO;
         };
 
         Ok(Block {
             disk_image: Some(disk_image),
+            disk_nsectors: disk_size / SECTOR_SIZE,
             avail_features,
             acked_features: 0u64,
             config_space: build_config_space(disk_size),
@@ -496,8 +545,8 @@ impl VirtioDevice for Block {
 
     fn ack_features(&mut self, page: u32, value: u32) {
         let mut v = match page {
-            0 => value as u64,
-            1 => (value as u64) << 32,
+            0 => u64::from(value),
+            1 => u64::from(value) << 32,
             _ => {
                 warn!("Cannot acknowledge unknown features page.");
                 0u64
@@ -524,7 +573,7 @@ impl VirtioDevice for Block {
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
             // This write can't fail, offset and end are checked against config_len.
-            data.write(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
+            data.write_all(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
                 .unwrap();
         }
     }
@@ -568,6 +617,7 @@ impl VirtioDevice for Block {
                 queues,
                 mem,
                 disk_image,
+                disk_nsectors: self.disk_nsectors,
                 interrupt_status: status,
                 interrupt_evt,
                 queue_evt,
@@ -670,7 +720,7 @@ mod tests {
             f.set_len(0x1000).unwrap();
 
             // Rate limiting is enabled but with a high operation rate (10 million ops/s).
-            let rate_limiter = RateLimiter::new(0, None, 0, 100000, None, 10).unwrap();
+            let rate_limiter = RateLimiter::new(0, None, 0, 100_000, None, 10).unwrap();
             DummyBlock {
                 block: Block::new(f, is_disk_read_only, epoll_config, Some(rate_limiter)).unwrap(),
                 epoll_raw_fd,
@@ -689,6 +739,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::needless_lifetimes)]
     fn default_test_blockepollhandler<'a>(
         mem: &'a GuestMemory,
     ) -> (BlockEpollHandler, VirtQueue<'a>) {
@@ -699,7 +750,8 @@ mod tests {
         assert!(vq.end().0 < 0x1000);
 
         let queues = vec![vq.create_queue()];
-        let disk_image = b.disk_image.take().unwrap();
+        let mut disk_image = b.disk_image.take().unwrap();
+        let disk_nsectors = disk_image.seek(SeekFrom::End(0)).unwrap() / SECTOR_SIZE;
         let status = Arc::new(AtomicUsize::new(0));
         let interrupt_evt = EventFd::new().unwrap();
         let queue_evt = EventFd::new().unwrap();
@@ -708,14 +760,13 @@ mod tests {
         let mut disk_image_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
         let disk_image_id_bytes = disk_image_id_str.as_bytes();
         let bytes_to_copy = cmp::min(disk_image_id_bytes.len(), VIRTIO_BLK_ID_BYTES as usize);
-        for i in 0..bytes_to_copy {
-            disk_image_id[i] = disk_image_id_bytes[i];
-        }
+        disk_image_id[..bytes_to_copy].clone_from_slice(&disk_image_id_bytes[..bytes_to_copy]);
         (
             BlockEpollHandler {
                 queues,
                 mem: mem.clone(),
                 disk_image,
+                disk_nsectors,
                 interrupt_status: status,
                 interrupt_evt,
                 queue_evt,
@@ -807,12 +858,12 @@ mod tests {
         // number is expected to be found 8 bytes after the address provided as parameter to the
         // sector() function.
 
-        m.write_obj_at_addr::<u64>(123454321, a.checked_add(8).unwrap())
+        m.write_obj_at_addr::<u64>(123_454_321, a.checked_add(8).unwrap())
             .unwrap();
-        assert_eq!(sector(m, a).unwrap(), 123454321);
+        assert_eq!(sector(m, a).unwrap(), 123_454_321);
 
         // Reading from a slightly different address should not lead a correct result in this case.
-        assert_ne!(sector(m, a.checked_add(1).unwrap()).unwrap(), 123454321);
+        assert_ne!(sector(m, a.checked_add(1).unwrap()).unwrap(), 123_454_321);
 
         // The provided address is outside the valid memory range.
         assert!(sector(m, a.checked_add(0x1000).unwrap()).is_err());
@@ -925,6 +976,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_virtio_device() {
         let mut dummy = DummyBlock::new(true);
         let b = dummy.block();
@@ -969,7 +1021,9 @@ mod tests {
 
         // Test `features()` and `ack_features()`.
         {
-            let features: u64 = 1u64 << VIRTIO_BLK_F_RO | 1u64 << VIRTIO_F_VERSION_1;
+            let features: u64 = (1u64 << VIRTIO_BLK_F_RO)
+                | (1u64 << VIRTIO_F_VERSION_1)
+                | (1u64 << VIRTIO_BLK_F_FLUSH);
 
             assert_eq!(b.features(0), features as u32);
             assert_eq!(b.features(1), (features >> 32) as u32);
@@ -1075,6 +1129,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_handler() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, vq) = default_test_blockepollhandler(&m);
@@ -1127,8 +1182,11 @@ mod tests {
 
             // first desc no longer writable
             vq.dtable[0].flags.set(VIRTQ_DESC_F_NEXT);
+            vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             // let's generate a seek execute error caused by a very large sector number
-            m.write_obj_at_addr::<u64>(0xfffffffff, GuestAddress(0x1000 + 8))
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
+                .unwrap();
+            m.write_obj_at_addr::<u64>(0x000f_ffff_ffff, GuestAddress(0x1000 + 8))
                 .unwrap();
 
             invoke_handler_for_queue_event(&mut h);
@@ -1146,7 +1204,12 @@ mod tests {
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
 
+            vq.dtable[1]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
             // set sector to a valid number but large enough that the full 0x1000 read will fail
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
+                .unwrap();
             m.write_obj_at_addr::<u64>(10, GuestAddress(0x1000 + 8))
                 .unwrap();
 
@@ -1199,7 +1262,7 @@ mod tests {
             // make data read only, 8 bytes in len, and set the actual value to be written
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(8);
-            m.write_obj_at_addr::<u64>(123456789, data_addr).unwrap();
+            m.write_obj_at_addr::<u64>(123_456_789, data_addr).unwrap();
 
             invoke_handler_for_queue_event(&mut h);
             assert_eq!(vq.used.idx.get(), 1);
@@ -1231,11 +1294,12 @@ mod tests {
                 m.read_obj_from_addr::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_OK
             );
-            assert_eq!(m.read_obj_from_addr::<u64>(data_addr).unwrap(), 123456789);
+            assert_eq!(m.read_obj_from_addr::<u64>(data_addr).unwrap(), 123_456_789);
         }
 
         {
-            // testing that the flush request completes successfully
+            // testing that the flush request completes successfully,
+            // when a data descriptor is provided
 
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
@@ -1254,10 +1318,34 @@ mod tests {
         }
 
         {
+            // testing that the flush request completes successfully,
+            // without a data descriptor
+
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+            vq.dtable[0].next.set(2);
+
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH, GuestAddress(0x1000))
+                .unwrap();
+
+            invoke_handler_for_queue_event(&mut h);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
+                VIRTIO_BLK_S_OK
+            );
+
+            vq.dtable[0].next.set(1);
+        }
+
+        {
             // testing that the driver receives the correct device id
 
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
+            vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
 
             m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
                 .unwrap();
@@ -1286,13 +1374,31 @@ mod tests {
                 VIRTIO_BLK_ID_BYTES as usize
             );
             let chars_to_trim: &[char] = &['\u{0}'];
-            let received_device_id = format!(
-                "{}",
-                String::from_utf8(buf.to_ascii_lowercase())
-                    .unwrap()
-                    .trim_matches(chars_to_trim)
-            );
+            let received_device_id = String::from_utf8(buf.to_ascii_lowercase())
+                .unwrap()
+                .trim_matches(chars_to_trim)
+                .to_string();
             assert_eq!(received_device_id, expected_device_id);
+        }
+
+        {
+            // test that a device ID request will fail, if it fails to provide enough buffer space
+
+            vq.used.idx.set(0);
+            h.set_queue(0, vq.create_queue());
+            vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES - 1);
+
+            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
+                .unwrap();
+
+            invoke_handler_for_queue_event(&mut h);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(
+                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR
+            );
         }
 
         // test the bandwidth rate limiter
@@ -1311,7 +1417,7 @@ mod tests {
             // make data read only, 8 bytes in len, and set the actual value to be written
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(8);
-            m.write_obj_at_addr::<u64>(123456789, data_addr).unwrap();
+            m.write_obj_at_addr::<u64>(123_456_789, data_addr).unwrap();
 
             // following write procedure should fail because of bandwidth rate limiting
             {
@@ -1372,7 +1478,7 @@ mod tests {
             // make data read only, 8 bytes in len, and set the actual value to be written
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(8);
-            m.write_obj_at_addr::<u64>(123456789, data_addr).unwrap();
+            m.write_obj_at_addr::<u64>(123_456_789, data_addr).unwrap();
 
             // following write procedure should fail because of ops rate limiting
             {
@@ -1442,9 +1548,9 @@ mod tests {
             let mut id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
             let str_id = format!("{}{}{}", mdata.st_dev(), mdata.st_rdev(), mdata.st_ino());
             let part_id = str_id.as_bytes();
-            for i in 0..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize) {
-                id[i] = part_id[i];
-            }
+            id[..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize)].clone_from_slice(
+                &part_id[..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize)],
+            );
 
             let file = OpenOptions::new()
                 .read(true)

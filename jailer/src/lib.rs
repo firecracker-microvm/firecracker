@@ -5,9 +5,6 @@
 extern crate clap;
 extern crate libc;
 extern crate regex;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
 
 extern crate fc_util;
 extern crate sys_util;
@@ -20,8 +17,6 @@ use std::ffi::{CString, NulError, OsString};
 use std::fmt;
 use std::fs;
 use std::io;
-use std::os::unix::io::AsRawFd;
-use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::result;
 
@@ -30,20 +25,7 @@ use clap::{App, Arg, ArgMatches};
 use env::Env;
 use fc_util::validators;
 
-pub const KVM_FD: i32 = 3;
-pub const LISTENER_FD: i32 = 4;
-
 const SOCKET_FILE_NAME: &str = "api.socket";
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct FirecrackerContext {
-    pub id: String,
-    pub jailed: bool,
-    pub seccomp_level: u32,
-    pub start_time_us: u64,
-    pub start_time_cpu_us: u64,
-}
 
 #[derive(Debug)]
 pub enum Error {
@@ -51,7 +33,7 @@ pub enum Error {
     CgroupInheritFromParent(PathBuf, String),
     CgroupLineNotFound(String, String),
     CgroupLineNotUnique(String, String),
-    ChangeDevNetTunOwner(sys_util::Error),
+    ChangeFileOwner(sys_util::Error, &'static str),
     ChdirNewRoot(sys_util::Error),
     CloseNetNsFd(sys_util::Error),
     CloseDevNullFd(sys_util::Error),
@@ -69,12 +51,11 @@ pub enum Error {
     MissingArgument(&'static str),
     MissingParent(PathBuf),
     MkdirOldRoot(sys_util::Error),
-    MknodDevNetTun(sys_util::Error),
+    MknodDev(sys_util::Error, &'static str),
     MountBind(sys_util::Error),
     MountPropagationPrivate(sys_util::Error),
     NotAFile(PathBuf),
     NumaNode(String),
-    OpenDevKvm(sys_util::Error),
     OpenDevNull(sys_util::Error),
     OsStringParsing(PathBuf, OsString),
     PivotRoot(sys_util::Error),
@@ -88,10 +69,8 @@ pub enum Error {
     SetSid(sys_util::Error),
     Uid(String),
     UmountOldRoot(sys_util::Error),
-    UnexpectedKvmFd(i32),
     UnexpectedListenerFd(i32),
     UnshareNewNs(sys_util::Error),
-    UnixListener(io::Error),
     UnsetCloexec(sys_util::Error),
     Write(PathBuf, io::Error),
 }
@@ -125,8 +104,8 @@ impl fmt::Display for Error {
                 "Found more than one cgroups configuration line in {} for {}",
                 proc_mounts, controller
             ),
-            ChangeDevNetTunOwner(ref err) => {
-                write!(f, "Failed to change owner for /dev/net/tun: {}", err)
+            ChangeFileOwner(ref err, ref filename) => {
+                write!(f, "Failed to change owner for {}: {}", filename, err)
             }
             ChdirNewRoot(ref err) => write!(f, "Failed to chdir into chroot directory: {}", err),
             CloseNetNsFd(ref err) => write!(f, "Failed to close netns fd: {}", err),
@@ -171,10 +150,10 @@ impl fmt::Display for Error {
                 "Failed to create the jail root directory before pivoting root: {}",
                 err
             ),
-            MknodDevNetTun(ref err) => write!(
+            MknodDev(ref err, ref devname) => write!(
                 f,
-                "Failed to create /dev/net/tun via mknod inside the jail: {}",
-                err
+                "Failed to create {} via mknod inside the jail: {}",
+                devname, err
             ),
             MountBind(ref err) => {
                 write!(f, "Failed to bind mount the jail root directory: {}", err)
@@ -190,7 +169,6 @@ impl fmt::Display for Error {
                 format!("{:?} is not a file", path).replace("\"", "")
             ),
             NumaNode(ref node) => write!(f, "Invalid numa node: {}", node),
-            OpenDevKvm(ref err) => write!(f, "Failed to open /dev/kvm: {}", err),
             OpenDevNull(ref err) => write!(f, "Failed to open /dev/null: {}", err),
             OsStringParsing(ref path, _) => write!(
                 f,
@@ -216,14 +194,12 @@ impl fmt::Display for Error {
             SetSid(ref err) => write!(f, "Failed to daemonize: setsid: {}", err),
             Uid(ref uid) => write!(f, "Invalid uid: {}", uid),
             UmountOldRoot(ref err) => write!(f, "Failed to unmount the old jail root: {}", err),
-            UnexpectedKvmFd(fd) => write!(f, "Unexpected value for the /dev/kvm fd: {}", fd),
             UnexpectedListenerFd(fd) => {
                 write!(f, "Unexpected value for the socket listener fd: {}", fd)
             }
             UnshareNewNs(ref err) => {
                 write!(f, "Failed to unshare into new mount namespace: {}", err)
             }
-            UnixListener(ref err) => write!(f, "Failed to bind to the Unix socket: {}", err),
             UnsetCloexec(ref err) => write!(
                 f,
                 "Failed to unset the O_CLOEXEC flag on the socket fd: {}",
@@ -323,28 +299,22 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
 fn sanitize_process() {
     // First thing to do is make sure we don't keep any inherited FDs
     // other that IN, OUT and ERR.
+    if let Ok(paths) = fs::read_dir("/proc/self/fd") {
+        for maybe_path in paths {
+            if maybe_path.is_err() {
+                continue;
+            }
 
-    // Safe because sysconf is available on all flavors of Linux.
-    let fd_size = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } as i32;
-    for i in 3..fd_size {
-        // Safe because close() cannot fail when passed a valid parameter.
-        unsafe { libc::close(i) };
+            let file_name = maybe_path.unwrap().file_name();
+            let fd_str = file_name.to_str().unwrap_or("0");
+            let fd = fd_str.parse::<i32>().unwrap_or(0);
+
+            if fd > 2 {
+                // Safe because close() cannot fail when passed a valid parameter.
+                unsafe { libc::close(fd) };
+            }
+        }
     }
-}
-
-fn open_dev_kvm() -> Result<i32> {
-    // Safe because we use a constant null-terminated string and verify the result.
-    let ret = unsafe { libc::open("/dev/kvm\0".as_ptr() as *const libc::c_char, libc::O_RDWR) };
-
-    if ret < 0 {
-        return Err(Error::OpenDevKvm(sys_util::Error::last()));
-    }
-
-    if ret != KVM_FD {
-        return Err(Error::UnexpectedKvmFd(ret));
-    }
-
-    Ok(ret)
 }
 
 pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Result<()> {
@@ -355,7 +325,6 @@ pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Resu
     // starve the host of resources? (cgroups should take care of that, but do they currently?)
 
     sanitize_process();
-    open_dev_kvm()?;
 
     let env = Env::new(args, start_time_us, start_time_cpu_us)?;
 
@@ -363,36 +332,7 @@ pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Resu
     fs::create_dir_all(env.chroot_dir())
         .map_err(|e| Error::CreateDir(env.chroot_dir().to_owned(), e))?;
 
-    // The unwrap should not fail, since the end of chroot_dir looks like ..../<id>/root
-    let listener = UnixListener::bind(
-        env.chroot_dir()
-            .parent()
-            .ok_or(Error::MissingParent(env.chroot_dir().to_path_buf()))?
-            .join(SOCKET_FILE_NAME),
-    )
-    .map_err(|e| Error::UnixListener(e))?;
-
-    let listener_fd = listener.as_raw_fd();
-    if listener_fd != LISTENER_FD {
-        return Err(Error::UnexpectedListenerFd(listener_fd));
-    }
-
-    // It turns out Rust is so safe, it opens everything with FD_CLOEXEC, which we have to unset.
-
-    // This is safe because we know fd and the cmd are valid.
-    let mut fd_flags = unsafe { libc::fcntl(listener_fd, libc::F_GETFD, 0) };
-    if fd_flags < 0 {
-        return Err(Error::GetOldFdFlags(sys_util::Error::last()));
-    }
-
-    fd_flags &= !libc::FD_CLOEXEC;
-
-    // This is safe because we know the fd, the cmd, and the last arg are valid.
-    if unsafe { libc::fcntl(listener_fd, libc::F_SETFD, fd_flags) } < 0 {
-        return Err(Error::UnsetCloexec(sys_util::Error::last()));
-    }
-
-    env.run()
+    env.run(SOCKET_FILE_NAME)
 }
 
 /// Turns an AsRef<Path> into a CString (c style string).
@@ -411,7 +351,34 @@ fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::os::unix::io::AsRawFd;
 
+    #[test]
+    fn test_sanitize_process() {
+        let n = 100;
+
+        let tmp_dir_path = "/tmp/jailer/tests/sanitize_process";
+        assert!(fs::create_dir_all(tmp_dir_path).is_ok());
+
+        let mut fds = Vec::new();
+        for i in 0..n {
+            let maybe_file = File::create(format!("{}/{}", tmp_dir_path, i));
+            assert!(maybe_file.is_ok());
+            fds.push(maybe_file.unwrap().as_raw_fd());
+        }
+
+        sanitize_process();
+
+        for fd in fds {
+            let is_fd_opened = unsafe { libc::fcntl(fd, libc::F_GETFD) } == 0;
+            assert_eq!(is_fd_opened, false);
+        }
+
+        assert!(fs::remove_dir_all(tmp_dir_path).is_ok());
+    }
+
+    #[allow(clippy::cyclomatic_complexity)]
     #[test]
     fn test_error_display() {
         let path = PathBuf::from("/foo");
@@ -454,19 +421,19 @@ mod tests {
             "Found more than one cgroups configuration line in /proc/mounts for sysfs",
         );
         assert_eq!(
-            format!("{}", Error::ChangeDevNetTunOwner(err42.clone())),
+            format!("{}", Error::ChangeFileOwner(err42, "/dev/net/tun")),
             "Failed to change owner for /dev/net/tun: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::ChdirNewRoot(err42.clone())),
+            format!("{}", Error::ChdirNewRoot(err42)),
             "Failed to chdir into chroot directory: Errno 42"
         );
         assert_eq!(
-            format!("{}", Error::CloseNetNsFd(err42.clone())),
+            format!("{}", Error::CloseNetNsFd(err42)),
             "Failed to close netns fd: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::CloseDevNullFd(err42.clone())),
+            format!("{}", Error::CloseDevNullFd(err42)),
             "Failed to close /dev/null fd: Errno 42",
         );
         assert_eq!(
@@ -495,7 +462,7 @@ mod tests {
             "Encountered interior \\0 while parsing a string",
         );
         assert_eq!(
-            format!("{}", Error::Dup2(err42.clone())),
+            format!("{}", Error::Dup2(err42)),
             "Failed to duplicate fd: Errno 42",
         );
         assert_eq!(
@@ -518,7 +485,7 @@ mod tests {
             "Failed to decode string from byte array: [47, 0]",
         );
         assert_eq!(
-            format!("{}", Error::GetOldFdFlags(err42.clone())),
+            format!("{}", Error::GetOldFdFlags(err42)),
             "Failed to get flags from fd: Errno 42",
         );
         assert_eq!(
@@ -541,19 +508,19 @@ mod tests {
             "File /foo/bar doesn't have a parent",
         );
         assert_eq!(
-            format!("{}", Error::MkdirOldRoot(err42.clone())),
+            format!("{}", Error::MkdirOldRoot(err42)),
             "Failed to create the jail root directory before pivoting root: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::MknodDevNetTun(err42.clone())),
+            format!("{}", Error::MknodDev(err42, "/dev/net/tun")),
             "Failed to create /dev/net/tun via mknod inside the jail: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::MountBind(err42.clone())),
+            format!("{}", Error::MountBind(err42)),
             "Failed to bind mount the jail root directory: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::MountPropagationPrivate(err42.clone())),
+            format!("{}", Error::MountPropagationPrivate(err42)),
             "Failed to change the propagation type to private: Errno 42",
         );
         assert_eq!(
@@ -565,11 +532,7 @@ mod tests {
             "Invalid numa node: foobar",
         );
         assert_eq!(
-            format!("{}", Error::OpenDevKvm(err42.clone())),
-            "Failed to open /dev/kvm: Errno 42",
-        );
-        assert_eq!(
-            format!("{}", Error::OpenDevNull(err42.clone())),
+            format!("{}", Error::OpenDevNull(err42)),
             "Failed to open /dev/null: Errno 42",
         );
         assert_eq!(
@@ -580,7 +543,7 @@ mod tests {
             "Failed to parse path /foo/bar into an OsString",
         );
         assert_eq!(
-            format!("{}", Error::PivotRoot(err42.clone())),
+            format!("{}", Error::PivotRoot(err42)),
             "Failed to pivot root: Errno 42",
         );
         assert_eq!(
@@ -602,7 +565,7 @@ mod tests {
             format!("Regex failed: {:?}", err_regex),
         );
         assert_eq!(
-            format!("{}", Error::RmOldRootDir(err42.clone())),
+            format!("{}", Error::RmOldRootDir(err42)),
             "Failed to remove old jail root directory: Errno 42",
         );
         assert_eq!(
@@ -614,11 +577,11 @@ mod tests {
             format!("Failed to change current directory: {}", err2_str),
         );
         assert_eq!(
-            format!("{}", Error::SetNetNs(err42.clone())),
+            format!("{}", Error::SetNetNs(err42)),
             "Failed to join network namespace: netns: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::SetSid(err42.clone())),
+            format!("{}", Error::SetSid(err42)),
             "Failed to daemonize: setsid: Errno 42",
         );
         assert_eq!(
@@ -626,27 +589,19 @@ mod tests {
             "Invalid uid: foobar",
         );
         assert_eq!(
-            format!("{}", Error::UmountOldRoot(err42.clone())),
+            format!("{}", Error::UmountOldRoot(err42)),
             "Failed to unmount the old jail root: Errno 42",
-        );
-        assert_eq!(
-            format!("{}", Error::UnexpectedKvmFd(42)),
-            "Unexpected value for the /dev/kvm fd: 42",
         );
         assert_eq!(
             format!("{}", Error::UnexpectedListenerFd(42)),
             "Unexpected value for the socket listener fd: 42",
         );
         assert_eq!(
-            format!("{}", Error::UnshareNewNs(err42.clone())),
+            format!("{}", Error::UnshareNewNs(err42)),
             "Failed to unshare into new mount namespace: Errno 42",
         );
         assert_eq!(
-            format!("{}", Error::UnixListener(io::Error::from_raw_os_error(2))),
-            format!("Failed to bind to the Unix socket: {}", err2_str),
-        );
-        assert_eq!(
-            format!("{}", Error::UnsetCloexec(err42.clone())),
+            format!("{}", Error::UnsetCloexec(err42)),
             "Failed to unset the O_CLOEXEC flag on the socket fd: Errno 42",
         );
         assert_eq!(

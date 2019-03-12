@@ -3,8 +3,11 @@
 
 use seccomp::{Error, SeccompFilterContext};
 
+/// List of allowed syscalls.
 pub const ALLOWED_SYSCALLS: &[i64] = &[];
 
+/// The default context containing the white listed syscall rules required by `Firecracker` to
+/// function.
 pub fn default_context() -> Result<SeccompFilterContext, Error> {
     Ok(seccomp::SeccompFilterContext::new(
         vec![].into_iter().collect(),
@@ -13,6 +16,7 @@ pub fn default_context() -> Result<SeccompFilterContext, Error> {
     .unwrap())
 }
 
+/// Applies the configured level of seccomp filtering to the current thread.
 pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
     Ok(())
 }

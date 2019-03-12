@@ -16,15 +16,11 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// X86_64 specific error triggered during system configuration.
     X86_64Setup(x86_64::Error),
-    /// The zero page extends past the end of guest_mem.
-    ZeroPagePastRamEnd,
-    /// Error writing the zero page of guest memory.
-    ZeroPageSetup,
 }
 pub type Result<T> = result::Result<T, Error>;
 
 // 1MB.  We don't put anything above here except the kernel itself.
-pub const HIMEM_START: usize = 0x100000;
+pub const HIMEM_START: usize = 0x0010_0000;
 
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;

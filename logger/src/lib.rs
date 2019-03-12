@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 //! Utility for sending log related messages and metrics to two different named pipes (FIFO) or
 //! simply to stdout/stderr. The logging destination is specified upon the initialization of the
 //! logging system.
@@ -64,7 +64,13 @@
 //!          libc::mkfifo(metrics.as_bytes().as_ptr() as *const i8, 0o644);
 //!     }
 //!     // Initialize the logger to log to a FIFO that was created beforehand.
-//!     assert!(LOGGER.deref().init(&AppInfo::new("Firecracker", "1.0"), "MY-INSTANCE", logs, metrics, vec![]).is_ok());
+//!     assert!(LOGGER.deref().init(
+//!                 &AppInfo::new("Firecracker", "1.0"),
+//!                 "MY-INSTANCE",
+//!                 logs,
+//!                 metrics,
+//!                 &vec![]
+//!             ).is_ok());
 //!     // The following messages should appear in the `log_file_temp` file.
 //!     warn!("this is a warning");
 //!     error!("this is an error");
@@ -509,7 +515,7 @@ impl Logger {
         }
     }
 
-    fn set_flags(options: Vec<Value>) -> Result<()> {
+    fn set_flags(options: &[Value]) -> Result<()> {
         let mut flags = 0;
         for option in options.iter() {
             if let Value::String(s_opt) = option {
@@ -613,7 +619,13 @@ impl Logger {
     /// use std::ops::Deref;
     ///
     /// fn main() {
-    ///     LOGGER.deref().init(&AppInfo::new("Firecracker", "1.0"), "MY-INSTANCE", "/tmp/log".to_string(), "/tmp/metrics".to_string(), vec![]);
+    ///     LOGGER.deref().init(
+    ///         &AppInfo::new("Firecracker", "1.0"),
+    ///         "MY-INSTANCE",
+    ///         "/tmp/log".to_string(),
+    ///         "/tmp/metrics".to_string(),
+    ///         &vec![]
+    ///     );
     /// }
     /// ```
     pub fn init(
@@ -622,7 +634,7 @@ impl Logger {
         instance_id: &str,
         log_pipe: String,
         metrics_pipe: String,
-        options: Vec<Value>,
+        options: &[Value],
     ) -> Result<()> {
         self.try_lock(INITIALIZING)?;
 
@@ -640,7 +652,6 @@ impl Logger {
                 // The mutex shouldn't be poisoned before init otherwise panic!.
                 let mut g = LOGGER.log_fifo_guard();
                 *g = Some(t);
-                LOGGER.level_info.set_writer(Destination::Pipe);
             }
             Err(ref e) => {
                 STATE.store(UNINITIALIZED, Ordering::SeqCst);
@@ -676,9 +687,12 @@ impl Logger {
 
         set_max_level(Level::Trace.to_level_filter());
 
+        self.log_helper(
+            format!("Running {} v{}", app_info.name, app_info.version),
+            Some(Destination::Pipe),
+        );
+        LOGGER.level_info.set_writer(Destination::Pipe);
         STATE.store(INITIALIZED, Ordering::SeqCst);
-
-        self.log_helper(format!("Running {} v{}", app_info.name, app_info.version));
 
         Ok(())
     }
@@ -686,18 +700,24 @@ impl Logger {
     // In a future PR we'll update the way things are written to the selected destination to avoid
     // the creation and allocation of unnecessary intermediate Strings. The log_helper method takes
     // care of the common logic involved in both writing regular log messages, and dumping metrics.
-    fn log_helper(&self, msg: String) {
+    fn log_helper(&self, msg: String, maybe_forced_destination: Option<Destination>) {
+        let destination = maybe_forced_destination
+            .map(|forced_destination| forced_destination as usize)
+            .unwrap_or_else(|| self.level_info.writer());
+
         // We have the awkward IF's for now because we can't use just "<enum_variant> as usize
         // on the left side of a match arm for some reason.
-        match self.level_info.writer() {
+        match destination {
             x if x == Destination::Pipe as usize => {
                 // Unwrap is safe cause the Destination is a Pipe.
-                if let Err(_) = log_to_fifo(
+                if log_to_fifo(
                     msg,
                     self.log_fifo_guard()
                         .as_mut()
                         .expect("Failed to write to fifo due to poisoned lock"),
-                ) {
+                )
+                .is_err()
+                {
                     // No reason to log the error to stderr here, just increment the metric.
                     METRICS.logger.missed_log_count.inc();
                 }
@@ -738,14 +758,14 @@ impl Logger {
                 }
                 Err(e) => {
                     METRICS.logger.metrics_fails.inc();
-                    return Err(LoggerError::LogMetricFailure(e.description().to_string()));
+                    Err(LoggerError::LogMetricFailure(e.description().to_string()))
                 }
             }
         } else {
             METRICS.logger.metrics_fails.inc();
-            return Err(LoggerError::LogMetricFailure(
+            Err(LoggerError::LogMetricFailure(
                 "Logger was not initialized.".to_string(),
-            ));
+            ))
         }
     }
 }
@@ -770,7 +790,7 @@ impl Log for Logger {
                 record.args()
             );
 
-            self.log_helper(msg);
+            self.log_helper(msg, None);
         }
     }
 
@@ -827,6 +847,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_init() {
         let app_info = AppInfo::new(TEST_APP_NAME, TEST_APP_VERSION);
 
@@ -856,7 +877,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{:?}",
-                l.init(&app_info, TEST_INSTANCE_ID, log_file.clone(), metrics_file.clone(), vec![Value::Bool(true)])
+                l.init(&app_info, TEST_INSTANCE_ID, log_file.clone(), metrics_file.clone(), &[Value::Bool(true)])
                     .err()
             ),
             "Some(NeverInitialized(\"Could not set option flags: Invalid log option: Bool(true)\"))"
@@ -869,7 +890,7 @@ mod tests {
                     TEST_INSTANCE_ID,
                     log_file.clone(),
                     metrics_file.clone(),
-                    vec![Value::String("foobar".to_string())]
+                    &[Value::String("foobar".to_string())]
                 )
                 .err()
             ),
@@ -895,7 +916,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 log_file.clone(),
                 metrics_file.clone(),
-                vec![Value::String("LogDirtyPages".to_string())]
+                &[Value::String("LogDirtyPages".to_string())]
             )
             .is_ok());
 
@@ -908,7 +929,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 log_file.clone(),
                 metrics_file.clone(),
-                vec![]
+                &[]
             )
             .is_err());
 
@@ -946,7 +967,7 @@ mod tests {
                 TEST_INSTANCE_ID,
                 String::from(""),
                 metrics_file.clone(),
-                vec![]
+                &[]
             )
             .is_err());
 
@@ -955,7 +976,7 @@ mod tests {
             TEST_INSTANCE_ID,
             log_file.clone(),
             String::from(""),
-            vec![],
+            &[],
         );
         assert!(res.is_err());
 
@@ -990,7 +1011,7 @@ mod tests {
                     TEST_INSTANCE_ID,
                     log_file.clone(),
                     metrics_file.clone(),
-                    vec![]
+                    &[]
                 )
                 .err()
             ),

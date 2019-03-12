@@ -34,6 +34,7 @@ pub struct LegacyDeviceManager {
 
     pub com_evt_1_3: EventFd,
     pub com_evt_2_4: EventFd,
+    pub kbd_evt: EventFd,
     pub stdin_handle: io::Stdin,
 }
 
@@ -43,6 +44,7 @@ impl LegacyDeviceManager {
         let io_bus = devices::Bus::new();
         let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
         let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
+        let kbd_evt = EventFd::new().map_err(Error::EventFd)?;
         let stdio_serial = Arc::new(Mutex::new(devices::legacy::Serial::new_out(
             com_evt_1_3.try_clone().map_err(Error::EventFd)?,
             Box::new(stdout()),
@@ -50,7 +52,10 @@ impl LegacyDeviceManager {
 
         // Create exit event for i8042
         let exit_evt = EventFd::new().map_err(Error::EventFd)?;
-        let i8042 = Arc::new(Mutex::new(devices::legacy::I8042Device::new(exit_evt)));
+        let i8042 = Arc::new(Mutex::new(devices::legacy::I8042Device::new(
+            exit_evt,
+            kbd_evt.try_clone().unwrap(),
+        )));
 
         Ok(LegacyDeviceManager {
             io_bus,
@@ -58,6 +63,7 @@ impl LegacyDeviceManager {
             i8042,
             com_evt_1_3,
             com_evt_2_4,
+            kbd_evt,
             stdin_handle: io::stdin(),
         })
     }
@@ -66,7 +72,7 @@ impl LegacyDeviceManager {
     pub fn register_devices(&mut self) -> Result<()> {
         self.io_bus
             .insert(self.stdio_serial.clone(), 0x3f8, 0x8)
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.io_bus
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
@@ -75,7 +81,7 @@ impl LegacyDeviceManager {
                 0x2f8,
                 0x8,
             )
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.io_bus
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
@@ -84,7 +90,7 @@ impl LegacyDeviceManager {
                 0x3e8,
                 0x8,
             )
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.io_bus
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
@@ -93,14 +99,14 @@ impl LegacyDeviceManager {
                 0x2e8,
                 0x8,
             )
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.stdin_handle
             .lock()
             .set_raw_mode()
-            .map_err(|e| Error::StdinHandle(e))?;
+            .map_err(Error::StdinHandle)?;
         self.io_bus
-            .insert(self.i8042.clone(), 0x064, 0x1)
-            .map_err(|err| Error::BusError(err))?;
+            .insert(self.i8042.clone(), 0x060, 0x5)
+            .map_err(Error::BusError)?;
         Ok(())
     }
 }

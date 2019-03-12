@@ -30,7 +30,7 @@ def test_rescan(test_microvm_with_ssh, network_config):
         is_root_device=False,
         is_read_only=False
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -46,14 +46,12 @@ def test_rescan(test_microvm_with_ssh, network_config):
         action_type='BlockDeviceRescan',
         payload='scratch'
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     _check_scratch_size(
         ssh_connection,
         fs.size()
     )
-
-    ssh_connection.close()
 
 
 def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
@@ -78,7 +76,7 @@ def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
         is_root_device=False,
         is_read_only=True
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -121,7 +119,7 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
         is_read_only=False,
         partuuid='0eaa91a0-01'
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -159,7 +157,7 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
         is_read_only=False,
         partuuid='0eaa91a0-01'
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Update the root block device to boot from /dev/vda.
     response = test_microvm.drive.put(
@@ -170,7 +168,7 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
         is_root_device=True,
         is_read_only=False
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -202,7 +200,7 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
         is_root_device=False,
         is_read_only=False
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -214,7 +212,7 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
         drive_id='scratch',
         path_on_host=test_microvm.create_jailed_resource(fs2.path)
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
@@ -225,9 +223,7 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
     _, stdout, stderr = ssh_connection.execute_command(blksize_cmd)
     assert stderr.read().decode("utf-8") == ''
     stdout.readline()  # skip "SIZE"
-    assert stdout.readline().strip() == size_bytes_str
-
-    ssh_connection.close()
+    assert stdout.readline().decode('utf-8').strip() == size_bytes_str
 
 
 def _check_scratch_size(ssh_connection, size):
@@ -237,7 +233,7 @@ def _check_scratch_size(ssh_connection, size):
     )
 
     assert stderr.read().decode('utf-8') == ''
-    assert stdout.readline().strip() == str(size)
+    assert stdout.readline().decode('utf-8').strip() == str(size)
 
 
 def _process_blockdev_output(blockdev_out, assert_dict, keys_array):

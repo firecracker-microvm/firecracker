@@ -95,6 +95,12 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
+
+    /// Checks if the frame is empty or not.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.bytes.len() == 0
+    }
 }
 
 impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
@@ -224,6 +230,7 @@ mod tests {
             assert_eq!(f2.ethertype(), ethertype);
             assert_eq!(f2.payload()[1], 132);
             assert_eq!(f2.len(), f2.bytes.len());
+            assert_eq!(f2.is_empty(), f2.bytes.len() == 0);
         }
 
         {

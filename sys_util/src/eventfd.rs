@@ -6,7 +6,7 @@ use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::{io, mem, result};
 
-use libc::{c_void, dup, eventfd, read, write};
+use libc::{c_void, dup, eventfd, read, write, EFD_NONBLOCK};
 
 /// A safe wrapper around a Linux eventfd (man 2 eventfd).
 ///
@@ -21,7 +21,7 @@ impl EventFd {
     pub fn new() -> result::Result<EventFd, io::Error> {
         // This is safe because eventfd merely allocated an eventfd for our process and we handle
         // the error case.
-        let ret = unsafe { eventfd(0, 0) };
+        let ret = unsafe { eventfd(0, EFD_NONBLOCK) };
         if ret < 0 {
             Err(io::Error::last_os_error())
         } else {
@@ -33,7 +33,7 @@ impl EventFd {
         }
     }
 
-    /// Adds `v` to the eventfd's count, blocking until this won't overflow the count.
+    /// Adds `v` to the eventfd's count, does not block if the result will overflow the count
     pub fn write(&self, v: u64) -> result::Result<(), io::Error> {
         // This is safe because we made this fd and the pointer we pass can not overflow because we
         // give the syscall's size parameter properly.
@@ -51,7 +51,7 @@ impl EventFd {
         }
     }
 
-    /// Blocks until the the eventfd's count is non-zero, then resets the count to zero.
+    /// Tries to read from the eventfd, does not block if the counter is zero
     pub fn read(&self) -> result::Result<u64, io::Error> {
         let mut buf: u64 = 0;
         let ret = unsafe {
@@ -63,7 +63,7 @@ impl EventFd {
                 mem::size_of::<u64>(),
             )
         };
-        if ret <= 0 {
+        if ret < 0 {
             Err(io::Error::last_os_error())
         } else {
             Ok(buf)
@@ -107,6 +107,27 @@ mod tests {
         let evt = EventFd::new().unwrap();
         evt.write(55).unwrap();
         assert_eq!(evt.read().unwrap(), 55);
+    }
+
+    #[test]
+    fn write_overflow() {
+        let evt = EventFd::new().unwrap();
+        evt.write(std::u64::MAX - 1).unwrap();
+        let r = evt.write(1);
+        match r {
+            Err(ref inner) if inner.kind() == io::ErrorKind::WouldBlock => (),
+            _ => panic!("Unexpected"),
+        }
+    }
+
+    #[test]
+    fn read_nothing() {
+        let evt = EventFd::new().unwrap();
+        let r = evt.read();
+        match r {
+            Err(ref inner) if inner.kind() == io::ErrorKind::WouldBlock => (),
+            _ => panic!("Unexpected"),
+        }
     }
 
     #[test]

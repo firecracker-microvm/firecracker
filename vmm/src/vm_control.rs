@@ -41,16 +41,16 @@ impl VmRequest {
     /// `VmResponse` with the intended purpose of sending the response back over the  socket that
     /// received this `VmRequest`.
     pub fn execute(&self, vm: &VmFd) -> VmResponse {
-        match self {
-            &VmRequest::RegisterIoevent(ref evt, ref addr, datamatch) => {
+        match *self {
+            VmRequest::RegisterIoevent(ref evt, ref addr, datamatch) => {
                 match vm.register_ioevent(evt, addr, datamatch) {
                     Ok(_) => VmResponse::Ok,
                     Err(e) => VmResponse::Err(e),
                 }
             }
-            &VmRequest::RegisterIrqfd(ref evt, irq) => match vm.register_irqfd(evt, irq) {
+            VmRequest::RegisterIrqfd(ref evt, irq) => match vm.register_irqfd(evt, irq) {
                 Ok(_) => VmResponse::Ok,
-                Err(e) => return VmResponse::Err(e),
+                Err(e) => VmResponse::Err(e),
             },
         }
     }

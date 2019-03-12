@@ -10,7 +10,6 @@
 
 use std;
 use std::io::{self, Read, Write};
-use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
 
 use libc;
@@ -66,34 +65,7 @@ impl MemoryMapping {
                 0,
             )
         };
-        if addr.is_null() {
-            return Err(Error::SystemCallFailed(io::Error::last_os_error()));
-        }
-        Ok(MemoryMapping {
-            addr: addr as *mut u8,
-            size,
-        })
-    }
-
-    /// Maps the first `size` bytes of the given `fd`.
-    ///
-    /// # Arguments
-    /// * `fd` - File descriptor to mmap from.
-    /// * `size` - Size of memory region in bytes.
-    pub fn from_fd(fd: &AsRawFd, size: usize) -> Result<MemoryMapping> {
-        // This is safe because we are creating a mapping in a place not already used by any other
-        // area in this process.
-        let addr = unsafe {
-            libc::mmap(
-                null_mut(),
-                size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED,
-                fd.as_raw_fd(),
-                0,
-            )
-        };
-        if addr.is_null() {
+        if addr == libc::MAP_FAILED {
             return Err(Error::SystemCallFailed(io::Error::last_os_error()));
         }
         Ok(MemoryMapping {
@@ -313,6 +285,7 @@ impl MemoryMapping {
         std::slice::from_raw_parts(self.addr, self.size)
     }
 
+    #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> &mut [u8] {
         // This is safe because we mapped the area at addr ourselves, so this slice will not
         // overflow. However, it is possible to alias.
@@ -344,6 +317,21 @@ mod tests {
     fn basic_map() {
         let m = MemoryMapping::new(1024).unwrap();
         assert_eq!(1024, m.size());
+    }
+
+    #[test]
+    fn map_invalid_size() {
+        let res = MemoryMapping::new(0);
+        match res {
+            Ok(_) => panic!("should panic!"),
+            Err(err) => {
+                if let Error::SystemCallFailed(e) = err {
+                    assert_eq!(e.raw_os_error(), Some(libc::EINVAL));
+                } else {
+                    panic!("unexpected error: {:?}", err);
+                }
+            }
+        }
     }
 
     #[test]
@@ -419,17 +407,5 @@ mod tests {
             mem_map.write_from_memory(2, &mut sink, mem::size_of::<u32>())
         );
         assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
-    }
-
-    #[test]
-    fn mapped_file_read() {
-        let mut f = tempfile().unwrap();
-        let sample_buf = &[1, 2, 3, 4, 5];
-        assert!(f.write_all(sample_buf).is_ok());
-
-        let mem_map = MemoryMapping::from_fd(&f, sample_buf.len()).unwrap();
-        let buf = &mut [0u8; 16];
-        assert_eq!(mem_map.read_slice(buf, 0).unwrap(), sample_buf.len());
-        assert_eq!(buf[0..sample_buf.len()], sample_buf[..]);
     }
 }

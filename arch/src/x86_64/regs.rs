@@ -69,6 +69,7 @@ pub fn setup_msrs(vcpu: &VcpuFd) -> Result<()> {
     let vec_size_bytes =
         mem::size_of::<kvm_msrs>() + (entry_vec.len() * mem::size_of::<kvm_msr_entry>());
     let vec: Vec<u8> = Vec::with_capacity(vec_size_bytes);
+    #[allow(clippy::cast_ptr_alignment)]
     let msrs: &mut kvm_msrs = unsafe {
         // Converting the vector's memory to a struct is unsafe.  Carefully using the read-only
         // vector to size and set the members ensures no out-of-bounds errors below.
@@ -97,7 +98,7 @@ pub fn setup_msrs(vcpu: &VcpuFd) -> Result<()> {
 /// * `boot_si` - Must point to zero page address per Linux ABI.
 pub fn setup_regs(vcpu: &VcpuFd, boot_ip: u64, boot_sp: u64, boot_si: u64) -> Result<()> {
     let regs: kvm_regs = kvm_regs {
-        rflags: 0x0000000000000002u64,
+        rflags: 0x0000_0000_0000_0002u64,
         rip: boot_ip,
         rsp: boot_sp,
         rbp: boot_sp,
@@ -132,7 +133,7 @@ const EFER_LMA: u64 = 0x400;
 const EFER_LME: u64 = 0x100;
 
 const X86_CR0_PE: u64 = 0x1;
-const X86_CR0_PG: u64 = 0x80000000;
+const X86_CR0_PG: u64 = 0x8000_0000;
 const X86_CR4_PAE: u64 = 0x20;
 
 fn write_gdt_table(table: &[u64], guest_mem: &GuestMemory) -> Result<()> {
@@ -272,7 +273,7 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
     });
     entries.push(kvm_msr_entry {
         index: msr_index::MSR_IA32_MISC_ENABLE,
-        data: msr_index::MSR_IA32_MISC_ENABLE_FAST_STRING as u64,
+        data: u64::from(msr_index::MSR_IA32_MISC_ENABLE_FAST_STRING),
         ..Default::default()
     });
 
@@ -286,7 +287,7 @@ mod tests {
     use memory_model::{GuestAddress, GuestMemory};
 
     fn create_guest_mem() -> GuestMemory {
-        GuestMemory::new(&vec![(GuestAddress(0), 0x10000)]).unwrap()
+        GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap()
     }
 
     fn read_u64(gm: &GuestMemory, offset: usize) -> u64 {
@@ -301,9 +302,9 @@ mod tests {
         configure_segments_and_sregs(&gm, &mut sregs).unwrap();
 
         assert_eq!(0x0, read_u64(&gm, BOOT_GDT_OFFSET));
-        assert_eq!(0xaf9b000000ffff, read_u64(&gm, BOOT_GDT_OFFSET + 8));
-        assert_eq!(0xcf93000000ffff, read_u64(&gm, BOOT_GDT_OFFSET + 16));
-        assert_eq!(0x8f8b000000ffff, read_u64(&gm, BOOT_GDT_OFFSET + 24));
+        assert_eq!(0xaf_9b00_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 8));
+        assert_eq!(0xcf_9300_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 16));
+        assert_eq!(0x8f_8b00_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 24));
         assert_eq!(0x0, read_u64(&gm, BOOT_IDT_OFFSET));
 
         assert_eq!(0, sregs.cs.base);
@@ -362,6 +363,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_ptr_alignment)]
     fn test_setup_msrs() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
@@ -409,7 +411,7 @@ mod tests {
         let vcpu = vm.create_vcpu(0).unwrap();
 
         let expected_regs: kvm_regs = kvm_regs {
-            rflags: 0x0000000000000002u64,
+            rflags: 0x0000_0000_0000_0002u64,
             rip: 1,
             rsp: 2,
             rbp: 2,

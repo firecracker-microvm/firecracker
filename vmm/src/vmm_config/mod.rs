@@ -1,6 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use rate_limiter::{RateLimiter, TokenBucket};
+use std::io;
+
 /// Wrapper for configuring the microVM boot source.
 pub mod boot_source;
 /// Wrapper for configuring the block devices.
@@ -16,3 +19,130 @@ pub mod net;
 #[cfg(feature = "vsock")]
 /// Wrapper for configuring the vsock devices attached to the microVM.
 pub mod vsock;
+
+// TODO: Migrate the VMM public-facing code (i.e. interface) to use stateless structures,
+// for receiving data/args, such as the below `RateLimiterConfig` and `TokenBucketConfig`.
+// Also todo: find a better suffix than `Config`; it should illustrate the static nature
+// of the enclosed data.
+// Currently, data is passed around using live/stateful objects. Switching to static/stateless
+// objects will simplify both the ownership model and serialization.
+// Public access would then be more tightly regulated via `VmmAction`s, consisting of tuples like
+// (entry-point-into-VMM-logic, stateless-args-structure).
+
+/// A public-facing, stateless structure, holding all the data we need to create a TokenBucket
+/// (live) object.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+pub struct TokenBucketConfig {
+    /// See TokenBucket::size.
+    pub size: u64,
+    /// See TokenBucket::one_time_burst.
+    pub one_time_burst: Option<u64>,
+    /// See TokenBucket::refill_time.
+    pub refill_time: u64,
+}
+
+impl TokenBucketConfig {
+    /// Convert the stateless `self` into a live `TokenBucket` object.
+    pub fn into_token_bucket(self) -> TokenBucket {
+        // This would look nicer if we were to implement `Into<TokenBucket>` (or, more generally,
+        // `Into<LiveCounterpart>`), but some constructors may fail, and until `TryInto` makes into
+        // the stable channel, we'll settle for the unenforceable convention of implementing
+        // an `into_<live_counterpart>()` member for these stateless structures.
+        TokenBucket::new(self.size, self.one_time_burst, self.refill_time)
+    }
+}
+
+/// A public-facing, stateless structure, holding all the data we need to create a RateLimiter
+/// (live) object.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+pub struct RateLimiterConfig {
+    /// Data used to initialize the RateLimiter::bandwidth bucket.
+    pub bandwidth: Option<TokenBucketConfig>,
+    /// Data used to initialize the RateLimiter::ops bucket.
+    pub ops: Option<TokenBucketConfig>,
+}
+
+impl RateLimiterConfig {
+    /// Convert the stateless `self` into a live `RateLimiter` object.
+    pub fn into_rate_limiter(self) -> Result<RateLimiter, io::Error> {
+        let bw = self.bandwidth.unwrap_or_default();
+        let ops = self.ops.unwrap_or_default();
+        RateLimiter::new(
+            bw.size,
+            bw.one_time_burst,
+            bw.refill_time,
+            ops.size,
+            ops.one_time_burst,
+            ops.refill_time,
+        )
+    }
+    /// Updates the configuration, merging in new options from `new_config`.
+    pub fn update(&mut self, new_config: &RateLimiterConfig) {
+        if new_config.bandwidth.is_some() {
+            self.bandwidth = new_config.bandwidth;
+        }
+        if new_config.ops.is_some() {
+            self.ops = new_config.ops;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_limiter_configs() {
+        const SIZE: u64 = 1024 * 1024;
+        const ONE_TIME_BURST: u64 = 1024;
+        const REFILL_TIME: u64 = 1000;
+
+        let b = TokenBucketConfig {
+            size: SIZE,
+            one_time_burst: Some(ONE_TIME_BURST),
+            refill_time: REFILL_TIME,
+        }
+        .into_token_bucket();
+        assert_eq!(b.capacity(), SIZE);
+        assert_eq!(b.one_time_burst(), ONE_TIME_BURST);
+        assert_eq!(b.refill_time_ms(), REFILL_TIME);
+
+        let mut rlconf = RateLimiterConfig {
+            bandwidth: Some(TokenBucketConfig {
+                size: SIZE,
+                one_time_burst: Some(ONE_TIME_BURST),
+                refill_time: REFILL_TIME,
+            }),
+            ops: Some(TokenBucketConfig {
+                size: SIZE * 2,
+                one_time_burst: None,
+                refill_time: REFILL_TIME * 2,
+            }),
+        };
+        let rl = rlconf.into_rate_limiter().unwrap();
+        assert_eq!(rl.bandwidth().unwrap().capacity(), SIZE);
+        assert_eq!(rl.bandwidth().unwrap().one_time_burst(), ONE_TIME_BURST);
+        assert_eq!(rl.bandwidth().unwrap().refill_time_ms(), REFILL_TIME);
+        assert_eq!(rl.ops().unwrap().capacity(), SIZE * 2);
+        assert_eq!(rl.ops().unwrap().one_time_burst(), 0);
+        assert_eq!(rl.ops().unwrap().refill_time_ms(), REFILL_TIME * 2);
+
+        rlconf.update(&RateLimiterConfig {
+            bandwidth: Some(TokenBucketConfig {
+                size: SIZE * 2,
+                one_time_burst: Some(ONE_TIME_BURST * 2),
+                refill_time: REFILL_TIME * 2,
+            }),
+            ops: None,
+        });
+        assert_eq!(rlconf.bandwidth.unwrap().size, SIZE * 2);
+        assert_eq!(
+            rlconf.bandwidth.unwrap().one_time_burst,
+            Some(ONE_TIME_BURST * 2)
+        );
+        assert_eq!(rlconf.bandwidth.unwrap().refill_time, REFILL_TIME * 2);
+        assert_eq!(rlconf.ops.unwrap().size, SIZE * 2);
+        assert_eq!(rlconf.ops.unwrap().one_time_burst, None);
+        assert_eq!(rlconf.ops.unwrap().refill_time, REFILL_TIME * 2);
+    }
+}

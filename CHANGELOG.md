@@ -4,8 +4,48 @@
 
 ### Changed
 
+- Dropped the JSON-formatted `context` command-line parameter from Firecracker
+  in favor of individual classic command-line parameters.
+- When running with `jailer` the location of the API socket has changed to
+  `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
+
+### Fixed
+
+- A `madvise` call issued by the `musl` allocator was added to the seccomp
+  whitelist to prevent Firecracker from terminating abruptly when allocating
+  memory in certain conditions.
+
+### Removed
+
+- Removed the `seccomp.bad_syscalls` metric.
+
+## [0.15.0]
+
+### Added
+- New API action: SendCtrlAltDel, used to initiate a graceful shutdown,
+  if the guest has driver support for i8042 and AT Keyboard. See
+  [the docs](docs/api_requests/actions.md#sendctrlaltdel) for details.
+- New metric counting the number of egress packets with a spoofed MAC:
+  `net.tx_spoofed_mac_count`.
+- New API call: `PATCH /network-interfaces/`, used to update the rate limiters
+  on a network interface, after the start of a microVM.
+- New `devtool` command: `prepare_release`. This updates the Firecracker
+  version, crate dependencies and credits in preparation for a new release.
+- New `devtool` command: `tag`. This creates a new git tag for the specified
+  release number, based on the changelog contents.
+
+### Changed
+
 - Added missing `vmm_version` field to the InstanceInfo API swagger
   definition, and marked several other mandatory fields as such.
+- New default command line for guest kernel:
+  `reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0
+  i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd`.
+
+### Fixed
+- virtio-blk: VIRTIO_BLK_T_FLUSH now working as expected.
+- Vsock devices can be attached when starting Firecracker using the jailer.
+- Vsock devices work properly when seccomp filtering is enabled.
 
 ## [0.14.0]
 

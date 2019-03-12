@@ -4,4 +4,4 @@ version = "0.1.0"
 authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-memory_model = { path = "../memory_model" }
+

@@ -3,6 +3,9 @@
 """Tests that ensure the correctness of the Firecracker API."""
 
 import os
+import time
+
+import pytest
 
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
@@ -39,13 +42,13 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         is_root_device=False,
         is_read_only=False
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Updates to `kernel_image_path` with an invalid path are not allowed.
     response = test_microvm.boot.put(
         kernel_image_path='foo.bar'
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "The kernel file cannot be opened due to invalid kernel path or " \
            "invalid permissions" in response.text
 
@@ -55,7 +58,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
             test_microvm.kernel_file
         )
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Updates to `path_on_host` with an invalid path are not allowed.
     response = test_microvm.drive.put(
@@ -64,7 +67,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         is_read_only=True,
         is_root_device=True
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid block device path" in response.text
 
     # Updates to `is_root_device` that result in two root block devices are not
@@ -75,7 +78,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         is_read_only=False,
         is_root_device=True
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "A root block device already exists" in response.text
 
     # Valid updates to `path_on_host` and `is_read_only` are allowed.
@@ -88,7 +91,7 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         is_read_only=True,
         is_root_device=False
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Valid updates to all fields in the machine configuration are allowed.
     # The machine configuration has a default value, so all PUTs are updates.
@@ -104,9 +107,10 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         mem_size_mib=microvm_config_json['mem_size_mib'],
         cpu_template=microvm_config_json['cpu_template']
     )
-    assert response.status_code == 204
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     response = test_microvm.machine_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
     response_json = response.json()
 
     vcpu_count = microvm_config_json['vcpu_count']
@@ -134,7 +138,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         guest_mac='06:00:00:00:00:01',
         host_dev_name=tap1.name
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Adding new network interfaces is allowed.
     second_if_name = 'second_tap'
@@ -144,7 +148,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         guest_mac='07:00:00:00:00:01',
         host_dev_name=tap2.name
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Updates to a network interface with an unavailable MAC are not allowed.
     guest_mac = '06:00:00:00:00:01'
@@ -153,7 +157,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         host_dev_name=second_if_name,
         guest_mac=guest_mac
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert \
         "The guest MAC address {} is already in use.".format(guest_mac) \
         in response.text
@@ -164,7 +168,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         host_dev_name=second_if_name,
         guest_mac='08:00:00:00:00:01'
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Updates to a network interface with an unavailable name are not allowed.
     response = test_microvm.network.put(
@@ -172,7 +176,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         host_dev_name=second_if_name,
         guest_mac='06:00:00:00:00:01'
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "The host device name {} is already in use.".\
         format(second_if_name) in response.text
 
@@ -186,7 +190,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         host_dev_name=tap3.name,
         guest_mac='06:00:00:00:00:01'
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
 
 def test_api_put_machine_config(test_microvm_with_api):
@@ -198,25 +202,25 @@ def test_api_put_machine_config(test_microvm_with_api):
     response = test_microvm.machine_cfg.put(
         vcpu_count='-2'
     )
-    assert response.status_code == 400
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
     # Test invalid mem_size_mib < 0.
     response = test_microvm.machine_cfg.put(
         mem_size_mib='-2'
     )
-    assert response.status_code == 400
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
     # Test invalid type for ht_enabled flag.
     response = test_microvm.machine_cfg.put(
         ht_enabled='random_string'
     )
-    assert response.status_code == 400
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
     # Test invalid CPU template.
     response = test_microvm.machine_cfg.put(
         cpu_template='random_string'
     )
-    assert response.status_code == 400
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
 
 def test_api_put_update_post_boot(test_microvm_with_api):
@@ -236,7 +240,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
         host_dev_name=tap1.name,
         guest_mac='06:00:00:00:00:01'
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -246,14 +250,14 @@ def test_api_put_update_post_boot(test_microvm_with_api):
             test_microvm.kernel_file
         )
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "The update operation is not allowed after boot" in response.text
 
     # Valid updates to the machine configuration are not allowed after boot.
     response = test_microvm.machine_cfg.put(
         vcpu_count=4
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "The update operation is not allowed after boot" in response.text
 
     # Network interface update is not allowed after boot.
@@ -262,7 +266,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
         host_dev_name=tap1.name,
         guest_mac='06:00:00:00:00:02'
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "The update operation is not allowed after boot" in response.text
 
     # Block device update is not allowed after boot.
@@ -272,7 +276,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
         is_read_only=False,
         is_root_device=True
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "The update operation is not allowed after boot" in response.text
 
 
@@ -297,7 +301,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
             }
         }
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Test drive with ops rate-limiting.
     fs2 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, 'ops'))
@@ -313,7 +317,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
             }
         }
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Test drive with bw and ops rate-limiting.
     fs3 = drive_tools.FilesystemFile(
@@ -335,7 +339,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
             }
         }
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Test drive with 'empty' rate-limiting (same as not specifying the field)
     fs4 = drive_tools.FilesystemFile(os.path.join(
@@ -348,7 +352,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
         is_root_device=False,
         rate_limiter={}
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Test the NET rate limiting API.
 
@@ -368,7 +372,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
             }
         }
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Test network with rx bw rate-limiting.
     iface_id = '2'
@@ -385,7 +389,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
             }
         }
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Test network with tx and rx bw and ops rate-limiting.
     iface_id = '3'
@@ -416,7 +420,7 @@ def test_rate_limiters_api_config(test_microvm_with_api):
             }
         }
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
 
 def test_api_patch_pre_boot(test_microvm_with_api):
@@ -437,7 +441,7 @@ def test_api_patch_pre_boot(test_microvm_with_api):
         is_root_device=False,
         is_read_only=False
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Configure logging.
     log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
@@ -449,7 +453,7 @@ def test_api_patch_pre_boot(test_microvm_with_api):
         log_fifo=test_microvm.create_jailed_resource(log_fifo.path),
         metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     iface_id = '1'
     tapname = test_microvm.id[:8] + 'tap' + iface_id
@@ -459,31 +463,23 @@ def test_api_patch_pre_boot(test_microvm_with_api):
         host_dev_name=tap1.name,
         guest_mac='06:00:00:00:00:01'
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Partial updates to the boot source are not allowed.
     response = test_microvm.boot.patch(
         kernel_image_path='otherfile'
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
 
     # Partial updates to the machine configuration are not allowed.
     response = test_microvm.machine_cfg.patch(vcpu_count=4)
-    assert not test_microvm.api_session.is_good_response(response.status_code)
-    assert "Invalid request method" in response.text
-
-    # Partial updates to network interfaces are not allowed.
-    response = test_microvm.network.patch(
-        iface_id='1',
-        guest_mac='06:00:00:00:00:02'
-    )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
 
     # Partial updates to the logger configuration are not allowed.
     response = test_microvm.logger.patch(level='Error')
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
 
 
@@ -505,7 +501,7 @@ def test_api_patch_post_boot(test_microvm_with_api):
         is_root_device=False,
         is_read_only=False
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Configure logging.
     log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
@@ -517,7 +513,7 @@ def test_api_patch_post_boot(test_microvm_with_api):
         log_fifo=test_microvm.create_jailed_resource(log_fifo.path),
         metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     iface_id = '1'
     tapname = test_microvm.id[:8] + 'tap' + iface_id
@@ -527,7 +523,7 @@ def test_api_patch_post_boot(test_microvm_with_api):
         host_dev_name=tap1.name,
         guest_mac='06:00:00:00:00:01'
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -535,25 +531,17 @@ def test_api_patch_post_boot(test_microvm_with_api):
     response = test_microvm.boot.patch(
         kernel_image_path='otherfile'
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
 
     # Partial updates to the machine configuration are not allowed.
     response = test_microvm.machine_cfg.patch(vcpu_count=4)
-    assert not test_microvm.api_session.is_good_response(response.status_code)
-    assert "Invalid request method" in response.text
-
-    # Partial updates to network interfaces are not allowed.
-    response = test_microvm.network.patch(
-        iface_id='1',
-        guest_mac='06:00:00:00:00:02'
-    )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
 
     # Partial updates to the logger configuration are not allowed.
     response = test_microvm.logger.patch(level='Error')
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
 
 
@@ -576,7 +564,7 @@ def test_drive_patch(test_microvm_with_api):
         is_root_device=False,
         is_read_only=False
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     _drive_patch(test_microvm)
 
@@ -603,14 +591,14 @@ def test_api_actions(test_microvm_with_api):
         is_root_device=False,
         is_read_only=False
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Rescan operations before the guest boots are not allowed.
     response = test_microvm.actions.put(
         action_type='BlockDeviceRescan',
         payload='scratch'
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Operation not allowed pre-boot" in response.text
 
     test_microvm.start()
@@ -620,15 +608,54 @@ def test_api_actions(test_microvm_with_api):
         action_type='BlockDeviceRescan',
         payload='scratch'
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Rescan operations on non-existent drives are not allowed.
     response = test_microvm.actions.put(
         action_type='BlockDeviceRescan',
         payload='foobar'
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid block device ID" in response.text
+
+
+def test_send_ctrl_alt_del(test_microvm_with_atkbd):
+    """Test shutting down the microVM gracefully, by sending CTRL+ALT+DEL.
+
+    This relies on i8042 and AT Keyboard support being present in the guest
+    kernel.
+    """
+    test_microvm = test_microvm_with_atkbd
+    test_microvm.spawn()
+
+    test_microvm.basic_config()
+    test_microvm.start()
+
+    # Wait around for the guest to boot up and initialize the user space
+    time.sleep(2)
+
+    response = test_microvm.actions.put(
+        action_type='SendCtrlAltDel'
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    firecracker_pid = test_microvm.jailer_clone_pid
+
+    # If everyting goes as expected, the guest OS will issue a reboot,
+    # causing Firecracker to exit.
+    # We'll keep poking Firecracker for at most 30 seconds, waiting for it
+    # to die.
+    start_time = time.time()
+    shutdown_ok = False
+    while time.time() - start_time < 30:
+        try:
+            os.kill(firecracker_pid, 0)
+            time.sleep(0.01)
+        except OSError:
+            shutdown_ok = True
+            break
+
+    assert shutdown_ok
 
 
 def _drive_patch(test_microvm):
@@ -637,7 +664,7 @@ def _drive_patch(test_microvm):
     response = test_microvm.drive.patch(
         drive_id='scratch'
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Required key path_on_host not present in the json." \
            in response.text
 
@@ -647,7 +674,7 @@ def _drive_patch(test_microvm):
         path_on_host='foo.bar',
         is_read_only=True
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid PATCH payload. Only updates on path_on_host are allowed." \
            in response.text
 
@@ -657,7 +684,7 @@ def _drive_patch(test_microvm):
         path_on_host='foo.bar',
         is_root_device=False
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid PATCH payload. Only updates on path_on_host are allowed." \
            in response.text
 
@@ -666,7 +693,7 @@ def _drive_patch(test_microvm):
         drive_id='scratch',
         path_on_host='foo.bar'
     )
-    assert not test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Cannot open block device. Invalid permission/path." \
            in response.text
 
@@ -678,4 +705,51 @@ def _drive_patch(test_microvm):
         drive_id='scratch',
         path_on_host=test_microvm.create_jailed_resource(fs.path)
     )
-    assert test_microvm.api_session.is_good_response(response.status_code)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+
+def test_api_vsock(test_microvm_with_api):
+    """Test vsock related API commands."""
+    if test_microvm_with_api.build_feature != 'vsock':
+        pytest.skip("This test is meant only for vsock builds.")
+
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+    test_microvm.basic_config()
+
+    response = test_microvm.vsock.put(
+        vsock_id='vsock1',
+        guest_cid=15
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Adding another vsock should be fine.
+    response = test_microvm.vsock.put(
+        vsock_id='vsock2',
+        guest_cid=16
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Updating an existing vsock is currently fine.
+    response = test_microvm.vsock.put(
+        vsock_id='vsock2',
+        guest_cid=166
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # No other vsock action is allowed after booting the VM.
+    test_microvm.start()
+
+    # Updating an existing vsock should not be fine at this point.
+    response = test_microvm.vsock.put(
+        vsock_id='vsock1',
+        guest_cid=17
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Attaching a new vsock device should not be fine at this point.
+    response = test_microvm.vsock.put(
+        vsock_id='vsock3',
+        guest_cid=18
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)

@@ -5,14 +5,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
 //! A safe wrapper around the kernel's KVM interface.
 
 extern crate libc;
 
 extern crate kvm_bindings;
-extern crate memory_model;
 #[macro_use]
 extern crate sys_util;
 
@@ -21,14 +20,15 @@ mod ioctl_defs;
 
 use std::fs::File;
 use std::io;
+use std::mem::size_of;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::ptr::null_mut;
 use std::result;
 
-use libc::{open, EINVAL, O_RDWR};
+use libc::{open, EINVAL, O_CLOEXEC, O_RDWR};
 
 use kvm_bindings::*;
-use memory_model::{MemoryMapping, MemoryMappingError};
 use sys_util::EventFd;
 use sys_util::{
     ioctl, ioctl_with_mut_ptr, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref, ioctl_with_val,
@@ -44,6 +44,37 @@ pub use kvm_bindings::KVM_API_VERSION;
 /// Taken from Linux Kernel v4.14.13 (arch/x86/include/asm/kvm_host.h)
 pub const MAX_KVM_CPUID_ENTRIES: usize = 80;
 
+// Returns a `Vec<T>` with a size in bytes at least as large as `size_in_bytes`.
+fn vec_with_size_in_bytes<T: Default>(size_in_bytes: usize) -> Vec<T> {
+    let rounded_size = (size_in_bytes + size_of::<T>() - 1) / size_of::<T>();
+    let mut v = Vec::with_capacity(rounded_size);
+    for _ in 0..rounded_size {
+        v.push(T::default())
+    }
+    v
+}
+
+// The kvm API has many structs that resemble the following `Foo` structure:
+//
+// ```
+// #[repr(C)]
+// struct Foo {
+//    some_data: u32
+//    entries: __IncompleteArrayField<__u32>,
+// }
+// ```
+//
+// In order to allocate such a structure, `size_of::<Foo>()` would be too small because it would not
+// include any space for `entries`. To make the allocation large enough while still being aligned
+// for `Foo`, a `Vec<Foo>` is created. Only the first element of `Vec<Foo>` would actually be used
+// as a `Foo`. The remaining memory in the `Vec<Foo>` is for `entries`, which must be contiguous
+// with `Foo`. This function is used to make the `Vec<Foo>` with enough space for `count` entries.
+fn vec_with_array_field<T: Default, F>(count: usize) -> Vec<T> {
+    let element_space = count * size_of::<F>();
+    let vec_size_bytes = size_of::<T>() + element_space;
+    vec_with_size_in_bytes(vec_size_bytes)
+}
+
 /// A wrapper around opening and using `/dev/kvm`.
 ///
 /// The handle is used to issue system ioctls.
@@ -54,14 +85,10 @@ pub struct Kvm {
 impl Kvm {
     /// Opens `/dev/kvm/` and returns a `Kvm` object on success.
     pub fn new() -> Result<Self> {
-        // Safe because we give a constant nul-terminated string and verify the result.
-        let ret = unsafe { open("/dev/kvm\0".as_ptr() as *const c_char, O_RDWR) };
-        if ret < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
+        // Open `/dev/kvm` using `O_CLOEXEC` flag.
+        let fd = Self::open_with_cloexec(true)?;
         // Safe because we verify that ret is valid and we own the fd.
-        Ok(unsafe { Self::new_with_fd_number(ret) })
+        Ok(unsafe { Self::new_with_fd_number(fd) })
     }
 
     /// Creates a new Kvm object assuming `fd` represents an existing open file descriptor
@@ -74,6 +101,23 @@ impl Kvm {
     pub unsafe fn new_with_fd_number(fd: RawFd) -> Self {
         Kvm {
             kvm: File::from_raw_fd(fd),
+        }
+    }
+
+    /// Opens `/dev/kvm` and returns the fd number on success.
+    ///
+    /// # Arguments
+    ///
+    /// * `close_on_exec`: If true opens `/dev/kvm` using the `O_CLOEXEC` flag.
+    ///
+    pub fn open_with_cloexec(close_on_exec: bool) -> Result<RawFd> {
+        let open_flags = O_RDWR | if close_on_exec { O_CLOEXEC } else { 0 };
+        // Safe because we give a constant nul-terminated string and verify the result.
+        let ret = unsafe { open("/dev/kvm\0".as_ptr() as *const c_char, open_flags) };
+        if ret < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(ret)
         }
     }
 
@@ -190,12 +234,8 @@ impl Kvm {
             // Safe because we verify the value of ret and we are the owners of the fd.
             let vm_file = unsafe { File::from_raw_fd(ret) };
             let run_mmap_size = self.get_vcpu_mmap_size()?;
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            let kvm_cpuid: CpuId = self.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)?;
             Ok(VmFd {
                 vm: vm_file,
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                supported_cpuid: kvm_cpuid,
                 run_size: run_mmap_size,
             })
         } else {
@@ -226,52 +266,79 @@ impl Into<u64> for NoDatamatch {
     }
 }
 
+/// A safe wrapper over the `kvm_run` struct.
+///
+/// The wrapper is needed for sending the pointer to `kvm_run` between
+/// threads as raw pointers do not implement `Send` and `Sync`.
+pub struct KvmRunWrapper {
+    kvm_run_ptr: *mut u8,
+}
+
+// Send and Sync aren't automatically inherited for the raw address pointer.
+// Accessing that pointer is only done through the stateless interface which
+// allows the object to be shared by multiple threads without a decrease in
+// safety.
+unsafe impl Send for KvmRunWrapper {}
+unsafe impl Sync for KvmRunWrapper {}
+
+impl KvmRunWrapper {
+    /// Maps the first `size` bytes of the given `fd`.
+    ///
+    /// # Arguments
+    /// * `fd` - File descriptor to mmap from.
+    /// * `size` - Size of memory region in bytes.
+    pub fn from_fd(fd: &AsRawFd, size: usize) -> Result<KvmRunWrapper> {
+        // This is safe because we are creating a mapping in a place not already used by any other
+        // area in this process.
+        let addr = unsafe {
+            libc::mmap(
+                null_mut(),
+                size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd.as_raw_fd(),
+                0,
+            )
+        };
+        if addr == libc::MAP_FAILED {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok(KvmRunWrapper {
+            kvm_run_ptr: addr as *mut u8,
+        })
+    }
+
+    /// Returns a mutable reference to `kvm_run`.
+    ///
+    #[allow(clippy::mut_from_ref)]
+    pub fn as_mut_ref(&self) -> &mut kvm_run {
+        // Safe because we know we mapped enough memory to hold the `kvm_run` struct because the
+        // kernel told us how large it was.
+        #[allow(clippy::cast_ptr_alignment)]
+        unsafe {
+            &mut *(self.kvm_run_ptr as *mut kvm_run)
+        }
+    }
+}
+
 /// A wrapper around creating and using a VM.
 pub struct VmFd {
     vm: File,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    supported_cpuid: CpuId,
     run_size: usize,
 }
 
 impl VmFd {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    /// Returns a clone of the system supported CPUID values associated with this VmFd
-    ///
-    pub fn get_supported_cpuid(&self) -> CpuId {
-        self.supported_cpuid.clone()
-    }
-
     /// Creates/modifies a guest physical memory slot using `KVM_SET_USER_MEMORY_REGION`.
     ///
     /// See the documentation on the `KVM_SET_USER_MEMORY_REGION` ioctl.
     ///
-    /// # Arguments
-    ///
-    /// * `slot` - Guest memory slot identifier.
-    /// * `guest_phys_addr` - Physical address in the guest's space.
-    /// * `memory_size` - Size of the memory region.
-    /// * `userspace_addr` - Starting address of the userspace allocated memory.
-    /// * `flags` - Memory flags. Currently supported: `KVM_MEM_LOG_DIRTY_PAGES`,
-    ///             `KVM_MEM_READONLY`.
-    ///
     pub fn set_user_memory_region(
         &self,
-        slot: u32,
-        guest_phys_addr: u64,
-        memory_size: u64,
-        userspace_addr: u64,
-        flags: u32,
+        user_memory_region: kvm_userspace_memory_region,
     ) -> Result<()> {
-        let region = kvm_userspace_memory_region {
-            slot,
-            flags,
-            guest_phys_addr,
-            memory_size,
-            userspace_addr,
-        };
-
-        let ret = unsafe { ioctl_with_ref(self, KVM_SET_USER_MEMORY_REGION(), &region) };
+        let ret =
+            unsafe { ioctl_with_ref(self, KVM_SET_USER_MEMORY_REGION(), &user_memory_region) };
         if ret == 0 {
             Ok(())
         } else {
@@ -323,11 +390,7 @@ impl VmFd {
     /// Note that this call can only succeed after a call to `Vm::create_irq_chip`.
     ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn create_pit2(&self) -> Result<()> {
-        let mut pit_config = kvm_pit_config::default();
-        // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
-        // (i.e. KVM_SPEAKER_BASE_ADDRESS) does not trigger an exit to user space.
-        pit_config.flags = KVM_PIT_SPEAKER_DUMMY;
+    pub fn create_pit2(&self, pit_config: kvm_pit_config) -> Result<()> {
         // Safe because we know that our file is a VM fd, we know the kernel will only read the
         // correct amount of memory from our pointer, and we verify the return result.
         let ret = unsafe { ioctl_with_ref(self, KVM_CREATE_PIT2(), &pit_config) };
@@ -359,10 +422,10 @@ impl VmFd {
         if std::mem::size_of::<T>() > 0 {
             flags |= 1 << kvm_ioeventfd_flag_nr_datamatch
         }
-        match addr {
-            &IoeventAddress::Pio(_) => flags |= 1 << kvm_ioeventfd_flag_nr_pio,
-            _ => {}
-        };
+        if let IoeventAddress::Pio(_) = *addr {
+            flags |= 1 << kvm_ioeventfd_flag_nr_pio
+        }
+
         let ioeventfd = kvm_ioeventfd {
             datamatch: datamatch.into(),
             len: std::mem::size_of::<T>() as u32,
@@ -397,30 +460,25 @@ impl VmFd {
     /// * `memory_size` - Size of the memory region.
     ///
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_and_reset_dirty_page_bitmap(
-        &self,
-        slot: u32,
-        memory_size: usize,
-    ) -> Result<Vec<u64>> {
-        let memsize_multiplier = 4096 * 64;
-        // Assert that the memory size is a multiple of 128k (which it must be, because the config
-        // is in megabytes).
-        assert!(
-            memory_size % memsize_multiplier == 0,
-            "memory size {} is not a multiple of 128kB",
-            memory_size
-        );
-        // Create a vec with at least one bit per page of guest memory in this slot.
-        let bitmap_size = memory_size / memsize_multiplier;
+    pub fn get_dirty_log(&self, slot: u32, memory_size: usize) -> Result<Vec<u64>> {
+        // Compute the length of the bitmap needed for all dirty pages in one memory slot.
+        // One memory page is 4KiB (4096 bits) and KVM_GET_DIRTY_LOG returns one dirty bit for
+        // each page.
+        let page_size = 4 << 10;
+
+        let div_round_up = |dividend, divisor| (dividend + divisor - 1) / divisor;
+        // For ease of access we are saving the bitmap in a u64 vector. If `mem_size` is not a
+        // multiple of `page_size * 64`, we use a ceil function to compute the capacity of the
+        // bitmap. This way we make sure that all dirty pages are added to the bitmap.
+        let bitmap_size = div_round_up(memory_size, page_size * 64);
         let mut bitmap = vec![0; bitmap_size];
         let b_data = bitmap.as_mut_ptr() as *mut c_void;
         let dirtylog = kvm_dirty_log {
-            slot: slot,
+            slot,
             padding1: 0,
             __bindgen_anon_1: kvm_dirty_log__bindgen_ty_1 {
                 dirty_bitmap: b_data,
             },
-            ..Default::default()
         };
         // Safe because we know that our file is a VM fd, and we know that the amount of memory
         // we allocated for the bitmap is at least one bit per page.
@@ -448,7 +506,7 @@ impl VmFd {
     pub fn register_irqfd(&self, evt: &EventFd, gsi: u32) -> Result<()> {
         let irqfd = kvm_irqfd {
             fd: evt.as_raw_fd() as u32,
-            gsi: gsi,
+            gsi,
             ..Default::default()
         };
         // Safe because we know that our file is a VM fd, we know the kernel will only read the
@@ -472,6 +530,7 @@ impl VmFd {
     ///
     pub fn create_vcpu(&self, id: u8) -> Result<VcpuFd> {
         // Safe because we know that vm is a VM fd and we verify the return result.
+        #[allow(clippy::cast_lossless)]
         let vcpu_fd = unsafe { ioctl_with_val(&self.vm, KVM_CREATE_VCPU(), id as c_ulong) };
         if vcpu_fd < 0 {
             return Err(io::Error::last_os_error());
@@ -481,18 +540,9 @@ impl VmFd {
         // the value of the fd and we own the fd.
         let vcpu = unsafe { File::from_raw_fd(vcpu_fd) };
 
-        let run_mmap = MemoryMapping::from_fd(&vcpu, self.run_size).map_err(|mmap_err| {
-            match mmap_err {
-                MemoryMappingError::SystemCallFailed(raw_os_err) => raw_os_err,
-                _ => {
-                    // MemoryMapping::from_fd should only return a SystemCallFailed error.
-                    // Otherwise we have an logical error in our code so we should panic.
-                    panic!("Received unexpected error: {:?}.", mmap_err);
-                }
-            }
-        })?;
+        let kvm_run_ptr = KvmRunWrapper::from_fd(&vcpu, self.run_size)?;
 
-        Ok(VcpuFd { vcpu, run_mmap })
+        Ok(VcpuFd { vcpu, kvm_run_ptr })
     }
 }
 
@@ -575,7 +625,7 @@ pub enum VcpuExit<'a> {
 /// A wrapper around creating and using a kvm related VCPU fd
 pub struct VcpuFd {
     vcpu: File,
-    run_mmap: MemoryMapping,
+    kvm_run_ptr: KvmRunWrapper,
 }
 
 impl VcpuFd {
@@ -783,21 +833,13 @@ impl VcpuFd {
         Ok(())
     }
 
-    /// Returns a reference to the `kvm_run` structure obtained by mmap-ing the associated `VcpuFd`.
-    ///
-    fn get_run(&self) -> &mut kvm_run {
-        // Safe because we know we mapped enough memory to hold the kvm_run struct because the
-        // kernel told us how large it was.
-        unsafe { &mut *(self.run_mmap.as_ptr() as *mut kvm_run) }
-    }
-
     /// Triggers the running of the current virtual CPU returning an exit reason.
     ///
     pub fn run(&self) -> Result<VcpuExit> {
         // Safe because we know that our file is a VCPU fd and we verify the return result.
         let ret = unsafe { ioctl(self, KVM_RUN()) };
         if ret == 0 {
-            let run = self.get_run();
+            let run = self.kvm_run_ptr.as_mut_ref();
             match run.exit_reason {
                 // make sure you treat all possible exit reasons from include/uapi/linux/kvm.h corresponding
                 // when upgrading to a different kernel version
@@ -818,7 +860,7 @@ impl VcpuFd {
                     let data_slice = unsafe {
                         std::slice::from_raw_parts_mut::<u8>(data_ptr as *mut u8, data_size)
                     };
-                    match io.direction as u32 {
+                    match u32::from(io.direction) {
                         KVM_EXIT_IO_IN => Ok(VcpuExit::IoIn(port, data_slice)),
                         KVM_EXIT_IO_OUT => Ok(VcpuExit::IoOut(port, data_slice)),
                         _ => Err(io::Error::from_raw_os_error(EINVAL)),
@@ -878,10 +920,36 @@ impl AsRawFd for VcpuFd {
 /// Wrapper for `kvm_cpuid2` which has a zero length array at the end.
 /// Hides the zero length array behind a bounds check.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[derive(Clone, Debug, PartialEq)]
 pub struct CpuId {
-    bytes: Vec<u8>,       // Actually accessed as a kvm_cpuid2 struct.
-    allocated_len: usize, // Number of kvm_cpuid_entry2 structs at the end of kvm_cpuid2.
+    /// Wrapper over `kvm_cpuid2` from which we only use the first element.
+    kvm_cpuid: Vec<kvm_cpuid2>,
+    // Number of `kvm_cpuid_entry2` structs at the end of kvm_cpuid2.
+    allocated_len: usize,
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+impl Clone for CpuId {
+    fn clone(&self) -> Self {
+        let mut kvm_cpuid = Vec::with_capacity(self.kvm_cpuid.len());
+        for _ in 0..self.kvm_cpuid.len() {
+            kvm_cpuid.push(kvm_cpuid2::default());
+        }
+
+        let num_bytes = self.kvm_cpuid.len() * size_of::<kvm_cpuid2>();
+
+        let src_byte_slice =
+            unsafe { std::slice::from_raw_parts(self.kvm_cpuid.as_ptr() as *const u8, num_bytes) };
+
+        let dst_byte_slice =
+            unsafe { std::slice::from_raw_parts_mut(kvm_cpuid.as_mut_ptr() as *mut u8, num_bytes) };
+
+        dst_byte_slice.copy_from_slice(src_byte_slice);
+
+        CpuId {
+            kvm_cpuid,
+            allocated_len: self.allocated_len,
+        }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -893,19 +961,11 @@ impl CpuId {
     /// * `array_len` - Maximum number of CPUID entries.
     ///
     pub fn new(array_len: usize) -> CpuId {
-        use std::mem::size_of;
-
-        let vec_size_bytes = size_of::<kvm_cpuid2>() + (array_len * size_of::<kvm_cpuid_entry2>());
-        let bytes: Vec<u8> = vec![0; vec_size_bytes];
-        let kvm_cpuid: &mut kvm_cpuid2 = unsafe {
-            // We have ensured in new that there is enough space for the structure so this
-            // conversion is safe.
-            &mut *(bytes.as_ptr() as *mut kvm_cpuid2)
-        };
-        kvm_cpuid.nent = array_len as u32;
+        let mut kvm_cpuid = vec_with_array_field::<kvm_cpuid2, kvm_cpuid_entry2>(array_len);
+        kvm_cpuid[0].nent = array_len as u32;
 
         CpuId {
-            bytes,
+            kvm_cpuid,
             allocated_len: array_len,
         }
     }
@@ -913,30 +973,25 @@ impl CpuId {
     /// Get the mutable entries slice so they can be modified before passing to the VCPU.
     ///
     pub fn mut_entries_slice(&mut self) -> &mut [kvm_cpuid_entry2] {
-        unsafe {
-            // We have ensured in new that there is enough space for the structure so this
-            // conversion is safe.
-            let kvm_cpuid: &mut kvm_cpuid2 = &mut *(self.bytes.as_ptr() as *mut kvm_cpuid2);
-
-            // Mapping the non-sized array to a slice is unsafe because the length isn't known.
-            // Using the length we originally allocated with eliminates the possibility of overflow.
-            if kvm_cpuid.nent as usize > self.allocated_len {
-                kvm_cpuid.nent = self.allocated_len as u32;
-            }
-            kvm_cpuid.entries.as_mut_slice(kvm_cpuid.nent as usize)
+        // Mapping the unsized array to a slice is unsafe because the length isn't known.  Using
+        // the length we originally allocated with eliminates the possibility of overflow.
+        if self.kvm_cpuid[0].nent as usize > self.allocated_len {
+            self.kvm_cpuid[0].nent = self.allocated_len as u32;
         }
+        let nent = self.kvm_cpuid[0].nent as usize;
+        unsafe { self.kvm_cpuid[0].entries.as_mut_slice(nent) }
     }
 
     /// Get a  pointer so it can be passed to the kernel. Using this pointer is unsafe.
     ///
     pub fn as_ptr(&self) -> *const kvm_cpuid2 {
-        self.bytes.as_ptr() as *const kvm_cpuid2
+        &self.kvm_cpuid[0]
     }
 
     /// Get a mutable pointer so it can be passed to the kernel. Using this pointer is unsafe.
     ///
     pub fn as_mut_ptr(&mut self) -> *mut kvm_cpuid2 {
-        self.bytes.as_mut_ptr() as *mut kvm_cpuid2
+        &mut self.kvm_cpuid[0]
     }
 }
 
@@ -946,8 +1001,6 @@ mod tests {
 
     use super::*;
 
-    use memory_model::{GuestAddress, GuestMemory};
-
     // as per https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/fpu/internal.h
     pub const KVM_FPU_CWD: usize = 0x37f;
     pub const KVM_FPU_MXCSR: usize = 0x1f80;
@@ -955,6 +1008,34 @@ mod tests {
     impl VmFd {
         fn get_run_size(&self) -> usize {
             self.run_size
+        }
+    }
+
+    // Helper function for mmap an anonymous memory of `size`.
+    // Panics if the mmap fails.
+    fn mmap_anonymous(size: usize) -> *mut u8 {
+        let addr = unsafe {
+            libc::mmap(
+                null_mut(),
+                size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_ANONYMOUS | libc::MAP_SHARED | libc::MAP_NORESERVE,
+                -1,
+                0,
+            )
+        };
+        if addr == libc::MAP_FAILED {
+            panic!("mmap failed.");
+        }
+
+        return addr as *mut u8;
+    }
+
+    impl KvmRunWrapper {
+        fn new(size: usize) -> Self {
+            KvmRunWrapper {
+                kvm_run_ptr: mmap_anonymous(size),
+            }
         }
     }
 
@@ -996,35 +1077,33 @@ mod tests {
     }
 
     #[test]
-    fn trigger_exceeded_memory_slots() {
-        let kvm = Kvm::new().expect("new Kvm failed");
+    fn test_faulty_memory_region_slot() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
         let max_mem_slots = kvm.get_nr_memslots();
 
-        // Below we are creating an array representing memory regions with a dimension that is
-        // bigger than the maximum allowed slots.
         let mem_size = 1 << 20;
-        let start_addr = GuestAddress(0x0);
-        let mut mem_vec = vec![];
-        for i in 1..=max_mem_slots + 1 {
-            mem_vec.push((
-                start_addr.checked_add(i as usize * mem_size).unwrap(),
-                mem_size,
-            ))
-        }
-        let mem = GuestMemory::new(&mem_vec).unwrap();
-        let vm = kvm.create_vm().unwrap();
+        let userspace_addr = mmap_anonymous(mem_size) as u64;
+        let region_addr: usize = 0x0;
 
-        assert!(mem
-            .with_regions(
-                |index, guest_addr, size, host_addr| vm.set_user_memory_region(
-                    index as u32,
-                    guest_addr.offset() as u64,
-                    size as u64,
-                    host_addr as u64,
-                    0,
-                )
-            )
-            .is_err());
+        // KVM is checking that the memory region slot is less than KVM_CAP_NR_MEMSLOTS.
+        // Valid slots are in the interval [0, KVM_CAP_NR_MEMSLOTS).
+        let mem_region = kvm_userspace_memory_region {
+            slot: max_mem_slots as u32,
+            guest_phys_addr: region_addr as u64,
+            memory_size: mem_size as u64,
+            userspace_addr: userspace_addr as u64,
+            flags: 0,
+        };
+
+        // KVM returns -EINVAL (22) when the slot > KVM_CAP_NR_MEMSLOTS.
+        assert_eq!(
+            vm.set_user_memory_region(mem_region)
+                .unwrap_err()
+                .raw_os_error()
+                .unwrap(),
+            22
+        );
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1033,24 +1112,13 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         if kvm.check_extension(Cap::ExtCpuid) {
             let vm = kvm.create_vm().unwrap();
-            let mut cpuid = vm.get_supported_cpuid();
+            let mut cpuid = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
             assert!(cpuid.mut_entries_slice().len() <= MAX_KVM_CPUID_ENTRIES);
             let nr_vcpus = kvm.get_nr_vcpus();
             for cpu_id in 0..nr_vcpus {
                 let vcpu = vm.create_vcpu(cpu_id as u8).unwrap();
-                vcpu.set_cpuid2(&mut cpuid).unwrap();
+                vcpu.set_cpuid2(&cpuid).unwrap();
             }
-        }
-    }
-
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    #[test]
-    fn test_get_cpuid_features() {
-        let kvm = Kvm::new().unwrap();
-        if kvm.check_extension(Cap::ExtCpuid) {
-            let vm = kvm.create_vm().unwrap();
-            let mut cpuid = vm.get_supported_cpuid();
-            assert!(cpuid.mut_entries_slice().len() <= MAX_KVM_CPUID_ENTRIES);
         }
     }
 
@@ -1072,14 +1140,21 @@ mod tests {
     fn set_invalid_memory_test() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        assert!(vm.set_user_memory_region(0, 0, 0, 0, 0).is_err());
+        let invalid_mem_region = kvm_userspace_memory_region {
+            slot: 0,
+            guest_phys_addr: 0,
+            memory_size: 0,
+            userspace_addr: 0,
+            flags: 0,
+        };
+        assert!(vm.set_user_memory_region(invalid_mem_region).is_err());
     }
 
     #[test]
     fn set_tss_address() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        assert!(vm.set_tss_address(0xfffbd000).is_ok());
+        assert!(vm.set_tss_address(0xfffb_d000).is_ok());
     }
 
     #[test]
@@ -1093,7 +1168,7 @@ mod tests {
     fn create_pit2() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        assert!(vm.create_pit2().is_ok());
+        assert!(vm.create_pit2(kvm_pit_config::default()).is_ok());
     }
 
     #[test]
@@ -1116,10 +1191,10 @@ mod tests {
             .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc2), 0x1337u16)
             .unwrap();
         vm_fd
-            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc4), 0xdeadbeefu32)
+            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc4), 0xdead_beefu32)
             .unwrap();
         vm_fd
-            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc8), 0xdeadbeefdeadbeefu64)
+            .register_ioevent(&evtfd, &IoeventAddress::Pio(0xc8), 0xdead_beef_dead_beefu64)
             .unwrap();
     }
 
@@ -1196,7 +1271,6 @@ mod tests {
     #[test]
     fn lapic_test() {
         use std::io::Cursor;
-        use std::mem;
         //we might get read of byteorder if we replace 5h3 mem::transmute with something safer
         use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
         //as per https://github.com/torvalds/linux/arch/x86/kvm/lapic.c
@@ -1214,18 +1288,19 @@ mod tests {
         let value = 2 as u32;
         //try to write and read the APIC_ICR	0x300
         let write_slice =
-            unsafe { mem::transmute::<&mut [i8], &mut [u8]>(&mut klapic.regs[reg_offset..]) };
+            unsafe { &mut *(&mut klapic.regs[reg_offset..] as *mut [i8] as *mut [u8]) };
         let mut writer = Cursor::new(write_slice);
         writer.write_u32::<LittleEndian>(value).unwrap();
         vcpu.set_lapic(&klapic).unwrap();
         klapic = vcpu.get_lapic().unwrap();
-        let read_slice = unsafe { mem::transmute::<&[i8], &[u8]>(&klapic.regs[reg_offset..]) };
+        let read_slice = unsafe { &*(&klapic.regs[reg_offset..] as *const [i8] as *const [u8]) };
         let mut reader = Cursor::new(read_slice);
         assert_eq!(reader.read_u32::<LittleEndian>().unwrap(), value);
     }
 
     #[cfg(target_arch = "x86_64")]
     #[test]
+    #[allow(clippy::cast_ptr_alignment)]
     fn msrs_test() {
         use std::mem;
         let kvm = Kvm::new().unwrap();
@@ -1234,12 +1309,12 @@ mod tests {
         let mut configured_entry_vec = Vec::<kvm_msr_entry>::new();
 
         configured_entry_vec.push(kvm_msr_entry {
-            index: 0x00000174,
+            index: 0x0000_0174,
             data: 0x0,
             ..Default::default()
         });
         configured_entry_vec.push(kvm_msr_entry {
-            index: 0x00000175,
+            index: 0x0000_0175,
             data: 0x1,
             ..Default::default()
         });
@@ -1259,11 +1334,11 @@ mod tests {
         //now test that GET_MSRS returns the same
         let wanted_kvm_msrs_entries = [
             kvm_msr_entry {
-                index: 0x00000174,
+                index: 0x0000_0174,
                 ..Default::default()
             },
             kvm_msr_entry {
-                index: 0x00000175,
+                index: 0x0000_0175,
                 ..Default::default()
             },
         ];
@@ -1295,40 +1370,43 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn run_code_test() {
+        use std::io::Write;
+
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
         // This example based on https://lwn.net/Articles/658511/
         let code = [
             0xba, 0xf8, 0x03, /* mov $0x3f8, %dx */
             0x00, 0xd8, /* add %bl, %al */
-            0x04, '0' as u8, /* add $'0', %al */
-            0xee,      /* out %al, %dx */
-            0xec,      /* in %dx, %al */
+            0x04, b'0', /* add $'0', %al */
+            0xee, /* out %al, %dx */
+            0xec, /* in %dx, %al */
             0xc6, 0x06, 0x00, 0x20, 0x00, /* movl $0, (0x2000) */
             0x8a, 0x16, 0x00, 0x20, /* movl (0x2000), %dl */
             0xf4, /* hlt */
         ];
 
-        let mem_size = 0x40000;
-        let load_addr = GuestAddress(0x1000);
-        let mem = GuestMemory::new(&vec![(load_addr, mem_size)]).unwrap();
+        let mem_size = 0x4000;
+        let load_addr = mmap_anonymous(mem_size);
+        let guest_addr: u64 = 0x1000;
+        let slot: u32 = 0;
+        let mem_region = kvm_userspace_memory_region {
+            slot,
+            guest_phys_addr: guest_addr,
+            memory_size: mem_size as u64,
+            userspace_addr: load_addr as u64,
+            flags: KVM_MEM_LOG_DIRTY_PAGES,
+        };
+        vm.set_user_memory_region(mem_region).unwrap();
 
-        let kvm = Kvm::new().expect("new Kvm failed");
+        unsafe {
+            // Get a mutable slice of `mem_size` from `load_addr`.
+            // This is safe because we mapped it before.
+            let mut slice = std::slice::from_raw_parts_mut(load_addr, mem_size);
+            slice.write(&code).unwrap();
+        }
 
-        let vm_fd = kvm.create_vm().expect("new VmFd failed");
-        mem.with_regions(|index, guest_addr, size, host_addr| {
-            // Safe because the guest regions are guaranteed not to overlap.
-            vm_fd.set_user_memory_region(
-                index as u32,
-                guest_addr.offset() as u64,
-                size as u64,
-                host_addr as u64,
-                KVM_MEM_LOG_DIRTY_PAGES,
-            )
-        })
-        .expect("Cannot configure guest memory");
-        mem.write_slice_at_addr(&code, load_addr)
-            .expect("Writing code to memory failed");
-
-        let vcpu_fd = vm_fd.create_vcpu(0).expect("new VcpuFd failed");
+        let vcpu_fd = vm.create_vcpu(0).expect("new VcpuFd failed");
 
         let mut vcpu_sregs = vcpu_fd.get_sregs().expect("get sregs failed");
         assert_ne!(vcpu_sregs.cs.base, 0);
@@ -1338,7 +1416,8 @@ mod tests {
         vcpu_fd.set_sregs(&vcpu_sregs).expect("set sregs failed");
 
         let mut vcpu_regs = vcpu_fd.get_regs().expect("get regs failed");
-        vcpu_regs.rip = 0x1000;
+        // Set the Instruction Pointer to the guest address where we loaded the code.
+        vcpu_regs.rip = guest_addr;
         vcpu_regs.rax = 2;
         vcpu_regs.rbx = 3;
         vcpu_regs.rflags = 2;
@@ -1353,7 +1432,7 @@ mod tests {
                 VcpuExit::IoOut(addr, data) => {
                     assert_eq!(addr, 0x3f8);
                     assert_eq!(data.len(), 1);
-                    assert_eq!(data[0], '5' as u8);
+                    assert_eq!(data[0], b'5');
                 }
                 VcpuExit::MmioRead(addr, data) => {
                     assert_eq!(addr, 0x2000);
@@ -1365,24 +1444,14 @@ mod tests {
                     assert_eq!(data[0], 0);
                 }
                 VcpuExit::Hlt => {
-                    let dirty_pages = mem.map_and_fold(
-                        0,
-                        |(slot, memory_region)| {
-                            let bitmap = vm_fd
-                                .get_and_reset_dirty_page_bitmap(slot as u32, memory_region.size());
-                            match bitmap {
-                                Ok(v) => v
-                                    .iter()
-                                    .fold(0, |init, page| init + page.count_ones() as usize),
-                                Err(_) => 0,
-                            }
-                        },
-                        |dirty_pages, region_dirty_pages| dirty_pages + region_dirty_pages,
-                    );
-
                     // The code snippet dirties 2 pages:
                     // * one when the code itself is loaded in memory;
-                    // * and one more from the `movl` that writes to address 0x2000.
+                    // * and one more from the `movl` that writes to address 0x2000
+                    let dirty_pages_bitmap = vm.get_dirty_log(slot, mem_size).unwrap();
+                    let dirty_pages = dirty_pages_bitmap
+                        .into_iter()
+                        .map(|page| page.count_ones())
+                        .fold(0, |dirty_page_count, i| dirty_page_count + i);
                     assert_eq!(dirty_pages, 2);
                     break;
                 }
@@ -1414,16 +1483,25 @@ mod tests {
         assert_eq!(get_raw_errno(faulty_kvm.create_vm()), badf_errno);
         let faulty_vm_fd = VmFd {
             vm: unsafe { File::from_raw_fd(-1) },
-            supported_cpuid: CpuId::new(max_cpus),
             run_size: 0,
         };
+        let invalid_mem_region = kvm_userspace_memory_region {
+            slot: 0,
+            guest_phys_addr: 0,
+            memory_size: 0,
+            userspace_addr: 0,
+            flags: 0,
+        };
         assert_eq!(
-            get_raw_errno(faulty_vm_fd.set_user_memory_region(0, 0, 0, 0, 0)),
+            get_raw_errno(faulty_vm_fd.set_user_memory_region(invalid_mem_region)),
             badf_errno
         );
         assert_eq!(get_raw_errno(faulty_vm_fd.set_tss_address(0)), badf_errno);
         assert_eq!(get_raw_errno(faulty_vm_fd.create_irq_chip()), badf_errno);
-        assert_eq!(get_raw_errno(faulty_vm_fd.create_pit2()), badf_errno);
+        assert_eq!(
+            get_raw_errno(faulty_vm_fd.create_pit2(kvm_pit_config::default())),
+            badf_errno
+        );
         let event_fd = EventFd::new().unwrap();
         assert_eq!(
             get_raw_errno(faulty_vm_fd.register_ioevent(&event_fd, &IoeventAddress::Pio(0), 0u64)),
@@ -1437,7 +1515,7 @@ mod tests {
         assert_eq!(get_raw_errno(faulty_vm_fd.create_vcpu(0)), badf_errno);
         let faulty_vcpu_fd = VcpuFd {
             vcpu: unsafe { File::from_raw_fd(-1) },
-            run_mmap: MemoryMapping::new(10).unwrap(),
+            kvm_run_ptr: KvmRunWrapper::new(10),
         };
         assert_eq!(get_raw_errno(faulty_vcpu_fd.get_regs()), badf_errno);
         assert_eq!(
@@ -1455,7 +1533,14 @@ mod tests {
             badf_errno
         );
         assert_eq!(
-            get_raw_errno(faulty_vcpu_fd.set_cpuid2(&unsafe { std::mem::zeroed() })),
+            get_raw_errno(
+                faulty_vcpu_fd.set_cpuid2(
+                    &Kvm::new()
+                        .unwrap()
+                        .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
+                        .unwrap()
+                )
+            ),
             badf_errno
         );
         // kvm_lapic_state does not implement debug by default so we cannot
@@ -1480,5 +1565,25 @@ mod tests {
     fn test_kvm_api_version() {
         let kvm = Kvm::new().unwrap();
         assert_eq!(kvm.get_api_version(), KVM_API_VERSION as i32);
+    }
+
+    impl PartialEq for CpuId {
+        fn eq(&self, other: &CpuId) -> bool {
+            let entries: &[kvm_cpuid_entry2] =
+                unsafe { self.kvm_cpuid[0].entries.as_slice(self.allocated_len) };
+            let other_entries: &[kvm_cpuid_entry2] =
+                unsafe { self.kvm_cpuid[0].entries.as_slice(other.allocated_len) };
+            self.allocated_len == other.allocated_len && entries == other_entries
+        }
+    }
+
+    #[test]
+    fn test_cpuid_clone() {
+        let kvm = Kvm::new().unwrap();
+        let cpuid_1 = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
+        let mut cpuid_2 = cpuid_1.clone();
+        assert!(cpuid_1 == cpuid_2);
+        cpuid_2 = unsafe { std::mem::zeroed() };
+        assert!(cpuid_1 != cpuid_2);
     }
 }

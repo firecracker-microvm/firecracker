@@ -11,7 +11,7 @@ pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
             0x1 => {
                 // Set CPU Basic Information
                 // EAX[20:27] Extended Family ID = 0
-                entry.eax &= !(0b11111111 << leaf_0x1::eax::EXTENDED_FAMILY_ID_SHIFT);
+                entry.eax &= !(0b1111_1111 << leaf_0x1::eax::EXTENDED_FAMILY_ID_SHIFT);
 
                 // EAX[19:16] Extended Processor Model ID = 3 (Haswell)
                 entry.eax &= !(0b1111 << leaf_0x1::eax::EXTENDED_PROCESSOR_MODEL_SHIFT);
@@ -76,7 +76,7 @@ pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
                     entry.ecx &= !(1 << leaf_0x7::index0::ecx::SGX_LC_SHIFT);
                 }
             }
-            0x80000001 => {
+            0x8000_0001 => {
                 entry.ecx &= !(1 << leaf_0x80000001::ecx::PREFETCH_SHIFT);
                 entry.ecx &= !(1 << leaf_0x80000001::ecx::LZCNT_SHIFT);
                 entry.edx &= !(1 << leaf_0x80000001::edx::PDPE1GB_SHIFT);
@@ -94,6 +94,7 @@ mod tests {
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
+    #[allow(clippy::erasing_op)]
     fn test_c3_cpuid_template() {
         let mut kvm_cpuid = CpuId::new(5);
         {
@@ -117,7 +118,7 @@ mod tests {
         }
         {
             let entries = kvm_cpuid.mut_entries_slice();
-            entries[3].function = 0x80000001;
+            entries[3].function = 0x8000_0001;
             entries[3].ecx = 0b11;
             entries[3].edx = 0b111;
         }
@@ -134,7 +135,7 @@ mod tests {
             index: 0,
             flags: 0,
             eax: 0
-                & !(0b11111111 << leaf_0x1::eax::EXTENDED_FAMILY_ID_SHIFT)
+                & !(0b1111_1111 << leaf_0x1::eax::EXTENDED_FAMILY_ID_SHIFT)
                 & !(0b1111 << leaf_0x1::eax::EXTENDED_PROCESSOR_MODEL_SHIFT)
                 | 3 << leaf_0x1::eax::EXTENDED_PROCESSOR_MODEL_SHIFT
                     & !(0b11 << leaf_0x1::eax::PROCESSOR_TYPE_SHIFT)
@@ -217,7 +218,7 @@ mod tests {
             assert_eq!(entries[2], cpuid_f7_index_non0);
         }
         let cpuid_f801 = kvm_cpuid_entry2 {
-            function: 0x80000001,
+            function: 0x8000_0001,
             index: 0,
             flags: 0,
             eax: 0,

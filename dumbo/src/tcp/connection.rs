@@ -19,7 +19,7 @@ bitflags! {
     // parts of the status information are reflected in other fields of the Connection struct, such
     // as Connection::fin_received.
     struct ConnStatusFlags: u8 {
-        const SYN_RECEIVED =        1 << 0;
+        const SYN_RECEIVED =        1;
         const SYNACK_SENT =         1 << 1;
         const ESTABLISHED =         1 << 2;
         // We signal the end of the TX half by setting Connection.send_fin to Some(sequence_number),
@@ -36,7 +36,7 @@ bitflags! {
     /// Represents any unusual conditions which may occur when receiving a TCP segment.
     pub struct RecvStatusFlags: u16 {
         /// The acknowledgement number is invalid.
-        const INVALID_ACK =             1 << 0;
+        const INVALID_ACK =             1;
         /// The connection received a duplicate ACK.
         const DUP_ACK =                 1 << 1;
         /// The connection received a data segment which does not fall within the limits of the
@@ -254,7 +254,7 @@ impl Connection {
         // Let's pick the initial sequence number.
         let isn = Wrapping(xor_rng_u32());
         let first_not_sent = isn + Wrapping(1);
-        let remote_rwnd_edge = first_not_sent + Wrapping(segment.window_size() as u32);
+        let remote_rwnd_edge = first_not_sent + Wrapping(u32::from(segment.window_size()));
 
         Ok(Connection {
             ack_to_send,
@@ -358,7 +358,7 @@ impl Connection {
     fn local_rwnd(&self) -> u16 {
         let rwnd = (self.local_rwnd_edge - self.ack_to_send).0;
 
-        if rwnd > u16::max_value() as u32 {
+        if rwnd > u32::from(u16::max_value()) {
             u16::max_value()
         } else {
             rwnd as u16
@@ -367,7 +367,7 @@ impl Connection {
 
     // Will actually become meaningful when/if we implement window scaling.
     fn remote_window_size(&self, window_size: u16) -> u32 {
-        window_size as u32
+        u32::from(window_size)
     }
 
     // Computes the remote rwnd edge given the ACK number and window size from an incoming segment.
@@ -662,9 +662,7 @@ impl Connection {
             return Err(RecvError::BufferTooSmall);
         }
 
-        let mut enqueue_ack = false;
-
-        if payload_len > 0 {
+        let mut enqueue_ack = if payload_len > 0 {
             let data_end_seq = seq + wrapping_payload_len;
 
             if let Some(fin_seq) = self.fin_received {
@@ -697,8 +695,10 @@ impl Connection {
             }
 
             self.ack_to_send = data_end_seq;
-            enqueue_ack = true;
-        }
+            true
+        } else {
+            false
+        };
 
         // We assume the sequence number of the FIN does not change via conflicting FIN carrying
         // segments (as it should be the case during TCP normal operation). It the other endpoint
@@ -726,7 +726,7 @@ impl Connection {
             // We check this here because if a valid payload has been received, then we must have
             // set enqueue_ack = true earlier.
             if payload_len > 0 {
-                &mut buf[..payload_len].copy_from_slice(s.payload());
+                buf[..payload_len].copy_from_slice(s.payload());
                 // The unwrap is safe because payload_len > 0.
                 return Ok((
                     Some(NonZeroUsize::new(payload_len).unwrap()),
@@ -1070,7 +1070,7 @@ pub(crate) mod tests {
                 mss: 1100,
                 mss_reserved: 0,
                 local_rwnd_size: 10000,
-                remote_isn: 12345678,
+                remote_isn: 12_345_678,
                 rto_period: 100_000,
                 rto_count_max: 3,
                 now: 0,
@@ -1127,8 +1127,7 @@ pub(crate) mod tests {
             buf: &'a mut [u8],
             data_buf: &[u8],
         ) -> TcpSegment<'a, &'a mut [u8]> {
-            let segment =
-                self.write_segment_helper(buf, false, Some((data_buf.as_ref(), data_buf.len())));
+            let segment = self.write_segment_helper(buf, false, Some((data_buf, data_buf.len())));
             assert_eq!(segment.payload_len(), data_buf.len());
             segment
         }
@@ -1266,6 +1265,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_connection() {
         // These are used to support some segments we play around with.
         let mut buf1 = [0u8; 100];
@@ -1313,7 +1313,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             c.remote_rwnd_edge,
-            c.first_not_sent + Wrapping(t.remote_window_size as u32)
+            c.first_not_sent + Wrapping(u32::from(t.remote_window_size))
         );
         check_syn_received(&c);
 
@@ -1563,14 +1563,14 @@ pub(crate) mod tests {
         // The mss is 1100, and the remote window is 11000, so we can send 10 data packets.
         let max = 10;
         let remote_isn = t.remote_isn;
-        let mss = t.mss as u32;
+        let mss = u32::from(t.mss);
 
         for i in 0..max {
             // Using the expects to get the value of i if there's an error.
             let s = t
                 .write_next_segment(&mut c, payload_src)
-                .expect(format!("{}", i).as_ref())
-                .expect(format!("{}", i).as_ref());
+                .unwrap_or_else(|_| panic!("{}", i))
+                .unwrap_or_else(|| panic!("{}", i));
 
             // Again, the 1 accounts for the sequence number taken up by the SYN.
             assert_eq!(s.sequence_number(), conn_isn.wrapping_add(1 + i * mss));

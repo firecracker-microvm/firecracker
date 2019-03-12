@@ -17,7 +17,7 @@ pub const CMDLINE_START: usize = 0x20000;
 pub const CMDLINE_MAX_SIZE: usize = 0x10000;
 
 /// Address for the TSS setup.
-pub const KVM_TSS_ADDRESS: usize = 0xfffbd000;
+pub const KVM_TSS_ADDRESS: usize = 0xfffb_d000;
 
 /// The 'zero page', a.k.a linux kernel bootparams.
 pub const ZERO_PAGE_START: usize = 0x7000;

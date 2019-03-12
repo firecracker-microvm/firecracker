@@ -19,6 +19,7 @@ use hyper::{Method, StatusCode};
 use http_service::{empty_response, json_fault_message, json_response};
 use vmm::{ErrorKind, OutcomeReceiver, VmmAction, VmmActionError, VmmData};
 
+#[allow(clippy::large_enum_variant)]
 pub enum ParsedRequest {
     GetInstanceInfo,
     GetMMDS,
@@ -300,9 +301,12 @@ mod tests {
             StartMicrovmError::DeviceVmRequest(io::Error::from_raw_os_error(22)),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
+        #[cfg(target_arch = "x86_64")]
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,
-            StartMicrovmError::ConfigureSystem(arch::Error::ZeroPagePastRamEnd),
+            StartMicrovmError::ConfigureSystem(arch::Error::X86_64Setup(
+                arch::x86_64::Error::ZeroPagePastRamEnd,
+            )),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
         let vmm_resp = VmmActionError::StartMicrovm(

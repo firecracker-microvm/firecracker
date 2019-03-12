@@ -73,9 +73,8 @@ impl<'a> DescriptorChain<'a> {
             Some(a) => a,
             None => return None,
         };
-        if mem.checked_offset(desc_head, 16).is_none() {
-            return None;
-        }
+        mem.checked_offset(desc_head, 16)?;
+
         // These reads can't fail unless Guest memory is hopelessly broken.
         let desc = match mem.read_obj_from_addr::<Descriptor>(desc_head) {
             Ok(ret) => ret,
@@ -86,11 +85,11 @@ impl<'a> DescriptorChain<'a> {
             }
         };
         let chain = DescriptorChain {
-            mem: mem,
-            desc_table: desc_table,
-            queue_size: queue_size,
+            mem,
+            desc_table,
+            queue_size,
             ttl: queue_size,
-            index: index,
+            index,
             addr: GuestAddress(desc.addr as usize),
             len: desc.len,
             flags: desc.flags,
@@ -105,16 +104,11 @@ impl<'a> DescriptorChain<'a> {
     }
 
     fn is_valid(&self) -> bool {
-        if self
+        !(self
             .mem
             .checked_offset(self.addr, self.len as usize)
             .is_none()
-            || (self.has_next() && self.next >= self.queue_size)
-        {
-            false
-        } else {
-            true
-        }
+            || (self.has_next() && self.next >= self.queue_size))
     }
 
     /// Gets if this descriptor chain has another descriptor chain linked after it.
@@ -162,7 +156,7 @@ pub struct AvailIter<'a, 'b> {
 impl<'a, 'b> AvailIter<'a, 'b> {
     pub fn new(mem: &'a GuestMemory, q_next_avail: &'b mut Wrapping<u16>) -> AvailIter<'a, 'b> {
         AvailIter {
-            mem: mem,
+            mem,
             desc_table: GuestAddress(0),
             avail_ring: GuestAddress(0),
             next_index: Wrapping(0),
@@ -336,12 +330,12 @@ impl Queue {
         };
 
         AvailIter {
-            mem: mem,
+            mem,
             desc_table: self.desc_table,
-            avail_ring: avail_ring,
+            avail_ring,
             next_index: self.next_avail,
             last_index: Wrapping(last_index),
-            queue_size: queue_size,
+            queue_size,
             next_avail: &mut self.next_avail,
         }
     }
@@ -361,7 +355,8 @@ impl Queue {
         let used_elem = used_ring.unchecked_add(4 + next_used * 8);
 
         // These writes can't fail as we are guaranteed to be within the descriptor ring.
-        mem.write_obj_at_addr(desc_index as u32, used_elem).unwrap();
+        mem.write_obj_at_addr(u32::from(desc_index), used_elem)
+            .unwrap();
         mem.write_obj_at_addr(len as u32, used_elem.unchecked_add(4))
             .unwrap();
 
@@ -553,7 +548,7 @@ pub(crate) mod tests {
         // We try to make sure things are aligned properly :-s
         pub fn new(start: GuestAddress, mem: &'a GuestMemory, qsize: u16) -> Self {
             // power of 2?
-            assert!(qsize > 0 && qsize & qsize - 1 == 0);
+            assert!(qsize > 0 && qsize & (qsize - 1) == 0);
 
             let mut dtable = Vec::with_capacity(qsize as usize);
 
@@ -632,10 +627,10 @@ pub(crate) mod tests {
         assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 16).is_none());
 
         // desc_table address is way off
-        assert!(DescriptorChain::checked_new(m, GuestAddress(0xffffffffff), 16, 0).is_none());
+        assert!(DescriptorChain::checked_new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0).is_none());
 
         // the addr field of the descriptor is way off
-        vq.dtable[0].addr.set(0xfffffffffff);
+        vq.dtable[0].addr.set(0x0fff_ffff_ffff);
         assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
 
         // let's create some invalid chains
@@ -644,7 +639,7 @@ pub(crate) mod tests {
             // the addr field of the desc is ok now
             vq.dtable[0].addr.set(0x1000);
             // ...but the length is too large
-            vq.dtable[0].len.set(0xffffffff);
+            vq.dtable[0].len.set(0xffff_ffff);
             assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
         }
 
@@ -712,19 +707,19 @@ pub(crate) mod tests {
 
         // or if the various addresses are off
 
-        q.desc_table = GuestAddress(0xffffffff);
+        q.desc_table = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
         q.desc_table = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
         q.desc_table = vq.dtable_start();
 
-        q.avail_ring = GuestAddress(0xffffffff);
+        q.avail_ring = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
         q.avail_ring = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
         q.avail_ring = vq.avail_start();
 
-        q.used_ring = GuestAddress(0xffffffff);
+        q.used_ring = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid(m));
         q.used_ring = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
