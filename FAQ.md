@@ -172,6 +172,11 @@ Issuing a `SendCtrlAltDel` action command through the Firecracker API will gener
 `Ctrl + Alt + Del` keyboard event in the guest resulting in a clean reboot on most
 guest Linux systems.
 
+### How can I create my own rootfs or kernel images?
+
+Check out our [rootfs and kernel image creation guide](
+docs/rootfs-and-kernel-setup.md).
+
 ### We are seeing page allocation failures from Firecracker in the `dmesg` output.
 
 If you see errors like ...
