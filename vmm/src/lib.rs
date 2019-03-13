@@ -907,6 +907,16 @@ impl Vmm {
         let arch_mem_regions = arch::arch_memory_regions(mem_size);
         self.guest_memory =
             Some(GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?);
+        self.vm
+            .memory_init(
+                self.guest_memory
+                    .clone()
+                    .ok_or(StartMicrovmError::GuestMemory(
+                        memory_model::GuestMemoryError::MemoryNotInitialized,
+                    ))?,
+                &self.kvm,
+            )
+            .map_err(StartMicrovmError::ConfigureVm)?;
         Ok(())
     }
 
@@ -917,7 +927,7 @@ impl Vmm {
         Ok(())
     }
 
-    fn init_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
+    fn attach_virtio_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
         let guest_mem = self
             .guest_memory
             .clone()
@@ -938,21 +948,18 @@ impl Vmm {
         #[cfg(feature = "vsock")]
         self.attach_vsock_devices(&mut device_manager, &guest_mem)?;
 
+        // Register the associated IRQ events and IO events for the virtio devices.
+        for request in &device_manager.vm_requests {
+            if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
+                return Err(StartMicrovmError::DeviceVmRequest(e))?;
+            }
+        }
+
         self.mmio_device_manager = Some(device_manager);
         Ok(())
     }
 
-    fn init_microvm(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        self.vm
-            .memory_init(
-                self.guest_memory
-                    .clone()
-                    .ok_or(StartMicrovmError::GuestMemory(
-                        memory_model::GuestMemoryError::MemoryNotInitialized,
-                    ))?,
-                &self.kvm,
-            )
-            .map_err(StartMicrovmError::ConfigureVm)?;
+    fn setup_interrupt_controller(&mut self) -> std::result::Result<(), StartMicrovmError> {
         self.vm
             .setup_irqchip(
                 &self.legacy_device_manager.com_evt_1_3,
@@ -964,18 +971,10 @@ impl Vmm {
         self.vm
             .create_pit()
             .map_err(StartMicrovmError::ConfigureVm)?;
+        Ok(())
+    }
 
-        // mmio_device_manager is instantiated in init_devices, which is called before init_microvm.
-        let device_manager = self
-            .mmio_device_manager
-            .as_ref()
-            .ok_or(StartMicrovmError::DeviceManager)?;
-        for request in &device_manager.vm_requests {
-            if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
-                return Err(StartMicrovmError::DeviceVmRequest(e))?;
-            }
-        }
-
+    fn attach_legacy_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
         self.legacy_device_manager
             .register_devices()
             .map_err(StartMicrovmError::LegacyIOBus)?;
@@ -1273,9 +1272,12 @@ impl Vmm {
         self.init_guest_memory()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
-        self.init_devices()
+        self.setup_interrupt_controller()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
-        self.init_microvm()
+
+        self.attach_virtio_devices()
+            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+        self.attach_legacy_devices()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
         let entry_addr = self
@@ -2809,7 +2811,7 @@ mod tests {
         vmm.default_kernel_config();
         assert!(vmm.init_guest_memory().is_ok());
 
-        assert!(vmm.init_devices().is_ok());
+        assert!(vmm.attach_virtio_devices().is_ok());
     }
 
     #[test]
@@ -3039,21 +3041,15 @@ mod tests {
         // Booting an actual guest and getting real data is covered by `kvm::tests::run_code_test`.
     }
 
-    #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_create_vcpus() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config();
 
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
-        let kvm = KvmContext::new().unwrap();
-        let guest_mem = vmm.guest_memory.clone().unwrap();
-
-        vmm.vm
-            .memory_init(guest_mem.clone(), &kvm)
-            .expect("Cannot initialize memory for test vm");
         assert!(vmm.vm.get_memory().is_some());
+
+        #[cfg(target_arch = "x86_64")]
         // `KVM_CREATE_VCPU` fails if the irqchip is not created beforehand. This is x86_64 speciifc.
         vmm.vm
             .setup_irqchip(
@@ -3063,5 +3059,51 @@ mod tests {
             )
             .expect("Cannot create IRQCHIP");
         assert!(vmm.create_vcpus(GuestAddress(0x0)).is_ok());
+    }
+
+    #[test]
+    fn test_setup_interrupt_controller() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert!(vmm.setup_interrupt_controller().is_ok());
+    }
+
+    #[test]
+    fn test_attach_virtio_devices() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.default_kernel_config();
+
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.vm.get_memory().is_some());
+
+        // Create test network interface.
+        let network_interface = NetworkInterfaceConfig {
+            iface_id: String::from("netif"),
+            host_dev_name: String::from("hostname"),
+            guest_mac: None,
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+            allow_mmds_requests: false,
+            tap: None,
+        };
+
+        assert!(vmm.insert_net_device(network_interface).is_ok());
+        assert!(vmm.attach_virtio_devices().is_ok());
+        assert!(vmm.mmio_device_manager.is_some());
+        // 2 io events and 1 irq event.
+        assert!(vmm.mmio_device_manager.unwrap().vm_requests.len() == 3);
+    }
+
+    #[test]
+    fn test_attach_legacy_devices() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+
+        assert!(vmm.attach_legacy_devices().is_ok());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x3f8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x2f8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x3e8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x2e8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x060).is_some());
+        let stdin_handle = io::stdin();
+        stdin_handle.lock().set_canon_mode().unwrap();
     }
 }
