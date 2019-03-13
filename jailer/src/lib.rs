@@ -33,45 +33,45 @@ pub enum Error {
     CgroupInheritFromParent(PathBuf, String),
     CgroupLineNotFound(String, String),
     CgroupLineNotUnique(String, String),
-    ChangeFileOwner(sys_util::Error, &'static str),
-    ChdirNewRoot(sys_util::Error),
-    CloseNetNsFd(sys_util::Error),
-    CloseDevNullFd(sys_util::Error),
+    ChangeFileOwner(io::Error, &'static str),
+    ChdirNewRoot(io::Error),
+    CloseNetNsFd(io::Error),
+    CloseDevNullFd(io::Error),
     Copy(PathBuf, PathBuf, io::Error),
     CreateDir(PathBuf, io::Error),
     CStringParsing(NulError),
-    Dup2(sys_util::Error),
+    Dup2(io::Error),
     Exec(io::Error),
     FileName(PathBuf),
     FileOpen(PathBuf, io::Error),
     FromBytesWithNul(&'static [u8]),
-    GetOldFdFlags(sys_util::Error),
+    GetOldFdFlags(io::Error),
     Gid(String),
     InvalidInstanceId(validators::Error),
     MissingArgument(&'static str),
     MissingParent(PathBuf),
-    MkdirOldRoot(sys_util::Error),
-    MknodDev(sys_util::Error, &'static str),
-    MountBind(sys_util::Error),
-    MountPropagationPrivate(sys_util::Error),
+    MkdirOldRoot(io::Error),
+    MknodDev(io::Error, &'static str),
+    MountBind(io::Error),
+    MountPropagationPrivate(io::Error),
     NotAFile(PathBuf),
     NumaNode(String),
-    OpenDevNull(sys_util::Error),
+    OpenDevNull(io::Error),
     OsStringParsing(PathBuf, OsString),
-    PivotRoot(sys_util::Error),
+    PivotRoot(io::Error),
     ReadLine(PathBuf, io::Error),
     ReadToString(PathBuf, io::Error),
     RegEx(regex::Error),
-    RmOldRootDir(sys_util::Error),
+    RmOldRootDir(io::Error),
     SeccompLevel(std::num::ParseIntError),
     SetCurrentDir(io::Error),
-    SetNetNs(sys_util::Error),
-    SetSid(sys_util::Error),
+    SetNetNs(io::Error),
+    SetSid(io::Error),
     Uid(String),
-    UmountOldRoot(sys_util::Error),
+    UmountOldRoot(io::Error),
     UnexpectedListenerFd(i32),
-    UnshareNewNs(sys_util::Error),
-    UnsetCloexec(sys_util::Error),
+    UnshareNewNs(io::Error),
+    UnsetCloexec(io::Error),
     Write(PathBuf, io::Error),
 }
 
@@ -277,18 +277,24 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("daemonize")
                 .long("daemonize")
-                .help("Daemonize the jailer before exec, by invoking setsid(), and redirecting the standard I/O file descriptors to /dev/null.")
+                .help(
+                    "Daemonize the jailer before exec, by invoking setsid(), and redirecting \
+                     the standard I/O file descriptors to /dev/null.",
+                )
                 .required(false)
                 .takes_value(false),
         )
         .arg(
             Arg::with_name("seccomp-level")
                 .long("seccomp-level")
-                .help("Level of seccomp filtering that will be passed to executed path as argument.\n
+                .help(
+                    "Level of seccomp filtering that will be passed to executed path as \
+                argument.\n
     - Level 0: No filtering.\n
     - Level 1: Seccomp filtering by syscall number.\n
     - Level 2: Seccomp filtering by syscall number and argument values.\n
-")
+",
+                )
                 .required(false)
                 .takes_value(true)
                 .default_value("2")
@@ -387,7 +393,6 @@ mod tests {
         let proc_mounts = "/proc/mounts";
         let controller = "sysfs";
         let id = "foobar";
-        let err42 = sys_util::Error::new(42);
         let err_regex = regex::Error::Syntax(id.to_string());
         let err_parse = i8::from_str_radix("129", 10).unwrap_err();
         let err2_str = "No such file or directory (os error 2)";
@@ -421,20 +426,26 @@ mod tests {
             "Found more than one cgroups configuration line in /proc/mounts for sysfs",
         );
         assert_eq!(
-            format!("{}", Error::ChangeFileOwner(err42, "/dev/net/tun")),
-            "Failed to change owner for /dev/net/tun: Errno 42",
+            format!(
+                "{}",
+                Error::ChangeFileOwner(io::Error::from_raw_os_error(42), "/dev/net/tun")
+            ),
+            "Failed to change owner for /dev/net/tun: No message of desired type (os error 42)",
         );
         assert_eq!(
-            format!("{}", Error::ChdirNewRoot(err42)),
-            "Failed to chdir into chroot directory: Errno 42"
+            format!("{}", Error::ChdirNewRoot(io::Error::from_raw_os_error(42))),
+            "Failed to chdir into chroot directory: No message of desired type (os error 42)"
         );
         assert_eq!(
-            format!("{}", Error::CloseNetNsFd(err42)),
-            "Failed to close netns fd: Errno 42",
+            format!("{}", Error::CloseNetNsFd(io::Error::from_raw_os_error(42))),
+            "Failed to close netns fd: No message of desired type (os error 42)",
         );
         assert_eq!(
-            format!("{}", Error::CloseDevNullFd(err42)),
-            "Failed to close /dev/null fd: Errno 42",
+            format!(
+                "{}",
+                Error::CloseDevNullFd(io::Error::from_raw_os_error(42))
+            ),
+            "Failed to close /dev/null fd: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!(
@@ -462,8 +473,8 @@ mod tests {
             "Encountered interior \\0 while parsing a string",
         );
         assert_eq!(
-            format!("{}", Error::Dup2(err42)),
-            "Failed to duplicate fd: Errno 42",
+            format!("{}", Error::Dup2(io::Error::from_raw_os_error(42))),
+            "Failed to duplicate fd: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::Exec(io::Error::from_raw_os_error(2))),
@@ -485,8 +496,8 @@ mod tests {
             "Failed to decode string from byte array: [47, 0]",
         );
         assert_eq!(
-            format!("{}", Error::GetOldFdFlags(err42)),
-            "Failed to get flags from fd: Errno 42",
+            format!("{}", Error::GetOldFdFlags(io::Error::from_raw_os_error(42))),
+            "Failed to get flags from fd: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::Gid(id.to_string())),
@@ -508,20 +519,25 @@ mod tests {
             "File /foo/bar doesn't have a parent",
         );
         assert_eq!(
-            format!("{}", Error::MkdirOldRoot(err42)),
-            "Failed to create the jail root directory before pivoting root: Errno 42",
+            format!("{}", Error::MkdirOldRoot(io::Error::from_raw_os_error(42))),
+            "Failed to create the jail root directory before pivoting root: No message of desired \
+             type (os error 42)",
         );
         assert_eq!(
-            format!("{}", Error::MknodDev(err42, "/dev/net/tun")),
-            "Failed to create /dev/net/tun via mknod inside the jail: Errno 42",
+            format!(
+                "{}",
+                Error::MknodDev(io::Error::from_raw_os_error(42), "/dev/net/tun")
+            ),
+            "Failed to create /dev/net/tun via mknod inside the jail: No message of desired type \
+             (os error 42)",
         );
         assert_eq!(
-            format!("{}", Error::MountBind(err42)),
-            "Failed to bind mount the jail root directory: Errno 42",
+            format!("{}", Error::MountBind(io::Error::from_raw_os_error(42))),
+            "Failed to bind mount the jail root directory: No message of desired type (os error 42)",
         );
         assert_eq!(
-            format!("{}", Error::MountPropagationPrivate(err42)),
-            "Failed to change the propagation type to private: Errno 42",
+            format!("{}", Error::MountPropagationPrivate(io::Error::from_raw_os_error(42))),
+            "Failed to change the propagation type to private: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::NotAFile(file_path.clone())),
@@ -532,8 +548,8 @@ mod tests {
             "Invalid numa node: foobar",
         );
         assert_eq!(
-            format!("{}", Error::OpenDevNull(err42)),
-            "Failed to open /dev/null: Errno 42",
+            format!("{}", Error::OpenDevNull(io::Error::from_raw_os_error(42))),
+            "Failed to open /dev/null: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!(
@@ -543,8 +559,8 @@ mod tests {
             "Failed to parse path /foo/bar into an OsString",
         );
         assert_eq!(
-            format!("{}", Error::PivotRoot(err42)),
-            "Failed to pivot root: Errno 42",
+            format!("{}", Error::PivotRoot(io::Error::from_raw_os_error(42))),
+            "Failed to pivot root: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!(
@@ -565,8 +581,8 @@ mod tests {
             format!("Regex failed: {:?}", err_regex),
         );
         assert_eq!(
-            format!("{}", Error::RmOldRootDir(err42)),
-            "Failed to remove old jail root directory: Errno 42",
+            format!("{}", Error::RmOldRootDir(io::Error::from_raw_os_error(42))),
+            "Failed to remove old jail root directory: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::SeccompLevel(err_parse.clone())),
@@ -577,32 +593,33 @@ mod tests {
             format!("Failed to change current directory: {}", err2_str),
         );
         assert_eq!(
-            format!("{}", Error::SetNetNs(err42)),
-            "Failed to join network namespace: netns: Errno 42",
+            format!("{}", Error::SetNetNs(io::Error::from_raw_os_error(42))),
+            "Failed to join network namespace: netns: No message of desired type (os error 42)",
         );
         assert_eq!(
-            format!("{}", Error::SetSid(err42)),
-            "Failed to daemonize: setsid: Errno 42",
+            format!("{}", Error::SetSid(io::Error::from_raw_os_error(42))),
+            "Failed to daemonize: setsid: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::Uid(id.to_string())),
             "Invalid uid: foobar",
         );
         assert_eq!(
-            format!("{}", Error::UmountOldRoot(err42)),
-            "Failed to unmount the old jail root: Errno 42",
+            format!("{}", Error::UmountOldRoot(io::Error::from_raw_os_error(42))),
+            "Failed to unmount the old jail root: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::UnexpectedListenerFd(42)),
             "Unexpected value for the socket listener fd: 42",
         );
         assert_eq!(
-            format!("{}", Error::UnshareNewNs(err42)),
-            "Failed to unshare into new mount namespace: Errno 42",
+            format!("{}", Error::UnshareNewNs(io::Error::from_raw_os_error(42))),
+            "Failed to unshare into new mount namespace: No message of desired type (os error 42)",
         );
         assert_eq!(
-            format!("{}", Error::UnsetCloexec(err42)),
-            "Failed to unset the O_CLOEXEC flag on the socket fd: Errno 42",
+            format!("{}", Error::UnsetCloexec(io::Error::from_raw_os_error(42))),
+            "Failed to unset the O_CLOEXEC flag on the socket fd: No message of desired type (os \
+             error 42)",
         );
         assert_eq!(
             format!(

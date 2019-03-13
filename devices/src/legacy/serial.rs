@@ -6,10 +6,10 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::VecDeque;
-use std::{io, result};
+use std::io;
 
 use logger::{Metric, METRICS};
-use sys_util::{EventFd, Result};
+use sys_util::EventFd;
 
 use BusDevice;
 
@@ -98,7 +98,7 @@ impl Serial {
 
     /// Queues raw bytes for the guest to read and signals the interrupt if the line status would
     /// change.
-    pub fn queue_input_bytes(&mut self, c: &[u8]) -> Result<()> {
+    pub fn queue_input_bytes(&mut self, c: &[u8]) -> io::Result<()> {
         if !self.is_loop() {
             self.in_buffer.extend(c);
             self.recv_data()?;
@@ -134,7 +134,7 @@ impl Serial {
         }
     }
 
-    fn thr_empty(&mut self) -> Result<()> {
+    fn thr_empty(&mut self) -> io::Result<()> {
         if self.is_thr_intr_enabled() {
             self.add_intr_bit(IIR_THR_BIT);
             self.trigger_interrupt()?
@@ -142,7 +142,7 @@ impl Serial {
         Ok(())
     }
 
-    fn recv_data(&mut self) -> Result<()> {
+    fn recv_data(&mut self) -> io::Result<()> {
         if self.is_recv_intr_enabled() {
             self.add_intr_bit(IIR_RECV_BIT);
             self.trigger_interrupt()?
@@ -151,7 +151,7 @@ impl Serial {
         Ok(())
     }
 
-    fn trigger_interrupt(&mut self) -> result::Result<(), io::Error> {
+    fn trigger_interrupt(&mut self) -> io::Result<()> {
         self.interrupt_evt.write(1)
     }
 
@@ -159,7 +159,7 @@ impl Serial {
         self.interrupt_identification = DEFAULT_INTERRUPT_IDENTIFICATION;
     }
 
-    fn handle_write(&mut self, offset: u8, v: u8) -> Result<()> {
+    fn handle_write(&mut self, offset: u8, v: u8) -> io::Result<()> {
         match offset as u8 {
             DLAB_LOW if self.is_dlab_set() => {
                 self.baud_divisor = (self.baud_divisor & 0xff00) | u16::from(v)
