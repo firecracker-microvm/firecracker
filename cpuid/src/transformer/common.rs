@@ -3,6 +3,10 @@
 
 use super::*;
 use bit_helper::BitHelper;
+use common::get_cpuid;
+
+use kvm::CpuId;
+use kvm_bindings::kvm_cpuid_entry2;
 
 // constants for setting the fields of kvm_cpuid2 structures
 // CPUID bits in ebx, ecx, and edx.
@@ -64,14 +68,53 @@ pub fn update_brand_string_entry(
     Ok(())
 }
 
+/// Replaces the `cpuid` entries corresponding to `function` with the entries from the host's cpuid.
+///
+pub fn use_host_cpuid_function(cpuid: &mut CpuId, function: u32) -> Result<(), Error> {
+    // copy all the CpuId entries, except for the ones with the provided function
+    let mut entries: Vec<kvm_cpuid_entry2> = Vec::new();
+    for entry in cpuid.mut_entries_slice().iter() {
+        if entry.function != function {
+            entries.push(*entry);
+        }
+    }
+
+    // add all the host leaves with the provided function
+    let mut count: u32 = 0;
+    while let Ok(entry) = get_cpuid(function, count) {
+        // check if there's enough space to add a new entry to the cpuid
+        if entries.len() == kvm::MAX_KVM_CPUID_ENTRIES {
+            return Err(Error::SizeLimitExceeded);
+        }
+
+        entries.push(kvm_cpuid_entry2 {
+            function,
+            index: count,
+            flags: 0,
+            eax: entry.eax,
+            ebx: entry.ebx,
+            ecx: entry.ecx,
+            edx: entry.edx,
+            padding: [0, 0, 0],
+        });
+        count += 1;
+    }
+
+    let cpuid2 = CpuId::from_entries(&entries);
+    *cpuid = cpuid2;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use common::tests::get_topoext_fn;
     use kvm_bindings::kvm_cpuid_entry2;
     use transformer::VmSpec;
 
     #[test]
-    fn test() {
+    fn test_get_max_cpus_per_package() {
         assert_eq!(get_max_cpus_per_package(1).unwrap(), 1);
         assert_eq!(get_max_cpus_per_package(2).unwrap(), 2);
         assert_eq!(get_max_cpus_per_package(4).unwrap(), 4);
@@ -108,5 +151,33 @@ mod test {
     #[test]
     fn test_2vcpu() {
         check_update_feature_info_entry(2, true);
+    }
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn use_host_cpuid_function_test() {
+        // try to emulate the extended cache topology leaves
+        let topoext_fn = get_topoext_fn();
+
+        // check that it behaves correctly for TOPOEXT function
+        let mut cpuid = CpuId::new(1);
+        cpuid.mut_entries_slice()[0].function = topoext_fn;
+        assert!(use_host_cpuid_function(&mut cpuid, topoext_fn).is_ok());
+        let entries = cpuid.mut_entries_slice();
+        assert!(entries.len() > 1);
+        let mut count = 0;
+        for entry in entries.iter_mut() {
+            assert!(entry.function == topoext_fn);
+            assert!(entry.index == count);
+            assert!(entry.eax != 0);
+            count = count + 1;
+        }
+
+        // check that it returns Err when there are too many entriesentry.function == topoext_fn
+        let mut cpuid = CpuId::new(kvm::MAX_KVM_CPUID_ENTRIES);
+        match use_host_cpuid_function(&mut cpuid, topoext_fn) {
+            Err(Error::SizeLimitExceeded) => {}
+            _ => panic!("Wrong behavior"),
+        }
     }
 }
