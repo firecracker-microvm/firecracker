@@ -1023,7 +1023,8 @@ impl Vmm {
 
         let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
 
-        for cpu_id in 0..vcpu_count {
+        // We're going in reverse so we can `.pop()` on the vec and still maintain order.
+        for cpu_id in (0..vcpu_count).rev() {
             let io_bus = self.legacy_device_manager.io_bus.clone();
             // mmio_device_manager is instantiated in init_devices, which is called before
             // start_vcpus.
