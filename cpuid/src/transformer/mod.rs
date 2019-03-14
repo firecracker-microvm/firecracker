@@ -1,11 +1,13 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod amd;
 pub mod common;
 pub mod intel;
 
 use brand_string::BrandString;
 use brand_string::Reg as BsReg;
+use kvm::CpuId;
 pub use kvm_bindings::kvm_cpuid_entry2;
 
 const DEFAULT_BRAND_STRING: &[u8] = b"Intel(R) Xeon(R) Processor";
@@ -66,7 +68,23 @@ pub enum Error {
     VcpuCountOverflow,
     /// The max size has been exceeded
     SizeLimitExceeded,
+    /// A call to an internal helper method failed
+    InternalError(super::common::Error),
 }
 
 pub type EntryTransformerFn =
     fn(entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error>;
+
+pub trait CpuidTransformer {
+    fn preprocess_cpuid(&self, _cpuid: &mut CpuId) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn transform_entry(
+        &self,
+        _entry: &mut kvm_cpuid_entry2,
+        _vm_spec: &VmSpec,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+}
