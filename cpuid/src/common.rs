@@ -11,6 +11,7 @@ use cpu_leaf::*;
 pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
 pub const VENDOR_ID_AMD: &[u8; 12] = b"AuthenticAMD";
 
+#[derive(Clone, Debug)]
 pub enum Error {
     InvalidParameters(String),
     NotSupported,

@@ -141,22 +141,26 @@ fn update_extended_cache_topology_entry(
     Ok(())
 }
 
-pub fn transform_entry(entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error> {
-    let maybe_transformer_fn: Option<EntryTransformerFn> = match entry.function {
-        leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
-        leaf_0x4::LEAF_NUM => Some(intel::update_deterministic_cache_entry),
-        leaf_0x6::LEAF_NUM => Some(intel::update_power_management_entry),
-        leaf_0xa::LEAF_NUM => Some(intel::update_perf_mon_entry),
-        leaf_0xb::LEAF_NUM => Some(intel::update_extended_cache_topology_entry),
-        0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
-        _ => None,
-    };
+pub struct IntelCpuidTransformer {}
 
-    if let Some(transformer_fn) = maybe_transformer_fn {
-        return transformer_fn(entry, vm_spec);
+impl CpuidTransformer for IntelCpuidTransformer {
+    fn transform_entry(&self, entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error> {
+        let maybe_transformer_fn: Option<EntryTransformerFn> = match entry.function {
+            leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
+            leaf_0x4::LEAF_NUM => Some(intel::update_deterministic_cache_entry),
+            leaf_0x6::LEAF_NUM => Some(intel::update_power_management_entry),
+            leaf_0xa::LEAF_NUM => Some(intel::update_perf_mon_entry),
+            leaf_0xb::LEAF_NUM => Some(intel::update_extended_cache_topology_entry),
+            0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
+            _ => None,
+        };
+
+        if let Some(transformer_fn) = maybe_transformer_fn {
+            return transformer_fn(entry, vm_spec);
+        }
+
+        Ok(())
     }
-
-    Ok(())
 }
 
 #[cfg(test)]

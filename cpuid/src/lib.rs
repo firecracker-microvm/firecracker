@@ -14,6 +14,7 @@ extern crate kvm_bindings;
 use kvm::CpuId;
 
 mod common;
+use common::*;
 
 /// Contains helper methods for bit operations.
 pub mod bit_helper;
@@ -61,11 +62,20 @@ pub fn filter_cpuid(
     ht_enabled: bool,
     kvm_cpuid: &mut CpuId,
 ) -> Result<(), Error> {
+    let vendor_id = get_vendor_id().map_err(Error::InternalError)?;
     let vm_spec = VmSpec::new(cpu_id, cpu_count, ht_enabled);
 
-    let transform_entry_fn: EntryTransformerFn = intel::transform_entry;
-    for entry in kvm_cpuid.mut_entries_slice().iter_mut() {
-        transform_entry_fn(entry, &vm_spec)?;
+    let maybe_cpuid_transformer: Option<&dyn CpuidTransformer> = match &vendor_id {
+        VENDOR_ID_INTEL => Some(&intel::IntelCpuidTransformer {}),
+        VENDOR_ID_AMD => Some(&amd::AmdCpuidTransformer {}),
+        _ => None,
+    };
+
+    if let Some(cpuid_transformer) = maybe_cpuid_transformer {
+        cpuid_transformer.preprocess_cpuid(kvm_cpuid)?;
+        for entry in kvm_cpuid.mut_entries_slice().iter_mut() {
+            cpuid_transformer.transform_entry(entry, &vm_spec)?;
+        }
     }
 
     Ok(())
