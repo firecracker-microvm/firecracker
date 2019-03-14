@@ -64,6 +64,8 @@ impl VmSpec {
 pub enum Error {
     /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
     VcpuCountOverflow,
+    /// The max size has been exceeded
+    SizeLimitExceeded,
 }
 
 pub type EntryTransformerFn =

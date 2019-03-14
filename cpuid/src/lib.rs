@@ -13,6 +13,8 @@ extern crate kvm_bindings;
 
 use kvm::CpuId;
 
+mod common;
+
 /// Contains helper methods for bit operations.
 pub mod bit_helper;
 
