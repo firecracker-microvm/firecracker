@@ -15,25 +15,7 @@ fn update_deterministic_cache_entry(
 ) -> Result<(), Error> {
     use cpu_leaf::leaf_0x4::*;
 
-    match entry.eax.read_bits_in_range(&eax::CACHE_LEVEL_BITRANGE) {
-        // L1 & L2 Cache
-        1 | 2 => {
-            // The L1 & L2 cache is shared by at most 2 hyperthreads
-            entry.eax.write_bits_in_range(
-                &eax::MAX_CPUS_PER_CORE_BITRANGE,
-                (vm_spec.cpu_count > 1 && vm_spec.ht_enabled) as u32,
-            );
-        }
-        // L3 Cache
-        3 => {
-            // The L3 cache is shared among all the logical threads
-            entry.eax.write_bits_in_range(
-                &eax::MAX_CPUS_PER_CORE_BITRANGE,
-                u32::from(vm_spec.cpu_count - 1),
-            );
-        }
-        _ => (),
-    }
+    common::update_cache_parameters_entry(entry, vm_spec)?;
 
     // Put all the cores in the same socket
     entry.eax.write_bits_in_range(
@@ -176,7 +158,6 @@ mod test {
         cpu_count: u8,
         ht_enabled: bool,
         cache_level: u32,
-        expected_max_cpus_per_core: u32,
         expected_max_cores_per_package: u32,
     ) {
         use cpu_leaf::leaf_0x4::*;
@@ -195,12 +176,6 @@ mod test {
 
         assert!(update_deterministic_cache_entry(&mut entry, &vm_spec).is_ok());
 
-        assert!(
-            entry
-                .eax
-                .read_bits_in_range(&eax::MAX_CPUS_PER_CORE_BITRANGE)
-                == expected_max_cpus_per_core
-        );
         assert!(
             entry
                 .eax
@@ -248,11 +223,11 @@ mod test {
     fn test_1vcpu_ht_off() {
         // test update_deterministic_cache_entry
         // test L1
-        check_update_deterministic_cache_entry(1, false, 1, 0, 0);
+        check_update_deterministic_cache_entry(1, false, 1, 0);
         // test L2
-        check_update_deterministic_cache_entry(1, false, 2, 0, 0);
+        check_update_deterministic_cache_entry(1, false, 2, 0);
         // test L3
-        check_update_deterministic_cache_entry(1, false, 3, 0, 0);
+        check_update_deterministic_cache_entry(1, false, 3, 0);
 
         // test update_extended_cache_topology_entry
         // index 0
@@ -272,11 +247,11 @@ mod test {
     fn test_1vcpu_ht_on() {
         // test update_deterministic_cache_entry
         // test L1
-        check_update_deterministic_cache_entry(1, true, 1, 0, 0);
+        check_update_deterministic_cache_entry(1, true, 1, 0);
         // test L2
-        check_update_deterministic_cache_entry(1, true, 2, 0, 0);
+        check_update_deterministic_cache_entry(1, true, 2, 0);
         // test L3
-        check_update_deterministic_cache_entry(1, true, 3, 0, 0);
+        check_update_deterministic_cache_entry(1, true, 3, 0);
 
         // test update_extended_cache_topology_entry
         // index 0
@@ -296,11 +271,11 @@ mod test {
     fn test_2vcpu_ht_off() {
         // test update_deterministic_cache_entry
         // test L1
-        check_update_deterministic_cache_entry(2, false, 1, 0, 1);
+        check_update_deterministic_cache_entry(2, false, 1, 1);
         // test L2
-        check_update_deterministic_cache_entry(2, false, 2, 0, 1);
+        check_update_deterministic_cache_entry(2, false, 2, 1);
         // test L3
-        check_update_deterministic_cache_entry(2, false, 3, 1, 1);
+        check_update_deterministic_cache_entry(2, false, 3, 1);
 
         // test update_extended_cache_topology_entry
         // index 0
@@ -320,11 +295,11 @@ mod test {
     fn test_2vcpu_ht_on() {
         // test update_deterministic_cache_entry
         // test L1
-        check_update_deterministic_cache_entry(2, true, 1, 1, 1);
+        check_update_deterministic_cache_entry(2, true, 1, 1);
         // test L2
-        check_update_deterministic_cache_entry(2, true, 2, 1, 1);
+        check_update_deterministic_cache_entry(2, true, 2, 1);
         // test L3
-        check_update_deterministic_cache_entry(2, true, 3, 1, 1);
+        check_update_deterministic_cache_entry(2, true, 3, 1);
 
         // test update_extended_cache_topology_entry
         // index 0
