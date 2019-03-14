@@ -65,6 +65,15 @@ pub mod leaf_0x1 {
     }
 }
 
+pub mod leaf_cache_parameters {
+    pub mod eax {
+        use bit_helper::BitRange;
+
+        pub const CACHE_LEVEL_BITRANGE: BitRange = bit_range!(7, 5);
+        pub const MAX_CPUS_PER_CORE_BITRANGE: BitRange = bit_range!(25, 14);
+    }
+}
+
 // Deterministic Cache Parameters Leaf
 pub mod leaf_0x4 {
     pub const LEAF_NUM: u32 = 0x4;
@@ -72,8 +81,9 @@ pub mod leaf_0x4 {
     pub mod eax {
         use bit_helper::BitRange;
 
-        pub const CACHE_LEVEL_BITRANGE: BitRange = bit_range!(7, 5);
-        pub const MAX_CPUS_PER_CORE_BITRANGE: BitRange = bit_range!(25, 14);
+        // inherit eax from leaf_cache_parameters
+        pub use cpu_leaf::leaf_cache_parameters::eax::*;
+
         pub const MAX_CORES_PER_PACKAGE_BITRANGE: BitRange = bit_range!(31, 26);
     }
 }
@@ -81,6 +91,9 @@ pub mod leaf_0x4 {
 // Extended Cache Topology Leaf
 pub mod leaf_0x8000001d {
     pub const LEAF_NUM: u32 = 0x8000_001d;
+
+    // inherit eax from leaf_cache_parameters
+    pub use cpu_leaf::leaf_cache_parameters::eax;
 }
 
 // Thermal and Power Management Leaf

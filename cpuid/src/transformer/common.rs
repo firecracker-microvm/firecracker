@@ -68,6 +68,35 @@ pub fn update_brand_string_entry(
     Ok(())
 }
 
+pub fn update_cache_parameters_entry(
+    entry: &mut kvm_cpuid_entry2,
+    vm_spec: &VmSpec,
+) -> Result<(), Error> {
+    use cpu_leaf::leaf_cache_parameters::*;
+
+    match entry.eax.read_bits_in_range(&eax::CACHE_LEVEL_BITRANGE) {
+        // L1 & L2 Cache
+        1 | 2 => {
+            // The L1 & L2 cache is shared by at most 2 hyperthreads
+            entry.eax.write_bits_in_range(
+                &eax::MAX_CPUS_PER_CORE_BITRANGE,
+                (vm_spec.cpu_count > 1 && vm_spec.ht_enabled) as u32,
+            );
+        }
+        // L3 Cache
+        3 => {
+            // The L3 cache is shared among all the logical threads
+            entry.eax.write_bits_in_range(
+                &eax::MAX_CPUS_PER_CORE_BITRANGE,
+                u32::from(vm_spec.cpu_count - 1),
+            );
+        }
+        _ => (),
+    }
+
+    Ok(())
+}
+
 /// Replaces the `cpuid` entries corresponding to `function` with the entries from the host's cpuid.
 ///
 pub fn use_host_cpuid_function(cpuid: &mut CpuId, function: u32) -> Result<(), Error> {
@@ -143,14 +172,86 @@ mod test {
         assert!(entry.edx.read_bit(edx::HTT) == expected_htt)
     }
 
-    #[test]
-    fn test_1vcpu() {
-        check_update_feature_info_entry(1, false);
+    fn check_update_cache_parameters_entry(
+        cpu_count: u8,
+        ht_enabled: bool,
+        cache_level: u32,
+        expected_max_cpus_per_core: u32,
+    ) {
+        use cpu_leaf::leaf_cache_parameters::*;
+
+        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled);
+        let mut entry = &mut kvm_cpuid_entry2 {
+            function: 0x0,
+            index: 0,
+            flags: 0,
+            eax: *(0 as u32).write_bits_in_range(&eax::CACHE_LEVEL_BITRANGE, cache_level),
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+
+        assert!(update_cache_parameters_entry(&mut entry, &vm_spec).is_ok());
+
+        assert!(
+            entry
+                .eax
+                .read_bits_in_range(&eax::MAX_CPUS_PER_CORE_BITRANGE)
+                == expected_max_cpus_per_core
+        );
     }
 
     #[test]
-    fn test_2vcpu() {
+    fn test_1vcpu_ht_off() {
+        check_update_feature_info_entry(1, false);
+
+        // test update_deterministic_cache_entry
+        // test L1
+        check_update_cache_parameters_entry(1, false, 1, 0);
+        // test L2
+        check_update_cache_parameters_entry(1, false, 2, 0);
+        // test L3
+        check_update_cache_parameters_entry(1, false, 3, 0);
+    }
+
+    #[test]
+    fn test_1vcpu_ht_on() {
+        check_update_feature_info_entry(1, false);
+
+        // test update_deterministic_cache_entry
+        // test L1
+        check_update_cache_parameters_entry(1, true, 1, 0);
+        // test L2
+        check_update_cache_parameters_entry(1, true, 2, 0);
+        // test L3
+        check_update_cache_parameters_entry(1, true, 3, 0);
+    }
+
+    #[test]
+    fn test_2vcpu_ht_off() {
         check_update_feature_info_entry(2, true);
+
+        // test update_deterministic_cache_entry
+        // test L1
+        check_update_cache_parameters_entry(2, false, 1, 0);
+        // test L2
+        check_update_cache_parameters_entry(2, false, 2, 0);
+        // test L3
+        check_update_cache_parameters_entry(2, false, 3, 1);
+    }
+
+    #[test]
+    fn test_2vcpu_ht_on() {
+        check_update_feature_info_entry(2, true);
+
+        // test update_deterministic_cache_entry
+        // test L1
+        check_update_cache_parameters_entry(2, true, 1, 1);
+        // test L2
+        check_update_cache_parameters_entry(2, true, 2, 1);
+        // test L3
+        check_update_cache_parameters_entry(2, true, 3, 1);
     }
 
     #[test]
