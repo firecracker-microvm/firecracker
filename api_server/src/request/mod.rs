@@ -306,11 +306,6 @@ mod tests {
             )),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
-        let vmm_resp = VmmActionError::StartMicrovm(
-            ErrorKind::User,
-            StartMicrovmError::Loader(kernel::loader::Error::BigEndianElfOnLittle),
-        );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp =
             VmmActionError::StartMicrovm(ErrorKind::Internal, StartMicrovmError::EventFd);
         check_error_response(vmm_resp, StatusCode::InternalServerError);
@@ -327,5 +322,75 @@ mod tests {
             StartMicrovmError::VcpuSpawn(std::io::Error::from_raw_os_error(11)),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::BigEndianElfOnLittle),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::LoadCommandline(kernel::loader::Error::CommandLineCopy),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::LoadCommandline(kernel::loader::Error::CommandLineOverflow),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::InvalidElfMagicNumber),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::InvalidEntryAddress),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::InvalidProgramHeaderSize),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::InvalidProgramHeaderOffset),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::InvalidProgramHeaderAddress),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::ReadElfHeader),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::ReadKernelImage),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::ReadProgramHeader),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::SeekKernelStart),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::SeekElfStart),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+        let vmm_resp = VmmActionError::StartMicrovm(
+            ErrorKind::User,
+            StartMicrovmError::KernelLoader(kernel::loader::Error::SeekProgramHeader),
+        );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
     }
 }
