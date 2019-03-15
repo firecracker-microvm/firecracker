@@ -3,6 +3,8 @@
 
 // Basic CPUID Information
 pub mod leaf_0x1 {
+    pub const LEAF_NUM: u32 = 0x1;
+
     pub mod eax {
 
         pub const EXTENDED_FAMILY_ID_SHIFT: u32 = 20;
@@ -65,6 +67,8 @@ pub mod leaf_0x1 {
 
 // Deterministic Cache Parameters Leaf
 pub mod leaf_0x4 {
+    pub const LEAF_NUM: u32 = 0x4;
+
     pub mod eax {
         use bit_helper::BitRange;
 
@@ -74,8 +78,15 @@ pub mod leaf_0x4 {
     }
 }
 
+// Extended Cache Topology Leaf
+pub mod leaf_0x8000001d {
+    pub const LEAF_NUM: u32 = 0x8000_001d;
+}
+
 // Thermal and Power Management Leaf
 pub mod leaf_0x6 {
+    pub const LEAF_NUM: u32 = 0x6;
+
     pub mod eax {
         pub const TURBO_BOOST_BITINDEX: u32 = 1;
     }
@@ -88,6 +99,8 @@ pub mod leaf_0x6 {
 
 // Structured Extended Feature Flags Enumeration Leaf
 pub mod leaf_0x7 {
+    pub const LEAF_NUM: u32 = 0x7;
+
     pub mod index0 {
         pub mod ebx {
             // 1 = TSC_ADJUST
@@ -143,7 +156,13 @@ pub mod leaf_0x7 {
     }
 }
 
+pub mod leaf_0x80000000 {
+    pub const LEAF_NUM: u32 = 0x8000_0000;
+}
+
 pub mod leaf_0x80000001 {
+    pub const LEAF_NUM: u32 = 0x8000_0001;
+
     pub mod ecx {
         pub const PREFETCH_SHIFT: u32 = 8; // 3DNow! PREFETCH/PREFETCHW instructions
         pub const LZCNT_SHIFT: u32 = 5; // advanced bit manipulation
@@ -154,8 +173,13 @@ pub mod leaf_0x80000001 {
     }
 }
 
+pub mod leaf_0xa {
+    pub const LEAF_NUM: u32 = 0xa;
+}
+
 // Extended Topology Leaf
 pub mod leaf_0xb {
+    pub const LEAF_NUM: u32 = 0xb;
 
     pub const LEVEL_TYPE_INVALID: u32 = 0;
     pub const LEVEL_TYPE_THREAD: u32 = 1;

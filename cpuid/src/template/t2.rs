@@ -8,7 +8,7 @@ use kvm_bindings::kvm_cpuid_entry2;
 pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
     for entry in entries.iter_mut() {
         match entry.function {
-            0x1 => {
+            leaf_0x1::LEAF_NUM => {
                 // Set CPU Basic Information
                 // EAX[20:27] Extended Family ID = 0
                 entry.eax &= !(0b1111_1111 << leaf_0x1::eax::EXTENDED_FAMILY_ID_SHIFT);
@@ -50,7 +50,7 @@ pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
                 entry.edx &= !(1 << leaf_0x1::edx::TM_SHIFT);
                 entry.edx &= !(1 << leaf_0x1::edx::PBE_SHIFT);
             }
-            0x7 => {
+            leaf_0x7::LEAF_NUM => {
                 if entry.index == 0 {
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::SGX_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::HLE_SHIFT);
@@ -69,7 +69,7 @@ pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
                     entry.ecx &= !(1 << leaf_0x7::index0::ecx::SGX_LC_SHIFT);
                 }
             }
-            0x8000_0001 => {
+            leaf_0x80000001::LEAF_NUM => {
                 entry.ecx &= !(1 << leaf_0x80000001::ecx::PREFETCH_SHIFT);
                 entry.edx &= !(1 << leaf_0x80000001::edx::PDPE1GB_SHIFT);
             }
