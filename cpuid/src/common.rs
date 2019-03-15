@@ -6,10 +6,10 @@ use std::arch::x86::{CpuidResult, __cpuid_count, __get_cpuid_max};
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::{CpuidResult, __cpuid_count, __get_cpuid_max};
 
+use cpu_leaf::*;
+
 pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
 pub const VENDOR_ID_AMD: &[u8; 12] = b"AuthenticAMD";
-
-const HIGHEST_EXTENDED_FUNCTION: u32 = 0x8000_0000;
 
 pub enum Error {
     InvalidParameters(String),
@@ -34,7 +34,7 @@ pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
     }
 
     // this is safe because the host supports the `cpuid` instruction
-    let max_function = unsafe { __get_cpuid_max(function & HIGHEST_EXTENDED_FUNCTION).0 };
+    let max_function = unsafe { __get_cpuid_max(function & leaf_0x80000000::LEAF_NUM).0 };
     if function > max_function {
         return Err(Error::InvalidParameters(format!(
             "Function not supported: 0x{:x}",
@@ -72,14 +72,15 @@ pub fn get_vendor_id() -> Result<[u8; 12], Error> {
 #[cfg(test)]
 pub mod tests {
     use common::*;
+    use cpu_leaf::*;
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn get_topoext_fn() -> u32 {
         let vendor_id = get_vendor_id();
         assert!(vendor_id.is_ok());
         let function = match &vendor_id.ok().unwrap() {
-            VENDOR_ID_INTEL => 0x4,
-            VENDOR_ID_AMD => 0x8000001d,
+            VENDOR_ID_INTEL => leaf_0x4::LEAF_NUM,
+            VENDOR_ID_AMD => leaf_0x8000001d::LEAF_NUM,
             _ => 0,
         };
         assert!(function != 0);

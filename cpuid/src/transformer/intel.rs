@@ -3,6 +3,7 @@
 
 use super::*;
 use bit_helper::BitHelper;
+use cpu_leaf::*;
 
 // The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to get a
 // unique topology of the next level. This allows 64 logical processors/package.
@@ -142,11 +143,11 @@ fn update_extended_cache_topology_entry(
 
 pub fn transform_entry(entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error> {
     let maybe_transformer_fn: Option<EntryTransformerFn> = match entry.function {
-        0x1 => Some(common::update_feature_info_entry),
-        0x4 => Some(intel::update_deterministic_cache_entry),
-        0x6 => Some(intel::update_power_management_entry),
-        0xA => Some(intel::update_perf_mon_entry),
-        0xB => Some(intel::update_extended_cache_topology_entry),
+        leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
+        leaf_0x4::LEAF_NUM => Some(intel::update_deterministic_cache_entry),
+        leaf_0x6::LEAF_NUM => Some(intel::update_power_management_entry),
+        leaf_0xa::LEAF_NUM => Some(intel::update_perf_mon_entry),
+        leaf_0xb::LEAF_NUM => Some(intel::update_extended_cache_topology_entry),
         0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
         _ => None,
     };
