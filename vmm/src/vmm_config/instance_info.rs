@@ -71,10 +71,12 @@ pub enum StartMicrovmError {
     GuestMemory(GuestMemoryError),
     /// The kernel command line is invalid.
     KernelCmdline(String),
+    /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
+    KernelLoader(kernel_loader::Error),
     /// Cannot add devices to the Legacy I/O Bus.
     LegacyIOBus(device_manager::legacy::Error),
-    /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
-    Loader(kernel_loader::Error),
+    /// Cannot load command line string.
+    LoadCommandline(kernel_loader::Error),
     /// The start command was issued more than once.
     MicroVMAlreadyRunning,
     /// Cannot start the VM because the kernel was not configured.
@@ -155,22 +157,26 @@ impl Display for StartMicrovmError {
                 write!(f, "Invalid Memory Configuration: {}", err_msg)
             }
             KernelCmdline(ref err) => write!(f, "Invalid kernel command line: {}", err),
-            LegacyIOBus(ref err) => {
-                let mut err_msg = format!("{:?}", err);
+            KernelLoader(ref err) => {
+                let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot add devices to the legacy I/O Bus. {}", err_msg)
-            }
-            Loader(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
                 write!(
                     f,
                     "Cannot load kernel due to invalid memory configuration or invalid kernel \
                      image. {}",
                     err_msg
                 )
+            }
+            LegacyIOBus(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot add devices to the legacy I/O Bus. {}", err_msg)
+            }
+            LoadCommandline(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(f, "Cannot load command line string. {}", err_msg)
             }
             MicroVMAlreadyRunning => write!(f, "Microvm already running."),
             MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),

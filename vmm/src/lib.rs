@@ -1206,9 +1206,9 @@ impl Vmm {
             &mut kernel_config.kernel_file,
             arch::HIMEM_START,
         )
-        .map_err(StartMicrovmError::Loader)?;
+        .map_err(StartMicrovmError::KernelLoader)?;
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)
-            .map_err(StartMicrovmError::Loader)?;
+            .map_err(StartMicrovmError::LoadCommandline)?;
 
         // The vcpu_count has a default value. We shouldn't have gotten to this point without
         // having set the vcpu count.
