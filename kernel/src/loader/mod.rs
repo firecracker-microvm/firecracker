@@ -7,6 +7,7 @@
 
 use std;
 use std::ffi::CStr;
+use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
@@ -33,6 +34,34 @@ pub enum Error {
     SeekElfStart,
     SeekProgramHeader,
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match *self {
+                Error::BigEndianElfOnLittle => "Unsupported ELF File byte order",
+                Error::CommandLineCopy => "Failed to copy the command line string to guest memory",
+                Error::CommandLineOverflow => "Command line string overflows guest memory",
+                Error::InvalidElfMagicNumber => "Invalid ELF magic number",
+                Error::InvalidEntryAddress => "Invalid entry address found in ELF header",
+                Error::InvalidProgramHeaderSize => "Invalid ELF program header size",
+                Error::InvalidProgramHeaderOffset => "Invalid ELF program header offset",
+                Error::InvalidProgramHeaderAddress => "Invalid ELF program header address",
+                Error::ReadElfHeader => "Failed to read ELF header",
+                Error::ReadKernelImage => "Failed to write kernel image to guest memory",
+                Error::ReadProgramHeader => "Failed to read ELF program header",
+                Error::SeekKernelStart => {
+                    "Failed to seek to file offset as pointed by the ELF program header"
+                }
+                Error::SeekElfStart => "Failed to seek to start of kernel image",
+                Error::SeekProgramHeader => "Failed to seek to ELF program header",
+            }
+        )
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Loads a kernel from a vmlinux elf image to a slice

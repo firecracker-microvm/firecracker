@@ -907,6 +907,16 @@ impl Vmm {
         let arch_mem_regions = arch::arch_memory_regions(mem_size);
         self.guest_memory =
             Some(GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?);
+        self.vm
+            .memory_init(
+                self.guest_memory
+                    .clone()
+                    .ok_or(StartMicrovmError::GuestMemory(
+                        memory_model::GuestMemoryError::MemoryNotInitialized,
+                    ))?,
+                &self.kvm,
+            )
+            .map_err(StartMicrovmError::ConfigureVm)?;
         Ok(())
     }
 
@@ -917,7 +927,7 @@ impl Vmm {
         Ok(())
     }
 
-    fn init_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
+    fn attach_virtio_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
         let guest_mem = self
             .guest_memory
             .clone()
@@ -938,21 +948,18 @@ impl Vmm {
         #[cfg(feature = "vsock")]
         self.attach_vsock_devices(&mut device_manager, &guest_mem)?;
 
+        // Register the associated IRQ events and IO events for the virtio devices.
+        for request in &device_manager.vm_requests {
+            if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
+                return Err(StartMicrovmError::DeviceVmRequest(e))?;
+            }
+        }
+
         self.mmio_device_manager = Some(device_manager);
         Ok(())
     }
 
-    fn init_microvm(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        self.vm
-            .memory_init(
-                self.guest_memory
-                    .clone()
-                    .ok_or(StartMicrovmError::GuestMemory(
-                        memory_model::GuestMemoryError::MemoryNotInitialized,
-                    ))?,
-                &self.kvm,
-            )
-            .map_err(StartMicrovmError::ConfigureVm)?;
+    fn setup_interrupt_controller(&mut self) -> std::result::Result<(), StartMicrovmError> {
         self.vm
             .setup_irqchip(
                 &self.legacy_device_manager.com_evt_1_3,
@@ -964,18 +971,10 @@ impl Vmm {
         self.vm
             .create_pit()
             .map_err(StartMicrovmError::ConfigureVm)?;
+        Ok(())
+    }
 
-        // mmio_device_manager is instantiated in init_devices, which is called before init_microvm.
-        let device_manager = self
-            .mmio_device_manager
-            .as_ref()
-            .ok_or(StartMicrovmError::DeviceManager)?;
-        for request in &device_manager.vm_requests {
-            if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
-                return Err(StartMicrovmError::DeviceVmRequest(e))?;
-            }
-        }
-
+    fn attach_legacy_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
         self.legacy_device_manager
             .register_devices()
             .map_err(StartMicrovmError::LegacyIOBus)?;
@@ -983,22 +982,49 @@ impl Vmm {
         Ok(())
     }
 
-    fn start_vcpus(
+    // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) and configured before
+    // setting up the IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
+    // was already initialized.
+    // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
+    fn create_vcpus(
         &mut self,
         entry_addr: GuestAddress,
-    ) -> std::result::Result<(), StartMicrovmError> {
+    ) -> std::result::Result<Vec<Vcpu>, StartMicrovmError> {
+        let vcpu_count = self
+            .vm_config
+            .vcpu_count
+            .ok_or(StartMicrovmError::VcpusNotConfigured)?;
+        let mut vcpus = Vec::with_capacity(vcpu_count as usize);
+        for cpu_id in 0..vcpu_count {
+            let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(StartMicrovmError::Vcpu)?;
+            #[cfg(target_arch = "x86_64")]
+            vcpu.configure(&self.vm_config, entry_addr, &self.vm)
+                .map_err(StartMicrovmError::VcpuConfigure)?;
+            vcpus.push(vcpu);
+        }
+        Ok(vcpus)
+    }
+
+    fn start_vcpus(&mut self, mut vcpus: Vec<Vcpu>) -> std::result::Result<(), StartMicrovmError> {
         // vm_config has a default value for vcpu_count.
         let vcpu_count = self
             .vm_config
             .vcpu_count
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
+        assert_eq!(
+            vcpus.len(),
+            vcpu_count as usize,
+            "The number of vCPU fds is corrupted!"
+        );
+
         self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
         // It is safe to unwrap since it's set just above.
         let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
 
         let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
 
-        for cpu_id in 0..vcpu_count {
+        // We're going in reverse so we can `.pop()` on the vec and still maintain order.
+        for cpu_id in (0..vcpu_count).rev() {
             let io_bus = self.legacy_device_manager.io_bus.clone();
             // mmio_device_manager is instantiated in init_devices, which is called before
             // start_vcpus.
@@ -1017,14 +1043,13 @@ impl Vmm {
                 .get_reset_evt_clone()
                 .map_err(|_| StartMicrovmError::EventFd)?;
 
-            let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(StartMicrovmError::Vcpu)?;
+            // `unwrap` is safe since we are asserting that the `vcpu_count` is equal to the number
+            // of items of `vcpus` vector.
+            let vcpu = vcpus.pop().unwrap();
+
             let seccomp_level = self.seccomp_level;
             // It is safe to unwrap the ht_enabled flag because the machine configure
             // has default values for all fields.
-
-            #[cfg(target_arch = "x86_64")]
-            vcpu.configure(&self.vm_config, entry_addr, &self.vm)
-                .map_err(StartMicrovmError::VcpuConfigure)?;
 
             vcpu_handles.push(
                 thread::Builder::new()
@@ -1181,9 +1206,9 @@ impl Vmm {
             &mut kernel_config.kernel_file,
             arch::HIMEM_START,
         )
-        .map_err(StartMicrovmError::Loader)?;
+        .map_err(StartMicrovmError::KernelLoader)?;
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)
-            .map_err(StartMicrovmError::Loader)?;
+            .map_err(StartMicrovmError::LoadCommandline)?;
 
         // The vcpu_count has a default value. We shouldn't have gotten to this point without
         // having set the vcpu count.
@@ -1248,9 +1273,12 @@ impl Vmm {
         self.init_guest_memory()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
-        self.init_devices()
+        self.setup_interrupt_controller()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
-        self.init_microvm()
+
+        self.attach_virtio_devices()
+            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+        self.attach_legacy_devices()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
         let entry_addr = self
@@ -1259,9 +1287,13 @@ impl Vmm {
 
         self.register_events()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
-        self.start_vcpus(entry_addr)
+
+        let vcpus = self
+            .create_vcpus(entry_addr)
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
+        self.start_vcpus(vcpus)
+            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
         // Use expect() to crash if the other thread poisoned this lock.
         self.shared_info
             .write()
@@ -2780,7 +2812,7 @@ mod tests {
         vmm.default_kernel_config();
         assert!(vmm.init_guest_memory().is_ok());
 
-        assert!(vmm.init_devices().is_ok());
+        assert!(vmm.attach_virtio_devices().is_ok());
     }
 
     #[test]
@@ -3008,5 +3040,71 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert_eq!(vmm.get_dirty_page_count(), 0);
         // Booting an actual guest and getting real data is covered by `kvm::tests::run_code_test`.
+    }
+
+    #[test]
+    fn test_create_vcpus() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.default_kernel_config();
+
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.vm.get_memory().is_some());
+
+        #[cfg(target_arch = "x86_64")]
+        // `KVM_CREATE_VCPU` fails if the irqchip is not created beforehand. This is x86_64 speciifc.
+        vmm.vm
+            .setup_irqchip(
+                &vmm.legacy_device_manager.com_evt_1_3,
+                &vmm.legacy_device_manager.com_evt_2_4,
+                &vmm.legacy_device_manager.kbd_evt,
+            )
+            .expect("Cannot create IRQCHIP");
+        assert!(vmm.create_vcpus(GuestAddress(0x0)).is_ok());
+    }
+
+    #[test]
+    fn test_setup_interrupt_controller() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert!(vmm.setup_interrupt_controller().is_ok());
+    }
+
+    #[test]
+    fn test_attach_virtio_devices() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.default_kernel_config();
+
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.vm.get_memory().is_some());
+
+        // Create test network interface.
+        let network_interface = NetworkInterfaceConfig {
+            iface_id: String::from("netif"),
+            host_dev_name: String::from("hostname"),
+            guest_mac: None,
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+            allow_mmds_requests: false,
+            tap: None,
+        };
+
+        assert!(vmm.insert_net_device(network_interface).is_ok());
+        assert!(vmm.attach_virtio_devices().is_ok());
+        assert!(vmm.mmio_device_manager.is_some());
+        // 2 io events and 1 irq event.
+        assert!(vmm.mmio_device_manager.unwrap().vm_requests.len() == 3);
+    }
+
+    #[test]
+    fn test_attach_legacy_devices() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+
+        assert!(vmm.attach_legacy_devices().is_ok());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x3f8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x2f8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x3e8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x2e8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x060).is_some());
+        let stdin_handle = io::stdin();
+        stdin_handle.lock().set_canon_mode().unwrap();
     }
 }
