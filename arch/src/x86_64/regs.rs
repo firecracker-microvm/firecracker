@@ -299,12 +299,7 @@ mod tests {
         gm.read_obj_from_addr(read_addr).unwrap()
     }
 
-    #[test]
-    fn segments_and_sregs() {
-        let mut sregs: kvm_sregs = Default::default();
-        let gm = create_guest_mem();
-        configure_segments_and_sregs(&gm, &mut sregs).unwrap();
-
+    fn validate_segments_and_sregs(gm: &GuestMemory, sregs: &kvm_sregs) {
         assert_eq!(0x0, read_u64(&gm, BOOT_GDT_OFFSET));
         assert_eq!(0xaf_9b00_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 8));
         assert_eq!(0xcf_9300_0000_ffff, read_u64(&gm, BOOT_GDT_OFFSET + 16));
@@ -320,16 +315,20 @@ mod tests {
         assert_eq!(0, sregs.tr.base);
         assert_eq!(0xfffff, sregs.tr.limit);
         assert_eq!(0, sregs.tr.avl);
-        assert_eq!(X86_CR0_PE, sregs.cr0);
-        assert_eq!(EFER_LME | EFER_LMA, sregs.efer);
+        assert!(sregs.cr0 & X86_CR0_PE != 0);
+        assert!(sregs.efer & EFER_LME != 0 && sregs.efer & EFER_LMA != 0);
     }
 
     #[test]
-    fn page_tables() {
+    fn test_configure_segments_and_sregs() {
         let mut sregs: kvm_sregs = Default::default();
         let gm = create_guest_mem();
-        setup_page_tables(&gm, &mut sregs).unwrap();
+        configure_segments_and_sregs(&gm, &mut sregs).unwrap();
 
+        validate_segments_and_sregs(&gm, &sregs);
+    }
+
+    fn validate_page_tables(gm: &GuestMemory, sregs: &kvm_sregs) {
         assert_eq!(0xa003, read_u64(&gm, PML4_START));
         assert_eq!(0xb003, read_u64(&gm, PDPTE_START));
         for i in 0..512 {
@@ -340,8 +339,17 @@ mod tests {
         }
 
         assert_eq!(PML4_START as u64, sregs.cr3);
-        assert_eq!(X86_CR4_PAE, sregs.cr4);
-        assert_eq!(X86_CR0_PG, sregs.cr0);
+        assert!(sregs.cr4 & X86_CR4_PAE != 0);
+        assert!(sregs.cr0 & X86_CR0_PG != 0);
+    }
+
+    #[test]
+    fn test_setup_page_tables() {
+        let mut sregs: kvm_sregs = Default::default();
+        let gm = create_guest_mem();
+        setup_page_tables(&gm, &mut sregs).unwrap();
+
+        validate_page_tables(&gm, &sregs);
     }
 
     #[test]
@@ -434,14 +442,17 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
-
-        let mut expected_sregs: kvm_sregs = vcpu.get_sregs().unwrap();
         let gm = create_guest_mem();
-        configure_segments_and_sregs(&gm, &mut expected_sregs).unwrap();
-        setup_page_tables(&gm, &mut expected_sregs).unwrap();
 
+        assert!(vcpu.set_sregs(&Default::default()).is_ok());
         setup_sregs(&gm, &vcpu).unwrap();
-        let actual_sregs: kvm_sregs = vcpu.get_sregs().unwrap();
-        assert_eq!(expected_sregs, actual_sregs);
+
+        let mut sregs: kvm_sregs = vcpu.get_sregs().unwrap();
+        // for AMD KVM_GET_SREGS returns g = 0 for each kvm_segment.
+        // We set it to 1, otherwise the test will fail.
+        sregs.gs.g = 1;
+
+        validate_segments_and_sregs(&gm, &sregs);
+        validate_page_tables(&gm, &sregs);
     }
 }
