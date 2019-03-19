@@ -632,7 +632,7 @@ impl EpollContext {
     /// Given a file descriptor `fd`, and an EpollDispatch token `token`,
     /// associate `token` with an `EPOLLIN` event for `fd`, through the
     /// `dispatch_table`.
-    fn add_event<T: AsRawFd>(&mut self, fd: &T, token: EpollDispatch) -> Result<()> {
+    fn add_event<T: AsRawFd + ?Sized>(&mut self, fd: &T, token: EpollDispatch) -> Result<()> {
         // The index in the dispatch where the new token will be added.
         let dispatch_index = self.dispatch_table.len() as u64;
 
@@ -806,7 +806,6 @@ struct Vmm {
     epoll_context: EpollContext,
 
     // API resources.
-    api_event_fd: EventFd,
     from_api: Receiver<Box<VmmAction>>,
 
     write_metrics_event_fd: TimerFd,
@@ -818,15 +817,15 @@ struct Vmm {
 impl Vmm {
     fn new(
         api_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_event_fd: EventFd,
+        control_fd: &AsRawFd,
         from_api: Receiver<Box<VmmAction>>,
         seccomp_level: u32,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
         epoll_context
-            .add_event(&api_event_fd, EpollDispatch::VmmActionRequest)
-            .expect("Cannot add API eventfd to epoll.");
+            .add_event(control_fd, EpollDispatch::VmmActionRequest)
+            .expect("Cannot add API control_fd to epoll.");
 
         let write_metrics_event_fd =
             TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?;
@@ -861,7 +860,6 @@ impl Vmm {
             pio_device_manager: PortIODeviceManager::new().map_err(Error::CreateLegacyDevice)?,
             device_configs,
             epoll_context,
-            api_event_fd,
             from_api,
             write_metrics_event_fd,
             seccomp_level,
@@ -2165,7 +2163,7 @@ pub fn start_vmm_thread(
         .name("fc_vmm".to_string())
         .spawn(move || {
             // If this fails, consider it fatal. Use expect().
-            let mut vmm = Vmm::new(api_shared_info, api_event_fd, from_api, seccomp_level)
+            let mut vmm = Vmm::new(api_shared_info, &api_event_fd, from_api, seccomp_level)
                 .expect("Cannot create VMM");
 
             if let Some(json) = config_json {
@@ -2200,7 +2198,7 @@ pub fn start_vmm_thread(
                             FC_EXIT_CODE_OK
                         }
                         EventLoopExitReason::ControlAction => {
-                            if let Err(e) = vmm.api_event_fd.read() {
+                            if let Err(e) = api_event_fd.read() {
                                 error!("Error reading VMM API event_fd {:?}", e);
                                 FC_EXIT_CODE_GENERIC_ERROR
                             } else {
@@ -2385,7 +2383,7 @@ mod tests {
         let (_to_vmm, from_api) = channel();
         Vmm::new(
             shared_info,
-            EventFd::new().expect("cannot create eventFD"),
+            &EventFd::new().expect("cannot create eventFD"),
             from_api,
             seccomp::SECCOMP_LEVEL_NONE,
         )
