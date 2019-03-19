@@ -457,6 +457,16 @@ pub type OutcomeReceiver = oneshot::Receiver<VmmRequestOutcome>;
 
 type Result<T> = std::result::Result<T, Error>;
 
+/// Describes all possible reasons which may cause the event loop to return to the caller in
+/// the absence of errors.
+pub enum EventLoopExitReason {
+    /// A break statement interrupted the event loop during normal execution. This is the
+    /// default exit reason.
+    Break,
+    /// The control action file descriptor has data available for reading.
+    ControlAction,
+}
+
 /// Holds a micro-second resolution timestamp with both the real time and cpu time.
 #[derive(Clone, Default)]
 pub struct TimestampUs {
@@ -1561,7 +1571,7 @@ impl Vmm {
         Ok(())
     }
 
-    fn run_control(&mut self) -> Result<()> {
+    fn run_event_loop(&mut self) -> Result<EventLoopExitReason> {
         // TODO: try handling of errors/failures without breaking this main loop.
         loop {
             let event = self.epoll_context.get_event()?;
@@ -1620,10 +1630,7 @@ impl Vmm {
                     }
                 }
                 Some(EpollDispatch::VmmActionRequest) => {
-                    self.api_event_fd.read().map_err(Error::EventFd)?;
-                    self.run_vmm_action().unwrap_or_else(|_| {
-                        warn!("got spurious notification from api thread");
-                    });
+                    return Ok(EventLoopExitReason::ControlAction);
                 }
                 Some(EpollDispatch::WriteMetrics) => {
                     self.write_metrics_event_fd.read();
@@ -1638,6 +1645,8 @@ impl Vmm {
                 }
             }
         }
+        // Currently, we never get to return with Ok(EventLoopExitReason::Break) because
+        // we just invoke stop() whenever that would happen.
     }
 
     // Count the number of pages dirtied since the last call to this function.
@@ -2177,16 +2186,39 @@ pub fn start_vmm_thread(
                 }
             }
 
-            match vmm.run_control() {
-                Ok(()) => {
-                    info!("Gracefully terminated VMM control loop");
-                    vmm.stop(i32::from(FC_EXIT_CODE_OK))
-                }
-                Err(e) => {
-                    error!("Abruptly exited VMM control loop: {:?}", e);
-                    vmm.stop(i32::from(FC_EXIT_CODE_GENERIC_ERROR));
-                }
-            }
+            // The loop continues to run as long as there is no error. Whenever run_event_loop
+            // returns due to a ControlAction, we handle it and invoke `continue`. Clippy thinks
+            // this never loops and complains about it, but Clippy is wrong.
+            #[allow(clippy::never_loop)]
+            let exit_code = loop {
+                // `break <expression>` causes the outer loop to break and return the result
+                // of evaluating <expression>, which in this case is the exit code.
+                break match vmm.run_event_loop() {
+                    Ok(exit_reason) => match exit_reason {
+                        EventLoopExitReason::Break => {
+                            info!("Gracefully terminated VMM control loop");
+                            FC_EXIT_CODE_OK
+                        }
+                        EventLoopExitReason::ControlAction => {
+                            if let Err(e) = vmm.api_event_fd.read() {
+                                error!("Error reading VMM API event_fd {:?}", e);
+                                FC_EXIT_CODE_GENERIC_ERROR
+                            } else {
+                                vmm.run_vmm_action().unwrap_or_else(|_| {
+                                    warn!("Got a spurious notification from api thread");
+                                });
+                                continue;
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        error!("Abruptly exited VMM control loop: {:?}", e);
+                        FC_EXIT_CODE_GENERIC_ERROR
+                    }
+                };
+            };
+
+            vmm.stop(i32::from(exit_code));
         })
         .expect("VMM thread spawn failed.")
 }
