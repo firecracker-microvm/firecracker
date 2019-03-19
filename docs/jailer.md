@@ -192,7 +192,7 @@ Finally, the jailer switches the `uid` to `123`, and `gid` to `100`, and execs
 ```
 
 We can now use the socket at
-`/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root/api.socket`
+`/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/api.socket`
 to interact with the VM.
 
 ### Observations
