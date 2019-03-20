@@ -73,7 +73,6 @@ pub fn get_vendor_id() -> Result<[u8; 12], Error> {
 #[cfg(test)]
 pub mod tests {
     use common::*;
-    use cpu_leaf::*;
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn get_topoext_fn() -> u32 {
