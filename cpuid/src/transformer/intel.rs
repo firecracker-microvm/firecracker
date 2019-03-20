@@ -9,6 +9,19 @@ use cpu_leaf::*;
 // unique topology of the next level. This allows 64 logical processors/package.
 const LEAFBH_INDEX1_APICID: u32 = 6;
 
+pub fn update_feature_info_entry(
+    entry: &mut kvm_cpuid_entry2,
+    vm_spec: &VmSpec,
+) -> Result<(), Error> {
+    use cpu_leaf::leaf_0x1::*;
+
+    common::update_feature_info_entry(entry, vm_spec)?;
+
+    entry.ecx.write_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX, true);
+
+    Ok(())
+}
+
 fn update_deterministic_cache_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
@@ -128,7 +141,7 @@ pub struct IntelCpuidTransformer {}
 impl CpuidTransformer for IntelCpuidTransformer {
     fn transform_entry(&self, entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error> {
         let maybe_transformer_fn: Option<EntryTransformerFn> = match entry.function {
-            leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
+            leaf_0x1::LEAF_NUM => Some(intel::update_feature_info_entry),
             leaf_0x4::LEAF_NUM => Some(intel::update_deterministic_cache_entry),
             leaf_0x6::LEAF_NUM => Some(intel::update_power_management_entry),
             leaf_0xa::LEAF_NUM => Some(intel::update_perf_mon_entry),
