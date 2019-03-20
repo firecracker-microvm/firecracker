@@ -25,6 +25,7 @@ impl CpuidTransformer for AmdCpuidTransformer {
 
     fn transform_entry(&self, entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error> {
         let maybe_transformer_fn: Option<EntryTransformerFn> = match entry.function {
+            leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
             leaf_0x8000001d::LEAF_NUM => Some(amd::update_extended_cache_topology_entry),
             _ => None,
         };
