@@ -166,6 +166,10 @@ pub mod leaf_0x7 {
             pub const SGX_LC_SHIFT: u32 = 30;
             // 31 reserved
         }
+
+        pub mod edx {
+            pub const ARCH_CAPABILITIES_BITINDEX: u32 = 29;
+        }
     }
 }
 
