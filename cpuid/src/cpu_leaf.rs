@@ -19,10 +19,10 @@ pub mod leaf_0x1 {
 
         // The bit-range containing the (fixed) default APIC ID.
         pub const APICID_BITRANGE: BitRange = bit_range!(31, 24);
-        // The bit-range containing the number of bytes flushed when executing CLFLUSH.
-        pub const CLFLUSH_SIZE_BITRANGE: BitRange = bit_range!(15, 8);
         // The bit-range containing the logical processor count.
         pub const CPU_COUNT_BITRANGE: BitRange = bit_range!(23, 16);
+        // The bit-range containing the number of bytes flushed when executing CLFLUSH.
+        pub const CLFLUSH_SIZE_BITRANGE: BitRange = bit_range!(15, 8);
     }
 
     pub mod ecx {
