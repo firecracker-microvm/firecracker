@@ -384,7 +384,7 @@ mod tests {
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
-            StartMicrovmError::KernelLoader(kernel::loader::Error::SeekElfStart),
+            StartMicrovmError::KernelLoader(kernel::loader::Error::SeekKernelImage),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
