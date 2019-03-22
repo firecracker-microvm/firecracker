@@ -41,6 +41,7 @@ impl CpuidTransformer for AmdCpuidTransformer {
             leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
             leaf_0x7::LEAF_NUM => Some(amd::update_structured_extended_entry),
             leaf_0x8000001d::LEAF_NUM => Some(amd::update_extended_cache_topology_entry),
+            0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
             _ => None,
         };
 
@@ -55,14 +56,36 @@ impl CpuidTransformer for AmdCpuidTransformer {
 #[cfg(test)]
 mod test {
     use super::*;
+    use common::VENDOR_ID_AMD;
+
+    #[test]
+    fn test_update_extended_cache_topology_entry() {
+        use cpu_leaf::leaf_0x8000001d::*;
+
+        let vm_spec = VmSpec::new(VENDOR_ID_AMD, 0, 1, false);
+        let mut entry = &mut kvm_cpuid_entry2 {
+            function: leaf_0x8000001d::LEAF_NUM,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+
+        assert!(update_extended_cache_topology_entry(&mut entry, &vm_spec).is_ok());
+
+        assert_eq!(entry.flags & KVM_CPUID_FLAG_SIGNIFCANT_INDEX, 1);
+    }
 
     #[test]
     fn test_update_structured_extended_entry() {
         use cpu_leaf::leaf_0x7::index0::*;
 
-        let vm_spec = VmSpec::new(0, 1, false);
+        let vm_spec = VmSpec::new(VENDOR_ID_AMD, 0, 1, false);
         let mut entry = &mut kvm_cpuid_entry2 {
-            function: 0x0,
+            function: leaf_0x7::LEAF_NUM,
             index: 0,
             flags: 0,
             eax: 0,
