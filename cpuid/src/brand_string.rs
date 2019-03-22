@@ -1,6 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use common::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
 use std::arch::x86_64::__cpuid as host_cpuid;
 use std::slice;
 
@@ -17,6 +18,9 @@ pub enum Reg {
     ECX = 2,
     EDX = 3,
 }
+
+const BRAND_STRING_INTEL: &[u8] = b"Intel(R) Xeon(R) Processor";
+const BRAND_STRING_AMD: &[u8] = b"AMD EPYC";
 
 /// A CPUID brand string wrapper, providing some efficient manipulation primitives.
 ///
@@ -63,6 +67,37 @@ impl BrandString {
         Self {
             reg_buf: [0; Self::REG_BUF_SIZE],
             len: 0,
+        }
+    }
+
+    /// Generates the emulated brand string.
+    ///
+    /// For Intel CPUs, the brand string we expose will be:
+    ///    "Intel(R) Xeon(R) Processor @ {host freq}"
+    /// where {host freq} is the CPU frequency, as present in the
+    /// host brand string (e.g. 4.01GHz).
+    ///
+    /// For AMD CPUs, the brand string we expose will be AMD EPYC.
+    ///
+    /// For other CPUs, we'll just expose an empty string.
+    ///
+    /// This is safe because we know BRAND_STRING_INTEL and BRAND_STRING_AMD to hold valid data
+    /// (allowed length and holding only valid ASCII chars).
+    pub fn from_vendor_id(vendor_id: &[u8; 12]) -> BrandString {
+        match vendor_id {
+            VENDOR_ID_INTEL => {
+                let mut this = BrandString::from_bytes_unchecked(BRAND_STRING_INTEL);
+                if let Ok(host_bstr) = BrandString::from_host_cpuid() {
+                    if let Some(freq) = host_bstr.find_freq() {
+                        this.push_bytes(b" @ ").unwrap();
+                        this.push_bytes(freq)
+                            .expect("Unexpected frequency information in host CPUID");
+                    }
+                }
+                this
+            }
+            VENDOR_ID_AMD => BrandString::from_bytes_unchecked(BRAND_STRING_AMD),
+            _ => BrandString::from_bytes_unchecked(b""),
         }
     }
 
@@ -166,14 +201,6 @@ impl BrandString {
         self.len += count;
         self.as_bytes_mut()[start..(start + count)].copy_from_slice(src);
         Ok(())
-    }
-
-    /// Checks if `src` is a prefix of the brand string.
-    pub fn starts_with(&self, src: &[u8]) -> bool {
-        if src.len() > Self::MAX_LEN {
-            return false;
-        }
-        &self.as_bytes()[..src.len()] == src
     }
 
     /// Searches the brand string for the CPU frequency data it may contain (e.g. 4.01GHz),
@@ -286,13 +313,6 @@ mod tests {
 
         let _overflow: [u8; 50] = [b'a'; 50];
 
-        // Test BrandString::starts_with()
-        //
-        assert_eq!(bstr.starts_with(b"012345"), true);
-        assert_eq!(bstr.starts_with(b"01234X"), false);
-        assert_eq!(bstr.starts_with(b"X01234"), false);
-        assert_eq!(bstr.starts_with(&_overflow), false);
-
         // Test BrandString::check_push()
         //
         bstr = BrandString::new();
@@ -300,7 +320,6 @@ mod tests {
         bstr.push_bytes(b"Hello").unwrap();
         assert!(bstr.check_push(b", world!"));
         bstr.push_bytes(b", world!").unwrap();
-        assert!(bstr.starts_with(b"Hello, world!"));
 
         assert!(!bstr.check_push(&_overflow));
 
@@ -340,6 +359,14 @@ mod tests {
                 "This function should not return another type of error"
             ),
         }
+
+        // Test BrandString::from_vendor_id()
+        let bstr = BrandString::from_vendor_id(VENDOR_ID_INTEL);
+        assert!(bstr.as_bytes().starts_with(BRAND_STRING_INTEL));
+        let bstr = BrandString::from_vendor_id(VENDOR_ID_AMD);
+        assert!(bstr.as_bytes().starts_with(BRAND_STRING_AMD));
+        let bstr = BrandString::from_vendor_id(b"............");
+        assert!(bstr.as_bytes() == vec![b'\0'; 48].as_slice());
     }
 
     #[test]

@@ -90,15 +90,19 @@ def test_brand_string(test_microvm_with_ssh, network_config):
     """
     cif = open('/proc/cpuinfo', 'r')
     host_brand_string = None
+    host_vendor_id = None
     while True:
         line = cif.readline()
         if line == '':
             break
+        mo = re.search("^vendor_id\\s+:\\s+(.+)$", line)
+        if mo:
+            host_vendor_id = mo.group(1)
         mo = re.search("^model name\\s+:\\s+(.+)$", line)
         if mo:
             host_brand_string = mo.group(1)
-            break
     cif.close()
+    assert host_vendor_id is not None
     assert host_brand_string is not None
 
     test_microvm = test_microvm_with_ssh
@@ -120,10 +124,13 @@ def test_brand_string(test_microvm_with_ssh, network_config):
     guest_brand_string = mo.group(1)
     assert guest_brand_string
 
-    expected_guest_brand_string = "Intel(R) Xeon(R) Processor"
-    if host_brand_string.startswith("Intel"):
+    expected_guest_brand_string = ""
+    if host_vendor_id == "GenuineIntel":
+        expected_guest_brand_string = "Intel(R) Xeon(R) Processor"
         mo = re.search("[.0-9]+[MG]Hz", host_brand_string)
         if mo:
             expected_guest_brand_string += " @ " + mo.group(0)
+    elif host_vendor_id == "AuthenticAMD":
+        expected_guest_brand_string += "AMD EPYC"
 
     assert guest_brand_string == expected_guest_brand_string

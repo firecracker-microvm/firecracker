@@ -63,7 +63,7 @@ pub fn filter_cpuid(
     kvm_cpuid: &mut CpuId,
 ) -> Result<(), Error> {
     let vendor_id = get_vendor_id().map_err(Error::InternalError)?;
-    let vm_spec = VmSpec::new(cpu_id, cpu_count, ht_enabled);
+    let vm_spec = VmSpec::new(&vendor_id, cpu_id, cpu_count, ht_enabled);
 
     let maybe_cpuid_transformer: Option<&dyn CpuidTransformer> = match &vendor_id {
         VENDOR_ID_INTEL => Some(&intel::IntelCpuidTransformer {}),
