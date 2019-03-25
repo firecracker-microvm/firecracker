@@ -16,7 +16,7 @@ impl IntoParsedRequest for VsockDeviceConfig {
         id_from_path: Option<String>,
         _: Method,
     ) -> result::Result<ParsedRequest, String> {
-        let id_from_path = id_from_path.unwrap_or(String::new());
+        let id_from_path = id_from_path.unwrap_or_default();
         if id_from_path != self.id.as_str() {
             return Err(String::from(
                 "The id from the path does not match the id from the body!",

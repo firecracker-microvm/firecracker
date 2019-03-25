@@ -367,10 +367,11 @@ class Network:
     ):
         """Create the json for the net specific API request."""
         datax = {
-            'iface_id': iface_id,
-            'host_dev_name': host_dev_name
+            'iface_id': iface_id
         }
 
+        if host_dev_name is not None:
+            datax['host_dev_name'] = host_dev_name
         if guest_mac is not None:
             datax['guest_mac'] = guest_mac
         if allow_mmds_requests is not None:
@@ -379,4 +380,51 @@ class Network:
             datax['tx_rate_limiter'] = tx_rate_limiter
         if rx_rate_limiter is not None:
             datax['rx_rate_limiter'] = rx_rate_limiter
+        return datax
+
+
+class Vsock:
+    """Facility for handling vsock configuration for a microvm."""
+
+    VSOCK_CFG_RESOURCE = 'vsocks'
+
+    __vsock_cfg_url = None
+    __api_session = None
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        type(self).__vsock_cfg_url = api_url + self.VSOCK_CFG_RESOURCE
+        type(self).__api_session = api_session
+
+    @classmethod
+    def put(cls, **args):
+        """Attach a new vsock device."""
+        datax = cls.create_json(**args)
+        return Vsock.__api_session.put(
+            "{}/{}".format(Vsock.__vsock_cfg_url, args['vsock_id']),
+            json=datax
+        )
+
+    @classmethod
+    def patch(cls, **args):
+        """Apply an update to some vsock device."""
+        datax = cls.create_json(**args)
+        return Vsock.__api_session.patch(
+            "{}/{}".format(Vsock.__vsock_cfg_url, args['vsock_id']),
+            json=datax
+        )
+
+    @staticmethod
+    def create_json(
+            vsock_id,
+            guest_cid
+    ):
+        """Create the json for the vsock specific API request."""
+        datax = {
+            'id': vsock_id,
+            'guest_cid': guest_cid
+        }
+
         return datax

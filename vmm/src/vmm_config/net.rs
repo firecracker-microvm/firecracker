@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter, Result};
+use std::io;
 use std::result;
 
+use super::super::Error as VmmInternalError;
+use super::RateLimiterConfig;
+use devices;
 use net_util::{MacAddr, Tap, TapError};
-use rate_limiter::RateLimiter;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -19,9 +22,9 @@ pub struct NetworkInterfaceConfig {
     /// Guest MAC address.
     pub guest_mac: Option<MacAddr>,
     /// Rate Limiter for received packages.
-    pub rx_rate_limiter: Option<RateLimiter>,
+    pub rx_rate_limiter: Option<RateLimiterConfig>,
     /// Rate Limiter for transmitted packages.
-    pub tx_rate_limiter: Option<RateLimiter>,
+    pub tx_rate_limiter: Option<RateLimiterConfig>,
     #[serde(default = "default_allow_mmds_requests")]
     /// If this field is set, the device model will reply to HTTP GET
     /// requests sent to the MMDS address via this interface. In this case,
@@ -60,15 +63,38 @@ impl NetworkInterfaceConfig {
     }
 }
 
+/// The data fed into a network iface update request. Currently, only the RX and TX rate limiters
+/// can be updated.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkInterfaceUpdateConfig {
+    /// The net iface ID, as provided by the user at iface creation time.
+    pub iface_id: String,
+    /// New RX rate limiter config. Only provided data will be updated. I.e. if any optional data
+    /// is missing, it will not be nullified, but left unchanged.
+    pub rx_rate_limiter: Option<RateLimiterConfig>,
+    /// New TX rate limiter config. Only provided data will be updated. I.e. if any optional data
+    /// is missing, it will not be nullified, but left unchanged.
+    pub tx_rate_limiter: Option<RateLimiterConfig>,
+}
+
 /// Errors associated with `NetworkInterfaceConfig`.
 #[derive(Debug)]
 pub enum NetworkInterfaceError {
     /// The MAC address is already in use.
     GuestMacAddressInUse(String),
+    /// Error retrieving device handler during update.
+    EpollHandlerNotFound(VmmInternalError),
     /// The host device name is already in use.
     HostDeviceNameInUse(String),
+    /// Couldn't find the interface to update (patch).
+    DeviceIdNotFound,
     /// Cannot open/create tap device.
     OpenTap(TapError),
+    /// Downstream error from a RateLimiter.
+    RateLimiterError(io::Error),
+    /// Error updating (patching) the rate limiters.
+    RateLimiterUpdateFailed(devices::Error),
     /// The update is not allowed after booting the microvm.
     UpdateNotAllowedPostBoot,
 }
@@ -82,11 +108,15 @@ impl Display for NetworkInterfaceError {
                 "{}",
                 format!("The guest MAC address {} is already in use.", mac_addr)
             ),
+            EpollHandlerNotFound(ref e) => {
+                write!(f, "Error retrieving device epoll handler: {:?}", e)
+            }
             HostDeviceNameInUse(ref host_dev_name) => write!(
                 f,
                 "{}",
                 format!("The host device name {} is already in use.", host_dev_name)
             ),
+            DeviceIdNotFound => write!(f, "Invalid interface ID - not found."),
             OpenTap(ref e) => {
                 // We are propagating the Tap Error. This error can contain
                 // imbricated quotes which would result in an invalid json.
@@ -100,6 +130,10 @@ impl Display for NetworkInterfaceError {
                     tap_err
                 )
             }
+            RateLimiterError(ref e) => {
+                write!(f, "Unable to create rate limiter: {}", e.to_string())
+            }
+            RateLimiterUpdateFailed(ref e) => write!(f, "Unable to update rate limiter: {:?}", e),
             UpdateNotAllowedPostBoot => {
                 write!(f, "The update operation is not allowed after boot.",)
             }
@@ -108,6 +142,7 @@ impl Display for NetworkInterfaceError {
 }
 
 /// A wrapper over the list of the `NetworkInterfaceConfig` that the microvm has configured.
+#[derive(Default)]
 pub struct NetworkInterfaceConfigs {
     if_list: Vec<NetworkInterfaceConfig>,
 }
@@ -142,18 +177,16 @@ impl NetworkInterfaceConfigs {
         }
     }
 
-    fn get_index_of_mac(&self, mac: &MacAddr) -> Option<usize> {
-        return self
-            .if_list
+    fn get_index_of_mac(&self, mac: MacAddr) -> Option<usize> {
+        self.if_list
             .iter()
-            .position(|netif| netif.guest_mac == Some(*mac));
+            .position(|netif| netif.guest_mac == Some(mac))
     }
 
-    fn get_index_of_dev_name(&self, host_dev_name: &String) -> Option<usize> {
-        return self
-            .if_list
+    fn get_index_of_dev_name(&self, host_dev_name: &str) -> Option<usize> {
+        self.if_list
             .iter()
-            .position(|netif| &netif.host_dev_name == host_dev_name);
+            .position(|netif| netif.host_dev_name == host_dev_name)
     }
 
     fn validate_update(
@@ -165,7 +198,7 @@ impl NetworkInterfaceConfigs {
         // network interface that has the same mac address as the one specified in new_config.
         // If the same mac is used in another network interface config, return error.
         if new_config.guest_mac.is_some() {
-            let mac_index = self.get_index_of_mac(&new_config.guest_mac.unwrap());
+            let mac_index = self.get_index_of_mac(new_config.guest_mac.unwrap());
             if mac_index.is_some() && mac_index.unwrap() != index {
                 return Err(NetworkInterfaceError::GuestMacAddressInUse(
                     new_config.guest_mac.unwrap().to_string(),
@@ -214,7 +247,7 @@ impl NetworkInterfaceConfigs {
         // Check that there is no other interface in the list that has the same mac.
         if new_config.guest_mac.is_some()
             && self
-                .get_index_of_mac(&new_config.guest_mac.unwrap())
+                .get_index_of_mac(new_config.guest_mac.unwrap())
                 .is_some()
         {
             return Err(NetworkInterfaceError::GuestMacAddressInUse(
@@ -262,8 +295,8 @@ mod tests {
             iface_id: String::from(id),
             host_dev_name: String::from(name),
             guest_mac: Some(MacAddr::parse_str(mac).unwrap()),
-            rx_rate_limiter: Some(RateLimiter::default()),
-            tx_rate_limiter: Some(RateLimiter::default()),
+            rx_rate_limiter: Some(RateLimiterConfig::default()),
+            tx_rate_limiter: Some(RateLimiterConfig::default()),
             allow_mmds_requests: false,
             tap: None,
         }
@@ -276,10 +309,10 @@ mod tests {
             NetworkInterfaceConfig {
                 iface_id: self.iface_id.clone(),
                 host_dev_name: self.host_dev_name.clone(),
-                guest_mac: self.guest_mac.clone(),
+                guest_mac: self.guest_mac,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
-                allow_mmds_requests: self.allow_mmds_requests.clone(),
+                allow_mmds_requests: self.allow_mmds_requests,
                 tap: None,
             }
         }
@@ -390,6 +423,58 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             expected_error
+        );
+    }
+
+    #[test]
+    fn test_error_display() {
+        let _ = format!(
+            "{}{:?}",
+            NetworkInterfaceError::GuestMacAddressInUse("00:00:00:00:00:00".to_string()),
+            NetworkInterfaceError::GuestMacAddressInUse("00:00:00:00:00:00".to_string())
+        );
+        let _ = format!(
+            "{}{:?}",
+            NetworkInterfaceError::EpollHandlerNotFound(
+                VmmInternalError::DeviceEventHandlerNotFound
+            ),
+            NetworkInterfaceError::EpollHandlerNotFound(
+                VmmInternalError::DeviceEventHandlerNotFound
+            )
+        );
+        let _ = format!(
+            "{}{:?}",
+            NetworkInterfaceError::HostDeviceNameInUse("hostdev".to_string()),
+            NetworkInterfaceError::HostDeviceNameInUse("hostdev".to_string())
+        );
+        let _ = format!(
+            "{}{:?}",
+            NetworkInterfaceError::DeviceIdNotFound,
+            NetworkInterfaceError::DeviceIdNotFound
+        );
+        let _ = format!(
+            "{}{:?}",
+            NetworkInterfaceError::OpenTap(TapError::InvalidIfname),
+            NetworkInterfaceError::OpenTap(TapError::InvalidIfname)
+        );
+        let _ = format!(
+            "{}{:?}",
+            NetworkInterfaceError::RateLimiterError(io::Error::last_os_error()),
+            NetworkInterfaceError::RateLimiterError(io::Error::last_os_error())
+        );
+        let _ = format!(
+            "{}{:?}",
+            NetworkInterfaceError::RateLimiterUpdateFailed(devices::Error::IoError(
+                io::Error::last_os_error()
+            )),
+            NetworkInterfaceError::RateLimiterUpdateFailed(devices::Error::IoError(
+                io::Error::last_os_error()
+            ))
+        );
+        let _ = format!(
+            "{}{:?}",
+            NetworkInterfaceError::UpdateNotAllowedPostBoot,
+            NetworkInterfaceError::UpdateNotAllowedPostBoot
         );
     }
 }

@@ -1,8 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-extern crate serde_json;
-
 use std::ffi::CStr;
 use std::fs::{self, canonicalize, File};
 use std::os::unix::io::IntoRawFd;
@@ -16,23 +14,26 @@ use libc;
 use cgroup::Cgroup;
 use chroot::chroot;
 use fc_util::validators;
-use sys_util;
-use {Error, FirecrackerContext, Result};
+use sys_util::SyscallReturnCode;
+use {Error, Result};
 
 const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
 const STDERR_FILENO: libc::c_int = 2;
 
+const DEV_KVM_WITH_NUL: &[u8] = b"/dev/kvm\0";
 const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
 const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
+#[cfg(feature = "vsock")]
+const DEV_VHOST_VSOCK_WITH_NUL: &[u8] = b"/dev/vhost-vsock\0";
+const ROOT_PATH_WITH_NUL: &[u8] = b"/\0";
 
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
     // This is safe because we are using a library function with valid parameters.
-    if unsafe { libc::dup2(old_fd, new_fd) } < 0 {
-        return Err(Error::Dup2(sys_util::Error::last()));
-    }
-    Ok(())
+    SyscallReturnCode(unsafe { libc::dup2(old_fd, new_fd) })
+        .into_empty_result()
+        .map_err(Error::Dup2)
 }
 
 // Extracts an argument's value or returns a specific error if the argument is missing.
@@ -61,7 +62,7 @@ impl Env {
         // should not fail.
         let id = get_value(&args, "id")?;
 
-        validators::validate_instance_id(id).map_err(|e| Error::InvalidInstanceId(e))?;
+        validators::validate_instance_id(id).map_err(Error::InvalidInstanceId)?;
 
         let numa_node_str = get_value(&args, "numa_node")?;
         let numa_node = numa_node_str
@@ -111,7 +112,7 @@ impl Env {
         // they are all unsigned integers.
         let seccomp_level = get_value(&args, "seccomp-level")?
             .parse::<u32>()
-            .map_err(|err| Error::SeccompLevel(err))?;
+            .map_err(Error::SeccompLevel)?;
 
         Ok(Env {
             id: id.to_string(),
@@ -140,7 +141,36 @@ impl Env {
         self.uid
     }
 
-    pub fn run(mut self) -> Result<()> {
+    fn mknod_and_own_dev(
+        &self,
+        dev_path_str: &'static [u8],
+        dev_major: u32,
+        dev_minor: u32,
+    ) -> Result<()> {
+        let dev_path = CStr::from_bytes_with_nul(dev_path_str)
+            .map_err(|_| Error::FromBytesWithNul(dev_path_str))?;
+        // As per sysstat.h:
+        // S_IFCHR -> character special device
+        // S_IRUSR -> read permission, owner
+        // S_IWUSR -> write permission, owner
+        // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
+        // more clarity.
+        SyscallReturnCode(unsafe {
+            libc::mknod(
+                dev_path.as_ptr(),
+                libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR,
+                libc::makedev(dev_major, dev_minor),
+            )
+        })
+        .into_empty_result()
+        .map_err(|e| Error::MknodDev(e, std::str::from_utf8(dev_path_str).unwrap()))?;
+
+        SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
+            .into_empty_result()
+            .map_err(|e| Error::ChangeFileOwner(e, std::str::from_utf8(dev_path_str).unwrap()))
+    }
+
+    pub fn run(mut self, socket_file_name: &str) -> Result<()> {
         // We need to create the equivalent of /dev/net inside the jail.
         self.chroot_dir.push("dev/net");
 
@@ -188,15 +218,15 @@ impl Env {
                 .into_raw_fd();
 
             // Safe because we are passing valid parameters.
-            if unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) } < 0 {
-                return Err(Error::SetNetNs(sys_util::Error::last()));
-            }
+            SyscallReturnCode(unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) })
+                .into_empty_result()
+                .map_err(Error::SetNetNs)?;
 
             // Since we have ownership here, we also have to close the fd after joining the
             // namespace. Safe because we are passing valid parameters.
-            if unsafe { libc::close(netns_fd) } < 0 {
-                return Err(Error::CloseNetNsFd(sys_util::Error::last()));
-            }
+            SyscallReturnCode(unsafe { libc::close(netns_fd) })
+                .into_empty_result()
+                .map_err(Error::CloseNetNsFd)?;
         }
 
         // We have to setup cgroups at this point, because we can't do it anymore after chrooting.
@@ -206,16 +236,16 @@ impl Env {
         // If daemonization was requested, open /dev/null before chrooting.
         let dev_null = if self.daemonize {
             // Safe because we use a constant null-terminated string and verify the result.
-            let ret = unsafe {
-                libc::open(
-                    DEV_NULL_WITH_NUL.as_ptr() as *const libc::c_char,
-                    libc::O_RDWR,
-                )
-            };
-            if ret < 0 {
-                return Err(Error::OpenDevNull(sys_util::Error::last()));
-            }
-            Some(ret)
+            Some(
+                SyscallReturnCode(unsafe {
+                    libc::open(
+                        DEV_NULL_WITH_NUL.as_ptr() as *const libc::c_char,
+                        libc::O_RDWR,
+                    )
+                })
+                .into_result()
+                .map_err(Error::OpenDevNull)?,
+            )
         } else {
             None
         };
@@ -223,45 +253,36 @@ impl Env {
         // Jail self.
         chroot(self.chroot_dir())?;
 
-        // Here we are creating the /dev/net/tun device inside the jailer.
+        // Here we are creating the /dev/kvm and /dev/net/tun devices inside the jailer.
         // Following commands can be translated into bash like this:
         // $: mkdir -p $chroot_dir/dev/net
         // $: dev_net_tun_path={$chroot_dir}/"tun"
         // $: mknod $dev_net_tun_path c 10 200
-        // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the minor
-        // and major for the /dev/net/tun device.
+        // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the major
+        // and minor for the /dev/net/tun device.
+        self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, 10, 200)?;
+        // Do the same for /dev/kvm with (major, minor) = (10, 232).
+        self.mknod_and_own_dev(DEV_KVM_WITH_NUL, 10, 232)?;
+        #[cfg(feature = "vsock")]
+        // Do the same for /dev/vhost_vsock with (major, minor) = (10, 241).
+        self.mknod_and_own_dev(DEV_VHOST_VSOCK_WITH_NUL, 10, 241)?;
 
-        let dev_net_tun_path = CStr::from_bytes_with_nul(DEV_NET_TUN_WITH_NUL)
-            .map_err(|_| Error::FromBytesWithNul(DEV_NET_TUN_WITH_NUL))?;
-
-        // As per sysstat.h:
-        // S_IFCHR -> character special device
-        // S_IRUSR -> read permission, owner
-        // S_IWUSR -> write permission, owner
-        // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
-        // more clarity.
-
-        if unsafe {
-            libc::mknod(
-                dev_net_tun_path.as_ptr(),
-                libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR,
-                libc::makedev(10, 200),
-            )
-        } < 0
-        {
-            return Err(Error::MknodDevNetTun(sys_util::Error::last()));
-        }
-
-        if unsafe { libc::chown(dev_net_tun_path.as_ptr(), self.uid(), self.gid()) } < 0 {
-            return Err(Error::ChangeDevNetTunOwner(sys_util::Error::last()));
-        }
+        // Change ownership of the jail root to Firecracker's UID and GID. This is necessary
+        // so Firecracker can create the unix domain socket in its own jail.
+        let jail_root_path = CStr::from_bytes_with_nul(ROOT_PATH_WITH_NUL)
+            .map_err(|_| Error::FromBytesWithNul(ROOT_PATH_WITH_NUL))?;
+        SyscallReturnCode(unsafe { libc::chown(jail_root_path.as_ptr(), self.uid(), self.gid()) })
+            .into_empty_result()
+            .map_err(|e| {
+                Error::ChangeFileOwner(e, std::str::from_utf8(ROOT_PATH_WITH_NUL).unwrap())
+            })?;
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(fd) = dev_null {
             // Call setsid(). Safe because it's a library function.
-            if unsafe { libc::setsid() } < 0 {
-                return Err(Error::SetSid(sys_util::Error::last()));
-            }
+            SyscallReturnCode(unsafe { libc::setsid() })
+                .into_empty_result()
+                .map_err(Error::SetSid)?;
 
             // Replace the stdio file descriptors with the /dev/null fd.
             dup2(fd, STDIN_FILENO)?;
@@ -269,25 +290,18 @@ impl Env {
             dup2(fd, STDERR_FILENO)?;
 
             // Safe because we are passing valid parameters, and checking the result.
-            if unsafe { libc::close(fd) } < 0 {
-                return Err(Error::CloseDevNullFd(sys_util::Error::last()));
-            }
+            SyscallReturnCode(unsafe { libc::close(fd) })
+                .into_empty_result()
+                .map_err(Error::CloseDevNullFd)?;
         }
-
-        let context = FirecrackerContext {
-            id: self.id.clone(),
-            jailed: true,
-            seccomp_level: self.seccomp_level,
-            start_time_us: self.start_time_us,
-            start_time_cpu_us: self.start_time_cpu_us,
-        };
 
         Err(Error::Exec(
             Command::new(chroot_exec_file)
-                .arg(format!(
-                    "--context={}",
-                    serde_json::to_string(&context).expect("Failed to serialize context")
-                ))
+                .arg(format!("--id={}", self.id))
+                .arg(format!("--seccomp-level={}", self.seccomp_level))
+                .arg(format!("--start-time-us={}", self.start_time_us))
+                .arg(format!("--start-time-cpu-us={}", self.start_time_cpu_us))
+                .arg(format!("--api-sock=/{}", socket_file_name))
                 .stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
@@ -304,6 +318,7 @@ mod tests {
 
     use clap_app;
 
+    #[allow(clippy::too_many_arguments)]
     fn make_args<'a>(
         node: &str,
         id: &str,

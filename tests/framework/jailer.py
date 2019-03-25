@@ -107,7 +107,7 @@ class JailerContext:
 
     def api_socket_path(self):
         """Return the MicroVM API socket path."""
-        return os.path.join(self.chroot_base_with_id(), API_USOCKET_NAME)
+        return os.path.join(self.chroot_path(), API_USOCKET_NAME)
 
     def chroot_path(self):
         """Return the MicroVM chroot path."""

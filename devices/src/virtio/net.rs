@@ -41,7 +41,7 @@ use {DeviceEventT, EpollHandler};
 const MAX_BUFFER_SIZE: usize = 65562;
 const QUEUE_SIZE: u16 = 256;
 const NUM_QUEUES: usize = 2;
-const QUEUE_SIZES: &'static [u16] = &[QUEUE_SIZE; NUM_QUEUES];
+const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE; NUM_QUEUES];
 
 // A frame is available for reading from the tap device to receive in the guest.
 const RX_TAP_EVENT: DeviceEventT = 0;
@@ -55,6 +55,11 @@ const RX_RATE_LIMITER_EVENT: DeviceEventT = 3;
 const TX_RATE_LIMITER_EVENT: DeviceEventT = 4;
 // Number of DeviceEventT events supported by this implementation.
 pub const NET_EVENTS_COUNT: usize = 5;
+
+// This is not a true DeviceEvent, as we explicitly invoke the handler with this value as a
+// parameter when the VMM handles as PATCH rate limiters request. Thus, there's not epoll event
+// associated with it.
+pub const PATCH_RATE_LIMITERS_FAKE_EVENT: DeviceEventT = NET_EVENTS_COUNT as DeviceEventT;
 
 #[derive(Debug)]
 pub enum Error {
@@ -79,7 +84,6 @@ struct TxVirtio {
     rate_limiter: RateLimiter,
     queue: Queue,
     iovec: Vec<(GuestAddress, usize)>,
-    used_desc_heads: [u16; QUEUE_SIZE as usize],
     frame_buf: [u8; MAX_BUFFER_SIZE],
 }
 
@@ -91,7 +95,6 @@ impl TxVirtio {
             rate_limiter,
             queue,
             iovec: Vec::with_capacity(tx_queue_max_size),
-            used_desc_heads: [0u16; QUEUE_SIZE as usize],
             frame_buf: [0u8; MAX_BUFFER_SIZE],
         }
     }
@@ -139,8 +142,8 @@ fn frame_bytes_from_buf_mut(buf: &mut [u8]) -> &mut [u8] {
 fn init_vnet_hdr(buf: &mut [u8]) {
     // The buffer should be larger than vnet_hdr_len.
     // TODO: any better way to set all these bytes to 0? Or is this optimized by the compiler?
-    for i in 0..vnet_hdr_len() {
-        buf[i] = 0;
+    for i in &mut buf[0..vnet_hdr_len()] {
+        *i = 0;
     }
 }
 
@@ -206,7 +209,7 @@ impl NetEpollHandler {
                 .rate_limiter
                 .manual_replenish(self.rx.bytes_read as u64, TokenType::Bytes);
         }
-        return success;
+        success
     }
 
     // Copies a single frame from `self.rx.frame_buf` into the guest. Returns true
@@ -268,9 +271,9 @@ impl NetEpollHandler {
         if write_count >= self.rx.bytes_read {
             METRICS.net.rx_bytes_count.add(write_count);
             METRICS.net.rx_packets_count.inc();
-            return true;
+            true
         } else {
-            return false;
+            false
         }
     }
 
@@ -393,7 +396,6 @@ impl NetEpollHandler {
 
     fn process_tx(&mut self) -> result::Result<(), DeviceError> {
         let mut rate_limited = false;
-        let mut used_count = 0;
 
         // The MMDS network stack works like a state machine, based on synchronous calls, and
         // without being added to any event loop. If any frame is accepted by the MMDS, we also
@@ -401,7 +403,7 @@ impl NetEpollHandler {
         // with the MMDS network stack.
         let mut process_rx_for_mmds = false;
 
-        for avail_desc in self.tx.queue.iter(&self.mem) {
+        while let Some(avail_desc) = self.tx.queue.iter(&self.mem).next() {
             // If limiter.consume() fails it means there is no more TokenType::Ops
             // budget and rate limiting is in effect.
             if !self.tx.rate_limiter.consume(1, TokenType::Ops) {
@@ -415,20 +417,13 @@ impl NetEpollHandler {
             let mut next_desc = Some(avail_desc);
 
             self.tx.iovec.clear();
-            loop {
-                match next_desc {
-                    Some(desc) => {
-                        if desc.is_write_only() {
-                            break;
-                        }
-                        self.tx.iovec.push((desc.addr, desc.len as usize));
-                        read_count += desc.len as usize;
-                        next_desc = desc.next_descriptor();
-                    }
-                    None => {
-                        break;
-                    }
+            while let Some(desc) = next_desc {
+                if desc.is_write_only() {
+                    break;
                 }
+                self.tx.iovec.push((desc.addr, desc.len as usize));
+                read_count += desc.len as usize;
+                next_desc = desc.next_descriptor();
             }
 
             // If limiter.consume() fails it means there is no more TokenType::Bytes
@@ -471,7 +466,7 @@ impl NetEpollHandler {
             if Self::write_to_mmds_or_tap(
                 self.mmds_ns.as_mut(),
                 &mut self.tx.rate_limiter,
-                &mut self.tx.frame_buf[..read_count],
+                &self.tx.frame_buf[..read_count],
                 &mut self.tap,
                 self.guest_mac,
             ) && !self.rx.deferred_frame
@@ -480,23 +475,12 @@ impl NetEpollHandler {
                 process_rx_for_mmds = true;
             }
 
-            self.tx.used_desc_heads[used_count] = head_index;
-            used_count += 1;
+            self.tx.queue.add_used(&self.mem, head_index, 0);
         }
         if rate_limited {
             // If rate limiting kicked in, queue had advanced one element that we aborted
             // processing; go back one element so it can be processed next time.
             self.tx.queue.go_to_previous_position();
-        }
-
-        if used_count != 0 {
-            // TODO(performance - Issue #425): find a way around RUST mutability enforcements to
-            // allow calling queue.add_used() inside the loop. This would lead to better distribution
-            // of descriptor usage between the firecracker thread and the guest tx thread.
-            // One option to do this is to call queue.add_used() from a static function.
-            for &desc_index in &self.tx.used_desc_heads[..used_count] {
-                self.tx.queue.add_used(&self.mem, desc_index, 0);
-            }
         }
 
         // An incoming frame for the MMDS may trigger the transmission of a new message.
@@ -518,7 +502,7 @@ impl EpollHandler for NetEpollHandler {
         &mut self,
         device_event: DeviceEventT,
         _: u32,
-        _: EpollHandlerPayload,
+        payload: EpollHandlerPayload,
     ) -> result::Result<(), DeviceError> {
         match device_event {
             RX_QUEUE_EVENT => {
@@ -553,13 +537,11 @@ impl EpollHandler for NetEpollHandler {
                     if self.rate_limited_rx_single_frame() {
                         self.rx.deferred_frame = false;
                         self.process_rx()
+                    } else if self.rx.deferred_irqs {
+                        self.rx.deferred_irqs = false;
+                        self.signal_used_queue()
                     } else {
-                        if self.rx.deferred_irqs {
-                            self.rx.deferred_irqs = false;
-                            self.signal_used_queue()
-                        } else {
-                            Ok(())
-                        }
+                        Ok(())
                     }
                 } else {
                     self.process_rx()
@@ -614,6 +596,21 @@ impl EpollHandler for NetEpollHandler {
                     }
                 }
             }
+            PATCH_RATE_LIMITERS_FAKE_EVENT => {
+                if let EpollHandlerPayload::NetRateLimiterPayload {
+                    rx_bytes,
+                    rx_ops,
+                    tx_bytes,
+                    tx_ops,
+                } = payload
+                {
+                    self.rx.rate_limiter.update_buckets(rx_bytes, rx_ops);
+                    self.tx.rate_limiter.update_buckets(tx_bytes, tx_ops);
+                    Ok(())
+                } else {
+                    Err(DeviceError::PayloadExpected)
+                }
+            }
             other => Err(DeviceError::UnknownEvent {
                 device: "net",
                 event: other,
@@ -639,11 +636,11 @@ impl EpollConfig {
         sender: mpsc::Sender<Box<EpollHandler>>,
     ) -> Self {
         EpollConfig {
-            rx_tap_token: first_token + RX_TAP_EVENT as u64,
-            rx_queue_token: first_token + RX_QUEUE_EVENT as u64,
-            tx_queue_token: first_token + TX_QUEUE_EVENT as u64,
-            rx_rate_limiter_token: first_token + RX_RATE_LIMITER_EVENT as u64,
-            tx_rate_limiter_token: first_token + TX_RATE_LIMITER_EVENT as u64,
+            rx_tap_token: first_token + u64::from(RX_TAP_EVENT),
+            rx_queue_token: first_token + u64::from(RX_QUEUE_EVENT),
+            tx_queue_token: first_token + u64::from(TX_QUEUE_EVENT),
+            rx_rate_limiter_token: first_token + u64::from(RX_RATE_LIMITER_EVENT),
+            tx_rate_limiter_token: first_token + u64::from(TX_RATE_LIMITER_EVENT),
             epoll_raw_fd,
             sender,
         }
@@ -775,8 +772,8 @@ impl VirtioDevice for Net {
 
     fn ack_features(&mut self, page: u32, value: u32) {
         let mut v = match page {
-            0 => value as u64,
-            1 => (value as u64) << 32,
+            0 => u64::from(value),
+            1 => u64::from(value) << 32,
             _ => {
                 warn!("Cannot acknowledge unknown features page: {}", page);
                 0u64
@@ -802,7 +799,7 @@ impl VirtioDevice for Net {
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
             // This write can't fail, offset and end are checked against config_len.
-            data.write(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
+            data.write_all(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
                 .unwrap();
         }
     }
@@ -843,10 +840,11 @@ impl VirtioDevice for Net {
             let tx_queue = queues.remove(0);
             let rx_queue_evt = queue_evts.remove(0);
             let tx_queue_evt = queue_evts.remove(0);
-            let mut mmds_ns = None;
-            if self.allow_mmds_requests {
-                mmds_ns = Some(MmdsNetworkStack::new_with_defaults());
-            }
+            let mut mmds_ns = if self.allow_mmds_requests {
+                Some(MmdsNetworkStack::new_with_defaults())
+            } else {
+                None
+            };
             let handler = NetEpollHandler {
                 rx: RxVirtio::new(
                     rx_queue,
@@ -965,6 +963,7 @@ mod tests {
     use virtio::queue::tests::*;
 
     use dumbo::pdu::{arp, ethernet};
+    use rate_limiter::TokenBucket;
 
     /// Will read $metric, run the code in $block, then assert metric has increased by $delta.
     macro_rules! check_metric_after_block {
@@ -1115,6 +1114,7 @@ mod tests {
         n.activate(mem.clone(), interrupt_evt, status, queues, queue_evts)
     }
 
+    #[allow(clippy::needless_lifetimes)]
     fn default_test_netepollhandler<'a>(
         mem: &'a GuestMemory,
         test_mutators: TestMutators,
@@ -1174,6 +1174,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_virtio_device() {
         let mac = MacAddr::parse_str("11:22:33:44:55:66").unwrap();
         let mut dummy = DummyNet::new(Some(&mac));
@@ -1498,14 +1499,13 @@ mod tests {
     fn test_invalid_event_handler() {
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
-        let r = h.handle_event(
-            NET_EVENTS_COUNT as DeviceEventT,
-            0,
-            EpollHandlerPayload::Empty,
-        );
+
+        let bad_event = 1000;
+
+        let r = h.handle_event(bad_event as DeviceEventT, 0, EpollHandlerPayload::Empty);
         match r {
             Err(DeviceError::UnknownEvent { event, device }) => {
-                assert_eq!(event, NET_EVENTS_COUNT as DeviceEventT);
+                assert_eq!(event, bad_event as DeviceEventT);
                 assert_eq!(device, "net");
             }
             _ => panic!("invalid"),
@@ -1923,5 +1923,42 @@ mod tests {
                 assert_eq!(rxq.used.ring[0].get().len, 1234);
             }
         }
+    }
+
+    #[test]
+    fn test_patch_rate_limiters() {
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let (mut h, _, _) = default_test_netepollhandler(&mem, TestMutators::default());
+
+        h.set_rx_rate_limiter(RateLimiter::new(10, None, 10, 2, None, 2).unwrap());
+        h.set_tx_rate_limiter(RateLimiter::new(10, None, 10, 2, None, 2).unwrap());
+
+        let rx_bytes = TokenBucket::new(1000, Some(1001), 1002);
+        let rx_ops = TokenBucket::new(1003, Some(1004), 1005);
+        let tx_bytes = TokenBucket::new(1006, Some(1007), 1008);
+        let tx_ops = TokenBucket::new(1009, Some(1010), 1011);
+
+        h.handle_event(
+            PATCH_RATE_LIMITERS_FAKE_EVENT,
+            0,
+            EpollHandlerPayload::NetRateLimiterPayload {
+                rx_bytes: Some(rx_bytes.clone()),
+                rx_ops: Some(rx_ops.clone()),
+                tx_bytes: Some(tx_bytes.clone()),
+                tx_ops: Some(tx_ops.clone()),
+            },
+        )
+        .unwrap();
+
+        let compare_buckets = |a: &TokenBucket, b: &TokenBucket| {
+            assert_eq!(a.capacity(), b.capacity());
+            assert_eq!(a.one_time_burst(), b.one_time_burst());
+            assert_eq!(a.refill_time_ms(), b.refill_time_ms());
+        };
+
+        compare_buckets(h.get_rx_rate_limiter().bandwidth().unwrap(), &rx_bytes);
+        compare_buckets(h.get_rx_rate_limiter().ops().unwrap(), &rx_ops);
+        compare_buckets(h.get_tx_rate_limiter().bandwidth().unwrap(), &tx_bytes);
+        compare_buckets(h.get_tx_rate_limiter().ops().unwrap(), &tx_ops);
     }
 }

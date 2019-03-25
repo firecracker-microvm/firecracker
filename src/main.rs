@@ -1,10 +1,10 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#[cfg(target_arch = "x86_64")]
 extern crate backtrace;
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
-extern crate serde_json;
 
 extern crate api_server;
 extern crate fc_util;
@@ -15,6 +15,7 @@ extern crate mmds;
 extern crate seccomp;
 extern crate vmm;
 
+#[cfg(target_arch = "x86_64")]
 use backtrace::Backtrace;
 use clap::{App, Arg};
 
@@ -25,8 +26,8 @@ use std::process;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
-use api_server::{ApiServer, Error, UnixDomainSocket};
-use jailer::FirecrackerContext;
+use api_server::{ApiServer, Error};
+use fc_util::validators::validate_instance_id;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
@@ -41,7 +42,7 @@ fn main() {
 
     if let Err(e) = vmm::setup_sigsys_handler() {
         error!("Failed to register signal handler: {}", e);
-        process::exit(vmm::FC_EXIT_CODE_GENERIC_ERROR as i32);
+        process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
     }
 
     // Start firecracker by setting up a panic hook, which will be called before
@@ -53,8 +54,11 @@ fn main() {
         // from which the panic originated.
         error!("Firecracker {}", info);
         METRICS.vmm.panic_count.inc();
-        let bt = Backtrace::new();
-        error!("{:?}", bt);
+        #[cfg(target_arch = "x86_64")]
+        {
+            let bt = Backtrace::new();
+            error!("{:?}", bt);
+        }
 
         // Log the metrics before aborting.
         if let Err(e) = LOGGER.log_metrics() {
@@ -74,41 +78,75 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("context")
-                .long("context")
-                .help("Additional parameters sent to Firecracker.")
-                .takes_value(true),
+            Arg::with_name("id")
+                .long("id")
+                .help("MicroVM unique identifier")
+                .default_value(DEFAULT_API_SOCK_PATH)
+                .takes_value(true)
+                .default_value(DEFAULT_INSTANCE_ID)
+                .validator(|s: String| -> Result<(), String> {
+                    validate_instance_id(&s).map_err(|e| format!("{}", e))
+                }),
+        )
+        .arg(
+            Arg::with_name("seccomp-level")
+                .long("seccomp-level")
+                .help(
+                    "Level of seccomp filtering.\n
+                            - Level 0: No filtering.\n
+                            - Level 1: Seccomp filtering by syscall number.\n
+                            - Level 2: Seccomp filtering by syscall number and argument values.\n
+                        ",
+                )
+                .takes_value(true)
+                .default_value("2")
+                .possible_values(&["0", "1", "2"]),
+        )
+        .arg(
+            Arg::with_name("start-time-us")
+                .long("start-time-us")
+                .takes_value(true)
+                .hidden(true),
+        )
+        .arg(
+            Arg::with_name("start-time-cpu-us")
+                .long("start-time-cpu-us")
+                .takes_value(true)
+                .hidden(true),
         )
         .get_matches();
 
     let bind_path = cmd_arguments
         .value_of("api_sock")
-        .map(|s| PathBuf::from(s))
+        .map(PathBuf::from)
         .expect("Missing argument: api_sock");
 
-    let mut instance_id = String::from(DEFAULT_INSTANCE_ID);
+    // It's safe to unwrap here because clap's been provided with a default value
+    let instance_id = cmd_arguments.value_of("id").unwrap().to_string();
 
     // We disable seccomp filtering when testing, because when running the test_gnutests
     // integration test from test_unittests.py, an invalid syscall is issued, and we crash
     // otherwise.
-    #[cfg(not(test))]
-    let mut seccomp_level = seccomp::SECCOMP_LEVEL_ADVANCED;
     #[cfg(test)]
-    let mut seccomp_level = seccomp::SECCOMP_LEVEL_NONE;
+    let seccomp_level = seccomp::SECCOMP_LEVEL_NONE;
+    #[cfg(not(test))]
+    // It's safe to unwrap here because clap's been provided with a default value,
+    // and allowed values are guaranteed to parse to u32.
+    let seccomp_level = cmd_arguments
+        .value_of("seccomp-level")
+        .unwrap()
+        .parse::<u32>()
+        .unwrap();
 
-    let mut start_time_us = None;
-    let mut start_time_cpu_us = None;
-    let mut is_jailed = false;
+    let start_time_us = cmd_arguments.value_of("start-time-us").map(|s| {
+        s.parse::<u64>()
+            .expect("'start-time-us' parameter expected to be of 'u64' type.")
+    });
 
-    if let Some(s) = cmd_arguments.value_of("context") {
-        let context =
-            serde_json::from_str::<FirecrackerContext>(s).expect("Invalid context format");
-        is_jailed = context.jailed;
-        instance_id = context.id;
-        seccomp_level = context.seccomp_level;
-        start_time_us = Some(context.start_time_us);
-        start_time_cpu_us = Some(context.start_time_cpu_us);
-    }
+    let start_time_cpu_us = cmd_arguments.value_of("start-time-cpu-us").map(|s| {
+        s.parse::<u64>()
+            .expect("'start-time-cpu_us' parameter expected to be of 'u64' type.")
+    });
 
     let shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,
@@ -124,27 +162,10 @@ fn main() {
         .get_event_fd_clone()
         .expect("Cannot clone API eventFD.");
 
-    let kvm_fd = if is_jailed {
-        Some(jailer::KVM_FD)
-    } else {
-        None
-    };
-
     let _vmm_thread_handle =
-        vmm::start_vmm_thread(shared_info, api_event_fd, from_api, seccomp_level, kvm_fd);
+        vmm::start_vmm_thread(shared_info, api_event_fd, from_api, seccomp_level);
 
-    let uds_path_or_fd = if is_jailed {
-        UnixDomainSocket::Fd(jailer::LISTENER_FD)
-    } else {
-        UnixDomainSocket::Path(bind_path)
-    };
-
-    match server.bind_and_run(
-        uds_path_or_fd,
-        start_time_us,
-        start_time_cpu_us,
-        seccomp_level,
-    ) {
+    match server.bind_and_run(bind_path, start_time_us, start_time_cpu_us, seccomp_level) {
         Ok(_) => (),
         Err(Error::Io(inner)) => match inner.kind() {
             ErrorKind::AddrInUse => panic!("Failed to open the API socket: {:?}", Error::Io(inner)),
@@ -201,10 +222,11 @@ mod tests {
             }
             return true;
         }
-        return false;
+        false
     }
 
     #[test]
+    #[allow(clippy::unit_cmp)]
     fn test_main() {
         const FIRECRACKER_INIT_TIMEOUT_MILLIS: u64 = 100;
 
@@ -236,7 +258,7 @@ mod tests {
                 "TEST-ID",
                 log_file_temp.path().to_str().unwrap().to_string(),
                 metrics_file_temp.path().to_str().unwrap().to_string(),
-                vec![],
+                &[],
             )
             .expect("Could not initialize logger.");
 

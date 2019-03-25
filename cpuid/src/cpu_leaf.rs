@@ -3,6 +3,8 @@
 
 // Basic CPUID Information
 pub mod leaf_0x1 {
+    pub const LEAF_NUM: u32 = 0x1;
+
     pub mod eax {
 
         pub const EXTENDED_FAMILY_ID_SHIFT: u32 = 20;
@@ -16,20 +18,11 @@ pub mod leaf_0x1 {
         use bit_helper::BitRange;
 
         // The bit-range containing the (fixed) default APIC ID.
-        pub const APICID_BITRANGE: BitRange = BitRange {
-            msb_index: 31,
-            lsb_index: 24,
-        };
-        // The bit-range containing the number of bytes flushed when executing CLFLUSH.
-        pub const CLFLUSH_SIZE_BITRANGE: BitRange = BitRange {
-            msb_index: 15,
-            lsb_index: 8,
-        };
+        pub const APICID_BITRANGE: BitRange = bit_range!(31, 24);
         // The bit-range containing the logical processor count.
-        pub const CPU_COUNT_BITRANGE: BitRange = BitRange {
-            msb_index: 23,
-            lsb_index: 16,
-        };
+        pub const CPU_COUNT_BITRANGE: BitRange = bit_range!(23, 16);
+        // The bit-range containing the number of bytes flushed when executing CLFLUSH.
+        pub const CLFLUSH_SIZE_BITRANGE: BitRange = bit_range!(15, 8);
     }
 
     pub mod ecx {
@@ -72,28 +65,41 @@ pub mod leaf_0x1 {
     }
 }
 
-// Deterministic Cache Parameters Leaf
-pub mod leaf_0x4 {
+pub mod leaf_cache_parameters {
     pub mod eax {
         use bit_helper::BitRange;
 
-        pub const CACHE_LEVEL_BITRANGE: BitRange = BitRange {
-            msb_index: 7,
-            lsb_index: 5,
-        };
-        pub const MAX_ADDR_IDS_SHARING_CACHE_BITRANGE: BitRange = BitRange {
-            msb_index: 25,
-            lsb_index: 14,
-        };
-        pub const MAX_ADDR_IDS_IN_PACKAGE_BITRANGE: BitRange = BitRange {
-            msb_index: 31,
-            lsb_index: 26,
-        };
+        pub const CACHE_LEVEL_BITRANGE: BitRange = bit_range!(7, 5);
+        pub const MAX_CPUS_PER_CORE_BITRANGE: BitRange = bit_range!(25, 14);
     }
+}
+
+// Deterministic Cache Parameters Leaf
+pub mod leaf_0x4 {
+    pub const LEAF_NUM: u32 = 0x4;
+
+    pub mod eax {
+        use bit_helper::BitRange;
+
+        // inherit eax from leaf_cache_parameters
+        pub use cpu_leaf::leaf_cache_parameters::eax::*;
+
+        pub const MAX_CORES_PER_PACKAGE_BITRANGE: BitRange = bit_range!(31, 26);
+    }
+}
+
+// Extended Cache Topology Leaf
+pub mod leaf_0x8000001d {
+    pub const LEAF_NUM: u32 = 0x8000_001d;
+
+    // inherit eax from leaf_cache_parameters
+    pub use cpu_leaf::leaf_cache_parameters::eax;
 }
 
 // Thermal and Power Management Leaf
 pub mod leaf_0x6 {
+    pub const LEAF_NUM: u32 = 0x6;
+
     pub mod eax {
         pub const TURBO_BOOST_BITINDEX: u32 = 1;
     }
@@ -106,6 +112,8 @@ pub mod leaf_0x6 {
 
 // Structured Extended Feature Flags Enumeration Leaf
 pub mod leaf_0x7 {
+    pub const LEAF_NUM: u32 = 0x7;
+
     pub mod index0 {
         pub mod ebx {
             // 1 = TSC_ADJUST
@@ -161,7 +169,13 @@ pub mod leaf_0x7 {
     }
 }
 
+pub mod leaf_0x80000000 {
+    pub const LEAF_NUM: u32 = 0x8000_0000;
+}
+
 pub mod leaf_0x80000001 {
+    pub const LEAF_NUM: u32 = 0x8000_0001;
+
     pub mod ecx {
         pub const PREFETCH_SHIFT: u32 = 8; // 3DNow! PREFETCH/PREFETCHW instructions
         pub const LZCNT_SHIFT: u32 = 5; // advanced bit manipulation
@@ -172,8 +186,13 @@ pub mod leaf_0x80000001 {
     }
 }
 
+pub mod leaf_0xa {
+    pub const LEAF_NUM: u32 = 0xa;
+}
+
 // Extended Topology Leaf
 pub mod leaf_0xb {
+    pub const LEAF_NUM: u32 = 0xb;
 
     pub const LEVEL_TYPE_INVALID: u32 = 0;
     pub const LEVEL_TYPE_THREAD: u32 = 1;
@@ -184,10 +203,7 @@ pub mod leaf_0xb {
 
         // The bit-range containing the number of bits to shift right the APIC ID in order to get
         // the next level APIC ID
-        pub const APICID_BITRANGE: BitRange = BitRange {
-            msb_index: 4,
-            lsb_index: 0,
-        };
+        pub const APICID_BITRANGE: BitRange = bit_range!(4, 0);
     }
 
     pub mod ebx {
@@ -195,22 +211,13 @@ pub mod leaf_0xb {
 
         // The bit-range containing the number of factory-configured logical processors
         // at the current cache level
-        pub const NUM_LOGICAL_PROCESSORS_BITRANGE: BitRange = BitRange {
-            msb_index: 15,
-            lsb_index: 0,
-        };
+        pub const NUM_LOGICAL_PROCESSORS_BITRANGE: BitRange = bit_range!(15, 0);
     }
 
     pub mod ecx {
         use bit_helper::BitRange;
 
-        pub const LEVEL_TYPE_BITRANGE: BitRange = BitRange {
-            msb_index: 15,
-            lsb_index: 8,
-        };
-        pub const LEVEL_NUMBER_BITRANGE: BitRange = BitRange {
-            msb_index: 7,
-            lsb_index: 0,
-        };
+        pub const LEVEL_TYPE_BITRANGE: BitRange = bit_range!(15, 8);
+        pub const LEVEL_NUMBER_BITRANGE: BitRange = bit_range!(7, 0);
     }
 }

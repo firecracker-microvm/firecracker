@@ -27,7 +27,7 @@ pub enum StatusCode {
 }
 
 impl StatusCode {
-    fn raw(&self) -> &'static [u8; 3] {
+    fn raw(self) -> &'static [u8; 3] {
         match self {
             StatusCode::OK => b"200",
             StatusCode::BadRequest => b"400",
@@ -45,10 +45,10 @@ struct StatusLine {
 
 impl StatusLine {
     fn new(http_version: Version, status_code: StatusCode) -> Self {
-        return StatusLine {
+        StatusLine {
             http_version,
             status_code,
-        };
+        }
     }
 
     fn write_all<T: Write>(&self, mut buf: T) -> Result<(), WriteError> {
@@ -74,11 +74,11 @@ pub struct Response {
 impl Response {
     /// Creates a new HTTP `Response` with an empty body.
     pub fn new(http_version: Version, status_code: StatusCode) -> Response {
-        return Response {
+        Response {
             status_line: StatusLine::new(http_version, status_code),
             headers: Headers::default(),
             body: None,
-        };
+        }
     }
 
     /// Updates the body of the `Response`.
@@ -128,7 +128,7 @@ impl Response {
 
     /// Returns the HTTP Version of the response.
     pub fn http_version(&self) -> Version {
-        self.status_line.http_version.clone()
+        self.status_line.http_version
     }
 }
 

@@ -8,7 +8,6 @@
 //! Implements virtio devices, queues, and transport mechanisms.
 use std;
 use std::io::Error as IOError;
-use sys_util::Error as SysError;
 
 pub mod block;
 mod mmio;
@@ -48,8 +47,6 @@ pub const NOTIFY_REG_OFFSET: u32 = 0x50;
 
 #[derive(Debug)]
 pub enum ActivateError {
-    EventFd(SysError),
-    TryClone(SysError),
     EpollCtl(IOError),
     BadActivate,
     #[cfg(feature = "vsock")]

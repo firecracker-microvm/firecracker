@@ -59,14 +59,13 @@ extern "C" fn sigsys_handler(
     // Sanity check. The condition should never be true.
     if num != si_signo || num != libc::SIGSYS || si_code != SYS_SECCOMP_CODE as i32 {
         // Safe because we're terminating the process anyway.
-        unsafe { libc::_exit(super::FC_EXIT_CODE_UNEXPECTED_ERROR as i32) };
+        unsafe { libc::_exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) };
     }
 
     // Other signals which might do async unsafe things incompatible with the rest of this
     // function are blocked due to the sa_mask used when registering the signal handler.
     let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) as usize };
     METRICS.seccomp.num_faults.inc();
-    METRICS.seccomp.bad_syscalls[syscall].inc();
     error!(
         "Shutting down VM after intercepting a bad syscall ({}).",
         syscall
@@ -80,7 +79,7 @@ extern "C" fn sigsys_handler(
     // running unit tests.
     #[cfg(not(test))]
     unsafe {
-        libc::_exit(super::FC_EXIT_CODE_BAD_SYSCALL as i32)
+        libc::_exit(i32::from(super::FC_EXIT_CODE_BAD_SYSCALL))
     };
 }
 
@@ -93,7 +92,7 @@ mod tests {
 
     use libc::cpu_set_t;
 
-    use seccomp::{setup_seccomp, SeccompLevel};
+    use seccomp::{allow_syscall, SeccompAction, SeccompFilter};
 
     // This function is used when running unit tests, so all the unsafes are safe.
     fn cpu_count() -> usize {
@@ -113,7 +112,7 @@ mod tests {
         let mut num = 0;
         for i in 0..libc::CPU_SETSIZE as usize {
             if unsafe { libc::CPU_ISSET(i, &cpuset) } {
-                num = num + 1;
+                num += 1;
             }
         }
         num
@@ -123,23 +122,27 @@ mod tests {
     fn test_signal_handler() {
         assert!(setup_sigsys_handler().is_ok());
 
-        // Syscalls that have to be allowed in order for the test to work.
-        const REQUIRED_SYSCALLS: &[i64] = &[
-            libc::SYS_brk,
-            libc::SYS_exit,
-            libc::SYS_futex,
-            libc::SYS_munmap,
-            libc::SYS_rt_sigprocmask,
-            libc::SYS_rt_sigreturn,
-            libc::SYS_sched_getaffinity,
-            libc::SYS_set_tid_address,
-            libc::SYS_sigaltstack,
-            libc::SYS_write,
-        ];
+        let filter = SeccompFilter::new(
+            vec![
+                allow_syscall(libc::SYS_brk),
+                allow_syscall(libc::SYS_exit),
+                allow_syscall(libc::SYS_futex),
+                allow_syscall(libc::SYS_munmap),
+                allow_syscall(libc::SYS_rt_sigprocmask),
+                allow_syscall(libc::SYS_rt_sigreturn),
+                allow_syscall(libc::SYS_sched_getaffinity),
+                allow_syscall(libc::SYS_set_tid_address),
+                allow_syscall(libc::SYS_sigaltstack),
+                allow_syscall(libc::SYS_write),
+            ]
+            .into_iter()
+            .collect(),
+            SeccompAction::Trap,
+        )
+        .unwrap();
 
-        assert!(setup_seccomp(SeccompLevel::Basic(REQUIRED_SYSCALLS)).is_ok());
-        let sys_idx = libc::SYS_getpid as usize;
-        assert_eq!(METRICS.seccomp.bad_syscalls[sys_idx].count(), 0);
+        assert!(filter.apply().is_ok());
+        assert_eq!(METRICS.seccomp.num_faults.count(), 0);
 
         // Calls the blacklisted SYS_getpid.
         let _pid = process::id();
@@ -154,7 +157,7 @@ mod tests {
         // tests, so we use this as an heuristic to decide if we check the assertion.
         if cpu_count() > 1 {
             // The signal handler should let the program continue during unit tests.
-            assert_eq!(METRICS.seccomp.bad_syscalls[sys_idx].count(), 1);
+            assert_eq!(METRICS.seccomp.num_faults.count(), 1);
         }
     }
 }

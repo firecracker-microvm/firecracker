@@ -7,7 +7,7 @@ use futures::sync::oneshot;
 use hyper::Method;
 
 use request::{IntoParsedRequest, ParsedRequest};
-use vmm::vmm_config::net::NetworkInterfaceConfig;
+use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 use vmm::VmmAction;
 
 impl IntoParsedRequest for NetworkInterfaceConfig {
@@ -16,7 +16,7 @@ impl IntoParsedRequest for NetworkInterfaceConfig {
         id_from_path: Option<String>,
         _: Method,
     ) -> result::Result<ParsedRequest, String> {
-        let id_from_path = id_from_path.unwrap_or(String::new());
+        let id_from_path = id_from_path.unwrap_or_default();
         if id_from_path != self.iface_id {
             return Err(String::from(
                 "The id from the path does not match the id from the body!",
@@ -31,17 +31,38 @@ impl IntoParsedRequest for NetworkInterfaceConfig {
     }
 }
 
+impl IntoParsedRequest for NetworkInterfaceUpdateConfig {
+    fn into_parsed_request(
+        self,
+        id_from_path: Option<String>,
+        _: Method,
+    ) -> result::Result<ParsedRequest, String> {
+        let id_from_path = id_from_path.unwrap_or_default();
+        if id_from_path != self.iface_id {
+            return Err(String::from(
+                "The id from the path does not match the id from the body!",
+            ));
+        }
+
+        let (sender, receiver) = oneshot::channel();
+        Ok(ParsedRequest::Sync(
+            VmmAction::UpdateNetworkInterface(self, sender),
+            receiver,
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate net_util;
-    extern crate rate_limiter;
+    extern crate vmm;
 
     use self::net_util::MacAddr;
     use super::*;
 
     use serde_json;
 
-    use self::rate_limiter::RateLimiter;
+    use self::vmm::vmm_config::RateLimiterConfig;
 
     fn get_dummy_netif(
         iface_id: String,
@@ -96,8 +117,8 @@ mod tests {
             iface_id: String::from("foo"),
             host_dev_name: String::from("bar"),
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
-            rx_rate_limiter: Some(RateLimiter::default()),
-            tx_rate_limiter: Some(RateLimiter::default()),
+            rx_rate_limiter: Some(RateLimiterConfig::default()),
+            tx_rate_limiter: Some(RateLimiterConfig::default()),
             allow_mmds_requests: true,
             tap: None,
         };

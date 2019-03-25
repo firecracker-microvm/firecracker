@@ -5,11 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt;
 use std::io::{self, stdout};
 use std::sync::{Arc, Mutex};
 
 use devices;
-use sys_util::{self, EventFd, Terminal};
+use sys_util::{EventFd, Terminal};
 
 /// Errors corresponding to the `LegacyDeviceManager`.
 #[derive(Debug)]
@@ -19,7 +20,19 @@ pub enum Error {
     /// Cannot create EventFd.
     EventFd(io::Error),
     /// Cannot set mode for terminal.
-    StdinHandle(sys_util::Error),
+    StdinHandle(io::Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Error::*;
+
+        match *self {
+            BusError(ref err) => write!(f, "Failed to add legacy device to Bus: {}", err),
+            EventFd(ref err) => write!(f, "Failed to create EventFd: {}", err),
+            StdinHandle(ref err) => write!(f, "Failed to set mode for terminal: {}", err),
+        }
+    }
 }
 
 type Result<T> = ::std::result::Result<T, Error>;
@@ -72,7 +85,7 @@ impl LegacyDeviceManager {
     pub fn register_devices(&mut self) -> Result<()> {
         self.io_bus
             .insert(self.stdio_serial.clone(), 0x3f8, 0x8)
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.io_bus
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
@@ -81,7 +94,7 @@ impl LegacyDeviceManager {
                 0x2f8,
                 0x8,
             )
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.io_bus
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
@@ -90,7 +103,7 @@ impl LegacyDeviceManager {
                 0x3e8,
                 0x8,
             )
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.io_bus
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
@@ -99,14 +112,14 @@ impl LegacyDeviceManager {
                 0x2e8,
                 0x8,
             )
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         self.stdin_handle
             .lock()
             .set_raw_mode()
-            .map_err(|e| Error::StdinHandle(e))?;
+            .map_err(Error::StdinHandle)?;
         self.io_bus
             .insert(self.i8042.clone(), 0x060, 0x5)
-            .map_err(|err| Error::BusError(err))?;
+            .map_err(Error::BusError)?;
         Ok(())
     }
 }
@@ -128,12 +141,25 @@ mod tests {
     #[test]
     fn test_debug_error() {
         assert_eq!(
-            format!("{:?}", Error::EventFd(io::Error::from_raw_os_error(0))),
-            format!("EventFd({:?})", io::Error::from_raw_os_error(0))
+            format!("{}", Error::BusError(devices::BusError::Overlap)),
+            format!(
+                "Failed to add legacy device to Bus: {}",
+                devices::BusError::Overlap
+            )
         );
         assert_eq!(
-            format!("{:?}", Error::StdinHandle(sys_util::Error::new(1))),
-            "StdinHandle(Error(1))"
+            format!("{}", Error::EventFd(io::Error::from_raw_os_error(1))),
+            format!(
+                "Failed to create EventFd: {}",
+                io::Error::from_raw_os_error(1)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::StdinHandle(io::Error::from_raw_os_error(1))),
+            format!(
+                "Failed to set mode for terminal: {}",
+                io::Error::from_raw_os_error(1)
+            )
         );
     }
 }

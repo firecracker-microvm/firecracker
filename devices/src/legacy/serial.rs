@@ -6,10 +6,10 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::VecDeque;
-use std::{io, result};
+use std::io;
 
 use logger::{Metric, METRICS};
-use sys_util::{EventFd, Result};
+use sys_util::EventFd;
 
 use BusDevice;
 
@@ -98,7 +98,7 @@ impl Serial {
 
     /// Queues raw bytes for the guest to read and signals the interrupt if the line status would
     /// change.
-    pub fn queue_input_bytes(&mut self, c: &[u8]) -> Result<()> {
+    pub fn queue_input_bytes(&mut self, c: &[u8]) -> io::Result<()> {
         if !self.is_loop() {
             self.in_buffer.extend(c);
             self.recv_data()?;
@@ -134,7 +134,7 @@ impl Serial {
         }
     }
 
-    fn thr_empty(&mut self) -> Result<()> {
+    fn thr_empty(&mut self) -> io::Result<()> {
         if self.is_thr_intr_enabled() {
             self.add_intr_bit(IIR_THR_BIT);
             self.trigger_interrupt()?
@@ -142,7 +142,7 @@ impl Serial {
         Ok(())
     }
 
-    fn recv_data(&mut self) -> Result<()> {
+    fn recv_data(&mut self) -> io::Result<()> {
         if self.is_recv_intr_enabled() {
             self.add_intr_bit(IIR_RECV_BIT);
             self.trigger_interrupt()?
@@ -151,7 +151,7 @@ impl Serial {
         Ok(())
     }
 
-    fn trigger_interrupt(&mut self) -> result::Result<(), io::Error> {
+    fn trigger_interrupt(&mut self) -> io::Result<()> {
         self.interrupt_evt.write(1)
     }
 
@@ -159,13 +159,13 @@ impl Serial {
         self.interrupt_identification = DEFAULT_INTERRUPT_IDENTIFICATION;
     }
 
-    fn handle_write(&mut self, offset: u8, v: u8) -> Result<()> {
+    fn handle_write(&mut self, offset: u8, v: u8) -> io::Result<()> {
         match offset as u8 {
             DLAB_LOW if self.is_dlab_set() => {
-                self.baud_divisor = (self.baud_divisor & 0xff00) | v as u16
+                self.baud_divisor = (self.baud_divisor & 0xff00) | u16::from(v)
             }
             DLAB_HIGH if self.is_dlab_set() => {
-                self.baud_divisor = (self.baud_divisor & 0x00ff) | ((v as u16) << 8)
+                self.baud_divisor = (self.baud_divisor & 0x00ff) | (u16::from(v) << 8)
             }
             DATA => {
                 if self.is_loop() {
@@ -274,13 +274,13 @@ mod tests {
 
         let mut serial = Serial::new_out(intr_evt, Box::new(serial_out.clone()));
 
-        serial.write(DATA as u64, &['x' as u8, 'y' as u8]);
-        serial.write(DATA as u64, &['a' as u8]);
-        serial.write(DATA as u64, &['b' as u8]);
-        serial.write(DATA as u64, &['c' as u8]);
+        serial.write(u64::from(DATA), &[b'x', b'y']);
+        serial.write(u64::from(DATA), &[b'a']);
+        serial.write(u64::from(DATA), &[b'b']);
+        serial.write(u64::from(DATA), &[b'c']);
         assert_eq!(
             serial_out.buf.lock().unwrap().as_slice(),
-            &['a' as u8, 'b' as u8, 'c' as u8]
+            &[b'a', b'b', b'c']
         );
     }
 
@@ -295,27 +295,25 @@ mod tests {
         // write 1 to the interrupt event fd, so that read doesn't block in case the event fd
         // counter doesn't change (for 0 it blocks)
         assert!(intr_evt.write(1).is_ok());
-        serial.write(IER as u64, &[IER_RECV_BIT]);
-        serial
-            .queue_input_bytes(&['a' as u8, 'b' as u8, 'c' as u8])
-            .unwrap();
+        serial.write(u64::from(IER), &[IER_RECV_BIT]);
+        serial.queue_input_bytes(&[b'a', b'b', b'c']).unwrap();
 
         assert_eq!(intr_evt.read().unwrap(), 2);
 
         // check if reading in a 2-length array doesn't have side effects
         let mut data = [0u8, 0u8];
-        serial.read(DATA as u64, &mut data[..]);
+        serial.read(u64::from(DATA), &mut data[..]);
         assert_eq!(data, [0u8, 0u8]);
 
         let mut data = [0u8];
-        serial.read(LSR as u64, &mut data[..]);
+        serial.read(u64::from(LSR), &mut data[..]);
         assert_ne!(data[0] & LSR_DATA_BIT, 0);
-        serial.read(DATA as u64, &mut data[..]);
-        assert_eq!(data[0], 'a' as u8);
-        serial.read(DATA as u64, &mut data[..]);
-        assert_eq!(data[0], 'b' as u8);
-        serial.read(DATA as u64, &mut data[..]);
-        assert_eq!(data[0], 'c' as u8);
+        serial.read(u64::from(DATA), &mut data[..]);
+        assert_eq!(data[0], b'a');
+        serial.read(u64::from(DATA), &mut data[..]);
+        assert_eq!(data[0], b'b');
+        serial.read(u64::from(DATA), &mut data[..]);
+        assert_eq!(data[0], b'c');
 
         // check if reading from the largest u8 offset returns 0
         serial.read(0xff, &mut data[..]);
@@ -330,14 +328,14 @@ mod tests {
         // write 1 to the interrupt event fd, so that read doesn't block in case the event fd
         // counter doesn't change (for 0 it blocks)
         assert!(intr_evt.write(1).is_ok());
-        serial.write(IER as u64, &[IER_THR_BIT]);
-        serial.write(DATA as u64, &['a' as u8]);
+        serial.write(u64::from(IER), &[IER_THR_BIT]);
+        serial.write(u64::from(DATA), &[b'a']);
 
         assert_eq!(intr_evt.read().unwrap(), 2);
         let mut data = [0u8];
-        serial.read(IER as u64, &mut data[..]);
+        serial.read(u64::from(IER), &mut data[..]);
         assert_eq!(data[0] & IER_FIFO_BITS, IER_THR_BIT);
-        serial.read(IIR as u64, &mut data[..]);
+        serial.read(u64::from(IIR), &mut data[..]);
         assert_ne!(data[0] & IIR_THR_BIT, 0);
     }
 
@@ -345,16 +343,16 @@ mod tests {
     fn serial_dlab() {
         let mut serial = Serial::new_sink(EventFd::new().unwrap());
 
-        serial.write(LCR as u64, &[LCR_DLAB_BIT as u8]);
-        serial.write(DLAB_LOW as u64, &[0x12 as u8]);
-        serial.write(DLAB_HIGH as u64, &[0x34 as u8]);
+        serial.write(u64::from(LCR), &[LCR_DLAB_BIT as u8]);
+        serial.write(u64::from(DLAB_LOW), &[0x12 as u8]);
+        serial.write(u64::from(DLAB_HIGH), &[0x34 as u8]);
 
         let mut data = [0u8];
-        serial.read(LCR as u64, &mut data[..]);
+        serial.read(u64::from(LCR), &mut data[..]);
         assert_eq!(data[0], LCR_DLAB_BIT as u8);
-        serial.read(DLAB_LOW as u64, &mut data[..]);
+        serial.read(u64::from(DLAB_LOW), &mut data[..]);
         assert_eq!(data[0], 0x12);
-        serial.read(DLAB_HIGH as u64, &mut data[..]);
+        serial.read(u64::from(DLAB_HIGH), &mut data[..]);
         assert_eq!(data[0], 0x34);
     }
 
@@ -362,32 +360,32 @@ mod tests {
     fn serial_modem() {
         let mut serial = Serial::new_sink(EventFd::new().unwrap());
 
-        serial.write(MCR as u64, &[MCR_LOOP_BIT as u8]);
-        serial.write(DATA as u64, &['a' as u8]);
-        serial.write(DATA as u64, &['b' as u8]);
-        serial.write(DATA as u64, &['c' as u8]);
+        serial.write(u64::from(MCR), &[MCR_LOOP_BIT as u8]);
+        serial.write(u64::from(DATA), &[b'a']);
+        serial.write(u64::from(DATA), &[b'b']);
+        serial.write(u64::from(DATA), &[b'c']);
 
         let mut data = [0u8];
-        serial.read(MSR as u64, &mut data[..]);
+        serial.read(u64::from(MSR), &mut data[..]);
         assert_eq!(data[0], DEFAULT_MODEM_STATUS as u8);
-        serial.read(MCR as u64, &mut data[..]);
+        serial.read(u64::from(MCR), &mut data[..]);
         assert_eq!(data[0], MCR_LOOP_BIT as u8);
-        serial.read(DATA as u64, &mut data[..]);
-        assert_eq!(data[0], 'a' as u8);
-        serial.read(DATA as u64, &mut data[..]);
-        assert_eq!(data[0], 'b' as u8);
-        serial.read(DATA as u64, &mut data[..]);
-        assert_eq!(data[0], 'c' as u8);
+        serial.read(u64::from(DATA), &mut data[..]);
+        assert_eq!(data[0], b'a');
+        serial.read(u64::from(DATA), &mut data[..]);
+        assert_eq!(data[0], b'b');
+        serial.read(u64::from(DATA), &mut data[..]);
+        assert_eq!(data[0], b'c');
     }
 
     #[test]
     fn serial_scratch() {
         let mut serial = Serial::new_sink(EventFd::new().unwrap());
 
-        serial.write(SCR as u64, &[0x12 as u8]);
+        serial.write(u64::from(SCR), &[0x12 as u8]);
 
         let mut data = [0u8];
-        serial.read(SCR as u64, &mut data[..]);
+        serial.read(u64::from(SCR), &mut data[..]);
         assert_eq!(data[0], 0x12 as u8);
     }
 }

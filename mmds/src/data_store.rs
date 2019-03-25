@@ -32,7 +32,7 @@ impl Mmds {
     /// code should be 404 (Not Found) otherwise the returned status code should be
     /// 204 (No Content).
     pub fn is_initialized(&self) -> bool {
-        return self.is_initialized;
+        self.is_initialized
     }
 
     pub fn put_data(&mut self, data: Value) {
@@ -50,7 +50,7 @@ impl Mmds {
         if self.data_store.is_null() {
             return String::from("{}");
         }
-        return self.data_store.to_string();
+        self.data_store.to_string()
     }
 
     /// This function replicates the behavior of the Instance Metadata Service
@@ -64,9 +64,10 @@ impl Mmds {
     pub fn get_value(&self, path: String) -> Result<Vec<String>, Error> {
         // The pointer function splits the input by "/". With a trailing "/", pointer does not
         // know how to get the object.
-        let value = match path.ends_with('/') {
-            true => self.data_store.pointer(&path.as_str()[..(path.len() - 1)]),
-            false => self.data_store.pointer(path.as_str()),
+        let value = if path.ends_with('/') {
+            self.data_store.pointer(&path.as_str()[..(path.len() - 1)])
+        } else {
+            self.data_store.pointer(path.as_str())
         };
 
         match value {
@@ -88,7 +89,7 @@ impl Mmds {
 
                             ret.push(key);
                         }
-                        return Ok(ret);
+                        Ok(ret)
                     }
                     None => {
                         // When the object is not a map, return the value.
@@ -96,14 +97,14 @@ impl Mmds {
                         match val.as_str() {
                             Some(str_val) => {
                                 ret.push(str_val.to_string());
-                                return Ok(ret);
+                                Ok(ret)
                             }
-                            None => return Err(Error::UnsupportedValueType),
-                        };
+                            None => Err(Error::UnsupportedValueType),
+                        }
                     }
-                };
+                }
             }
-            None => return Err(Error::NotFound),
+            None => Err(Error::NotFound),
         }
     }
 }

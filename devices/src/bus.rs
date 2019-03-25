@@ -9,6 +9,7 @@
 
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
+use std::fmt;
 use std::result;
 use std::sync::{Arc, Mutex};
 
@@ -30,6 +31,16 @@ pub trait BusDevice: Send {
 pub enum Error {
     /// The insertion failed because the new device overlapped with an old device.
     Overlap,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Error::*;
+
+        match *self {
+            Overlap => write!(f, "New device overlaps with an old device."),
+        }
+    }
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -61,7 +72,7 @@ impl PartialOrd for BusRange {
 ///
 /// This doesn't have any restrictions on what kind of device or address space this applies to. The
 /// only restriction is that no two devices can overlap in this address space.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Bus {
     devices: BTreeMap<BusRange, Arc<Mutex<BusDevice>>>,
 }
@@ -210,9 +221,9 @@ mod tests {
         assert!(bus.read(0x16, &mut [0, 0, 0, 0]));
         assert!(bus.write(0x16, &[0, 0, 0, 0]));
         assert!(!bus.read(0x20, &mut [0, 0, 0, 0]));
-        assert!(!bus.write(0x20, &mut [0, 0, 0, 0]));
+        assert!(!bus.write(0x20, &[0, 0, 0, 0]));
         assert!(!bus.read(0x06, &mut [0, 0, 0, 0]));
-        assert!(!bus.write(0x06, &mut [0, 0, 0, 0]));
+        assert!(!bus.write(0x06, &[0, 0, 0, 0]));
     }
 
     #[test]
@@ -239,18 +250,26 @@ mod tests {
         assert!(BusRange(0x10, 2) < BusRange(0x12, 3));
 
         let bus_range = BusRange(0x10, 2);
-        assert_eq!(bus_range, bus_range.clone());
+        assert_eq!(bus_range, bus_range);
 
         let mut bus = Bus::new();
         let mut data = [1, 2, 3, 4];
         assert!(bus
             .insert(Arc::new(Mutex::new(DummyDevice)), 0x10, 0x10)
             .is_ok());
-        assert!(bus.write(0x10, &mut data));
+        assert!(bus.write(0x10, &data));
         let bus_clone = bus.clone();
         assert!(bus.read(0x10, &mut data));
         assert_eq!(data, [1, 2, 3, 4]);
         assert!(bus_clone.read(0x10, &mut data));
         assert_eq!(data, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_display_error() {
+        assert_eq!(
+            format!("{}", Error::Overlap),
+            "New device overlaps with an old device."
+        );
     }
 }

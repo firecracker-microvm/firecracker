@@ -7,6 +7,7 @@
 
 use std;
 use std::ffi::CStr;
+use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
@@ -33,6 +34,34 @@ pub enum Error {
     SeekElfStart,
     SeekProgramHeader,
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match *self {
+                Error::BigEndianElfOnLittle => "Unsupported ELF File byte order",
+                Error::CommandLineCopy => "Failed to copy the command line string to guest memory",
+                Error::CommandLineOverflow => "Command line string overflows guest memory",
+                Error::InvalidElfMagicNumber => "Invalid ELF magic number",
+                Error::InvalidEntryAddress => "Invalid entry address found in ELF header",
+                Error::InvalidProgramHeaderSize => "Invalid ELF program header size",
+                Error::InvalidProgramHeaderOffset => "Invalid ELF program header offset",
+                Error::InvalidProgramHeaderAddress => "Invalid ELF program header address",
+                Error::ReadElfHeader => "Failed to read ELF header",
+                Error::ReadKernelImage => "Failed to write kernel image to guest memory",
+                Error::ReadProgramHeader => "Failed to read ELF program header",
+                Error::SeekKernelStart => {
+                    "Failed to seek to file offset as pointed by the ELF program header"
+                }
+                Error::SeekElfStart => "Failed to seek to start of kernel image",
+                Error::SeekProgramHeader => "Failed to seek to ELF program header",
+            }
+        )
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Loads a kernel from a vmlinux elf image to a slice
@@ -44,7 +73,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// * `start_address` - For x86_64, this is the start of the high memory. Kernel should reside above it.
 ///
 /// Returns the entry address of the kernel.
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn load_kernel<F>(
     guest_mem: &GuestMemory,
     kernel_image: &mut F,
@@ -153,10 +181,10 @@ mod tests {
     use memory_model::{GuestAddress, GuestMemory};
     use std::io::Cursor;
 
-    const MEM_SIZE: usize = 0x180000;
+    const MEM_SIZE: usize = 0x18_0000;
 
     fn create_guest_mem() -> GuestMemory {
-        GuestMemory::new(&vec![(GuestAddress(0x0), MEM_SIZE)]).unwrap()
+        GuestMemory::new(&[(GuestAddress(0x0), MEM_SIZE)]).unwrap()
     }
 
     #[test]
@@ -186,19 +214,19 @@ mod tests {
             )
         );
         let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, '1' as u8);
+        assert_eq!(val, b'1');
         cmdline_address = cmdline_address.unchecked_add(1);
         let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, '2' as u8);
+        assert_eq!(val, b'2');
         cmdline_address = cmdline_address.unchecked_add(1);
         let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, '3' as u8);
+        assert_eq!(val, b'3');
         cmdline_address = cmdline_address.unchecked_add(1);
         let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, '4' as u8);
+        assert_eq!(val, b'4');
         cmdline_address = cmdline_address.unchecked_add(1);
         let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, '\0' as u8);
+        assert_eq!(val, b'\0');
     }
 
     // Elf64 image that prints hello world on x86_64.
@@ -213,7 +241,7 @@ mod tests {
         let gm = create_guest_mem();
         let image = make_elf_bin();
         assert_eq!(
-            Ok(GuestAddress(0x100000)),
+            Ok(GuestAddress(0x10_0000)),
             load_kernel(&gm, &mut Cursor::new(&image), 0)
         );
     }

@@ -12,14 +12,14 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
 use memory_model::{GuestAddress, GuestMemory};
-use sys_util::{EventFd, Result};
+use sys_util::EventFd;
 use BusDevice;
 
 //TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
 const VENDOR_ID: u32 = 0;
 
 //required by the virtio mmio device register layout at offset 0 from base
-const MMIO_MAGIC_VALUE: u32 = 0x74726976;
+const MMIO_MAGIC_VALUE: u32 = 0x7472_6976;
 
 //current version specified by the mmio standard (legacy devices used 1 here)
 const MMIO_VERSION: u32 = 2;
@@ -102,7 +102,7 @@ pub struct MmioDevice {
 
 impl MmioDevice {
     /// Constructs a new MMIO transport for the given virtio device.
-    pub fn new(mem: GuestMemory, device: Box<VirtioDevice>) -> Result<MmioDevice> {
+    pub fn new(mem: GuestMemory, device: Box<VirtioDevice>) -> std::io::Result<MmioDevice> {
         let mut queue_evts = Vec::new();
         for _ in device.queue_max_sizes().iter() {
             queue_evts.push(EventFd::new()?)
@@ -113,7 +113,7 @@ impl MmioDevice {
             .map(|&s| Queue::new(s))
             .collect();
         Ok(MmioDevice {
-            device: device,
+            device,
             device_activated: false,
             features_select: 0,
             acked_features_select: 0,
@@ -122,8 +122,8 @@ impl MmioDevice {
             interrupt_evt: Some(EventFd::new()?),
             driver_status: DEVICE_INIT,
             config_generation: 0,
-            queues: queues,
-            queue_evts: queue_evts,
+            queues,
+            queue_evts,
             mem: Some(mem),
         })
     }
@@ -291,7 +291,7 @@ impl BusDevice for MmioDevice {
                         }
                         features
                     }
-                    0x34 => self.with_queue(0, |q| q.get_max_size() as u32),
+                    0x34 => self.with_queue(0, |q| u32::from(q.get_max_size())),
                     0x44 => self.with_queue(0, |q| q.ready as u32),
                     0x60 => self.interrupt_status.load(Ordering::SeqCst) as u32,
                     0x70 => self.driver_status,
@@ -316,11 +316,11 @@ impl BusDevice for MmioDevice {
 
     fn write(&mut self, offset: u64, data: &[u8]) {
         fn hi(v: &mut GuestAddress, x: u32) {
-            *v = (*v & 0xffffffff) | ((x as u64) << 32)
+            *v = (*v & 0xffff_ffff) | (u64::from(x) << 32)
         }
 
         fn lo(v: &mut GuestAddress, x: u32) {
-            *v = (*v & !0xffffffff) | (x as u64)
+            *v = (*v & !0xffff_ffff) | u64::from(x)
         }
 
         match offset {
@@ -366,7 +366,7 @@ impl BusDevice for MmioDevice {
             }
             0x100...0xfff => {
                 if self.check_driver_status(DEVICE_DRIVER, DEVICE_FAILED) {
-                    return self.device.write_config(offset - 0x100, data);
+                    self.device.write_config(offset - 0x100, data)
                 } else {
                     warn!("can not write to device config data area before driver is ready");
                     return;
@@ -422,13 +422,14 @@ mod tests {
 
     impl VirtioDevice for DummyDevice {
         fn device_type(&self) -> u32 {
-            return 123;
+            123
         }
 
         fn queue_max_sizes(&self) -> &[u16] {
             &[16, 32]
         }
 
+        #[allow(clippy::needless_range_loop)]
         fn read_config(&self, offset: u64, data: &mut [u8]) {
             for i in 0..data.len() {
                 data[i] = self.config_bytes[offset as usize + i];
@@ -436,8 +437,8 @@ mod tests {
         }
 
         fn write_config(&mut self, offset: u64, data: &[u8]) {
-            for i in 0..data.len() {
-                self.config_bytes[offset as usize + i] = data[i];
+            for (i, item) in data.iter().enumerate() {
+                self.config_bytes[offset as usize + i] = *item;
             }
         }
 
@@ -590,6 +591,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_bus_device_write() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
 
@@ -626,8 +628,8 @@ mod tests {
             d.write(0x100 + i as u64, &buf1[i..]);
             d.read(0x100, &mut buf2[..]);
 
-            for j in 0..0xeff {
-                assert_eq!(buf2[j], 0);
+            for item in buf2.iter().take(0xeff) {
+                assert_eq!(*item, 0);
             }
         }
 
@@ -705,19 +707,19 @@ mod tests {
             DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK,
         );
 
-        d.interrupt_status.store(0b101010, Ordering::Relaxed);
+        d.interrupt_status.store(0b10_1010, Ordering::Relaxed);
         LittleEndian::write_u32(&mut buf[..], 0b111);
         d.write(0x64, &buf[..]);
-        assert_eq!(d.interrupt_status.load(Ordering::Relaxed), 0b101000);
+        assert_eq!(d.interrupt_status.load(Ordering::Relaxed), 0b10_1000);
 
         // Write to an invalid address in generic register range.
         LittleEndian::write_u32(&mut buf[..], 0xf);
         d.config_generation = 0;
-        d.write(0xfb, &mut buf[..]);
+        d.write(0xfb, &buf[..]);
         assert_eq!(d.config_generation, 0);
 
         // Write to an invalid length in generic register range.
-        d.write(0xfc, &mut buf[..2]);
+        d.write(0xfc, &buf[..2]);
         assert_eq!(d.config_generation, 0);
 
         // Here we test writes/read into/from the device specific configuration space.
@@ -728,8 +730,8 @@ mod tests {
             d.write(0x100 + i as u64, &buf1[i..]);
             d.read(0x100, &mut buf2[..]);
 
-            for j in 0..i {
-                assert_eq!(buf2[j], 0);
+            for item in buf2.iter().take(i) {
+                assert_eq!(*item, 0);
             }
 
             assert_eq!(buf1[i..], buf2[i..]);

@@ -33,9 +33,9 @@ pub struct Headers {
 impl Headers {
     /// By default Requests are created with no headers.
     pub fn default() -> Headers {
-        return Headers {
+        Headers {
             headers: HashMap::new(),
-        };
+        }
     }
 
     /// Adds a new header to the list.
@@ -92,21 +92,15 @@ mod tests {
 
         assert!(headers.headers.contains_key(&Header::ContentType));
         assert_eq!(
-            headers.headers.get(&Header::ContentType).unwrap(),
+            &headers.headers[&Header::ContentType],
             &"text/plain".to_string()
         );
         assert!(headers.headers.contains_key(&Header::ContentLength));
-        assert_eq!(
-            headers.headers.get(&Header::ContentLength).unwrap(),
-            &"120".to_string()
-        );
+        assert_eq!(&headers.headers[&Header::ContentLength], &"120".to_string());
 
         // Test that adding a Header with the same key, updates the value.
         headers.add(Header::ContentLength, "130".to_string());
-        assert_eq!(
-            headers.headers.get(&Header::ContentLength).unwrap(),
-            &"130".to_string()
-        );
+        assert_eq!(&headers.headers[&Header::ContentLength], &"130".to_string());
     }
 
     #[test]

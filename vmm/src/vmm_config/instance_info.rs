@@ -9,7 +9,6 @@ use devices;
 use kernel::loader as kernel_loader;
 use memory_model::GuestMemoryError;
 use seccomp;
-use sys_util;
 use vstate;
 
 /// The microvm state. When Firecracker starts, the instance state is Uninitialized.
@@ -52,11 +51,13 @@ pub enum StartMicrovmError {
     ConfigureVm(vstate::Error),
     /// Unable to seek the block device backing file due to invalid permissions or
     /// the file was deleted/corrupted.
-    CreateBlockDevice(sys_util::Error),
+    CreateBlockDevice(std::io::Error),
     /// Split this at some point.
     /// Internal errors are due to resource exhaustion.
     /// Users errors are due to invalid permissions.
     CreateNetDevice(devices::virtio::Error),
+    /// Failed to create a `RateLimiter` object.
+    CreateRateLimiter(std::io::Error),
     #[cfg(feature = "vsock")]
     /// Creating a vsock device can only fail if the /dev/vhost-vsock device cannot be open.
     CreateVsockDevice(devices::virtio::vhost::Error),
@@ -70,10 +71,12 @@ pub enum StartMicrovmError {
     GuestMemory(GuestMemoryError),
     /// The kernel command line is invalid.
     KernelCmdline(String),
+    /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
+    KernelLoader(kernel_loader::Error),
     /// Cannot add devices to the Legacy I/O Bus.
     LegacyIOBus(device_manager::legacy::Error),
-    /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
-    Loader(kernel_loader::Error),
+    /// Cannot load command line string.
+    LoadCommandline(kernel_loader::Error),
     /// The start command was issued more than once.
     MicroVMAlreadyRunning,
     /// Cannot start the VM because the kernel was not configured.
@@ -123,8 +126,9 @@ impl Display for StartMicrovmError {
                 f,
                 "Unable to seek the block device backing file due to invalid permissions or \
                  the file was deleted/corrupted. Error number: {}",
-                err.errno().to_string()
+                err
             ),
+            CreateRateLimiter(ref err) => write!(f, "Cannot create RateLimiter: {}", err),
             #[cfg(feature = "vsock")]
             CreateVsockDevice(ref err) => {
                 let mut err_msg = format!("{:?}", err);
@@ -153,22 +157,26 @@ impl Display for StartMicrovmError {
                 write!(f, "Invalid Memory Configuration: {}", err_msg)
             }
             KernelCmdline(ref err) => write!(f, "Invalid kernel command line: {}", err),
-            LegacyIOBus(ref err) => {
-                let mut err_msg = format!("{:?}", err);
+            KernelLoader(ref err) => {
+                let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot add devices to the legacy I/O Bus. {}", err_msg)
-            }
-            Loader(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
                 write!(
                     f,
                     "Cannot load kernel due to invalid memory configuration or invalid kernel \
                      image. {}",
                     err_msg
                 )
+            }
+            LegacyIOBus(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot add devices to the legacy I/O Bus. {}", err_msg)
+            }
+            LoadCommandline(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(f, "Cannot load command line string. {}", err_msg)
             }
             MicroVMAlreadyRunning => write!(f, "Microvm already running."),
             MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),
@@ -222,7 +230,7 @@ impl Display for StartMicrovmError {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
 
-                write!(f, "Cannot create a new vCPU file descriptor. {}", err_msg)
+                write!(f, "Cannot create a new vCPU. {}", err_msg)
             }
             VcpuConfigure(ref err) => {
                 let mut err_msg = format!("{:?}", err);

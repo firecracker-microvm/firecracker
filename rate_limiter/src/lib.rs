@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 //! # Rate Limiter
 //!
 //! Provides a rate limiter written in Rust useful for IO operations that need to
@@ -54,7 +54,6 @@ extern crate serde_derive;
 #[macro_use]
 extern crate logger;
 
-use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::Duration;
 use std::{fmt, io};
@@ -93,7 +92,9 @@ fn gcd(x: u64, y: u64) -> u64 {
 pub struct TokenBucket {
     // Bucket defining traits.
     size: u64,
+    // Initial burst size (number of free initial tokens, that can be consumed at no cost)
     one_time_burst: Option<u64>,
+    // Complete refill time in milliseconds.
     refill_time: u64,
 
     // Internal state descriptors.
@@ -218,6 +219,26 @@ impl TokenBucket {
         }
         self.budget = std::cmp::min(self.budget + tokens, self.size);
     }
+
+    /// Returns the capacity of the token bucket.
+    pub fn capacity(&self) -> u64 {
+        self.size
+    }
+
+    /// Returns the remaining one time burst budget.
+    pub fn one_time_burst(&self) -> u64 {
+        self.one_time_burst.unwrap_or(0)
+    }
+
+    /// Returns the time in milliseconds required to to completely fill the bucket.
+    pub fn refill_time_ms(&self) -> u64 {
+        self.refill_time
+    }
+
+    /// Returns the current budget (one time burst allowance notwithstanding).
+    pub fn budget(&self) -> u64 {
+        self.budget
+    }
 }
 
 /// Enum that describes the type of token used.
@@ -247,7 +268,7 @@ pub struct RateLimiter {
     bandwidth: Option<TokenBucket>,
     ops: Option<TokenBucket>,
 
-    timer_fd: Option<TimerFd>,
+    timer_fd: TimerFd,
     // Internal flag that quickly determines timer state.
     timer_active: bool,
 }
@@ -268,68 +289,25 @@ impl fmt::Debug for RateLimiter {
     }
 }
 
-impl<'de> Deserialize<'de> for RateLimiter {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[allow(non_camel_case_types)]
-        enum Field {
-            bandwidth,
-            ops,
-        };
-
-        struct RateLimiterVisitor;
-
-        impl<'de> Visitor<'de> for RateLimiterVisitor {
-            type Value = RateLimiter;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("struct RateLimiter")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> Result<RateLimiter, V::Error>
-            where
-                V: MapAccess<'de>,
-            {
-                let mut bandwidth: Option<TokenBucket> = None;
-                let mut ops: Option<TokenBucket> = None;
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::bandwidth => {
-                            if bandwidth.is_some() {
-                                return Err(de::Error::duplicate_field("bandwidth"));
-                            }
-                            bandwidth = Some(map.next_value()?);
-                        }
-                        Field::ops => {
-                            if ops.is_some() {
-                                return Err(de::Error::duplicate_field("ops"));
-                            }
-                            ops = Some(map.next_value()?);
-                        }
-                    }
-                }
-                let bandwidth = bandwidth.unwrap_or_default();
-                let ops = ops.unwrap_or_default();
-                RateLimiter::new(
-                    bandwidth.size,
-                    bandwidth.one_time_burst,
-                    bandwidth.refill_time,
-                    ops.size,
-                    ops.one_time_burst,
-                    ops.refill_time,
-                )
-                .map_err(de::Error::custom)
-            }
-        }
-        const FIELDS: &'static [&'static str] = &["bandwidth", "ops"];
-        deserializer.deserialize_struct("RateLimiter", FIELDS, RateLimiterVisitor)
-    }
-}
-
 impl RateLimiter {
+    // description
+    fn make_bucket(
+        total_capacity: u64,
+        one_time_burst: Option<u64>,
+        complete_refill_time_ms: u64,
+    ) -> Option<TokenBucket> {
+        // If either token bucket capacity or refill time is 0, disable limiting.
+        if total_capacity != 0 && complete_refill_time_ms != 0 {
+            Some(TokenBucket::new(
+                total_capacity,
+                one_time_burst,
+                complete_refill_time_ms,
+            ))
+        } else {
+            None
+        }
+    }
+
     /// Creates a new Rate Limiter that can limit on both bytes/s and ops/s.
     ///
     /// # Arguments
@@ -359,36 +337,22 @@ impl RateLimiter {
         ops_one_time_burst: Option<u64>,
         ops_complete_refill_time_ms: u64,
     ) -> io::Result<Self> {
-        // If either bytes token bucket capacity or refill time is 0, disable limiting on bytes/s.
-        let bytes_token_bucket = if bytes_total_capacity != 0 && bytes_complete_refill_time_ms != 0
-        {
-            Some(TokenBucket::new(
-                bytes_total_capacity,
-                bytes_one_time_burst,
-                bytes_complete_refill_time_ms,
-            ))
-        } else {
-            None
-        };
+        let bytes_token_bucket = Self::make_bucket(
+            bytes_total_capacity,
+            bytes_one_time_burst,
+            bytes_complete_refill_time_ms,
+        );
 
-        // If either ops token bucket capacity or refill time is 0, disable limiting on ops/s.
-        let ops_token_bucket = if ops_total_capacity != 0 && ops_complete_refill_time_ms != 0 {
-            Some(TokenBucket::new(
-                ops_total_capacity,
-                ops_one_time_burst,
-                ops_complete_refill_time_ms,
-            ))
-        } else {
-            None
-        };
+        let ops_token_bucket = Self::make_bucket(
+            ops_total_capacity,
+            ops_one_time_burst,
+            ops_complete_refill_time_ms,
+        );
 
-        // If limiting is disabled on all token types, don't even create a timer fd.
-        let timer_fd = if bytes_token_bucket.is_some() || ops_token_bucket.is_some() {
-            // create TimerFd using monotonic clock, as nonblocking FD and set close-on-exec
-            Some(TimerFd::new_custom(ClockId::Monotonic, true, true)?)
-        } else {
-            None
-        };
+        // We'll need a timer_fd, even if our current config effectively disables rate limiting,
+        // because `Self::update_buckets()` might re-enable it later, and we might be
+        // seccomp-blocked from creating the timer_fd at that time.
+        let timer_fd = TimerFd::new_custom(ClockId::Monotonic, true, true)?;
 
         Ok(RateLimiter {
             bandwidth: bytes_token_bucket,
@@ -421,8 +385,6 @@ impl RateLimiter {
             // Register the timer; don't care about its previous state
             // safe to unwrap: timer is definitely Some() since we have a bucket.
             self.timer_fd
-                .as_mut()
-                .expect("Failed to consume rate limiter token due to invalid timer fd")
                 .set_state(TIMER_REFILL_STATE, SetTimeFlags::Default);
             self.timer_active = true;
         }
@@ -461,23 +423,46 @@ impl RateLimiter {
     ///
     /// If the rate limiter is disabled or is not blocked, an error is returned.
     pub fn event_handler(&mut self) -> Result<(), Error> {
-        match self.timer_fd.as_mut() {
-            Some(timer_fd) => {
-                // Read the timer_fd and report error if there was no event.
-                match timer_fd.read() {
-                    0 => Err(Error::SpuriousRateLimiterEvent(
-                        "Rate limiter event handler called without a present timer",
-                    )),
-                    _ => {
-                        self.timer_active = false;
-                        Ok(())
-                    }
-                }
-            }
-            None => Err(Error::SpuriousRateLimiterEvent(
+        match self.timer_fd.read() {
+            0 => Err(Error::SpuriousRateLimiterEvent(
                 "Rate limiter event handler called without a present timer",
             )),
+            _ => {
+                self.timer_active = false;
+                Ok(())
+            }
         }
+    }
+
+    /// Updates the parameters of the token buckets associated with this RateLimiter.
+    // TODO: Pls note that, right now, the buckets become full after being updated.
+    pub fn update_buckets(&mut self, bytes: Option<TokenBucket>, ops: Option<TokenBucket>) {
+        // TODO: We should reconcile the create and update paths, such that they use the same data
+        // format. Currently, the TokenBucket config data is used for create, but the live
+        // TokenBucket objects are used for update.
+        // We have to call make_bucket instead of directly assigning the bytes and/or ops
+        // because the RateLimiter validates the TokenBucket config data (e.g. it nullifies
+        // an unusable bucket with size 0). This is needed, because passing a 0-sized bucket is
+        // the only method the user has to disable rate limiting. I.e. if the user passes `null`
+        // as the token bucket config, the old config is left unchanged.
+
+        if let Some(b) = bytes {
+            self.bandwidth = Self::make_bucket(b.size, b.one_time_burst, b.refill_time);
+        }
+
+        if let Some(b) = ops {
+            self.ops = Self::make_bucket(b.size, b.one_time_burst, b.refill_time);
+        }
+    }
+
+    /// Returns an immutable view of the inner bandwidth token bucket.
+    pub fn bandwidth(&self) -> Option<&TokenBucket> {
+        self.bandwidth.as_ref()
+    }
+
+    /// Returns an immutable view of the inner ops token bucket.
+    pub fn ops(&self) -> Option<&TokenBucket> {
+        self.ops.as_ref()
     }
 }
 
@@ -489,10 +474,7 @@ impl AsRawFd for RateLimiter {
     /// Will return a negative value if rate limiting is disabled on both
     /// token types.
     fn as_raw_fd(&self) -> RawFd {
-        match self.timer_fd.as_ref() {
-            Some(timer_fd) => timer_fd.as_raw_fd(),
-            None => -1,
-        }
+        self.timer_fd.as_raw_fd()
     }
 }
 
@@ -517,14 +499,6 @@ mod tests {
             self.last_update = time::precise_time_ns();
         }
 
-        fn get_capacity(&self) -> u64 {
-            self.size
-        }
-
-        fn get_current_budget(&self) -> u64 {
-            self.budget
-        }
-
         fn get_last_update(&self) -> u64 {
             self.last_update
         }
@@ -535,10 +509,6 @@ mod tests {
 
         fn get_processed_refill_time(&self) -> u64 {
             self.processed_refill_time
-        }
-
-        fn get_one_time_burst(&self) -> u64 {
-            self.one_time_burst.unwrap_or(0)
         }
     }
 
@@ -555,8 +525,8 @@ mod tests {
     fn test_token_bucket_create() {
         let before = time::precise_time_ns();
         let tb = TokenBucket::new(1000, None, 1000);
-        assert_eq!(tb.get_capacity(), 1000);
-        assert_eq!(tb.get_current_budget(), 1000);
+        assert_eq!(tb.capacity(), 1000);
+        assert_eq!(tb.budget(), 1000);
         assert!(tb.get_last_update() >= before);
         assert!(tb.get_last_update() <= time::precise_time_ns());
         assert_eq!(tb.get_processed_capacity(), 1);
@@ -587,11 +557,11 @@ mod tests {
         let mut tb = TokenBucket::new(capacity, None, refill_ms as u64);
 
         assert!(tb.reduce(123));
-        assert_eq!(tb.get_current_budget(), capacity - 123);
+        assert_eq!(tb.budget(), capacity - 123);
 
         thread::sleep(Duration::from_millis(123));
         assert!(tb.reduce(1));
-        assert_eq!(tb.get_current_budget(), capacity - 1);
+        assert_eq!(tb.budget(), capacity - 1);
         assert!(tb.reduce(100));
         assert!(!tb.reduce(capacity));
 
@@ -599,9 +569,9 @@ mod tests {
         let mut tb = TokenBucket::new(1000, Some(1100), 1000);
         // safely assuming the thread can run these 3 commands in less than 500ms
         assert!(tb.reduce(1000));
-        assert_eq!(tb.get_one_time_burst(), 100);
+        assert_eq!(tb.one_time_burst(), 100);
         assert!(tb.reduce(500));
-        assert_eq!(tb.get_one_time_burst(), 0);
+        assert_eq!(tb.one_time_burst(), 0);
         assert!(tb.reduce(500));
         assert!(!tb.reduce(500));
         thread::sleep(Duration::from_millis(500));
@@ -609,8 +579,8 @@ mod tests {
 
         let before = time::precise_time_ns();
         tb.reset();
-        assert_eq!(tb.get_capacity(), 1000);
-        assert_eq!(tb.get_current_budget(), 1000);
+        assert_eq!(tb.capacity(), 1000);
+        assert_eq!(tb.budget(), 1000);
         assert!(tb.get_last_update() >= before);
         assert!(tb.get_last_update() <= time::precise_time_ns());
     }
@@ -631,8 +601,23 @@ mod tests {
             "SpuriousRateLimiterEvent(\
              \"Rate limiter event handler called without a present timer\")"
         );
-        // raw FD for this disabled rate-limiter should be -1
-        assert_eq!(l.as_raw_fd(), -1);
+    }
+
+    #[test]
+    fn test_rate_limiter_new() {
+        let l = RateLimiter::new(1000, Some(1001), 1002, 1003, Some(1004), 1005).unwrap();
+
+        let bw = l.bandwidth.unwrap();
+        assert_eq!(bw.capacity(), 1000);
+        assert_eq!(bw.one_time_burst(), 1001);
+        assert_eq!(bw.refill_time_ms(), 1002);
+        assert_eq!(bw.budget(), 1000);
+
+        let ops = l.ops.unwrap();
+        assert_eq!(ops.capacity(), 1003);
+        assert_eq!(ops.one_time_burst(), 1004);
+        assert_eq!(ops.refill_time_ms(), 1005);
+        assert_eq!(ops.budget(), 1003);
     }
 
     #[test]
@@ -645,14 +630,14 @@ mod tests {
         l.manual_replenish(23, TokenType::Bytes);
         {
             let bytes_tb = l.get_token_bucket(TokenType::Bytes).unwrap();
-            assert_eq!(bytes_tb.get_current_budget(), 900);
+            assert_eq!(bytes_tb.budget(), 900);
         }
         // consume 123 ops
         assert!(l.consume(123, TokenType::Ops));
         l.manual_replenish(23, TokenType::Ops);
         {
             let bytes_tb = l.get_token_bucket(TokenType::Ops).unwrap();
-            assert_eq!(bytes_tb.get_current_budget(), 900);
+            assert_eq!(bytes_tb.budget(), 900);
         }
     }
 
@@ -763,39 +748,27 @@ mod tests {
     }
 
     #[test]
-    fn test_rate_limiter_deserialization() {
-        let jstr = r#"{
-            "bandwidth": { "size": 1000, "one_time_burst": 2000,  "refill_time": 1000 },
-            "ops": { "size": 10, "one_time_burst": 20, "refill_time": 1000 }
-        }"#;
+    fn test_update_buckets() {
+        let mut x = RateLimiter::new(1000, Some(2000), 1000, 10, Some(20), 1000).unwrap();
 
-        let x: RateLimiter = serde_json::from_str(jstr).expect("deserialization failed.");
-        assert_eq!(x.bandwidth.as_ref().unwrap().size, 1000);
-        assert_eq!(x.bandwidth.as_ref().unwrap().one_time_burst.unwrap(), 2000);
-        assert_eq!(x.bandwidth.as_ref().unwrap().refill_time, 1000);
-        assert_eq!(x.ops.as_ref().unwrap().size, 10);
-        assert_eq!(x.ops.as_ref().unwrap().one_time_burst.unwrap(), 20);
-        assert_eq!(x.ops.as_ref().unwrap().refill_time, 1000);
+        let initial_bw = x.bandwidth.clone();
+        let initial_ops = x.ops.clone();
 
-        let jstr = r#"{
-            "ops": { "size": 10, "one_time_burst": 20, "refill_time": 1000 }
-        }"#;
+        x.update_buckets(None, None);
+        assert_eq!(x.bandwidth, initial_bw);
+        assert_eq!(x.ops, initial_ops);
 
-        let x: RateLimiter = serde_json::from_str(jstr).expect("deserialization failed.");
-        assert!(x.bandwidth.is_none());
-        assert_eq!(x.ops.as_ref().unwrap().size, 10);
-        assert_eq!(x.ops.as_ref().unwrap().one_time_burst.unwrap(), 20);
-        assert_eq!(x.ops.as_ref().unwrap().refill_time, 1000);
-        assert_eq!(x.timer_active, false);
+        let new_bw = TokenBucket::new(123, None, 57);
+        let new_ops = TokenBucket::new(321, Some(12346), 89);
+        x.update_buckets(Some(new_bw.clone()), Some(new_ops.clone()));
 
-        let jstr = r#"{
-            "bandwidth": { "size": 1000, "one_time_burst": 2000,  "refill_time": 1000 },
-            "opz": { "size": 10, "one_time_burst": 20, "refill_time": 1000 }
-        }"#;
-        assert!(serde_json::from_str::<RateLimiter>(jstr).is_err());
+        // We have manually adjust the last_update field, because it changes when update_buckets()
+        // constructs new buckets (and thus gets a different value for last_update). We do this so
+        // it makes sense to test the following assertions.
+        x.bandwidth.as_mut().unwrap().last_update = new_bw.last_update;
+        x.ops.as_mut().unwrap().last_update = new_ops.last_update;
 
-        let jstr = r#"{
-        }"#;
-        assert!(serde_json::from_str::<RateLimiter>(jstr).is_ok());
+        assert_eq!(x.bandwidth, Some(new_bw));
+        assert_eq!(x.ops, Some(new_ops));
     }
 }
