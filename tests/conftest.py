@@ -213,8 +213,14 @@ def _gcc_compile(src_file, output_file):
 def aux_bin_paths(test_session_root_path):
     """Build external tools.
 
-    They currently consist of a binary that can properly use the clone()
-    syscall, and a very simple vsock client/server application.
+    They currently consist of:
+
+    * a binary that can properly use the `clone()` syscall;
+    * a very simple vsock client/server application;
+    * a jailer with a simple syscall whitelist;
+    * a jailer with a (syscall, arguments) advanced whitelist;
+    * a jailed binary that follows the seccomp rules;
+    * a jailed binary that breaks the seccomp rules.
     """
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
@@ -228,9 +234,54 @@ def aux_bin_paths(test_session_root_path):
         "host_tools/test_vsock.c",
         test_vsock_bin_path
     )
+
+    seccomp_build_path = os.path.join(
+        test_session_root_path,
+        build_tools.CARGO_RELEASE_REL_PATH
+    )
+
+    build_tools.cargo_build(seccomp_build_path,
+                            extra_args='--release',
+                            src_dir='integration_tests/security/demo_seccomp')
+
+    release_binaries_path = os.path.join(
+        test_session_root_path,
+        build_tools.CARGO_RELEASE_REL_PATH,
+        build_tools.RELEASE_BINARIES_REL_PATH
+    )
+
+    demo_basic_jailer = os.path.normpath(
+        os.path.join(
+            release_binaries_path,
+            'demo_basic_jailer'
+        )
+    )
+    demo_advanced_jailer = os.path.normpath(
+        os.path.join(
+            release_binaries_path,
+            'demo_advanced_jailer'
+        )
+    )
+    demo_harmless = os.path.normpath(
+        os.path.join(
+            release_binaries_path,
+            'demo_harmless'
+        )
+    )
+    demo_malicious = os.path.normpath(
+        os.path.join(
+            release_binaries_path,
+            'demo_malicious'
+        )
+    )
+
     yield {
         'cloner': cloner_bin_path,
-        'test_vsock': test_vsock_bin_path
+        'test_vsock': test_vsock_bin_path,
+        'demo_basic_jailer': demo_basic_jailer,
+        'demo_advanced_jailer': demo_advanced_jailer,
+        'demo_harmless': demo_harmless,
+        'demo_malicious': demo_malicious
     }
 
 

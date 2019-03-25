@@ -4,7 +4,7 @@
 use std::arch::x86_64::__cpuid as host_cpuid;
 use std::slice;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     NotSupported,
     Overflow(String),
@@ -23,6 +23,7 @@ pub enum Reg {
 /// This is achieved by bypassing the `O(n)` indexing, heap allocation, and the unicode checks
 /// done by `std::string::String`.
 ///
+#[derive(Clone)]
 pub struct BrandString {
     /// Flattened buffer, holding an array of 32-bit register values.
     ///

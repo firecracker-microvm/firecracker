@@ -970,6 +970,29 @@ impl CpuId {
         }
     }
 
+    /// Creates a new `CpuId` structure based on a supplied vector of kvm_cpuid_entry2.
+    ///
+    /// # Arguments
+    ///
+    /// * `entries` - The vector of kvm_cpuid_entry2 entries.
+    ///
+    pub fn from_entries(entries: &[kvm_cpuid_entry2]) -> CpuId {
+        let mut kvm_cpuid = vec_with_array_field::<kvm_cpuid2, kvm_cpuid_entry2>(entries.len());
+        kvm_cpuid[0].nent = entries.len() as u32;
+
+        unsafe {
+            kvm_cpuid[0]
+                .entries
+                .as_mut_slice(entries.len())
+                .copy_from_slice(entries);
+        }
+
+        CpuId {
+            kvm_cpuid,
+            allocated_len: entries.len(),
+        }
+    }
+
     /// Get the mutable entries slice so they can be modified before passing to the VCPU.
     ///
     pub fn mut_entries_slice(&mut self) -> &mut [kvm_cpuid_entry2] {
@@ -1000,6 +1023,9 @@ mod tests {
     extern crate byteorder;
 
     use super::*;
+
+    use kvm_cpuid_entry2;
+    use CpuId;
 
     // as per https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/fpu/internal.h
     pub const KVM_FPU_CWD: usize = 0x37f;
@@ -1369,20 +1395,22 @@ mod tests {
 
     #[cfg(target_arch = "x86_64")]
     #[test]
-    fn run_code_test() {
+    fn test_run_code() {
         use std::io::Write;
 
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         // This example based on https://lwn.net/Articles/658511/
+        #[rustfmt::skip]
         let code = [
             0xba, 0xf8, 0x03, /* mov $0x3f8, %dx */
             0x00, 0xd8, /* add %bl, %al */
             0x04, b'0', /* add $'0', %al */
             0xee, /* out %al, %dx */
             0xec, /* in %dx, %al */
-            0xc6, 0x06, 0x00, 0x20, 0x00, /* movl $0, (0x2000) */
-            0x8a, 0x16, 0x00, 0x20, /* movl (0x2000), %dl */
+            0xc6, 0x06, 0x00, 0x80, 0x00, /* movl $0, (0x8000); This generates a MMIO Write.*/
+            0x8a, 0x16, 0x00, 0x80, /* movl (0x8000), %dl; This generates a MMIO Read.*/
+            0xc6, 0x06, 0x00, 0x20, 0x00, /* movl $0, (0x2000); Dirty one page in guest mem. */
             0xf4, /* hlt */
         ];
 
@@ -1423,6 +1451,9 @@ mod tests {
         vcpu_regs.rflags = 2;
         vcpu_fd.set_regs(&vcpu_regs).expect("set regs failed");
 
+        // Variables used for checking if MMIO Read & Write were performed.
+        let mut mmio_read = false;
+        let mut mmio_write = false;
         loop {
             match vcpu_fd.run().expect("run failed") {
                 VcpuExit::IoIn(addr, data) => {
@@ -1435,13 +1466,15 @@ mod tests {
                     assert_eq!(data[0], b'5');
                 }
                 VcpuExit::MmioRead(addr, data) => {
-                    assert_eq!(addr, 0x2000);
+                    assert_eq!(addr, 0x8000);
                     assert_eq!(data.len(), 1);
+                    mmio_read = true;
                 }
                 VcpuExit::MmioWrite(addr, data) => {
-                    assert_eq!(addr, 0x2000);
+                    assert_eq!(addr, 0x8000);
                     assert_eq!(data.len(), 1);
                     assert_eq!(data[0], 0);
+                    mmio_write = true;
                 }
                 VcpuExit::Hlt => {
                     // The code snippet dirties 2 pages:
@@ -1458,6 +1491,8 @@ mod tests {
                 r => panic!("unexpected exit reason: {:?}", r),
             }
         }
+        assert!(mmio_read);
+        assert!(mmio_write);
     }
 
     fn get_raw_errno<T>(result: super::Result<T>) -> i32 {
@@ -1585,5 +1620,103 @@ mod tests {
         assert!(cpuid_1 == cpuid_2);
         cpuid_2 = unsafe { std::mem::zeroed() };
         assert!(cpuid_1 != cpuid_2);
+    }
+
+    #[test]
+    fn test_cpu_id_new() {
+        let num_entries = 5;
+        let mut cpuid = CpuId::new(num_entries);
+
+        // check that the cpuid contains `num_entries` empty entries
+        assert!(cpuid.allocated_len == num_entries);
+        assert!(cpuid.kvm_cpuid[0].nent == num_entries as u32);
+        for entry in cpuid.mut_entries_slice() {
+            assert!(
+                *entry
+                    == kvm_cpuid_entry2 {
+                        function: 0,
+                        index: 0,
+                        flags: 0,
+                        eax: 0,
+                        ebx: 0,
+                        ecx: 0,
+                        edx: 0,
+                        padding: [0, 0, 0],
+                    }
+            );
+        }
+    }
+
+    #[test]
+    fn test_cpu_id_from_entries() {
+        let num_entries = 4;
+        let mut cpuid = CpuId::new(num_entries);
+
+        // add entry
+        let mut entries = cpuid.mut_entries_slice().to_vec();
+        let new_entry = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 1,
+            eax: 0b1100000,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        entries.insert(0, new_entry);
+        cpuid = CpuId::from_entries(&entries);
+
+        // check that the cpuid contains the new entry
+        assert!(cpuid.allocated_len == num_entries + 1);
+        assert!(cpuid.kvm_cpuid[0].nent == (num_entries + 1) as u32);
+        assert!(cpuid.mut_entries_slice().len() == num_entries + 1);
+        assert!(cpuid.mut_entries_slice()[0] == new_entry);
+    }
+
+    #[test]
+    fn test_cpu_id_mut_entries_slice() {
+        let num_entries = 5;
+        let mut cpuid = CpuId::new(num_entries);
+
+        {
+            // check that the CpuId has been initialized correctly:
+            // there should be `num_entries` empty entries
+            assert!(cpuid.allocated_len == num_entries);
+            assert!(cpuid.kvm_cpuid[0].nent == num_entries as u32);
+
+            let entries = cpuid.mut_entries_slice();
+            assert!(entries.len() == num_entries);
+            for entry in entries.iter() {
+                assert!(
+                    *entry
+                        == kvm_cpuid_entry2 {
+                            function: 0,
+                            index: 0,
+                            flags: 0,
+                            eax: 0,
+                            ebx: 0,
+                            ecx: 0,
+                            edx: 0,
+                            padding: [0, 0, 0],
+                        }
+                );
+            }
+        }
+
+        let new_entry = kvm_cpuid_entry2 {
+            function: 0x4,
+            index: 0,
+            flags: 1,
+            eax: 0b1100000,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+        // modify the first entry
+        cpuid.mut_entries_slice()[0] = new_entry;
+        // test that the first entry has been modified in the underlying structure
+        assert!(unsafe { cpuid.kvm_cpuid[0].entries.as_slice(num_entries)[0] } == new_entry);
     }
 }

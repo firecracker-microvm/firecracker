@@ -1,6 +1,8 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![macro_use]
+
 /// Structure representing a range of bits in a number.
 ///
 /// # Example
@@ -86,9 +88,22 @@ impl BitRangeExt<u32> for BitRange {
     }
 }
 
+macro_rules! bit_range {
+    ($msb_index:expr, $lsb_index:expr) => {
+        BitRange {
+            msb_index: $msb_index,
+            lsb_index: $lsb_index,
+        }
+    };
+}
+
 /// Trait containing helper methods for bit operations.
 ///
 pub trait BitHelper {
+    /// Reads the value of the bit at position `pos`
+    ///
+    fn read_bit(&self, pos: u32) -> bool;
+
     /// Changes the value of the bit at position `pos` to `val`
     ///
     fn write_bit(&mut self, pos: u32, val: bool) -> &mut Self;
@@ -144,6 +159,12 @@ pub trait BitHelper {
 }
 
 impl BitHelper for u32 {
+    fn read_bit(&self, pos: u32) -> bool {
+        assert!(pos <= MAX_U32_BIT_INDEX, "Invalid pos");
+
+        (*self & (1 << pos)) > 0
+    }
+
     fn write_bit(&mut self, pos: u32, val: bool) -> &mut Self {
         assert!(pos <= MAX_U32_BIT_INDEX, "Invalid pos");
 
@@ -213,6 +234,22 @@ mod tests {
         val = 1 << 5;
         val.write_bit(5, false);
         assert!(val == 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_read_bit() {
+        // Set bit to 1
+        let val: u32 = 0;
+        val.read_bit(32);
+    }
+
+    #[test]
+    fn test_simple_read_bit() {
+        // Set bit to 1
+        let val: u32 = 0b100000;
+        assert!(val.read_bit(5));
+        assert!(!val.read_bit(4));
     }
 
     #[test]

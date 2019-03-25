@@ -58,8 +58,8 @@ curl -X PUT \
     }'
 ```
 
-Alternatively, if you are using firectl, add `--tap-
-device=veth0/AA:FC:00:00:00:01` to your command line.
+Alternatively, if you are using firectl, add
+--tap-device=tap0/AA:FC:00:00:00:01` to your command line.
 
 ## In The Guest
 

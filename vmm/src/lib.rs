@@ -21,6 +21,7 @@ extern crate serde_json;
 extern crate time;
 extern crate timerfd;
 
+extern crate arch;
 #[cfg(target_arch = "x86_64")]
 extern crate cpuid;
 extern crate devices;
@@ -29,7 +30,6 @@ extern crate kernel;
 extern crate kvm;
 #[macro_use]
 extern crate logger;
-extern crate arch;
 extern crate memory_model;
 extern crate net_util;
 extern crate rate_limiter;
@@ -55,13 +55,11 @@ use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::result;
-use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 use std::time::Duration;
 
-use libc::{c_void, siginfo_t};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use device_manager::legacy::LegacyDeviceManager;
@@ -79,7 +77,7 @@ use memory_model::{GuestAddress, GuestMemory};
 #[cfg(target_arch = "aarch64")]
 use serde_json::Value;
 pub use sigsys_handler::setup_sigsys_handler;
-use sys_util::{register_signal_handler, EventFd, Terminal};
+use sys_util::{EventFd, Terminal};
 use vm_control::VmResponse;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
@@ -106,13 +104,7 @@ use vstate::{Vcpu, Vm};
 /// - `i8042.dumbkbd` do not attempt to control kbd state via the i8042 (save boot time).
 const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0 \
                                       i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd";
-const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u16 = 0x03f0;
-const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
-const VCPU_RTSIG_OFFSET: i32 = 0;
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
-
-static START_INSTANCE_REQUEST_TS: AtomicUsize = ATOMIC_USIZE_INIT;
-static START_INSTANCE_REQUEST_CPU_TS: AtomicUsize = ATOMIC_USIZE_INIT;
 
 /// Success exit code.
 pub const FC_EXIT_CODE_OK: u8 = 0;
@@ -135,7 +127,7 @@ pub enum Error {
     /// An operation on the epoll instance failed due to resource exhaustion or bad configuration.
     EpollFd(io::Error),
     /// Cannot read from an Event file descriptor.
-    EventFd(std::io::Error),
+    EventFd(io::Error),
     /// An event arrived for a device, but the dispatcher can't find the event (epoll) handler.
     DeviceEventHandlerNotFound,
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
@@ -148,7 +140,7 @@ pub enum Error {
     /// Epoll wait failed.
     Poll(io::Error),
     /// Write to the serial console failed.
-    Serial(sys_util::Error),
+    Serial(io::Error),
     /// Cannot create Timer file descriptor.
     TimerFd(io::Error),
     /// Cannot open the VM file descriptor.
@@ -163,13 +155,13 @@ impl std::fmt::Debug for Error {
         match self {
             ApiChannel => write!(f, "ApiChannel: error receiving data from the API server"),
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
-            EpollFd(e) => write!(f, "Epoll fd error: {:?}", e),
+            EpollFd(e) => write!(f, "Epoll fd error: {}", e.to_string()),
             EventFd(e) => write!(f, "Event fd error: {}", e.to_string()),
             DeviceEventHandlerNotFound => write!(
                 f,
                 "Device event handler not found. This might point to a guest device driver issue."
             ),
-            Kvm(ref os_err) => write!(f, "Cannot open /dev/kvm. Error: {}", os_err.to_string()),
+            Kvm(os_err) => write!(f, "Cannot open /dev/kvm. Error: {}", os_err.to_string()),
             KvmApiVersion(ver) => write!(f, "Bad KVM API version: {}", ver),
             KvmCap(cap) => write!(f, "Missing KVM capability: {:?}", cap),
             Poll(e) => write!(f, "Epoll wait failed: {}", e.to_string()),
@@ -329,6 +321,21 @@ pub type OutcomeSender = oneshot::Sender<VmmRequestOutcome>;
 pub type OutcomeReceiver = oneshot::Receiver<VmmRequestOutcome>;
 
 type Result<T> = std::result::Result<T, Error>;
+
+/// Holds a micro-second resolution timestamp with both the real time and cpu time.
+#[derive(Clone, Default)]
+pub struct TimestampUs {
+    /// Real time in microseconds.
+    pub time_us: u64,
+    /// Cpu time in microseconds.
+    pub cputime_us: u64,
+}
+
+#[inline]
+/// Gets the wallclock timestamp as microseconds.
+fn get_time_us() -> u64 {
+    (chrono::Utc::now().timestamp_nanos() / 1000) as u64
+}
 
 /// Describes a KVM context that gets attached to the micro vm instance.
 /// It gives access to the functionality of the KVM wrapper as long as every required
@@ -581,7 +588,7 @@ struct Vmm {
     // Guest VM core resources.
     guest_memory: Option<GuestMemory>,
     kernel_config: Option<KernelConfig>,
-    vcpu_handles: Option<Vec<thread::JoinHandle<()>>>,
+    vcpus_handles: Vec<thread::JoinHandle<()>>,
     exit_evt: Option<EpollEvent<EventFd>>,
     vm: Vm,
 
@@ -608,7 +615,6 @@ struct Vmm {
     write_metrics_event: EpollEvent<TimerFd>,
 
     // The level of seccomp filtering used. Seccomp filters are loaded before executing guest code.
-    // See `seccomp::SeccompLevel` for more information about seccomp levels.
     seccomp_level: u32,
 }
 
@@ -643,7 +649,7 @@ impl Vmm {
             shared_info: api_shared_info,
             guest_memory: None,
             kernel_config: None,
-            vcpu_handles: None,
+            vcpus_handles: vec![],
             exit_evt: None,
             vm,
             mmio_device_manager: None,
@@ -907,39 +913,6 @@ impl Vmm {
         let arch_mem_regions = arch::arch_memory_regions(mem_size);
         self.guest_memory =
             Some(GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?);
-        Ok(())
-    }
-
-    fn check_health(&self) -> std::result::Result<(), StartMicrovmError> {
-        if self.kernel_config.is_none() {
-            return Err(StartMicrovmError::MissingKernelConfig)?;
-        }
-        Ok(())
-    }
-
-    fn init_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        let guest_mem = self
-            .guest_memory
-            .clone()
-            .ok_or(StartMicrovmError::GuestMemory(
-                memory_model::GuestMemoryError::MemoryNotInitialized,
-            ))?;
-
-        // Instantiate the MMIO device manager.
-        // 'mmio_base' address has to be an address which is protected by the kernel.
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
-
-        self.attach_block_devices(&mut device_manager)?;
-        self.attach_net_devices(&mut device_manager)?;
-        #[cfg(feature = "vsock")]
-        self.attach_vsock_devices(&mut device_manager, &guest_mem)?;
-
-        self.mmio_device_manager = Some(device_manager);
-        Ok(())
-    }
-
-    fn init_microvm(&mut self) -> std::result::Result<(), StartMicrovmError> {
         self.vm
             .memory_init(
                 self.guest_memory
@@ -950,6 +923,49 @@ impl Vmm {
                 &self.kvm,
             )
             .map_err(StartMicrovmError::ConfigureVm)?;
+        Ok(())
+    }
+
+    fn check_health(&self) -> std::result::Result<(), StartMicrovmError> {
+        if self.kernel_config.is_none() {
+            return Err(StartMicrovmError::MissingKernelConfig)?;
+        }
+        Ok(())
+    }
+
+    fn attach_virtio_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
+        let guest_mem = self
+            .guest_memory
+            .clone()
+            .ok_or(StartMicrovmError::GuestMemory(
+                memory_model::GuestMemoryError::MemoryNotInitialized,
+            ))?;
+
+        // Instantiate the MMIO device manager.
+        // 'mmio_base' address has to be an address which is protected by the kernel.
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
+
+        self.attach_block_devices(&mut device_manager)?;
+        self.attach_net_devices(&mut device_manager)?;
+        #[cfg(feature = "vsock")]
+        self.attach_vsock_devices(&mut device_manager, &guest_mem)?;
+
+        // Register the associated IRQ events and IO events for the virtio devices.
+        for request in &device_manager.vm_requests {
+            if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
+                return Err(StartMicrovmError::DeviceVmRequest(e))?;
+            }
+        }
+
+        self.mmio_device_manager = Some(device_manager);
+        Ok(())
+    }
+
+    fn setup_interrupt_controller(&mut self) -> std::result::Result<(), StartMicrovmError> {
         self.vm
             .setup_irqchip(
                 &self.legacy_device_manager.com_evt_1_3,
@@ -961,18 +977,10 @@ impl Vmm {
         self.vm
             .create_pit()
             .map_err(StartMicrovmError::ConfigureVm)?;
+        Ok(())
+    }
 
-        // mmio_device_manager is instantiated in init_devices, which is called before init_microvm.
-        let device_manager = self
-            .mmio_device_manager
-            .as_ref()
-            .ok_or(StartMicrovmError::DeviceManager)?;
-        for request in &device_manager.vm_requests {
-            if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
-                return Err(StartMicrovmError::DeviceVmRequest(e))?;
-            }
-        }
-
+    fn attach_legacy_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
         self.legacy_device_manager
             .register_devices()
             .map_err(StartMicrovmError::LegacyIOBus)?;
@@ -980,31 +988,60 @@ impl Vmm {
         Ok(())
     }
 
-    fn start_vcpus(
+    // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) and configured before
+    // setting up the IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
+    // was already initialized.
+    // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
+    fn create_vcpus(
         &mut self,
         entry_addr: GuestAddress,
-    ) -> std::result::Result<(), StartMicrovmError> {
+        request_ts: TimestampUs,
+    ) -> std::result::Result<Vec<Vcpu>, StartMicrovmError> {
+        let vcpu_count = self
+            .vm_config
+            .vcpu_count
+            .ok_or(StartMicrovmError::VcpusNotConfigured)?;
+        let mut vcpus = Vec::with_capacity(vcpu_count as usize);
+
+        // `mmio_device_manager` is instantiated in `init_devices()`, which is called before
+        // `start_vcpus()`.
+        let device_manager = self
+            .mmio_device_manager
+            .as_ref()
+            .ok_or(StartMicrovmError::DeviceManager)?;
+
+        for cpu_id in 0..vcpu_count {
+            let io_bus = self.legacy_device_manager.io_bus.clone();
+            let mmio_bus = device_manager.bus.clone();
+            let mut vcpu = Vcpu::new(cpu_id, &self.vm, io_bus, mmio_bus, request_ts.clone())
+                .map_err(StartMicrovmError::Vcpu)?;
+            #[cfg(target_arch = "x86_64")]
+            vcpu.configure(&self.vm_config, entry_addr, &self.vm)
+                .map_err(StartMicrovmError::VcpuConfigure)?;
+            vcpus.push(vcpu);
+        }
+        Ok(vcpus)
+    }
+
+    fn start_vcpus(&mut self, mut vcpus: Vec<Vcpu>) -> std::result::Result<(), StartMicrovmError> {
         // vm_config has a default value for vcpu_count.
         let vcpu_count = self
             .vm_config
             .vcpu_count
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
-        self.vcpu_handles = Some(Vec::with_capacity(vcpu_count as usize));
-        // It is safe to unwrap since it's set just above.
-        let vcpu_handles = self.vcpu_handles.as_mut().unwrap();
+        assert_eq!(
+            vcpus.len(),
+            vcpu_count as usize,
+            "The number of vCPU fds is corrupted!"
+        );
 
-        let vcpu_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
+        self.vcpus_handles.reserve(vcpu_count as usize);
 
-        for cpu_id in 0..vcpu_count {
-            let io_bus = self.legacy_device_manager.io_bus.clone();
-            // mmio_device_manager is instantiated in init_devices, which is called before
-            // start_vcpus.
-            let device_manager = self
-                .mmio_device_manager
-                .as_ref()
-                .ok_or(StartMicrovmError::DeviceManager)?;
-            let mmio_bus = device_manager.bus.clone();
-            let vcpu_thread_barrier = vcpu_thread_barrier.clone();
+        let vcpus_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
+
+        // We're going in reverse so we can `.pop()` on the vec and still maintain order.
+        for cpu_id in (0..vcpu_count).rev() {
+            let vcpu_thread_barrier = vcpus_thread_barrier.clone();
             // If the lock is poisoned, it's OK to panic.
             let vcpu_exit_evt = self
                 .legacy_device_manager
@@ -1014,134 +1051,16 @@ impl Vmm {
                 .get_reset_evt_clone()
                 .map_err(|_| StartMicrovmError::EventFd)?;
 
-            let mut vcpu = Vcpu::new(cpu_id, &self.vm).map_err(StartMicrovmError::Vcpu)?;
+            // `unwrap` is safe since we are asserting that the `vcpu_count` is equal to the number
+            // of items of `vcpus` vector.
+            let mut vcpu = vcpus.pop().unwrap();
+
             let seccomp_level = self.seccomp_level;
-            // It is safe to unwrap the ht_enabled flag because the machine configure
-            // has default values for all fields.
-
-            #[cfg(target_arch = "x86_64")]
-            vcpu.configure(&self.vm_config, entry_addr, &self.vm)
-                .map_err(StartMicrovmError::VcpuConfigure)?;
-
-            vcpu_handles.push(
+            self.vcpus_handles.push(
                 thread::Builder::new()
                     .name(format!("fc_vcpu{}", cpu_id))
                     .spawn(move || {
-                        unsafe {
-                            extern "C" fn handle_signal(_: i32, _: *mut siginfo_t, _: *mut c_void) {
-                            }
-                            // This uses an async signal safe handler to kill the vcpu handles.
-                            register_signal_handler(
-                                VCPU_RTSIG_OFFSET,
-                                sys_util::SignalHandler::Siginfo(handle_signal),
-                                true,
-                            )
-                            .expect("Failed to register vcpu signal handler");
-                        }
-
-                        // Load seccomp filters for this vCPU thread.
-                        // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
-                        // altogether is the desired behaviour.
-                        if let Err(e) = default_syscalls::set_seccomp_level(seccomp_level) {
-                            panic!(
-                                "Failed to set the requested seccomp filters on vCPU {}:\
-                                 Error: {:?}",
-                                cpu_id, e
-                            );
-                        }
-
-                        vcpu_thread_barrier.wait();
-
-                        loop {
-                            match vcpu.run() {
-                                Ok(run) => match run {
-                                    VcpuExit::IoIn(addr, data) => {
-                                        io_bus.read(u64::from(addr), data);
-                                        METRICS.vcpu.exit_io_in.inc();
-                                    }
-                                    VcpuExit::IoOut(addr, data) => {
-                                        if addr == MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE
-                                            && data[0] == MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE
-                                        {
-                                            let now_cpu_us = now_cputime_us();
-                                            let now_us =
-                                                chrono::Utc::now().timestamp_nanos() / 1000;
-
-                                            let boot_time_us = now_us as usize
-                                                - START_INSTANCE_REQUEST_TS.load(Ordering::Acquire);
-                                            let boot_time_cpu_us = now_cpu_us as usize
-                                                - START_INSTANCE_REQUEST_CPU_TS
-                                                    .load(Ordering::Acquire);
-                                            warn!(
-                                                "Guest-boot-time = {:>6} us {} ms, \
-                                                 {:>6} CPU us {} CPU ms",
-                                                boot_time_us,
-                                                boot_time_us / 1000,
-                                                boot_time_cpu_us,
-                                                boot_time_cpu_us / 1000
-                                            );
-                                        }
-                                        io_bus.write(u64::from(addr), data);
-                                        METRICS.vcpu.exit_io_out.inc();
-                                    }
-                                    VcpuExit::MmioRead(addr, data) => {
-                                        mmio_bus.read(addr, data);
-                                        METRICS.vcpu.exit_mmio_read.inc();
-                                    }
-                                    VcpuExit::MmioWrite(addr, data) => {
-                                        mmio_bus.write(addr, data);
-                                        METRICS.vcpu.exit_mmio_write.inc();
-                                    }
-                                    VcpuExit::Hlt => {
-                                        info!("Received KVM_EXIT_HLT signal");
-                                        break;
-                                    }
-                                    VcpuExit::Shutdown => {
-                                        info!("Received KVM_EXIT_SHUTDOWN signal");
-                                        break;
-                                    }
-                                    // Documentation specifies that below kvm exits are considered
-                                    // errors.
-                                    VcpuExit::FailEntry => {
-                                        METRICS.vcpu.failures.inc();
-                                        error!("Received KVM_EXIT_FAIL_ENTRY signal");
-                                        break;
-                                    }
-                                    VcpuExit::InternalError => {
-                                        METRICS.vcpu.failures.inc();
-                                        error!("Received KVM_EXIT_INTERNAL_ERROR signal");
-                                        break;
-                                    }
-                                    r => {
-                                        METRICS.vcpu.failures.inc();
-                                        // TODO: Are we sure we want to finish running a vcpu upon
-                                        // receiving a vm exit that is not necessarily an error?
-                                        error!("Unexpected exit reason on vcpu run: {:?}", r);
-                                        break;
-                                    }
-                                },
-                                // The unwrap on raw_os_error can only fail if we have a logic
-                                // error in our code in which case it is better to panic.
-                                Err(vstate::Error::VcpuRun(ref e)) => {
-                                    match e.raw_os_error().unwrap() {
-                                        // Why do we check for these if we only return EINVAL?
-                                        libc::EAGAIN | libc::EINTR => {}
-                                        _ => {
-                                            METRICS.vcpu.failures.inc();
-                                            error!("Failure during vcpu run: {:?}", e);
-                                            break;
-                                        }
-                                    }
-                                }
-                                _ => (),
-                            }
-                        }
-
-                        // Nothing we need do for the success case.
-                        if let Err(e) = vcpu_exit_evt.write(1) {
-                            METRICS.vcpu.failures.inc();
-                            error!("Failed signaling vcpu exit event: {:?}", e);
-                        }
+                        vcpu.run(vcpu_thread_barrier, seccomp_level, vcpu_exit_evt);
                     })
                     .map_err(StartMicrovmError::VcpuSpawn)?,
             );
@@ -1153,7 +1072,7 @@ impl Vmm {
         default_syscalls::set_seccomp_level(self.seccomp_level)
             .map_err(StartMicrovmError::SeccompFilters)?;
 
-        vcpu_thread_barrier.wait();
+        vcpus_thread_barrier.wait();
 
         Ok(())
     }
@@ -1178,9 +1097,9 @@ impl Vmm {
             &mut kernel_config.kernel_file,
             arch::HIMEM_START,
         )
-        .map_err(StartMicrovmError::Loader)?;
+        .map_err(StartMicrovmError::KernelLoader)?;
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)
-            .map_err(StartMicrovmError::Loader)?;
+            .map_err(StartMicrovmError::LoadCommandline)?;
 
         // The vcpu_count has a default value. We shouldn't have gotten to this point without
         // having set the vcpu count.
@@ -1221,11 +1140,6 @@ impl Vmm {
     }
 
     fn start_microvm(&mut self) -> std::result::Result<VmmData, VmmActionError> {
-        START_INSTANCE_REQUEST_CPU_TS.store(now_cputime_us() as usize, Ordering::Release);
-        START_INSTANCE_REQUEST_TS.store(
-            (chrono::Utc::now().timestamp_nanos() / 1000) as usize,
-            Ordering::Release,
-        );
         info!("VMM received instance start command");
         if self.is_instance_initialized() {
             return Err(VmmActionError::StartMicrovm(
@@ -1233,6 +1147,10 @@ impl Vmm {
                 StartMicrovmError::MicroVMAlreadyRunning,
             ));
         }
+        let request_ts = TimestampUs {
+            time_us: get_time_us(),
+            cputime_us: now_cputime_us(),
+        };
 
         self.check_health()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::User, e))?;
@@ -1245,9 +1163,12 @@ impl Vmm {
         self.init_guest_memory()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
-        self.init_devices()
+        self.setup_interrupt_controller()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
-        self.init_microvm()
+
+        self.attach_virtio_devices()
+            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+        self.attach_legacy_devices()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
         let entry_addr = self
@@ -1256,9 +1177,13 @@ impl Vmm {
 
         self.register_events()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
-        self.start_vcpus(entry_addr)
+
+        let vcpus = self
+            .create_vcpus(entry_addr, request_ts)
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
+        self.start_vcpus(vcpus)
+            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
         // Use expect() to crash if the other thread poisoned this lock.
         self.shared_info
             .write()
@@ -1920,6 +1845,21 @@ impl Vmm {
         };
         Ok(())
     }
+
+    fn log_boot_time(t0_ts: &TimestampUs) {
+        let now_cpu_us = now_cputime_us();
+        let now_us = get_time_us();
+
+        let boot_time_us = now_us - t0_ts.time_us;
+        let boot_time_cpu_us = now_cpu_us - t0_ts.cputime_us;
+        info!(
+            "Guest-boot-time = {:>6} us {} ms, {:>6} CPU us {} CPU ms",
+            boot_time_us,
+            boot_time_us / 1000,
+            boot_time_cpu_us,
+            boot_time_cpu_us / 1000
+        );
+    }
 }
 
 // Can't derive PartialEq directly because the sender members can't be compared.
@@ -1976,8 +1916,8 @@ impl PartialEq for VmmAction {
 /// * `api_event_fd` - An event fd used for receiving API associated events.
 /// * `from_api` - The receiver end point of the communication channel.
 /// * `seccomp_level` - The level of seccomp filtering used. Filters are loaded before executing
-///                     guest code.
-///                     See `seccomp::SeccompLevel` for more information about seccomp levels.
+///                     guest code. Can be one of 0 (seccomp disabled), 1 (filter by syscall
+///                     number) or 2 (filter by syscall number and argument values).
 /// * `kvm_fd` - Provides the option of supplying an already existing raw file descriptor
 ///              associated with `/dev/kvm`.
 pub fn start_vmm_thread(
@@ -2372,8 +2312,11 @@ mod tests {
         vmm.init_guest_memory().unwrap();
         vmm.default_kernel_config();
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
         vmm.attach_net_devices(&mut device_manager).unwrap();
         vmm.set_instance_state(InstanceState::Running);
 
@@ -2648,8 +2591,11 @@ mod tests {
         vmm.default_kernel_config();
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
         assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
         assert!(vmm.get_kernel_cmdline_str().contains("root=/dev/vda"));
 
@@ -2672,8 +2618,11 @@ mod tests {
         vmm.default_kernel_config();
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
         assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
         assert!(vmm
             .get_kernel_cmdline_str()
@@ -2700,8 +2649,11 @@ mod tests {
         vmm.default_kernel_config();
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
         assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
         // Test that kernel commandline does not contain either /dev/vda or PARTUUID.
         assert!(!vmm.get_kernel_cmdline_str().contains("root=PARTUUID="));
@@ -2734,8 +2686,11 @@ mod tests {
         vmm.default_kernel_config();
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
 
         // test create network interface
         let network_interface = NetworkInterfaceConfig {
@@ -2762,7 +2717,7 @@ mod tests {
         vmm.default_kernel_config();
         assert!(vmm.init_guest_memory().is_ok());
 
-        assert!(vmm.init_devices().is_ok());
+        assert!(vmm.attach_virtio_devices().is_ok());
     }
 
     #[test]
@@ -2830,8 +2785,11 @@ mod tests {
         assert!(vmm.guest_memory.is_some());
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager =
-            MMIODeviceManager::new(guest_mem.clone(), arch::get_reserved_mem_addr() as u64);
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
 
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         // Use a dummy command line as it is not used in this test.
@@ -2951,7 +2909,7 @@ mod tests {
         let desc = LoggerConfig {
             log_fifo: log_file.path().to_str().unwrap().to_string(),
             metrics_fifo: metrics_file.path().to_str().unwrap().to_string(),
-            level: LoggerLevel::Warning,
+            level: LoggerLevel::Info,
             show_level: true,
             show_log_origin: true,
             options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
@@ -2967,6 +2925,7 @@ mod tests {
         assert!(vmm.init_logger(desc).is_ok());
 
         assert!(vmm.flush_metrics().is_ok());
+
         let f = File::open(metrics_file).unwrap();
         let mut reader = BufReader::new(f);
 
@@ -2979,6 +2938,36 @@ mod tests {
         assert!(vmm.flush_metrics().is_ok());
         reader.read_line(&mut line).unwrap();
         assert!(line.contains("utc_timestamp_ms"));
+
+        // Validate logfile works.
+        warn!("this is a test");
+
+        let f = File::open(log_file).unwrap();
+        let mut reader = BufReader::new(f);
+
+        let mut line = String::new();
+        loop {
+            if line.contains("this is a test") {
+                break;
+            }
+            if reader.read_line(&mut line).unwrap() == 0 {
+                // If it ever gets here, this assert will fail.
+                assert!(line.contains("this is a test"));
+            }
+        }
+
+        // Validate logging the boot time works.
+        Vmm::log_boot_time(&TimestampUs::default());
+        let mut line = String::new();
+        loop {
+            if line.contains("Guest-boot-time =") {
+                break;
+            }
+            if reader.read_line(&mut line).unwrap() == 0 {
+                // If it ever gets here, this assert will fail.
+                assert!(line.contains("Guest-boot-time ="));
+            }
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -2987,5 +2976,237 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert_eq!(vmm.get_dirty_page_count(), 0);
         // Booting an actual guest and getting real data is covered by `kvm::tests::run_code_test`.
+    }
+
+    #[test]
+    fn test_create_vcpus() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.default_kernel_config();
+
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.vm.get_memory().is_some());
+
+        #[cfg(target_arch = "x86_64")]
+        // `KVM_CREATE_VCPU` fails if the irqchip is not created beforehand. This is x86_64 speciifc.
+        vmm.vm
+            .setup_irqchip(
+                &vmm.legacy_device_manager.com_evt_1_3,
+                &vmm.legacy_device_manager.com_evt_2_4,
+                &vmm.legacy_device_manager.kbd_evt,
+            )
+            .expect("Cannot create IRQCHIP");
+
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let mut device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
+
+        let dummy_box = Box::new(DummyDevice { dummy: 0 });
+        // Use a dummy command line as it is not used in this test.
+        let _addr = device_manager
+            .register_device(
+                dummy_box,
+                &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
+                Some("bogus".to_string()),
+            )
+            .unwrap();
+
+        vmm.mmio_device_manager = Some(device_manager);
+        assert!(vmm
+            .create_vcpus(GuestAddress(0x0), TimestampUs::default())
+            .is_ok());
+    }
+
+    #[test]
+    fn test_setup_interrupt_controller() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert!(vmm.setup_interrupt_controller().is_ok());
+    }
+
+    #[test]
+    fn test_attach_virtio_devices() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.default_kernel_config();
+
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.vm.get_memory().is_some());
+
+        // Create test network interface.
+        let network_interface = NetworkInterfaceConfig {
+            iface_id: String::from("netif"),
+            host_dev_name: String::from("hostname"),
+            guest_mac: None,
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+            allow_mmds_requests: false,
+            tap: None,
+        };
+
+        assert!(vmm.insert_net_device(network_interface).is_ok());
+        assert!(vmm.attach_virtio_devices().is_ok());
+        assert!(vmm.mmio_device_manager.is_some());
+        // 2 io events and 1 irq event.
+        assert!(vmm.mmio_device_manager.unwrap().vm_requests.len() == 3);
+    }
+
+    #[test]
+    fn test_attach_legacy_devices() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+
+        assert!(vmm.attach_legacy_devices().is_ok());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x3f8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x2f8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x3e8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x2e8).is_some());
+        assert!(vmm.legacy_device_manager.io_bus.get_device(0x060).is_some());
+        let stdin_handle = io::stdin();
+        stdin_handle.lock().set_canon_mode().unwrap();
+    }
+
+    #[test]
+    fn test_error_messages() {
+        // Enum `Error`
+
+        assert_eq!(
+            format!("{:?}", Error::ApiChannel),
+            "ApiChannel: error receiving data from the API server"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                Error::CreateLegacyDevice(device_manager::legacy::Error::EventFd(
+                    io::Error::from_raw_os_error(42)
+                ))
+            ),
+            format!(
+                "Error creating legacy device: EventFd({:?})",
+                io::Error::from_raw_os_error(42)
+            )
+        );
+        assert_eq!(
+            format!("{:?}", Error::EpollFd(io::Error::from_raw_os_error(42))),
+            "Epoll fd error: No message of desired type (os error 42)"
+        );
+        assert_eq!(
+            format!("{:?}", Error::EventFd(io::Error::from_raw_os_error(42))),
+            "Event fd error: No message of desired type (os error 42)"
+        );
+        assert_eq!(
+            format!("{:?}", Error::DeviceEventHandlerNotFound),
+            "Device event handler not found. This might point to a guest device driver issue."
+        );
+        assert_eq!(
+            format!("{:?}", Error::Kvm(io::Error::from_raw_os_error(42))),
+            "Cannot open /dev/kvm. Error: No message of desired type (os error 42)"
+        );
+        assert_eq!(
+            format!("{:?}", Error::KvmApiVersion(42)),
+            "Bad KVM API version: 42"
+        );
+        assert_eq!(
+            format!("{:?}", Error::KvmCap(Cap::Hlt)),
+            "Missing KVM capability: Hlt"
+        );
+        assert_eq!(
+            format!("{:?}", Error::Poll(io::Error::from_raw_os_error(42))),
+            "Epoll wait failed: No message of desired type (os error 42)"
+        );
+        assert_eq!(
+            format!("{:?}", Error::Serial(io::Error::from_raw_os_error(42))),
+            format!(
+                "Error writing to the serial console: {:?}",
+                io::Error::from_raw_os_error(42)
+            )
+        );
+        assert_eq!(
+            format!("{:?}", Error::TimerFd(io::Error::from_raw_os_error(42))),
+            "Error creating timer fd: No message of desired type (os error 42)"
+        );
+        assert_eq!(
+            format!("{:?}", Error::Vm(vstate::Error::HTNotInitialized)),
+            "Error opening VM fd: HTNotInitialized"
+        );
+
+        // Enum `ErrorKind`
+
+        assert_eq!(format!("{:?}", ErrorKind::User), "User");
+        assert_eq!(format!("{:?}", ErrorKind::Internal), "Internal");
+
+        // Enum VmmActionError
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::BootSource(
+                    ErrorKind::User,
+                    BootSourceConfigError::InvalidKernelCommandLine
+                )
+            ),
+            "BootSource(User, InvalidKernelCommandLine)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::DriveConfig(
+                    ErrorKind::User,
+                    DriveError::BlockDevicePathAlreadyExists
+                )
+            ),
+            "DriveConfig(User, BlockDevicePathAlreadyExists)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::Logger(
+                    ErrorKind::User,
+                    LoggerConfigError::InitializationFailure(String::from("foobar"))
+                )
+            ),
+            "Logger(User, InitializationFailure(\"foobar\"))"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::InvalidMemorySize)
+            ),
+            "MachineConfig(User, InvalidMemorySize)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::NetworkConfig(
+                    ErrorKind::User,
+                    NetworkInterfaceError::DeviceIdNotFound
+                )
+            ),
+            "NetworkConfig(User, DeviceIdNotFound)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::StartMicrovm(ErrorKind::User, StartMicrovmError::EventFd)
+            ),
+            "StartMicrovm(User, EventFd)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::SendCtrlAltDel(
+                    ErrorKind::User,
+                    I8042DeviceError::InternalBufferFull
+                )
+            ),
+            "SendCtrlAltDel(User, InternalBufferFull)"
+        );
+        #[cfg(feature = "vsock")]
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot)
+            ),
+            "VsockConfig(User, UpdateNotAllowedPostBoot)"
+        );
     }
 }
