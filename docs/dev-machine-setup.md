@@ -15,7 +15,44 @@ outlined in the [Getting Started](getting-started.md) instructions).
 
 ### Local Virtual Machine
 
-`[TODO]`
+#### macOS with VMware Fusion
+
+Note that Firecracker development on macOS has no hard dependency on VMware
+Fusion or Ubuntu. All that is required is a Linux VM that supports nested
+virtualization. This is but one example of that setup:
+
+1. Download and install
+[VMware Fusion](https://www.vmware.com/products/fusion/fusion-evaluation.html).
+2. Download an [Ubuntu 18.04.2 LTS](https://www.ubuntu.com/download/desktop)
+ISO image.
+3. Open VMware Fusion, open the **File** menu, and select **New...** to bring up
+the **Select the Installation Method** window.
+4. Find the ISO image you downloaded in step 2, and drag it onto the VMware
+window opened in step 3.
+5. You should now be at the **Create a New Virtual Machine** window. Ensure the
+Ubuntu 18.04.2 image is highlighted, and click **Continue**.
+6. On the **Linux Easy Install** window, leave the **Use Easy Install** option
+checked, enter a password, and click **Continue**.
+7. On the **Finish** window, click **Finish**, and save the `.vmwarevm` file if
+prompted.
+8. After the VM starts up, open the **Virtual Machine** menu, and select **Shut
+Down**.
+9. After the VM shuts down, open the **Virtual Machine** menu, and select
+**Settings...**.
+10. From the settings window, select **Processors & Memory**, and then unfurl
+the **Advanced options** section.
+11. Check the **Enable hypervisor applications in this virtual machine** option,
+close the settings window, open the **Virtual Machine** menu, and select **Start
+Up**.
+12. If you receive a **Cannot connect the virtual device sata0:1 because no
+corresponding device is available on the host.** error, you can respond **No**
+to the prompt.
+13. Once the VM starts up, log in as the user you created in step 6.
+14. After logging in, open the **Terminal** app, and run
+`sudo apt install curl -y` to install cURL.
+15. Now you can continue with the Firecracker
+[Getting Started](getting-started.md) instructions to install and configure
+Firecracker in the new VM.
 
 ## Cloud
 
