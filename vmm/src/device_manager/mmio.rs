@@ -11,9 +11,8 @@ use std::{fmt, io};
 
 use devices;
 use kernel_cmdline;
-use kvm::IoeventAddress;
+use kvm::{IoeventAddress, VmFd};
 use memory_model::GuestMemory;
-use vm_control::VmRequest;
 
 /// Errors for MMIO device manager.
 #[derive(Debug)]
@@ -22,14 +21,14 @@ pub enum Error {
     BusError(devices::BusError),
     /// Could not create the mmio device to wrap a VirtioDevice.
     CreateMmioDevice(io::Error),
-    /// Failed to clone a queue's ioeventfd.
-    CloneIoEventFd(io::Error),
-    /// Failed to clone the mmio irqfd.
-    CloneIrqFd(io::Error),
     /// Appending to kernel command line failed.
     Cmdline(kernel_cmdline::Error),
     /// No more IRQs are available.
     IrqsExhausted,
+    /// Registering an IO Event failed.
+    RegisterIoEvent(io::Error),
+    /// Registering an IRQ FD failed.
+    RegisterIrqFd(io::Error),
     /// Failed to update the mmio device.
     UpdateFailed,
 }
@@ -39,12 +38,12 @@ impl fmt::Display for Error {
         match *self {
             Error::BusError(ref e) => write!(f, "failed to perform bus operation: {}", e),
             Error::CreateMmioDevice(ref e) => write!(f, "failed to create mmio device: {}", e),
-            Error::CloneIoEventFd(ref e) => write!(f, "failed to clone ioeventfd: {}", e),
-            Error::CloneIrqFd(ref e) => write!(f, "failed to clone irqfd: {}", e),
             Error::Cmdline(ref e) => {
                 write!(f, "unable to add device to kernel command line: {}", e)
             }
             Error::IrqsExhausted => write!(f, "no more IRQs are available"),
+            Error::RegisterIoEvent(ref e) => write!(f, "failed to register IO event: {}", e),
+            Error::RegisterIrqFd(ref e) => write!(f, "failed to register irqfd: {}", e),
             Error::UpdateFailed => write!(f, "failed to update the mmio device"),
         }
     }
@@ -65,7 +64,6 @@ const MMIO_CFG_SPACE_OFF: u64 = 0x100;
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
     pub bus: devices::Bus,
-    pub vm_requests: Vec<VmRequest>,
     guest_mem: GuestMemory,
     mmio_base: u64,
     irq: u32,
@@ -82,7 +80,6 @@ impl MMIODeviceManager {
     ) -> MMIODeviceManager {
         MMIODeviceManager {
             guest_mem,
-            vm_requests: Vec::new(),
             mmio_base,
             irq: irq_interval.0,
             last_irq: irq_interval.1,
@@ -94,6 +91,7 @@ impl MMIODeviceManager {
     /// Register a device to be used via MMIO transport.
     pub fn register_device(
         &mut self,
+        vm: &VmFd,
         device: Box<devices::virtio::VirtioDevice>,
         cmdline: &mut kernel_cmdline::Cmdline,
         id: Option<String>,
@@ -108,18 +106,14 @@ impl MMIODeviceManager {
             let io_addr = IoeventAddress::Mmio(
                 self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
             );
-            self.vm_requests.push(VmRequest::RegisterIoevent(
-                queue_evt.try_clone().map_err(Error::CloneIoEventFd)?,
-                io_addr,
-                i as u32,
-            ));
+
+            vm.register_ioevent(queue_evt, &io_addr, i as u32)
+                .map_err(Error::RegisterIoEvent)?;
         }
 
         if let Some(interrupt_evt) = mmio_device.interrupt_evt() {
-            self.vm_requests.push(VmRequest::RegisterIrqfd(
-                interrupt_evt.try_clone().map_err(Error::CloneIrqFd)?,
-                self.irq,
-            ));
+            vm.register_irqfd(interrupt_evt, self.irq)
+                .map_err(Error::RegisterIrqFd)?;
         }
 
         self.bus
@@ -179,12 +173,16 @@ impl MMIODeviceManager {
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::vmm_config::instance_info::{InstanceInfo, InstanceState};
+    use super::super::super::Vmm;
     use super::*;
     use arch;
     use devices::virtio::{ActivateResult, VirtioDevice};
     use kernel_cmdline;
     use memory_model::{GuestAddress, GuestMemory};
     use std::sync::atomic::AtomicUsize;
+    use std::sync::mpsc::channel;
+    use std::sync::{Arc, RwLock};
     use sys_util::EventFd;
     const QUEUE_SIZES: &[u16] = &[64];
 
@@ -232,6 +230,23 @@ mod tests {
         }
     }
 
+    fn create_vmm_object() -> Vmm {
+        let shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state: InstanceState::Uninitialized,
+            id: "TEST_ID".to_string(),
+            vmm_version: "1.0".to_string(),
+        }));
+
+        let (_to_vmm, from_api) = channel();
+        Vmm::new(
+            shared_info,
+            EventFd::new().expect("cannot create eventFD"),
+            from_api,
+            0,
+        )
+        .expect("Cannot Create VMM")
+    }
+
     #[test]
     fn register_device() {
         let start_addr1 = GuestAddress(0x0);
@@ -242,9 +257,10 @@ mod tests {
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
+        let vmm = create_vmm_object();
 
         assert!(device_manager
-            .register_device(dummy_box, &mut cmdline, None)
+            .register_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, None)
             .is_ok());
     }
 
@@ -258,16 +274,17 @@ mod tests {
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
+        let vmm = create_vmm_object();
         for _i in arch::IRQ_BASE..=arch::IRQ_MAX {
             device_manager
-                .register_device(dummy_box.clone(), &mut cmdline, None)
+                .register_device(vmm.vm.get_fd(), dummy_box.clone(), &mut cmdline, None)
                 .unwrap();
         }
         assert_eq!(
             format!(
                 "{}",
                 device_manager
-                    .register_device(dummy_box.clone(), &mut cmdline, None)
+                    .register_device(vmm.vm.get_fd(), dummy_box.clone(), &mut cmdline, None)
                     .unwrap_err()
             ),
             "no more IRQs are available".to_string()
@@ -315,17 +332,6 @@ mod tests {
             "unable to add device to kernel command line: string contains an equals sign"
         );
         assert_eq!(
-            format!("{}", Error::CloneIoEventFd(io::Error::from_raw_os_error(0))),
-            format!(
-                "failed to clone ioeventfd: {}",
-                io::Error::from_raw_os_error(0)
-            )
-        );
-        assert_eq!(
-            format!("{}", Error::CloneIrqFd(io::Error::from_raw_os_error(0))),
-            format!("failed to clone irqfd: {}", io::Error::from_raw_os_error(0))
-        );
-        assert_eq!(
             format!("{}", Error::UpdateFailed),
             "failed to update the mmio device"
         );
@@ -350,6 +356,23 @@ mod tests {
             format!("{}", Error::IrqsExhausted),
             "no more IRQs are available"
         );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::RegisterIoEvent(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "failed to register IO event: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::RegisterIrqFd(io::Error::from_raw_os_error(0))),
+            format!(
+                "failed to register irqfd: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
     }
 
     #[test]
@@ -361,10 +384,14 @@ mod tests {
             MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
+        let vmm = create_vmm_object();
 
-        if let Ok(addr) =
-            device_manager.register_device(dummy_box, &mut cmdline, Some(String::from("foo")))
-        {
+        if let Ok(addr) = device_manager.register_device(
+            vmm.vm.get_fd(),
+            dummy_box,
+            &mut cmdline,
+            Some(String::from("foo")),
+        ) {
             assert!(device_manager.update_drive(addr, 1_048_576).is_ok());
         }
         assert!(device_manager.update_drive(0xbeef, 1_048_576).is_err());
@@ -379,10 +406,15 @@ mod tests {
             MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
+        let vmm = create_vmm_object();
 
         let id = String::from("foo");
-        if let Ok(addr) = device_manager.register_device(dummy_box, &mut cmdline, Some(id.clone()))
-        {
+        if let Ok(addr) = device_manager.register_device(
+            vmm.vm.get_fd(),
+            dummy_box,
+            &mut cmdline,
+            Some(id.clone()),
+        ) {
             assert_eq!(Some(&addr), device_manager.get_address(&id));
         }
         assert_eq!(None, device_manager.get_address(&String::from("bar")));
