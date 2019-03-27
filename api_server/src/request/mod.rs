@@ -293,11 +293,6 @@ mod tests {
             ))),
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
-        let vmm_resp = VmmActionError::StartMicrovm(
-            ErrorKind::Internal,
-            StartMicrovmError::DeviceVmRequest(io::Error::from_raw_os_error(22)),
-        );
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
         #[cfg(target_arch = "x86_64")]
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::Internal,

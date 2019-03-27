@@ -41,7 +41,6 @@ pub mod default_syscalls;
 mod device_manager;
 /// Signal handling utilities for seccomp violations.
 mod sigsys_handler;
-mod vm_control;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 mod vstate;
@@ -78,7 +77,6 @@ use memory_model::{GuestAddress, GuestMemory};
 use serde_json::Value;
 pub use sigsys_handler::setup_sigsys_handler;
 use sys_util::{EventFd, Terminal};
-use vm_control::VmResponse;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
 use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
@@ -777,6 +775,7 @@ impl Vmm {
             );
             device_manager
                 .register_device(
+                    self.vm.get_fd(),
                     block_box,
                     &mut kernel_config.cmdline,
                     Some(drive_config.drive_id.clone()),
@@ -832,7 +831,7 @@ impl Vmm {
                 );
 
                 device_manager
-                    .register_device(net_box, &mut kernel_config.cmdline, None)
+                    .register_device(self.vm.get_fd(), net_box, &mut kernel_config.cmdline, None)
                     .map_err(StartMicrovmError::RegisterNetDevice)?;
             } else {
                 return Err(StartMicrovmError::NetDeviceNotConfigured)?;
@@ -860,7 +859,12 @@ impl Vmm {
                     .map_err(StartMicrovmError::CreateVsockDevice)?,
             );
             device_manager
-                .register_device(vsock_box, &mut kernel_config.cmdline, None)
+                .register_device(
+                    self.vm.get_fd(),
+                    vsock_box,
+                    &mut kernel_config.cmdline,
+                    None,
+                )
                 .map_err(StartMicrovmError::RegisterVsockDevice)?;
         }
         Ok(())
@@ -953,13 +957,6 @@ impl Vmm {
         self.attach_net_devices(&mut device_manager)?;
         #[cfg(feature = "vsock")]
         self.attach_vsock_devices(&mut device_manager, &guest_mem)?;
-
-        // Register the associated IRQ events and IO events for the virtio devices.
-        for request in &device_manager.vm_requests {
-            if let VmResponse::Err(e) = request.execute(self.vm.get_fd()) {
-                return Err(StartMicrovmError::DeviceVmRequest(e))?;
-            }
-        }
 
         self.mmio_device_manager = Some(device_manager);
         Ok(())
@@ -2795,6 +2792,7 @@ mod tests {
         // Use a dummy command line as it is not used in this test.
         let _addr = device_manager
             .register_device(
+                vmm.vm.get_fd(),
                 dummy_box,
                 &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
                 Some(scratch_id.clone()),
@@ -3007,6 +3005,7 @@ mod tests {
         // Use a dummy command line as it is not used in this test.
         let _addr = device_manager
             .register_device(
+                vmm.vm.get_fd(),
                 dummy_box,
                 &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
                 Some("bogus".to_string()),
@@ -3047,8 +3046,6 @@ mod tests {
         assert!(vmm.insert_net_device(network_interface).is_ok());
         assert!(vmm.attach_virtio_devices().is_ok());
         assert!(vmm.mmio_device_manager.is_some());
-        // 2 io events and 1 irq event.
-        assert!(vmm.mmio_device_manager.unwrap().vm_requests.len() == 3);
     }
 
     #[test]

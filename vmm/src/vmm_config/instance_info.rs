@@ -63,8 +63,6 @@ pub enum StartMicrovmError {
     CreateVsockDevice(devices::virtio::vhost::Error),
     /// The device manager was not configured.
     DeviceManager,
-    /// Executing a VM request failed.
-    DeviceVmRequest(std::io::Error),
     /// Cannot read from an Event file descriptor.
     EventFd,
     /// Memory regions are overlapping or mmap fails.
@@ -141,12 +139,6 @@ impl Display for StartMicrovmError {
                 err_msg = err_msg.replace("\"", "");
 
                 write!(f, "Cannot create network device. {}", err_msg)
-            }
-            DeviceVmRequest(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Executing a VM request failed. {}", err_msg)
             }
             DeviceManager => write!(f, "The device manager was not configured."),
             EventFd => write!(f, "Cannot read from an Event file descriptor."),
