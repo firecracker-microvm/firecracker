@@ -281,48 +281,6 @@ mod tests {
     }
 
     #[test]
-    fn test_cmdline_overflow() {
-        let gm = create_guest_mem();
-        let cmdline_address = GuestAddress(MEM_SIZE - 5);
-        assert_eq!(
-            Err(Error::CommandLineOverflow),
-            load_cmdline(
-                &gm,
-                cmdline_address,
-                CStr::from_bytes_with_nul(b"12345\0").unwrap(),
-            )
-        );
-    }
-
-    #[test]
-    fn test_cmdline_write_end() {
-        let gm = create_guest_mem();
-        let mut cmdline_address = GuestAddress(45);
-        assert_eq!(
-            Ok(()),
-            load_cmdline(
-                &gm,
-                cmdline_address,
-                CStr::from_bytes_with_nul(b"1234\0").unwrap(),
-            )
-        );
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, b'1');
-        cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, b'2');
-        cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, b'3');
-        cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, b'4');
-        cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, b'\0');
-    }
-
-    #[test]
     // Tests that loading the kernel is successful on different archs.
     fn test_load_kernel() {
         let gm = create_guest_mem();
@@ -398,5 +356,47 @@ mod tests {
             Err(Error::InvalidProgramHeaderOffset),
             load_kernel(&gm, &mut Cursor::new(&bad_image), 0)
         );
+    }
+
+    #[test]
+    fn test_cmdline_overflow() {
+        let gm = create_guest_mem();
+        let cmdline_address = GuestAddress(MEM_SIZE - 5);
+        assert_eq!(
+            Err(Error::CommandLineOverflow),
+            load_cmdline(
+                &gm,
+                cmdline_address,
+                CStr::from_bytes_with_nul(b"12345\0").unwrap(),
+            )
+        );
+    }
+
+    #[test]
+    fn test_cmdline_write_end() {
+        let gm = create_guest_mem();
+        let mut cmdline_address = GuestAddress(45);
+        assert_eq!(
+            Ok(()),
+            load_cmdline(
+                &gm,
+                cmdline_address,
+                CStr::from_bytes_with_nul(b"1234\0").unwrap(),
+            )
+        );
+        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        assert_eq!(val, b'1');
+        cmdline_address = cmdline_address.unchecked_add(1);
+        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        assert_eq!(val, b'2');
+        cmdline_address = cmdline_address.unchecked_add(1);
+        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        assert_eq!(val, b'3');
+        cmdline_address = cmdline_address.unchecked_add(1);
+        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        assert_eq!(val, b'4');
+        cmdline_address = cmdline_address.unchecked_add(1);
+        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        assert_eq!(val, b'\0');
     }
 }
