@@ -406,6 +406,7 @@ mod tests {
             &EventFd::new().expect("cannot create eventFD"),
             from_api,
             0,
+            kvm_ioctls::Kvm::new().expect("Cannot create KVM object"),
         )
         .expect("Cannot Create VMM")
     }
