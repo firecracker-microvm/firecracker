@@ -491,12 +491,10 @@ pub struct KvmContext {
 }
 
 impl KvmContext {
-    fn new() -> Result<Self> {
+    fn with_kvm(kvm: Kvm) -> Result<Self> {
         use Cap::*;
 
-        let kvm = Kvm::new().map_err(Error::Kvm)?;
-
-        // Check that KVM has correct version.
+        // Check that KVM has the correct version.
         if kvm.get_api_version() != KVM_API_VERSION as i32 {
             return Err(Error::KvmApiVersion(kvm.get_api_version()));
         }
@@ -820,6 +818,7 @@ impl Vmm {
         control_fd: &AsRawFd,
         from_api: Receiver<Box<VmmAction>>,
         seccomp_level: u32,
+        kvm: Kvm,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
@@ -843,7 +842,7 @@ impl Vmm {
             NetworkInterfaceConfigs::new(),
             None,
         );
-        let kvm = KvmContext::new()?;
+        let kvm = KvmContext::with_kvm(kvm)?;
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
         Ok(Vmm {
@@ -2163,8 +2162,14 @@ pub fn start_vmm_thread(
         .name("fc_vmm".to_string())
         .spawn(move || {
             // If this fails, consider it fatal. Use expect().
-            let mut vmm = Vmm::new(api_shared_info, &api_event_fd, from_api, seccomp_level)
-                .expect("Cannot create VMM");
+            let mut vmm = Vmm::new(
+                api_shared_info,
+                &api_event_fd,
+                from_api,
+                seccomp_level,
+                Kvm::new().expect("Error creating the Kvm object"),
+            )
+            .expect("Cannot create VMM");
 
             if let Some(json) = config_json {
                 if let Err(e) = vmm.configure_from_json(json) {
@@ -2314,6 +2319,13 @@ mod tests {
         }
     }
 
+    impl KvmContext {
+        pub fn new() -> Result<Self> {
+            let kvm = Kvm::new().map_err(Error::Kvm)?;
+            Self::with_kvm(kvm)
+        }
+    }
+
     struct DummyEpollHandler {
         evt: Option<DeviceEventT>,
     }
@@ -2383,9 +2395,10 @@ mod tests {
         let (_to_vmm, from_api) = channel();
         Vmm::new(
             shared_info,
-            &EventFd::new().expect("cannot create eventFD"),
+            &EventFd::new().expect("Cannot create eventFD"),
             from_api,
             seccomp::SECCOMP_LEVEL_NONE,
+            Kvm::new().expect("Error creating Kvm object"),
         )
         .expect("Cannot Create VMM")
     }
