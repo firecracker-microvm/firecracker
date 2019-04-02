@@ -177,4 +177,16 @@ mod tests {
             RequestError::InvalidHttpMethod("Unsupported HTTP method.")
         );
     }
+
+    #[test]
+    fn test_body() {
+        let body = Body::new("".to_string());
+        // Test for is_empty
+        assert!(body.is_empty());
+        let body = Body::new("This is a body.".to_string());
+        // Test for len
+        assert_eq!(body.len(), 15);
+        // Test for raw
+        assert_eq!(body.raw(), b"This is a body.");
+    }
 }

@@ -51,10 +51,14 @@ mod tests {
     #[test]
     fn test_validate_instance_id() {
         assert_eq!(
-            validate_instance_id("").unwrap_err(),
-            Error::InvalidLen(0, MIN_INSTANCE_ID_LEN, MAX_INSTANCE_ID_LEN)
+            format!("{}", validate_instance_id("").unwrap_err()),
+            "invalid len (0);  the length must be between 1 and 64"
         );
         assert!(validate_instance_id("12-3aa").is_ok());
+        assert_eq!(
+            format!("{}", validate_instance_id("12_3aa").unwrap_err()),
+            "invalid char (_) at position 2"
+        );
         assert_eq!(
             validate_instance_id("12:3aa").unwrap_err(),
             Error::InvalidChar(':', 2)
