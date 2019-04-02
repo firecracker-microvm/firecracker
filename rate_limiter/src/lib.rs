@@ -771,4 +771,17 @@ mod tests {
         assert_eq!(x.bandwidth, Some(new_bw));
         assert_eq!(x.ops, Some(new_ops));
     }
+
+    #[test]
+    fn test_rate_limiter_debug() {
+        let l = RateLimiter::new(1, Some(2), 3, 4, Some(5), 6).unwrap();
+        assert_eq!(
+            format!("{:?}", l),
+            format!(
+                "RateLimiter {{ bandwidth: {:?}, ops: {:?} }}",
+                l.bandwidth(),
+                l.ops()
+            ),
+        );
+    }
 }
