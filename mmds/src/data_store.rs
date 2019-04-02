@@ -17,6 +17,17 @@ pub enum Error {
     UnsupportedValueType,
 }
 
+impl Error {
+    pub fn to_string(&self) -> String {
+        match *self {
+            Error::NotFound => "The MMDS resource does not exist.".to_string(),
+            Error::UnsupportedValueType => {
+                "Cannot add non-strings values to the MMDS data-store.".to_string()
+            }
+        }
+    }
+}
+
 impl Default for Mmds {
     fn default() -> Self {
         Mmds {
@@ -27,23 +38,47 @@ impl Default for Mmds {
 }
 
 impl Mmds {
-    /// This method is needed to provide the correct status code for API request.
-    /// When a PATCH request is made on an uninitialized Mmds structure the status
-    /// code should be 404 (Not Found) otherwise the returned status code should be
-    /// 204 (No Content).
-    pub fn is_initialized(&self) -> bool {
-        self.is_initialized
+    /// This method is needed to check if data store is initialized.
+    /// When a PATCH request is made on an uninitialized Mmds structure this method
+    /// should return a NotFound error.
+    fn check_data_store_initialized(&self) -> Result<(), Error> {
+        if self.is_initialized {
+            Ok(())
+        } else {
+            Err(Error::NotFound)
+        }
     }
 
-    pub fn put_data(&mut self, data: Value) {
-        // TODO: we should add a data validator and only accept Strings, arrays & dictionaries
-        // https://github.com/firecracker-microvm/firecracker/issues/401
+    /// This method validates the data from a PATCH or PUT request and returns
+    /// an UnsupportedValueType error if the data contain any value type other than
+    /// Strings, arrays and dictionaries.
+    pub fn check_data_valid(data: &Value) -> Result<(), Error> {
+        if let Some(map) = data.as_object() {
+            for key in map.keys() {
+                Mmds::check_data_valid(&map[key])?;
+            }
+        } else if let Some(array) = data.as_array() {
+            for obj in array {
+                Mmds::check_data_valid(&obj)?;
+            }
+        } else if !data.is_string() {
+            return Err(Error::UnsupportedValueType);
+        }
+        Ok(())
+    }
+
+    pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
+        Mmds::check_data_valid(&data)?;
         self.data_store = data;
         self.is_initialized = true;
+        Ok(())
     }
 
-    pub fn patch_data(&mut self, patch_data: Value) {
+    pub fn patch_data(&mut self, patch_data: Value) -> Result<(), Error> {
+        Mmds::check_data_valid(&patch_data)?;
+        self.check_data_store_initialized()?;
         merge(&mut self.data_store, &patch_data);
+        Ok(())
     }
 
     pub fn get_data_str(&self) -> String {
@@ -117,18 +152,24 @@ mod tests {
     #[test]
     fn test_mmds() {
         let mut mmds = Mmds::default();
-        assert_eq!(mmds.is_initialized(), false);
+
+        assert_eq!(
+            mmds.check_data_store_initialized().unwrap_err().to_string(),
+            "The MMDS resource does not exist.".to_string(),
+        );
 
         let mut mmds_json = "{\"meta-data\":{\"iam\":\"dummy\"},\"user-data\":\"1522850095\"}";
 
-        mmds.put_data(serde_json::from_str(mmds_json).unwrap());
-        assert_eq!(mmds.is_initialized(), true);
+        mmds.put_data(serde_json::from_str(mmds_json).unwrap())
+            .unwrap();
+        assert!(mmds.check_data_store_initialized().is_ok());
 
         assert_eq!(mmds.get_data_str(), mmds_json);
 
         // update the user-data field add test that patch works as expected
         let patch_json = "{\"user-data\":\"10\"}";
-        mmds.patch_data(serde_json::from_str(patch_json).unwrap());
+        mmds.patch_data(serde_json::from_str(patch_json).unwrap())
+            .unwrap();
         mmds_json = "{\"meta-data\":{\"iam\":\"dummy\"},\"user-data\":\"10\"}";
         assert_eq!(mmds.get_data_str(), mmds_json);
     }
@@ -152,7 +193,7 @@ mod tests {
         }"#;
 
         let data_store: Value = serde_json::from_str(data).unwrap();
-        mmds.put_data(data_store);
+        mmds.put_data(data_store).unwrap();
 
         // Test invalid path.
         match mmds.get_value("/invalid_path".to_string()) {
@@ -206,7 +247,7 @@ mod tests {
         }"#;
 
         let data_store: Value = serde_json::from_str(data).unwrap();
-        mmds.put_data(data_store);
+        mmds.put_data(data_store).unwrap();
 
         // Test path does NOT end with /; Value is a String.
         match mmds.get_value("/phones/0".to_string()) {
@@ -216,8 +257,29 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_types() {
+    fn test_update_data_store() {
         let mut mmds = Mmds::default();
+
+        let data = r#"{
+            "name": {
+                "first": "John",
+                "second": "Doe"
+            },
+            "age": "43"
+        }"#;
+        let data_store: Value = serde_json::from_str(data).unwrap();
+        assert!(mmds.put_data(data_store).is_ok());
+
+        let data = r#"{
+            "name": {
+                "first": "John",
+                "second": "Doe"
+            },
+            "age": "100"
+        }"#;
+        let data_store: Value = serde_json::from_str(data).unwrap();
+        assert!(mmds.patch_data(data_store).is_ok());
+
         let data = r#"{
             "name": {
                 "first": "John",
@@ -225,19 +287,23 @@ mod tests {
             },
             "age": 43
         }"#;
-
         let data_store: Value = serde_json::from_str(data).unwrap();
-        // TODO: This should fail; we should only accept String types
-        mmds.put_data(data_store);
+        assert_eq!(
+            mmds.put_data(data_store).unwrap_err().to_string(),
+            "Cannot add non-strings values to the MMDS data-store.".to_string()
+        );
 
-        match mmds.get_value("/age".to_string()) {
-            Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, Error::UnsupportedValueType),
-        };
-
-        match mmds.get_value("/age/".to_string()) {
-            Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, Error::UnsupportedValueType),
-        };
+        let data = r#"{
+            "name": {
+                "first": "John",
+                "second": true
+            },
+            "age": "43"
+        }"#;
+        let data_store: Value = serde_json::from_str(data).unwrap();
+        assert_eq!(
+            mmds.patch_data(data_store),
+            Err(Error::UnsupportedValueType)
+        );
     }
 }

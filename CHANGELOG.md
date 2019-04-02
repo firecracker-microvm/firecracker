@@ -15,6 +15,8 @@
   in favor of individual classic command-line parameters.
 - When running with `jailer` the location of the API socket has changed to
   `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
+- `PUT` and `PATCH` requests on `/mmds` with data containing any value type other
+  than `String`, `Array`, `Object` will return status code 400.
 
 ### Removed
 
