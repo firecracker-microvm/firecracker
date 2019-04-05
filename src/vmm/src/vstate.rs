@@ -78,7 +78,7 @@ pub enum Error {
     SetUserMemoryRegion(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the MSR registers
-    MSRSConfiguration(arch::x86_64::regs::Error),
+    MSRSConfiguration(arch::x86_64::msr::Error),
     #[cfg(target_arch = "aarch64")]
     /// Error configuring the general purpose aarch64 registers.
     REGSConfiguration(arch::aarch64::regs::Error),
@@ -520,7 +520,7 @@ impl Vcpu {
             .set_cpuid2(&self.cpuid)
             .map_err(Error::SetSupportedCpusFailed)?;
 
-        arch::x86_64::regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
+        arch::x86_64::msr::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
         arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)
             .map_err(Error::REGSConfiguration)?;
         arch::x86_64::regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;

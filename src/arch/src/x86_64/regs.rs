@@ -8,8 +8,7 @@
 use std::mem;
 
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
-use arch_gen::x86::msr_index;
-use kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_regs, kvm_sregs, Msrs};
+use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs};
 use kvm_ioctls::VcpuFd;
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 
@@ -27,10 +26,6 @@ pub enum Error {
     SetBaseRegisters(kvm_ioctls::Error),
     /// Failed to configure the FPU.
     SetFPURegisters(kvm_ioctls::Error),
-    /// Setting up MSRs failed.
-    SetModelSpecificRegisters(kvm_ioctls::Error),
-    /// Failed to set all MSRs.
-    SetModelSpecificRegistersCount,
     /// Failed to set SREGs for this CPU.
     SetStatusRegisters(kvm_ioctls::Error),
     /// Writing the GDT to RAM failed.
@@ -59,27 +54,6 @@ pub fn setup_fpu(vcpu: &VcpuFd) -> Result<()> {
     };
 
     vcpu.set_fpu(&fpu).map_err(Error::SetFPURegisters)
-}
-
-/// Configure Model Specific Registers (MSRs) for a given CPU.
-///
-/// # Arguments
-///
-/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
-pub fn setup_msrs(vcpu: &VcpuFd) -> Result<()> {
-    let entry_vec = create_msr_entries();
-    let kvm_msrs = Msrs::from_entries(&entry_vec);
-
-    vcpu.set_msrs(&kvm_msrs)
-        .map_err(Error::SetModelSpecificRegisters)
-        .and_then(|msrs_written| {
-            if msrs_written as u32 != kvm_msrs.as_fam_struct_ref().nmsrs {
-                Err(Error::SetModelSpecificRegistersCount)
-            } else {
-                Ok(msrs_written)
-            }
-        })?;
-    Ok(())
 }
 
 /// Configure base registers for a given CPU.
@@ -215,65 +189,6 @@ fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
     Ok(())
 }
 
-fn create_msr_entries() -> Vec<kvm_msr_entry> {
-    let mut entries = Vec::<kvm_msr_entry>::new();
-
-    entries.push(kvm_msr_entry {
-        index: msr_index::MSR_IA32_SYSENTER_CS,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: msr_index::MSR_IA32_SYSENTER_ESP,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: msr_index::MSR_IA32_SYSENTER_EIP,
-        data: 0x0,
-        ..Default::default()
-    });
-    // x86_64 specific msrs, we only run on x86_64 not x86.
-    entries.push(kvm_msr_entry {
-        index: msr_index::MSR_STAR,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: msr_index::MSR_CSTAR,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: msr_index::MSR_KERNEL_GS_BASE,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: msr_index::MSR_SYSCALL_MASK,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: msr_index::MSR_LSTAR,
-        data: 0x0,
-        ..Default::default()
-    });
-    // end of x86_64 specific code
-    entries.push(kvm_msr_entry {
-        index: msr_index::MSR_IA32_TSC,
-        data: 0x0,
-        ..Default::default()
-    });
-    entries.push(kvm_msr_entry {
-        index: msr_index::MSR_IA32_MISC_ENABLE,
-        data: u64::from(msr_index::MSR_IA32_MISC_ENABLE_FAST_STRING),
-        ..Default::default()
-    });
-
-    entries
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,35 +274,6 @@ mod tests {
         // The mxcsr will stay 0 and the assert below fails. Decide whether or not we should
         // remove it at all.
         // assert!(expected_fpu.mxcsr == actual_fpu.mxcsr);
-    }
-
-    #[test]
-    #[allow(clippy::cast_ptr_alignment)]
-    fn test_setup_msrs() {
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
-        setup_msrs(&vcpu).unwrap();
-
-        // This test will check against the last MSR entry configured (the tenth one).
-        // See create_msr_entries() for details.
-        let test_kvm_msrs_entry = [kvm_msr_entry {
-            index: msr_index::MSR_IA32_MISC_ENABLE,
-            ..Default::default()
-        }];
-        let mut kvm_msrs = Msrs::from_entries(&test_kvm_msrs_entry);
-
-        // kvm_ioctls::get_msrs() returns the number of msrs that it succeeded in reading.
-        // We only want to read one in this test case scenario.
-        let read_nmsrs = vcpu.get_msrs(&mut kvm_msrs).unwrap();
-        // Validate it only read one.
-        assert_eq!(read_nmsrs, 1);
-
-        // Official entries that were setup when we did setup_msrs. We need to assert that the
-        // tenth one (i.e the one with index msr_index::MSR_IA32_MISC_ENABLE has the data we
-        // expect.
-        let entry_vec = create_msr_entries();
-        assert_eq!(entry_vec[9], kvm_msrs.as_slice()[0]);
     }
 
     #[test]
