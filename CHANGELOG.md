@@ -2,22 +2,39 @@
 
 ## [Unreleased]
 
+### Added
+
+- New `devtool` command: `prepare_release`. This updates the Firecracker
+  version, crate dependencies and credits in preparation for a new release.
+- New `devtool` command: `tag`. This creates a new git tag for the specified
+  release number, based on the changelog contents.
+
 ### Changed
 
 - Dropped the JSON-formatted `context` command-line parameter from Firecracker
   in favor of individual classic command-line parameters.
 - When running with `jailer` the location of the API socket has changed to
   `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
+- `PUT` and `PATCH` requests on `/mmds` with data containing any value type other
+  than `String`, `Array`, `Object` will return status code 400.
+
+### Removed
+
+- Removed the `seccomp.bad_syscalls` metric.
+
+## [0.15.2]
+
+### Fixed
+
+- Corrected the conditional compilation of the seccomp rule for `madvise`.
+
+## [0.15.1]
 
 ### Fixed
 
 - A `madvise` call issued by the `musl` allocator was added to the seccomp
   whitelist to prevent Firecracker from terminating abruptly when allocating
   memory in certain conditions.
-
-### Removed
-
-- Removed the `seccomp.bad_syscalls` metric.
 
 ## [0.15.0]
 
@@ -29,10 +46,6 @@
   `net.tx_spoofed_mac_count`.
 - New API call: `PATCH /network-interfaces/`, used to update the rate limiters
   on a network interface, after the start of a microVM.
-- New `devtool` command: `prepare_release`. This updates the Firecracker
-  version, crate dependencies and credits in preparation for a new release.
-- New `devtool` command: `tag`. This creates a new git tag for the specified
-  release number, based on the changelog contents.
 
 ### Changed
 

@@ -14,7 +14,7 @@ use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 
 use logger::{Metric, METRICS};
-use mmds::data_store::Mmds;
+use mmds::data_store::{self, Mmds};
 use request::actions::ActionBody;
 use request::drive::PatchDrivePayload;
 use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
@@ -520,28 +520,43 @@ impl hyper::server::Service for ApiServerHttpService {
                         // Requests on /mmds should not have the body in the logs as the data
                         // store contains customer data.
                         log_received_api_request(describe(&method_copy, &path, &None));
-                        let mut mmds = mmds_info
+                        let response = mmds_info
                             .lock()
-                            .expect("Failed to acquire lock on MMDS info");
-                        if mmds.is_initialized() {
-                            mmds.patch_data(json_value);
-                            Either::A(future::ok(empty_response(StatusCode::NoContent)))
-                        } else {
-                            Either::A(future::ok(json_response(
-                                StatusCode::NotFound,
-                                json_fault_message("The MMDS resource does not exist."),
-                            )))
+                            .expect("Failed to acquire lock on MMDS info")
+                            .patch_data(json_value);
+                        match response {
+                            Ok(_) => Either::A(future::ok(empty_response(StatusCode::NoContent))),
+                            Err(e) => match e {
+                                data_store::Error::NotFound => {
+                                    Either::A(future::ok(json_response(
+                                        StatusCode::NotFound,
+                                        json_fault_message(e.to_string()),
+                                    )))
+                                }
+                                data_store::Error::UnsupportedValueType => {
+                                    Either::A(future::ok(json_response(
+                                        StatusCode::BadRequest,
+                                        json_fault_message(e.to_string()),
+                                    )))
+                                }
+                            },
                         }
                     }
                     PutMMDS(json_value) => {
                         // Requests on /mmds should not have the body in the logs as the data
                         // store contains customer data.
                         log_received_api_request(describe(&method_copy, &path, &None));
-                        mmds_info
+                        let response = mmds_info
                             .lock()
                             .expect("Failed to acquire lock on MMDS info")
                             .put_data(json_value);
-                        Either::A(future::ok(empty_response(StatusCode::NoContent)))
+                        match response {
+                            Ok(_) => Either::A(future::ok(empty_response(StatusCode::NoContent))),
+                            Err(e) => Either::A(future::ok(json_response(
+                                StatusCode::BadRequest,
+                                json_fault_message(e.to_string()),
+                            ))),
+                        }
                     }
                     GetMMDS => {
                         log_received_api_request(describe(&method_copy, &path, &None));

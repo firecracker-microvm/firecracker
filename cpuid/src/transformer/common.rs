@@ -136,6 +136,7 @@ pub fn use_host_cpuid_function(cpuid: &mut CpuId, function: u32) -> Result<(), E
 mod test {
     use super::*;
     use common::tests::get_topoext_fn;
+    use common::VENDOR_ID_INTEL;
     use kvm_bindings::kvm_cpuid_entry2;
     use transformer::VmSpec;
 
@@ -152,7 +153,7 @@ mod test {
     fn check_update_feature_info_entry(cpu_count: u8, expected_htt: bool) {
         use cpu_leaf::leaf_0x1::*;
 
-        let vm_spec = VmSpec::new(0, cpu_count, false);
+        let vm_spec = VmSpec::new(VENDOR_ID_INTEL, 0, cpu_count, false);
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,
@@ -177,7 +178,7 @@ mod test {
     ) {
         use cpu_leaf::leaf_cache_parameters::*;
 
-        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled);
+        let vm_spec = VmSpec::new(VENDOR_ID_INTEL, 0, cpu_count, ht_enabled);
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,

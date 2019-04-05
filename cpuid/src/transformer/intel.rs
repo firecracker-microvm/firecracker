@@ -161,6 +161,7 @@ impl CpuidTransformer for IntelCpuidTransformer {
 #[cfg(test)]
 mod test {
     use super::*;
+    use common::*;
     use cpu_leaf::leaf_0xb::LEVEL_TYPE_CORE;
     use cpu_leaf::leaf_0xb::LEVEL_TYPE_INVALID;
     use cpu_leaf::leaf_0xb::LEVEL_TYPE_THREAD;
@@ -175,7 +176,7 @@ mod test {
     ) {
         use cpu_leaf::leaf_0x4::*;
 
-        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled);
+        let vm_spec = VmSpec::new(VENDOR_ID_INTEL, 0, cpu_count, ht_enabled);
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,
@@ -207,7 +208,7 @@ mod test {
     ) {
         use cpu_leaf::leaf_0xb::*;
 
-        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled);
+        let vm_spec = VmSpec::new(VENDOR_ID_INTEL, 0, cpu_count, ht_enabled);
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index,
