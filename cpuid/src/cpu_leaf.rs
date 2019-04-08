@@ -88,14 +88,6 @@ pub mod leaf_0x4 {
     }
 }
 
-// Extended Cache Topology Leaf
-pub mod leaf_0x8000001d {
-    pub const LEAF_NUM: u32 = 0x8000_001d;
-
-    // inherit eax from leaf_cache_parameters
-    pub use cpu_leaf::leaf_cache_parameters::eax;
-}
-
 // Thermal and Power Management Leaf
 pub mod leaf_0x6 {
     pub const LEAF_NUM: u32 = 0x6;
@@ -248,5 +240,44 @@ pub mod leaf_0x80000008 {
         pub const THREAD_ID_SIZE_BITRANGE: BitRange = bit_range!(15, 12);
         // The number of threads in the package - 1
         pub const NUM_THREADS_BITRANGE: BitRange = bit_range!(7, 0);
+    }
+}
+
+// Extended Cache Topology Leaf
+pub mod leaf_0x8000001d {
+    pub const LEAF_NUM: u32 = 0x8000_001d;
+
+    // inherit eax from leaf_cache_parameters
+    pub use cpu_leaf::leaf_cache_parameters::eax;
+}
+
+// Extended APIC ID Leaf
+pub mod leaf_0x8000001e {
+    pub const LEAF_NUM: u32 = 0x8000_001e;
+
+    pub mod eax {
+        use bit_helper::BitRange;
+
+        pub const EXTENDED_APIC_ID_BITRANGE: BitRange = bit_range!(31, 0);
+    }
+
+    pub mod ebx {
+        use bit_helper::BitRange;
+
+        // The number of threads per core - 1
+        pub const THREADS_PER_CORE_BITRANGE: BitRange = bit_range!(15, 8);
+        pub const CORE_ID_BITRANGE: BitRange = bit_range!(7, 0);
+    }
+
+    pub mod ecx {
+        use bit_helper::BitRange;
+
+        // The number of nodes per processor. Possible values:
+        // 0 -> 1 node per processor
+        // 1 -> 2 nodes per processor
+        // 2 -> Reserved
+        // 3 -> 4 nodes per processor
+        pub const NODES_PER_PROCESSOR_BITRANGE: BitRange = bit_range!(10, 8);
+        pub const NODE_ID_BITRANGE: BitRange = bit_range!(7, 0);
     }
 }
