@@ -76,6 +76,9 @@ pub enum Error {
     VcpuSpawn(std::io::Error),
     /// Unexpected KVM_RUN exit reason
     VcpuUnhandledKvmExit,
+    #[cfg(target_arch = "aarch64")]
+    /// Error setting up the global interrupt controller.
+    SetupGIC(arch::aarch64::gic::Error),
 }
 pub type Result<T> = result::Result<T, Error>;
 
@@ -88,9 +91,16 @@ impl ::std::convert::From<io::Error> for Error {
 /// A wrapper around creating and using a VM.
 pub struct Vm {
     fd: VmFd,
+    guest_mem: Option<GuestMemory>,
+
+    // X86 specific fields.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     supported_cpuid: CpuId,
-    guest_mem: Option<GuestMemory>,
+
+    // Arm specific fields.
+    // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
+    #[cfg(target_arch = "aarch64")]
+    irqchip_handle: Option<DeviceFd>,
 }
 
 impl Vm {
@@ -107,6 +117,8 @@ impl Vm {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             supported_cpuid: cpuid,
             guest_mem: None,
+            #[cfg(target_arch = "aarch64")]
+            irqchip_handle: None,
         })
     }
 
@@ -150,6 +162,7 @@ impl Vm {
     }
 
     /// This function creates the irq chip and adds 3 interrupt events to the IRQ.
+    #[cfg(target_arch = "x86_64")]
     pub fn setup_irqchip(
         &self,
         com_evt_1_3: &EventFd,
@@ -168,6 +181,14 @@ impl Vm {
             .register_irqfd(kbd_evt.as_raw_fd(), 1)
             .map_err(Error::Irq)?;
 
+        Ok(())
+    }
+
+    /// This function creates the GIC (Global Interrupt Controller).
+    #[cfg(target_arch = "aarch64")]
+    pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<()> {
+        self.irqchip_handle =
+            Some(arch::aarch64::gic::create_gicv3(&self.fd, vcpu_count).map_err(Error::SetupGIC)?);
         Ok(())
     }
 
@@ -403,19 +424,62 @@ mod tests {
     use libc::{c_int, c_void, siginfo_t};
     use sys_util::{register_signal_handler, Killable, SignalHandler};
 
-    #[test]
-    fn create_vm() {
+    // Auxiliary function being used throughout the tests.
+    fn setup_vcpu() -> (Vm, Vcpu) {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
+        let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(gm, &kvm).is_ok());
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            let dummy_eventfd_1 = EventFd::new().unwrap();
+            let dummy_eventfd_2 = EventFd::new().unwrap();
+            let dummy_kbd_eventfd = EventFd::new().unwrap();
+
+            vm.setup_irqchip(&dummy_eventfd_1, &dummy_eventfd_2, &dummy_kbd_eventfd)
+                .unwrap();
+            vm.create_pit().unwrap();
+        }
+        let vcpu = Vcpu::new(
+            1,
+            &vm,
+            devices::Bus::new(),
+            devices::Bus::new(),
+            super::super::TimestampUs::default(),
+        )
+        .unwrap();
+        #[cfg(target_arch = "aarch64")]
+        {
+            vm.setup_irqchip(1).expect("Cannot setup irqchip");
+        }
+
+        (vm, vcpu)
     }
 
     #[test]
-    fn get_memory() {
+    fn test_create_vm() {
+        let kvm = KvmContext::new().unwrap();
+        let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            let mut cpuid = kvm
+                .kvm
+                .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
+                .expect("Cannot get supported cpuid");
+            assert_eq!(
+                vm.get_supported_cpuid().mut_entries_slice(),
+                cpuid.mut_entries_slice()
+            );
+        }
+    }
+
+    #[test]
+    fn test_vm_memory_init_success() {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
+        let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(gm, &kvm).is_ok());
         let obj_addr = GuestAddress(0xf0);
         vm.get_memory()
@@ -430,20 +494,55 @@ mod tests {
         assert_eq!(read_val, 67u8);
     }
 
-    fn setup_vcpu() -> (Vm, Vcpu) {
+    #[test]
+    fn test_vm_memory_init_failure() {
+        let kvm_fd = Kvm::new().unwrap();
+        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
+
+        let kvm = KvmContext {
+            kvm: kvm_fd,
+            max_memslots: 1,
+        };
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x1000);
+        let gm = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+
+        assert!(vm.memory_init(gm, &kvm).is_err());
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_setup_irqchip() {
         let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
-        assert!(vm.memory_init(gm, &kvm).is_ok());
+        let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         let dummy_eventfd_1 = EventFd::new().unwrap();
         let dummy_eventfd_2 = EventFd::new().unwrap();
         let dummy_kbd_eventfd = EventFd::new().unwrap();
 
         vm.setup_irqchip(&dummy_eventfd_1, &dummy_eventfd_2, &dummy_kbd_eventfd)
-            .unwrap();
-        vm.create_pit().unwrap();
+            .expect("Cannot setup irqchip");
+        let _vcpu = Vcpu::new(
+            1,
+            &vm,
+            devices::Bus::new(),
+            devices::Bus::new(),
+            super::super::TimestampUs::default(),
+        )
+        .unwrap();
+        // Trying to setup two irqchips will result in EEXIST error.
+        assert!(vm
+            .setup_irqchip(&dummy_eventfd_1, &dummy_eventfd_2, &dummy_kbd_eventfd)
+            .is_err());
+    }
 
-        let vcpu = Vcpu::new(
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_setup_irqchip() {
+        let kvm = KvmContext::new().unwrap();
+
+        let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
+        let vcpu_count = 1;
+        let _vcpu = Vcpu::new(
             1,
             &vm,
             devices::Bus::new(),
@@ -452,7 +551,52 @@ mod tests {
         )
         .unwrap();
 
-        (vm, vcpu)
+        vm.setup_irqchip(vcpu_count).expect("Cannot setup irqchip");
+        // Trying to setup two irqchips will result in EEXIST error.
+        assert!(vm.setup_irqchip(vcpu_count).is_err());
+    }
+
+    #[test]
+    fn test_setup_irqchip_failure() {
+        let kvm = KvmContext::new().unwrap();
+        // On aarch64, this needs to be mutable.
+        #[allow(unused_mut)]
+        let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
+        let _vcpu = Vcpu::new(
+            1,
+            &vm,
+            devices::Bus::new(),
+            devices::Bus::new(),
+            super::super::TimestampUs::default(),
+        )
+        .unwrap();
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            let dummy_eventfd_1 = EventFd::new().unwrap();
+            let dummy_eventfd_2 = EventFd::new().unwrap();
+            let dummy_kbd_eventfd = EventFd::new().unwrap();
+            // Trying to setup irqchip after KVM_VCPU_CREATE was called will result in error on x86_64.
+            assert!(vm
+                .setup_irqchip(&dummy_eventfd_1, &dummy_eventfd_2, &dummy_kbd_eventfd)
+                .is_err());
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            // Trying to setup irqchip after KVM_VCPU_CREATE is actually the way to go on aarch64.
+            assert!(vm.setup_irqchip(1).is_ok());
+        }
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_create_pit() {
+        let kvm = KvmContext::new().unwrap();
+        let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
+
+        assert!(vm.create_pit().is_ok());
+        // Trying to setup two PITs will result in EEXIST error.
+        assert!(vm.create_pit().is_err());
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -474,7 +618,6 @@ mod tests {
         assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
     }
 
-    #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_run_vcpu() {
         extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {}
@@ -491,6 +634,7 @@ mod tests {
         let (vm, mut vcpu) = setup_vcpu();
 
         let vm_config = VmConfig::default();
+        #[cfg(target_arch = "x86_64")]
         assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
 
         let thread_barrier = Arc::new(Barrier::new(2));
