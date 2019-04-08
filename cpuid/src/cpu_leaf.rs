@@ -232,3 +232,21 @@ pub mod leaf_0x80000001 {
         pub const PDPE1GB_SHIFT: u32 = 26; // 1-GByte pages are available if 1.
     }
 }
+
+pub mod leaf_0x80000008 {
+    pub const LEAF_NUM: u32 = 0x8000_0008;
+
+    pub mod ecx {
+        use bit_helper::BitRange;
+
+        // The number of bits in the initial ApicId value that indicate thread ID within a package
+        // Possible values:
+        // 0-3 -> Reserved
+        // 4 -> 1 Die, up to 16 threads
+        // 5 -> 2 Die, up to 32 threads
+        // 6 -> 3,4 Die, up to 64 threads
+        pub const THREAD_ID_SIZE_BITRANGE: BitRange = bit_range!(15, 12);
+        // The number of threads in the package - 1
+        pub const NUM_THREADS_BITRANGE: BitRange = bit_range!(7, 0);
+    }
+}
