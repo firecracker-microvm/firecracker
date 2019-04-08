@@ -44,6 +44,18 @@ pub fn update_largest_extended_fn_entry(
     Ok(())
 }
 
+pub fn update_extended_feature_info_entry(
+    entry: &mut kvm_cpuid_entry2,
+    _vm_spec: &VmSpec,
+) -> Result<(), Error> {
+    use cpu_leaf::leaf_0x80000001::*;
+
+    // set the Topology Extension bit since we use the Extended Cache Topology leaf
+    entry.ecx.write_bit(ecx::TOPOEXT_INDEX, true);
+
+    Ok(())
+}
+
 pub fn update_extended_cache_topology_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
@@ -65,6 +77,7 @@ impl CpuidTransformer for AmdCpuidTransformer {
             leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
             leaf_0x7::LEAF_NUM => Some(amd::update_structured_extended_entry),
             leaf_0x80000000::LEAF_NUM => Some(amd::update_largest_extended_fn_entry),
+            leaf_0x80000001::LEAF_NUM => Some(amd::update_extended_feature_info_entry),
             leaf_0x8000001d::LEAF_NUM => Some(amd::update_extended_cache_topology_entry),
             0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
             _ => None,
@@ -133,6 +146,27 @@ mod test {
                 .read_bits_in_range(&eax::LARGEST_EXTENDED_FN_BITRANGE),
             LARGEST_EXTENDED_FN
         );
+    }
+
+    #[test]
+    fn test_update_extended_feature_info_entry() {
+        use cpu_leaf::leaf_0x80000001::*;
+
+        let vm_spec = VmSpec::new(VENDOR_ID_AMD, 0, 1, false);
+        let mut entry = &mut kvm_cpuid_entry2 {
+            function: LEAF_NUM,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+
+        assert!(update_extended_feature_info_entry(&mut entry, &vm_spec).is_ok());
+
+        assert_eq!(entry.ecx.read_bit(ecx::TOPOEXT_INDEX), true);
     }
 
     #[test]

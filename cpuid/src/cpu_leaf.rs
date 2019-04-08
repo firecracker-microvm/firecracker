@@ -173,19 +173,6 @@ pub mod leaf_0x7 {
     }
 }
 
-pub mod leaf_0x80000001 {
-    pub const LEAF_NUM: u32 = 0x8000_0001;
-
-    pub mod ecx {
-        pub const PREFETCH_SHIFT: u32 = 8; // 3DNow! PREFETCH/PREFETCHW instructions
-        pub const LZCNT_SHIFT: u32 = 5; // advanced bit manipulation
-    }
-
-    pub mod edx {
-        pub const PDPE1GB_SHIFT: u32 = 26; // 1-GByte pages are available if 1.
-    }
-}
-
 pub mod leaf_0xa {
     pub const LEAF_NUM: u32 = 0xa;
 }
@@ -229,5 +216,19 @@ pub mod leaf_0x80000000 {
         use bit_helper::BitRange;
 
         pub const LARGEST_EXTENDED_FN_BITRANGE: BitRange = bit_range!(31, 0);
+    }
+}
+
+pub mod leaf_0x80000001 {
+    pub const LEAF_NUM: u32 = 0x8000_0001;
+
+    pub mod ecx {
+        pub const LZCNT_SHIFT: u32 = 5; // advanced bit manipulation
+        pub const PREFETCH_SHIFT: u32 = 8; // 3DNow! PREFETCH/PREFETCHW instructions
+        pub const TOPOEXT_INDEX: u32 = 22;
+    }
+
+    pub mod edx {
+        pub const PDPE1GB_SHIFT: u32 = 26; // 1-GByte pages are available if 1.
     }
 }
