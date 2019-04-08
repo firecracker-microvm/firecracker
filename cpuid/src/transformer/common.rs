@@ -96,7 +96,11 @@ pub fn update_cache_parameters_entry(
 
 /// Replaces the `cpuid` entries corresponding to `function` with the entries from the host's cpuid.
 ///
-pub fn use_host_cpuid_function(cpuid: &mut CpuId, function: u32) -> Result<(), Error> {
+pub fn use_host_cpuid_function(
+    cpuid: &mut CpuId,
+    function: u32,
+    use_count: bool,
+) -> Result<(), Error> {
     // copy all the CpuId entries, except for the ones with the provided function
     let mut entries: Vec<kvm_cpuid_entry2> = Vec::new();
     for entry in cpuid.mut_entries_slice().iter() {
@@ -108,6 +112,9 @@ pub fn use_host_cpuid_function(cpuid: &mut CpuId, function: u32) -> Result<(), E
     // add all the host leaves with the provided function
     let mut count: u32 = 0;
     while let Ok(entry) = get_cpuid(function, count) {
+        if count > 0 && !use_count {
+            break;
+        }
         // check if there's enough space to add a new entry to the cpuid
         if entries.len() == MAX_KVM_CPUID_ENTRIES {
             return Err(Error::SizeLimitExceeded);
@@ -254,14 +261,14 @@ mod test {
 
     #[test]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn use_host_cpuid_function_test() {
+    fn test_use_host_cpuid_function_with_count() {
         // try to emulate the extended cache topology leaves
         let topoext_fn = get_topoext_fn();
 
         // check that it behaves correctly for TOPOEXT function
         let mut cpuid = CpuId::new(1);
         cpuid.mut_entries_slice()[0].function = topoext_fn;
-        assert!(use_host_cpuid_function(&mut cpuid, topoext_fn).is_ok());
+        assert!(use_host_cpuid_function(&mut cpuid, topoext_fn, true).is_ok());
         let entries = cpuid.mut_entries_slice();
         assert!(entries.len() > 1);
         let mut count = 0;
@@ -271,10 +278,35 @@ mod test {
             assert!(entry.eax != 0);
             count = count + 1;
         }
+    }
 
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_use_host_cpuid_function_without_count() {
+        use cpu_leaf::leaf_0x1::*;
+        // try to emulate the extended cache topology leaves
+        let feature_info_fn = LEAF_NUM;
+
+        // check that it behaves correctly for TOPOEXT function
+        let mut cpuid = CpuId::new(1);
+        cpuid.mut_entries_slice()[0].function = feature_info_fn;
+        assert!(use_host_cpuid_function(&mut cpuid, feature_info_fn, false).is_ok());
+        let entries = cpuid.mut_entries_slice();
+        assert!(entries.len() == 1);
+        let entry = entries[0];
+
+        assert!(entry.function == feature_info_fn);
+        assert!(entry.index == 0);
+        assert!(entry.eax != 0);
+    }
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_use_host_cpuid_function_err() {
+        let topoext_fn = get_topoext_fn();
         // check that it returns Err when there are too many entriesentry.function == topoext_fn
         let mut cpuid = CpuId::new(MAX_KVM_CPUID_ENTRIES);
-        match use_host_cpuid_function(&mut cpuid, topoext_fn) {
+        match use_host_cpuid_function(&mut cpuid, topoext_fn, true) {
             Err(Error::SizeLimitExceeded) => {}
             _ => panic!("Wrong behavior"),
         }
