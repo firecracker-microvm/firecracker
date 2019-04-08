@@ -173,10 +173,6 @@ pub mod leaf_0x7 {
     }
 }
 
-pub mod leaf_0x80000000 {
-    pub const LEAF_NUM: u32 = 0x8000_0000;
-}
-
 pub mod leaf_0x80000001 {
     pub const LEAF_NUM: u32 = 0x8000_0001;
 
@@ -223,5 +219,15 @@ pub mod leaf_0xb {
 
         pub const LEVEL_TYPE_BITRANGE: BitRange = bit_range!(15, 8);
         pub const LEVEL_NUMBER_BITRANGE: BitRange = bit_range!(7, 0);
+    }
+}
+
+pub mod leaf_0x80000000 {
+    pub const LEAF_NUM: u32 = 0x8000_0000;
+
+    pub mod eax {
+        use bit_helper::BitRange;
+
+        pub const LARGEST_EXTENDED_FN_BITRANGE: BitRange = bit_range!(31, 0);
     }
 }
