@@ -963,6 +963,7 @@ impl Vmm {
         Ok(())
     }
 
+    #[cfg(target_arch = "x86_64")]
     fn setup_interrupt_controller(&mut self) -> std::result::Result<(), StartMicrovmError> {
         self.vm
             .setup_irqchip(
@@ -974,6 +975,18 @@ impl Vmm {
         #[cfg(target_arch = "x86_64")]
         self.vm
             .create_pit()
+            .map_err(StartMicrovmError::ConfigureVm)?;
+        Ok(())
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn setup_interrupt_controller(&mut self) -> std::result::Result<(), StartMicrovmError> {
+        let vcpu_count = self
+            .vm_config
+            .vcpu_count
+            .ok_or(StartMicrovmError::VcpusNotConfigured)?;
+        self.vm
+            .setup_irqchip(vcpu_count)
             .map_err(StartMicrovmError::ConfigureVm)?;
         Ok(())
     }
@@ -2912,6 +2925,7 @@ mod tests {
             level: LoggerLevel::Warning,
             show_level: true,
             show_log_origin: true,
+            #[cfg(target_arch = "x86_64")]
             options: Value::Array(vec![]),
         };
 
@@ -2928,6 +2942,7 @@ mod tests {
             level: LoggerLevel::Warning,
             show_level: false,
             show_log_origin: false,
+            #[cfg(target_arch = "x86_64")]
             options: Value::Array(vec![]),
         };
         assert!(vmm.init_logger(desc).is_err());
@@ -2939,6 +2954,7 @@ mod tests {
             level: LoggerLevel::Warning,
             show_level: false,
             show_log_origin: false,
+            #[cfg(target_arch = "x86_64")]
             options: Value::Array(vec![Value::String("foobar".to_string())]),
         };
         assert!(vmm.init_logger(desc).is_err());
@@ -2952,6 +2968,7 @@ mod tests {
             level: LoggerLevel::Info,
             show_level: true,
             show_log_origin: true,
+            #[cfg(target_arch = "x86_64")]
             options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
         };
         // Flushing metrics before initializing logger is erroneous.
