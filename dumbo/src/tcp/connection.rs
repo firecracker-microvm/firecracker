@@ -453,9 +453,8 @@ impl Connection {
     ///
     /// This is effectively allowing the other endpoint to send more data, because no byte can be
     /// sent unless its sequence number falls into the receive window.
-    // TODO: return the actual advance value here
     #[inline]
-    pub fn advance_local_rwnd_edge(&mut self, value: u32) {
+    pub fn advance_local_rwnd_edge(&mut self, value: u32) -> u32 {
         let v = Wrapping(value);
         let max_w = Wrapping(MAX_WINDOW_SIZE);
         let current_w = self.local_rwnd_edge - self.ack_to_send;
@@ -466,9 +465,12 @@ impl Connection {
         }
 
         if v + current_w > max_w {
-            self.local_rwnd_edge = self.ack_to_send + max_w;
+            let adv = self.ack_to_send + max_w;
+            self.local_rwnd_edge = adv;
+            adv.0
         } else {
             self.local_rwnd_edge += v;
+            v.0
         }
     }
 
@@ -1741,7 +1743,8 @@ pub(crate) mod tests {
 
         // Receiving data after the FIN is an error. We increase the rwnd edge for c, because the
         // window was full after the earlier reception tests.
-        c.advance_local_rwnd_edge(10_000);
+        let adv = c.advance_local_rwnd_edge(10_000);
+        assert_eq!(adv, 10_000);
         // We'll also get the INVALID_ACK RecvStausFlag here because the ACK number is old.
         data.set_sequence_number(c.ack_to_send.0);
         assert_eq!(

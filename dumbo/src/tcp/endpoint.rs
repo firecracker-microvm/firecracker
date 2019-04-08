@@ -210,7 +210,8 @@ impl Endpoint {
                             b[j] = b[j + end];
                         }
                         self.receive_buf_left -= end;
-                        self.connection.advance_local_rwnd_edge(end as u32);
+                        let adv = self.connection.advance_local_rwnd_edge(end as u32);
+                        assert!(adv >= end as u32);
                         break;
                     }
                 }
