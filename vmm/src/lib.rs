@@ -1095,23 +1095,43 @@ impl Vmm {
             arch::HIMEM_START,
         )
         .map_err(StartMicrovmError::KernelLoader)?;
+
+        // This is x86_64 specific since on aarch64 the commandline will be specified through the FDT.
+        #[cfg(target_arch = "x86_64")]
         kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)
             .map_err(StartMicrovmError::LoadCommandline)?;
 
+        Ok(entry_addr)
+    }
+
+    fn configure_system(&mut self) -> std::result::Result<(), StartMicrovmError> {
+        let kernel_config = self
+            .kernel_config
+            .as_mut()
+            .ok_or(StartMicrovmError::MissingKernelConfig)?;
+        let cmdline_cstring = CString::new(kernel_config.cmdline.clone()).map_err(|_| {
+            StartMicrovmError::KernelCmdline(kernel_cmdline::Error::InvalidAscii.to_string())
+        })?;
+
+        // It is safe to unwrap because the VM memory was initialized before in vm.memory_init().
+        let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
+            memory_model::GuestMemoryError::MemoryNotInitialized,
+        ))?;
         // The vcpu_count has a default value. We shouldn't have gotten to this point without
         // having set the vcpu count.
         let vcpu_count = self
             .vm_config
             .vcpu_count
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
-        arch::configure_system(
+        #[cfg(target_arch = "x86_64")]
+        arch::x86_64::configure_system(
             vm_memory,
             kernel_config.cmdline_addr,
             cmdline_cstring.to_bytes().len() + 1,
             vcpu_count,
         )
         .map_err(StartMicrovmError::ConfigureSystem)?;
-        Ok(entry_addr)
+        Ok(())
     }
 
     fn register_events(&mut self) -> std::result::Result<(), StartMicrovmError> {
@@ -1170,6 +1190,9 @@ impl Vmm {
 
         let entry_addr = self
             .load_kernel()
+            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+
+        self.configure_system()
             .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
 
         self.register_events()
@@ -1950,6 +1973,7 @@ mod tests {
     use super::*;
 
     use serde_json::Value;
+    use std::env;
     use std::fs::File;
     use std::io::BufRead;
     use std::io::BufReader;
@@ -1960,6 +1984,20 @@ mod tests {
     use net_util::MacAddr;
     use vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm_config::{RateLimiterConfig, TokenBucketConfig};
+
+    fn good_kernel_file() -> PathBuf {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let parent = path.parent().unwrap();
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        return [parent.to_str().unwrap(), "kernel/src/loader/test_elf.bin"]
+            .iter()
+            .collect();
+        #[cfg(target_arch = "aarch64")]
+        return [parent.to_str().unwrap(), "kernel/src/loader/test_pe.bin"]
+            .iter()
+            .collect();
+    }
 
     impl Vmm {
         fn get_kernel_cmdline_str(&self) -> &str {
@@ -1977,12 +2015,15 @@ mod tests {
                 .remove_address(id);
         }
 
-        fn default_kernel_config(&mut self) {
-            let kernel_file_temp =
+        fn default_kernel_config(&mut self, cust_kernel_path: Option<PathBuf>) {
+            let kernel_temp_file =
                 NamedTempFile::new().expect("Failed to create temporary kernel file.");
-            let kernel_path = String::from(kernel_file_temp.path().to_path_buf().to_str().unwrap());
-            let kernel_file = File::open(kernel_path).unwrap();
+            let mut kernel_path = kernel_temp_file.path().to_path_buf();
 
+            if cust_kernel_path.is_some() {
+                kernel_path = cust_kernel_path.unwrap();
+            }
+            let kernel_file = File::open(kernel_path).expect("Cannot open kernel file");
             let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
             assert!(cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).is_ok());
             let kernel_cfg = KernelConfig {
@@ -2307,7 +2348,7 @@ mod tests {
         }
 
         vmm.init_guest_memory().unwrap();
-        vmm.default_kernel_config();
+        vmm.default_kernel_config(None);
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let mut device_manager = MMIODeviceManager::new(
             guest_mem.clone(),
@@ -2585,7 +2626,7 @@ mod tests {
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
 
-        vmm.default_kernel_config();
+        vmm.default_kernel_config(None);
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let mut device_manager = MMIODeviceManager::new(
@@ -2612,7 +2653,7 @@ mod tests {
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
 
-        vmm.default_kernel_config();
+        vmm.default_kernel_config(None);
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let mut device_manager = MMIODeviceManager::new(
@@ -2643,7 +2684,7 @@ mod tests {
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
 
-        vmm.default_kernel_config();
+        vmm.default_kernel_config(None);
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let mut device_manager = MMIODeviceManager::new(
@@ -2680,7 +2721,7 @@ mod tests {
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
 
-        vmm.default_kernel_config();
+        vmm.default_kernel_config(None);
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let mut device_manager = MMIODeviceManager::new(
@@ -2711,7 +2752,7 @@ mod tests {
     #[test]
     fn test_init_devices() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-        vmm.default_kernel_config();
+        vmm.default_kernel_config(None);
         assert!(vmm.init_guest_memory().is_ok());
 
         assert!(vmm.attach_virtio_devices().is_ok());
@@ -2750,7 +2791,7 @@ mod tests {
     #[test]
     fn test_rescan() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-        vmm.default_kernel_config();
+        vmm.default_kernel_config(None);
 
         let root_file = NamedTempFile::new().unwrap();
         let scratch_file = NamedTempFile::new().unwrap();
@@ -2979,7 +3020,7 @@ mod tests {
     #[test]
     fn test_create_vcpus() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-        vmm.default_kernel_config();
+        vmm.default_kernel_config(None);
 
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.vm.get_memory().is_some());
@@ -3025,9 +3066,57 @@ mod tests {
     }
 
     #[test]
+    fn test_load_kernel() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert_eq!(
+            vmm.load_kernel().unwrap_err().to_string(),
+            "Cannot start microvm without kernel configuration."
+        );
+
+        vmm.default_kernel_config(None);
+
+        assert_eq!(
+            vmm.load_kernel().unwrap_err().to_string(),
+            "Invalid Memory Configuration: MemoryNotInitialized"
+        );
+
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.vm.get_memory().is_some());
+
+        assert_eq!(
+            vmm.load_kernel().unwrap_err().to_string(),
+            "Cannot load kernel due to invalid memory configuration or invalid kernel image. Failed to read ELF header"
+        );
+
+        vmm.default_kernel_config(Some(good_kernel_file()));
+        assert!(vmm.load_kernel().is_ok());
+    }
+
+    #[test]
+    fn test_configure_system() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert_eq!(
+            vmm.configure_system().unwrap_err().to_string(),
+            "Cannot start microvm without kernel configuration."
+        );
+
+        vmm.default_kernel_config(None);
+
+        assert_eq!(
+            vmm.configure_system().unwrap_err().to_string(),
+            "Invalid Memory Configuration: MemoryNotInitialized"
+        );
+
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.vm.get_memory().is_some());
+
+        assert!(vmm.configure_system().is_ok());
+    }
+
+    #[test]
     fn test_attach_virtio_devices() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-        vmm.default_kernel_config();
+        vmm.default_kernel_config(None);
 
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.vm.get_memory().is_some());
