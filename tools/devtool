@@ -402,6 +402,9 @@ cmd_help() {
     echo "        The Firecracker testing system is based on pytest. All arguments after --"
     echo "        will be passed through to pytest."
     echo ""
+    echo "    checkenv"
+    echo "        Performs prerequisites checks needed to execute firecracker."
+    echo ""
 }
 
 # `$0 build` - build Firecracker
@@ -729,6 +732,91 @@ cmd_tag() {
     git tag -a "v$version" -m "$tag_text"
     ok_or_die "Tag v$version not created."
     say "Tag v$version created."
+}
+
+# Check if able to run firecracker.
+# ../docs/getting-started.md#prerequisites
+
+ensure_kvm_rw () {
+    [[ -c /dev/kvm && -w /dev/kvm && -r /dev/kvm ]] || \
+        say_err "FAILED: user $(whoami) doesn't have permission to" \
+                "access /dev/kvm."
+}
+
+check_kernver () {
+    KERN_MAJOR=4
+    KERN_MINOR=14
+    (uname -r | awk -v MAJOR=$KERN_MAJOR -v MINOR=$KERN_MINOR '{ split($0,kver,".");
+    if( (kver[1] + (kver[2] / 100) ) <  MAJOR + (MINOR/100) )
+    {
+      exit 1;
+    } }') ||
+	say_err "FAILED: Kernel version must be >= $KERN_MAJOR.$KERN_MINOR"
+}
+
+# Check Production Host Setup
+# ../docs/prod-host-setup.md
+
+check_SMT () {
+    (grep -q "^forceoff$\|^notsupported$" \
+	  /sys/devices/system/cpu/smt/control) ||
+	say_warn "WARNING: Hyperthreading ENABLED."
+}
+
+check_KPTI () {
+    (grep -q "^Mitigation: PTI$" \
+	  /sys/devices/system/cpu/vulnerabilities/meltdown) || \
+	say_warn "WARNING: KPTI NOT SUPPORTED"
+}
+
+check_KSM () {
+    (grep -q "^0$" /sys/kernel/mm/ksm/run) || \
+	say_warn "WARNING: KSM ENABLED"
+}
+
+check_IBPB_IBRS () {
+    (grep -q "^Mitigation: Full generic retpoline, IBPB, IBRS_FW$"\
+	  /sys/devices/system/cpu/vulnerabilities/spectre_v2) || \
+	say_warn "WARNING: retpoline, IBPB, IBRS: DISABLED."
+}
+
+check_L1TF () {
+    declare -a CONDITIONS=("Mitigation: PTE Inversion" "VMX: cache flushes")
+    for cond in "${CONDITIONS[@]}";
+    do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf) ||
+	   say_warn "WARNING: $cond: DISABLED";
+    done
+}
+
+check_swap () {
+    (grep -q "swap.img" /proc/swaps ) && \
+	say_warn "WARNING: SWAP enabled"
+}
+
+cmd_checkenv() {
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")      { cmd_help; exit 1; } ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+		;;
+        esac
+        shift
+    done
+    PROD_DOC="../docs/prod-host-setup.md"
+    QUICKSTART="../docs/getting-started.md#prerequisites"
+    say "Checking prerequisites for running Firecracker."
+    say "Please check $QUICKSTART in case of any error."
+    ensure_kvm_rw
+    check_kernver
+    say "Checking Host Security Configuration."
+    say "Please check $PROD_DOC in case of any error."
+    check_KSM
+    check_IBPB_IBRS
+    check_L1TF
+    check_SMT
+    check_swap
 }
 
 main() {
