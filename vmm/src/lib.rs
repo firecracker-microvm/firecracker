@@ -367,6 +367,9 @@ impl KvmContext {
         check_cap(&kvm, Cap::SetTssAddr)?;
         check_cap(&kvm, Cap::UserMemory)?;
 
+        #[cfg(target_arch = "aarch64")]
+        check_cap(&kvm, Cap::ArmPsci02)?;
+
         let max_memslots = kvm.get_nr_memslots();
         Ok(KvmContext { kvm, max_memslots })
     }
@@ -1026,7 +1029,6 @@ impl Vmm {
             let mmio_bus = device_manager.bus.clone();
             let mut vcpu = Vcpu::new(cpu_id, &self.vm, io_bus, mmio_bus, request_ts.clone())
                 .map_err(StartMicrovmError::Vcpu)?;
-            #[cfg(target_arch = "x86_64")]
             vcpu.configure(&self.vm_config, entry_addr, &self.vm)
                 .map_err(StartMicrovmError::VcpuConfigure)?;
             vcpus.push(vcpu);

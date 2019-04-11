@@ -61,6 +61,9 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the MSR registers
     MSRSConfiguration(arch::x86_64::regs::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Error configuring the general purpose aarch64 registers.
+    REGSConfiguration(arch::aarch64::regs::Error),
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the general purpose registers
     REGSConfiguration(arch::x86_64::regs::Error),
@@ -303,6 +306,41 @@ impl Vcpu {
         arch::x86_64::regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
         arch::x86_64::regs::setup_sregs(vm_memory, &self.fd).map_err(Error::SREGSConfiguration)?;
         arch::x86_64::interrupts::set_lint(&self.fd).map_err(Error::LocalIntConfiguration)?;
+        Ok(())
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    /// Configures an aarch64 specific vcpu.
+    ///
+    /// # Arguments
+    ///
+    /// * `_machine_config` - Specifies necessary info used for the CPUID configuration.
+    /// * `kernel_load_addr` - Offset from `guest_mem` at which the kernel is loaded.
+    /// * `vm` - The virtual machine this vcpu will get attached to.
+    pub fn configure(
+        &mut self,
+        _machine_config: &VmConfig,
+        kernel_load_addr: GuestAddress,
+        vm: &Vm,
+    ) -> Result<()> {
+        let vm_memory = vm
+            .get_memory()
+            .ok_or(Error::GuestMemory(GuestMemoryError::MemoryNotInitialized))?;
+
+        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
+
+        // This reads back the kernel's preferred target type.
+        vm.fd.get_preferred_target(&mut kvi)?;
+        // We already checked that the capability is supported.
+        kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
+        // Non-boot cpus are powered off initially.
+        if self.id > 0 {
+            kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
+        }
+
+        self.fd.vcpu_init(&kvi)?;
+        arch::aarch64::regs::setup_regs(&self.fd, self.id, kernel_load_addr.offset(), vm_memory)
+            .map_err(Error::REGSConfiguration)?;
         Ok(())
     }
 
@@ -618,6 +656,41 @@ mod tests {
         assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
     }
 
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_configure_vcpu() {
+        let kvm = KvmContext::new().unwrap();
+        let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
+        assert!(vm.memory_init(gm, &kvm).is_ok());
+
+        // Try it for when vcpu id is 0.
+        let mut vcpu = Vcpu::new(
+            0,
+            &vm,
+            devices::Bus::new(),
+            devices::Bus::new(),
+            super::super::TimestampUs::default(),
+        )
+        .unwrap();
+
+        let vm_config = VmConfig::default();
+        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
+
+        // Try it for when vcpu id is NOT 0.
+        let mut vcpu = Vcpu::new(
+            1,
+            &vm,
+            devices::Bus::new(),
+            devices::Bus::new(),
+            super::super::TimestampUs::default(),
+        )
+        .unwrap();
+
+        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
+    }
+
+    #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_run_vcpu() {
         extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {}

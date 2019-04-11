@@ -173,7 +173,7 @@ where
     ====================================
      */
     const AARCH64_KERNEL_LOAD_ADDR: usize = 0x80000;
-    const AARCH64_MAGIC_NUMBER: u32 = 0x644d5241;
+    const AARCH64_MAGIC_NUMBER: u32 = 0x644d_5241;
     const AARCH64_MAGIC_OFFSET_HEADER: u64 =
         2 * mem::size_of::<u32>() as u64 + 6 * mem::size_of::<u64>() as u64; // This should total 56.
     const AARCH64_TEXT_OFFSET: u64 = 2 * mem::size_of::<u32>() as u64;

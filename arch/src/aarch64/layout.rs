@@ -59,6 +59,9 @@ pub const CMDLINE_START: usize = 0x0;
 /// Kernel command line start address maximum size.
 pub const CMDLINE_MAX_SIZE: usize = 0x0;
 
+/// Maximum size of the device tree blob as specified in https://www.kernel.org/doc/Documentation/arm64/booting.txt.
+pub const FDT_MAX_SIZE: usize = 0x20_0000;
+
 // As per virt/kvm/arm/vgic/vgic-kvm-device.c we need
 // the number of interrupts our GIC will support to be:
 // * bigger than 32
