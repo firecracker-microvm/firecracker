@@ -16,8 +16,12 @@ pub fn update_structured_extended_entry(
 ) -> Result<(), Error> {
     use cpu_leaf::leaf_0x7::index0::*;
 
-    // KVM sets this bit no matter what but this feature is not supported by hardware
-    entry.edx.write_bit(edx::ARCH_CAPABILITIES_BITINDEX, false);
+    // according to the EPYC PPR, only the leaf 0x7 with index 0 contains the
+    // structured extended feature identifiers
+    if entry.index == 0 {
+        // KVM sets this bit no matter what but this feature is not supported by hardware
+        entry.edx.write_bit(edx::ARCH_CAPABILITIES_BITINDEX, false);
+    }
 
     Ok(())
 }
@@ -83,6 +87,7 @@ mod test {
     fn test_update_structured_extended_entry() {
         use cpu_leaf::leaf_0x7::index0::*;
 
+        // Check that if index == 0 the entry is processed
         let vm_spec = VmSpec::new(VENDOR_ID_AMD, 0, 1, false);
         let mut entry = &mut kvm_cpuid_entry2 {
             function: leaf_0x7::LEAF_NUM,
@@ -94,9 +99,13 @@ mod test {
             edx: *(0 as u32).write_bit(edx::ARCH_CAPABILITIES_BITINDEX, true),
             padding: [0, 0, 0],
         };
-
         assert!(update_structured_extended_entry(&mut entry, &vm_spec).is_ok());
-
         assert_eq!(entry.edx.read_bit(edx::ARCH_CAPABILITIES_BITINDEX), false);
+
+        // Check that if index != 0 the entry is not processed
+        entry.index = 1;
+        entry.edx.write_bit(edx::ARCH_CAPABILITIES_BITINDEX, true);
+        assert!(update_structured_extended_entry(&mut entry, &vm_spec).is_ok());
+        assert_eq!(entry.edx.read_bit(edx::ARCH_CAPABILITIES_BITINDEX), true);
     }
 }
