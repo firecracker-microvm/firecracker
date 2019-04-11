@@ -62,8 +62,6 @@ mod test {
 
     #[test]
     fn test_update_extended_cache_topology_entry() {
-        use cpu_leaf::leaf_0x8000001d::*;
-
         let vm_spec = VmSpec::new(VENDOR_ID_AMD, 0, 1, false);
         let mut entry = &mut kvm_cpuid_entry2 {
             function: leaf_0x8000001d::LEAF_NUM,
