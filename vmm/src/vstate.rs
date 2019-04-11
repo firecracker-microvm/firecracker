@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::io;
+use std::os::unix::io::AsRawFd;
 use std::result;
 use std::sync::{Arc, Barrier};
 
@@ -14,8 +15,8 @@ use arch;
 #[cfg(target_arch = "x86_64")]
 use cpuid::{c3, filter_cpuid, t2};
 use default_syscalls;
-use kvm::*;
 use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
+use kvm_ioctls::*;
 use logger::{LogOption, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
@@ -157,9 +158,15 @@ impl Vm {
     ) -> Result<()> {
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
 
-        self.fd.register_irqfd(com_evt_1_3, 4).map_err(Error::Irq)?;
-        self.fd.register_irqfd(com_evt_2_4, 3).map_err(Error::Irq)?;
-        self.fd.register_irqfd(kbd_evt, 1).map_err(Error::Irq)?;
+        self.fd
+            .register_irqfd(com_evt_1_3.as_raw_fd(), 4)
+            .map_err(Error::Irq)?;
+        self.fd
+            .register_irqfd(com_evt_2_4.as_raw_fd(), 3)
+            .map_err(Error::Irq)?;
+        self.fd
+            .register_irqfd(kbd_evt.as_raw_fd(), 1)
+            .map_err(Error::Irq)?;
 
         Ok(())
     }

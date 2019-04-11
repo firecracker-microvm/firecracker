@@ -3,10 +3,10 @@
 
 extern crate byteorder;
 extern crate kvm_bindings;
+extern crate kvm_ioctls;
 extern crate libc;
 
 extern crate arch_gen;
-extern crate kvm;
 extern crate memory_model;
 
 use std::result;
