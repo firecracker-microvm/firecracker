@@ -6,7 +6,7 @@ use bit_helper::BitHelper;
 use common::get_cpuid;
 
 use kvm_bindings::kvm_cpuid_entry2;
-use kvm_ioctls::CpuId;
+use kvm_ioctls::{CpuId, MAX_KVM_CPUID_ENTRIES};
 
 // constants for setting the fields of kvm_cpuid2 structures
 // CPUID bits in ebx, ecx, and edx.
@@ -109,7 +109,7 @@ pub fn use_host_cpuid_function(cpuid: &mut CpuId, function: u32) -> Result<(), E
     let mut count: u32 = 0;
     while let Ok(entry) = get_cpuid(function, count) {
         // check if there's enough space to add a new entry to the cpuid
-        if entries.len() == kvm_ioctls::MAX_KVM_CPUID_ENTRIES {
+        if entries.len() == MAX_KVM_CPUID_ENTRIES {
             return Err(Error::SizeLimitExceeded);
         }
 
@@ -273,7 +273,7 @@ mod test {
         }
 
         // check that it returns Err when there are too many entriesentry.function == topoext_fn
-        let mut cpuid = CpuId::new(kvm_ioctls::MAX_KVM_CPUID_ENTRIES);
+        let mut cpuid = CpuId::new(MAX_KVM_CPUID_ENTRIES);
         match use_host_cpuid_function(&mut cpuid, topoext_fn) {
             Err(Error::SizeLimitExceeded) => {}
             _ => panic!("Wrong behavior"),

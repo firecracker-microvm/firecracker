@@ -60,7 +60,7 @@ use std::thread;
 use std::time::Duration;
 
 use kvm_bindings::KVM_API_VERSION;
-use kvm_ioctls::*;
+use kvm_ioctls::{Cap, Kvm};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use device_manager::legacy::LegacyDeviceManager;
