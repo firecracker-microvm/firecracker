@@ -6,12 +6,14 @@ pub mod leaf_0x1 {
     pub const LEAF_NUM: u32 = 0x1;
 
     pub mod eax {
+        use bit_helper::BitRange;
 
-        pub const EXTENDED_FAMILY_ID_SHIFT: u32 = 20;
-        pub const EXTENDED_PROCESSOR_MODEL_SHIFT: u32 = 16;
-        pub const PROCESSOR_TYPE_SHIFT: u32 = 12;
-        pub const PROCESSOR_FAMILY_SHIFT: u32 = 8;
-        pub const PROCESSOR_MODEL_SHIFT: u32 = 4;
+        pub const EXTENDED_FAMILY_ID_BITRANGE: BitRange = bit_range!(27, 20);
+        pub const EXTENDED_PROCESSOR_MODEL_BITRANGE: BitRange = bit_range!(19, 16);
+        pub const PROCESSOR_TYPE_BITRANGE: BitRange = bit_range!(13, 12);
+        pub const PROCESSOR_FAMILY_BITRANGE: BitRange = bit_range!(11, 8);
+        pub const PROCESSOR_MODEL_BITRANGE: BitRange = bit_range!(7, 4);
+        pub const STEPPING_BITRANGE: BitRange = bit_range!(3, 0);
     }
 
     pub mod ebx {
@@ -27,41 +29,41 @@ pub mod leaf_0x1 {
 
     pub mod ecx {
         // DTES64 = 64-bit debug store
-        pub const DTES64_SHIFT: u32 = 2;
+        pub const DTES64_BITINDEX: u32 = 2;
         // MONITOR = Monitor/MWAIT
-        pub const MONITOR_SHIFT: u32 = 3;
+        pub const MONITOR_BITINDEX: u32 = 3;
         // CPL Qualified Debug Store
         pub const DS_CPL_SHIFT: u32 = 4;
         // 5 = VMX (Virtual Machine Extensions)
         // 6 = SMX (Safer Mode Extensions)
         // 7 = EIST (Enhanced Intel SpeedStep® technology)
         // TM2 = Thermal Monitor 2
-        pub const TM2_SHIFT: u32 = 8;
+        pub const TM2_BITINDEX: u32 = 8;
         // CNXT_ID = L1 Context ID (L1 data cache can be set to adaptive/shared mode)
-        pub const CNXT_ID: u32 = 10;
+        pub const CNXT_ID_BITINDEX: u32 = 10;
         // SDBG (cpu supports IA32_DEBUG_INTERFACE MSR for silicon debug)
-        pub const SDBG_SHIFT: u32 = 11;
-        pub const FMA_SHIFT: u32 = 12;
+        pub const SDBG_BITINDEX: u32 = 11;
+        pub const FMA_BITINDEX: u32 = 12;
         // XTPR_UPDATE = xTPR Update Control
-        pub const XTPR_UPDATE_SHIFT: u32 = 14;
+        pub const XTPR_UPDATE_BITINDEX: u32 = 14;
         // PDCM = Perfmon and Debug Capability
-        pub const PDCM_SHIFT: u32 = 15;
+        pub const PDCM_BITINDEX: u32 = 15;
         // 18 = DCA Direct Cache Access (prefetch data from a memory mapped device)
-        pub const MOVBE_SHIFT: u32 = 22;
+        pub const MOVBE_BITINDEX: u32 = 22;
         pub const TSC_DEADLINE_TIMER_BITINDEX: u32 = 24;
-        pub const OSXSAVE_SHIFT: u32 = 27;
+        pub const OSXSAVE_BITINDEX: u32 = 27;
         // Cpu is running on a hypervisor.
         pub const HYPERVISOR_BITINDEX: u32 = 31;
     }
 
     pub mod edx {
-        pub const PSN_SHIFT: u32 = 18; // Processor Serial Number
-        pub const DS_SHIFT: u32 = 21; // Debug Store.
-        pub const ACPI_SHIFT: u32 = 22; // Thermal Monitor and Software Controlled Clock Facilities.
-        pub const SS_SHIFT: u32 = 27; // Self Snoop
-        pub const HTT: u32 = 28; // Max APIC IDs reserved field is valid
-        pub const TM_SHIFT: u32 = 29; // Thermal Monitor.
-        pub const PBE_SHIFT: u32 = 31; // Pending Break Enable.
+        pub const PSN_BITINDEX: u32 = 18; // Processor Serial Number
+        pub const DS_BITINDEX: u32 = 21; // Debug Store.
+        pub const ACPI_BITINDEX: u32 = 22; // Thermal Monitor and Software Controlled Clock Facilities.
+        pub const SS_BITINDEX: u32 = 27; // Self Snoop
+        pub const HTT_BITINDEX: u32 = 28; // Max APIC IDs reserved field is valid
+        pub const TM_BITINDEX: u32 = 29; // Thermal Monitor.
+        pub const PBE_BITINDEX: u32 = 31; // Pending Break Enable.
     }
 }
 
@@ -109,85 +111,85 @@ pub mod leaf_0x7 {
     pub mod index0 {
         pub mod ebx {
             // 1 = TSC_ADJUST
-            pub const SGX_SHIFT: u32 = 2;
-            pub const BMI1_SHIFT: u32 = 3;
-            pub const HLE_SHIFT: u32 = 4;
-            pub const AVX2_SHIFT: u32 = 5;
+            pub const SGX_BITINDEX: u32 = 2;
+            pub const BMI1_BITINDEX: u32 = 3;
+            pub const HLE_BITINDEX: u32 = 4;
+            pub const AVX2_BITINDEX: u32 = 5;
             // FPU Data Pointer updated only on x87 exceptions if 1.
-            pub const FPDP_SHIFT: u32 = 6;
+            pub const FPDP_BITINDEX: u32 = 6;
             // 7 = SMEP (Supervisor-Mode Execution Prevention if 1)
-            pub const BMI2_SHIFT: u32 = 8;
+            pub const BMI2_BITINDEX: u32 = 8;
             // 9 = Enhanced REP MOVSB/STOSB if 1
             // 10 = INVPCID
-            pub const INVPCID_SHIFT: u32 = 10;
-            pub const RTM_SHIFT: u32 = 11;
+            pub const INVPCID_BITINDEX: u32 = 10;
+            pub const RTM_BITINDEX: u32 = 11;
             // Intel® Resource Director Technology (Intel® RDT) Monitoring
-            pub const RDT_M_SHIFT: u32 = 12;
+            pub const RDT_M_BITINDEX: u32 = 12;
             // 13 = Deprecates FPU CS and FPU DS values if 1
             // Memory Protection Extensions
-            pub const MPX_SHIFT: u32 = 14;
+            pub const MPX_BITINDEX: u32 = 14;
             // RDT = Intel® Resource Director Technology
-            pub const RDT_A_SHIFT: u32 = 15;
+            pub const RDT_A_BITINDEX: u32 = 15;
             // AVX-512 Foundation instructions
-            pub const AVX512F_SHIFT: u32 = 16;
+            pub const AVX512F_BITINDEX: u32 = 16;
             // AVX-512 Doubleword and Quadword Instructions
-            pub const AVX512DQ_SHIFT: u32 = 17;
-            pub const RDSEED_SHIFT: u32 = 18;
-            pub const ADX_SHIFT: u32 = 19;
+            pub const AVX512DQ_BITINDEX: u32 = 17;
+            pub const RDSEED_BITINDEX: u32 = 18;
+            pub const ADX_BITINDEX: u32 = 19;
             // 20 = SMAP (Supervisor-Mode Access Prevention)
             // AVX512IFMA = AVX-512 Integer Fused Multiply-Add Instructions
-            pub const AVX512IFMA_SHIFT: u32 = 21;
+            pub const AVX512IFMA_BITINDEX: u32 = 21;
             // 21 = PCOMMIT intruction
             // 22 reserved
             // CLFLUSHOPT (flushing multiple cache lines in parallel within a single logical processor)
-            pub const CLFLUSHOPT_SHIFT: u32 = 23;
+            pub const CLFLUSHOPT_BITINDEX: u32 = 23;
             // CLWB = Cache Line Write Back
-            pub const CLWB_SHIFT: u32 = 24;
+            pub const CLWB_BITINDEX: u32 = 24;
             // PT = Intel Processor Trace
-            pub const PT_SHIFT: u32 = 25;
+            pub const PT_BITINDEX: u32 = 25;
             // AVX512PF = AVX512 Prefetch Instructions
-            pub const AVX512PF_SHIFT: u32 = 26;
+            pub const AVX512PF_BITINDEX: u32 = 26;
             // AVX512ER = AVX-512 Exponential and Reciprocal Instructions
-            pub const AVX512ER_SHIFT: u32 = 27;
+            pub const AVX512ER_BITINDEX: u32 = 27;
             // AVX512CD = AVX-512 Conflict Detection Instructions
-            pub const AVX512CD_SHIFT: u32 = 28;
+            pub const AVX512CD_BITINDEX: u32 = 28;
             // Intel Secure Hash Algorithm Extensions
-            pub const SHA_SHIFT: u32 = 29;
+            pub const SHA_BITINDEX: u32 = 29;
             // AVX-512 Byte and Word Instructions
-            pub const AVX512BW_SHIFT: u32 = 30;
+            pub const AVX512BW_BITINDEX: u32 = 30;
             // AVX-512 Vector Length Extensions
-            pub const AVX512VL_SHIFT: u32 = 31;
+            pub const AVX512VL_BITINDEX: u32 = 31;
         }
 
         pub mod ecx {
             // 0 = PREFETCHWT1 (move data closer to the processor in anticipation of future use)
             // AVX512_VBMI = AVX-512 Vector Byte Manipulation Instructions
-            pub const AVX512_VBMI_SHIFT: u32 = 1;
+            pub const AVX512_VBMI_BITINDEX: u32 = 1;
             // 2 = UMIP (User Mode Instruction Prevention)
             // PKU = Protection Keys for user-mode pages
-            pub const PKU_SHIFT: u32 = 3;
+            pub const PKU_BITINDEX: u32 = 3;
             // OSPKE = If 1, OS has set CR4.PKE to enable protection keys
-            pub const OSPKE_SHIFT: u32 = 4;
+            pub const OSPKE_BITINDEX: u32 = 4;
             // 5 = WAITPKG
             // 7-6 reserved
             // 8 = GFNI
             // 13-09 reserved
             // AVX512_VPOPCNTDQ = Vector population count instruction (Intel® Xeon Phi™ only.)
-            pub const AVX512_VPOPCNTDQ_SHIFT: u32 = 14;
+            pub const AVX512_VPOPCNTDQ_BITINDEX: u32 = 14;
             // 21 - 17 = The value of MAWAU used by the BNDLDX and BNDSTX instructions in 64-bit mode.
             // Read Processor ID
-            pub const RDPID_SHIFT: u32 = 22;
+            pub const RDPID_BITINDEX: u32 = 22;
             // 23 - 29 reserved
             // SGX_LC = SGX Launch Configuration
-            pub const SGX_LC_SHIFT: u32 = 30;
+            pub const SGX_LC_BITINDEX: u32 = 30;
             // 31 reserved
         }
 
         pub mod edx {
             // AVX-512 4-register Neural Network Instructions
-            pub const AVX512_4VNNIW_SHIFT: u32 = 2;
+            pub const AVX512_4VNNIW_BITINDEX: u32 = 2;
             // AVX-512 4-register Multiply Accumulation Single precision
-            pub const AVX512_4FMAPS_SHIFT: u32 = 3;
+            pub const AVX512_4FMAPS_BITINDEX: u32 = 3;
             pub const ARCH_CAPABILITIES_BITINDEX: u32 = 29;
         }
     }
@@ -249,7 +251,6 @@ pub mod leaf_0xd {
             pub const XSAVES_SHIFT: u32 = 3;
         }
     }
-
 }
 
 pub mod leaf_0x80000000 {
@@ -266,13 +267,13 @@ pub mod leaf_0x80000001 {
     pub const LEAF_NUM: u32 = 0x8000_0001;
 
     pub mod ecx {
-        pub const LZCNT_SHIFT: u32 = 5; // advanced bit manipulation
-        pub const PREFETCH_SHIFT: u32 = 8; // 3DNow! PREFETCH/PREFETCHW instructions
         pub const TOPOEXT_INDEX: u32 = 22;
+        pub const PREFETCH_BITINDEX: u32 = 8; // 3DNow! PREFETCH/PREFETCHW instructions
+        pub const LZCNT_BITINDEX: u32 = 5; // advanced bit manipulation
     }
 
     pub mod edx {
-        pub const PDPE1GB_SHIFT: u32 = 26; // 1-GByte pages are available if 1.
+        pub const PDPE1GB_BITINDEX: u32 = 26; // 1-GByte pages are available if 1.
     }
 }
 

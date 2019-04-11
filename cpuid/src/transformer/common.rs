@@ -47,7 +47,9 @@ pub fn update_feature_info_entry(
     // A value of 1 for HTT indicates the value in CPUID.1.EBX[23:16]
     // (the Maximum number of addressable IDs for logical processors in this package)
     // is valid for the package
-    entry.edx.write_bit(edx::HTT, vm_spec.cpu_count > 1);
+    entry
+        .edx
+        .write_bit(edx::HTT_BITINDEX, vm_spec.cpu_count > 1);
 
     Ok(())
 }
@@ -174,7 +176,7 @@ mod test {
 
         assert!(update_feature_info_entry(&mut entry, &vm_spec).is_ok());
 
-        assert!(entry.edx.read_bit(edx::HTT) == expected_htt)
+        assert!(entry.edx.read_bit(edx::HTT_BITINDEX) == expected_htt)
     }
 
     fn check_update_cache_parameters_entry(
