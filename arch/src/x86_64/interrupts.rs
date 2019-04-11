@@ -11,7 +11,7 @@ use std::result;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use kvm_bindings::kvm_lapic_state;
-use kvm_ioctls;
+use kvm_ioctls::VcpuFd;
 
 #[derive(Debug)]
 pub enum Error {
@@ -61,7 +61,7 @@ fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
 ///
 /// # Arguments
 /// * `vcpu` - The VCPU object to configure.
-pub fn set_lint(vcpu: &kvm_ioctls::VcpuFd) -> Result<()> {
+pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
     let mut klapic = vcpu.get_lapic().map_err(Error::GetLapic)?;
 
     let lvt_lint0 = get_klapic_reg(&klapic, APIC_LVT0);
