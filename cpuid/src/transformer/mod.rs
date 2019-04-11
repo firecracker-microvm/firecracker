@@ -5,10 +5,11 @@ pub mod amd;
 pub mod common;
 pub mod intel;
 
+pub use kvm_bindings::kvm_cpuid_entry2;
+use kvm_ioctls::CpuId;
+
 use brand_string::BrandString;
 use brand_string::Reg as BsReg;
-use kvm::CpuId;
-pub use kvm_bindings::kvm_cpuid_entry2;
 
 pub struct VmSpec {
     pub cpu_id: u8,

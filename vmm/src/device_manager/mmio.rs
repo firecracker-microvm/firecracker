@@ -6,12 +6,13 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
+use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
 
 use devices;
 use kernel_cmdline;
-use kvm::{IoeventAddress, VmFd};
+use kvm_ioctls::{IoEventAddress, VmFd};
 use memory_model::GuestMemory;
 
 /// Errors for MMIO device manager.
@@ -103,16 +104,16 @@ impl MMIODeviceManager {
         let mmio_device = devices::virtio::MmioDevice::new(self.guest_mem.clone(), device)
             .map_err(Error::CreateMmioDevice)?;
         for (i, queue_evt) in mmio_device.queue_evts().iter().enumerate() {
-            let io_addr = IoeventAddress::Mmio(
+            let io_addr = IoEventAddress::Mmio(
                 self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
             );
 
-            vm.register_ioevent(queue_evt, &io_addr, i as u32)
+            vm.register_ioevent(queue_evt.as_raw_fd(), &io_addr, i as u32)
                 .map_err(Error::RegisterIoEvent)?;
         }
 
         if let Some(interrupt_evt) = mmio_device.interrupt_evt() {
-            vm.register_irqfd(interrupt_evt, self.irq)
+            vm.register_irqfd(interrupt_evt.as_raw_fd(), self.irq)
                 .map_err(Error::RegisterIrqFd)?;
         }
 

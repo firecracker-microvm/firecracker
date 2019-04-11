@@ -90,7 +90,7 @@ pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kvm::CpuId;
+    use kvm_ioctls::CpuId;
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]

@@ -10,8 +10,8 @@ use std::result;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use kvm;
 use kvm_bindings::kvm_lapic_state;
+use kvm_ioctls;
 
 #[derive(Debug)]
 pub enum Error {
@@ -61,7 +61,7 @@ fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
 ///
 /// # Arguments
 /// * `vcpu` - The VCPU object to configure.
-pub fn set_lint(vcpu: &kvm::VcpuFd) -> Result<()> {
+pub fn set_lint(vcpu: &kvm_ioctls::VcpuFd) -> Result<()> {
     let mut klapic = vcpu.get_lapic().map_err(Error::GetLapic)?;
 
     let lvt_lint0 = get_klapic_reg(&klapic, APIC_LVT0);
@@ -86,7 +86,7 @@ mod tests {
     use self::rand::Rng;
 
     use super::*;
-    use kvm::Kvm;
+    use kvm_ioctls::Kvm;
 
     const KVM_APIC_REG_SIZE: usize = 0x400;
 
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn test_setlint() {
         let kvm = Kvm::new().unwrap();
-        assert!(kvm.check_extension(kvm::Cap::Irqchip));
+        assert!(kvm.check_extension(kvm_ioctls::Cap::Irqchip));
         let vm = kvm.create_vm().unwrap();
         //the get_lapic ioctl will fail if there is no irqchip created beforehand.
         assert!(vm.create_irq_chip().is_ok());
