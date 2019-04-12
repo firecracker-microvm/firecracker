@@ -14,3 +14,5 @@ memory_model = { path = "../memory_model" }
 
 [dev-dependencies]
 rand = ">=0.5.5"
+device_tree = ">=1.1.0"
+
