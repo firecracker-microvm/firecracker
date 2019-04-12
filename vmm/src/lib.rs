@@ -1241,7 +1241,6 @@ impl Vmm {
             StartMicrovmError::KernelCmdline(kernel_cmdline::Error::InvalidAscii.to_string())
         })?;
 
-        // It is safe to unwrap because the VM memory was initialized before in vm.memory_init().
         let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
             memory_model::GuestMemoryError::MemoryNotInitialized,
         ))?;
@@ -1259,6 +1258,10 @@ impl Vmm {
             vcpu_count,
         )
         .map_err(StartMicrovmError::ConfigureSystem)?;
+
+        #[cfg(target_arch = "aarch64")]
+        arch::aarch64::configure_system(vm_memory, &cmdline_cstring, vcpu_count)
+            .map_err(StartMicrovmError::ConfigureSystem)?;
         Ok(())
     }
 

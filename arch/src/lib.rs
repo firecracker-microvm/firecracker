@@ -11,8 +11,11 @@ extern crate memory_model;
 
 use std::result;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
+    #[cfg(target_arch = "aarch64")]
+    /// aarch64 specific error triggered during system configuration.
+    Aarch64Setup(aarch64::Error),
     #[cfg(target_arch = "x86_64")]
     /// X86_64 specific error triggered during system configuration.
     X86_64Setup(x86_64::Error),
