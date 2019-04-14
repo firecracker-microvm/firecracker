@@ -5,13 +5,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+//! Helper for loading a kernel image in the guest memory.
+
 use std;
-use std::ffi::CStr;
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
-use memory_model::{GuestAddress, GuestMemory};
 use sys_util;
 
 #[allow(non_camel_case_types)]
@@ -66,23 +66,26 @@ impl fmt::Display for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Loads a kernel from a vmlinux elf image to a slice
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+/// Loads a kernel from a vmlinux elf image using a given callback.
 ///
 /// # Arguments
 ///
-/// * `guest_mem` - The guest memory region the kernel is written to.
 /// * `kernel_image` - Input vmlinux image.
 /// * `start_address` - For x86_64, this is the start of the high memory. Kernel should reside above it.
+/// * `write_to_memory` - Closure to write the contents of the image.
+///                      The closure is called with the following arguments:
+///                      dst-offset-in-guest-mem, src, size
 ///
 /// Returns the entry address of the kernel.
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn load_kernel<F>(
-    guest_mem: &GuestMemory,
-    kernel_image: &mut F,
+pub fn load_kernel<R, F>(
+    kernel_image: &mut R,
     start_address: usize,
-) -> Result<GuestAddress>
+    write_to_memory: F,
+) -> Result<usize>
 where
-    F: Read + Seek,
+    R: Read + Seek,
+    F: Fn(usize, &mut R, usize) -> Result<()>,
 {
     let mut ehdr: elf::Elf64_Ehdr = Default::default();
     kernel_image
@@ -134,27 +137,36 @@ where
             .seek(SeekFrom::Start(phdr.p_offset))
             .map_err(|_| Error::SeekKernelStart)?;
 
-        let mem_offset = GuestAddress(phdr.p_paddr as usize);
-        if mem_offset.offset() < start_address {
+        if (phdr.p_paddr as usize) < start_address {
             return Err(Error::InvalidProgramHeaderAddress);
         }
 
-        guest_mem
-            .read_to_memory(mem_offset, kernel_image, phdr.p_filesz as usize)
-            .map_err(|_| Error::ReadKernelImage)?;
+        write_to_memory(phdr.p_paddr as usize, kernel_image, phdr.p_filesz as usize)?;
     }
 
-    Ok(GuestAddress(ehdr.e_entry as usize))
+    Ok(ehdr.e_entry as usize)
 }
 
 #[cfg(target_arch = "aarch64")]
-pub fn load_kernel<F>(
-    guest_mem: &GuestMemory,
-    kernel_image: &mut F,
+/// Loads a kernel from a vmlinux image using a given callback.
+///
+/// # Arguments
+///
+/// * `kernel_image` - Input vmlinux image.
+/// * `start_address` - Kernel start address in the guest memory.
+/// * `write_to_memory` - Closure to write the contents of the image.
+///                      The closure is called with the following arguments:
+///                      dst-offset-in-guest-mem, src, size
+///
+/// Returns the entry address of the kernel.
+pub fn load_kernel<R, F>(
+    kernel_image: &mut R,
     start_address: usize,
-) -> Result<GuestAddress>
+    write_to_memory: F,
+) -> Result<usize>
 where
-    F: Read + Seek,
+    R: Read + Seek,
+    F: Fn(usize, &mut R, usize) -> Result<()>,
 {
     /* Kernel boot protocol is specified in the kernel docs
     Documentation/arm/Booting and Documentation/arm64/booting.txt.
@@ -216,59 +228,15 @@ where
         .map_err(|_| Error::SeekKernelImage)?;
 
     kernel_load_offset = kernel_load_offset + start_address;
-    guest_mem
-        .read_to_memory(
-            GuestAddress(kernel_load_offset),
-            kernel_image,
-            kernel_size as usize,
-        )
-        .map_err(|_| Error::ReadKernelImage)?;
+    write_to_memory(kernel_load_offset, kernel_image, kernel_size as usize)?;
 
-    Ok(GuestAddress(kernel_load_offset))
-}
-
-/// Writes the command line string to the given memory slice.
-///
-/// # Arguments
-///
-/// * `guest_mem` - A u8 slice that will be partially overwritten by the command line.
-/// * `guest_addr` - The address in `guest_mem` at which to load the command line.
-/// * `cmdline` - The kernel command line.
-pub fn load_cmdline(
-    guest_mem: &GuestMemory,
-    guest_addr: GuestAddress,
-    cmdline: &CStr,
-) -> Result<()> {
-    let len = cmdline.to_bytes().len();
-    if len == 0 {
-        return Ok(());
-    }
-
-    let end = guest_addr
-        .checked_add(len + 1)
-        .ok_or(Error::CommandLineOverflow)?; // Extra for null termination.
-    if end > guest_mem.end_addr() {
-        return Err(Error::CommandLineOverflow)?;
-    }
-
-    guest_mem
-        .write_slice_at_addr(cmdline.to_bytes_with_nul(), guest_addr)
-        .map_err(|_| Error::CommandLineCopy)?;
-
-    Ok(())
+    Ok(kernel_load_offset)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use memory_model::{GuestAddress, GuestMemory};
     use std::io::Cursor;
-
-    const MEM_SIZE: usize = 0x18_0000;
-
-    fn create_guest_mem() -> GuestMemory {
-        GuestMemory::new(&[(GuestAddress(0x0), MEM_SIZE)]).unwrap()
-    }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn make_test_bin() -> Vec<u8> {
@@ -283,43 +251,30 @@ mod tests {
     #[test]
     // Tests that loading the kernel is successful on different archs.
     fn test_load_kernel() {
-        let gm = create_guest_mem();
         let image = make_test_bin();
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         let load_addr = 0x10_0000;
         #[cfg(target_arch = "aarch64")]
         let load_addr = 0x8_0000;
         assert_eq!(
-            Ok(GuestAddress(load_addr)),
-            load_kernel(&gm, &mut Cursor::new(&image), 0)
-        );
-    }
-
-    #[test]
-    fn test_load_kernel_no_memory() {
-        let gm = GuestMemory::new(&[(GuestAddress(0x0), 79)]).unwrap();
-        let image = make_test_bin();
-        assert_eq!(
-            Err(Error::ReadKernelImage),
-            load_kernel(&gm, &mut Cursor::new(&image), 0)
+            Ok(load_addr),
+            load_kernel(&mut Cursor::new(&image), 0, |_, _, _| Ok(()))
         );
     }
 
     #[cfg(target_arch = "aarch64")]
     #[test]
     fn test_load_bad_kernel() {
-        let gm = create_guest_mem();
         let mut bad_image = make_test_bin();
         bad_image.truncate(56);
         assert_eq!(
             Err(Error::ReadProgramHeader),
-            load_kernel(&gm, &mut Cursor::new(&bad_image), 0)
+            load_kernel(&mut Cursor::new(&bad_image), 0, |_, _, _| Ok(()))
         );
     }
 
     #[test]
     fn test_bad_kernel_magic() {
-        let gm = create_guest_mem();
         let mut bad_image = make_test_bin();
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         let offset = 0x1;
@@ -328,7 +283,7 @@ mod tests {
         bad_image[offset] = 0x33;
         assert_eq!(
             Err(Error::InvalidElfMagicNumber),
-            load_kernel(&gm, &mut Cursor::new(&bad_image), 0)
+            load_kernel(&mut Cursor::new(&bad_image), 0, |_, _, _| Ok(()))
         );
     }
 
@@ -336,12 +291,11 @@ mod tests {
     #[test]
     fn test_bad_kernel_endian() {
         // Only little endian is supported.
-        let gm = create_guest_mem();
         let mut bad_image = make_test_bin();
         bad_image[0x5] = 2;
         assert_eq!(
             Err(Error::BigEndianElfOnLittle),
-            load_kernel(&gm, &mut Cursor::new(&bad_image), 0)
+            load_kernel(&mut Cursor::new(&bad_image), 0, |_, _, _| Ok(()))
         );
     }
 
@@ -349,54 +303,11 @@ mod tests {
     #[test]
     fn test_bad_kernel_phoff() {
         // program header has to be past the end of the elf header
-        let gm = create_guest_mem();
         let mut bad_image = make_test_bin();
         bad_image[0x20] = 0x10;
         assert_eq!(
             Err(Error::InvalidProgramHeaderOffset),
-            load_kernel(&gm, &mut Cursor::new(&bad_image), 0)
+            load_kernel(&mut Cursor::new(&bad_image), 0, |_, _, _| Ok(()))
         );
-    }
-
-    #[test]
-    fn test_cmdline_overflow() {
-        let gm = create_guest_mem();
-        let cmdline_address = GuestAddress(MEM_SIZE - 5);
-        assert_eq!(
-            Err(Error::CommandLineOverflow),
-            load_cmdline(
-                &gm,
-                cmdline_address,
-                CStr::from_bytes_with_nul(b"12345\0").unwrap(),
-            )
-        );
-    }
-
-    #[test]
-    fn test_cmdline_write_end() {
-        let gm = create_guest_mem();
-        let mut cmdline_address = GuestAddress(45);
-        assert_eq!(
-            Ok(()),
-            load_cmdline(
-                &gm,
-                cmdline_address,
-                CStr::from_bytes_with_nul(b"1234\0").unwrap(),
-            )
-        );
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, b'1');
-        cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, b'2');
-        cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, b'3');
-        cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, b'4');
-        cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
-        assert_eq!(val, b'\0');
     }
 }

@@ -44,6 +44,10 @@ pub struct InstanceInfo {
 // TODO: add error kind to these variants because not all these errors are user or internal.
 #[derive(Debug)]
 pub enum StartMicrovmError {
+    /// Cannot copy the command line string to guest memory.
+    CommandLineCopy,
+    /// Command line string overflows guest memory.
+    CommandLineOverflow,
     /// This error is thrown by the minimal boot loader implementation.
     /// It is related to a faulty memory configuration.
     ConfigureSystem(arch::Error),
@@ -73,8 +77,6 @@ pub enum StartMicrovmError {
     KernelLoader(kernel_loader::Error),
     /// Cannot add devices to the Legacy I/O Bus.
     LegacyIOBus(device_manager::legacy::Error),
-    /// Cannot load command line string.
-    LoadCommandline(kernel_loader::Error),
     /// The start command was issued more than once.
     MicroVMAlreadyRunning,
     /// Cannot start the VM because the kernel was not configured.
@@ -108,6 +110,8 @@ impl Display for StartMicrovmError {
     fn fmt(&self, f: &mut Formatter) -> Result {
         use self::StartMicrovmError::*;
         match *self {
+            CommandLineCopy => write!(f, "Failed to copy the command line string to guest memory."),
+            CommandLineOverflow => write!(f, "Command line string overflows guest memory."),
             ConfigureSystem(ref err) => {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
@@ -164,11 +168,6 @@ impl Display for StartMicrovmError {
                 err_msg = err_msg.replace("\"", "");
 
                 write!(f, "Cannot add devices to the legacy I/O Bus. {}", err_msg)
-            }
-            LoadCommandline(ref err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace("\"", "");
-                write!(f, "Cannot load command line string. {}", err_msg)
             }
             MicroVMAlreadyRunning => write!(f, "Microvm already running."),
             MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),

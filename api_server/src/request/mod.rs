@@ -322,15 +322,11 @@ mod tests {
             StartMicrovmError::KernelLoader(kernel::loader::Error::BigEndianElfOnLittle),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
-        let vmm_resp = VmmActionError::StartMicrovm(
-            ErrorKind::User,
-            StartMicrovmError::LoadCommandline(kernel::loader::Error::CommandLineCopy),
-        );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
-        let vmm_resp = VmmActionError::StartMicrovm(
-            ErrorKind::User,
-            StartMicrovmError::LoadCommandline(kernel::loader::Error::CommandLineOverflow),
-        );
+        let vmm_resp =
+            VmmActionError::StartMicrovm(ErrorKind::Internal, StartMicrovmError::CommandLineCopy);
+        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        let vmm_resp =
+            VmmActionError::StartMicrovm(ErrorKind::User, StartMicrovmError::CommandLineOverflow);
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,

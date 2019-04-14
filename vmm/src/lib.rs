@@ -288,7 +288,8 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             // User errors.
             #[cfg(feature = "vsock")]
             StartMicrovmError::CreateVsockDevice(_) => ErrorKind::User,
-            StartMicrovmError::CreateBlockDevice(_)
+            StartMicrovmError::CommandLineOverflow
+            | StartMicrovmError::CreateBlockDevice(_)
             | StartMicrovmError::CreateNetDevice(_)
             | StartMicrovmError::KernelCmdline(_)
             | StartMicrovmError::KernelLoader(_)
@@ -300,7 +301,8 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             // Internal errors.
             #[cfg(feature = "vsock")]
             StartMicrovmError::RegisterVsockDevice(_) => ErrorKind::Internal,
-            StartMicrovmError::ConfigureSystem(_)
+            StartMicrovmError::CommandLineCopy
+            | StartMicrovmError::ConfigureSystem(_)
             | StartMicrovmError::ConfigureVm(_)
             | StartMicrovmError::CreateRateLimiter(_)
             | StartMicrovmError::DeviceManager
@@ -314,11 +316,6 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             | StartMicrovmError::Vcpu(_)
             | StartMicrovmError::VcpuConfigure(_)
             | StartMicrovmError::VcpuSpawn(_) => ErrorKind::Internal,
-            // The only user `LoadCommandline` error is `CommandLineOverflow`.
-            StartMicrovmError::LoadCommandline(ref cle) => match cle {
-                kernel_loader::Error::CommandLineOverflow => ErrorKind::User,
-                _ => ErrorKind::Internal,
-            },
         };
         VmmActionError::StartMicrovm(kind, e)
     }
@@ -1202,32 +1199,67 @@ impl Vmm {
         Ok(())
     }
 
-    fn load_kernel(&mut self) -> std::result::Result<GuestAddress, StartMicrovmError> {
-        // This is the easy way out of consuming the value of the kernel_cmdline.
-        // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
+    #[cfg(target_arch = "x86_64")]
+    fn load_kernel_cmdline(&mut self) -> std::result::Result<(), StartMicrovmError> {
         let kernel_config = self
             .kernel_config
             .as_mut()
             .ok_or(StartMicrovmError::MissingKernelConfig)?;
+
+        // Load the command line.
+        if kernel_config.cmdline.is_empty() {
+            return Ok(());
+        }
+
+        let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
+            memory_model::GuestMemoryError::MemoryNotInitialized,
+        ))?;
+
+        let end = kernel_config
+            .cmdline_addr
+            .checked_add(kernel_config.cmdline.len() + 1)
+            .ok_or(StartMicrovmError::CommandLineOverflow)?; // Extra for null termination.
+        if end > vm_memory.end_addr() {
+            return Err(StartMicrovmError::CommandLineOverflow);
+        }
+
+        // This is the easy way out of consuming the value of the kernel_cmdline.
         let cmdline_cstring = CString::new(kernel_config.cmdline.clone()).map_err(|_| {
             StartMicrovmError::KernelCmdline(kernel_cmdline::Error::InvalidAscii.to_string())
         })?;
 
-        // It is safe to unwrap because the VM memory was initialized before in vm.memory_init().
+        vm_memory
+            .write_slice_at_addr(
+                cmdline_cstring.to_bytes_with_nul(),
+                kernel_config.cmdline_addr,
+            )
+            .map_err(|_| StartMicrovmError::CommandLineCopy)?;
+
+        Ok(())
+    }
+
+    fn load_kernel(&mut self) -> std::result::Result<GuestAddress, StartMicrovmError> {
+        let kernel_config = self
+            .kernel_config
+            .as_mut()
+            .ok_or(StartMicrovmError::MissingKernelConfig)?;
+
         let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
             memory_model::GuestMemoryError::MemoryNotInitialized,
         ))?;
-        let entry_addr = kernel_loader::load_kernel(
-            vm_memory,
-            &mut kernel_config.kernel_file,
-            arch::HIMEM_START,
-        )
-        .map_err(StartMicrovmError::KernelLoader)?;
 
-        // This is x86_64 specific since on aarch64 the commandline will be specified through the FDT.
-        #[cfg(target_arch = "x86_64")]
-        kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)
-            .map_err(StartMicrovmError::LoadCommandline)?;
+        let entry_addr = GuestAddress(
+            kernel_loader::load_kernel(
+                &mut kernel_config.kernel_file,
+                arch::HIMEM_START,
+                |dst_offset, src, size| {
+                    vm_memory
+                        .read_to_memory(GuestAddress(dst_offset), src, size)
+                        .map_err(|_| kernel_loader::Error::ReadKernelImage)
+                },
+            )
+            .map_err(StartMicrovmError::KernelLoader)?,
+        );
 
         Ok(entry_addr)
     }
@@ -1237,9 +1269,6 @@ impl Vmm {
             .kernel_config
             .as_mut()
             .ok_or(StartMicrovmError::MissingKernelConfig)?;
-        let cmdline_cstring = CString::new(kernel_config.cmdline.clone()).map_err(|_| {
-            StartMicrovmError::KernelCmdline(kernel_cmdline::Error::InvalidAscii.to_string())
-        })?;
 
         // It is safe to unwrap because the VM memory was initialized before in vm.memory_init().
         let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
@@ -1255,10 +1284,11 @@ impl Vmm {
         arch::x86_64::configure_system(
             vm_memory,
             kernel_config.cmdline_addr,
-            cmdline_cstring.to_bytes().len() + 1,
+            kernel_config.cmdline.len() + 1,
             vcpu_count,
         )
         .map_err(StartMicrovmError::ConfigureSystem)?;
+
         Ok(())
     }
 
@@ -1309,6 +1339,10 @@ impl Vmm {
         self.attach_legacy_devices()?;
 
         let entry_addr = self.load_kernel()?;
+
+        // This is x86_64 specific since on aarch64 the commandline will be specified through the FDT.
+        #[cfg(target_arch = "x86_64")]
+        self.load_kernel_cmdline()?;
 
         self.configure_system()?;
 
@@ -2816,6 +2850,38 @@ mod tests {
         assert!(vmm.attach_virtio_devices().is_ok());
     }
 
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_load_kernel_and_cmdline() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+
+        vmm.default_kernel_config(None);
+        assert!(vmm.init_guest_memory().is_ok());
+
+        // Test cmdline overflow.
+        {
+            let mem_size = vmm.vm_config.mem_size_mib.unwrap() << 20;
+            vmm.kernel_config.as_mut().unwrap().cmdline_addr = GuestAddress(mem_size - 5);
+            assert!(match vmm.load_kernel_cmdline() {
+                Err(StartMicrovmError::CommandLineOverflow) => true,
+                _ => false,
+            });
+        }
+
+        // Test correct cmdline config.
+        vmm.default_kernel_config(None);
+        assert!(vmm.load_kernel_cmdline().is_ok());
+
+        // Since we don't have a valid kernel file to test here, at least cover
+        // the error case where the kernel file is invalid.
+        assert!(match vmm.load_kernel() {
+            Err(StartMicrovmError::KernelLoader(kernel_loader::Error::ReadElfHeader)) => true,
+            _ => false,
+        });
+
+        assert!(vmm.attach_virtio_devices().is_ok());
+    }
+
     #[test]
     fn test_configure_boot_source() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
@@ -3324,6 +3390,14 @@ mod tests {
         );
 
         // Test `StartMicrovmError` conversion
+        assert_eq!(
+            error_kind(StartMicrovmError::CommandLineCopy),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::CommandLineOverflow),
+            ErrorKind::User
+        );
         #[cfg(target_arch = "x86_64")]
         assert_eq!(
             error_kind(StartMicrovmError::ConfigureSystem(
@@ -3390,12 +3464,6 @@ mod tests {
                 device_manager::legacy::Error::EventFd(io::Error::from_raw_os_error(0))
             )),
             ErrorKind::Internal
-        );
-        assert_eq!(
-            error_kind(StartMicrovmError::LoadCommandline(
-                kernel_loader::Error::CommandLineOverflow
-            )),
-            ErrorKind::User
         );
         assert_eq!(
             error_kind(StartMicrovmError::MicroVMAlreadyRunning),

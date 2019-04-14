@@ -108,7 +108,17 @@ impl Cmdline {
         assert!(self.line.len() < self.capacity);
     }
 
-    /// Validates and inserts a key value pair into this command line
+    /// Returns the length of the command line.
+    pub fn len(&self) -> usize {
+        self.line.len()
+    }
+
+    /// Returns whether the command line is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Validates and inserts a key value pair into this command line.
     pub fn insert<T: AsRef<str>>(&mut self, key: T, val: T) -> Result<()> {
         let k = key.as_ref();
         let v = val.as_ref();
@@ -126,7 +136,7 @@ impl Cmdline {
         Ok(())
     }
 
-    /// Validates and inserts a string to the end of the current command line
+    /// Validates and inserts a string to the end of the current command line.
     pub fn insert_str<T: AsRef<str>>(&mut self, slug: T) -> Result<()> {
         let s = slug.as_ref();
         valid_str(s)?;
@@ -140,7 +150,7 @@ impl Cmdline {
         Ok(())
     }
 
-    /// Returns the cmdline in progress without nul termination
+    /// Returns the cmdline in progress without nul termination.
     pub fn as_str(&self) -> &str {
         self.line.as_str()
     }
