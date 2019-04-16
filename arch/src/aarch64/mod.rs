@@ -51,6 +51,11 @@ pub fn get_reserved_mem_addr() -> usize {
     0
 }
 
+/// Returns the memory address where the kernel could be loaded.
+pub fn get_kernel_start() -> usize {
+    layout::DRAM_MEM_START
+}
+
 // Auxiliary function to get the address where the device tree blob is loaded.
 fn get_fdt_addr(mem: &GuestMemory) -> usize {
     // If the memory allocated is smaller than the size allocated for the FDT,

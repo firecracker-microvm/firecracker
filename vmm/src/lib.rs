@@ -1228,7 +1228,7 @@ impl Vmm {
         let entry_addr = kernel_loader::load_kernel(
             vm_memory,
             &mut kernel_config.kernel_file,
-            arch::HIMEM_START,
+            arch::get_kernel_start(),
         )
         .map_err(StartMicrovmError::KernelLoader)?;
 
