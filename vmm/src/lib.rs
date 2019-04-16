@@ -897,7 +897,7 @@ impl Vmm {
                     self.vm.get_fd(),
                     block_box,
                     &mut kernel_config.cmdline,
-                    Some(drive_config.drive_id.clone()),
+                    &drive_config.drive_id,
                 )
                 .map_err(StartMicrovmError::RegisterBlockDevice)?;
         }
@@ -954,7 +954,7 @@ impl Vmm {
                         self.vm.get_fd(),
                         net_box,
                         &mut kernel_config.cmdline,
-                        None,
+                        &cfg.iface_id,
                     )
                     .map_err(StartMicrovmError::RegisterNetDevice)?;
             } else {
@@ -987,7 +987,7 @@ impl Vmm {
                     self.vm.get_fd(),
                     vsock_box,
                     &mut kernel_config.cmdline,
-                    None,
+                    &cfg.id,
                 )
                 .map_err(StartMicrovmError::RegisterVsockDevice)?;
         }
@@ -2090,11 +2090,11 @@ mod tests {
             }
         }
 
-        fn remove_addr(&mut self, id: &str) {
+        fn remove_device_info(&mut self, id: &str) {
             self.mmio_device_manager
                 .as_mut()
                 .unwrap()
-                .remove_address(id);
+                .remove_device_info(id);
         }
 
         fn default_kernel_config(&mut self, cust_kernel_path: Option<PathBuf>) {
@@ -2920,7 +2920,7 @@ mod tests {
                 vmm.vm.get_fd(),
                 dummy_box,
                 &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
-                Some(scratch_id.clone()),
+                &scratch_id,
             )
             .unwrap();
 
@@ -2963,7 +2963,7 @@ mod tests {
         }
 
         // Test rescan_block_device with invalid device address.
-        vmm.remove_addr(&scratch_id);
+        vmm.remove_device_info(&scratch_id);
         match vmm.rescan_block_device(&scratch_id) {
             Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
             }
@@ -3133,7 +3133,7 @@ mod tests {
                 vmm.vm.get_fd(),
                 dummy_box,
                 &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
-                Some("bogus".to_string()),
+                &"bogus".to_string(),
             )
             .unwrap();
 
