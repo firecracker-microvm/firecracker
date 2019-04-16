@@ -61,6 +61,7 @@ impl LegacyDeviceManager {
         let stdio_serial = Arc::new(Mutex::new(devices::legacy::Serial::new_out(
             com_evt_1_3.try_clone().map_err(Error::EventFd)?,
             Box::new(stdout()),
+            None,
         )));
 
         // Create exit event for i8042
@@ -90,6 +91,7 @@ impl LegacyDeviceManager {
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
                     self.com_evt_2_4.try_clone().map_err(Error::EventFd)?,
+                    None,
                 ))),
                 0x2f8,
                 0x8,
@@ -99,6 +101,7 @@ impl LegacyDeviceManager {
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
                     self.com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+                    None,
                 ))),
                 0x3e8,
                 0x8,
@@ -108,6 +111,7 @@ impl LegacyDeviceManager {
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
                     self.com_evt_2_4.try_clone().map_err(Error::EventFd)?,
+                    None,
                 ))),
                 0x2e8,
                 0x8,
