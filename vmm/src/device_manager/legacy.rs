@@ -82,6 +82,7 @@ impl LegacyDeviceManager {
         })
     }
 
+    #[cfg(target_arch = "x86_64")]
     /// Register supported legacy devices.
     pub fn register_devices(&mut self) -> Result<()> {
         self.io_bus

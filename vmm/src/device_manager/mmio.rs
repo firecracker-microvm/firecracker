@@ -25,6 +25,8 @@ pub enum Error {
     CreateMmioDevice(io::Error),
     /// Appending to kernel command line failed.
     Cmdline(kernel_cmdline::Error),
+    /// Failure in creating or cloning an event fd.
+    EventFd(io::Error),
     /// No more IRQs are available.
     IrqsExhausted,
     /// Registering an IO Event failed.
@@ -43,6 +45,7 @@ impl fmt::Display for Error {
             Error::Cmdline(ref e) => {
                 write!(f, "unable to add device to kernel command line: {}", e)
             }
+            Error::EventFd(ref e) => write!(f, "failed to create or clone event descriptor: {}", e),
             Error::IrqsExhausted => write!(f, "no more IRQs are available"),
             Error::RegisterIoEvent(ref e) => write!(f, "failed to register IO event: {}", e),
             Error::RegisterIrqFd(ref e) => write!(f, "failed to register irqfd: {}", e),
@@ -150,6 +153,52 @@ impl MMIODeviceManager {
         self.irq += 1;
 
         Ok(ret)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    /// Register an early console at some MMIO address.
+    pub fn enable_earlycon(
+        &mut self,
+        vm: &VmFd,
+        cmdline: &mut kernel_cmdline::Cmdline,
+    ) -> Result<()> {
+        if self.irq > self.last_irq {
+            return Err(Error::IrqsExhausted);
+        }
+
+        let com_evt = sys_util::EventFd::new().map_err(Error::EventFd)?;
+        let device = devices::legacy::Serial::new_out(
+            com_evt.try_clone().map_err(Error::EventFd)?,
+            Box::new(io::stdout()),
+            Some(4),
+        );
+
+        vm.register_irqfd(com_evt.as_raw_fd(), self.irq)
+            .map_err(Error::RegisterIrqFd)?;
+
+        self.bus
+            .insert(Arc::new(Mutex::new(device)), self.mmio_base, MMIO_LEN)
+            .map_err(|err| Error::BusError(err))?;
+
+        cmdline
+            .insert("earlycon", &format!("uart,mmio32,0x{:08x}", self.mmio_base))
+            .map_err(Error::Cmdline)?;
+
+        let ret = self.mmio_base;
+        self.id_to_dev_info.insert(
+            "uart".to_string(),
+            MMIODeviceInfo {
+                addr: ret,
+                len: MMIO_LEN,
+                irq: self.irq,
+                type_: 0,
+            },
+        );
+
+        self.mmio_base += MMIO_LEN;
+        self.irq += 1;
+
+        Ok(())
     }
 
     /// Update a drive by rebuilding its config space and rewriting it on the bus.
