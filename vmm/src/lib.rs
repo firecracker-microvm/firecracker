@@ -212,6 +212,49 @@ pub enum VmmActionError {
     VsockConfig(ErrorKind, VsockError),
 }
 
+// It's convenient to turn StartMicrovmErrors into VmmActionErrors directly.
+impl std::convert::From<StartMicrovmError> for VmmActionError {
+    fn from(e: StartMicrovmError) -> Self {
+        let kind = match e {
+            // User errors.
+            #[cfg(feature = "vsock")]
+            StartMicrovmError::CreateVsockDevice(_) => ErrorKind::User,
+            StartMicrovmError::CreateBlockDevice(_)
+            | StartMicrovmError::CreateNetDevice(_)
+            | StartMicrovmError::KernelCmdline(_)
+            | StartMicrovmError::KernelLoader(_)
+            | StartMicrovmError::MicroVMAlreadyRunning
+            | StartMicrovmError::MissingKernelConfig
+            | StartMicrovmError::NetDeviceNotConfigured
+            | StartMicrovmError::OpenBlockDevice(_)
+            | StartMicrovmError::VcpusNotConfigured => ErrorKind::User,
+            // Internal errors.
+            #[cfg(feature = "vsock")]
+            StartMicrovmError::RegisterVsockDevice(_) => ErrorKind::Internal,
+            StartMicrovmError::ConfigureSystem(_)
+            | StartMicrovmError::ConfigureVm(_)
+            | StartMicrovmError::CreateRateLimiter(_)
+            | StartMicrovmError::DeviceManager
+            | StartMicrovmError::EventFd
+            | StartMicrovmError::GuestMemory(_)
+            | StartMicrovmError::LegacyIOBus(_)
+            | StartMicrovmError::RegisterBlockDevice(_)
+            | StartMicrovmError::RegisterEvent
+            | StartMicrovmError::RegisterNetDevice(_)
+            | StartMicrovmError::SeccompFilters(_)
+            | StartMicrovmError::Vcpu(_)
+            | StartMicrovmError::VcpuConfigure(_)
+            | StartMicrovmError::VcpuSpawn(_) => ErrorKind::Internal,
+            // The only user `LoadCommandline` error is `CommandLineOverflow`.
+            StartMicrovmError::LoadCommandline(ref cle) => match cle {
+                kernel_loader::Error::CommandLineOverflow => ErrorKind::User,
+                _ => ErrorKind::Internal,
+            },
+        };
+        VmmActionError::StartMicrovm(kind, e)
+    }
+}
+
 impl VmmActionError {
     /// Returns the error type.
     pub fn get_kind(&self) -> &ErrorKind {
@@ -1175,51 +1218,36 @@ impl Vmm {
     fn start_microvm(&mut self) -> std::result::Result<VmmData, VmmActionError> {
         info!("VMM received instance start command");
         if self.is_instance_initialized() {
-            return Err(VmmActionError::StartMicrovm(
-                ErrorKind::User,
-                StartMicrovmError::MicroVMAlreadyRunning,
-            ));
+            Err(StartMicrovmError::MicroVMAlreadyRunning)?;
         }
         let request_ts = TimestampUs {
             time_us: get_time_us(),
             cputime_us: now_cputime_us(),
         };
 
-        self.check_health()
-            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::User, e))?;
+        self.check_health()?;
         // Use expect() to crash if the other thread poisoned this lock.
         self.shared_info
             .write()
             .expect("Failed to start microVM because shared info couldn't be written due to poisoned lock")
             .state = InstanceState::Starting;
 
-        self.init_guest_memory()
-            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+        self.init_guest_memory()?;
 
-        self.setup_interrupt_controller()
-            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+        self.setup_interrupt_controller()?;
 
-        self.attach_virtio_devices()
-            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
-        self.attach_legacy_devices()
-            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+        self.attach_virtio_devices()?;
+        self.attach_legacy_devices()?;
 
-        let entry_addr = self
-            .load_kernel()
-            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+        let entry_addr = self.load_kernel()?;
 
-        self.configure_system()
-            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+        self.configure_system()?;
 
-        self.register_events()
-            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+        self.register_events()?;
 
-        let vcpus = self
-            .create_vcpus(entry_addr, request_ts)
-            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+        let vcpus = self.create_vcpus(entry_addr, request_ts)?;
 
-        self.start_vcpus(vcpus)
-            .map_err(|e| VmmActionError::StartMicrovm(ErrorKind::Internal, e))?;
+        self.start_vcpus(vcpus)?;
         // Use expect() to crash if the other thread poisoned this lock.
         self.shared_info
             .write()
@@ -1989,7 +2017,6 @@ mod tests {
     use super::*;
 
     use serde_json::Value;
-    use std::env;
     use std::fs::File;
     use std::io::BufRead;
     use std::io::BufReader;
