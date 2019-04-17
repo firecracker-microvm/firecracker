@@ -74,6 +74,7 @@ use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
 use logger::{AppInfo, Level, LogOption, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
+use net_util::TapError;
 #[cfg(target_arch = "aarch64")]
 use serde_json::Value;
 pub use sigsys_handler::setup_sigsys_handler;
@@ -227,6 +228,46 @@ impl std::convert::From<DriveError> for VmmActionError {
             | DriveError::RootBlockDeviceAlreadyAdded => ErrorKind::User,
         };
         VmmActionError::DriveConfig(kind, e)
+    }
+}
+
+// It's convenient to turn VmConfigErrors into VmmActionErrors directly.
+impl std::convert::From<VmConfigError> for VmmActionError {
+    fn from(e: VmConfigError) -> Self {
+        VmmActionError::MachineConfig(
+            match e {
+                // User errors.
+                VmConfigError::InvalidVcpuCount
+                | VmConfigError::InvalidMemorySize
+                | VmConfigError::UpdateNotAllowedPostBoot => ErrorKind::User,
+            },
+            e,
+        )
+    }
+}
+
+// It's convenient to turn NetworkInterfaceErrors into VmmActionErrors directly.
+impl std::convert::From<NetworkInterfaceError> for VmmActionError {
+    fn from(e: NetworkInterfaceError) -> Self {
+        let kind = match e {
+            // User errors.
+            NetworkInterfaceError::GuestMacAddressInUse(_)
+            | NetworkInterfaceError::HostDeviceNameInUse(_)
+            | NetworkInterfaceError::DeviceIdNotFound
+            | NetworkInterfaceError::UpdateNotAllowedPostBoot => ErrorKind::User,
+            // Internal errors.
+            NetworkInterfaceError::EpollHandlerNotFound(_)
+            | NetworkInterfaceError::RateLimiterUpdateFailed(_) => ErrorKind::Internal,
+            NetworkInterfaceError::OpenTap(ref te) => match te {
+                // User errors.
+                TapError::OpenTun(_) | TapError::CreateTap(_) | TapError::InvalidIfname => {
+                    ErrorKind::User
+                }
+                // Internal errors.
+                TapError::IoctlError(_) | TapError::NetUtil(_) => ErrorKind::Internal,
+            },
+        };
+        VmmActionError::NetworkConfig(kind, e)
     }
 }
 
@@ -1504,29 +1545,20 @@ impl Vmm {
         machine_config: VmConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
         if self.is_instance_initialized() {
-            return Err(VmmActionError::MachineConfig(
-                ErrorKind::User,
-                VmConfigError::UpdateNotAllowedPostBoot,
-            ));
+            Err(VmConfigError::UpdateNotAllowedPostBoot)?;
         }
 
         if let Some(vcpu_count_value) = machine_config.vcpu_count {
             // Check that the vcpu_count value is >=1.
             if vcpu_count_value == 0 {
-                return Err(VmmActionError::MachineConfig(
-                    ErrorKind::User,
-                    VmConfigError::InvalidVcpuCount,
-                ));
+                Err(VmConfigError::InvalidVcpuCount)?;
             }
         }
 
         if let Some(mem_size_mib_value) = machine_config.mem_size_mib {
             // TODO: add other memory checks
             if mem_size_mib_value == 0 {
-                return Err(VmmActionError::MachineConfig(
-                    ErrorKind::User,
-                    VmConfigError::InvalidMemorySize,
-                ));
+                Err(VmConfigError::InvalidMemorySize)?;
             }
         }
 
@@ -1543,10 +1575,7 @@ impl Vmm {
         // If hyperthreading is enabled or is to be enabled in this call
         // only allow vcpu count to be 1 or even.
         if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
-            return Err(VmmActionError::MachineConfig(
-                ErrorKind::User,
-                VmConfigError::InvalidVcpuCount,
-            ));
+            Err(VmConfigError::InvalidVcpuCount)?;
         }
 
         // Update all the fields that have a new value.
@@ -1569,10 +1598,7 @@ impl Vmm {
         body: NetworkInterfaceConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
         if self.is_instance_initialized() {
-            return Err(VmmActionError::NetworkConfig(
-                ErrorKind::User,
-                NetworkInterfaceError::UpdateNotAllowedPostBoot,
-            ));
+            Err(NetworkInterfaceError::UpdateNotAllowedPostBoot)?;
         }
         self.network_interface_configs
             .insert(body)
@@ -1591,10 +1617,7 @@ impl Vmm {
                 .network_interface_configs
                 .iter_mut()
                 .find(|&&mut ref c| c.iface_id == new_cfg.iface_id)
-                .ok_or(VmmActionError::NetworkConfig(
-                    ErrorKind::User,
-                    NetworkInterfaceError::DeviceIdNotFound,
-                ))?;
+                .ok_or(NetworkInterfaceError::DeviceIdNotFound)?;
 
             // Check if we need to update the RX rate limiter.
             if let Some(new_rlim_cfg) = new_cfg.rx_rate_limiter {
@@ -1624,19 +1647,15 @@ impl Vmm {
         // If we got to here, the VM is running. We need to update the live device.
         //
 
-        let handler_id = *self.net_handler_id_map.get(&new_cfg.iface_id).ok_or(
-            VmmActionError::NetworkConfig(ErrorKind::User, NetworkInterfaceError::DeviceIdNotFound),
-        )?;
+        let handler_id = *self
+            .net_handler_id_map
+            .get(&new_cfg.iface_id)
+            .ok_or(NetworkInterfaceError::DeviceIdNotFound)?;
 
         let handler = self
             .epoll_context
             .get_device_handler(handler_id)
-            .map_err(|e| {
-                VmmActionError::NetworkConfig(
-                    ErrorKind::User,
-                    NetworkInterfaceError::EpollHandlerNotFound(e),
-                )
-            })?;
+            .map_err(NetworkInterfaceError::EpollHandlerNotFound)?;
 
         // Hack because velocity (my new favorite phrase): fake an epoll event, because we can only
         // contact a live device via its `EpollHandler`.
@@ -1663,12 +1682,7 @@ impl Vmm {
                         .unwrap_or(None),
                 },
             )
-            .map_err(|e| {
-                VmmActionError::NetworkConfig(
-                    ErrorKind::Internal,
-                    NetworkInterfaceError::RateLimiterUpdateFailed(e),
-                )
-            })?;
+            .map_err(NetworkInterfaceError::RateLimiterUpdateFailed)?;
 
         Ok(VmmData::Empty)
     }
