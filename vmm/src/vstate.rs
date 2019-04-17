@@ -76,20 +76,20 @@ pub enum Error {
     /// Cannot configure the IRQ.
     Irq(io::Error),
     /// Cannot spawn a new vCPU thread.
-    VcpuSpawn(std::io::Error),
+    VcpuSpawn(io::Error),
     /// Unexpected KVM_RUN exit reason
     VcpuUnhandledKvmExit,
     #[cfg(target_arch = "aarch64")]
     /// Error setting up the global interrupt controller.
     SetupGIC(arch::aarch64::gic::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Error getting the Vcpu preferred target on Arm.
+    VcpuArmPreferredTarget(io::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Error doing Vcpu Init on Arm.
+    VcpuArmInit(io::Error),
 }
 pub type Result<T> = result::Result<T, Error>;
-
-impl ::std::convert::From<io::Error> for Error {
-    fn from(e: io::Error) -> Error {
-        Error::SetUserMemoryRegion(e)
-    }
-}
 
 /// A wrapper around creating and using a VM.
 pub struct Vm {
@@ -136,24 +136,26 @@ impl Vm {
         if guest_mem.num_regions() > kvm_context.max_memslots() {
             return Err(Error::NotEnoughMemorySlots);
         }
-        guest_mem.with_regions(|index, guest_addr, size, host_addr| {
-            info!("Guest memory starts at {:x?}", host_addr);
+        guest_mem
+            .with_regions(|index, guest_addr, size, host_addr| {
+                info!("Guest memory starts at {:x?}", host_addr);
 
-            let flags = if LOGGER.flags() & LogOption::LogDirtyPages as usize > 0 {
-                KVM_MEM_LOG_DIRTY_PAGES
-            } else {
-                0
-            };
+                let flags = if LOGGER.flags() & LogOption::LogDirtyPages as usize > 0 {
+                    KVM_MEM_LOG_DIRTY_PAGES
+                } else {
+                    0
+                };
 
-            let memory_region = kvm_userspace_memory_region {
-                slot: index as u32,
-                guest_phys_addr: guest_addr.offset() as u64,
-                memory_size: size as u64,
-                userspace_addr: host_addr as u64,
-                flags,
-            };
-            self.fd.set_user_memory_region(memory_region)
-        })?;
+                let memory_region = kvm_userspace_memory_region {
+                    slot: index as u32,
+                    guest_phys_addr: guest_addr.offset() as u64,
+                    memory_size: size as u64,
+                    userspace_addr: host_addr as u64,
+                    flags,
+                };
+                self.fd.set_user_memory_region(memory_region)
+            })
+            .map_err(Error::SetUserMemoryRegion)?;
         self.guest_mem = Some(guest_mem);
 
         #[cfg(target_arch = "x86_64")]
@@ -330,7 +332,9 @@ impl Vcpu {
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
 
         // This reads back the kernel's preferred target type.
-        vm.fd.get_preferred_target(&mut kvi)?;
+        vm.fd
+            .get_preferred_target(&mut kvi)
+            .map_err(Error::VcpuArmPreferredTarget)?;
         // We already checked that the capability is supported.
         kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
         // Non-boot cpus are powered off initially.
@@ -338,7 +342,7 @@ impl Vcpu {
             kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
         }
 
-        self.fd.vcpu_init(&kvi)?;
+        self.fd.vcpu_init(&kvi).map_err(Error::VcpuArmInit)?;
         arch::aarch64::regs::setup_regs(&self.fd, self.id, kernel_load_addr.offset(), vm_memory)
             .map_err(Error::REGSConfiguration)?;
         Ok(())
