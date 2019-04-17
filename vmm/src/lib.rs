@@ -212,6 +212,24 @@ pub enum VmmActionError {
     VsockConfig(ErrorKind, VsockError),
 }
 
+// It's convenient to turn DriveErrors into VmmActionErrors directly.
+impl std::convert::From<DriveError> for VmmActionError {
+    fn from(e: DriveError) -> Self {
+        let kind = match e {
+            // User errors.
+            DriveError::CannotOpenBlockDevice
+            | DriveError::InvalidBlockDeviceID
+            | DriveError::InvalidBlockDevicePath
+            | DriveError::BlockDevicePathAlreadyExists
+            | DriveError::BlockDeviceUpdateFailed
+            | DriveError::OperationNotAllowedPreBoot
+            | DriveError::UpdateNotAllowedPostBoot
+            | DriveError::RootBlockDeviceAlreadyAdded => ErrorKind::User,
+        };
+        VmmActionError::DriveConfig(kind, e)
+    }
+}
+
 // It's convenient to turn StartMicrovmErrors into VmmActionErrors directly.
 impl std::convert::From<StartMicrovmError> for VmmActionError {
     fn from(e: StartMicrovmError) -> Self {
@@ -1681,10 +1699,7 @@ impl Vmm {
         let block_device_index = self
             .block_device_configs
             .get_index_of_drive_id(&drive_id)
-            .ok_or(VmmActionError::DriveConfig(
-                ErrorKind::User,
-                DriveError::InvalidBlockDeviceID,
-            ))?;
+            .ok_or(DriveError::InvalidBlockDeviceID)?;
 
         let file_path = PathBuf::from(path_on_host);
         // Try to open the file specified by path_on_host using the permissions of the block_device.
@@ -1692,9 +1707,7 @@ impl Vmm {
             .read(true)
             .write(!self.block_device_configs.config_list[block_device_index].is_read_only())
             .open(&file_path)
-            .map_err(|_| {
-                VmmActionError::DriveConfig(ErrorKind::User, DriveError::CannotOpenBlockDevice)
-            })?;
+            .map_err(|_| DriveError::CannotOpenBlockDevice)?;
 
         // Update the path of the block device with the specified path_on_host.
         self.block_device_configs.config_list[block_device_index].path_on_host = file_path;
@@ -1702,8 +1715,7 @@ impl Vmm {
         // When the microvm is running, we also need to update the drive handler and send a
         // rescan command to the drive.
         if self.is_instance_initialized() {
-            self.update_drive_handler(&drive_id, disk_file)
-                .map_err(|e| VmmActionError::DriveConfig(ErrorKind::User, e))?;
+            self.update_drive_handler(&drive_id, disk_file)?;
             self.rescan_block_device(&drive_id)?;
         }
         Ok(VmmData::Empty)
@@ -1715,10 +1727,7 @@ impl Vmm {
     ) -> std::result::Result<VmmData, VmmActionError> {
         // Rescan can only happen after the guest is booted.
         if !self.is_instance_initialized() {
-            return Err(VmmActionError::DriveConfig(
-                ErrorKind::User,
-                DriveError::OperationNotAllowedPreBoot,
-            ));
+            Err(DriveError::OperationNotAllowedPreBoot)?;
         }
 
         // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
@@ -1728,12 +1737,8 @@ impl Vmm {
             Some(&address) => {
                 for drive_config in self.block_device_configs.config_list.iter() {
                     if drive_config.drive_id == *drive_id {
-                        let metadata = metadata(&drive_config.path_on_host).map_err(|_| {
-                            VmmActionError::DriveConfig(
-                                ErrorKind::User,
-                                DriveError::BlockDeviceUpdateFailed,
-                            )
-                        })?;
+                        let metadata = metadata(&drive_config.path_on_host)
+                            .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
                         let new_size = metadata.len();
                         if new_size % virtio::block::SECTOR_SIZE != 0 {
                             warn!(
@@ -1746,23 +1751,12 @@ impl Vmm {
                         return device_manager
                             .update_drive(address, new_size)
                             .map(|_| VmmData::Empty)
-                            .map_err(|_| {
-                                VmmActionError::DriveConfig(
-                                    ErrorKind::User,
-                                    DriveError::BlockDeviceUpdateFailed,
-                                )
-                            });
+                            .map_err(|_| VmmActionError::from(DriveError::BlockDeviceUpdateFailed));
                     }
                 }
-                Err(VmmActionError::DriveConfig(
-                    ErrorKind::User,
-                    DriveError::BlockDeviceUpdateFailed,
-                ))
+                Err(VmmActionError::from(DriveError::BlockDeviceUpdateFailed))
             }
-            _ => Err(VmmActionError::DriveConfig(
-                ErrorKind::User,
-                DriveError::InvalidBlockDeviceID,
-            )),
+            _ => Err(VmmActionError::from(DriveError::InvalidBlockDeviceID)),
         }
     }
 
@@ -1773,16 +1767,13 @@ impl Vmm {
         block_device_config: BlockDeviceConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
         if self.is_instance_initialized() {
-            return Err(VmmActionError::DriveConfig(
-                ErrorKind::User,
-                DriveError::UpdateNotAllowedPostBoot,
-            ));
+            Err(DriveError::UpdateNotAllowedPostBoot)?;
         }
 
         self.block_device_configs
             .insert(block_device_config)
             .map(|_| VmmData::Empty)
-            .map_err(|e| VmmActionError::DriveConfig(ErrorKind::User, e))
+            .map_err(VmmActionError::from)
     }
 
     fn init_logger(
