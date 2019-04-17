@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter, Result};
-use std::io;
 use std::result;
 
 use super::super::Error as VmmInternalError;
@@ -91,8 +90,6 @@ pub enum NetworkInterfaceError {
     DeviceIdNotFound,
     /// Cannot open/create tap device.
     OpenTap(TapError),
-    /// Downstream error from a RateLimiter.
-    RateLimiterError(io::Error),
     /// Error updating (patching) the rate limiters.
     RateLimiterUpdateFailed(devices::Error),
     /// The update is not allowed after booting the microvm.
@@ -129,9 +126,6 @@ impl Display for NetworkInterfaceError {
                     "Cannot open TAP device. Invalid name/permissions. ".to_string(),
                     tap_err
                 )
-            }
-            RateLimiterError(ref e) => {
-                write!(f, "Unable to create rate limiter: {}", e.to_string())
             }
             RateLimiterUpdateFailed(ref e) => write!(f, "Unable to update rate limiter: {:?}", e),
             UpdateNotAllowedPostBoot => {
@@ -285,6 +279,7 @@ impl NetworkInterfaceConfigs {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
     use std::str;
 
     use super::*;
@@ -456,11 +451,6 @@ mod tests {
             "{}{:?}",
             NetworkInterfaceError::OpenTap(TapError::InvalidIfname),
             NetworkInterfaceError::OpenTap(TapError::InvalidIfname)
-        );
-        let _ = format!(
-            "{}{:?}",
-            NetworkInterfaceError::RateLimiterError(io::Error::last_os_error()),
-            NetworkInterfaceError::RateLimiterError(io::Error::last_os_error())
         );
         let _ = format!(
             "{}{:?}",
