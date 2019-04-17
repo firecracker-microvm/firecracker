@@ -173,13 +173,23 @@ impl std::fmt::Debug for Error {
 }
 
 /// Types of errors associated with vmm actions.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ErrorKind {
     /// User Errors describe bad configuration (user input).
     User,
     /// Internal Errors are unrelated to the user and usually refer to logical errors
     /// or bad management of resources (memory, file descriptors & others).
     Internal,
+}
+
+impl PartialEq for ErrorKind {
+    fn eq(&self, other: &ErrorKind) -> bool {
+        match (self, other) {
+            (&ErrorKind::User, &ErrorKind::User) => true,
+            (&ErrorKind::Internal, &ErrorKind::Internal) => true,
+            _ => false,
+        }
+    }
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -316,7 +326,7 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
 
 impl VmmActionError {
     /// Returns the error type.
-    pub fn get_kind(&self) -> &ErrorKind {
+    pub fn kind(&self) -> &ErrorKind {
         use self::VmmActionError::*;
 
         match *self {
@@ -3201,6 +3211,259 @@ mod tests {
         assert!(vmm.legacy_device_manager.io_bus.get_device(0x060).is_some());
         let stdin_handle = io::stdin();
         stdin_handle.lock().set_canon_mode().unwrap();
+    }
+
+    // Helper function to get ErrorKind of error.
+    fn error_kind<T: std::convert::Into<VmmActionError>>(err: T) -> ErrorKind {
+        let err: VmmActionError = err.into();
+        err.kind().clone()
+    }
+
+    #[test]
+    fn test_error_conversion() {
+        // Test `DriveError` conversion
+        assert_eq!(
+            error_kind(DriveError::CannotOpenBlockDevice),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(DriveError::InvalidBlockDevicePath),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(DriveError::BlockDevicePathAlreadyExists),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(DriveError::BlockDeviceUpdateFailed),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(DriveError::OperationNotAllowedPreBoot),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(DriveError::UpdateNotAllowedPostBoot),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(DriveError::RootBlockDeviceAlreadyAdded),
+            ErrorKind::User
+        );
+
+        // Test `VmConfigError` conversion
+        assert_eq!(error_kind(VmConfigError::InvalidVcpuCount), ErrorKind::User);
+        assert_eq!(
+            error_kind(VmConfigError::InvalidMemorySize),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(VmConfigError::UpdateNotAllowedPostBoot),
+            ErrorKind::User
+        );
+
+        // Test `NetworkInterfaceError` conversion
+        assert_eq!(
+            error_kind(NetworkInterfaceError::GuestMacAddressInUse(String::new())),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(NetworkInterfaceError::EpollHandlerNotFound(
+                Error::DeviceEventHandlerNotFound
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(NetworkInterfaceError::HostDeviceNameInUse(String::new())),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(NetworkInterfaceError::DeviceIdNotFound),
+            ErrorKind::User
+        );
+        // NetworkInterfaceError::OpenTap can be of multiple kinds.
+        {
+            assert_eq!(
+                error_kind(NetworkInterfaceError::OpenTap(TapError::OpenTun(
+                    io::Error::from_raw_os_error(0)
+                ))),
+                ErrorKind::User
+            );
+            assert_eq!(
+                error_kind(NetworkInterfaceError::OpenTap(TapError::CreateTap(
+                    io::Error::from_raw_os_error(0)
+                ))),
+                ErrorKind::User
+            );
+            assert_eq!(
+                error_kind(NetworkInterfaceError::OpenTap(TapError::IoctlError(
+                    io::Error::from_raw_os_error(0)
+                ))),
+                ErrorKind::Internal
+            );
+            assert_eq!(
+                error_kind(NetworkInterfaceError::OpenTap(TapError::NetUtil(
+                    net_util::Error::CreateSocket(io::Error::from_raw_os_error(0))
+                ))),
+                ErrorKind::Internal
+            );
+            assert_eq!(
+                error_kind(NetworkInterfaceError::OpenTap(TapError::InvalidIfname)),
+                ErrorKind::User
+            );
+        }
+        assert_eq!(
+            error_kind(NetworkInterfaceError::RateLimiterUpdateFailed(
+                devices::Error::FailedReadTap
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(NetworkInterfaceError::UpdateNotAllowedPostBoot),
+            ErrorKind::User
+        );
+
+        // Test `StartMicrovmError` conversion
+        #[cfg(target_arch = "x86_64")]
+        assert_eq!(
+            error_kind(StartMicrovmError::ConfigureSystem(
+                arch::Error::X86_64Setup(arch::x86_64::Error::ZeroPageSetup)
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::ConfigureVm(
+                vstate::Error::NotEnoughMemorySlots
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::CreateBlockDevice(
+                io::Error::from_raw_os_error(0)
+            )),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::CreateNetDevice(
+                devices::virtio::Error::TapOpen(TapError::CreateTap(io::Error::from_raw_os_error(
+                    0
+                )))
+            )),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::CreateRateLimiter(
+                io::Error::from_raw_os_error(0)
+            )),
+            ErrorKind::Internal
+        );
+        #[cfg(feature = "vsock")]
+        assert_eq!(
+            error_kind(StartMicrovmError::CreateVsockDevice(
+                devices::virtio::vhost::Error::PollError(io::Error::from_raw_os_error(0))
+            )),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::DeviceManager),
+            ErrorKind::Internal
+        );
+        assert_eq!(error_kind(StartMicrovmError::EventFd), ErrorKind::Internal);
+        assert_eq!(
+            error_kind(StartMicrovmError::GuestMemory(
+                memory_model::GuestMemoryError::NoMemoryRegions
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::KernelCmdline(String::new())),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::KernelLoader(
+                kernel_loader::Error::CommandLineOverflow
+            )),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::LegacyIOBus(
+                device_manager::legacy::Error::EventFd(io::Error::from_raw_os_error(0))
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::LoadCommandline(
+                kernel_loader::Error::CommandLineOverflow
+            )),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::MicroVMAlreadyRunning),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::MissingKernelConfig),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::NetDeviceNotConfigured),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::OpenBlockDevice(
+                io::Error::from_raw_os_error(0)
+            )),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::RegisterBlockDevice(
+                device_manager::mmio::Error::IrqsExhausted
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::RegisterEvent),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::RegisterNetDevice(
+                device_manager::mmio::Error::IrqsExhausted
+            )),
+            ErrorKind::Internal
+        );
+        #[cfg(feature = "vsock")]
+        assert_eq!(
+            error_kind(StartMicrovmError::RegisterVsockDevice(
+                device_manager::mmio::Error::IrqsExhausted
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::SeccompFilters(
+                seccomp::Error::InvalidArgumentNumber
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::Vcpu(vstate::Error::VcpuUnhandledKvmExit)),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::VcpuConfigure(
+                vstate::Error::SetSupportedCpusFailed(io::Error::from_raw_os_error(0))
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::VcpusNotConfigured),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::VcpuSpawn(io::Error::from_raw_os_error(
+                0
+            ))),
+            ErrorKind::Internal
+        );
     }
 
     #[test]

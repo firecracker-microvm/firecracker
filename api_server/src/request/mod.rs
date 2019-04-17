@@ -66,7 +66,7 @@ impl GenerateHyperResponse for VmmActionError {
     fn generate_response(&self) -> hyper::Response {
         use self::ErrorKind::*;
 
-        let status_code = match self.get_kind() {
+        let status_code = match self.kind() {
             User => StatusCode::BadRequest,
             Internal => StatusCode::InternalServerError,
         };
