@@ -1197,17 +1197,9 @@ impl Vmm {
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
 
-        // `mmio_device_manager` is instantiated in `init_devices()`, which is called before
-        // `start_vcpus()`.
-        let device_manager = self
-            .mmio_device_manager
-            .as_ref()
-            .ok_or(StartMicrovmError::DeviceManager)?;
-
         for cpu_id in 0..vcpu_count {
             let io_bus = self.legacy_device_manager.io_bus.clone();
-            let mmio_bus = device_manager.bus.clone();
-            let mut vcpu = Vcpu::new(cpu_id, &self.vm, io_bus, mmio_bus, request_ts.clone())
+            let mut vcpu = Vcpu::new(cpu_id, &self.vm, io_bus, request_ts.clone())
                 .map_err(StartMicrovmError::Vcpu)?;
             vcpu.configure(&self.vm_config, entry_addr, &self.vm)
                 .map_err(StartMicrovmError::VcpuConfigure)?;
@@ -1248,6 +1240,9 @@ impl Vmm {
             // of items of `vcpus` vector.
             let mut vcpu = vcpus.pop().unwrap();
 
+            if let Some(ref mmio_device_manager) = self.mmio_device_manager {
+                vcpu.set_mmio_bus(mmio_device_manager.bus.clone());
+            }
             let seccomp_level = self.seccomp_level;
             self.vcpus_handles.push(
                 thread::Builder::new()
@@ -1382,20 +1377,35 @@ impl Vmm {
             .expect("Failed to start microVM because shared info couldn't be written due to poisoned lock")
             .state = InstanceState::Starting;
 
-        self.setup_interrupt_controller()?;
-
         self.init_guest_memory()?;
 
-        self.attach_virtio_devices()?;
-        self.attach_legacy_devices()?;
+        let vcpus;
 
-        let entry_addr = self.load_kernel()?;
+        // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
+        // while on aarch64 we need to do it the other way around.
+        #[cfg(target_arch = "x86_64")]
+        {
+            self.setup_interrupt_controller()?;
+            self.attach_virtio_devices()?;
+            self.attach_legacy_devices()?;
+
+            let entry_addr = self.load_kernel()?;
+            vcpus = self.create_vcpus(entry_addr, request_ts)?;
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            let entry_addr = self.load_kernel()?;
+            vcpus = self.create_vcpus(entry_addr, request_ts)?;
+
+            self.setup_interrupt_controller()?;
+            self.attach_virtio_devices()?;
+            self.attach_legacy_devices()?;
+        }
 
         self.configure_system()?;
 
         self.register_events()?;
-
-        let vcpus = self.create_vcpus(entry_addr, request_ts)?;
 
         self.start_vcpus(vcpus)?;
         // Use expect() to crash if the other thread poisoned this lock.
@@ -2385,7 +2395,7 @@ mod tests {
         // test create network interface
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
-            host_dev_name: String::from("hostname"),
+            host_dev_name: String::from("hostname1"),
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
@@ -2450,7 +2460,7 @@ mod tests {
 
         vmm.insert_net_device(NetworkInterfaceConfig {
             iface_id: String::from("1"),
-            host_dev_name: String::from("hostname5"),
+            host_dev_name: String::from("hostname4"),
             guest_mac: None,
             rx_rate_limiter: Some(RateLimiterConfig {
                 bandwidth: Some(tbc_1mtps),
@@ -2858,7 +2868,7 @@ mod tests {
         // test create network interface
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
-            host_dev_name: String::from("hostname3"),
+            host_dev_name: String::from("hostname5"),
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
@@ -3161,9 +3171,6 @@ mod tests {
             .setup_irqchip()
             .expect("Cannot create IRQCHIP or PIT");
 
-        vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
-
         assert!(vmm
             .create_vcpus(GuestAddress(0x0), TimestampUs::default())
             .is_ok());
@@ -3234,7 +3241,7 @@ mod tests {
         // Create test network interface.
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
-            host_dev_name: String::from("hostname"),
+            host_dev_name: String::from("hostname6"),
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
