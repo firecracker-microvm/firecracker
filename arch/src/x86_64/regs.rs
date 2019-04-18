@@ -7,10 +7,11 @@
 
 use std::{io, mem, result};
 
+use kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_msrs, kvm_regs, kvm_sregs};
+use kvm_ioctls::VcpuFd;
+
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 use arch_gen::x86::msr_index;
-use kvm::VcpuFd;
-use kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_msrs, kvm_regs, kvm_sregs};
 use memory_model::{GuestAddress, GuestMemory};
 
 // Initial pagetables.
@@ -286,7 +287,7 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kvm::Kvm;
+    use kvm_ioctls::Kvm;
     use memory_model::{GuestAddress, GuestMemory};
 
     fn create_guest_mem() -> GuestMemory {
