@@ -6,6 +6,7 @@ authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
 [dependencies]
 chrono = ">=0.4"
 kvm-bindings = "0.1"
+kvm-ioctls = "0.1.0"
 libc = ">=0.2.39"
 epoll = "=4.0.1"
 futures = ">=0.1.18"
@@ -19,7 +20,6 @@ arch = { path = "../arch" }
 devices = { path = "../devices" }
 fc_util = { path = "../fc_util" }
 kernel = { path = "../kernel" }
-kvm = { path = "../kvm" }
 logger = { path = "../logger" }
 memory_model = { path = "../memory_model" }
 mmds = { path = "../mmds" }

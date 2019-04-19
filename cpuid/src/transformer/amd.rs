@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
+
+use kvm_bindings::KVM_CPUID_FLAG_SIGNIFCANT_INDEX;
+use kvm_ioctls::CpuId;
+
 use bit_helper::BitHelper;
 use cpu_leaf::*;
-use kvm::CpuId;
-use kvm_bindings::KVM_CPUID_FLAG_SIGNIFCANT_INDEX;
 use transformer::common::use_host_cpuid_function;
 
 pub fn update_structured_extended_entry(
@@ -60,8 +62,6 @@ mod test {
 
     #[test]
     fn test_update_extended_cache_topology_entry() {
-        use cpu_leaf::leaf_0x8000001d::*;
-
         let vm_spec = VmSpec::new(VENDOR_ID_AMD, 0, 1, false);
         let mut entry = &mut kvm_cpuid_entry2 {
             function: leaf_0x8000001d::LEAF_NUM,
