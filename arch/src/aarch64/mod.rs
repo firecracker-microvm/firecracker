@@ -46,9 +46,9 @@ pub fn configure_system(
     Ok(())
 }
 
-/// Stub function that needs to be implemented when aarch64 functionality is added.
-pub fn get_reserved_mem_addr() -> usize {
-    0
+/// Function that returns the address reserved for MMIO devices.
+pub fn get_reserved_mem_addr() -> u64 {
+    layout::MAPPED_IO_START
 }
 
 /// Returns the memory address where the kernel could be loaded.
