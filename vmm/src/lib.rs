@@ -692,6 +692,7 @@ impl Drop for EpollContext {
 struct KernelConfig {
     cmdline: kernel_cmdline::Cmdline,
     kernel_file: File,
+    #[cfg(target_arch = "x86_64")]
     cmdline_addr: GuestAddress,
 }
 
@@ -1565,7 +1566,8 @@ impl Vmm {
         let kernel_config = KernelConfig {
             kernel_file,
             cmdline,
-            cmdline_addr: GuestAddress(arch::CMDLINE_START),
+            #[cfg(target_arch = "x86_64")]
+            cmdline_addr: GuestAddress(arch::x86_64::layout::CMDLINE_START),
         };
         self.configure_kernel(kernel_config);
 
@@ -2109,7 +2111,8 @@ mod tests {
             let kernel_cfg = KernelConfig {
                 cmdline,
                 kernel_file,
-                cmdline_addr: GuestAddress(arch::CMDLINE_START),
+                #[cfg(target_arch = "x86_64")]
+                cmdline_addr: GuestAddress(arch::x86_64::layout::CMDLINE_START),
             };
             self.configure_kernel(kernel_cfg);
         }
@@ -2662,6 +2665,7 @@ mod tests {
 
         let dummy_addr = GuestAddress(0x1000);
         vmm.configure_kernel(KernelConfig {
+            #[cfg(target_arch = "x86_64")]
             cmdline_addr: dummy_addr,
             cmdline: kernel_cmdline::Cmdline::new(10),
             kernel_file: tempfile::tempfile().unwrap(),
