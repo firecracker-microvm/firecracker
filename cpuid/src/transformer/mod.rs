@@ -10,26 +10,43 @@ use kvm_ioctls::CpuId;
 
 use brand_string::BrandString;
 use brand_string::Reg as BsReg;
+use common::get_vendor_id;
 
+/// Structure containing the specifications of the VM
+///
 pub struct VmSpec {
-    pub cpu_id: u8,
-    pub cpu_count: u8,
-    pub ht_enabled: bool,
+    /// The vendor id of the CPU
+    cpu_vendor_id: [u8; 12],
+    /// The id of the current logical cpu in the range [0..cpu_count].
+    cpu_id: u8,
+    /// The total number of logical cpus.
+    cpu_count: u8,
+    /// Specifies whether hyper-threading is enabled.
+    ht_enabled: bool,
+    /// The desired brand string for the guest.
     brand_string: BrandString,
 }
 
 impl VmSpec {
-    pub fn new(vendor_id: &[u8; 12], cpu_id: u8, cpu_count: u8, ht_enabled: bool) -> VmSpec {
-        VmSpec {
+    /// Creates a new instance of VmSpec with the specified parameters
+    /// The brand string is deduced from the vendor_id
+    ///
+    pub fn new(cpu_id: u8, cpu_count: u8, ht_enabled: bool) -> Result<VmSpec, Error> {
+        let cpu_vendor_id = get_vendor_id().map_err(Error::InternalError)?;
+
+        Ok(VmSpec {
+            cpu_vendor_id,
             cpu_id,
             cpu_count,
             ht_enabled,
-            brand_string: BrandString::from_vendor_id(vendor_id),
-        }
+            brand_string: BrandString::from_vendor_id(&cpu_vendor_id),
+        })
     }
 
-    pub fn brand_string(&self) -> &BrandString {
-        &self.brand_string
+    /// Returns an immutable reference to cpu_vendor_id
+    ///
+    pub fn cpu_vendor_id(&self) -> &[u8; 12] {
+        &self.cpu_vendor_id
     }
 }
 
@@ -81,7 +98,6 @@ pub trait CpuidTransformer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use common::get_vendor_id;
     use kvm_bindings::kvm_cpuid_entry2;
 
     const PROCESSED_FN: u32 = 1;
@@ -109,10 +125,10 @@ mod test {
         let num_entries = 5;
 
         let mut cpuid = CpuId::new(num_entries);
-        let vm_spec = VmSpec::new(&get_vendor_id().unwrap(), 0, 1, false);
+        let vm_spec = VmSpec::new(0, 1, false);
         cpuid.mut_entries_slice()[0].function = PROCESSED_FN;
         assert!(MockCpuidTransformer {}
-            .process_cpuid(&mut cpuid, &vm_spec)
+            .process_cpuid(&mut cpuid, &vm_spec.unwrap())
             .is_ok());
 
         assert!(cpuid.mut_entries_slice().len() == num_entries);

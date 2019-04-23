@@ -58,7 +58,7 @@ pub fn update_brand_string_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    let brand_string = vm_spec.brand_string();
+    let brand_string = &vm_spec.brand_string;
     entry.eax = brand_string.get_reg_for_leaf(entry.function, BsReg::EAX);
     entry.ebx = brand_string.get_reg_for_leaf(entry.function, BsReg::EBX);
     entry.ecx = brand_string.get_reg_for_leaf(entry.function, BsReg::ECX);
@@ -145,7 +145,6 @@ pub fn use_host_cpuid_function(
 mod test {
     use super::*;
     use common::tests::get_topoext_fn;
-    use common::VENDOR_ID_INTEL;
     use kvm_bindings::kvm_cpuid_entry2;
     use transformer::VmSpec;
 
@@ -162,7 +161,7 @@ mod test {
     fn check_update_feature_info_entry(cpu_count: u8, expected_htt: bool) {
         use cpu_leaf::leaf_0x1::*;
 
-        let vm_spec = VmSpec::new(VENDOR_ID_INTEL, 0, cpu_count, false);
+        let vm_spec = VmSpec::new(0, cpu_count, false).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,
@@ -187,7 +186,7 @@ mod test {
     ) {
         use cpu_leaf::leaf_cache_parameters::*;
 
-        let vm_spec = VmSpec::new(VENDOR_ID_INTEL, 0, cpu_count, ht_enabled);
+        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,
