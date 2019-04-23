@@ -161,6 +161,49 @@ mod test {
     use kvm_bindings::kvm_cpuid_entry2;
     use transformer::VmSpec;
 
+    #[test]
+    fn test_update_feature_info_entry() {
+        use cpu_leaf::leaf_0x1::*;
+
+        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
+        let mut entry = &mut kvm_cpuid_entry2 {
+            function: leaf_0x1::LEAF_NUM,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+
+        assert!(update_feature_info_entry(&mut entry, &vm_spec).is_ok());
+
+        assert_eq!(entry.ecx.read_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX), true);
+    }
+
+    #[test]
+    fn test_update_perf_mon_entry() {
+        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
+        let mut entry = &mut kvm_cpuid_entry2 {
+            function: leaf_0xa::LEAF_NUM,
+            index: 0,
+            flags: 0,
+            eax: 1,
+            ebx: 1,
+            ecx: 1,
+            edx: 1,
+            padding: [0, 0, 0],
+        };
+
+        assert!(update_perf_mon_entry(&mut entry, &vm_spec).is_ok());
+
+        assert_eq!(entry.eax, 0);
+        assert_eq!(entry.ebx, 0);
+        assert_eq!(entry.ecx, 0);
+        assert_eq!(entry.edx, 0);
+    }
+
     fn check_update_deterministic_cache_entry(
         cpu_count: u8,
         ht_enabled: bool,
