@@ -66,7 +66,7 @@ pub fn get_vendor_id() -> Result<[u8; 12], Error> {
             };
             Ok(bytes)
         }
-        Err(_e) => Err(Error::NotSupported),
+        Err(e) => Err(e),
     }
 }
 
