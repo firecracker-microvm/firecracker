@@ -72,10 +72,7 @@ pub fn filter_cpuid(
     };
 
     if let Some(cpuid_transformer) = maybe_cpuid_transformer {
-        cpuid_transformer.preprocess_cpuid(kvm_cpuid)?;
-        for entry in kvm_cpuid.mut_entries_slice().iter_mut() {
-            cpuid_transformer.transform_entry(entry, &vm_spec)?;
-        }
+        cpuid_transformer.process_cpuid(kvm_cpuid, &vm_spec)?;
     }
 
     Ok(())

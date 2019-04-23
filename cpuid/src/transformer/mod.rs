@@ -47,16 +47,84 @@ pub enum Error {
 pub type EntryTransformerFn =
     fn(entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error>;
 
+/// Generic trait that provides methods for transforming the cpuid
+///
 pub trait CpuidTransformer {
-    fn preprocess_cpuid(&self, _cpuid: &mut CpuId) -> Result<(), Error> {
+    /// Trait main function. It processes the cpuid and makes the desired transformations.
+    /// The default logic can be overwritten if needed. For example see `AmdCpuidTransformer`.
+    ///
+    fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
+        self.process_entries(cpuid, vm_spec)
+    }
+
+    /// Iterates through all the cpuid entries and calls the associated transformer for each one.
+    ///
+    fn process_entries(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
+        for entry in cpuid.mut_entries_slice().iter_mut() {
+            let maybe_transformer_fn = self.entry_transformer_fn(entry);
+
+            if let Some(transformer_fn) = maybe_transformer_fn {
+                transformer_fn(entry, vm_spec)?;
+            }
+        }
+
         Ok(())
     }
 
-    fn transform_entry(
-        &self,
-        _entry: &mut kvm_cpuid_entry2,
-        _vm_spec: &VmSpec,
-    ) -> Result<(), Error> {
+    /// Gets the associated transformer for a cpuid entry
+    ///
+    fn entry_transformer_fn(&self, _entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use common::get_vendor_id;
+    use kvm_bindings::kvm_cpuid_entry2;
+
+    const PROCESSED_FN: u32 = 1;
+    const EXPECTED_INDEX: u32 = 100;
+
+    fn transform_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) -> Result<(), Error> {
+        entry.index = EXPECTED_INDEX;
+
         Ok(())
+    }
+
+    struct MockCpuidTransformer {}
+
+    impl CpuidTransformer for MockCpuidTransformer {
+        fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
+            match entry.function {
+                PROCESSED_FN => Some(transform_entry),
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn test_process_cpuid() {
+        let num_entries = 5;
+
+        let mut cpuid = CpuId::new(num_entries);
+        let vm_spec = VmSpec::new(&get_vendor_id().unwrap(), 0, 1, false);
+        cpuid.mut_entries_slice()[0].function = PROCESSED_FN;
+        assert!(MockCpuidTransformer {}
+            .process_cpuid(&mut cpuid, &vm_spec)
+            .is_ok());
+
+        assert!(cpuid.mut_entries_slice().len() == num_entries);
+        for entry in cpuid.mut_entries_slice().iter() {
+            match entry.function {
+                PROCESSED_FN => {
+                    assert_eq!(entry.index, EXPECTED_INDEX);
+                }
+                _ => {
+                    assert_ne!(entry.index, EXPECTED_INDEX);
+                }
+            }
+        }
     }
 }
