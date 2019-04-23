@@ -12,7 +12,7 @@ use std::sync::{Arc, Barrier};
 use super::{KvmContext, TimestampUs};
 use arch;
 #[cfg(target_arch = "x86_64")]
-use cpuid::{c3, filter_cpuid, t2};
+use cpuid::{c3, filter_cpuid, t2, VmSpec};
 use default_syscalls;
 use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
 use kvm_ioctls::*;
@@ -253,16 +253,16 @@ impl Vcpu {
         kernel_start_addr: GuestAddress,
         vm: &Vm,
     ) -> Result<()> {
-        // the MachineConfiguration has defaults for ht_enabled and vcpu_count hence it is safe to unwrap
-        filter_cpuid(
+        let cpuid_vm_spec = VmSpec::new(
             self.id,
             machine_config
                 .vcpu_count
                 .ok_or(Error::VcpuCountNotInitialized)?,
             machine_config.ht_enabled.ok_or(Error::HTNotInitialized)?,
-            &mut self.cpuid,
         )
         .map_err(Error::CpuId)?;
+
+        filter_cpuid(&mut self.cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?;
 
         if let Some(template) = machine_config.cpu_template {
             match template {
