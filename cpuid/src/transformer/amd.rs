@@ -130,13 +130,14 @@ pub fn update_extended_apic_id_entry(
 pub struct AmdCpuidTransformer {}
 
 impl CpuidTransformer for AmdCpuidTransformer {
-    fn preprocess_cpuid(&self, cpuid: &mut CpuId) -> Result<(), Error> {
-        use_host_cpuid_function(cpuid, leaf_0x8000001e::LEAF_NUM, false)?;
-        use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, true)
+    fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
+        use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, false)?;
+        use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, true)?;
+        self.process_entries(cpuid, vm_spec)
     }
 
-    fn transform_entry(&self, entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error> {
-        let maybe_transformer_fn: Option<EntryTransformerFn> = match entry.function {
+    fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
+        match entry.function {
             leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
             leaf_0x7::LEAF_NUM => Some(amd::update_structured_extended_entry),
             leaf_0x80000000::LEAF_NUM => Some(amd::update_largest_extended_fn_entry),
@@ -146,13 +147,7 @@ impl CpuidTransformer for AmdCpuidTransformer {
             leaf_0x8000001e::LEAF_NUM => Some(amd::update_extended_apic_id_entry),
             0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
             _ => None,
-        };
-
-        if let Some(transformer_fn) = maybe_transformer_fn {
-            return transformer_fn(entry, vm_spec);
         }
-
-        Ok(())
     }
 }
 
