@@ -139,8 +139,8 @@ fn update_extended_cache_topology_entry(
 pub struct IntelCpuidTransformer {}
 
 impl CpuidTransformer for IntelCpuidTransformer {
-    fn transform_entry(&self, entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error> {
-        let maybe_transformer_fn: Option<EntryTransformerFn> = match entry.function {
+    fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
+        match entry.function {
             leaf_0x1::LEAF_NUM => Some(intel::update_feature_info_entry),
             leaf_0x4::LEAF_NUM => Some(intel::update_deterministic_cache_entry),
             leaf_0x6::LEAF_NUM => Some(intel::update_power_management_entry),
@@ -148,13 +148,7 @@ impl CpuidTransformer for IntelCpuidTransformer {
             leaf_0xb::LEAF_NUM => Some(intel::update_extended_cache_topology_entry),
             0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
             _ => None,
-        };
-
-        if let Some(transformer_fn) = maybe_transformer_fn {
-            return transformer_fn(entry, vm_spec);
         }
-
-        Ok(())
     }
 }
 
