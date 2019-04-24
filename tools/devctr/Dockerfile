@@ -44,6 +44,7 @@ RUN apt-get update \
         python3-dev \
         python3-pip \
         python3-venv    \
+	xz-utils \
         zlib1g-dev \
     && python3 -m pip install \
         setuptools \
@@ -60,7 +61,13 @@ RUN apt-get update \
         requests \
         requests-unixsocket \
         retry \
-    && rm -rf /var/lib/apt/lists/*
+    # install cross-compiled fdt library
+    && curl -LO http://ftp.de.debian.org/debian/pool/main/d/device-tree-compiler/libfdt-dev_1.4.7-3_arm64.deb \
+    && ar x libfdt-dev_1.4.7-3_arm64.deb \
+    && tar -xf data.tar.xz \
+    && rm -rf /var/lib/apt/lists/* \
+    # cargo appends 'aarch64-linux' before searching for musl-gcc.
+    && ln -s /usr/bin/musl-gcc /usr/bin/aarch64-linux-musl-gcc
 
 # Install the Rust toolchain
 #
