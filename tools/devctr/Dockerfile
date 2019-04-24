@@ -4,6 +4,7 @@ FROM ubuntu:18.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
+ARG RUST_TOOLCHAIN="1.32.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG FIRECRACKER_SRC_DIR="/firecracker"
 ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
@@ -44,6 +45,7 @@ RUN apt-get update \
         python3-dev \
         python3-pip \
         python3-venv    \
+        xz-utils \
         zlib1g-dev \
     && python3 -m pip install \
         setuptools \
@@ -60,12 +62,21 @@ RUN apt-get update \
         requests \
         requests-unixsocket \
         retry \
+    # install cross-compiled fdt library
+    && mkdir "$TMP_BUILD_DIR" \
+    && cd "$TMP_BUILD_DIR" \
+        && curl -LO http://ftp.de.debian.org/debian/pool/main/d/device-tree-compiler/libfdt-dev_1.4.7-3_arm64.deb \
+        && ar x libfdt-dev_1.4.7-3_arm64.deb \
+        && tar -xf data.tar.xz \
+	&& cp usr/lib/aarch64-linux-gnu/libfdt.a /usr/lib/aarch64-linux-gnu/libfdt.a \
+    && cd / \
+    && rm -rf "$TMP_BUILD_DIR" \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the Rust toolchain
 #
 RUN mkdir "$TMP_BUILD_DIR" \
-    && curl https://sh.rustup.rs -sSf | sh -s -- -y \
+    && curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
         && rustup target add x86_64-unknown-linux-musl \
         && rustup target add aarch64-unknown-linux-musl \
         && rustup component add rustfmt \
