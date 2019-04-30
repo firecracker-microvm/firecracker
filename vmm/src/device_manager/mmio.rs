@@ -10,6 +10,8 @@ use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
 
+#[cfg(target_arch = "aarch64")]
+use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
 use devices;
 use kernel_cmdline;
@@ -191,7 +193,7 @@ impl MMIODeviceManager {
                 addr: ret,
                 len: MMIO_LEN,
                 irq: self.irq,
-                type_: 0,
+                type_: DeviceType::Serial,
             },
         );
 
@@ -199,6 +201,12 @@ impl MMIODeviceManager {
         self.irq += 1;
 
         Ok(())
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    /// Gets the information of the devices registered up to some point in time.
+    pub fn get_device_info(&self) -> &HashMap<String, MMIODeviceInfo> {
+        &self.id_to_dev_info
     }
 
     /// Update a drive by rebuilding its config space and rewriting it on the bus.
@@ -225,13 +233,29 @@ impl MMIODeviceManager {
     }
 }
 
-/// Private structure for storing information about the MMIO device registered at some address.
+/// Private structure for storing information about the MMIO device registered at some address on the bus.
 #[derive(Clone, Debug)]
 pub struct MMIODeviceInfo {
     addr: u64,
     irq: u32,
     len: u64,
     type_: DeviceType,
+}
+
+#[cfg(target_arch = "aarch64")]
+impl DeviceInfoForFDT for MMIODeviceInfo {
+    fn addr(&self) -> u64 {
+        self.addr
+    }
+    fn irq(&self) -> u32 {
+        self.irq
+    }
+    fn length(&self) -> u64 {
+        self.len
+    }
+    fn type_(&self) -> &DeviceType {
+        &self.type_
+    }
 }
 
 #[cfg(test)]
@@ -490,6 +514,15 @@ mod tests {
             device_manager.register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, &id)
         {
             assert_eq!(Some(&addr), device_manager.get_address(&id));
+            assert_eq!(addr, device_manager.id_to_dev_info.get(&id).unwrap().addr);
+            assert_eq!(
+                arch::IRQ_BASE,
+                device_manager.id_to_dev_info.get(&id).unwrap().irq
+            );
+            assert_eq!(
+                DeviceType::Virtio,
+                device_manager.id_to_dev_info.get(&id).unwrap().type_
+            );
         }
         let id = "bar";
         assert_eq!(None, device_manager.get_address(&id));

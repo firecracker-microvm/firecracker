@@ -63,6 +63,8 @@ use kvm_ioctls::{Cap, Kvm};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use device_manager::legacy::LegacyDeviceManager;
+#[cfg(target_arch = "aarch64")]
+use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::I8042DeviceError;
 use devices::virtio;
@@ -1110,6 +1112,15 @@ impl Vmm {
         Ok(())
     }
 
+    #[cfg(target_arch = "aarch64")]
+    fn get_mmio_device_info(&self) -> Option<&HashMap<String, MMIODeviceInfo>> {
+        if let Some(ref device_manager) = self.mmio_device_manager {
+            Some(device_manager.get_device_info())
+        } else {
+            None
+        }
+    }
+
     #[cfg(target_arch = "x86_64")]
     fn setup_interrupt_controller(&mut self) -> std::result::Result<(), StartMicrovmError> {
         self.vm
@@ -1292,10 +1303,10 @@ impl Vmm {
         Ok(entry_addr)
     }
 
-    fn configure_system(&mut self) -> std::result::Result<(), StartMicrovmError> {
+    fn configure_system(&self) -> std::result::Result<(), StartMicrovmError> {
         let kernel_config = self
             .kernel_config
-            .as_mut()
+            .as_ref()
             .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
         let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
@@ -1317,15 +1328,18 @@ impl Vmm {
         .map_err(StartMicrovmError::ConfigureSystem)?;
 
         #[cfg(target_arch = "aarch64")]
-        arch::aarch64::configure_system(
-            vm_memory,
-            &kernel_config
-                .cmdline
-                .as_cstring()
-                .map_err(StartMicrovmError::LoadCommandline)?,
-            vcpu_count,
-        )
-        .map_err(StartMicrovmError::ConfigureSystem)?;
+        {
+            arch::aarch64::configure_system(
+                vm_memory,
+                &kernel_config
+                    .cmdline
+                    .as_cstring()
+                    .map_err(StartMicrovmError::LoadCommandline)?,
+                vcpu_count,
+                self.get_mmio_device_info(),
+            )
+            .map_err(StartMicrovmError::ConfigureSystem)?;
+        }
         Ok(())
     }
 
