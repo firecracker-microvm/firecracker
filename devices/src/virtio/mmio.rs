@@ -229,10 +229,10 @@ impl MmioDevice {
                 // check will fail and take the device into an unusable state.
                 if !self.device_activated && self.are_queues_valid() {
                     if let Some(ref interrupt_evt) = self.interrupt_evt {
-                        if let Some(ref mem) = self.mem {
+                        if let Some(mem) = self.mem.take() {
                             self.device
                                 .activate(
-                                    mem.clone(),
+                                    mem,
                                     interrupt_evt.try_clone().expect("Failed to clone eventfd"),
                                     self.interrupt_status.clone(),
                                     self.queues.clone(),
@@ -396,11 +396,8 @@ impl BusDevice for MmioDevice {
 #[cfg(test)]
 mod tests {
     use byteorder::{ByteOrder, LittleEndian};
-    use std::sync::atomic::ATOMIC_USIZE_INIT;
 
     use super::*;
-
-    static DEVICE_RESET_ENABLED: AtomicUsize = ATOMIC_USIZE_INIT;
 
     struct DummyDevice {
         acked_features: u32,
@@ -457,17 +454,6 @@ mod tests {
             self.interrupt_evt = Some(interrupt_evt);
             self.queue_evts = Some(queue_evts);
             Ok(())
-        }
-
-        fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
-            if self.interrupt_evt.is_some() && DEVICE_RESET_ENABLED.load(Ordering::SeqCst) != 0 {
-                Some((
-                    self.interrupt_evt.take().unwrap(),
-                    self.queue_evts.take().unwrap(),
-                ))
-            } else {
-                None
-            }
         }
     }
 
@@ -851,19 +837,9 @@ mod tests {
         assert!(d.device_activated);
 
         // Nothing happens when backend driver doesn't support reset
-        DEVICE_RESET_ENABLED.store(0, Ordering::SeqCst);
         LittleEndian::write_u32(&mut buf[..], 0x0);
         d.write(0x70, &buf[..]);
         assert_eq!(d.driver_status, 0x8f);
         assert!(d.device_activated);
-
-        DEVICE_RESET_ENABLED.store(1, Ordering::SeqCst);
-        LittleEndian::write_u32(&mut buf[..], 0x0);
-        d.write(0x70, &buf[..]);
-        assert_eq!(d.driver_status, 0x0);
-        assert!(!d.device_activated);
-
-        DEVICE_RESET_ENABLED.store(0, Ordering::SeqCst);
-        activate_device(&mut d);
     }
 }
