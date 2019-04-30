@@ -230,5 +230,4 @@ class JailerContext:
         for task in tasks_split:
             if os.path.exists("/proc/{}".format(task)):
                 raise TimeoutError
-            else:
-                return True
+        return True
