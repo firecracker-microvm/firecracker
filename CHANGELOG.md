@@ -1,13 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [0.16.0]
 
 ### Added
 
+- Added [alpha] AMD support.
 - New `devtool` command: `prepare_release`. This updates the Firecracker
   version, crate dependencies and credits in preparation for a new release.
 - New `devtool` command: `tag`. This creates a new git tag for the specified
   release number, based on the changelog contents.
+- New doc section about building with glibc.
 
 ### Changed
 
@@ -17,6 +19,8 @@
   `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
 - `PUT` and `PATCH` requests on `/mmds` with data containing any value type other
   than `String`, `Array`, `Object` will return status code 400.
+- Improved multiple error messages.
+- Removed all kernel modules from the recommended kernel config.
 
 ### Removed
 
@@ -27,6 +31,7 @@
 ### Fixed
 
 - Corrected the conditional compilation of the seccomp rule for `madvise`.
+- Corrected the seccomp filter when building with glibc.
 
 ## [0.15.1]
 
