@@ -36,7 +36,6 @@ const IRQ_TYPE_LEVEL_HI: u32 = 4;
 // This links to libfdt which handles the creation of the binary blob
 // flattened device tree (fdt) that is passed to the kernel and indicates
 // the hardware configuration of the machine.
-#[link(name = "fdt", kind = "static")]
 extern "C" {
     fn fdt_create(buf: *mut c_void, bufsize: c_int) -> c_int;
     fn fdt_finish_reservemap(fdt: *mut c_void) -> c_int;
