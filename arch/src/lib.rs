@@ -41,7 +41,7 @@ pub use x86_64::{
 };
 
 /// Types of devices that can get attached to this platform.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum DeviceType {
     Virtio,
     #[cfg(target_arch = "aarch64")]
