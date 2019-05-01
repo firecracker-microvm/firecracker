@@ -1081,17 +1081,8 @@ impl Vmm {
     #[cfg(target_arch = "x86_64")]
     fn setup_interrupt_controller(&mut self) -> std::result::Result<(), StartMicrovmError> {
         self.vm
-            .setup_irqchip(
-                &self.legacy_device_manager.com_evt_1_3,
-                &self.legacy_device_manager.com_evt_2_4,
-                &self.legacy_device_manager.kbd_evt,
-            )
-            .map_err(StartMicrovmError::ConfigureVm)?;
-        #[cfg(target_arch = "x86_64")]
-        self.vm
-            .create_pit()
-            .map_err(StartMicrovmError::ConfigureVm)?;
-        Ok(())
+            .setup_irqchip()
+            .map_err(StartMicrovmError::ConfigureVm)
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -1102,8 +1093,7 @@ impl Vmm {
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
         self.vm
             .setup_irqchip(vcpu_count)
-            .map_err(StartMicrovmError::ConfigureVm)?;
-        Ok(())
+            .map_err(StartMicrovmError::ConfigureVm)
     }
 
     fn attach_legacy_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
@@ -1111,7 +1101,22 @@ impl Vmm {
             .register_devices()
             .map_err(StartMicrovmError::LegacyIOBus)?;
 
-        Ok(())
+        self.vm
+            .get_fd()
+            .register_irqfd(self.legacy_device_manager.com_evt_1_3.as_raw_fd(), 4)
+            .map_err(|e| {
+                StartMicrovmError::LegacyIOBus(device_manager::legacy::Error::EventFd(e))
+            })?;
+        self.vm
+            .get_fd()
+            .register_irqfd(self.legacy_device_manager.com_evt_2_4.as_raw_fd(), 3)
+            .map_err(|e| {
+                StartMicrovmError::LegacyIOBus(device_manager::legacy::Error::EventFd(e))
+            })?;
+        self.vm
+            .get_fd()
+            .register_irqfd(self.legacy_device_manager.kbd_evt.as_raw_fd(), 1)
+            .map_err(|e| StartMicrovmError::LegacyIOBus(device_manager::legacy::Error::EventFd(e)))
     }
 
     // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) and configured before
@@ -1304,9 +1309,9 @@ impl Vmm {
             .expect("Failed to start microVM because shared info couldn't be written due to poisoned lock")
             .state = InstanceState::Starting;
 
-        self.init_guest_memory()?;
-
         self.setup_interrupt_controller()?;
+
+        self.init_guest_memory()?;
 
         self.attach_virtio_devices()?;
         self.attach_legacy_devices()?;
@@ -3093,12 +3098,8 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         // `KVM_CREATE_VCPU` fails if the irqchip is not created beforehand. This is x86_64 speciifc.
         vmm.vm
-            .setup_irqchip(
-                &vmm.legacy_device_manager.com_evt_1_3,
-                &vmm.legacy_device_manager.com_evt_2_4,
-                &vmm.legacy_device_manager.kbd_evt,
-            )
-            .expect("Cannot create IRQCHIP");
+            .setup_irqchip()
+            .expect("Cannot create IRQCHIP or PIT");
 
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let mut device_manager = MMIODeviceManager::new(
