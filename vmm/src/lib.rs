@@ -892,7 +892,7 @@ impl Vmm {
                 .map_err(StartMicrovmError::CreateBlockDevice)?,
             );
             device_manager
-                .register_device(
+                .register_virtio_device(
                     self.vm.get_fd(),
                     block_box,
                     &mut kernel_config.cmdline,
@@ -949,7 +949,12 @@ impl Vmm {
                 );
 
                 device_manager
-                    .register_device(self.vm.get_fd(), net_box, &mut kernel_config.cmdline, None)
+                    .register_virtio_device(
+                        self.vm.get_fd(),
+                        net_box,
+                        &mut kernel_config.cmdline,
+                        None,
+                    )
                     .map_err(StartMicrovmError::RegisterNetDevice)?;
             } else {
                 return Err(StartMicrovmError::NetDeviceNotConfigured)?;
@@ -977,7 +982,7 @@ impl Vmm {
                     .map_err(StartMicrovmError::CreateVsockDevice)?,
             );
             device_manager
-                .register_device(
+                .register_virtio_device(
                     self.vm.get_fd(),
                     vsock_box,
                     &mut kernel_config.cmdline,
@@ -2907,7 +2912,7 @@ mod tests {
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         // Use a dummy command line as it is not used in this test.
         let _addr = device_manager
-            .register_device(
+            .register_virtio_device(
                 vmm.vm.get_fd(),
                 dummy_box,
                 &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
@@ -3120,7 +3125,7 @@ mod tests {
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         // Use a dummy command line as it is not used in this test.
         let _addr = device_manager
-            .register_device(
+            .register_virtio_device(
                 vmm.vm.get_fd(),
                 dummy_box,
                 &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),

@@ -89,8 +89,8 @@ impl MMIODeviceManager {
         }
     }
 
-    /// Register a device to be used via MMIO transport.
-    pub fn register_device(
+    /// Register a virtio device to be used via MMIO transport.
+    pub fn register_virtio_device(
         &mut self,
         vm: &VmFd,
         device: Box<devices::virtio::VirtioDevice>,
@@ -261,7 +261,7 @@ mod tests {
         let vmm = create_vmm_object();
 
         assert!(device_manager
-            .register_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, None)
+            .register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, None)
             .is_ok());
     }
 
@@ -278,14 +278,14 @@ mod tests {
         let vmm = create_vmm_object();
         for _i in arch::IRQ_BASE..=arch::IRQ_MAX {
             device_manager
-                .register_device(vmm.vm.get_fd(), dummy_box.clone(), &mut cmdline, None)
+                .register_virtio_device(vmm.vm.get_fd(), dummy_box.clone(), &mut cmdline, None)
                 .unwrap();
         }
         assert_eq!(
             format!(
                 "{}",
                 device_manager
-                    .register_device(vmm.vm.get_fd(), dummy_box.clone(), &mut cmdline, None)
+                    .register_virtio_device(vmm.vm.get_fd(), dummy_box.clone(), &mut cmdline, None)
                     .unwrap_err()
             ),
             "no more IRQs are available".to_string()
@@ -390,7 +390,7 @@ mod tests {
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         let vmm = create_vmm_object();
 
-        if let Ok(addr) = device_manager.register_device(
+        if let Ok(addr) = device_manager.register_virtio_device(
             vmm.vm.get_fd(),
             dummy_box,
             &mut cmdline,
@@ -413,7 +413,7 @@ mod tests {
         let vmm = create_vmm_object();
 
         let id = String::from("foo");
-        if let Ok(addr) = device_manager.register_device(
+        if let Ok(addr) = device_manager.register_virtio_device(
             vmm.vm.get_fd(),
             dummy_box,
             &mut cmdline,
