@@ -22,6 +22,10 @@
 - Improved multiple error messages.
 - Removed all kernel modules from the recommended kernel config.
 
+### Fixed
+
+- Corrected the seccomp filter when building with glibc.
+
 ### Removed
 
 - Removed the `seccomp.bad_syscalls` metric.
@@ -31,7 +35,6 @@
 ### Fixed
 
 - Corrected the conditional compilation of the seccomp rule for `madvise`.
-- Corrected the seccomp filter when building with glibc.
 
 ## [0.15.1]
 
