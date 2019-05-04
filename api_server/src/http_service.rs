@@ -305,6 +305,20 @@ fn parse_machine_config_req<'a>(
                     Error::Generic(StatusCode::BadRequest, s)
                 })?)
         }
+
+        0 if method == Method::Patch => {
+            METRICS.patch_api_requests.machine_cfg_count.inc();
+            Ok(serde_json::from_slice::<VmConfig>(body)
+                .map_err(|e| {
+                    METRICS.patch_api_requests.machine_cfg_fails.inc();
+                    Error::SerdeJson(e)
+                })?
+                .into_parsed_request(None, method)
+                .map_err(|s| {
+                    METRICS.patch_api_requests.machine_cfg_fails.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
+        }
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
@@ -1158,6 +1172,26 @@ mod tests {
             _ => assert!(false),
         }
 
+        // PATCH
+        let vm_config = VmConfig {
+            vcpu_count: Some(32),
+            mem_size_mib: None,
+            ht_enabled: None,
+            cpu_template: None,
+        };
+        let body = r#"{
+            "vcpu_count": 32
+        }"#;
+        match vm_config.into_parsed_request(None, Method::Patch) {
+            Ok(parsed_req) => {
+                match parse_machine_config_req(&path, Method::Patch, &Chunk::from(body)) {
+                    Ok(other_parsed_req) => assert!(parsed_req.eq(&other_parsed_req)),
+                    _ => assert!(false),
+                }
+            }
+            _ => assert!(false),
+        }
+
         // Error cases
         // Error Case: Invalid payload (cannot deserialize the body into a VmConfig object).
         assert!(
@@ -1168,9 +1202,9 @@ mod tests {
         // Error Case: Invalid payload (payload is empty).
         let expected_err = Err(Error::Generic(
             StatusCode::BadRequest,
-            String::from("Empty request."),
+            String::from("Empty PATCH request."),
         ));
-        assert!(parse_machine_config_req(path, Method::Put, &Chunk::from("{}")) == expected_err);
+        assert!(parse_machine_config_req(path, Method::Patch, &Chunk::from("{}")) == expected_err);
 
         // Error Case: cpu count exceeds limitation
         let json = "{
@@ -1185,6 +1219,19 @@ mod tests {
         } else {
             assert!(false);
         }
+
+        // Error Case: PUT request with missing parameter
+        let json = "{
+                \"mem_size_mib\": 1025,
+                \"ht_enabled\": true,
+                \"cpu_template\": \"T2\"
+              }";
+        let body: Chunk = Chunk::from(json);
+        let expected_err = Err(Error::Generic(
+            StatusCode::BadRequest,
+            String::from("Missing mandatory fields."),
+        ));
+        assert!(parse_machine_config_req(path, Method::Put, &body) == expected_err);
     }
 
     #[test]
