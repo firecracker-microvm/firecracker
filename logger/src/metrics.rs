@@ -186,6 +186,10 @@ pub struct PatchRequestsMetrics {
     pub network_count: SharedMetric,
     /// Number of failures in PATCHing a net device.
     pub network_fails: SharedMetric,
+    /// Number of PATCHs for configuring the machine.
+    pub machine_cfg_count: SharedMetric,
+    /// Number of failures in configuring the machine.
+    pub machine_cfg_fails: SharedMetric,
 }
 
 /// Block Device associated metrics.

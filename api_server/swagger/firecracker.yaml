@@ -215,6 +215,30 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+    patch:
+      summary: Partially updates the Machine Configuration of the VM.
+      description:
+        Partially updates the Virtual Machine Configuration with the specified input.
+        If any of the parameters has an incorrect value, the whole update fails.
+      operationId: patchMachineConfiguration
+      parameters:
+      - name: body
+        in: body
+        description: A subset of Machine Configuration Parameters
+        schema:
+          $ref: "#/definitions/MachineConfiguration"
+      responses:
+        204:
+          description: Machine Configuration created/updated
+        400:
+          description: Machine Configuration cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /mmds:
     put:
       summary: Creates a MMDS (Microvm Metadata Service) data store.
