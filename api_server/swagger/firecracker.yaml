@@ -494,6 +494,10 @@ definitions:
     description:
       Describes the number of vCPUs, memory size, Hyperthreading capabilities and
       the CPU template.
+    required:
+      - vcpu_count
+      - mem_size_mib
+      - ht_enabled
     properties:
       vcpu_count:
         type: integer
