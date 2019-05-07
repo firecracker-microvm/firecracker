@@ -5,13 +5,12 @@ extern crate logger;
 extern crate sys_util;
 
 use std::io;
-use std::mem;
-use std::ptr::null_mut;
 use std::result::Result;
 
-use libc::{sigaction, sigfillset, sigset_t};
+use libc::{_exit, c_int, c_void, siginfo_t, SIGSYS};
 
 use logger::{Metric, LOGGER, METRICS};
+use sys_util::register_sigsys_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
 // expressed as an `(u)int*`.
@@ -22,44 +21,15 @@ const SI_OFF_SYSCALL: isize = 6;
 
 const SYS_SECCOMP_CODE: i32 = 1;
 
-// This no longer relies on sys_util::register_signal_handler(), which is a lot weirder than it
-// should be (at least for this use case). Also, we want to change the sa_mask field of the
-// sigaction struct.
-/// Sets up the specified signal handler for `SIGSYS`.
-pub fn setup_sigsys_handler() -> Result<(), io::Error> {
-    // Safe, because this is a POD struct.
-    let mut sigact: sigaction = unsafe { mem::zeroed() };
-    sigact.sa_flags = libc::SA_SIGINFO;
-    sigact.sa_sigaction = sigsys_handler as usize;
-
-    // We set all the bits of sa_mask, so all signals are blocked on the current thread while the
-    // SIGSYS handler is executing. Safe because the parameter is valid and we check the return
-    // value.
-    if unsafe { sigfillset(&mut sigact.sa_mask as *mut sigset_t) } < 0 {
-        return Err(io::Error::last_os_error());
-    }
-
-    // Safe because the parameters are valid and we check the return value.
-    if unsafe { sigaction(libc::SIGSYS, &sigact, null_mut()) } < 0 {
-        return Err(io::Error::last_os_error());
-    }
-
-    Ok(())
-}
-
-extern "C" fn sigsys_handler(
-    num: libc::c_int,
-    info: *mut libc::siginfo_t,
-    _unused: *mut libc::c_void,
-) {
+extern "C" fn sigsys_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) {
     // Safe because we're just reading some fields from a supposedly valid argument.
     let si_signo = unsafe { (*info).si_signo };
     let si_code = unsafe { (*info).si_code };
 
     // Sanity check. The condition should never be true.
-    if num != si_signo || num != libc::SIGSYS || si_code != SYS_SECCOMP_CODE as i32 {
+    if num != si_signo || num != SIGSYS || si_code != SYS_SECCOMP_CODE as i32 {
         // Safe because we're terminating the process anyway.
-        unsafe { libc::_exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) };
+        unsafe { _exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) };
     }
 
     // Other signals which might do async unsafe things incompatible with the rest of this
@@ -79,8 +49,16 @@ extern "C" fn sigsys_handler(
     // running unit tests.
     #[cfg(not(test))]
     unsafe {
-        libc::_exit(i32::from(super::FC_EXIT_CODE_BAD_SYSCALL))
+        _exit(i32::from(super::FC_EXIT_CODE_BAD_SYSCALL))
     };
+}
+
+/// Registers all the required signal handlers.
+///
+/// Custom handlers are installed for: `SIGSYS`.
+///
+pub fn register_signal_handlers() -> Result<(), io::Error> {
+    register_sigsys_handler(sigsys_handler)
 }
 
 #[cfg(test)]
@@ -119,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_signal_handler() {
-        assert!(setup_sigsys_handler().is_ok());
+        assert!(register_signal_handlers().is_ok());
 
         let filter = SeccompFilter::new(
             vec![

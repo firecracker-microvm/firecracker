@@ -440,7 +440,7 @@ mod tests {
     use super::*;
 
     use libc::{c_int, c_void, siginfo_t};
-    use sys_util::{register_signal_handler, Killable, SignalHandler};
+    use sys_util::{register_vcpu_signal_handler, Killable};
 
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu() -> (Vm, Vcpu) {
@@ -646,7 +646,7 @@ mod tests {
         // be brought down when the signal is received, as part of the default behaviour. Signal
         // handlers are global, so we install this before starting the thread.
         unsafe {
-            register_signal_handler(signum, SignalHandler::Siginfo(handle_signal), true)
+            register_vcpu_signal_handler(signum, handle_signal)
                 .expect("failed to register vcpu signal handler");
         }
 

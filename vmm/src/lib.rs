@@ -40,7 +40,7 @@ extern crate sys_util;
 pub mod default_syscalls;
 mod device_manager;
 /// Signal handling utilities.
-mod signal_handler;
+pub mod signal_handler;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 mod vstate;
@@ -76,7 +76,6 @@ use memory_model::{GuestAddress, GuestMemory};
 use net_util::TapError;
 #[cfg(target_arch = "aarch64")]
 use serde_json::Value;
-pub use signal_handler::setup_sigsys_handler;
 use sys_util::{EventFd, Terminal};
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
