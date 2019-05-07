@@ -7,7 +7,7 @@ extern crate sys_util;
 use std::io;
 use std::result::Result;
 
-use libc::{_exit, c_int, c_void, siginfo_t, SIGSYS};
+use libc::{_exit, c_int, c_void, siginfo_t, SIGBUS, SIGSEGV, SIGSYS};
 
 use logger::{Metric, LOGGER, METRICS};
 use sys_util::register_signal_handler;
@@ -53,12 +53,49 @@ extern "C" fn sigsys_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_v
     };
 }
 
+extern "C" fn sigbus_sigsegv_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) {
+    // Safe because we're just reading some fields from a supposedly valid argument.
+    let si_signo = unsafe { (*info).si_signo };
+    let si_code = unsafe { (*info).si_code };
+
+    // Sanity check. The condition should never be true.
+    if num != si_signo || (num != SIGBUS && num != SIGSEGV) {
+        // Safe because we're terminating the process anyway.
+        unsafe { _exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) };
+    }
+
+    // Other signals which might do async unsafe things incompatible with the rest of this
+    // function are blocked due to the sa_mask used when registering the signal handler.
+    error!(
+        "Shutting down VM after intercepting signal {}, code {}.",
+        si_signo, si_code
+    );
+    // Log the metrics before exiting.
+    if let Err(e) = LOGGER.log_metrics() {
+        error!("Failed to log metrics while stopping: {}", e);
+    }
+
+    // Safe because we're terminating the process anyway. We don't actually do anything when
+    // running unit tests.
+    #[cfg(not(test))]
+    unsafe {
+        _exit(i32::from(match si_signo {
+            SIGBUS => super::FC_EXIT_CODE_SIGBUS,
+            SIGSEGV => super::FC_EXIT_CODE_SIGSEGV,
+            _ => super::FC_EXIT_CODE_UNEXPECTED_ERROR,
+        }))
+    };
+}
+
 /// Registers all the required signal handlers.
 ///
-/// Custom handlers are installed for: `SIGSYS`.
+/// Custom handlers are installed for: `SIGBUS`, `SIGSEGV`, `SIGSYS`.
 ///
 pub fn register_signal_handlers() -> Result<(), io::Error> {
-    register_signal_handler(SIGSYS, sigsys_handler)
+    register_signal_handler(SIGSYS, sigsys_handler)?;
+    register_signal_handler(SIGBUS, sigbus_sigsegv_handler)?;
+    register_signal_handler(SIGSEGV, sigbus_sigsegv_handler)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -66,6 +103,7 @@ mod tests {
     use super::*;
 
     use std::mem;
+    use std::process;
 
     use libc::{cpu_set_t, syscall};
 
@@ -104,6 +142,8 @@ mod tests {
                 allow_syscall(libc::SYS_brk),
                 allow_syscall(libc::SYS_exit),
                 allow_syscall(libc::SYS_futex),
+                allow_syscall(libc::SYS_getpid),
+                allow_syscall(libc::SYS_kill),
                 allow_syscall(libc::SYS_munmap),
                 allow_syscall(libc::SYS_rt_sigprocmask),
                 allow_syscall(libc::SYS_rt_sigreturn),
@@ -136,5 +176,11 @@ mod tests {
             // The signal handler should let the program continue during unit tests.
             assert_eq!(METRICS.seccomp.num_faults.count(), 1);
         }
+
+        // Assert that the SIGBUS handler left the process alive.
+        unsafe {
+            syscall(libc::SYS_kill, process::id(), SIGBUS);
+        }
+        assert!(true);
     }
 }
