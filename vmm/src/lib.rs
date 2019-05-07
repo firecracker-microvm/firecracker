@@ -39,8 +39,8 @@ extern crate sys_util;
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
 mod device_manager;
-/// Signal handling utilities for seccomp violations.
-mod sigsys_handler;
+/// Signal handling utilities.
+mod signal_handler;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 mod vstate;
@@ -76,7 +76,7 @@ use memory_model::{GuestAddress, GuestMemory};
 use net_util::TapError;
 #[cfg(target_arch = "aarch64")]
 use serde_json::Value;
-pub use sigsys_handler::setup_sigsys_handler;
+pub use signal_handler::setup_sigsys_handler;
 use sys_util::{EventFd, Terminal};
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
