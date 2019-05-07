@@ -7,34 +7,17 @@
 
 use super::SyscallReturnCode;
 use libc::{
-    c_int, c_void, pthread_kill, pthread_t, sigaction, siginfo_t, EINVAL, SA_SIGINFO, SIGHUP,
-    SIGSYS,
+    c_int, c_void, pthread_kill, pthread_t, sigaction, sigfillset, siginfo_t, sigset_t, EINVAL,
 };
 use std::io;
 use std::mem;
 use std::os::unix::thread::JoinHandleExt;
+use std::ptr::null_mut;
 use std::thread::JoinHandle;
 
-type SiginfoHandler = extern "C" fn(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) -> ();
-
-pub enum SignalHandler {
-    Siginfo(SiginfoHandler),
-    // TODO add a`SimpleHandler` when `libc` adds `sa_handler` support to `sigaction`.
-}
-
-/// Fills a `sigaction` structure from of the signal handler.
-impl Into<sigaction> for SignalHandler {
-    fn into(self) -> sigaction {
-        let mut act: sigaction = unsafe { mem::zeroed() };
-        match self {
-            SignalHandler::Siginfo(function) => {
-                act.sa_flags = SA_SIGINFO;
-                act.sa_sigaction = function as *const () as usize;
-            }
-        }
-        act
-    }
-}
+/// Type that represents a signal handler function.
+pub type SignalHandler =
+    extern "C" fn(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) -> ();
 
 extern "C" {
     fn __libc_current_sigrtmin() -> c_int;
@@ -55,36 +38,47 @@ fn SIGRTMAX() -> c_int {
 
 /// Verifies that a signal number is valid.
 ///
-/// VCPU signals need to have values enclosed within the OS limits for realtime signals,
-/// and the remaining ones need to be between the minimum (SIGHUP) and maximum (SIGSYS) values.
+/// VCPU signals need to have values enclosed within the OS limits for realtime signals.
 ///
 /// Will return Ok(num) or Err(EINVAL).
-pub fn validate_signal_num(num: c_int, for_vcpu: bool) -> io::Result<c_int> {
-    if for_vcpu {
-        let actual_num = num + SIGRTMIN();
-        if actual_num <= SIGRTMAX() {
-            return Ok(actual_num);
-        }
-    } else if SIGHUP <= num && num <= SIGSYS {
-        return Ok(num);
+pub fn validate_vcpu_signal_num(num: c_int) -> io::Result<c_int> {
+    let actual_num = num + SIGRTMIN();
+    if actual_num <= SIGRTMAX() {
+        Ok(actual_num)
+    } else {
+        Err(io::Error::from_raw_os_error(EINVAL))
     }
-    Err(io::Error::from_raw_os_error(EINVAL))
 }
 
-/// Registers `handler` as the signal handler of signum `num`.
-///
-/// Uses `sigaction` to register the handler.
+/// Registers `handler` as the vCPU's signal handler of signum `num`.
 ///
 /// This is considered unsafe because the given handler will be called asynchronously, interrupting
 /// whatever the thread was doing and therefore must only do async-signal-safe operations.
-pub unsafe fn register_signal_handler(
-    num: i32,
-    handler: SignalHandler,
-    for_vcpu: bool,
-) -> io::Result<()> {
-    let num = validate_signal_num(num, for_vcpu)?;
-    let act: sigaction = handler.into();
-    SyscallReturnCode(sigaction(num, &act, ::std::ptr::null_mut())).into_empty_result()
+pub unsafe fn register_vcpu_signal_handler(num: i32, handler: SignalHandler) -> io::Result<()> {
+    let num = validate_vcpu_signal_num(num)?;
+    // Safe, because this is a POD struct.
+    let mut sigact: sigaction = mem::zeroed();
+    sigact.sa_flags = libc::SA_SIGINFO;
+    sigact.sa_sigaction = handler as usize;
+    SyscallReturnCode(sigaction(num, &sigact, null_mut())).into_empty_result()
+}
+
+/// Registers the specified signal handler for `SIGSYS`.
+pub fn register_sigsys_handler(sigsys_handler: SignalHandler) -> Result<(), io::Error> {
+    // Safe, because this is a POD struct.
+    let mut sigact: sigaction = unsafe { mem::zeroed() };
+    sigact.sa_flags = libc::SA_SIGINFO;
+    sigact.sa_sigaction = sigsys_handler as usize;
+
+    // We set all the bits of sa_mask, so all signals are blocked on the current thread while the
+    // SIGSYS handler is executing. Safe because the parameter is valid and we check the return
+    // value.
+    if unsafe { sigfillset(&mut sigact.sa_mask as *mut sigset_t) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    // Safe because the parameters are valid and we check the return value.
+    unsafe { SyscallReturnCode(sigaction(libc::SIGSYS, &sigact, null_mut())).into_empty_result() }
 }
 
 /// Trait for threads that can be signalled via `pthread_kill`.
@@ -101,7 +95,7 @@ pub unsafe trait Killable {
     ///
     /// The value of `num + SIGRTMIN` must not exceed `SIGRTMAX`.
     fn kill(&self, num: i32) -> io::Result<()> {
-        let num = validate_signal_num(num, true)?;
+        let num = validate_vcpu_signal_num(num)?;
 
         // Safe because we ensure we are using a valid pthread handle, a valid signal number, and
         // check the return result.
@@ -119,7 +113,6 @@ unsafe impl<T> Killable for JoinHandle<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libc;
     use std::thread;
     use std::time::Duration;
 
@@ -135,25 +128,9 @@ mod tests {
     fn test_register_signal_handler() {
         unsafe {
             // testing bad value
-            assert!(register_signal_handler(
-                SIGRTMAX(),
-                SignalHandler::Siginfo(handle_signal),
-                true
-            )
-            .is_err());
-            format!(
-                "{:?}",
-                register_signal_handler(SIGRTMAX(), SignalHandler::Siginfo(handle_signal), true)
-            );
-            assert!(
-                register_signal_handler(0, SignalHandler::Siginfo(handle_signal), true).is_ok()
-            );
-            assert!(register_signal_handler(
-                libc::SIGSYS,
-                SignalHandler::Siginfo(handle_signal),
-                false
-            )
-            .is_ok());
+            assert!(register_vcpu_signal_handler(SIGRTMAX(), handle_signal).is_err());
+            assert!(register_vcpu_signal_handler(0, handle_signal).is_ok());
+            assert!(register_sigsys_handler(handle_signal).is_ok());
         }
     }
 
@@ -168,7 +145,7 @@ mod tests {
         // be brought down when the signal is received, as part of the default behaviour. Signal
         // handlers are global, so we install this before starting the thread.
         unsafe {
-            register_signal_handler(0, SignalHandler::Siginfo(handle_signal), true)
+            register_vcpu_signal_handler(0, handle_signal)
                 .expect("failed to register vcpu signal handler");
         }
 
