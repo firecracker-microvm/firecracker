@@ -10,7 +10,7 @@ use std::result::Result;
 use libc::{_exit, c_int, c_void, siginfo_t, SIGSYS};
 
 use logger::{Metric, LOGGER, METRICS};
-use sys_util::register_sigsys_handler;
+use sys_util::register_signal_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
 // expressed as an `(u)int*`.
@@ -58,7 +58,7 @@ extern "C" fn sigsys_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_v
 /// Custom handlers are installed for: `SIGSYS`.
 ///
 pub fn register_signal_handlers() -> Result<(), io::Error> {
-    register_sigsys_handler(sigsys_handler)
+    register_signal_handler(SIGSYS, sigsys_handler)
 }
 
 #[cfg(test)]

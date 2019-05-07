@@ -8,6 +8,7 @@
 use super::SyscallReturnCode;
 use libc::{
     c_int, c_void, pthread_kill, pthread_t, sigaction, sigfillset, siginfo_t, sigset_t, EINVAL,
+    SIGHUP, SIGSYS,
 };
 use std::io;
 use std::mem;
@@ -36,12 +37,12 @@ fn SIGRTMAX() -> c_int {
     unsafe { __libc_current_sigrtmax() }
 }
 
-/// Verifies that a signal number is valid.
+/// Verifies that a signal number is valid when sent to a vCPU.
 ///
 /// VCPU signals need to have values enclosed within the OS limits for realtime signals.
 ///
 /// Will return Ok(num) or Err(EINVAL).
-pub fn validate_vcpu_signal_num(num: c_int) -> io::Result<c_int> {
+fn validate_vcpu_signal_num(num: c_int) -> io::Result<c_int> {
     let actual_num = num + SIGRTMIN();
     if actual_num <= SIGRTMAX() {
         Ok(actual_num)
@@ -50,12 +51,28 @@ pub fn validate_vcpu_signal_num(num: c_int) -> io::Result<c_int> {
     }
 }
 
-/// Registers `handler` as the vCPU's signal handler of signum `num`.
+/// Verifies that a signal number is valid when sent to the process.
+///
+/// Signals can take values between `SIGHUB` and `SIGSYS`.
+///
+/// Will return Ok(num) or Err(EINVAL).
+fn validate_signal_num(num: c_int) -> io::Result<c_int> {
+    if num >= SIGHUP && num <= SIGSYS {
+        Ok(num)
+    } else {
+        Err(io::Error::from_raw_os_error(EINVAL))
+    }
+}
+
+/// Registers `handler` as the vCPU's signal handler of `signum`.
 ///
 /// This is considered unsafe because the given handler will be called asynchronously, interrupting
 /// whatever the thread was doing and therefore must only do async-signal-safe operations.
-pub unsafe fn register_vcpu_signal_handler(num: i32, handler: SignalHandler) -> io::Result<()> {
-    let num = validate_vcpu_signal_num(num)?;
+pub unsafe fn register_vcpu_signal_handler(
+    signum: c_int,
+    handler: SignalHandler,
+) -> io::Result<()> {
+    let num = validate_vcpu_signal_num(signum)?;
     // Safe, because this is a POD struct.
     let mut sigact: sigaction = mem::zeroed();
     sigact.sa_flags = libc::SA_SIGINFO;
@@ -63,12 +80,13 @@ pub unsafe fn register_vcpu_signal_handler(num: i32, handler: SignalHandler) -> 
     SyscallReturnCode(sigaction(num, &sigact, null_mut())).into_empty_result()
 }
 
-/// Registers the specified signal handler for `SIGSYS`.
-pub fn register_sigsys_handler(sigsys_handler: SignalHandler) -> Result<(), io::Error> {
+/// Registers `handler` as the process' signal handler of `signum`.
+pub fn register_signal_handler(signum: c_int, handler: SignalHandler) -> Result<(), io::Error> {
+    let num = validate_signal_num(signum)?;
     // Safe, because this is a POD struct.
     let mut sigact: sigaction = unsafe { mem::zeroed() };
     sigact.sa_flags = libc::SA_SIGINFO;
-    sigact.sa_sigaction = sigsys_handler as usize;
+    sigact.sa_sigaction = handler as usize;
 
     // We set all the bits of sa_mask, so all signals are blocked on the current thread while the
     // SIGSYS handler is executing. Safe because the parameter is valid and we check the return
@@ -78,7 +96,7 @@ pub fn register_sigsys_handler(sigsys_handler: SignalHandler) -> Result<(), io::
     }
 
     // Safe because the parameters are valid and we check the return value.
-    unsafe { SyscallReturnCode(sigaction(libc::SIGSYS, &sigact, null_mut())).into_empty_result() }
+    unsafe { SyscallReturnCode(sigaction(num, &sigact, null_mut())).into_empty_result() }
 }
 
 /// Trait for threads that can be signalled via `pthread_kill`.
@@ -116,6 +134,8 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    use libc::SIGSYS;
+
     static mut SIGNAL_HANDLER_CALLED: bool = false;
 
     extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
@@ -130,7 +150,8 @@ mod tests {
             // testing bad value
             assert!(register_vcpu_signal_handler(SIGRTMAX(), handle_signal).is_err());
             assert!(register_vcpu_signal_handler(0, handle_signal).is_ok());
-            assert!(register_sigsys_handler(handle_signal).is_ok());
+            assert!(register_signal_handler(SIGSYS, handle_signal).is_ok());
+            assert!(register_signal_handler(SIGSYS + 1, handle_signal).is_err());
         }
     }
 
