@@ -833,13 +833,18 @@ impl Vmm {
             if !self.block_device_configs.has_partuuid_root() {
                 kernel_config
                     .cmdline
-                    .insert_str(" root=/dev/vda")
+                    .insert_str("root=/dev/vda")
                     .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
 
                 if self.block_device_configs.has_read_only_root() {
                     kernel_config
                         .cmdline
-                        .insert_str(" ro")
+                        .insert_str("ro")
+                        .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
+                } else {
+                    kernel_config
+                        .cmdline
+                        .insert_str("rw")
                         .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
                 }
             }
@@ -862,7 +867,7 @@ impl Vmm {
                 kernel_config
                     .cmdline
                     .insert_str(format!(
-                        " root=PARTUUID={}",
+                        "root=PARTUUID={}",
                         //The unwrap is safe as we are firstly checking that partuuid is_some().
                         drive_config.get_partuuid().unwrap()
                     ))
@@ -870,7 +875,12 @@ impl Vmm {
                 if drive_config.is_read_only {
                     kernel_config
                         .cmdline
-                        .insert_str(" ro")
+                        .insert_str("ro")
+                        .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
+                } else {
+                    kernel_config
+                        .cmdline
+                        .insert_str("rw")
                         .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
                 }
             }
@@ -2780,7 +2790,7 @@ mod tests {
             .expect("Cannot initialize mmio device manager");
 
         assert!(vmm.attach_block_devices().is_ok());
-        assert!(vmm.get_kernel_cmdline_str().contains("root=/dev/vda"));
+        assert!(vmm.get_kernel_cmdline_str().contains("root=/dev/vda rw"));
 
         // Use Case 2: Root Block Device is specified through PARTUUID.
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
@@ -2805,7 +2815,7 @@ mod tests {
         assert!(vmm.attach_block_devices().is_ok());
         assert!(vmm
             .get_kernel_cmdline_str()
-            .contains("root=PARTUUID=0eaa91a0-01"));
+            .contains("root=PARTUUID=0eaa91a0-01 rw"));
 
         // Use Case 3: Root Block Device is not added at all.
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
