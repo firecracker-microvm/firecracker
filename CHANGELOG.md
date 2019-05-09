@@ -6,6 +6,8 @@
 
 - Added an experimental swagger definition that includes the specification for
   the vsock API call.
+- Added a signal handler for `SIGBUS` and `SIGSEGV` that immediately terminates
+  the process upon intercepting the signal.
 
 ## [0.16.0]
 
