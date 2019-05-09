@@ -74,7 +74,7 @@ pub enum StartMicrovmError {
     /// Cannot add devices to the Legacy I/O Bus.
     LegacyIOBus(device_manager::legacy::Error),
     /// Cannot load command line string.
-    LoadCommandline(kernel_loader::Error),
+    LoadCommandline(kernel::cmdline::Error),
     /// The start command was issued more than once.
     MicroVMAlreadyRunning,
     /// Cannot start the VM because the kernel was not configured.

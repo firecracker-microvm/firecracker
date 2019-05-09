@@ -5,12 +5,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+//! Helper for loading a kernel image in the guest memory.
+
 use std;
-use std::ffi::CStr;
+use std::ffi::CString;
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
+use super::cmdline::Error as CmdlineError;
 use memory_model::{GuestAddress, GuestMemory};
 use sys_util;
 
@@ -22,8 +25,6 @@ mod elf;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     BigEndianElfOnLittle,
-    CommandLineCopy,
-    CommandLineOverflow,
     InvalidElfMagicNumber,
     InvalidEntryAddress,
     InvalidProgramHeaderSize,
@@ -44,8 +45,6 @@ impl fmt::Display for Error {
             "{}",
             match *self {
                 Error::BigEndianElfOnLittle => "Unsupported ELF File byte order",
-                Error::CommandLineCopy => "Failed to copy the command line string to guest memory",
-                Error::CommandLineOverflow => "Command line string overflows guest memory",
                 Error::InvalidElfMagicNumber => "Invalid ELF magic number",
                 Error::InvalidEntryAddress => "Invalid entry address found in ELF header",
                 Error::InvalidProgramHeaderSize => "Invalid ELF program header size",
@@ -233,33 +232,34 @@ where
 ///
 /// * `guest_mem` - A u8 slice that will be partially overwritten by the command line.
 /// * `guest_addr` - The address in `guest_mem` at which to load the command line.
-/// * `cmdline` - The kernel command line.
+/// * `cmdline` - The kernel command line as CString.
 pub fn load_cmdline(
     guest_mem: &GuestMemory,
     guest_addr: GuestAddress,
-    cmdline: &CStr,
-) -> Result<()> {
-    let len = cmdline.to_bytes().len();
-    if len == 0 {
+    cmdline: &CString,
+) -> std::result::Result<(), CmdlineError> {
+    let raw_cmdline = cmdline.as_bytes_with_nul();
+    if raw_cmdline.len() <= 1 {
         return Ok(());
     }
 
     let end = guest_addr
-        .checked_add(len + 1)
-        .ok_or(Error::CommandLineOverflow)?; // Extra for null termination.
+        .checked_add(raw_cmdline.len())
+        .ok_or(CmdlineError::CommandLineOverflow)?; // Extra for null termination.
     if end > guest_mem.end_addr() {
-        return Err(Error::CommandLineOverflow)?;
+        return Err(CmdlineError::CommandLineOverflow)?;
     }
 
     guest_mem
-        .write_slice_at_addr(cmdline.to_bytes_with_nul(), guest_addr)
-        .map_err(|_| Error::CommandLineCopy)?;
+        .write_slice_at_addr(raw_cmdline, guest_addr)
+        .map_err(|_| CmdlineError::CommandLineCopy)?;
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::cmdline::Cmdline;
     use super::*;
     use memory_model::{GuestAddress, GuestMemory};
     use std::io::Cursor;
@@ -347,6 +347,19 @@ mod tests {
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
+    fn test_bad_kernel_phsize() {
+        // program header has to be past the end of the elf header
+        let gm = create_guest_mem();
+        let mut bad_image = make_test_bin();
+        bad_image[0x36] = 0x10;
+        assert_eq!(
+            Err(Error::InvalidProgramHeaderSize),
+            load_kernel(&gm, &mut Cursor::new(&bad_image), 0)
+        );
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
     fn test_bad_kernel_phoff() {
         // program header has to be past the end of the elf header
         let gm = create_guest_mem();
@@ -358,17 +371,28 @@ mod tests {
         );
     }
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn test_bad_kernel_invalid_entry() {
+        // program header has to be past the end of the elf header
+        let gm = create_guest_mem();
+        let bad_image = make_test_bin();
+        assert_eq!(
+            Err(Error::InvalidEntryAddress),
+            load_kernel(&gm, &mut Cursor::new(&bad_image), std::usize::MAX)
+        );
+    }
+
     #[test]
     fn test_cmdline_overflow() {
         let gm = create_guest_mem();
         let cmdline_address = GuestAddress(MEM_SIZE - 5);
+        let mut cmdline = Cmdline::new(10);
+        cmdline.insert_str("12345").unwrap();
+        let cmdline = cmdline.as_cstring().unwrap();
         assert_eq!(
-            Err(Error::CommandLineOverflow),
-            load_cmdline(
-                &gm,
-                cmdline_address,
-                CStr::from_bytes_with_nul(b"12345\0").unwrap(),
-            )
+            Err(CmdlineError::CommandLineOverflow),
+            load_cmdline(&gm, cmdline_address, &cmdline)
         );
     }
 
@@ -376,14 +400,10 @@ mod tests {
     fn test_cmdline_write_end() {
         let gm = create_guest_mem();
         let mut cmdline_address = GuestAddress(45);
-        assert_eq!(
-            Ok(()),
-            load_cmdline(
-                &gm,
-                cmdline_address,
-                CStr::from_bytes_with_nul(b"1234\0").unwrap(),
-            )
-        );
+        let mut cmdline = Cmdline::new(10);
+        cmdline.insert_str("1234").unwrap();
+        let cmdline = cmdline.as_cstring().unwrap();
+        assert_eq!(Ok(()), load_cmdline(&gm, cmdline_address, &cmdline));
         let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
         assert_eq!(val, b'1');
         cmdline_address = cmdline_address.unchecked_add(1);
