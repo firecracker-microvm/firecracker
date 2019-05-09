@@ -40,10 +40,14 @@ fn SIGRTMAX() -> c_int {
 /// Verifies that a signal number is valid when sent to a vCPU.
 ///
 /// VCPU signals need to have values enclosed within the OS limits for realtime signals.
+/// Returns either `Ok(num)` or `Err(EINVAL)`.
 ///
-/// Will return Ok(num) or Err(EINVAL).
-fn validate_vcpu_signal_num(num: c_int) -> io::Result<c_int> {
-    let actual_num = num + SIGRTMIN();
+/// # Arguments
+///
+/// * `signum`: signal number.
+///
+fn validate_vcpu_signal_num(signum: c_int) -> io::Result<c_int> {
+    let actual_num = signum + SIGRTMIN();
     if actual_num <= SIGRTMAX() {
         Ok(actual_num)
     } else {
@@ -54,8 +58,12 @@ fn validate_vcpu_signal_num(num: c_int) -> io::Result<c_int> {
 /// Verifies that a signal number is valid when sent to the process.
 ///
 /// Signals can take values between `SIGHUB` and `SIGSYS`.
+/// Returns either `Ok(num)` or `Err(EINVAL)`.
 ///
-/// Will return Ok(num) or Err(EINVAL).
+/// # Arguments
+///
+/// * `signum`: signal number.
+///
 fn validate_signal_num(num: c_int) -> io::Result<c_int> {
     if num >= SIGHUP && num <= SIGSYS {
         Ok(num)
@@ -68,6 +76,34 @@ fn validate_signal_num(num: c_int) -> io::Result<c_int> {
 ///
 /// This is considered unsafe because the given handler will be called asynchronously, interrupting
 /// whatever the thread was doing and therefore must only do async-signal-safe operations.
+///
+/// # Arguments
+///
+/// * `signum`: signal number.
+/// * `handler`: signal handler functor.
+///
+/// # Example
+///
+/// ```
+/// extern crate libc;
+/// extern crate sys_util;
+///
+/// use libc::{c_int, c_void, raise, siginfo_t};
+/// use sys_util::register_vcpu_signal_handler;
+///
+/// extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {}
+/// extern "C" { fn __libc_current_sigrtmin() -> c_int; }
+///
+/// fn main() {
+///     // Register dummy signal handler for `SIGRTMIN`.
+///     assert!(unsafe { register_vcpu_signal_handler(0, handle_signal).is_ok() });
+///     // Raise `SIGRTMIN`.
+///     unsafe { raise(__libc_current_sigrtmin()); }
+///     // Assert that the process is still alive.
+///     assert!(true);
+/// }
+/// ```
+///
 pub unsafe fn register_vcpu_signal_handler(
     signum: c_int,
     handler: SignalHandler,
@@ -81,6 +117,34 @@ pub unsafe fn register_vcpu_signal_handler(
 }
 
 /// Registers `handler` as the process' signal handler of `signum`.
+///
+/// # Arguments
+///
+/// * `signum`: signal number.
+/// * `handler`: signal handler functor.
+///
+/// # Example
+///
+/// ```
+/// extern crate libc;
+/// extern crate sys_util;
+///
+/// use std::sync::atomic::{AtomicBool, Ordering, ATOMIC_BOOL_INIT};
+/// use libc::{c_int, c_void, raise, siginfo_t, SIGUSR1};
+/// use sys_util::register_signal_handler;
+///
+/// static HANDLER_CALLED: AtomicBool = ATOMIC_BOOL_INIT;
+/// extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
+///     HANDLER_CALLED.store(true, Ordering::SeqCst);
+/// }
+///
+/// fn main() {
+///     assert!(unsafe { register_signal_handler(SIGUSR1, handle_signal).is_ok() });
+///     unsafe { raise(SIGUSR1); }
+///     assert!(HANDLER_CALLED.load(Ordering::SeqCst));
+/// }
+/// ```
+///
 pub fn register_signal_handler(signum: c_int, handler: SignalHandler) -> Result<(), io::Error> {
     let num = validate_signal_num(signum)?;
     // Safe, because this is a POD struct.

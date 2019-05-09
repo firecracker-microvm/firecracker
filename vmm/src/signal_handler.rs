@@ -21,6 +21,11 @@ const SI_OFF_SYSCALL: isize = 6;
 
 const SYS_SECCOMP_CODE: i32 = 1;
 
+/// Signal handler for `SIGSYS`.
+///
+/// Increments the `seccomp.num_faults` metric, logs an error message and terminates the process
+/// with a specific exit code.
+///
 extern "C" fn sigsys_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) {
     // Safe because we're just reading some fields from a supposedly valid argument.
     let si_signo = unsafe { (*info).si_signo };
@@ -53,6 +58,10 @@ extern "C" fn sigsys_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_v
     };
 }
 
+/// Signal handler for `SIGBUS` and `SIGSEGV`.
+///
+/// Logs an error message and terminates the process with a specific exit code.
+///
 extern "C" fn sigbus_sigsegv_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) {
     // Safe because we're just reading some fields from a supposedly valid argument.
     let si_signo = unsafe { (*info).si_signo };
