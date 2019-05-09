@@ -47,7 +47,6 @@ mod vstate;
 
 use futures::sync::oneshot;
 use std::collections::HashMap;
-use std::ffi::CString;
 use std::fmt::{Display, Formatter};
 use std::fs::{metadata, File, OpenOptions};
 use std::io;
@@ -316,7 +315,7 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             | StartMicrovmError::VcpuSpawn(_) => ErrorKind::Internal,
             // The only user `LoadCommandline` error is `CommandLineOverflow`.
             StartMicrovmError::LoadCommandline(ref cle) => match cle {
-                kernel_loader::Error::CommandLineOverflow => ErrorKind::User,
+                kernel::cmdline::Error::CommandLineOverflow => ErrorKind::User,
                 _ => ErrorKind::Internal,
             },
         };
@@ -1209,14 +1208,10 @@ impl Vmm {
 
     fn load_kernel(&mut self) -> std::result::Result<GuestAddress, StartMicrovmError> {
         // This is the easy way out of consuming the value of the kernel_cmdline.
-        // TODO: refactor the kernel_cmdline struct in order to have a CString instead of a String.
         let kernel_config = self
             .kernel_config
             .as_mut()
             .ok_or(StartMicrovmError::MissingKernelConfig)?;
-        let cmdline_cstring = CString::new(kernel_config.cmdline.clone()).map_err(|_| {
-            StartMicrovmError::KernelCmdline(kernel_cmdline::Error::InvalidAscii.to_string())
-        })?;
 
         // It is safe to unwrap because the VM memory was initialized before in vm.memory_init().
         let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
@@ -1231,8 +1226,15 @@ impl Vmm {
 
         // This is x86_64 specific since on aarch64 the commandline will be specified through the FDT.
         #[cfg(target_arch = "x86_64")]
-        kernel_loader::load_cmdline(vm_memory, kernel_config.cmdline_addr, &cmdline_cstring)
-            .map_err(StartMicrovmError::LoadCommandline)?;
+        kernel_loader::load_cmdline(
+            vm_memory,
+            kernel_config.cmdline_addr,
+            &kernel_config
+                .cmdline
+                .as_cstring()
+                .map_err(StartMicrovmError::LoadCommandline)?,
+        )
+        .map_err(StartMicrovmError::LoadCommandline)?;
 
         Ok(entry_addr)
     }
@@ -1242,9 +1244,6 @@ impl Vmm {
             .kernel_config
             .as_mut()
             .ok_or(StartMicrovmError::MissingKernelConfig)?;
-        let cmdline_cstring = CString::new(kernel_config.cmdline.clone()).map_err(|_| {
-            StartMicrovmError::KernelCmdline(kernel_cmdline::Error::InvalidAscii.to_string())
-        })?;
 
         let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
             memory_model::GuestMemoryError::MemoryNotInitialized,
@@ -1259,14 +1258,21 @@ impl Vmm {
         arch::x86_64::configure_system(
             vm_memory,
             kernel_config.cmdline_addr,
-            cmdline_cstring.to_bytes().len() + 1,
+            kernel_config.cmdline.len() + 1,
             vcpu_count,
         )
         .map_err(StartMicrovmError::ConfigureSystem)?;
 
         #[cfg(target_arch = "aarch64")]
-        arch::aarch64::configure_system(vm_memory, &cmdline_cstring, vcpu_count)
-            .map_err(StartMicrovmError::ConfigureSystem)?;
+        arch::aarch64::configure_system(
+            vm_memory,
+            &kernel_config
+                .cmdline
+                .as_cstring()
+                .map_err(StartMicrovmError::LoadCommandline)?,
+            vcpu_count,
+        )
+        .map_err(StartMicrovmError::ConfigureSystem)?;
         Ok(())
     }
 
@@ -3385,7 +3391,7 @@ mod tests {
         );
         assert_eq!(
             error_kind(StartMicrovmError::KernelLoader(
-                kernel_loader::Error::CommandLineOverflow
+                kernel_loader::Error::SeekKernelImage
             )),
             ErrorKind::User
         );
@@ -3397,7 +3403,7 @@ mod tests {
         );
         assert_eq!(
             error_kind(StartMicrovmError::LoadCommandline(
-                kernel_loader::Error::CommandLineOverflow
+                kernel::cmdline::Error::CommandLineOverflow
             )),
             ErrorKind::User
         );

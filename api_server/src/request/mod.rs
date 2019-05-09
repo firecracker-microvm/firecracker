@@ -324,12 +324,12 @@ mod tests {
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
-            StartMicrovmError::LoadCommandline(kernel::loader::Error::CommandLineCopy),
+            StartMicrovmError::LoadCommandline(kernel::cmdline::Error::CommandLineCopy),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
-            StartMicrovmError::LoadCommandline(kernel::loader::Error::CommandLineOverflow),
+            StartMicrovmError::LoadCommandline(kernel::cmdline::Error::CommandLineOverflow),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(

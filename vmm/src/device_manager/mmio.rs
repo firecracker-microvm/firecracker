@@ -330,7 +330,10 @@ mod tests {
         );
         assert_eq!(
             format!("{}", e),
-            "unable to add device to kernel command line: string contains an equals sign"
+            format!(
+                "unable to add device to kernel command line: {}",
+                kernel_cmdline::Error::HasEquals
+            ),
         );
         assert_eq!(
             format!("{}", Error::UpdateFailed),
