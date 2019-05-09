@@ -1,0 +1,661 @@
+swagger: "2.0"
+info:
+  title: Firecracker API
+  description: RESTful public-facing API.
+               The API is accessible through HTTP calls on specific URLs
+               carrying JSON modeled data.
+               The transport medium is a Unix Domain Socket.
+               This API has definitions for experimental features like vsock.
+  version: 0.16.0
+  termsOfService: ""
+  contact:
+    email: "compute-capsule@amazon.com"
+  license:
+    name: "Apache 2.0"
+    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
+
+host: "localhost"
+basePath: "/"
+
+schemes:
+  - http
+consumes:
+  - application/json
+produces:
+  - application/json
+
+paths:
+  /:
+    get:
+      summary: Returns general information about an instance.
+      operationId: describeInstance
+      responses:
+        200:
+          description: The instance information
+          schema:
+            $ref: "#/definitions/InstanceInfo"
+        default:
+          description: Internal Server Error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /actions:
+    put:
+      summary: Creates a synchronous action.
+      operationId: createSyncAction
+      parameters:
+      - name: info
+        in: body
+        required: true
+        schema:
+          $ref: "#/definitions/InstanceActionInfo"
+      responses:
+        204:
+          description: The update was successful
+        400:
+          description: The action cannot be executed due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal Server Error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /boot-source:
+    put:
+      summary: Creates or updates the boot source.
+      description:
+        Creates new boot source if one does not already exist, otherwise updates it.
+        Will fail if update is not possible.
+        Note that the only currently supported boot source is LocalImage.
+      operationId: putGuestBootSource
+      parameters:
+      - name: body
+        in: body
+        description: Guest boot source properties
+        required: true
+        schema:
+          $ref: "#/definitions/BootSource"
+      responses:
+        204:
+          description: Boot source created/updated
+        400:
+          description: Boot source cannot be created due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /drives/{drive_id}:
+    put:
+      summary: Creates or updates a drive.
+      description:
+        Creates new drive with ID specified by drive_id path parameter.
+        If a drive with the specified ID already exists, updates its state based on new input.
+        Will fail if update is not possible.
+      operationId: putGuestDriveByID
+      parameters:
+      - name: drive_id
+        in: path
+        description: The id of the guest drive
+        required: true
+        type: string
+      - name: body
+        in: body
+        description: Guest drive properties
+        required: true
+        schema:
+          $ref: "#/definitions/Drive"
+      responses:
+        204:
+          description: Drive created/updated
+        400:
+          description: Drive cannot be created/updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
+    patch:
+      summary: Updates the properties of a drive.
+      description:
+        Updates the properties of the drive with the ID specified by drive_id path parameter.
+        Will fail if update is not possible.
+      operationId: patchGuestDriveByID
+      parameters:
+      - name: drive_id
+        in: path
+        description: The id of the guest drive
+        required: true
+        type: string
+      - name: body
+        in: body
+        description: Guest drive properties
+        required: true
+        schema:
+          $ref: "#/definitions/PartialDrive"
+      responses:
+        204:
+          description: Drive updated
+        400:
+          description: Drive cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
+
+  /logger:
+      put:
+        summary: Initializes the logger by specifying two named pipes (i.e. for the logs and metrics output).
+        operationId: putLogger
+        parameters:
+        - name: body
+          in: body
+          description: Logging system description
+          required: true
+          schema:
+            $ref: "#/definitions/Logger"
+        responses:
+          204:
+            description: Logger created.
+          400:
+            description: Logger cannot be initialized due to bad input.
+            schema:
+              $ref: "#/definitions/Error"
+          default:
+            description: Internal server error.
+            schema:
+              $ref: "#/definitions/Error"
+
+  /machine-config:
+    get:
+      summary: Gets the machine configuration of the VM.
+      description:
+        Gets the machine configuration of the VM. When called before the PUT operation, it
+        will return the default values for the vCPU count (=1), memory size (=128 MiB).
+        By default Hyperthreading is disabled and there is no CPU Template.
+      operationId: getMachineConfiguration
+      responses:
+        200:
+          description: OK
+          schema:
+            $ref: "#/definitions/MachineConfiguration"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+    put:
+      summary: Updates the Machine Configuration of the VM.
+      description:
+        Updates the Virtual Machine Configuration with the specified input.
+        Firecracker starts with default values for vCPU count (=1) and memory size (=128 MiB).
+        With Hyperthreading enabled, the vCPU count is restricted to be 1 or an even number,
+        otherwise there are no restrictions regarding the vCPU count.
+        If any of the parameters has an incorrect value, the whole update fails.
+      operationId: putMachineConfiguration
+      parameters:
+      - name: body
+        in: body
+        description: Machine Configuration Parameters
+        schema:
+          $ref: "#/definitions/MachineConfiguration"
+      responses:
+        204:
+          description: Machine Configuration created/updated
+        400:
+          description: Machine Configuration cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+    patch:
+      summary: Partially updates the Machine Configuration of the VM.
+      description:
+        Partially updates the Virtual Machine Configuration with the specified input.
+        If any of the parameters has an incorrect value, the whole update fails.
+      operationId: patchMachineConfiguration
+      parameters:
+      - name: body
+        in: body
+        description: A subset of Machine Configuration Parameters
+        schema:
+          $ref: "#/definitions/MachineConfiguration"
+      responses:
+        204:
+          description: Machine Configuration created/updated
+        400:
+          description: Machine Configuration cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /mmds:
+    put:
+      summary: Creates a MMDS (Microvm Metadata Service) data store.
+      parameters:
+        - name: body
+          in: body
+          description: The MMDS data store as JSON.
+          schema:
+            type: object
+      responses:
+        204:
+          description: MMDS data store created/updated.
+        400:
+          description: MMDS data store cannot be created due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    patch:
+      summary: Updates the MMDS data store.
+      parameters:
+        - name: body
+          in: body
+          description: The MMDS data store patch JSON.
+          schema:
+            type: object
+      responses:
+        204:
+          description: MMDS data store updated.
+        400:
+          description: MMDS data store cannot be updated due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    get:
+      summary: Get the MMDS data store.
+      responses:
+        200:
+          description: The MMDS data store JSON.
+          schema:
+            type: object
+        400:
+          description: Cannot get the MMDS data store due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /network-interfaces/{iface_id}:
+    put:
+      summary: Creates a network interface.
+      description:
+        Creates new network interface with ID specified by iface_id path parameter.
+      operationId: putGuestNetworkInterfaceByID
+      parameters:
+      - name: iface_id
+        in: path
+        description: The id of the guest network interface
+        required: true
+        type: string
+      - name: body
+        in: body
+        description: Guest network interface properties
+        required: true
+        schema:
+          $ref: "#/definitions/NetworkInterface"
+      responses:
+        204:
+          description: Network interface created/updated
+        400:
+          description: Network interface cannot be created due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    patch:
+      summary: Updates the rate limiters applied to a network interface.
+      description:
+        Updates the rate limiters applied to a network interface.
+      operationId: patchGuestNetworkInterfaceByID
+      parameters:
+        - name: iface_id
+          in: path
+          description: The id of the guest network interface
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: A subset of the guest network interface properties
+          required: true
+          schema:
+            $ref: "#/definitions/PartialNetworkInterface"
+      responses:
+        204:
+          description: Network interface updated
+        400:
+          description: Network interface cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+    /vsocks/{id}:
+      put:
+        summary: Creates new vsock with ID specified by the id parameter.
+        description:
+          If the vsock device with the specified ID already exists, its body will
+          be updated based on the new input. May fail if update is not possible.
+        operationId: putGuestVsockByID
+        parameters:
+        - name: id
+          in: path
+          description: The id of the vsock device
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Guest vsock properties
+          required: true
+          schema:
+            $ref: "#/definitions/Vsock"
+        responses:
+          201:
+            description: Vsock created
+          204:
+            description: Vsock updated
+          400:
+            description: Vsock cannot be created due to bad input
+            schema:
+              $ref: "#/definitions/Error"
+          default:
+            description: Internal server error
+            schema:
+              $ref: "#/definitions/Error"
+
+definitions:
+  BootSource:
+    type: object
+    required:
+      - kernel_image_path
+    description:
+      Boot source descriptor.
+    properties:
+      kernel_image_path:
+        type: string
+        description: Host level path to the kernel image used to boot the guest
+      boot_args:
+        type: string
+        description: Kernel boot arguments
+
+  CpuTemplate:
+    type: string
+    description:
+      The CPU Template defines a set of flags to be disabled from the microvm so that
+      the features exposed to the guest are the same as in the selected instance type.
+    enum:
+      - C3
+      - T2
+
+  Drive:
+    type: object
+    required:
+      - drive_id
+      - path_on_host
+      - is_root_device
+      - is_read_only
+    properties:
+      drive_id:
+        type: string
+      path_on_host:
+        type: string
+        description: Host level path for the guest drive
+      is_root_device:
+        type: boolean
+      partuuid:
+        type: string
+        description:
+          Represents the unique id of the boot partition of this device. It is
+          optional and it will be taken into account only if the is_root_device
+          field is true.
+      is_read_only:
+        type: boolean
+      rate_limiter:
+        $ref: "#/definitions/RateLimiter"
+
+  Error:
+    type: object
+    properties:
+      fault_message:
+        type: string
+        description: A description of the error condition
+        readOnly: true
+
+  InstanceActionInfo:
+    type: object
+    description:
+      Variant wrapper containing the real action.
+    required:
+      - action_type
+    properties:
+      action_type:
+        description: Enumeration indicating what type of action is contained in the payload
+        type: string
+        enum:
+        - BlockDeviceRescan
+        - FlushMetrics
+        - InstanceStart
+        - SendCtrlAltDel
+      payload:
+        type: string
+
+  InstanceInfo:
+    type: object
+    description:
+      Describes MicroVM instance information.
+    required:
+      - id
+      - state
+      - vmm_version
+    properties:
+      id:
+        description: MicroVM / instance ID.
+        type: string
+      state:
+        description:
+          The current detailed state of the Firecracker instance.
+          This value is read-only for the control-plane.
+        type: string
+        enum:
+          - Uninitialized
+          - Starting
+          - Running
+          - Halting
+          - Halted
+      vmm_version:
+        description: MicroVM hypervisor build version.
+        type: string
+
+  Logger:
+    type: object
+    description:
+      Describes the configuration option for the logging capability.
+    required:
+      - log_fifo
+      - metrics_fifo
+    properties:
+      log_fifo:
+        type: string
+        description: The named pipe for the human readable log output.
+      metrics_fifo:
+        type: string
+        description: The named pipe where the JSON-formatted metrics will be flushed.
+      level:
+        type: string
+        description: Set the level.
+        enum: [Error, Warning, Info, Debug]
+        default: Warning
+      show_level:
+        type: boolean
+        description: Whether or not to output the level in the logs.
+        default: false
+      show_log_origin:
+        type: boolean
+        description: Whether or not to include the file path and line number of the log's origin.
+        default: false
+      options:
+        type: array
+        items:
+          type: string
+        description: Additional logging options. Only "LogDirtyPages" is supported.
+        default: []
+
+  MachineConfiguration:
+    type: object
+    description:
+      Describes the number of vCPUs, memory size, Hyperthreading capabilities and
+      the CPU template.
+    required:
+      - vcpu_count
+      - mem_size_mib
+      - ht_enabled
+    properties:
+      vcpu_count:
+        type: integer
+        minimum: 1
+        maximum: 32
+        description: Number of vCPUs (either 1 or an even number)
+      mem_size_mib:
+        type: integer
+        description: Memory size of VM
+      ht_enabled:
+        type: boolean
+        description: Flag for enabling/disabling Hyperthreading
+      cpu_template:
+        $ref: "#/definitions/CpuTemplate"
+
+  NetworkInterface:
+    type: object
+    description:
+      Defines a network interface.
+    required:
+      - iface_id
+      - host_dev_name
+    properties:
+      iface_id:
+        type: string
+      guest_mac:
+        type: string
+      host_dev_name:
+        type: string
+        description: Host level path for the guest network interface
+      allow_mmds_requests:
+        type: boolean
+        description:
+          If this field is set, the device model will reply to HTTP GET
+          requests sent to the MMDS address via this interface. In this case,
+          both ARP requests for 169.254.169.254 and TCP segments heading to the
+          same address are intercepted by the device model, and do not reach
+          the associated TAP device.
+      rx_rate_limiter:
+        $ref: "#/definitions/RateLimiter"
+      tx_rate_limiter:
+        $ref: "#/definitions/RateLimiter"
+
+  PartialDrive:
+    type: object
+    required:
+      - drive_id
+      - path_on_host
+    properties:
+      drive_id:
+        type: string
+      path_on_host:
+        type: string
+        description: Host level path for the guest drive
+
+  PartialNetworkInterface:
+    type: object
+    description:
+      Defines a partial network interface structure, used to update the rate limiters
+      for that interface, after microvm start.
+    required:
+      - iface_id
+    properties:
+      iface_id:
+        type: string
+      rx_rate_limiter:
+        $ref: "#/definitions/RateLimiter"
+      tx_rate_limiter:
+        $ref: "#/definitions/RateLimiter"
+
+  RateLimiter:
+    type: object
+    description:
+      Defines an IO rate limiter with independent bytes/s and ops/s limits.
+      Limits are defined by configuring each of the _bandwidth_ and _ops_ token buckets.
+    properties:
+      bandwidth:
+        $ref: "#/definitions/TokenBucket"
+        description: Token bucket with bytes as tokens
+      ops:
+        $ref: "#/definitions/TokenBucket"
+        description: Token bucket with operations as tokens
+
+  TokenBucket:
+    type: object
+    description:
+      Defines a token bucket with a maximum capacity (size), an initial burst size
+      (one_time_burst) and an interval for refilling purposes (refill_time).
+      The refill-rate is derived from size and refill_time, and it is the constant
+      rate at which the tokens replenish. The refill process only starts happening after
+      the initial burst budget is consumed.
+      Consumption from the token bucket is unbounded in speed which allows for bursts
+      bound in size by the amount of tokens available.
+      Once the token bucket is empty, consumption speed is bound by the refill_rate.
+    required:
+      - size
+      - refill_time
+    properties:
+      size:
+        type: integer
+        format: int64
+        description: The total number of tokens this bucket can hold.
+        minimum: 0
+      one_time_burst:
+        type: integer
+        format: int64
+        description: The initial size of a token bucket.
+        minimum: 0
+      refill_time:
+        type: integer
+        format: int64
+        description: The amount of milliseconds it takes for the bucket to refill.
+        minimum: 0
+
+    Vsock:
+      type: object
+      required:
+        - id
+        - guest_cid
+      properties:
+        id:
+          type: string
+        guest_cid:
+          type: integer
+          minimum: 3
+          description: Guest Vsock CID
