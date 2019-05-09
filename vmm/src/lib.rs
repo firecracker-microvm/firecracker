@@ -3408,6 +3408,12 @@ mod tests {
             ErrorKind::User
         );
         assert_eq!(
+            error_kind(StartMicrovmError::LoadCommandline(
+                kernel::cmdline::Error::CommandLineCopy
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
             error_kind(StartMicrovmError::MicroVMAlreadyRunning),
             ErrorKind::User
         );
@@ -3542,6 +3548,7 @@ mod tests {
 
         // Enum `ErrorKind`
 
+        assert_ne!(ErrorKind::User, ErrorKind::Internal);
         assert_eq!(format!("{:?}", ErrorKind::User), "User");
         assert_eq!(format!("{:?}", ErrorKind::Internal), "Internal");
 
@@ -3610,6 +3617,21 @@ mod tests {
                 )
             ),
             "SendCtrlAltDel(User, InternalBufferFull)"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                VmmActionError::SendCtrlAltDel(
+                    ErrorKind::User,
+                    I8042DeviceError::InternalBufferFull
+                )
+            ),
+            I8042DeviceError::InternalBufferFull.to_string()
+        );
+        assert_eq!(
+            VmmActionError::SendCtrlAltDel(ErrorKind::User, I8042DeviceError::InternalBufferFull)
+                .kind(),
+            &ErrorKind::User
         );
         #[cfg(feature = "vsock")]
         assert_eq!(
