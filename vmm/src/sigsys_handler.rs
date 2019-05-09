@@ -88,9 +88,8 @@ mod tests {
     use super::*;
 
     use std::mem;
-    use std::process;
 
-    use libc::cpu_set_t;
+    use libc::{cpu_set_t, syscall};
 
     use seccomp::{allow_syscall, SeccompAction, SeccompFilter};
 
@@ -144,8 +143,8 @@ mod tests {
         assert!(filter.apply().is_ok());
         assert_eq!(METRICS.seccomp.num_faults.count(), 0);
 
-        // Calls the blacklisted SYS_getpid.
-        let _pid = process::id();
+        // Call the blacklisted `SYS_mkdir`.
+        unsafe { syscall(libc::SYS_mkdir, "/foo/bar\0") };
 
         assert!(cpu_count() > 0);
 
