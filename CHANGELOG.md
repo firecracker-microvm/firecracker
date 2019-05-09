@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added an experimental swagger definition that includes the specification for
+  the vsock API call.
+
 ## [0.16.0]
 
 ### Added
