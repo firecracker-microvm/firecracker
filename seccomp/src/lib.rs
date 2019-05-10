@@ -60,7 +60,10 @@
 //!             allow_syscall(libc::SYS_close),
 //!             allow_syscall(libc::SYS_execve),
 //!             allow_syscall(libc::SYS_exit_group),
+//!             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 //!             allow_syscall(libc::SYS_open),
+//!             #[cfg(target_arch = "aarch64")]
+//!             allow_syscall(libc::SYS_openat),
 //!             allow_syscall(libc::SYS_read),
 //!         ]
 //!         .into_iter()
@@ -148,7 +151,10 @@
 //!         allow_syscall(libc::SYS_execve),
 //!         allow_syscall(libc::SYS_exit_group),
 //!         allow_syscall(libc::SYS_munmap),
+//!         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 //!         allow_syscall(libc::SYS_open),
+//!         #[cfg(target_arch = "aarch64")]
+//!         allow_syscall(libc::SYS_openat),
 //!         allow_syscall(libc::SYS_rt_sigreturn),
 //!         allow_syscall(libc::SYS_sigaltstack),
 //!     ]
