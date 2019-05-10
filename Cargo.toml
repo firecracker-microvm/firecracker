@@ -4,6 +4,7 @@ version = "0.16.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
+backtrace = {version = "0.3", features = ["libunwind", "libbacktrace"], default-features = false}
 chrono = ">=0.4"
 clap = "=2.27.1"
 
@@ -14,9 +15,6 @@ logger = { path = "logger" }
 mmds = { path = "mmds" }
 seccomp = { path = "seccomp" }
 vmm = { path = "vmm" }
-
-[target.'cfg(target_arch = "x86_64")'.dependencies]
-backtrace = {version = "0.3", features = ["libunwind", "libbacktrace"], default-features = false}
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
