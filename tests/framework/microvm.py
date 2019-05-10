@@ -249,6 +249,10 @@ class Microvm:
         self._api_socket = self._jailer.api_socket_path()
         self._api_session = Session()
 
+        # Don't time requests on vsock builds.
+        if self.build_feature == 'vsock':
+            self._api_session.untime()
+
         self.actions = Actions(self._api_socket, self._api_session)
         self.boot = BootSource(self._api_socket, self._api_session)
         self.drive = Drive(self._api_socket, self._api_session)
