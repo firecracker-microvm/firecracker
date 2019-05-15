@@ -361,17 +361,14 @@ mod tests {
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
-            StartMicrovmError::KernelLoader(kernel::loader::Error::ReadElfHeader),
+            StartMicrovmError::KernelLoader(kernel::loader::Error::ReadKernelDataStruct(
+                "Failed to read data structure from kernel image",
+            )),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
             StartMicrovmError::KernelLoader(kernel::loader::Error::ReadKernelImage),
-        );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
-        let vmm_resp = VmmActionError::StartMicrovm(
-            ErrorKind::User,
-            StartMicrovmError::KernelLoader(kernel::loader::Error::ReadProgramHeader),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(

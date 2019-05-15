@@ -134,6 +134,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_register_legacy_devices() {
         let ldm = LegacyDeviceManager::new();
         assert!(ldm.is_ok());

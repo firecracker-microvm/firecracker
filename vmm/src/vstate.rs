@@ -558,7 +558,6 @@ mod tests {
             1,
             &vm,
             devices::Bus::new(),
-            devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
         .unwrap();
@@ -622,7 +621,6 @@ mod tests {
             0,
             &vm,
             devices::Bus::new(),
-            devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
         .unwrap();
@@ -634,7 +632,6 @@ mod tests {
         let mut vcpu = Vcpu::new(
             1,
             &vm,
-            devices::Bus::new(),
             devices::Bus::new(),
             super::super::TimestampUs::default(),
         )

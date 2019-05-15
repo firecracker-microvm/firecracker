@@ -389,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn register_device() {
+    fn test_register_virtio_device() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
@@ -398,7 +398,8 @@ mod tests {
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
-        let vmm = create_vmm_object();
+        let mut vmm = create_vmm_object();
+        assert!(vmm.setup_interrupt_controller().is_ok());
 
         assert!(device_manager
             .register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, 0, "dummy")
@@ -406,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn register_too_many_devices() {
+    fn test_register_too_many_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
@@ -415,7 +416,9 @@ mod tests {
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
-        let vmm = create_vmm_object();
+        let mut vmm = create_vmm_object();
+        assert!(vmm.setup_interrupt_controller().is_ok());
+
         for _i in arch::IRQ_BASE..=arch::IRQ_MAX {
             device_manager
                 .register_virtio_device(
