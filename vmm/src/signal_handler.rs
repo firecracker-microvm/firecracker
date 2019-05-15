@@ -171,7 +171,7 @@ mod tests {
         assert_eq!(METRICS.seccomp.num_faults.count(), 0);
 
         // Call the blacklisted `SYS_mkdir`.
-        unsafe { syscall(libc::SYS_mkdir, "/foo/bar\0") };
+        unsafe { syscall(libc::SYS_mkdirat, "/foo/bar\0") };
 
         assert!(cpu_count() > 0);
 

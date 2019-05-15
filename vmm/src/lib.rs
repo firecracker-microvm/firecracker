@@ -2486,7 +2486,8 @@ mod tests {
             assert_eq!(nic_1.tx_rate_limiter.unwrap().ops.unwrap(), tbc_2mtps);
         }
 
-        vmm.init_guest_memory().unwrap();
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.setup_interrupt_controller().is_ok());
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
             .expect("Cannot initialize mmio device manager");
@@ -2795,6 +2796,7 @@ mod tests {
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
+        assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
@@ -2818,6 +2820,7 @@ mod tests {
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
+        assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
@@ -2845,6 +2848,7 @@ mod tests {
             .is_ok());
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
+        assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
@@ -2886,6 +2890,8 @@ mod tests {
         assert!(vmm.guest_memory.is_some());
 
         vmm.default_kernel_config(None);
+        vmm.setup_interrupt_controller()
+            .expect("Failed to setup interrupt controller");
         vmm.init_mmio_device_manager()
             .expect("Cannot initialize mmio device manager");
 
@@ -2913,6 +2919,8 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config(None);
         assert!(vmm.init_guest_memory().is_ok());
+        vmm.setup_interrupt_controller()
+            .expect("Failed to setup interrupt controller");
 
         vmm.init_mmio_device_manager()
             .expect("Cannot initialize mmio device manager");
@@ -2950,7 +2958,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rescan() {
+    fn test_block_device_rescan() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config(None);
 
@@ -2982,6 +2990,7 @@ mod tests {
 
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
+        assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.init_mmio_device_manager()
             .expect("Cannot initialize mmio device manager");
@@ -3223,6 +3232,13 @@ mod tests {
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.vm.get_memory().is_some());
 
+        #[cfg(target_arch = "aarch64")]
+        assert_eq!(
+            vmm.load_kernel().unwrap_err().to_string(),
+            "Cannot load kernel due to invalid memory configuration or invalid kernel image. Failed to read magic number"
+        );
+
+        #[cfg(target_arch = "x86_64")]
         assert_eq!(
             vmm.load_kernel().unwrap_err().to_string(),
             "Cannot load kernel due to invalid memory configuration or invalid kernel image. Failed to read ELF header"
@@ -3260,6 +3276,8 @@ mod tests {
 
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.vm.get_memory().is_some());
+        vmm.setup_interrupt_controller()
+            .expect("Failed to setup interrupt controller");
 
         // Create test network interface.
         let network_interface = NetworkInterfaceConfig {
@@ -3277,6 +3295,7 @@ mod tests {
         assert!(vmm.mmio_device_manager.is_some());
     }
 
+    #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_attach_legacy_devices() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
@@ -3289,6 +3308,65 @@ mod tests {
         assert!(vmm.legacy_device_manager.io_bus.get_device(0x060).is_some());
         let stdin_handle = io::stdin();
         stdin_handle.lock().set_canon_mode().unwrap();
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_attach_legacy_devices_without_uart() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.guest_memory.is_some());
+
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            arch::get_reserved_mem_addr() as u64,
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
+        vmm.mmio_device_manager = Some(device_manager);
+
+        vmm.default_kernel_config(None);
+        vmm.setup_interrupt_controller()
+            .expect("Failed to setup interrupt controller");
+        assert!(vmm.attach_legacy_devices().is_ok());
+        let kernel_config = vmm.kernel_config.as_mut();
+
+        let dev_man = vmm.mmio_device_manager.as_ref().unwrap();
+        // On aarch64, we are using first region of the memory
+        // reserved for attaching MMIO devices for measuring boot time.
+        assert!(dev_man
+            .bus
+            .get_device(arch::get_reserved_mem_addr() as u64)
+            .is_none());
+        assert!(dev_man.get_device_info().get("uart").is_none());
+        assert!(dev_man.get_device_info().get("rtc").is_some());
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_attach_legacy_devices_with_uart() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.guest_memory.is_some());
+
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            &mut (arch::get_reserved_mem_addr() as u64),
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
+        vmm.mmio_device_manager = Some(device_manager);
+
+        vmm.default_kernel_config(None);
+        vmm.setup_interrupt_controller()
+            .expect("Failed to setup interrupt controller");
+        {
+            let kernel_config = vmm.kernel_config.as_mut().unwrap();
+            kernel_config.cmdline.insert("console", "tty1").unwrap();
+        }
+        assert!(vmm.attach_legacy_devices().is_ok());
+        let dev_man = vmm.mmio_device_manager.as_ref().unwrap();
+        assert!(dev_man.get_device_info().get("uart").is_some());
     }
 
     // Helper function to get ErrorKind of error.
