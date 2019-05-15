@@ -12,7 +12,17 @@ pub fn timestamp_cycles() -> u64 {
         std::arch::x86_64::_rdtsc() as u64
     }
     #[cfg(not(target_arch = "x86_64"))]
-    0
+    {
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+
+        unsafe {
+            libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts);
+        }
+        (ts.tv_sec as u64) * 1000000000 + (ts.tv_nsec as u64)
+    }
 }
 
 fn timespec_to_us(time_struct: &libc::timespec) -> u64 {

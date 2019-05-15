@@ -8,6 +8,7 @@
 
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
+use fc_util::timestamp_cycles;
 use pdu::bytes::NetworkBytes;
 use pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
 use pdu::Incomplete;
@@ -114,15 +115,7 @@ pub enum WriteNextError {
 // This generates pseudo random u32 numbers based on the current timestamp. Only works for x86_64,
 // but can find something else if we ever need to support different architectures.
 fn xor_rng_u32() -> u32 {
-    let mut t: u32 = {
-        #[cfg(target_arch = "x86_64")]
-        // Safe because there's nothing that can go wrong with this call.
-        unsafe {
-            std::arch::x86_64::_rdtsc() as u32
-        }
-        #[cfg(not(target_arch = "x86_64"))]
-        0
-    };
+    let mut t: u32 = timestamp_cycles() as u32;
     // Taken from https://en.wikipedia.org/wiki/Xorshift
     t ^= t << 13;
     t ^= t >> 17;
