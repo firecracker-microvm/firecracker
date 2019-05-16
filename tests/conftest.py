@@ -80,6 +80,7 @@ be run on every microvm image in the bucket, each as a separate test case.
 
 import threading
 import os
+import platform
 import shutil
 from subprocess import run
 import sys
@@ -240,8 +241,10 @@ def aux_bin_paths(test_session_root_path):
         build_tools.CARGO_RELEASE_REL_PATH
     )
 
+    extra_args = '--release --target {}-unknown-linux-musl'
+    extra_args = extra_args.format(platform.machine())
     build_tools.cargo_build(seccomp_build_path,
-                            extra_args='--release',
+                            extra_args=extra_args,
                             src_dir='integration_tests/security/demo_seccomp')
 
     release_binaries_path = os.path.join(

@@ -3,6 +3,7 @@
 """Functionality for a shared binary build and release path for all tests."""
 
 import os
+import platform
 
 from subprocess import run
 
@@ -21,7 +22,10 @@ CARGO_RELEASE_VSOCK_REL_PATH = os.path.join(
 )
 """Vsock release binaries relative path."""
 
-RELEASE_BINARIES_REL_PATH = 'x86_64-unknown-linux-musl/release/'
+DEFAULT_BUILD_TARGET = '{}-unknown-linux-musl'.format(platform.machine())
+RELEASE_BINARIES_REL_PATH = '{}/release/'.format(DEFAULT_BUILD_TARGET)
+
+CARGO_UNITTEST_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "test")
 
 
 class UnknownFeatureException(Exception):
@@ -48,13 +52,24 @@ def cargo_build(path, extra_args='', src_dir='', extra_env=''):
     run(cmd, shell=True, check=True)
 
 
+def cargo_test(path, extra_args='', extra_env=''):
+    """Trigger unit tests depending on flags provided."""
+    path = os.path.join(path, CARGO_UNITTEST_REL_PATH)
+    cmd = 'CARGO_TARGET_DIR={} {} RUST_TEST_THREADS=1 RUST_BACKTRACE=1 ' \
+          'cargo test {} ' \
+          '--all --no-fail-fast'.format(path, extra_env, extra_args)
+    run(cmd, shell=True, check=True)
+
+
 def get_firecracker_binaries(root_path, features=''):
     """Build the Firecracker and Jailer binaries if they don't exist.
 
     Returns the location of the firecracker related binaries eventually after
     building them in case they do not exist at the specified root_path.
     """
-    extra_args = '--release >/dev/null 2>&1'
+    extra_args = '--release --target {} >/dev/null 2>&1'
+    extra_args = extra_args.format(DEFAULT_BUILD_TARGET)
+    extra_env = 'TARGET_CC=musl-gcc'
 
     if features == '':
         cargo_binaries_rel_path = CARGO_RELEASE_REL_PATH
@@ -85,6 +100,7 @@ def get_firecracker_binaries(root_path, features=''):
         )
         cargo_build(
             build_path,
-            extra_args
+            extra_args=extra_args,
+            extra_env=extra_env
         )
     return fc_binary_path, jailer_binary_path

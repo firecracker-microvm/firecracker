@@ -3,6 +3,7 @@
 """Tests ensuring codebase contains neccessary licenses."""
 
 import os
+import platform
 
 import pytest
 
@@ -73,7 +74,10 @@ def _validate_license(filename):
 
 
 @pytest.mark.timeout(120)
-@pytest.mark.skipif(platform.machine() != "x86_64")
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="no need to test it on multiple platforms"
+)
 def test_for_valid_licenses():
     """Fail if a file lacks an Amazon or Chromium OS license."""
     for subdir, _, files in os.walk(os.getcwd()):
