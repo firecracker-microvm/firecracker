@@ -73,6 +73,7 @@ def _validate_license(filename):
 
 
 @pytest.mark.timeout(120)
+@pytest.mark.skipif(platform.machine() != "x86_64")
 def test_for_valid_licenses():
     """Fail if a file lacks an Amazon or Chromium OS license."""
     for subdir, _, files in os.walk(os.getcwd()):
