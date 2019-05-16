@@ -8,38 +8,37 @@
   is fixed
 """
 
-import os
-
-from subprocess import run
+import platform
 
 import pytest
 
-import host_tools.cargo_build as host  # pylint: disable=import-error
+import host_tools.cargo_build as host  # pylint:disable=import-error
+
+MACHINE = platform.machine()
+TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
+           "{}-unknown-linux-musl".format(MACHINE)]
 
 
-CARGO_UNITTEST_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, "test")
+@pytest.mark.parametrize(
+    "target",
+    TARGETS
+)
+def test_unittests(test_session_root_path, target):
+    """Run unit and doc tests for all supported targets."""
+    extra_env = ''
+    extra_args = "--target {} ".format(target)
 
+    if "musl" in target:
+        extra_env += "TARGET_CC=musl-gcc"
 
-@pytest.mark.timeout(240)
-def test_unittests(test_session_root_path):
-    """Run unit and doc tests from all crates using default target."""
-    run(
-        'CARGO_TARGET_DIR={} RUST_TEST_THREADS=1 RUST_BACKTRACE=1 cargo test '
-        '--all --no-fail-fast'.format(
-            os.path.join(test_session_root_path, CARGO_UNITTEST_REL_PATH),
-        ),
-        shell=True,
-        check=True
-    )
+    if MACHINE == "x86_64":
+        extra_args += "--all-features "
 
+    if MACHINE == "aarch64":
+        extra_args += "--exclude cpuid "
 
-def test_gnutests(test_session_root_path):
-    """Run unit and doc tests from all crates using GNU target."""
-    run(
-        'CARGO_TARGET_DIR={} RUST_TEST_THREADS=1 RUST_BACKTRACE=1 cargo test '
-        '--target x86_64-unknown-linux-gnu --all --no-fail-fast'.format(
-            os.path.join(test_session_root_path, CARGO_UNITTEST_REL_PATH),
-        ),
-        shell=True,
-        check=True
+    host.cargo_test(
+        test_session_root_path,
+        extra_args=extra_args,
+        extra_env=extra_env
     )

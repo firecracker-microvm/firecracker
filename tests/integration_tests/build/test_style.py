@@ -15,7 +15,6 @@ SUCCESS_CODE = 0
 
 
 @pytest.mark.timeout(120)
-@pytest.mark.skipif(platform.machine() != "x86_64")
 def test_rust_style():
     """Fail if there's misbehaving Rust style in this repo."""
     # Check that the output is empty.
@@ -30,7 +29,10 @@ def test_rust_style():
 
 
 @pytest.mark.timeout(120)
-@pytest.mark.skipif(platform.machine() != "x86_64")
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="no need to test it on multiple platforms"
+)
 def test_python_style():
     """Fail if there's misbehaving Python style in the test system."""
     # Check style with pylint.
@@ -79,7 +81,10 @@ def test_python_style():
     )
 
 
-@pytest.mark.skipif(platform.machine() != "x86_64")
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="no need to test it on multiple platforms"
+)
 def test_rust_clippy():
     """Fails if clippy generates any error, warnings are ignored."""
     run(
@@ -100,7 +105,10 @@ def check_swagger_style(yaml_spec):
             print(str(exception))
 
 
-@pytest.mark.skipif(platform.machine() != "x86_64")
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="no need to test it on multiple platforms"
+)
 def test_firecracker_swagger():
     """Fail if Firecracker swagger specification is malformed."""
     yaml_spec = os.path.normpath(
@@ -109,7 +117,10 @@ def test_firecracker_swagger():
     check_swagger_style(yaml_spec)
 
 
-@pytest.mark.skipif(platform.machine() != "x86_64")
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="no need to test it on multiple platforms"
+)
 def test_experimental_firecracker_swagger():
     """Fail if experimental Firecracker swagger specification is malformed."""
     yaml_spec = os.path.normpath(
