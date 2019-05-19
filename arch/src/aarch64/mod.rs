@@ -1,13 +1,30 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+mod fdt;
 pub mod gic;
 pub mod layout;
 pub mod regs;
 
 use std::cmp::min;
+use std::collections::HashMap;
+use std::ffi::CStr;
+use std::fmt::Debug;
 
 use memory_model::{GuestAddress, GuestMemory};
+
+#[derive(Debug)]
+pub enum Error {
+    SetupFDT(fdt::Error),
+}
+
+impl From<Error> for super::Error {
+    fn from(e: Error) -> super::Error {
+        super::Error::Aarch64Setup(e)
+    }
+}
+
+pub use self::fdt::{DeviceInfoForFDT, FDTDeviceType};
 
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.
@@ -16,19 +33,33 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     vec![(GuestAddress(layout::DRAM_MEM_START), dram_size)]
 }
 
-/// Stub function that needs to be implemented when aarch64 functionality is added.
-pub fn configure_system(
-    _guest_mem: &GuestMemory,
-    _cmdline_addr: GuestAddress,
-    _cmdline_size: usize,
-    _num_cpus: u8,
+/// Configures the system and should be called once per vm before starting vcpu threads.
+/// For aarch64, we only setup the FDT.
+///
+/// # Arguments
+///
+/// * `guest_mem` - The memory to be used by the guest.
+/// * `cmdline_cstring` - The kernel commandline.
+/// * `num_cpus` - Number of virtual CPUs of the system.
+pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
+    guest_mem: &GuestMemory,
+    cmdline_cstring: &CStr,
+    num_cpus: u8,
+    device_info: Option<&HashMap<String, T>>,
 ) -> super::Result<()> {
+    fdt::create_fdt(guest_mem, u32::from(num_cpus), cmdline_cstring, device_info)
+        .map_err(Error::SetupFDT)?;
     Ok(())
 }
 
-/// Stub function that needs to be implemented when aarch64 functionality is added.
-pub fn get_reserved_mem_addr() -> usize {
-    0
+/// Function that returns the address reserved for MMIO devices.
+pub fn get_reserved_mem_addr() -> u64 {
+    layout::MAPPED_IO_START
+}
+
+/// Returns the memory address where the kernel could be loaded.
+pub fn get_kernel_start() -> usize {
+    layout::DRAM_MEM_START
 }
 
 // Auxiliary function to get the address where the device tree blob is loaded.

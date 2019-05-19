@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use std::io;
-use std::os::unix::io::AsRawFd;
 use std::result;
 use std::sync::{Arc, Barrier};
 
@@ -166,45 +165,22 @@ impl Vm {
         Ok(())
     }
 
-    /// This function creates the irq chip and adds 3 interrupt events to the IRQ.
+    /// Creates the irq chip and an in-kernel device model for the PIT.
     #[cfg(target_arch = "x86_64")]
-    pub fn setup_irqchip(
-        &self,
-        com_evt_1_3: &EventFd,
-        com_evt_2_4: &EventFd,
-        kbd_evt: &EventFd,
-    ) -> Result<()> {
+    pub fn setup_irqchip(&self) -> Result<()> {
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
-
-        self.fd
-            .register_irqfd(com_evt_1_3.as_raw_fd(), 4)
-            .map_err(Error::Irq)?;
-        self.fd
-            .register_irqfd(com_evt_2_4.as_raw_fd(), 3)
-            .map_err(Error::Irq)?;
-        self.fd
-            .register_irqfd(kbd_evt.as_raw_fd(), 1)
-            .map_err(Error::Irq)?;
-
-        Ok(())
-    }
-
-    /// This function creates the GIC (Global Interrupt Controller).
-    #[cfg(target_arch = "aarch64")]
-    pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<()> {
-        self.irqchip_handle =
-            Some(arch::aarch64::gic::create_gicv3(&self.fd, vcpu_count).map_err(Error::SetupGIC)?);
-        Ok(())
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    /// Creates an in-kernel device model for the PIT.
-    pub fn create_pit(&self) -> Result<()> {
         let mut pit_config = kvm_pit_config::default();
         // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
         // (i.e. KVM_SPEAKER_BASE_ADDRESS) does not trigger an exit to user space.
         pit_config.flags = KVM_PIT_SPEAKER_DUMMY;
-        self.fd.create_pit2(pit_config).map_err(Error::VmSetup)?;
+        self.fd.create_pit2(pit_config).map_err(Error::VmSetup)
+    }
+
+    /// Creates the GIC (Global Interrupt Controller).
+    #[cfg(target_arch = "aarch64")]
+    pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<()> {
+        self.irqchip_handle =
+            Some(arch::aarch64::gic::create_gicv3(&self.fd, vcpu_count).map_err(Error::SetupGIC)?);
         Ok(())
     }
 
@@ -230,7 +206,7 @@ pub struct Vcpu {
     fd: VcpuFd,
     id: u8,
     io_bus: devices::Bus,
-    mmio_bus: devices::Bus,
+    mmio_bus: Option<devices::Bus>,
     create_ts: TimestampUs,
 }
 
@@ -241,13 +217,7 @@ impl Vcpu {
     ///
     /// * `id` - Represents the CPU number between [0, max vcpus).
     /// * `vm` - The virtual machine this vcpu will get attached to.
-    pub fn new(
-        id: u8,
-        vm: &Vm,
-        io_bus: devices::Bus,
-        mmio_bus: devices::Bus,
-        create_ts: TimestampUs,
-    ) -> Result<Self> {
+    pub fn new(id: u8, vm: &Vm, io_bus: devices::Bus, create_ts: TimestampUs) -> Result<Self> {
         let kvm_vcpu = vm.fd.create_vcpu(id).map_err(Error::VcpuFd)?;
 
         // Initially the cpuid per vCPU is the one supported by this VM.
@@ -257,9 +227,13 @@ impl Vcpu {
             fd: kvm_vcpu,
             id,
             io_bus,
-            mmio_bus,
+            mmio_bus: None,
             create_ts,
         })
+    }
+
+    pub fn set_mmio_bus(&mut self, mmio_bus: devices::Bus) {
+        self.mmio_bus = Some(mmio_bus);
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -367,13 +341,17 @@ impl Vcpu {
                     Ok(())
                 }
                 VcpuExit::MmioRead(addr, data) => {
-                    self.mmio_bus.read(addr, data);
-                    METRICS.vcpu.exit_mmio_read.inc();
+                    if let Some(ref mmio_bus) = self.mmio_bus {
+                        mmio_bus.read(addr, data);
+                        METRICS.vcpu.exit_mmio_read.inc();
+                    }
                     Ok(())
                 }
                 VcpuExit::MmioWrite(addr, data) => {
-                    self.mmio_bus.write(addr, data);
-                    METRICS.vcpu.exit_mmio_write.inc();
+                    if let Some(ref mmio_bus) = self.mmio_bus {
+                        mmio_bus.write(addr, data);
+                        METRICS.vcpu.exit_mmio_write.inc();
+                    }
                     Ok(())
                 }
                 VcpuExit::Hlt => {
@@ -464,7 +442,7 @@ mod tests {
     use super::*;
 
     use libc::{c_int, c_void, siginfo_t};
-    use sys_util::{register_signal_handler, Killable, SignalHandler};
+    use sys_util::{register_vcpu_signal_handler, Killable};
 
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu() -> (Vm, Vcpu) {
@@ -474,19 +452,10 @@ mod tests {
         assert!(vm.memory_init(gm, &kvm).is_ok());
 
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        {
-            let dummy_eventfd_1 = EventFd::new().unwrap();
-            let dummy_eventfd_2 = EventFd::new().unwrap();
-            let dummy_kbd_eventfd = EventFd::new().unwrap();
-
-            vm.setup_irqchip(&dummy_eventfd_1, &dummy_eventfd_2, &dummy_kbd_eventfd)
-                .unwrap();
-            vm.create_pit().unwrap();
-        }
+        vm.setup_irqchip().unwrap();
         let vcpu = Vcpu::new(
             1,
             &vm,
-            devices::Bus::new(),
             devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
@@ -497,6 +466,14 @@ mod tests {
         }
 
         (vm, vcpu)
+    }
+
+    #[test]
+    fn test_set_mmio_bus() {
+        let (_, mut vcpu) = setup_vcpu();
+        assert!(vcpu.mmio_bus.is_none());
+        vcpu.set_mmio_bus(devices::Bus::new());
+        assert!(vcpu.mmio_bus.is_some());
     }
 
     #[test]
@@ -557,24 +534,17 @@ mod tests {
     fn test_setup_irqchip() {
         let kvm = KvmContext::new().unwrap();
         let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-        let dummy_eventfd_1 = EventFd::new().unwrap();
-        let dummy_eventfd_2 = EventFd::new().unwrap();
-        let dummy_kbd_eventfd = EventFd::new().unwrap();
 
-        vm.setup_irqchip(&dummy_eventfd_1, &dummy_eventfd_2, &dummy_kbd_eventfd)
-            .expect("Cannot setup irqchip");
+        vm.setup_irqchip().expect("Cannot setup irqchip");
         let _vcpu = Vcpu::new(
             1,
             &vm,
-            devices::Bus::new(),
             devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
         .unwrap();
         // Trying to setup two irqchips will result in EEXIST error.
-        assert!(vm
-            .setup_irqchip(&dummy_eventfd_1, &dummy_eventfd_2, &dummy_kbd_eventfd)
-            .is_err());
+        assert!(vm.setup_irqchip().is_err());
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -608,37 +578,16 @@ mod tests {
             1,
             &vm,
             devices::Bus::new(),
-            devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
         .unwrap();
 
         #[cfg(target_arch = "x86_64")]
-        {
-            let dummy_eventfd_1 = EventFd::new().unwrap();
-            let dummy_eventfd_2 = EventFd::new().unwrap();
-            let dummy_kbd_eventfd = EventFd::new().unwrap();
-            // Trying to setup irqchip after KVM_VCPU_CREATE was called will result in error on x86_64.
-            assert!(vm
-                .setup_irqchip(&dummy_eventfd_1, &dummy_eventfd_2, &dummy_kbd_eventfd)
-                .is_err());
-        }
+        // Trying to setup irqchip after KVM_VCPU_CREATE was called will result in error on x86_64.
+        assert!(vm.setup_irqchip().is_err());
         #[cfg(target_arch = "aarch64")]
-        {
-            // Trying to setup irqchip after KVM_VCPU_CREATE is actually the way to go on aarch64.
-            assert!(vm.setup_irqchip(1).is_ok());
-        }
-    }
-
-    #[test]
-    #[cfg(target_arch = "x86_64")]
-    fn test_create_pit() {
-        let kvm = KvmContext::new().unwrap();
-        let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-
-        assert!(vm.create_pit().is_ok());
-        // Trying to setup two PITs will result in EEXIST error.
-        assert!(vm.create_pit().is_err());
+        // Trying to setup irqchip after KVM_VCPU_CREATE is actually the way to go on aarch64.
+        assert!(vm.setup_irqchip(1).is_ok());
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -704,7 +653,7 @@ mod tests {
         // be brought down when the signal is received, as part of the default behaviour. Signal
         // handlers are global, so we install this before starting the thread.
         unsafe {
-            register_signal_handler(signum, SignalHandler::Siginfo(handle_signal), true)
+            register_vcpu_signal_handler(signum, handle_signal)
                 .expect("failed to register vcpu signal handler");
         }
 

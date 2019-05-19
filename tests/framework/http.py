@@ -47,14 +47,26 @@ class Session(requests_unixsocket.Session):
     @decorators.timed_request
     def get(self, url, **kwargs):
         """Wrap the GET call with duration limit."""
+        # pylint: disable=method-hidden
+        # The `untime` method overrides this, and pylint disapproves.
         return super(Session, self).get(url, **kwargs)
 
     @decorators.timed_request
     def patch(self, url, data=None, **kwargs):
         """Wrap the PATCH call with duration limit."""
+        # pylint: disable=method-hidden
+        # The `untime` method overrides this, and pylint disapproves.
         return super(Session, self).patch(url, data=data, **kwargs)
 
     @decorators.timed_request
     def put(self, url, data=None, **kwargs):
         """Wrap the PUT call with duration limit."""
+        # pylint: disable=method-hidden
+        # The `untime` method overrides this, and pylint disapproves.
         return super(Session, self).put(url, data=data, **kwargs)
+
+    def untime(self):
+        """Restore the HTTP methods to their un-timed selves."""
+        self.get = super(Session, self).get
+        self.patch = super(Session, self).patch
+        self.put = super(Session, self).put

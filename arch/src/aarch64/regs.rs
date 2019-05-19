@@ -113,7 +113,7 @@ pub fn setup_regs(vcpu: &VcpuFd, cpu_id: u8, boot_ip: usize, mem: &GuestMemory) 
 mod tests {
     use super::*;
     use aarch64::{arch_memory_regions, layout};
-    use kvm::Kvm;
+    use kvm_ioctls::Kvm;
 
     #[test]
     fn test_setup_regs() {

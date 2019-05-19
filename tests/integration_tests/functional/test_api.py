@@ -254,8 +254,16 @@ def test_api_put_update_post_boot(test_microvm_with_api):
     assert "The update operation is not allowed after boot" in response.text
 
     # Valid updates to the machine configuration are not allowed after boot.
-    response = test_microvm.machine_cfg.put(
+    response = test_microvm.machine_cfg.patch(
         vcpu_count=4
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "The update operation is not allowed after boot" in response.text
+
+    response = test_microvm.machine_cfg.put(
+        vcpu_count=4,
+        ht_enabled=False,
+        mem_size_mib=128
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "The update operation is not allowed after boot" in response.text
@@ -472,10 +480,11 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
 
-    # Partial updates to the machine configuration are not allowed.
+    # Partial updates to the machine configuration are allowed before boot.
     response = test_microvm.machine_cfg.patch(vcpu_count=4)
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Invalid request method" in response.text
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    response_json = test_microvm.machine_cfg.get().json()
+    assert response_json['vcpu_count'] == 4
 
     # Partial updates to the logger configuration are not allowed.
     response = test_microvm.logger.patch(level='Error')
@@ -534,10 +543,10 @@ def test_api_patch_post_boot(test_microvm_with_api):
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
 
-    # Partial updates to the machine configuration are not allowed.
+    # Partial updates to the machine configuration are not allowed after boot.
     response = test_microvm.machine_cfg.patch(vcpu_count=4)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Invalid request method" in response.text
+    assert "The update operation is not allowed after boot." in response.text
 
     # Partial updates to the logger configuration are not allowed.
     response = test_microvm.logger.patch(level='Error')
