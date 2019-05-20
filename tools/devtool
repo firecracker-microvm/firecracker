@@ -73,7 +73,7 @@
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
 # (Yet another step on our way to reproducible builds.)
-DEVCTR_IMAGE="fcuvm/dev:v6"
+DEVCTR_IMAGE="fcuvm/dev:v7"
 
 # Naming things is hard
 MY_NAME="Firecracker $(basename "$0")"
@@ -456,7 +456,7 @@ cmd_build() {
     # accessible location (under build/release or build/debug).
     if [ $ret -eq 0 ]; then
         mkdir -p "${FC_BUILD_DIR}/${profile}"
-        cp -f "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/${profile}"/{firecracker,jailer} \
+        cp -f "${CARGO_TARGET_DIR}/${profile}"/{firecracker,jailer} \
             "${FC_BUILD_DIR}/${profile}/"
         ret=$?
     fi
