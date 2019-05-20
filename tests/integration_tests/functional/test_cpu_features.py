@@ -2,9 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the CPU topology emulation feature."""
 
+import platform
 import re
 
 from enum import Enum, auto
+
+import pytest
 
 import host_tools.network as net_tools  # pylint: disable=import-error
 
@@ -144,6 +147,10 @@ def _check_cache_topology(test_microvm, num_vcpus_on_lvl_1_cache,
                             expected_level_3_topology)
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="cpu feattures are only customized on x86_64"
+)
 def test_1vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -156,6 +163,10 @@ def test_1vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     _check_cache_topology(test_microvm_with_ssh, 0, 0)
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="cpu feattures are only customized on x86_64"
+)
 def test_1vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -168,6 +179,10 @@ def test_1vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     _check_cache_topology(test_microvm_with_ssh, 0, 0)
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="cpu feattures are only customized on x86_64"
+)
 def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -180,6 +195,10 @@ def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     _check_cache_topology(test_microvm_with_ssh, 0, 1)
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="cpu feattures are only customized on x86_64"
+)
 def test_2vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -192,6 +211,10 @@ def test_2vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     _check_cache_topology(test_microvm_with_ssh, 1, 1)
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="cpu feattures are only customized on x86_64"
+)
 def test_16vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -204,6 +227,10 @@ def test_16vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     _check_cache_topology(test_microvm_with_ssh, 0, 15)
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="cpu feattures are only customized on x86_64"
+)
 def test_16vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -216,6 +243,10 @@ def test_16vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     _check_cache_topology(test_microvm_with_ssh, 1, 15)
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="cpu feattures are only customized on x86_64"
+)
 def test_brand_string(test_microvm_with_ssh, network_config):
     """Ensure good formatting for the guest band string.
 
