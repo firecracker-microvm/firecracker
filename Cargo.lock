@@ -200,6 +200,7 @@ dependencies = [
  "rate_limiter 0.1.0",
  "sys_util 0.1.0",
  "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "time 0.1.42 (registry+https://github.com/rust-lang/crates.io-index)",
  "vhost_backend 0.1.0",
  "vhost_gen 0.1.0",
  "virtio_gen 0.1.0",

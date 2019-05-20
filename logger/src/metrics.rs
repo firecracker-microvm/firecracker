@@ -321,6 +321,17 @@ pub struct NetDeviceMetrics {
     pub tx_spoofed_mac_count: SharedMetric,
 }
 
+/// Metrics specific to the i8042 device.
+#[derive(Default, Serialize)]
+pub struct RTCDeviceMetrics {
+    /// Errors triggered while using the i8042 device.
+    pub error_count: SharedMetric,
+    /// Number of superfluous read intents on this i8042 device.
+    pub missed_read_count: SharedMetric,
+    /// Number of superfluous read intents on this i8042 device.
+    pub missed_write_count: SharedMetric,
+}
+
 /// Metrics for the seccomp filtering.
 #[derive(Default, Serialize)]
 pub struct SeccompMetrics {
@@ -410,6 +421,8 @@ pub struct FirecrackerMetrics {
     pub patch_api_requests: PatchRequestsMetrics,
     /// Metrics related to API PUT requests.
     pub put_api_requests: PutRequestsMetrics,
+    /// Metrics related to the RTC device.
+    pub rtc: RTCDeviceMetrics,
     /// Metrics related to seccomp filtering.
     pub seccomp: SeccompMetrics,
     /// Metrics related to a vcpu's functioning.

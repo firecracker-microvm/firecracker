@@ -1186,8 +1186,13 @@ impl Vmm {
             .as_mut()
             .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
+        if kernel_config.cmdline.as_str().contains("console=") {
+            device_manager
+                .register_mmio_serial(self.vm.get_fd(), &mut kernel_config.cmdline)
+                .map_err(StartMicrovmError::RegisterMMIODevice)?;
+        }
         device_manager
-            .enable_earlycon(self.vm.get_fd(), &mut kernel_config.cmdline)
+            .register_mmio_rtc(self.vm.get_fd())
             .map_err(StartMicrovmError::RegisterMMIODevice)?;
         Ok(())
     }
