@@ -53,7 +53,7 @@ pub enum Error {
     MkdirOldRoot(io::Error),
     MknodDev(io::Error, &'static str),
     MountBind(io::Error),
-    MountPropagationPrivate(io::Error),
+    MountPropagationSlave(io::Error),
     NotAFile(PathBuf),
     NumaNode(String),
     OpenDevNull(io::Error),
@@ -158,11 +158,9 @@ impl fmt::Display for Error {
             MountBind(ref err) => {
                 write!(f, "Failed to bind mount the jail root directory: {}", err)
             }
-            MountPropagationPrivate(ref err) => write!(
-                f,
-                "Failed to change the propagation type to private: {}",
-                err
-            ),
+            MountPropagationSlave(ref err) => {
+                write!(f, "Failed to change the propagation type to slave: {}", err)
+            }
             NotAFile(ref path) => write!(
                 f,
                 "{}",
@@ -536,8 +534,8 @@ mod tests {
             "Failed to bind mount the jail root directory: No message of desired type (os error 42)",
         );
         assert_eq!(
-            format!("{}", Error::MountPropagationPrivate(io::Error::from_raw_os_error(42))),
-            "Failed to change the propagation type to private: No message of desired type (os error 42)",
+            format!("{}", Error::MountPropagationSlave(io::Error::from_raw_os_error(42))),
+            "Failed to change the propagation type to slave: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::NotAFile(file_path.clone())),

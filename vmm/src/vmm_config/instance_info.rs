@@ -87,6 +87,8 @@ pub enum StartMicrovmError {
     RegisterBlockDevice(device_manager::mmio::Error),
     /// Cannot add event to Epoll.
     RegisterEvent,
+    /// Cannot add a device to the MMIO Bus.
+    RegisterMMIODevice(device_manager::mmio::Error),
     /// Cannot initialize a MMIO Network Device or add a device to the MMIO Bus.
     RegisterNetDevice(device_manager::mmio::Error),
     #[cfg(feature = "vsock")]
@@ -182,7 +184,7 @@ impl Display for StartMicrovmError {
                 write!(f, "Cannot open the block device backing file. {}", err_msg)
             }
             RegisterBlockDevice(ref err) => {
-                let mut err_msg = format!("{:?}", err);
+                let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
                 write!(
                     f,
@@ -191,8 +193,14 @@ impl Display for StartMicrovmError {
                 )
             }
             RegisterEvent => write!(f, "Cannot add event to Epoll."),
+            RegisterMMIODevice(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot add a device to the MMIO Bus. {}", err_msg)
+            }
             RegisterNetDevice(ref err) => {
-                let mut err_msg = format!("{:?}", err);
+                let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
 
                 write!(
@@ -203,7 +211,7 @@ impl Display for StartMicrovmError {
             }
             #[cfg(feature = "vsock")]
             RegisterVsockDevice(ref err) => {
-                let mut err_msg = format!("{:?}", err);
+                let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
 
                 write!(

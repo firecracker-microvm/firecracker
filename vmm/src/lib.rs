@@ -63,6 +63,8 @@ use kvm_ioctls::{Cap, Kvm};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use device_manager::legacy::LegacyDeviceManager;
+#[cfg(target_arch = "aarch64")]
+use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::I8042DeviceError;
 use devices::virtio;
@@ -311,6 +313,7 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             | StartMicrovmError::LegacyIOBus(_)
             | StartMicrovmError::RegisterBlockDevice(_)
             | StartMicrovmError::RegisterEvent
+            | StartMicrovmError::RegisterMMIODevice(_)
             | StartMicrovmError::RegisterNetDevice(_)
             | StartMicrovmError::SeccompFilters(_)
             | StartMicrovmError::Vcpu(_)
@@ -692,6 +695,7 @@ impl Drop for EpollContext {
 struct KernelConfig {
     cmdline: kernel_cmdline::Cmdline,
     kernel_file: File,
+    #[cfg(target_arch = "x86_64")]
     cmdline_addr: GuestAddress,
 }
 
@@ -817,10 +821,7 @@ impl Vmm {
     }
 
     // Attaches all block devices from the BlockDevicesConfig.
-    fn attach_block_devices(
-        &mut self,
-        device_manager: &mut MMIODeviceManager,
-    ) -> std::result::Result<(), StartMicrovmError> {
+    fn attach_block_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
         // We rely on check_health function for making sure kernel_config is not None.
         let kernel_config = self
             .kernel_config
@@ -832,19 +833,28 @@ impl Vmm {
             if !self.block_device_configs.has_partuuid_root() {
                 kernel_config
                     .cmdline
-                    .insert_str(" root=/dev/vda")
+                    .insert_str("root=/dev/vda")
                     .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
 
                 if self.block_device_configs.has_read_only_root() {
                     kernel_config
                         .cmdline
-                        .insert_str(" ro")
+                        .insert_str("ro")
+                        .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
+                } else {
+                    kernel_config
+                        .cmdline
+                        .insert_str("rw")
                         .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
                 }
             }
         }
 
         let epoll_context = &mut self.epoll_context;
+        // `unwrap` is suitable for this context since this should be called only after the
+        // device manager has been initialized.
+        let device_manager = self.mmio_device_manager.as_mut().unwrap();
+
         for drive_config in self.block_device_configs.config_list.iter_mut() {
             // Add the block device from file.
             let block_file = OpenOptions::new()
@@ -857,7 +867,7 @@ impl Vmm {
                 kernel_config
                     .cmdline
                     .insert_str(format!(
-                        " root=PARTUUID={}",
+                        "root=PARTUUID={}",
                         //The unwrap is safe as we are firstly checking that partuuid is_some().
                         drive_config.get_partuuid().unwrap()
                     ))
@@ -865,7 +875,12 @@ impl Vmm {
                 if drive_config.is_read_only {
                     kernel_config
                         .cmdline
-                        .insert_str(" ro")
+                        .insert_str("ro")
+                        .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
+                } else {
+                    kernel_config
+                        .cmdline
+                        .insert_str("rw")
                         .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
                 }
             }
@@ -892,11 +907,11 @@ impl Vmm {
                 .map_err(StartMicrovmError::CreateBlockDevice)?,
             );
             device_manager
-                .register_device(
+                .register_virtio_device(
                     self.vm.get_fd(),
                     block_box,
                     &mut kernel_config.cmdline,
-                    Some(drive_config.drive_id.clone()),
+                    &drive_config.drive_id,
                 )
                 .map_err(StartMicrovmError::RegisterBlockDevice)?;
         }
@@ -904,15 +919,16 @@ impl Vmm {
         Ok(())
     }
 
-    fn attach_net_devices(
-        &mut self,
-        device_manager: &mut MMIODeviceManager,
-    ) -> std::result::Result<(), StartMicrovmError> {
+    fn attach_net_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
         // We rely on check_health function for making sure kernel_config is not None.
         let kernel_config = self
             .kernel_config
             .as_mut()
             .ok_or(StartMicrovmError::MissingKernelConfig)?;
+
+        // `unwrap` is suitable for this context since this should be called only after the
+        // device manager has been initialized.
+        let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
         for cfg in self.network_interface_configs.iter_mut() {
             let (epoll_config, handler_idx) = self.epoll_context.allocate_virtio_net_tokens();
@@ -949,7 +965,12 @@ impl Vmm {
                 );
 
                 device_manager
-                    .register_device(self.vm.get_fd(), net_box, &mut kernel_config.cmdline, None)
+                    .register_virtio_device(
+                        self.vm.get_fd(),
+                        net_box,
+                        &mut kernel_config.cmdline,
+                        &cfg.iface_id,
+                    )
                     .map_err(StartMicrovmError::RegisterNetDevice)?;
             } else {
                 return Err(StartMicrovmError::NetDeviceNotConfigured)?;
@@ -961,13 +982,15 @@ impl Vmm {
     #[cfg(feature = "vsock")]
     fn attach_vsock_devices(
         &mut self,
-        device_manager: &mut MMIODeviceManager,
         guest_mem: &GuestMemory,
     ) -> std::result::Result<(), StartMicrovmError> {
         let kernel_config = self
             .kernel_config
             .as_mut()
             .ok_or(StartMicrovmError::MissingKernelConfig)?;
+        // `unwrap` is suitable for this context since this should be called only after the
+        // device manager has been initialized.
+        let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
         for cfg in self.vsock_device_configs.iter() {
             let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
@@ -977,11 +1000,11 @@ impl Vmm {
                     .map_err(StartMicrovmError::CreateVsockDevice)?,
             );
             device_manager
-                .register_device(
+                .register_virtio_device(
                     self.vm.get_fd(),
                     vsock_box,
                     &mut kernel_config.cmdline,
-                    None,
+                    &cfg.id,
                 )
                 .map_err(StartMicrovmError::RegisterVsockDevice)?;
         }
@@ -1055,7 +1078,11 @@ impl Vmm {
         Ok(())
     }
 
-    fn attach_virtio_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
+    fn init_mmio_device_manager(&mut self) -> std::result::Result<(), StartMicrovmError> {
+        if self.mmio_device_manager.is_some() {
+            return Ok(());
+        }
+
         let guest_mem = self
             .guest_memory
             .clone()
@@ -1064,20 +1091,44 @@ impl Vmm {
             ))?;
 
         // Instantiate the MMIO device manager.
-        // 'mmio_base' address has to be an address which is protected by the kernel.
-        let mut device_manager = MMIODeviceManager::new(
+        // 'mmio_base' address has to be an address which is protected by the kernel
+        // and is architectural specific.
+        let device_manager = MMIODeviceManager::new(
             guest_mem.clone(),
             arch::get_reserved_mem_addr() as u64,
             (arch::IRQ_BASE, arch::IRQ_MAX),
         );
-
-        self.attach_block_devices(&mut device_manager)?;
-        self.attach_net_devices(&mut device_manager)?;
-        #[cfg(feature = "vsock")]
-        self.attach_vsock_devices(&mut device_manager, &guest_mem)?;
-
         self.mmio_device_manager = Some(device_manager);
+
         Ok(())
+    }
+
+    fn attach_virtio_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
+        self.init_mmio_device_manager()?;
+
+        self.attach_block_devices()?;
+        self.attach_net_devices()?;
+        #[cfg(feature = "vsock")]
+        {
+            let guest_mem = self
+                .guest_memory
+                .clone()
+                .ok_or(StartMicrovmError::GuestMemory(
+                    memory_model::GuestMemoryError::MemoryNotInitialized,
+                ))?;
+            self.attach_vsock_devices(&guest_mem)?;
+        }
+
+        Ok(())
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn get_mmio_device_info(&self) -> Option<&HashMap<String, MMIODeviceInfo>> {
+        if let Some(ref device_manager) = self.mmio_device_manager {
+            Some(device_manager.get_device_info())
+        } else {
+            None
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1098,6 +1149,7 @@ impl Vmm {
             .map_err(StartMicrovmError::ConfigureVm)
     }
 
+    #[cfg(target_arch = "x86_64")]
     fn attach_legacy_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
         self.legacy_device_manager
             .register_devices()
@@ -1121,6 +1173,25 @@ impl Vmm {
             .map_err(|e| StartMicrovmError::LegacyIOBus(device_manager::legacy::Error::EventFd(e)))
     }
 
+    #[cfg(target_arch = "aarch64")]
+    fn attach_legacy_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
+        self.init_mmio_device_manager()?;
+        // `unwrap` is suitable for this context since this should be called only after the
+        // device manager has been initialized.
+        let device_manager = self.mmio_device_manager.as_mut().unwrap();
+
+        // We rely on check_health function for making sure kernel_config is not None.
+        let kernel_config = self
+            .kernel_config
+            .as_mut()
+            .ok_or(StartMicrovmError::MissingKernelConfig)?;
+
+        device_manager
+            .enable_earlycon(self.vm.get_fd(), &mut kernel_config.cmdline)
+            .map_err(StartMicrovmError::RegisterMMIODevice)?;
+        Ok(())
+    }
+
     // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) and configured before
     // setting up the IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
     // was already initialized.
@@ -1136,17 +1207,9 @@ impl Vmm {
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
 
-        // `mmio_device_manager` is instantiated in `init_devices()`, which is called before
-        // `start_vcpus()`.
-        let device_manager = self
-            .mmio_device_manager
-            .as_ref()
-            .ok_or(StartMicrovmError::DeviceManager)?;
-
         for cpu_id in 0..vcpu_count {
             let io_bus = self.legacy_device_manager.io_bus.clone();
-            let mmio_bus = device_manager.bus.clone();
-            let mut vcpu = Vcpu::new(cpu_id, &self.vm, io_bus, mmio_bus, request_ts.clone())
+            let mut vcpu = Vcpu::new(cpu_id, &self.vm, io_bus, request_ts.clone())
                 .map_err(StartMicrovmError::Vcpu)?;
             vcpu.configure(&self.vm_config, entry_addr, &self.vm)
                 .map_err(StartMicrovmError::VcpuConfigure)?;
@@ -1187,6 +1250,9 @@ impl Vmm {
             // of items of `vcpus` vector.
             let mut vcpu = vcpus.pop().unwrap();
 
+            if let Some(ref mmio_device_manager) = self.mmio_device_manager {
+                vcpu.set_mmio_bus(mmio_device_manager.bus.clone());
+            }
             let seccomp_level = self.seccomp_level;
             self.vcpus_handles.push(
                 thread::Builder::new()
@@ -1223,7 +1289,7 @@ impl Vmm {
         let entry_addr = kernel_loader::load_kernel(
             vm_memory,
             &mut kernel_config.kernel_file,
-            arch::HIMEM_START,
+            arch::get_kernel_start(),
         )
         .map_err(StartMicrovmError::KernelLoader)?;
 
@@ -1242,10 +1308,10 @@ impl Vmm {
         Ok(entry_addr)
     }
 
-    fn configure_system(&mut self) -> std::result::Result<(), StartMicrovmError> {
+    fn configure_system(&self) -> std::result::Result<(), StartMicrovmError> {
         let kernel_config = self
             .kernel_config
-            .as_mut()
+            .as_ref()
             .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
         let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
@@ -1267,15 +1333,18 @@ impl Vmm {
         .map_err(StartMicrovmError::ConfigureSystem)?;
 
         #[cfg(target_arch = "aarch64")]
-        arch::aarch64::configure_system(
-            vm_memory,
-            &kernel_config
-                .cmdline
-                .as_cstring()
-                .map_err(StartMicrovmError::LoadCommandline)?,
-            vcpu_count,
-        )
-        .map_err(StartMicrovmError::ConfigureSystem)?;
+        {
+            arch::aarch64::configure_system(
+                vm_memory,
+                &kernel_config
+                    .cmdline
+                    .as_cstring()
+                    .map_err(StartMicrovmError::LoadCommandline)?,
+                vcpu_count,
+                self.get_mmio_device_info(),
+            )
+            .map_err(StartMicrovmError::ConfigureSystem)?;
+        }
         Ok(())
     }
 
@@ -1318,20 +1387,35 @@ impl Vmm {
             .expect("Failed to start microVM because shared info couldn't be written due to poisoned lock")
             .state = InstanceState::Starting;
 
-        self.setup_interrupt_controller()?;
-
         self.init_guest_memory()?;
 
-        self.attach_virtio_devices()?;
-        self.attach_legacy_devices()?;
+        let vcpus;
 
-        let entry_addr = self.load_kernel()?;
+        // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
+        // while on aarch64 we need to do it the other way around.
+        #[cfg(target_arch = "x86_64")]
+        {
+            self.setup_interrupt_controller()?;
+            self.attach_virtio_devices()?;
+            self.attach_legacy_devices()?;
+
+            let entry_addr = self.load_kernel()?;
+            vcpus = self.create_vcpus(entry_addr, request_ts)?;
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            let entry_addr = self.load_kernel()?;
+            vcpus = self.create_vcpus(entry_addr, request_ts)?;
+
+            self.setup_interrupt_controller()?;
+            self.attach_virtio_devices()?;
+            self.attach_legacy_devices()?;
+        }
 
         self.configure_system()?;
 
         self.register_events()?;
-
-        let vcpus = self.create_vcpus(entry_addr, request_ts)?;
 
         self.start_vcpus(vcpus)?;
         // Use expect() to crash if the other thread poisoned this lock.
@@ -1560,7 +1644,8 @@ impl Vmm {
         let kernel_config = KernelConfig {
             kernel_file,
             cmdline,
-            cmdline_addr: GuestAddress(arch::CMDLINE_START),
+            #[cfg(target_arch = "x86_64")]
+            cmdline_addr: GuestAddress(arch::x86_64::layout::CMDLINE_START),
         };
         self.configure_kernel(kernel_config);
 
@@ -2083,11 +2168,11 @@ mod tests {
             }
         }
 
-        fn remove_addr(&mut self, id: &str) {
+        fn remove_device_info(&mut self, id: &str) {
             self.mmio_device_manager
                 .as_mut()
                 .unwrap()
-                .remove_address(id);
+                .remove_device_info(id);
         }
 
         fn default_kernel_config(&mut self, cust_kernel_path: Option<PathBuf>) {
@@ -2104,7 +2189,8 @@ mod tests {
             let kernel_cfg = KernelConfig {
                 cmdline,
                 kernel_file,
-                cmdline_addr: GuestAddress(arch::CMDLINE_START),
+                #[cfg(target_arch = "x86_64")]
+                cmdline_addr: GuestAddress(arch::x86_64::layout::CMDLINE_START),
             };
             self.configure_kernel(kernel_cfg);
         }
@@ -2319,7 +2405,7 @@ mod tests {
         // test create network interface
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
-            host_dev_name: String::from("hostname"),
+            host_dev_name: String::from("hostname1"),
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
@@ -2384,7 +2470,7 @@ mod tests {
 
         vmm.insert_net_device(NetworkInterfaceConfig {
             iface_id: String::from("1"),
-            host_dev_name: String::from("hostname5"),
+            host_dev_name: String::from("hostname4"),
             guest_mac: None,
             rx_rate_limiter: Some(RateLimiterConfig {
                 bandwidth: Some(tbc_1mtps),
@@ -2424,13 +2510,10 @@ mod tests {
 
         vmm.init_guest_memory().unwrap();
         vmm.default_kernel_config(None);
-        let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager = MMIODeviceManager::new(
-            guest_mem.clone(),
-            arch::get_reserved_mem_addr() as u64,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        );
-        vmm.attach_net_devices(&mut device_manager).unwrap();
+        vmm.init_mmio_device_manager()
+            .expect("Cannot initialize mmio device manager");
+
+        vmm.attach_net_devices().unwrap();
         vmm.set_instance_state(InstanceState::Running);
 
         // The update should fail before device activation.
@@ -2657,11 +2740,26 @@ mod tests {
 
         let dummy_addr = GuestAddress(0x1000);
         vmm.configure_kernel(KernelConfig {
+            #[cfg(target_arch = "x86_64")]
             cmdline_addr: dummy_addr,
             cmdline: kernel_cmdline::Cmdline::new(10),
             kernel_file: tempfile::tempfile().unwrap(),
         });
         assert!(vmm.check_health().is_ok());
+    }
+
+    #[test]
+    fn test_microvm_start() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+
+        vmm.default_kernel_config(Some(good_kernel_file()));
+        // The kernel provided contains  "return 0" which will make the
+        // advanced seccomp filter return bad syscall so we disable it.
+        vmm.seccomp_level = seccomp::SECCOMP_LEVEL_NONE;
+        let res = vmm.start_microvm();
+        let stdin_handle = io::stdin();
+        stdin_handle.lock().set_canon_mode().unwrap();
+        assert!(res.is_ok());
     }
 
     #[test]
@@ -2702,15 +2800,11 @@ mod tests {
         assert!(vmm.guest_memory.is_some());
 
         vmm.default_kernel_config(None);
+        vmm.init_mmio_device_manager()
+            .expect("Cannot initialize mmio device manager");
 
-        let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager = MMIODeviceManager::new(
-            guest_mem.clone(),
-            arch::get_reserved_mem_addr() as u64,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        );
-        assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
-        assert!(vmm.get_kernel_cmdline_str().contains("root=/dev/vda"));
+        assert!(vmm.attach_block_devices().is_ok());
+        assert!(vmm.get_kernel_cmdline_str().contains("root=/dev/vda rw"));
 
         // Use Case 2: Root Block Device is specified through PARTUUID.
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
@@ -2729,17 +2823,13 @@ mod tests {
         assert!(vmm.guest_memory.is_some());
 
         vmm.default_kernel_config(None);
+        vmm.init_mmio_device_manager()
+            .expect("Cannot initialize mmio device manager");
 
-        let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager = MMIODeviceManager::new(
-            guest_mem.clone(),
-            arch::get_reserved_mem_addr() as u64,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        );
-        assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
+        assert!(vmm.attach_block_devices().is_ok());
         assert!(vmm
             .get_kernel_cmdline_str()
-            .contains("root=PARTUUID=0eaa91a0-01"));
+            .contains("root=PARTUUID=0eaa91a0-01 rw"));
 
         // Use Case 3: Root Block Device is not added at all.
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
@@ -2760,22 +2850,21 @@ mod tests {
         assert!(vmm.guest_memory.is_some());
 
         vmm.default_kernel_config(None);
+        vmm.init_mmio_device_manager()
+            .expect("Cannot initialize mmio device manager");
 
-        let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager = MMIODeviceManager::new(
-            guest_mem.clone(),
-            arch::get_reserved_mem_addr() as u64,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        );
-        assert!(vmm.attach_block_devices(&mut device_manager).is_ok());
+        assert!(vmm.attach_block_devices().is_ok());
         // Test that kernel commandline does not contain either /dev/vda or PARTUUID.
         assert!(!vmm.get_kernel_cmdline_str().contains("root=PARTUUID="));
         assert!(!vmm.get_kernel_cmdline_str().contains("root=/dev/vda"));
 
         // Test that the non root device is attached.
-        assert!(device_manager
-            .get_address(&non_root_block_device.drive_id)
-            .is_some());
+        {
+            let device_manager = vmm.mmio_device_manager.as_ref().unwrap();
+            assert!(device_manager
+                .get_address(&non_root_block_device.drive_id)
+                .is_some());
+        }
 
         // Test partial update of block devices.
         let new_block = NamedTempFile::new().unwrap();
@@ -2797,18 +2886,13 @@ mod tests {
         assert!(vmm.guest_memory.is_some());
 
         vmm.default_kernel_config(None);
-
-        let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager = MMIODeviceManager::new(
-            guest_mem.clone(),
-            arch::get_reserved_mem_addr() as u64,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        );
+        vmm.init_mmio_device_manager()
+            .expect("Cannot initialize mmio device manager");
 
         // test create network interface
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
-            host_dev_name: String::from("hostname3"),
+            host_dev_name: String::from("hostname5"),
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
@@ -2818,10 +2902,10 @@ mod tests {
 
         assert!(vmm.insert_net_device(network_interface).is_ok());
 
-        assert!(vmm.attach_net_devices(&mut device_manager).is_ok());
+        assert!(vmm.attach_net_devices().is_ok());
         // a second call to attach_net_devices should fail because when
         // we are creating the virtio::Net object, we are taking the tap.
-        assert!(vmm.attach_net_devices(&mut device_manager).is_err());
+        assert!(vmm.attach_net_devices().is_err());
     }
 
     #[test]
@@ -2830,6 +2914,8 @@ mod tests {
         vmm.default_kernel_config(None);
         assert!(vmm.init_guest_memory().is_ok());
 
+        vmm.init_mmio_device_manager()
+            .expect("Cannot initialize mmio device manager");
         assert!(vmm.attach_virtio_devices().is_ok());
     }
 
@@ -2897,25 +2983,24 @@ mod tests {
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
 
-        let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager = MMIODeviceManager::new(
-            guest_mem.clone(),
-            arch::get_reserved_mem_addr() as u64,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        );
+        vmm.init_mmio_device_manager()
+            .expect("Cannot initialize mmio device manager");
 
-        let dummy_box = Box::new(DummyDevice { dummy: 0 });
-        // Use a dummy command line as it is not used in this test.
-        let _addr = device_manager
-            .register_device(
-                vmm.vm.get_fd(),
-                dummy_box,
-                &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
-                Some(scratch_id.clone()),
-            )
-            .unwrap();
+        {
+            let dummy_box = Box::new(DummyDevice { dummy: 0 });
+            let device_manager = vmm.mmio_device_manager.as_mut().unwrap();
 
-        vmm.mmio_device_manager = Some(device_manager);
+            // Use a dummy command line as it is not used in this test.
+            let _addr = device_manager
+                .register_virtio_device(
+                    vmm.vm.get_fd(),
+                    dummy_box,
+                    &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
+                    &scratch_id,
+                )
+                .unwrap();
+        }
+
         vmm.set_instance_state(InstanceState::Running);
 
         // Test valid rescan_block_device.
@@ -2954,7 +3039,7 @@ mod tests {
         }
 
         // Test rescan_block_device with invalid device address.
-        vmm.remove_addr(&scratch_id);
+        vmm.remove_device_info(&scratch_id);
         match vmm.rescan_block_device(&scratch_id) {
             Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
             }
@@ -3110,25 +3195,6 @@ mod tests {
             .setup_irqchip()
             .expect("Cannot create IRQCHIP or PIT");
 
-        let guest_mem = vmm.guest_memory.clone().unwrap();
-        let mut device_manager = MMIODeviceManager::new(
-            guest_mem.clone(),
-            arch::get_reserved_mem_addr() as u64,
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        );
-
-        let dummy_box = Box::new(DummyDevice { dummy: 0 });
-        // Use a dummy command line as it is not used in this test.
-        let _addr = device_manager
-            .register_device(
-                vmm.vm.get_fd(),
-                dummy_box,
-                &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
-                Some("bogus".to_string()),
-            )
-            .unwrap();
-
-        vmm.mmio_device_manager = Some(device_manager);
         assert!(vmm
             .create_vcpus(GuestAddress(0x0), TimestampUs::default())
             .is_ok());
@@ -3199,7 +3265,7 @@ mod tests {
         // Create test network interface.
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
-            host_dev_name: String::from("hostname"),
+            host_dev_name: String::from("hostname6"),
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
@@ -3446,6 +3512,12 @@ mod tests {
         );
         assert_eq!(
             error_kind(StartMicrovmError::RegisterNetDevice(
+                device_manager::mmio::Error::IrqsExhausted
+            )),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::RegisterMMIODevice(
                 device_manager::mmio::Error::IrqsExhausted
             )),
             ErrorKind::Internal
