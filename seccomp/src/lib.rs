@@ -329,6 +329,8 @@ pub enum Error {
     IntoBpf,
     /// Argument number that exceeds the maximum value.
     InvalidArgumentNumber,
+    /// Invalid Seccomp level requested.
+    InvalidLevel,
     /// Failed to load seccomp rules into the kernel.
     Load(i32),
 }
@@ -344,6 +346,7 @@ impl Display for Error {
             InvalidArgumentNumber => {
                 write!(f, "The seccomp rule contains an invalid argument number.")
             }
+            InvalidLevel => write!(f, "The requested seccomp level is invalid."),
             Load(err) => write!(
                 f,
                 "Failed to load seccomp rules into the kernel with error {}.",
@@ -1333,6 +1336,10 @@ mod tests {
         assert_eq!(
             format!("{}", Error::InvalidArgumentNumber),
             "The seccomp rule contains an invalid argument number."
+        );
+        assert_eq!(
+            format!("{}", Error::InvalidLevel),
+            "The requested seccomp level is invalid."
         );
         assert_eq!(
             format!("{}", Error::Load(42)),

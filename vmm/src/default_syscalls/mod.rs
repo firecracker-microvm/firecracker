@@ -27,7 +27,8 @@ pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
     match seccomp_level {
         SECCOMP_LEVEL_ADVANCED => default_filter()?.apply(),
         SECCOMP_LEVEL_BASIC => default_filter()?.allow_all().apply(),
-        SECCOMP_LEVEL_NONE | _ => Ok(()),
+        SECCOMP_LEVEL_NONE => Ok(()),
+        _ => Err(Error::InvalidLevel),
     }
 }
 
