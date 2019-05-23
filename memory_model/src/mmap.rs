@@ -14,7 +14,7 @@ use std::ptr::null_mut;
 
 use libc;
 
-use DataInit;
+use crate::DataInit;
 
 /// Errors associated with memory mapping.
 #[derive(Debug)]

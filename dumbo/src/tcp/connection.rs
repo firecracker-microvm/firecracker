@@ -8,11 +8,11 @@
 
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
-use pdu::bytes::NetworkBytes;
-use pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
-use pdu::Incomplete;
-use tcp::{seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT};
-use ByteBuffer;
+use crate::pdu::bytes::NetworkBytes;
+use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
+use crate::pdu::Incomplete;
+use crate::tcp::{seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT};
+use crate::ByteBuffer;
 
 bitflags! {
     // We use a set of flags, instead of a state machine, to represent the connection status. Some
@@ -936,7 +936,7 @@ impl Connection {
 
             // We can only send data if it's within both the send buffer and the remote rwnd, and
             // before the sequence number of the local FIN (if the connection is closing).
-            let mut actual_end = if seq_at_or_after(self.remote_rwnd_edge, payload_end) {
+            let actual_end = if seq_at_or_after(self.remote_rwnd_edge, payload_end) {
                 payload_end
             } else {
                 self.remote_rwnd_edge

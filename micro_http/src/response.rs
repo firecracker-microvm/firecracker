@@ -3,9 +3,9 @@
 
 use std::io::{Error as WriteError, Write};
 
-use ascii::{CR, LF, SP};
-use common::{Body, Version};
-use headers::{Header, Headers, MediaType};
+use crate::ascii::{CR, LF, SP};
+use crate::common::{Body, Version};
+use crate::headers::{Header, Headers, MediaType};
 
 /// Wrapper over a response status code.
 ///

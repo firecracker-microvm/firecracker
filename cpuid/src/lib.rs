@@ -14,20 +14,20 @@ extern crate kvm_ioctls;
 use kvm_ioctls::CpuId;
 
 mod common;
-use common::*;
+use crate::common::*;
 
 /// Contains helper methods for bit operations.
 pub mod bit_helper;
 
 mod template;
-pub use template::c3;
-pub use template::t2;
+pub use crate::template::c3;
+pub use crate::template::t2;
 
 mod cpu_leaf;
 
 mod transformer;
-pub use transformer::Error;
-use transformer::*;
+pub use crate::transformer::Error;
+use crate::transformer::*;
 
 mod brand_string;
 

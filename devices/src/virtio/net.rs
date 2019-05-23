@@ -33,7 +33,7 @@ use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
 use virtio_gen::virtio_net::*;
-use {DeviceEventT, EpollHandler};
+use crate::{DeviceEventT, EpollHandler};
 
 /// The maximum buffer size when segmentation offload is enabled. This
 /// includes the 12-byte virtio net header.
@@ -840,7 +840,7 @@ impl VirtioDevice for Net {
             let tx_queue = queues.remove(0);
             let rx_queue_evt = queue_evts.remove(0);
             let tx_queue_evt = queue_evts.remove(0);
-            let mut mmds_ns = if self.allow_mmds_requests {
+            let mmds_ns = if self.allow_mmds_requests {
                 Some(MmdsNetworkStack::new_with_defaults())
             } else {
                 None
@@ -960,7 +960,7 @@ mod tests {
 
     use super::*;
     use memory_model::GuestAddress;
-    use virtio::queue::tests::*;
+    use crate::virtio::queue::tests::*;
 
     use dumbo::pdu::{arp, ethernet};
     use rate_limiter::TokenBucket;

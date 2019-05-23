@@ -11,7 +11,7 @@
 extern crate sys_util;
 
 pub mod vhost;
-pub use vhost::*;
+pub use crate::vhost::*;
 
 pub const VHOST: ::std::os::raw::c_uint = 0xaf;
 

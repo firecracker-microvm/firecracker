@@ -18,11 +18,11 @@ mod signal;
 mod struct_util;
 mod terminal;
 
-pub use eventfd::*;
-pub use ioctl::*;
-pub use signal::*;
-pub use struct_util::{read_struct, read_struct_slice};
-pub use terminal::*;
+pub use crate::eventfd::*;
+pub use crate::ioctl::*;
+pub use crate::signal::*;
+pub use crate::struct_util::{read_struct, read_struct_slice};
+pub use crate::terminal::*;
 
 /// Wrapper to interpret syscall exit codes and provide a rustacean `io::Result`
 pub struct SyscallReturnCode(pub c_int);

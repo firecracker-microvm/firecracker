@@ -11,9 +11,9 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 use std::{mem, result};
 
-use guest_address::GuestAddress;
-use mmap::{self, MemoryMapping};
-use DataInit;
+use crate::guest_address::GuestAddress;
+use crate::mmap::{self, MemoryMapping};
+use crate::DataInit;
 
 /// Errors associated with handling guest memory regions.
 #[derive(Debug)]
@@ -217,7 +217,7 @@ impl GuestMemory {
     /// ```
     pub fn read_slice_at_addr(
         &self,
-        mut buf: &mut [u8],
+        buf: &mut [u8],
         guest_addr: GuestAddress,
     ) -> Result<usize> {
         self.do_in_region_partial(guest_addr, move |mapping, offset| {

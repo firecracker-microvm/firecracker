@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 use vmm::vmm_config::drive::BlockDeviceConfig;
 use vmm::VmmAction;
 
-use request::{IntoParsedRequest, ParsedRequest};
+use crate::request::{IntoParsedRequest, ParsedRequest};
 
 #[derive(Clone)]
 pub struct PatchDrivePayload {

@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use cpu_leaf::*;
+use crate::cpu_leaf::*;
 use kvm_bindings::kvm_cpuid_entry2;
 
 /// Sets up the cpuid entries for a given VCPU following a T2 template.

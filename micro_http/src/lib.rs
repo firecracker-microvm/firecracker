@@ -62,10 +62,10 @@
 mod common;
 mod request;
 mod response;
-use common::ascii;
-use common::headers;
+use crate::common::ascii;
+use crate::common::headers;
 
-pub use request::{Request, RequestError};
-pub use response::{Response, StatusCode};
+pub use crate::request::{Request, RequestError};
+pub use crate::response::{Response, StatusCode};
 
-pub use common::{Body, Version};
+pub use crate::common::{Body, Version};

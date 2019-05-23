@@ -4,12 +4,12 @@
 use std;
 use std::fmt::{Display, Formatter, Result};
 
-use device_manager;
+use crate::device_manager;
 use devices;
 use kernel::loader as kernel_loader;
 use memory_model::GuestMemoryError;
 use seccomp;
-use vstate;
+use crate::vstate;
 
 /// The microvm state. When Firecracker starts, the instance state is Uninitialized.
 /// Once start_microvm method is called, the state goes from Uninitialized to Starting.

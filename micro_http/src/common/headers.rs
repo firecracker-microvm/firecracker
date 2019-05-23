@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::io::{Error as WriteError, Write};
 
-use ascii::{COLON, CR, LF, SP};
+use crate::ascii::{COLON, CR, LF, SP};
 
 /// Wrapper over an HTTP Header type.
 #[derive(Debug, Eq, Hash, PartialEq)]

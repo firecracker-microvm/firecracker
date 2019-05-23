@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::result;
 use std::sync::{Mutex, MutexGuard};
 
-use error::LoggerError;
+use crate::error::LoggerError;
 
 type Result<T> = result::Result<T, LoggerError>;
 

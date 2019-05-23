@@ -1039,8 +1039,8 @@ fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use SeccompCmpOp::*;
-    use SeccompCondition as Cond;
+    use crate::SeccompCmpOp::*;
+    use crate::SeccompCondition as Cond;
 
     // Checks that rule gets translated correctly into BPF statements.
     #[test]

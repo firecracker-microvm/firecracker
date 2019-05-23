@@ -7,7 +7,7 @@ use futures::sync::oneshot;
 use hyper::Method;
 use serde_json::Value;
 
-use request::{IntoParsedRequest, ParsedRequest};
+use crate::request::{IntoParsedRequest, ParsedRequest};
 use vmm::VmmAction;
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible

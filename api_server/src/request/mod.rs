@@ -16,7 +16,7 @@ use std::result;
 use hyper;
 use hyper::{Method, StatusCode};
 
-use http_service::{empty_response, json_fault_message, json_response};
+use crate::http_service::{empty_response, json_fault_message, json_response};
 use vmm::{ErrorKind, OutcomeReceiver, VmmAction, VmmActionError, VmmData};
 
 #[allow(clippy::large_enum_variant)]

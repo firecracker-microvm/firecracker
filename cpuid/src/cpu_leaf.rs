@@ -15,7 +15,7 @@ pub mod leaf_0x1 {
     }
 
     pub mod ebx {
-        use bit_helper::BitRange;
+        use crate::bit_helper::BitRange;
 
         // The bit-range containing the (fixed) default APIC ID.
         pub const APICID_BITRANGE: BitRange = bit_range!(31, 24);
@@ -67,7 +67,7 @@ pub mod leaf_0x1 {
 
 pub mod leaf_cache_parameters {
     pub mod eax {
-        use bit_helper::BitRange;
+        use crate::bit_helper::BitRange;
 
         pub const CACHE_LEVEL_BITRANGE: BitRange = bit_range!(7, 5);
         pub const MAX_CPUS_PER_CORE_BITRANGE: BitRange = bit_range!(25, 14);
@@ -79,10 +79,10 @@ pub mod leaf_0x4 {
     pub const LEAF_NUM: u32 = 0x4;
 
     pub mod eax {
-        use bit_helper::BitRange;
+        use crate::bit_helper::BitRange;
 
         // inherit eax from leaf_cache_parameters
-        pub use cpu_leaf::leaf_cache_parameters::eax::*;
+        pub use crate::cpu_leaf::leaf_cache_parameters::eax::*;
 
         pub const MAX_CORES_PER_PACKAGE_BITRANGE: BitRange = bit_range!(31, 26);
     }
@@ -178,7 +178,7 @@ pub mod leaf_0xb {
     pub const LEVEL_TYPE_CORE: u32 = 2;
 
     pub mod eax {
-        use bit_helper::BitRange;
+        use crate::bit_helper::BitRange;
 
         // The bit-range containing the number of bits to shift right the APIC ID in order to get
         // the next level APIC ID
@@ -186,7 +186,7 @@ pub mod leaf_0xb {
     }
 
     pub mod ebx {
-        use bit_helper::BitRange;
+        use crate::bit_helper::BitRange;
 
         // The bit-range containing the number of factory-configured logical processors
         // at the current cache level
@@ -194,7 +194,7 @@ pub mod leaf_0xb {
     }
 
     pub mod ecx {
-        use bit_helper::BitRange;
+        use crate::bit_helper::BitRange;
 
         pub const LEVEL_TYPE_BITRANGE: BitRange = bit_range!(15, 8);
         pub const LEVEL_NUMBER_BITRANGE: BitRange = bit_range!(7, 0);
@@ -205,7 +205,7 @@ pub mod leaf_0x80000000 {
     pub const LEAF_NUM: u32 = 0x8000_0000;
 
     pub mod eax {
-        use bit_helper::BitRange;
+        use crate::bit_helper::BitRange;
 
         pub const LARGEST_EXTENDED_FN_BITRANGE: BitRange = bit_range!(31, 0);
     }
@@ -229,7 +229,7 @@ pub mod leaf_0x80000008 {
     pub const LEAF_NUM: u32 = 0x8000_0008;
 
     pub mod ecx {
-        use bit_helper::BitRange;
+        use crate::bit_helper::BitRange;
 
         // The number of bits in the initial ApicId value that indicate thread ID within a package
         // Possible values:
@@ -248,7 +248,7 @@ pub mod leaf_0x8000001d {
     pub const LEAF_NUM: u32 = 0x8000_001d;
 
     // inherit eax from leaf_cache_parameters
-    pub use cpu_leaf::leaf_cache_parameters::eax;
+    pub use crate::cpu_leaf::leaf_cache_parameters::eax;
 }
 
 // Extended APIC ID Leaf
@@ -256,13 +256,13 @@ pub mod leaf_0x8000001e {
     pub const LEAF_NUM: u32 = 0x8000_001e;
 
     pub mod eax {
-        use bit_helper::BitRange;
+        use crate::bit_helper::BitRange;
 
         pub const EXTENDED_APIC_ID_BITRANGE: BitRange = bit_range!(31, 0);
     }
 
     pub mod ebx {
-        use bit_helper::BitRange;
+        use crate::bit_helper::BitRange;
 
         // The number of threads per core - 1
         pub const THREADS_PER_CORE_BITRANGE: BitRange = bit_range!(15, 8);
@@ -270,7 +270,7 @@ pub mod leaf_0x8000001e {
     }
 
     pub mod ecx {
-        use bit_helper::BitRange;
+        use crate::bit_helper::BitRange;
 
         // The number of nodes per processor. Possible values:
         // 0 -> 1 node per processor

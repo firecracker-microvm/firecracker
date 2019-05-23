@@ -15,9 +15,9 @@ use serde_json;
 
 use logger::{Metric, METRICS};
 use mmds::data_store::{self, Mmds};
-use request::actions::ActionBody;
-use request::drive::PatchDrivePayload;
-use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
+use crate::request::actions::ActionBody;
+use crate::request::drive::PatchDrivePayload;
+use crate::request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::drive::BlockDeviceConfig;
@@ -500,7 +500,7 @@ impl hyper::server::Service for ApiServerHttpService {
         let vmm_send_event = self.vmm_send_event.clone();
 
         // for nice looking match arms
-        use request::ParsedRequest::*;
+        use crate::request::ParsedRequest::*;
 
         // The request body is itself a future (a stream of Chunks to be more precise),
         // so we have to define a future that waits for all the pieces first (via concat2),

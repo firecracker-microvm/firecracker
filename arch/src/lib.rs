@@ -35,7 +35,7 @@ pub use aarch64::{
 pub mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
-pub use x86_64::{
+pub use crate::x86_64::{
     arch_memory_regions, configure_system, get_32bit_gap_start as get_reserved_mem_addr,
     get_kernel_start, layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX,
 };

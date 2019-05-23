@@ -16,7 +16,7 @@ use std::result::Result;
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::ipv4::PROTOCOL_TCP;
 use super::Incomplete;
-use ByteBuffer;
+use crate::ByteBuffer;
 
 const SOURCE_PORT_OFFSET: usize = 0;
 const DESTINATION_PORT_OFFSET: usize = 2;

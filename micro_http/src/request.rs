@@ -3,10 +3,10 @@
 
 use std::str::from_utf8;
 
-use common::ascii::{CR, LF, SP};
-pub use common::RequestError;
-use common::{Body, Method, Version};
-use headers::Headers;
+use crate::common::ascii::{CR, LF, SP};
+pub use crate::common::RequestError;
+use crate::common::{Body, Method, Version};
+use crate::headers::Headers;
 
 // Helper function used for parsing the HTTP Request.
 // Splits the bytes in a pair containing the bytes before the separator and after the separator.
