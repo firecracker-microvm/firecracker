@@ -5,6 +5,9 @@ extern crate seccomp;
 
 use seccomp::{allow_syscall, SyscallRuleSet};
 
+#[cfg(target_arch = "aarch64")]
+const SYS_mmap: ::std::os::raw::c_long = 222;
+
 /// Returns a list of rules that allow syscalls required for running a rust program.
 pub fn rust_required_rules() -> Vec<SyscallRuleSet> {
     vec![
@@ -22,6 +25,10 @@ pub fn jailer_required_rules() -> Vec<SyscallRuleSet> {
         allow_syscall(libc::SYS_execve),
         #[cfg(target_arch = "x86_64")]
         allow_syscall(libc::SYS_mmap),
+        #[cfg(target_arch = "aarch64")]
+        // See this issue for why we are doing it this way on arch64:
+        // https://github.com/rust-lang/libc/issues/1348.
+        allow_syscall(SYS_mmap),
         #[cfg(target_arch = "x86_64")]
         allow_syscall(libc::SYS_arch_prctl),
         allow_syscall(libc::SYS_set_tid_address),
