@@ -2,6 +2,7 @@
 name = "firecracker"
 version = "0.16.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2018"
 
 [dependencies]
 chrono = ">=0.4"
