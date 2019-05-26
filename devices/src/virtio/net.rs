@@ -30,7 +30,7 @@ use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use net_gen;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
-use rate_limiter::{RateLimiter, TokenType};
+use rate_limiter::{RateLimiter, TokenBucket, TokenType};
 use sys_util::EventFd;
 use virtio::EpollConfigConstructor;
 use virtio_gen::virtio_net::*;
@@ -148,7 +148,8 @@ fn init_vnet_hdr(buf: &mut [u8]) {
     }
 }
 
-struct NetEpollHandler {
+/// Handler that drives the execution of the Net devices
+pub struct NetEpollHandler {
     rx: RxVirtio,
     tap: Tap,
     mem: GuestMemory,
@@ -494,6 +495,18 @@ impl NetEpollHandler {
         } else {
             Ok(())
         }
+    }
+
+    /// Updates the parameters for the rate limiters
+    pub fn patch_rate_limiters(
+        &mut self,
+        rx_bytes: Option<TokenBucket>,
+        rx_ops: Option<TokenBucket>,
+        tx_bytes: Option<TokenBucket>,
+        tx_ops: Option<TokenBucket>,
+    ) {
+        self.rx.rate_limiter.update_buckets(rx_bytes, rx_ops);
+        self.tx.rate_limiter.update_buckets(tx_bytes, tx_ops);
     }
 
     #[cfg(not(test))]

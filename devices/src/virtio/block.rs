@@ -278,7 +278,8 @@ impl Request {
     }
 }
 
-struct BlockEpollHandler {
+/// Handler that drives the execution of the Block devices
+pub struct BlockEpollHandler {
     queues: Vec<Queue>,
     mem: GuestMemory,
     disk_image: File,
@@ -379,7 +380,8 @@ impl BlockEpollHandler {
         })
     }
 
-    fn update_disk_image(&mut self, disk_image: File) -> result::Result<(), DeviceError> {
+    /// Update the backing file for the Block device
+    pub fn update_disk_image(&mut self, disk_image: File) -> result::Result<(), DeviceError> {
         self.disk_image = disk_image;
         self.disk_nsectors = self
             .disk_image

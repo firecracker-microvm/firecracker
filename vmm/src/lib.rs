@@ -141,6 +141,8 @@ pub enum Error {
     EventFd(io::Error),
     /// An event arrived for a device, but the dispatcher can't find the event (epoll) handler.
     DeviceEventHandlerNotFound,
+    /// An epoll handler can't be downcasted to the desired type.
+    DeviceEventHandlerInvalidDowncast,
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
     /// permission to open the file descriptor.
     Kvm(io::Error),
@@ -171,6 +173,10 @@ impl std::fmt::Debug for Error {
             DeviceEventHandlerNotFound => write!(
                 f,
                 "Device event handler not found. This might point to a guest device driver issue."
+            ),
+            DeviceEventHandlerInvalidDowncast => write!(
+                f,
+                "Device event handler couldn't be downcasted to expected type."
             ),
             Kvm(os_err) => write!(f, "Cannot open /dev/kvm. Error: {}", os_err.to_string()),
             KvmApiVersion(ver) => write!(f, "Bad KVM API version: {}", ver),
@@ -243,6 +249,7 @@ impl std::convert::From<DriveError> for VmmActionError {
             | DriveError::InvalidBlockDeviceID
             | DriveError::InvalidBlockDevicePath
             | DriveError::BlockDevicePathAlreadyExists
+            | DriveError::EpollHandlerNotFound
             | DriveError::BlockDeviceUpdateFailed
             | DriveError::OperationNotAllowedPreBoot
             | DriveError::UpdateNotAllowedPostBoot
@@ -641,12 +648,6 @@ impl EpollContext {
         (dispatch_base, sender)
     }
 
-    // Horrible, horrible hack, because velocity: return a tuple (epoll_config, handler_idx),
-    // since, for some reason, the VMM doesn't own and cannot contact its live devices. I.e.
-    // after VM start, the device objects become some kind of useless hollow husks, their
-    // actual data being _moved_ to their corresponding `EpollHandler`s.
-    // The `handler_idx`, that we're returning here, can be used by the VMM to contact the
-    // device, by faking an event, sent straight to the device `EpollHandler`.
     fn allocate_virtio_tokens<T: EpollConfigConstructor>(
         &mut self,
         type_id: u32,
@@ -680,16 +681,20 @@ impl EpollContext {
         }
     }
 
-    fn get_device_handler_by_device_id(
+    fn get_device_handler_by_device_id<T: EpollHandler + 'static>(
         &mut self,
         type_id: u32,
         device_id: &str,
-    ) -> Result<&mut EpollHandler> {
+    ) -> Result<&mut T> {
         let handler_id = *self
             .device_id_to_handler_id
             .get(&(type_id, device_id.to_string()))
             .ok_or(Error::DeviceEventHandlerNotFound)?;
-        self.get_device_handler_by_handler_id(handler_id)
+        let device_handler = self.get_device_handler_by_handler_id(handler_id)?;
+        match device_handler.as_mut_any().downcast_mut::<T>() {
+            Some(res) => Ok(res),
+            None => Err(Error::DeviceEventHandlerInvalidDowncast),
+        }
     }
 }
 
@@ -799,29 +804,14 @@ impl Vmm {
         drive_id: &str,
         disk_image: File,
     ) -> result::Result<(), DriveError> {
-        match self
+        let handler = self
             .epoll_context
-            .get_device_handler_by_device_id(TYPE_BLOCK, drive_id)
-        {
-            Ok(handler) => {
-                match handler.handle_event(
-                    virtio::block::FS_UPDATE_EVENT,
-                    EpollHandlerPayload::DrivePayload(disk_image),
-                ) {
-                    Err(devices::Error::PayloadExpected) => {
-                        panic!("Received update disk image event with empty payload.")
-                    }
-                    Err(devices::Error::UnknownEvent { device, event }) => {
-                        panic!("Unknown event: {:?} {:?}", device, event)
-                    }
-                    _ => Ok(()),
-                }
-            }
-            Err(e) => {
-                warn!("invalid handler for device {}: {:?}", drive_id, e);
-                Err(DriveError::BlockDeviceUpdateFailed)
-            }
-        }
+            .get_device_handler_by_device_id::<virtio::BlockEpollHandler>(TYPE_BLOCK, drive_id)
+            .map_err(|_| DriveError::EpollHandlerNotFound)?;
+
+        handler
+            .update_disk_image(disk_image)
+            .map_err(|_| DriveError::BlockDeviceUpdateFailed)
     }
 
     // Attaches all block devices from the BlockDevicesConfig.
@@ -1780,34 +1770,27 @@ impl Vmm {
 
         let handler = self
             .epoll_context
-            .get_device_handler_by_device_id(TYPE_NET, &new_cfg.iface_id)
+            .get_device_handler_by_device_id::<virtio::NetEpollHandler>(TYPE_NET, &new_cfg.iface_id)
             .map_err(NetworkInterfaceError::EpollHandlerNotFound)?;
 
-        // Hack because velocity (my new favorite phrase): fake an epoll event, because we can only
-        // contact a live device via its `EpollHandler`.
-        handler
-            .handle_event(
-                virtio::net::PATCH_RATE_LIMITERS_FAKE_EVENT,
-                EpollHandlerPayload::NetRateLimiterPayload {
-                    rx_bytes: new_cfg
-                        .rx_rate_limiter
-                        .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
-                        .unwrap_or(None),
-                    rx_ops: new_cfg
-                        .rx_rate_limiter
-                        .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
-                        .unwrap_or(None),
-                    tx_bytes: new_cfg
-                        .tx_rate_limiter
-                        .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
-                        .unwrap_or(None),
-                    tx_ops: new_cfg
-                        .tx_rate_limiter
-                        .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
-                        .unwrap_or(None),
-                },
-            )
-            .map_err(NetworkInterfaceError::RateLimiterUpdateFailed)?;
+        handler.patch_rate_limiters(
+            new_cfg
+                .rx_rate_limiter
+                .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
+                .unwrap_or(None),
+            new_cfg
+                .rx_rate_limiter
+                .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
+                .unwrap_or(None),
+            new_cfg
+                .tx_rate_limiter
+                .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
+                .unwrap_or(None),
+            new_cfg
+                .tx_rate_limiter
+                .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
+                .unwrap_or(None),
+        );
 
         Ok(VmmData::Empty)
     }

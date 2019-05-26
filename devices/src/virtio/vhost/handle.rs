@@ -74,7 +74,7 @@ impl<T: Vhost> VhostEpollHandler<T> {
     }
 }
 
-impl<T: Vhost> EpollHandler for VhostEpollHandler<T>
+impl<T: Vhost + 'static> EpollHandler for VhostEpollHandler<T>
 where
     T: std::marker::Send,
 {
