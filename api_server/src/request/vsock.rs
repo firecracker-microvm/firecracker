@@ -17,7 +17,7 @@ impl IntoParsedRequest for VsockDeviceConfig {
         _: Method,
     ) -> result::Result<ParsedRequest, String> {
         let id_from_path = id_from_path.unwrap_or_default();
-        if id_from_path != self.id.as_str() {
+        if id_from_path != self.vsock_id.as_str() {
             return Err(String::from(
                 "The id from the path does not match the id from the body!",
             ));
@@ -38,8 +38,9 @@ mod tests {
     #[test]
     fn test_vsock_into_parsed_request() {
         let vsock = VsockDeviceConfig {
-            id: String::from("foo"),
+            vsock_id: String::from("foo"),
             guest_cid: 42,
+            uds_path: "vsock.sock".to_string(),
         };
         assert!(vsock
             .clone()

@@ -2,7 +2,8 @@ swagger: "2.0"
 info:
   title: Firecracker API
   description: RESTful public-facing API.
-               The API is accessible through HTTP calls on specific URLs carrying JSON modeled data.
+               The API is accessible through HTTP calls on specific URLs
+               carrying JSON modeled data.
                The transport medium is a Unix Domain Socket.
   version: 0.17.0
   termsOfService: ""
@@ -352,6 +353,37 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /vsocks/{id}:
+    put:
+      summary: Creates new vsock with ID specified by the id parameter.
+      description:
+        If the vsock device with the specified ID already exists, its body will
+        be updated based on the new input. May fail if update is not possible.
+      operationId: putGuestVsockByID
+      parameters:
+      - name: id
+        in: path
+        description: The id of the vsock device
+        required: true
+        type: string
+      - name: body
+        in: body
+        description: Guest vsock properties
+        required: true
+        schema:
+          $ref: "#/definitions/Vsock"
+      responses:
+        204:
+          description: Vsock created/updated
+        400:
+          description: Vsock cannot be created due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
 definitions:
   BootSource:
     type: object
@@ -611,3 +643,30 @@ definitions:
         format: int64
         description: The amount of milliseconds it takes for the bucket to refill.
         minimum: 0
+
+  Vsock:
+    type: object
+    description:
+      Defines a vsock device, backed by a set of Unix Domain Sockets, on the host side.
+      For host-initiated connections, Firecracker will be listening on the Unix socket
+      identified by the path `uds_path`. Firecracker will create this socket, bind and
+      listen on it. Host-initiated connections will be performed by connection to this
+      socket and issuing a connection forwarding request to the desired guest-side vsock
+      port (i.e. `CONNECT 52\n`, to connect to port 52).
+      For guest-initiated connections, Firecracker will expect host software to be
+      bound and listening on Unix sockets at `uds_path_<PORT>`.
+      E.g. "/path/to/host_vsock.sock_52" for port number 52.
+    required:
+      - vsock_id
+      - guest_cid
+      - uds_path
+    properties:
+      id:
+        type: string
+      guest_cid:
+        type: integer
+        minimum: 3
+        description: Guest Vsock CID
+      uds_path:
+        type: string
+        description: Path to UNIX domain socket, used to proxy vsock connections.
