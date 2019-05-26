@@ -36,10 +36,12 @@ unsafe impl DataInit for Descriptor {}
 
 /// A virtio descriptor chain.
 pub struct DescriptorChain<'a> {
-    mem: &'a GuestMemory,
     desc_table: GuestAddress,
     queue_size: u16,
     ttl: u16, // used to prevent infinite chain cycles
+
+    /// Reference to guest memory
+    pub mem: &'a GuestMemory,
 
     /// Index into the descriptor table
     pub index: u16,
