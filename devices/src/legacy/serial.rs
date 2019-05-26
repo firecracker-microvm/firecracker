@@ -11,7 +11,7 @@ use std::io;
 use logger::{Metric, METRICS};
 use sys_util::EventFd;
 
-use BusDevice;
+use crate::bus::BusDevice;
 
 const LOOP_SIZE: usize = 0x40;
 
