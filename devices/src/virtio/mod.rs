@@ -16,11 +16,13 @@ pub mod block;
 mod mmio;
 pub mod net;
 mod queue;
+pub mod vsock;
 
 pub use self::block::*;
 pub use self::mmio::*;
 pub use self::net::*;
 pub use self::queue::*;
+pub use self::vsock::*;
 
 use super::EpollHandler;
 
