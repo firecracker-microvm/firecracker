@@ -53,15 +53,13 @@ where
     /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
     /// have pending.
     ///
-    #[allow(dead_code)]
     fn process_rx(&mut self) {
         error!("vsock: EpollHandler::process_rx() NYI");
     }
 
-    /// Walk the dirver-provided TX queue buffers, package them up as vsock packets, and send them to
+    /// Walk the driver-provided TX queue buffers, package them up as vsock packets, and send them to
     /// the backend for processing.
     ///
-    #[allow(dead_code)]
     fn process_tx(&mut self) {
         error!("vsock: EpollHandler::process_tx() NYI");
     }
@@ -87,6 +85,8 @@ where
                         event_type: "rx queue event",
                         underlying: e,
                     });
+                } else if self.backend.has_pending_rx() {
+                    self.process_rx();
                 }
             }
             defs::TXQ_EVENT => {
@@ -97,6 +97,14 @@ where
                         event_type: "tx queue event",
                         underlying: e,
                     });
+                } else {
+                    self.process_tx();
+                    // The backend may have queued up responses to the packets we sent during TX queue
+                    // processing. If that happened, we need to fetch those responses and place them
+                    // into RX buffers.
+                    if self.backend.has_pending_rx() {
+                        self.process_rx();
+                    }
                 }
             }
             defs::EVQ_EVENT => {
@@ -111,6 +119,20 @@ where
             }
             defs::BACKEND_EVENT => {
                 debug!("vsock: backend event");
+//                if let Some(evset) = epoll::Events::from_bits(evset_bits) {
+//                    self.backend.notify(evset);
+//                    // This event may have caused some packets to be queued up by the backend.
+//                    // Make sure they are processed.
+//                    if self.backend.has_pending_rx() {
+//                        self.process_rx();
+//                    }
+//                } else {
+//                    warn!("vsock: unexpected backend event flags={:08x}", evset_bits);
+//                }
+                self.backend.notify(epoll::Events::EPOLLIN);
+                if self.backend.has_pending_rx() {
+                    self.process_rx();
+                }
             }
             other => {
                 return Err(DeviceError::UnknownEvent {
