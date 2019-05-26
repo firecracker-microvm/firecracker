@@ -143,14 +143,64 @@ impl EpollConfigConstructor for EpollConfig {
     }
 }
 
-/// Placeholder for a to-be-defined vsock backend trait.
-pub trait VsockBackend: Send {}
+/// A passive, event-driven object, that needs to be notified whenever an epoll-able event occurs.
+/// An event-polling control loop will use `get_polled_fd()` and `get_polled_evset()` to query
+/// the listener for the file descriptor and the set of events it's interested in. When such an
+/// event occurs, the control loop will route the event to the listener via `notify()`.
+///
+pub trait VsockEpollListener {
+    /// Get the file descriptor the listener needs polled.
+    fn get_polled_fd(&self) -> RawFd;
+
+    /// Get the set of events for which the listener wants to be notified.
+    fn get_polled_evset(&self) -> epoll::Events;
+
+    /// Notify the listener that one ore more events have occurred.
+    fn notify(&mut self, evset: epoll::Events);
+}
+
+/// Any channel that handles vsock packet traffic: sending and receiving packets. Since we're
+/// implementing the device model here, our responsibility is to always process the sending of
+/// packets (i.e. the TX queue). So, any locally generated data, addressed to the driver (e.g.
+/// a connection response or RST), will have to be queued, until we get to processing the RX queue.
+///
+/// Note: `recv_pkt()` and `send_pkt()` are named analogous to `Read::read()` and `Write::write()`,
+///       respectively. I.e.
+///       - `recv_pkt(&mut pkt)` will read data from the channel, and place it into `pkt`; and
+///       - `send_pkt(&pkt)` will fetch data from `pkt`, and place it into the channel.
+pub trait VsockChannel {
+    /// Read/receive an incoming packet from the channel.
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> Result<()>;
+
+    /// Write/send a packet through the channel.
+    fn send_pkt(&mut self, pkt: &VsockPacket) -> Result<()>;
+
+    /// Checks whether there is pending incoming data inside the channel, meaning that a subsequent
+    /// call to `recv_pkt()` won't fail.
+    fn has_pending_rx(&self) -> bool;
+}
+
+/// The vsock backend, which is basically an epoll-event-driven vsock channel, that needs to be
+/// sendable through a mpsc channel (the latter due to how `vmm::EpollContext` works).
+/// Currently, the only implementation we have is `crate::virtio::unix::muxer::VsockMuxer`, which
+/// translates guest-side vsock connections to host-side Unix domain socket connections.
+pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {}
+
+
+/// Placeholder for a to-be-defined packet struct.
+pub struct VsockPacket {}
 
 /// Placeholder implementor for a future vsock backend.
 pub struct DummyBackend {}
-impl DummyBackend {
-    pub fn new(_cid: u64, _path: String) -> Result<Self> {
-        Ok(Self {})
-    }
+impl DummyBackend { pub fn new(_cid: u64, _path: String) -> Result<Self> { Ok(Self{}) } }
+impl VsockEpollListener for DummyBackend {
+    fn get_polled_fd(&self) -> RawFd { -1 }
+    fn get_polled_evset(&self) -> epoll::Events { epoll::Events::empty() }
+    fn notify(&mut self, _evset: epoll::Events) {}
+}
+impl VsockChannel for DummyBackend {
+    fn recv_pkt(&mut self, _pkt: &mut VsockPacket) -> Result<()> { Ok(()) }
+    fn send_pkt(&mut self, _pkt: &VsockPacket) -> Result<()> { Ok(()) }
+    fn has_pending_rx(&self) -> bool { false }
 }
 impl VsockBackend for DummyBackend {}
