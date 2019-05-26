@@ -164,6 +164,8 @@ where
         let evvq_evt = queue_evts.remove(0);
 
         let backend = self.backend.take().unwrap();
+        let backend_fd = backend.get_polled_fd();
+        let backend_evset = backend.get_polled_evset();
 
         let handler: VsockEpollHandler<B> = VsockEpollHandler {
             rxvq,
@@ -208,6 +210,14 @@ where
             epoll::ControlOptions::EPOLL_CTL_ADD,
             ev_queue_rawfd,
             epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.evq_token),
+        )
+        .map_err(ActivateError::EpollCtl)?;
+
+        epoll::ctl(
+            self.epoll_config.epoll_raw_fd,
+            epoll::ControlOptions::EPOLL_CTL_ADD,
+            backend_fd,
+            epoll::Event::new(backend_evset, self.epoll_config.backend_token),
         )
         .map_err(ActivateError::EpollCtl)?;
 
