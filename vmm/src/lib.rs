@@ -68,6 +68,7 @@ use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::I8042DeviceError;
 use devices::virtio;
+use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
 use devices::virtio::EpollConfigConstructor;
 use devices::virtio::{BLOCK_EVENTS_COUNT, TYPE_BLOCK};
 use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
@@ -993,8 +994,42 @@ impl Vmm {
     }
 
     fn attach_vsock_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        // vsock device not yet implemented
-        Err(StartMicrovmError::CreateVsockDevice)
+        let kernel_config = self
+            .kernel_config
+            .as_mut()
+            .ok_or(StartMicrovmError::MissingKernelConfig)?;
+        // `unwrap` is suitable for this context since this should be called only after the
+        // device manager has been initialized.
+        let device_manager = self.mmio_device_manager.as_mut().unwrap();
+
+        for cfg in self.vsock_device_configs.iter() {
+            let backend = devices::virtio::vsock::VsockUnixBackend::new(
+                u64::from(cfg.guest_cid),
+                cfg.uds_path.clone(),
+            )
+            .map_err(|_| StartMicrovmError::CreateVsockDevice)?;
+
+            let epoll_config = self.epoll_context.allocate_tokens_for_virtio_device(
+                TYPE_VSOCK,
+                &cfg.vsock_id,
+                VSOCK_EVENTS_COUNT,
+            );
+            let vsock_box = Box::new(
+                devices::virtio::Vsock::new(u64::from(cfg.guest_cid), epoll_config, backend)
+                    .or(Err(StartMicrovmError::CreateVsockDevice))?,
+            );
+            device_manager
+                .register_virtio_device(
+                    self.vm.get_fd(),
+                    vsock_box,
+                    &mut kernel_config.cmdline,
+                    TYPE_VSOCK,
+                    &cfg.vsock_id,
+                )
+                .map_err(StartMicrovmError::RegisterVsockDevice)?;
+        }
+
+        Ok(())
     }
 
     fn configure_kernel(&mut self, kernel_config: KernelConfig) {

@@ -10,9 +10,11 @@ use std::result;
 #[serde(deny_unknown_fields)]
 pub struct VsockDeviceConfig {
     /// ID of the vsock device.
-    pub id: String,
+    pub vsock_id: String,
     /// A 32-bit Context Identifier (CID) used to identify the guest.
     pub guest_cid: u32,
+    /// Path to local unix socket.
+    pub uds_path: String,
 }
 
 /// Errors associated with `VsockDeviceConfig`.
@@ -71,7 +73,7 @@ impl VsockDeviceConfigs {
         match self
             .configs
             .iter()
-            .position(|cfg_from_list| cfg_from_list.id.as_str() == cfg.id.as_str())
+            .position(|cfg_from_list| cfg_from_list.vsock_id.as_str() == cfg.vsock_id.as_str())
         {
             Some(index) => self.configs[index] = cfg,
             None => self.configs.push(cfg),
