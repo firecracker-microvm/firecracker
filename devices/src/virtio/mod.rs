@@ -8,6 +8,8 @@
 //! Implements virtio devices, queues, and transport mechanisms.
 use std;
 use std::io::Error as IOError;
+use std::os::unix::io::RawFd;
+use std::sync::mpsc;
 
 pub mod block;
 mod mmio;
@@ -23,6 +25,7 @@ pub use self::queue::*;
 #[cfg(feature = "vsock")]
 pub use self::vhost::vsock::*;
 
+use super::EpollHandler;
 use super::EpollHandlerPayload;
 
 const DEVICE_INIT: u32 = 0x0;
@@ -54,3 +57,7 @@ pub enum ActivateError {
 }
 
 pub type ActivateResult = std::result::Result<(), ActivateError>;
+
+pub trait EpollConfigConstructor {
+    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self;
+}

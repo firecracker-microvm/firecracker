@@ -68,6 +68,11 @@ use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::I8042DeviceError;
 use devices::virtio;
+#[cfg(feature = "vsock")]
+use devices::virtio::vhost::handle::VHOST_EVENTS_COUNT;
+use devices::virtio::EpollConfigConstructor;
+use devices::virtio::BLOCK_EVENTS_COUNT;
+use devices::virtio::NET_EVENTS_COUNT;
 use devices::{DeviceEventT, EpollHandler, EpollHandlerPayload};
 use fc_util::now_cputime_us;
 use kernel::cmdline as kernel_cmdline;
@@ -632,35 +637,18 @@ impl EpollContext {
         (dispatch_base, sender)
     }
 
-    // See the below comment for `allocate_virtio_net_tokens`, for an explanation on the returned
-    // values.
-    fn allocate_virtio_block_tokens(&mut self) -> (virtio::block::EpollConfig, usize) {
-        let (dispatch_base, sender) = self.allocate_tokens(virtio::block::BLOCK_EVENTS_COUNT);
-        (
-            virtio::block::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender),
-            self.device_handlers.len() - 1,
-        )
-    }
-
     // Horrible, horrible hack, because velocity: return a tuple (epoll_config, handler_idx),
     // since, for some reason, the VMM doesn't own and cannot contact its live devices. I.e.
     // after VM start, the device objects become some kind of useless hollow husks, their
     // actual data being _moved_ to their corresponding `EpollHandler`s.
     // The `handler_idx`, that we're returning here, can be used by the VMM to contact the
     // device, by faking an event, sent straight to the device `EpollHandler`.
-    fn allocate_virtio_net_tokens(&mut self) -> (virtio::net::EpollConfig, usize) {
-        let (dispatch_base, sender) = self.allocate_tokens(virtio::net::NET_EVENTS_COUNT);
+    fn allocate_virtio_tokens<T: EpollConfigConstructor>(&mut self, count: usize) -> (T, usize) {
+        let (dispatch_base, sender) = self.allocate_tokens(count);
         (
-            virtio::net::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender),
+            T::new(dispatch_base, self.epoll_raw_fd, sender),
             self.device_handlers.len() - 1,
         )
-    }
-
-    #[cfg(feature = "vsock")]
-    fn allocate_virtio_vsock_tokens(&mut self) -> virtio::vhost::handle::VhostEpollConfig {
-        let (dispatch_base, sender) =
-            self.allocate_tokens(virtio::vhost::handle::VHOST_EVENTS_COUNT);
-        virtio::vhost::handle::VhostEpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
     fn get_device_handler(&mut self, device_idx: usize) -> Result<&mut EpollHandler> {
@@ -885,7 +873,8 @@ impl Vmm {
                 }
             }
 
-            let (epoll_config, handler_idx) = epoll_context.allocate_virtio_block_tokens();
+            let (epoll_config, handler_idx) =
+                epoll_context.allocate_virtio_tokens(BLOCK_EVENTS_COUNT);
             self.drive_handler_id_map
                 .insert(drive_config.drive_id.clone(), handler_idx);
             let rate_limiter = match drive_config.rate_limiter {
@@ -931,7 +920,8 @@ impl Vmm {
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
         for cfg in self.network_interface_configs.iter_mut() {
-            let (epoll_config, handler_idx) = self.epoll_context.allocate_virtio_net_tokens();
+            let (epoll_config, handler_idx) =
+                self.epoll_context.allocate_virtio_tokens(NET_EVENTS_COUNT);
             self.net_handler_id_map
                 .insert(cfg.iface_id.clone(), handler_idx);
 
@@ -993,7 +983,9 @@ impl Vmm {
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
         for cfg in self.vsock_device_configs.iter() {
-            let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
+            let (epoll_config, _) = self
+                .epoll_context
+                .allocate_virtio_tokens(VHOST_EVENTS_COUNT);
 
             let vsock_box = Box::new(
                 devices::virtio::Vsock::new(u64::from(cfg.guest_cid), guest_mem, epoll_config)
