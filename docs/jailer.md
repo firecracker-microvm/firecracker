@@ -69,12 +69,9 @@ After starting, the Jailer goes through the following operations:
   point, and call `chroot` into the current directory.
 - Use `mknod` to create a `/dev/net/tun` equivalent inside the jail.
 - Use `mknod` to create a `/dev/kvm` equivalent inside the jail.
-- When compiled with `vsock` support, use `mknod` to create a
-  `/dev/vhost_vsock` equivalent inside the jail.
 - Use `chown` to change ownership of the `chroot_dir` (root path `/` as seen
-  by the jailed firecracker), `/dev/net/tun`, `/dev/kvm`, and if compiled with
-  `vsock` support `/dev/vhost_vsock`. The ownership is changed to the provided
-  `uid:gid`.
+  by the jailed firecracker), `/dev/net/tun`, `/dev/kvm`. The ownership is
+  changed to the provided `uid:gid`.
 - If `--netns <netns>` is present, attempt to join the specified network
   namespace.
 - If `--daemonize` is specified, call `setsid()` and redirect `STDIN`,
@@ -167,9 +164,8 @@ MNT_DETACH)`, deleting `old_root` with `rmdir`, and finally calling
 Create the special file `/dev/net/tun`, using `mknod(“/dev/net/tun”, S_IFCHR |
 S_IRUSR | S_IWUSR, makedev(10, 200))`, and then call `chown(“/dev/net/tun”,
 123, 100)`, so Firecracker can use it after dropping privileges. This is
-required to use multiple TAP interfaces when running jailed.
-Do the same for `/dev/kvm` and, when compiled with `vsock` support,
-`/dev/vhost_vsock`.
+required to use multiple TAP interfaces when running jailed. Do the same for
+`/dev/kvm`.
 
 Change ownership of `<chroot_dir>` to `uid:gid` so that Firecracker can create
 its API socket there.

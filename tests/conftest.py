@@ -121,12 +121,6 @@ DEFAULT_ROOT_TESTSESSION_PATH = '/tmp/firecracker_test_session/'
 
 IP4_GENERATOR_CREATE_LOCK = threading.Lock()
 
-MICROVM_FIXTURE_PARAMS = ['', 'vsock']
-# Since this is a temporary feature, we do not test
-# it on aarch64.
-if platform.machine() == "aarch64":
-    MICROVM_FIXTURE_PARAMS = ['']
-
 
 # This codebase uses Python features available in Python 3.6 or above
 if sys.version_info < (3, 6):
@@ -223,7 +217,6 @@ def aux_bin_paths(test_session_root_path):
     They currently consist of:
 
     * a binary that can properly use the `clone()` syscall;
-    * a very simple vsock client/server application;
     * a jailer with a simple syscall whitelist;
     * a jailer with a (syscall, arguments) advanced whitelist;
     * a jailed binary that follows the seccomp rules;
@@ -235,11 +228,6 @@ def aux_bin_paths(test_session_root_path):
     _gcc_compile(
         'host_tools/newpid_cloner.c',
         cloner_bin_path
-    )
-    test_vsock_bin_path = os.path.join(test_session_root_path, 'test_vsock')
-    _gcc_compile(
-        "host_tools/test_vsock.c",
-        test_vsock_bin_path
     )
 
     seccomp_build_path = os.path.join(
@@ -286,7 +274,6 @@ def aux_bin_paths(test_session_root_path):
 
     yield {
         'cloner': cloner_bin_path,
-        'test_vsock': test_vsock_bin_path,
         'demo_basic_jailer': demo_basic_jailer,
         'demo_advanced_jailer': demo_advanced_jailer,
         'demo_harmless': demo_harmless,
@@ -294,8 +281,8 @@ def aux_bin_paths(test_session_root_path):
     }
 
 
-@pytest.fixture(params=MICROVM_FIXTURE_PARAMS)
-def microvm(request, test_session_root_path, aux_bin_paths):
+@pytest.fixture
+def microvm(test_session_root_path, aux_bin_paths):
     """Instantiate a microvm."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
@@ -305,7 +292,7 @@ def microvm(request, test_session_root_path, aux_bin_paths):
     vm = init_microvm(
         test_session_root_path,
         aux_bin_paths,
-        features=request.param
+        features=''
     )
     yield vm
     vm.kill()

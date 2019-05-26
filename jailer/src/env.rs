@@ -24,8 +24,6 @@ const STDERR_FILENO: libc::c_int = 2;
 const DEV_KVM_WITH_NUL: &[u8] = b"/dev/kvm\0";
 const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
 const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
-#[cfg(feature = "vsock")]
-const DEV_VHOST_VSOCK_WITH_NUL: &[u8] = b"/dev/vhost-vsock\0";
 const ROOT_PATH_WITH_NUL: &[u8] = b"/\0";
 
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
@@ -263,9 +261,6 @@ impl Env {
         self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, 10, 200)?;
         // Do the same for /dev/kvm with (major, minor) = (10, 232).
         self.mknod_and_own_dev(DEV_KVM_WITH_NUL, 10, 232)?;
-        #[cfg(feature = "vsock")]
-        // Do the same for /dev/vhost_vsock with (major, minor) = (10, 241).
-        self.mknod_and_own_dev(DEV_VHOST_VSOCK_WITH_NUL, 10, 241)?;
 
         // Change ownership of the jail root to Firecracker's UID and GID. This is necessary
         // so Firecracker can create the unix domain socket in its own jail.

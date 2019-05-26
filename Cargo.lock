@@ -162,8 +162,6 @@ dependencies = [
  "rate_limiter 0.1.0",
  "sys_util 0.1.0",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "vhost_backend 0.1.0",
- "vhost_gen 0.1.0",
  "virtio_gen 0.1.0",
 ]
 
@@ -956,24 +954,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "version_check"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "vhost_backend"
-version = "0.1.0"
-dependencies = [
- "libc 0.2.62 (registry+https://github.com/rust-lang/crates.io-index)",
- "memory_model 0.1.0",
- "sys_util 0.1.0",
- "vhost_gen 0.1.0",
-]
-
-[[package]]
-name = "vhost_gen"
-version = "0.1.0"
-dependencies = [
- "libc 0.2.62 (registry+https://github.com/rust-lang/crates.io-index)",
- "sys_util 0.1.0",
-]
 
 [[package]]
 name = "virtio_gen"

@@ -6,8 +6,6 @@ import os
 import re
 import time
 
-import pytest
-
 from framework import decorators
 import host_tools.logging as log_tools
 
@@ -22,10 +20,6 @@ NO_OF_MICROVMS = 10
 
 def test_single_microvm_boottime_no_network(test_microvm_with_boottime):
     """Check guest boottime of microvm without network."""
-    # Skip on vsock builds.
-    if test_microvm_with_boottime.build_feature == 'vsock':
-        pytest.skip('The vsock feature is enabled.')
-
     log_fifo, _ = _configure_vm(test_microvm_with_boottime)
     time.sleep(0.4)
     boottime_us = _test_microvm_boottime(log_fifo)
@@ -74,10 +68,6 @@ def test_single_microvm_boottime_with_network(
         network_config
 ):
     """Check guest boottime of microvm with network."""
-    # Skip on vsock builds.
-    if test_microvm_with_boottime.build_feature == 'vsock':
-        pytest.skip('The vsock feature is enabled.')
-
     log_fifo, _tap = _configure_vm(test_microvm_with_boottime, {
         "config": network_config, "iface_id": "1"
     })
