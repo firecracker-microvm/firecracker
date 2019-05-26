@@ -7,7 +7,6 @@ pub mod drive;
 pub mod logger;
 pub mod machine_configuration;
 pub mod net;
-#[cfg(feature = "vsock")]
 pub mod vsock;
 
 use serde_json::Value;

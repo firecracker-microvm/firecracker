@@ -419,12 +419,14 @@ class Vsock:
     @staticmethod
     def create_json(
             vsock_id,
-            guest_cid
+            guest_cid,
+            uds_path
     ):
         """Create the json for the vsock specific API request."""
         datax = {
             'id': vsock_id,
-            'guest_cid': guest_cid
+            'guest_cid': guest_cid,
+            'uds_path': uds_path
         }
 
         return datax

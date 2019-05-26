@@ -51,8 +51,6 @@ class Microvm:
         # Unique identifier for this machine.
         self._microvm_id = microvm_id
 
-        # This is used in tests to identify if the microvm was started
-        # using a vsock build or a default build.
         self.build_feature = build_feature
 
         # Compose the paths to the resources specific to this microvm.
@@ -248,10 +246,6 @@ class Microvm:
         self._jailer.setup()
         self._api_socket = self._jailer.api_socket_path()
         self._api_session = Session()
-
-        # Don't time requests on vsock builds.
-        if self.build_feature == 'vsock':
-            self._api_session.untime()
 
         self.actions = Actions(self._api_socket, self._api_session)
         self.boot = BootSource(self._api_socket, self._api_session)
