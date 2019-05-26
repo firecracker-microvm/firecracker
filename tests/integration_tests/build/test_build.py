@@ -11,13 +11,7 @@ import pytest
 import host_tools.cargo_build as host  # pylint:disable=import-error
 
 MACHINE = platform.machine()
-FEATURES = ["", "vsock"]
-
-# Since this is a temporary feature, we do not test
-# it on aarch64.
-if MACHINE == "aarch64":
-    FEATURES = [""]
-
+FEATURES = [""]
 BUILD_TYPES = ["debug", "release"]
 
 TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
@@ -49,8 +43,7 @@ def test_build(test_session_root_path, features, build_type, target):
     # (either release or debug) and if any features are provided also using
     # the features names.
     # For example, a default release build with no features will end up in
-    # the relative directory "release", but for a vsock release build the
-    # relative directory will be "release-vsock".
+    # the relative directory "release".
     rel_path = os.path.join(
         host.CARGO_BUILD_REL_PATH,
         build_type

@@ -26,6 +26,3 @@ kernel = { path = "../kernel" }
 memory_model = { path = "../memory_model" }
 net_util = { path = "../net_util" }
 rate_limiter = { path = "../rate_limiter" }
-
-[features]
-vsock = ["vmm/vsock"]

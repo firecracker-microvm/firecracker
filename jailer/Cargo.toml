@@ -13,6 +13,3 @@ sys_util = { path = "../sys_util" }
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
-
-[features]
-vsock = []

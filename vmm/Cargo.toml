@@ -31,7 +31,3 @@ cpuid = { path = "../cpuid" }
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
-
-[features]
-vsock = ["devices/vsock"]
-

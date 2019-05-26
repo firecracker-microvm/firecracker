@@ -115,17 +115,3 @@ def test_firecracker_swagger():
         os.path.join(os.getcwd(), '../api_server/swagger/firecracker.yaml')
     )
     check_swagger_style(yaml_spec)
-
-
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="no need to test it on multiple platforms"
-)
-def test_experimental_firecracker_swagger():
-    """Fail if experimental Firecracker swagger specification is malformed."""
-    yaml_spec = os.path.normpath(
-        os.path.join(
-            os.getcwd(),
-            '../api_server/swagger/firecracker-experimental.yaml')
-    )
-    check_swagger_style(yaml_spec)

@@ -18,10 +18,6 @@ extern crate net_gen;
 extern crate net_util;
 extern crate rate_limiter;
 extern crate sys_util;
-#[cfg(feature = "vsock")]
-extern crate vhost_backend;
-#[cfg(feature = "vsock")]
-extern crate vhost_gen;
 extern crate virtio_gen;
 
 use rate_limiter::Error as RateLimiterError;
