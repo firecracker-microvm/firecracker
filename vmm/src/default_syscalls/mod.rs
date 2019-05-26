@@ -83,23 +83,7 @@ const TUNSETIFF: u64 = 0x4004_54ca;
 const TUNSETOFFLOAD: u64 = 0x4004_54d0;
 const TUNSETVNETHDRSZ: u64 = 0x4004_54d8;
 
-#[cfg(feature = "vsock")]
-mod vsock_ioctls {
-    pub const VHOST_GET_FEATURES: u64 = 0x8008_af00;
-    pub const VHOST_SET_FEATURES: u64 = 0x4008_af00;
-    pub const VHOST_SET_OWNER: u64 = 0x0000_af01;
-    pub const VHOST_SET_MEM_TABLE: u64 = 0x4008_af03;
-    pub const VHOST_SET_VRING_NUM: u64 = 0x4008_af10;
-    pub const VHOST_SET_VRING_ADDR: u64 = 0x4028_af11;
-    pub const VHOST_SET_VRING_BASE: u64 = 0x4008_af12;
-    pub const VHOST_GET_VRING_BASE: u64 = 0xc008_af12;
-    pub const VHOST_SET_VRING_KICK: u64 = 0x4008_af20;
-    pub const VHOST_SET_VRING_CALL: u64 = 0x4008_af21;
-    pub const VHOST_VSOCK_SET_GUEST_CID: u64 = 0x4008_af60;
-    pub const VHOST_VSOCK_SET_RUNNING: u64 = 0x4004_af61;
-}
-
-fn create_common_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
+fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
     Ok(or![
         and![Cond::new(1, ArgLen::DWORD, Eq, TCSETS)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, TCGETS)?],
@@ -132,95 +116,6 @@ fn create_common_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_REGS)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_SREGS)?],
     ])
-}
-
-#[cfg(feature = "vsock")]
-fn create_vsock_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
-    Ok(or![
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_GET_FEATURES,
-        )?],
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_SET_FEATURES,
-        )?],
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_SET_OWNER,
-        )?],
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_SET_MEM_TABLE,
-        )?],
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_SET_VRING_NUM,
-        )?],
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_SET_VRING_ADDR,
-        )?],
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_SET_VRING_BASE,
-        )?],
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_GET_VRING_BASE,
-        )?],
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_SET_VRING_KICK,
-        )?],
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_SET_VRING_CALL,
-        )?],
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_VSOCK_SET_GUEST_CID,
-        )?],
-        and![Cond::new(
-            1,
-            ArgLen::DWORD,
-            Eq,
-            vsock_ioctls::VHOST_VSOCK_SET_RUNNING,
-        )?],
-    ])
-}
-
-fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
-    #[cfg(feature = "vsock")]
-    {
-        let mut rule = create_common_ioctl_seccomp_rule()?;
-        rule.append(&mut create_vsock_ioctl_seccomp_rule()?);
-        Ok(rule)
-    }
-    #[cfg(not(feature = "vsock"))]
-    Ok(create_common_ioctl_seccomp_rule()?)
 }
 
 #[cfg(test)]

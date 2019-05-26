@@ -17,10 +17,6 @@ CARGO_RELEASE_REL_PATH = os.path.join(
 )
 """Keep a single Firecracker release binary path across all test types."""
 
-CARGO_RELEASE_VSOCK_REL_PATH = os.path.join(
-    CARGO_BUILD_REL_PATH, 'release-vsock'
-)
-"""Vsock release binaries relative path."""
 
 DEFAULT_BUILD_TARGET = '{}-unknown-linux-musl'.format(platform.machine())
 RELEASE_BINARIES_REL_PATH = '{}/release/'.format(DEFAULT_BUILD_TARGET)
@@ -73,9 +69,6 @@ def get_firecracker_binaries(root_path, features=''):
 
     if features == '':
         cargo_binaries_rel_path = CARGO_RELEASE_REL_PATH
-    elif features == 'vsock':
-        cargo_binaries_rel_path = CARGO_RELEASE_VSOCK_REL_PATH
-        extra_args = '--features vsock ' + extra_args
     else:
         raise UnknownFeatureException
 

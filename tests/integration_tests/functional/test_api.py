@@ -724,30 +724,22 @@ def _drive_patch(test_microvm):
 
 def test_api_vsock(test_microvm_with_api):
     """Test vsock related API commands."""
-    if test_microvm_with_api.build_feature != 'vsock':
-        pytest.skip("This test is meant only for vsock builds.")
-
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
 
     response = test_microvm.vsock.put(
         vsock_id='vsock1',
-        guest_cid=15
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Adding another vsock should be fine.
-    response = test_microvm.vsock.put(
-        vsock_id='vsock2',
-        guest_cid=16
+        guest_cid=15,
+        uds_path='vsock.sock'
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Updating an existing vsock is currently fine.
     response = test_microvm.vsock.put(
-        vsock_id='vsock2',
-        guest_cid=166
+        vsock_id='vsock1',
+        guest_cid=166,
+        uds_path='vsock.sock'
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -757,13 +749,15 @@ def test_api_vsock(test_microvm_with_api):
     # Updating an existing vsock should not be fine at this point.
     response = test_microvm.vsock.put(
         vsock_id='vsock1',
-        guest_cid=17
+        guest_cid=17,
+        uds_path='vsock.sock'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
     # Attaching a new vsock device should not be fine at this point.
     response = test_microvm.vsock.put(
         vsock_id='vsock3',
-        guest_cid=18
+        guest_cid=18,
+        uds_path='vsock.sock'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
