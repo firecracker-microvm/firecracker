@@ -27,7 +27,6 @@ pub use self::queue::*;
 pub use self::vhost::vsock::*;
 
 use super::EpollHandler;
-use super::EpollHandlerPayload;
 
 const DEVICE_INIT: u32 = 0x0;
 const DEVICE_ACKNOWLEDGE: u32 = 0x01;
