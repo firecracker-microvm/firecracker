@@ -36,8 +36,8 @@ const DEVICE_FEATURES_OK: u32 = 0x08;
 const DEVICE_FAILED: u32 = 0x80;
 
 /// Types taken from linux/virtio_ids.h.
-const TYPE_NET: u32 = 1;
-const TYPE_BLOCK: u32 = 2;
+pub const TYPE_NET: u32 = 1;
+pub const TYPE_BLOCK: u32 = 2;
 
 /// Interrupt flags (re: interrupt status & acknowledge registers).
 /// See linux/virtio_mmio.h.
