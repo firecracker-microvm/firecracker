@@ -75,7 +75,7 @@ use devices::virtio::vhost::{handle::VHOST_EVENTS_COUNT, TYPE_VSOCK};
 use devices::virtio::EpollConfigConstructor;
 use devices::virtio::{BLOCK_EVENTS_COUNT, TYPE_BLOCK};
 use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
-use devices::{DeviceEventT, EpollHandler, EpollHandlerPayload};
+use devices::{DeviceEventT, EpollHandler};
 use fc_util::now_cputime_us;
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
@@ -1560,19 +1560,15 @@ impl Vmm {
                                 .epoll_context
                                 .get_device_handler_by_handler_id(device_idx)
                             {
-                                Ok(handler) => {
-                                    match handler
-                                        .handle_event(device_token, EpollHandlerPayload::Empty)
-                                    {
-                                        Err(devices::Error::PayloadExpected) => panic!(
-                                            "Received update disk image event with empty payload."
-                                        ),
-                                        Err(devices::Error::UnknownEvent { device, event }) => {
-                                            panic!("Unknown event: {:?} {:?}", device, event)
-                                        }
-                                        _ => (),
+                                Ok(handler) => match handler.handle_event(device_token) {
+                                    Err(devices::Error::PayloadExpected) => panic!(
+                                        "Received update disk image event with empty payload."
+                                    ),
+                                    Err(devices::Error::UnknownEvent { device, event }) => {
+                                        panic!("Unknown event: {:?} {:?}", device, event)
                                     }
-                                }
+                                    _ => (),
+                                },
                                 Err(e) => {
                                     warn!("invalid handler for device {}: {:?}", device_idx, e)
                                 }
@@ -2212,17 +2208,14 @@ mod tests {
 
     struct DummyEpollHandler {
         evt: Option<DeviceEventT>,
-        payload: Option<EpollHandlerPayload>,
     }
 
     impl EpollHandler for DummyEpollHandler {
         fn handle_event(
             &mut self,
             device_event: DeviceEventT,
-            payload: EpollHandlerPayload,
         ) -> std::result::Result<(), devices::Error> {
             self.evt = Some(device_event);
-            self.payload = Some(payload);
             Ok(())
         }
     }
@@ -2295,10 +2288,7 @@ mod tests {
         assert_eq!(ep.device_handlers.len(), 1);
         assert_eq!(base, 1);
 
-        let handler = DummyEpollHandler {
-            evt: None,
-            payload: None,
-        };
+        let handler = DummyEpollHandler { evt: None };
         assert!(sender.send(Box::new(handler)).is_ok());
         assert!(ep.get_device_handler_by_handler_id(0).is_ok());
     }
@@ -2514,10 +2504,8 @@ mod tests {
             .is_err());
 
         // Fake device activation by explicitly setting a dummy epoll handler.
-        vmm.epoll_context.device_handlers[0].handler = Some(Box::new(DummyEpollHandler {
-            evt: None,
-            payload: None,
-        }));
+        vmm.epoll_context.device_handlers[0].handler =
+            Some(Box::new(DummyEpollHandler { evt: None }));
         vmm.update_net_device(NetworkInterfaceUpdateConfig {
             iface_id: "1".to_string(),
             rx_rate_limiter: Some(RateLimiterConfig {

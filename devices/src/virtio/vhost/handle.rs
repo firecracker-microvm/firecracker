@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use super::super::EpollHandlerPayload;
 use super::INTERRUPT_STATUS_USED_RING;
 
 use sys_util::EventFd;
@@ -78,11 +77,7 @@ impl<T: Vhost + 'static> EpollHandler for VhostEpollHandler<T>
 where
     T: std::marker::Send,
 {
-    fn handle_event(
-        &mut self,
-        device_event: DeviceEventT,
-        _: EpollHandlerPayload,
-    ) -> std::result::Result<(), DeviceError> {
+    fn handle_event(&mut self, device_event: DeviceEventT) -> std::result::Result<(), DeviceError> {
         match device_event {
             VHOST_IRQ_AVAILABLE => {
                 if let Err(e) = self.queue_evt.read() {
