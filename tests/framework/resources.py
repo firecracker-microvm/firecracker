@@ -424,7 +424,7 @@ class Vsock:
     ):
         """Create the json for the vsock specific API request."""
         datax = {
-            'id': vsock_id,
+            'vsock_id': vsock_id,
             'guest_cid': guest_cid,
             'uds_path': uds_path
         }
