@@ -20,8 +20,6 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::vec::Vec;
 
-use super::super::Error as DeviceError;
-use super::{ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
 use dumbo::{ns::MmdsNetworkStack, pdu::ethernet::EthernetFrame};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
@@ -29,9 +27,13 @@ use net_gen;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use rate_limiter::{RateLimiter, TokenBucket, TokenType};
 use sys_util::EventFd;
-use virtio::EpollConfigConstructor;
 use virtio_gen::virtio_net::*;
-use {DeviceEventT, EpollHandler};
+
+use super::{
+    ActivateError, ActivateResult, EpollConfigConstructor, Queue, VirtioDevice, TYPE_NET,
+    VIRTIO_MMIO_INT_VRING,
+};
+use crate::{DeviceEventT, EpollHandler, Error as DeviceError};
 
 /// The maximum buffer size when segmentation offload is enabled. This
 /// includes the 12-byte virtio net header.
@@ -973,12 +975,12 @@ mod tests {
 
     use libc;
 
-    use super::*;
-    use memory_model::GuestAddress;
-    use virtio::queue::tests::*;
-
     use dumbo::pdu::{arp, ethernet};
+    use memory_model::GuestAddress;
     use rate_limiter::TokenBucket;
+
+    use super::*;
+    use crate::virtio::queue::tests::*;
 
     const EPOLLIN: epoll::Events = epoll::Events::EPOLLIN;
 

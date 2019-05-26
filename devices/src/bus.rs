@@ -12,7 +12,8 @@ use std::collections::btree_map::BTreeMap;
 use std::fmt;
 use std::result;
 use std::sync::{Arc, Mutex};
-use virtio::AsAny;
+
+use crate::virtio::AsAny;
 
 /// Trait for devices that respond to reads or writes in an arbitrary address space.
 ///
