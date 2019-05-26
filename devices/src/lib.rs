@@ -34,6 +34,7 @@ pub mod legacy;
 pub mod virtio;
 
 pub use self::bus::{Bus, BusDevice, Error as BusError};
+use virtio::AsAny;
 
 pub type DeviceEventT = u16;
 
@@ -57,7 +58,7 @@ pub enum EpollHandlerPayload {
 
 type Result<T> = std::result::Result<T, Error>;
 
-pub trait EpollHandler: Send {
+pub trait EpollHandler: AsAny + Send {
     fn handle_event(
         &mut self,
         device_event: DeviceEventT,

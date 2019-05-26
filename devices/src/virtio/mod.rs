@@ -7,6 +7,7 @@
 
 //! Implements virtio devices, queues, and transport mechanisms.
 use std;
+use std::any::Any;
 use std::io::Error as IOError;
 use std::os::unix::io::RawFd;
 use std::sync::mpsc;
@@ -61,4 +62,20 @@ pub type ActivateResult = std::result::Result<(), ActivateError>;
 
 pub trait EpollConfigConstructor {
     fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self;
+}
+
+/// Trait that helps in upcasting an object to Any
+pub trait AsAny {
+    fn as_any(&self) -> &Any;
+
+    fn as_mut_any(&mut self) -> &mut Any;
+}
+impl<T: Any> AsAny for T {
+    fn as_any(&self) -> &Any {
+        self
+    }
+
+    fn as_mut_any(&mut self) -> &mut Any {
+        self
+    }
 }
