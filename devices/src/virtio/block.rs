@@ -16,18 +16,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 
-use super::super::Error as DeviceError;
-use super::{
-    ActivateError, ActivateResult, DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK,
-    VIRTIO_MMIO_INT_VRING,
-};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
-use virtio::EpollConfigConstructor;
 use virtio_gen::virtio_blk::*;
-use {DeviceEventT, EpollHandler};
+
+use super::{
+    ActivateError, ActivateResult, DescriptorChain, EpollConfigConstructor, Queue, VirtioDevice,
+    TYPE_BLOCK, VIRTIO_MMIO_INT_VRING,
+};
+use crate::{DeviceEventT, EpollHandler, Error as DeviceError};
 
 const CONFIG_SPACE_SIZE: usize = 8;
 const SECTOR_SHIFT: u8 = 9;
@@ -660,7 +659,7 @@ mod tests {
     use std::time::Duration;
     use std::u32;
 
-    use virtio::queue::tests::*;
+    use crate::virtio::queue::tests::*;
 
     const EPOLLIN: epoll::Events = epoll::Events::EPOLLIN;
 
