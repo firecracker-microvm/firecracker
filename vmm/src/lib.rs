@@ -69,10 +69,10 @@ use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::I8042DeviceError;
 use devices::virtio;
 #[cfg(feature = "vsock")]
-use devices::virtio::vhost::handle::VHOST_EVENTS_COUNT;
+use devices::virtio::vhost::{handle::VHOST_EVENTS_COUNT, TYPE_VSOCK};
 use devices::virtio::EpollConfigConstructor;
-use devices::virtio::BLOCK_EVENTS_COUNT;
-use devices::virtio::NET_EVENTS_COUNT;
+use devices::virtio::{BLOCK_EVENTS_COUNT, TYPE_BLOCK};
+use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
 use devices::{DeviceEventT, EpollHandler, EpollHandlerPayload};
 use fc_util::now_cputime_us;
 use kernel::cmdline as kernel_cmdline;
@@ -542,6 +542,7 @@ struct EpollContext {
     // FIXME: find a different design as this does not scale. This Vec can only grow.
     dispatch_table: Vec<Option<EpollDispatch>>,
     device_handlers: Vec<MaybeHandler>,
+    device_id_to_handler_id: HashMap<(u32, String), usize>,
 }
 
 impl EpollContext {
@@ -562,6 +563,7 @@ impl EpollContext {
             stdin_index,
             dispatch_table,
             device_handlers: Vec::with_capacity(6),
+            device_id_to_handler_id: HashMap::new(),
         })
     }
 
@@ -643,16 +645,22 @@ impl EpollContext {
     // actual data being _moved_ to their corresponding `EpollHandler`s.
     // The `handler_idx`, that we're returning here, can be used by the VMM to contact the
     // device, by faking an event, sent straight to the device `EpollHandler`.
-    fn allocate_virtio_tokens<T: EpollConfigConstructor>(&mut self, count: usize) -> (T, usize) {
+    fn allocate_virtio_tokens<T: EpollConfigConstructor>(
+        &mut self,
+        type_id: u32,
+        device_id: &str,
+        count: usize,
+    ) -> T {
         let (dispatch_base, sender) = self.allocate_tokens(count);
-        (
-            T::new(dispatch_base, self.epoll_raw_fd, sender),
+        self.device_id_to_handler_id.insert(
+            (type_id, device_id.to_string()),
             self.device_handlers.len() - 1,
-        )
+        );
+        T::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
-    fn get_device_handler(&mut self, device_idx: usize) -> Result<&mut EpollHandler> {
-        let maybe = &mut self.device_handlers[device_idx];
+    fn get_device_handler_by_handler_id(&mut self, id: usize) -> Result<&mut EpollHandler> {
+        let maybe = &mut self.device_handlers[id];
         match maybe.handler {
             Some(ref mut v) => Ok(v.as_mut()),
             None => {
@@ -668,6 +676,18 @@ impl EpollContext {
                 Ok(maybe.handler.get_or_insert(received).as_mut())
             }
         }
+    }
+
+    fn get_device_handler_by_device_id(
+        &mut self,
+        type_id: u32,
+        device_id: &str,
+    ) -> Result<&mut EpollHandler> {
+        let handler_id = *self
+            .device_id_to_handler_id
+            .get(&(type_id, device_id.to_string()))
+            .ok_or(Error::DeviceEventHandlerNotFound)?;
+        self.get_device_handler_by_handler_id(handler_id)
     }
 }
 
@@ -703,8 +723,6 @@ struct Vmm {
     // Guest VM devices.
     mmio_device_manager: Option<MMIODeviceManager>,
     legacy_device_manager: LegacyDeviceManager,
-    drive_handler_id_map: HashMap<String, usize>,
-    net_handler_id_map: HashMap<String, usize>,
 
     // Device configurations.
     // If there is a Root Block Device, this should be added as the first element of the list.
@@ -763,8 +781,6 @@ impl Vmm {
             mmio_device_manager: None,
             legacy_device_manager: LegacyDeviceManager::new().map_err(Error::CreateLegacyDevice)?,
             block_device_configs,
-            drive_handler_id_map: HashMap::new(),
-            net_handler_id_map: HashMap::new(),
             network_interface_configs: NetworkInterfaceConfigs::new(),
             #[cfg(feature = "vsock")]
             vsock_device_configs: VsockDeviceConfigs::new(),
@@ -781,30 +797,29 @@ impl Vmm {
         drive_id: &str,
         disk_image: File,
     ) -> result::Result<(), DriveError> {
-        if let Some(device_idx) = self.drive_handler_id_map.get(drive_id) {
-            match self.epoll_context.get_device_handler(*device_idx) {
-                Ok(handler) => {
-                    match handler.handle_event(
-                        virtio::block::FS_UPDATE_EVENT,
-                        *device_idx as u32,
-                        EpollHandlerPayload::DrivePayload(disk_image),
-                    ) {
-                        Err(devices::Error::PayloadExpected) => {
-                            panic!("Received update disk image event with empty payload.")
-                        }
-                        Err(devices::Error::UnknownEvent { device, event }) => {
-                            panic!("Unknown event: {:?} {:?}", device, event)
-                        }
-                        _ => Ok(()),
+        match self
+            .epoll_context
+            .get_device_handler_by_device_id(TYPE_BLOCK, drive_id)
+        {
+            Ok(handler) => {
+                match handler.handle_event(
+                    virtio::block::FS_UPDATE_EVENT,
+                    0,
+                    EpollHandlerPayload::DrivePayload(disk_image),
+                ) {
+                    Err(devices::Error::PayloadExpected) => {
+                        panic!("Received update disk image event with empty payload.")
                     }
-                }
-                Err(e) => {
-                    warn!("invalid handler for device {}: {:?}", device_idx, e);
-                    Err(DriveError::BlockDeviceUpdateFailed)
+                    Err(devices::Error::UnknownEvent { device, event }) => {
+                        panic!("Unknown event: {:?} {:?}", device, event)
+                    }
+                    _ => Ok(()),
                 }
             }
-        } else {
-            Err(DriveError::BlockDeviceUpdateFailed)
+            Err(e) => {
+                warn!("invalid handler for device {}: {:?}", drive_id, e);
+                Err(DriveError::BlockDeviceUpdateFailed)
+            }
         }
     }
 
@@ -873,10 +888,11 @@ impl Vmm {
                 }
             }
 
-            let (epoll_config, handler_idx) =
-                epoll_context.allocate_virtio_tokens(BLOCK_EVENTS_COUNT);
-            self.drive_handler_id_map
-                .insert(drive_config.drive_id.clone(), handler_idx);
+            let epoll_config = epoll_context.allocate_virtio_tokens(
+                TYPE_BLOCK,
+                &drive_config.drive_id,
+                BLOCK_EVENTS_COUNT,
+            );
             let rate_limiter = match drive_config.rate_limiter {
                 Some(rlim_cfg) => Some(
                     rlim_cfg
@@ -920,10 +936,11 @@ impl Vmm {
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
         for cfg in self.network_interface_configs.iter_mut() {
-            let (epoll_config, handler_idx) =
-                self.epoll_context.allocate_virtio_tokens(NET_EVENTS_COUNT);
-            self.net_handler_id_map
-                .insert(cfg.iface_id.clone(), handler_idx);
+            let epoll_config = self.epoll_context.allocate_virtio_tokens(
+                TYPE_NET,
+                &cfg.iface_id,
+                NET_EVENTS_COUNT,
+            );
 
             let allow_mmds_requests = cfg.allow_mmds_requests();
             let rx_rate_limiter = match cfg.rx_rate_limiter {
@@ -983,9 +1000,9 @@ impl Vmm {
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
         for cfg in self.vsock_device_configs.iter() {
-            let (epoll_config, _) = self
-                .epoll_context
-                .allocate_virtio_tokens(VHOST_EVENTS_COUNT);
+            let epoll_config =
+                self.epoll_context
+                    .allocate_virtio_tokens(TYPE_VSOCK, &cfg.id, VHOST_EVENTS_COUNT);
 
             let vsock_box = Box::new(
                 devices::virtio::Vsock::new(u64::from(cfg.guest_cid), guest_mem, epoll_config)
@@ -1545,7 +1562,10 @@ impl Vmm {
                         }
                         EpollDispatch::DeviceHandler(device_idx, device_token) => {
                             METRICS.vmm.device_events.inc();
-                            match self.epoll_context.get_device_handler(device_idx) {
+                            match self
+                                .epoll_context
+                                .get_device_handler_by_handler_id(device_idx)
+                            {
                                 Ok(handler) => {
                                     match handler.handle_event(
                                         device_token,
@@ -1756,14 +1776,9 @@ impl Vmm {
         // If we got to here, the VM is running. We need to update the live device.
         //
 
-        let handler_id = *self
-            .net_handler_id_map
-            .get(&new_cfg.iface_id)
-            .ok_or(NetworkInterfaceError::DeviceIdNotFound)?;
-
         let handler = self
             .epoll_context
-            .get_device_handler(handler_id)
+            .get_device_handler_by_device_id(TYPE_NET, &new_cfg.iface_id)
             .map_err(NetworkInterfaceError::EpollHandlerNotFound)?;
 
         // Hack because velocity (my new favorite phrase): fake an epoll event, because we can only
@@ -1771,7 +1786,7 @@ impl Vmm {
         handler
             .handle_event(
                 virtio::net::PATCH_RATE_LIMITERS_FAKE_EVENT,
-                handler_id as u32,
+                0,
                 EpollHandlerPayload::NetRateLimiterPayload {
                     rx_bytes: new_cfg
                         .rx_rate_limiter
@@ -2309,7 +2324,7 @@ mod tests {
             payload: None,
         };
         assert!(sender.send(Box::new(handler)).is_ok());
-        assert!(ep.get_device_handler(0).is_ok());
+        assert!(ep.get_device_handler_by_handler_id(0).is_ok());
     }
 
     #[test]

@@ -54,4 +54,4 @@ pub enum Error {
 }
 type Result<T> = std::result::Result<T, Error>;
 const INTERRUPT_STATUS_USED_RING: u32 = 0x1;
-const TYPE_VSOCK: u32 = 19;
+pub const TYPE_VSOCK: u32 = 19;
