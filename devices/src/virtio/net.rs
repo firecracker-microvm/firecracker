@@ -32,6 +32,7 @@ use net_gen;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
+use virtio::EpollConfigConstructor;
 use virtio_gen::virtio_net::*;
 use {DeviceEventT, EpollHandler};
 
@@ -633,12 +634,8 @@ pub struct EpollConfig {
     sender: mpsc::Sender<Box<EpollHandler>>,
 }
 
-impl EpollConfig {
-    pub fn new(
-        first_token: u64,
-        epoll_raw_fd: RawFd,
-        sender: mpsc::Sender<Box<EpollHandler>>,
-    ) -> Self {
+impl EpollConfigConstructor for EpollConfig {
+    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self {
         EpollConfig {
             rx_tap_token: first_token + u64::from(RX_TAP_EVENT),
             rx_queue_token: first_token + u64::from(RX_QUEUE_EVENT),

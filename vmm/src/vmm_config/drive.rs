@@ -1,7 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std;
 use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;

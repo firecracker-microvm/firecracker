@@ -25,6 +25,7 @@ use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
+use virtio::EpollConfigConstructor;
 use virtio_gen::virtio_blk::*;
 use {DeviceEventT, EpollHandler};
 
@@ -447,12 +448,8 @@ pub struct EpollConfig {
     sender: mpsc::Sender<Box<EpollHandler>>,
 }
 
-impl EpollConfig {
-    pub fn new(
-        first_token: u64,
-        epoll_raw_fd: RawFd,
-        sender: mpsc::Sender<Box<EpollHandler>>,
-    ) -> Self {
+impl EpollConfigConstructor for EpollConfig {
+    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self {
         EpollConfig {
             q_avail_token: first_token + u64::from(QUEUE_AVAIL_EVENT),
             rate_limiter_token: first_token + u64::from(RATE_LIMITER_EVENT),
