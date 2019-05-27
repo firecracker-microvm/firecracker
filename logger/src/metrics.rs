@@ -216,8 +216,12 @@ pub struct BlockDeviceMetrics {
     /// Number of failures while doing update on this block device.
     pub update_fails: SharedMetric,
     /// Number of bytes read by this block device.
-    pub read_count: SharedMetric,
+    pub read_bytes: SharedMetric,
     /// Number of bytes written by this block device.
+    pub write_bytes: SharedMetric,
+    /// Number of successful read operations.
+    pub read_count: SharedMetric,
+    /// Number of sucessful write operations.
     pub write_count: SharedMetric,
 }
 
@@ -262,8 +266,12 @@ pub struct MmdsMetrics {
     pub rx_accepted_unusual: SharedMetric,
     /// The number of buffers which couldn't be parsed as valid Ethernet frames by the MMDS.
     pub rx_bad_eth: SharedMetric,
+    /// The total number of successful receive operations by the MMDS.
+    pub rx_count: SharedMetric,
     /// The total number of bytes sent by the MMDS.
     pub tx_bytes: SharedMetric,
+    /// The total number of successful send operations by the MMDS.
+    pub tx_count: SharedMetric,
     /// The number of errors raised by the MMDS while attempting to send frames/packets/segments.
     pub tx_errors: SharedMetric,
     /// The number of frames sent by the MMDS.
@@ -295,10 +303,14 @@ pub struct NetDeviceMetrics {
     pub rx_packets_count: SharedMetric,
     /// Number of errors while receiving data.
     pub rx_fails: SharedMetric,
+    /// Number of successful read operations while receiving data.
+    pub rx_count: SharedMetric,
     /// Number of transmitted bytes.
     pub tx_bytes_count: SharedMetric,
     /// Number of errors while transmitting data.
     pub tx_fails: SharedMetric,
+    /// Number of successful write operations while transmitting data.
+    pub tx_count: SharedMetric,
     /// Number of transmitted packets.
     pub tx_packets_count: SharedMetric,
     /// Number of events associated with the transmitting queue.
