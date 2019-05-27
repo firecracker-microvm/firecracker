@@ -116,7 +116,7 @@ Alpine Linux:
   
    # Then, copy the newly configured system to the rootfs image:
    for d in bin etc lib root sbin usr; do tar c "/$d" | tar x -C /my-rootfs; done
-   mkdir /my-rootfs/{dev,proc,run,sys,var}
+   for dir in dev proc run sys var; do mkdir /my-rootfs/${dir}; done
 
    # All done, exit docker shell
    exit
@@ -125,7 +125,7 @@ Alpine Linux:
 4. Finally, unmount your rootfs image:
 
    ```bash
-   umount /tmp/my-rootfs
+   sudo umount /tmp/my-rootfs
    ```
 
 You should now have a kernel image (`vmlinux`) and a rootfs image

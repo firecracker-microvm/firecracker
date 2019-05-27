@@ -30,6 +30,7 @@ use api_server::{ApiServer, Error};
 use fc_util::validators::validate_instance_id;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
+use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
@@ -40,11 +41,10 @@ fn main() {
         .preinit(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
 
-    if let Err(e) = vmm::setup_sigsys_handler() {
-        error!("Failed to register signal handler: {}", e);
+    if let Err(e) = register_signal_handlers() {
+        error!("Failed to register signal handlers: {}", e);
         process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
     }
-
     // Start firecracker by setting up a panic hook, which will be called before
     // terminating as we're building with panic = "abort".
     // It's worth noting that the abort is caused by sending a SIG_ABORT signal to the process.

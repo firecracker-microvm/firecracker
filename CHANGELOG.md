@@ -4,10 +4,23 @@
 
 ### Added
 
+- Added an experimental swagger definition that includes the specification for
+  the vsock API call.
+- Added a signal handler for `SIGBUS` and `SIGSEGV` that immediately terminates
+  the process upon intercepting the signal.
+
+## [0.16.0]
+
+### Added
+
+- Added [alpha] AMD support.
 - New `devtool` command: `prepare_release`. This updates the Firecracker
   version, crate dependencies and credits in preparation for a new release.
 - New `devtool` command: `tag`. This creates a new git tag for the specified
   release number, based on the changelog contents.
+- New doc section about building with glibc.
+- New API call: `PATCH /machine-config/`, used to update VM configuration, 
+  before the microVM boots.
 
 ### Changed
 
@@ -17,6 +30,14 @@
   `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
 - `PUT` and `PATCH` requests on `/mmds` with data containing any value type other
   than `String`, `Array`, `Object` will return status code 400.
+- Improved multiple error messages.
+- Removed all kernel modules from the recommended kernel config.
+- `vcpu_count`, `mem_size_mib` and `ht_enabled` have been changed to be mandatory
+  for `PUT` requests on `/machine-config/`.
+
+### Fixed
+
+- Corrected the seccomp filter when building with glibc.
 
 ### Removed
 

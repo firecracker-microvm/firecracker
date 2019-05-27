@@ -7,12 +7,17 @@
 
 //! Helper for creating valid kernel command line strings.
 
+use std::ffi::CString;
 use std::fmt;
 use std::result;
 
 /// The error type for command line building operations.
 #[derive(PartialEq, Debug)]
 pub enum Error {
+    /// Failed to copy to guest memory.
+    CommandLineCopy,
+    /// Command line string overflows guest memory.
+    CommandLineOverflow,
     /// Operation would have resulted in a non-printable ASCII character.
     InvalidAscii,
     /// Key/Value Operation would have had a space in it.
@@ -29,10 +34,12 @@ impl fmt::Display for Error {
             f,
             "{}",
             match *self {
-                Error::InvalidAscii => "string contains non-printable ASCII character",
-                Error::HasSpace => "string contains a space",
-                Error::HasEquals => "string contains an equals sign",
-                Error::TooLarge => "inserting string would make command line too long",
+                Error::CommandLineCopy => "Failed to copy the command line string to guest memory",
+                Error::CommandLineOverflow => "Command line string overflows guest memory",
+                Error::InvalidAscii => "Command line string contains non-printable ASCII character",
+                Error::HasSpace => "Command line string contains a space",
+                Error::HasEquals => "Command line string contains an equals sign",
+                Error::TooLarge => "Command line inserting string would make command line too long",
             }
         )
     }
@@ -108,7 +115,17 @@ impl Cmdline {
         assert!(self.line.len() < self.capacity);
     }
 
-    /// Validates and inserts a key value pair into this command line
+    /// Returns the length of the command line.
+    pub fn len(&self) -> usize {
+        self.line.len()
+    }
+
+    /// Returns whether the command line is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Validates and inserts a key value pair into this command line.
     pub fn insert<T: AsRef<str>>(&mut self, key: T, val: T) -> Result<()> {
         let k = key.as_ref();
         let v = val.as_ref();
@@ -126,7 +143,7 @@ impl Cmdline {
         Ok(())
     }
 
-    /// Validates and inserts a string to the end of the current command line
+    /// Validates and inserts a string to the end of the current command line.
     pub fn insert_str<T: AsRef<str>>(&mut self, slug: T) -> Result<()> {
         let s = slug.as_ref();
         valid_str(s)?;
@@ -140,22 +157,20 @@ impl Cmdline {
         Ok(())
     }
 
-    /// Returns the cmdline in progress without nul termination
+    /// Returns the cmdline in progress without nul termination.
     pub fn as_str(&self) -> &str {
         self.line.as_str()
     }
-}
 
-impl Into<Vec<u8>> for Cmdline {
-    fn into(self) -> Vec<u8> {
-        self.line.into_bytes()
+    /// Returns the cmdline in progress as CString.
+    pub fn as_cstring(&self) -> Result<CString> {
+        Ok(CString::new(self.line.clone()).map_err(|_| Error::InvalidAscii)?)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::CString;
 
     #[test]
     fn insert_hello_world() {
@@ -163,9 +178,12 @@ mod tests {
         assert_eq!(cl.as_str(), "");
         assert!(cl.insert("hello", "world").is_ok());
         assert_eq!(cl.as_str(), "hello=world");
+        assert_eq!(cl.len(), "hello=world".len());
+        assert!(!cl.is_empty());
 
-        let s = CString::new(cl).expect("failed to create CString from Cmdline");
-        assert_eq!(s, CString::new("hello=world").unwrap());
+        // Test clone.
+        let cl2 = cl.clone();
+        assert_eq!(cl2.as_str(), cl.as_str());
     }
 
     #[test]
@@ -199,6 +217,8 @@ mod tests {
 
     #[test]
     fn insert_emoji() {
+        assert_eq!(valid_str("💖"), Err(Error::InvalidAscii));
+
         let mut cl = Cmdline::new(100);
         assert_eq!(cl.insert("heart", "💖"), Err(Error::InvalidAscii));
         assert_eq!(cl.insert("💖", "love"), Err(Error::InvalidAscii));
@@ -213,6 +233,7 @@ mod tests {
         assert_eq!(cl.as_str(), "noapic");
         assert!(cl.insert_str("nopci").is_ok());
         assert_eq!(cl.as_str(), "noapic nopci");
+        assert_eq!(cl.as_str(), cl.as_cstring().unwrap().to_str().unwrap());
     }
 
     #[test]
@@ -230,5 +251,33 @@ mod tests {
         assert!(cl.insert("ab", "ba").is_ok()); // adds 5 length
         assert_eq!(cl.insert("c", "da"), Err(Error::TooLarge)); // adds 5 (including space) length
         assert!(cl.insert("c", "d").is_ok()); // adds 4 (including space) length
+    }
+
+    #[test]
+    fn display_errors() {
+        assert_eq!(
+            Error::CommandLineCopy.to_string().as_str(),
+            "Failed to copy the command line string to guest memory"
+        );
+        assert_eq!(
+            Error::CommandLineOverflow.to_string().as_str(),
+            "Command line string overflows guest memory"
+        );
+        assert_eq!(
+            Error::InvalidAscii.to_string().as_str(),
+            "Command line string contains non-printable ASCII character"
+        );
+        assert_eq!(
+            Error::HasSpace.to_string().as_str(),
+            "Command line string contains a space"
+        );
+        assert_eq!(
+            Error::HasEquals.to_string().as_str(),
+            "Command line string contains an equals sign"
+        );
+        assert_eq!(
+            Error::TooLarge.to_string().as_str(),
+            "Command line inserting string would make command line too long"
+        );
     }
 }

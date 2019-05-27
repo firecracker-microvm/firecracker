@@ -191,11 +191,23 @@ def test_api_requests_logs(test_microvm_with_api):
 
     expected_log_strings = []
 
-    # Check that a Put request on /machine-config is logged.
-    response = microvm.machine_cfg.put(vcpu_count=4)
+    # Check that a Patch request on /machine-config is logged.
+    response = microvm.machine_cfg.patch(vcpu_count=4)
     assert microvm.api_session.is_status_no_content(response.status_code)
     # We are not interested in the actual body. Just check that the log
     # message also has the string "body" in it.
+    expected_log_strings.append(
+        "The API server received a synchronous Patch request "
+        "on \"/machine-config\" with body"
+    )
+
+    # Check that a Put request on /machine-config is logged.
+    response = microvm.machine_cfg.put(
+        vcpu_count=4,
+        ht_enabled=False,
+        mem_size_mib=128
+    )
+    assert microvm.api_session.is_status_no_content(response.status_code)
     expected_log_strings.append(
         "The API server received a synchronous Put request "
         "on \"/machine-config\" with body"

@@ -143,19 +143,22 @@ impl MmdsNetworkStack {
                 if ip.protocol() == PROTOCOL_TCP {
                     self.remote_mac_addr = eth.src_mac();
                     match self.tcp_handler.receive_packet(&ip) {
-                        Ok(event) => match event {
-                            RecvEvent::NewConnectionSuccessful => {
-                                METRICS.mmds.connections_created.inc()
+                        Ok(event) => {
+                            METRICS.mmds.rx_count.inc();
+                            match event {
+                                RecvEvent::NewConnectionSuccessful => {
+                                    METRICS.mmds.connections_created.inc()
+                                }
+                                RecvEvent::NewConnectionReplacing => {
+                                    METRICS.mmds.connections_created.inc();
+                                    METRICS.mmds.connections_destroyed.inc();
+                                }
+                                RecvEvent::EndpointDone => {
+                                    METRICS.mmds.connections_destroyed.inc();
+                                }
+                                _ => (),
                             }
-                            RecvEvent::NewConnectionReplacing => {
-                                METRICS.mmds.connections_created.inc();
-                                METRICS.mmds.connections_destroyed.inc();
-                            }
-                            RecvEvent::EndpointDone => {
-                                METRICS.mmds.connections_destroyed.inc();
-                            }
-                            _ => (),
-                        },
+                        }
                         Err(_) => METRICS.mmds.rx_accepted_err.inc(),
                     }
                 } else {
@@ -177,6 +180,7 @@ impl MmdsNetworkStack {
         if let Some(spa) = self.pending_arp_reply {
             return match self.write_arp_reply(buf, spa) {
                 Ok(something) => {
+                    METRICS.mmds.tx_count.inc();
                     self.pending_arp_reply = None;
                     something
                 }
@@ -194,7 +198,10 @@ impl MmdsNetworkStack {
 
             if call_write {
                 return match self.write_packet(buf) {
-                    Ok(something) => something,
+                    Ok(something) => {
+                        METRICS.mmds.tx_count.inc();
+                        something
+                    }
                     Err(_) => {
                         METRICS.mmds.tx_errors.inc();
                         None
@@ -395,7 +402,9 @@ mod tests {
             // Buffer is too small.
             assert!(ns.write_next_frame(bad_buf.as_mut()).is_none());
 
+            let curr_tx_count = METRICS.mmds.tx_count.count();
             let len = ns.write_next_frame(buf.as_mut()).unwrap().get();
+            assert_eq!(curr_tx_count + 1, METRICS.mmds.tx_count.count());
             let eth = EthernetFrame::from_bytes(&buf[..len]).unwrap();
             let arp_reply = EthIPv4ArpFrame::from_bytes_unchecked(eth.payload());
 
@@ -423,7 +432,9 @@ mod tests {
         // Let's send a TCP segment which will cause a RST to come out of the inner TCP handler.
         {
             let len = ns.write_incoming_tcp_segment(buf.as_mut(), mmds_addr, TcpFlags::ACK);
+            let curr_rx_count = METRICS.mmds.rx_count.count();
             assert!(ns.detour_frame(&buf[..len]));
+            assert_eq!(curr_rx_count + 1, METRICS.mmds.rx_count.count());
         }
 
         // Let's check we actually get a RST when writing the next frame.
