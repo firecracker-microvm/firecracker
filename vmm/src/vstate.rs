@@ -206,7 +206,7 @@ pub struct Vcpu {
     fd: VcpuFd,
     id: u8,
     io_bus: devices::Bus,
-    mmio_bus: devices::Bus,
+    mmio_bus: Option<devices::Bus>,
     create_ts: TimestampUs,
 }
 
@@ -217,13 +217,7 @@ impl Vcpu {
     ///
     /// * `id` - Represents the CPU number between [0, max vcpus).
     /// * `vm` - The virtual machine this vcpu will get attached to.
-    pub fn new(
-        id: u8,
-        vm: &Vm,
-        io_bus: devices::Bus,
-        mmio_bus: devices::Bus,
-        create_ts: TimestampUs,
-    ) -> Result<Self> {
+    pub fn new(id: u8, vm: &Vm, io_bus: devices::Bus, create_ts: TimestampUs) -> Result<Self> {
         let kvm_vcpu = vm.fd.create_vcpu(id).map_err(Error::VcpuFd)?;
 
         // Initially the cpuid per vCPU is the one supported by this VM.
@@ -233,9 +227,13 @@ impl Vcpu {
             fd: kvm_vcpu,
             id,
             io_bus,
-            mmio_bus,
+            mmio_bus: None,
             create_ts,
         })
+    }
+
+    pub fn set_mmio_bus(&mut self, mmio_bus: devices::Bus) {
+        self.mmio_bus = Some(mmio_bus);
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -343,13 +341,17 @@ impl Vcpu {
                     Ok(())
                 }
                 VcpuExit::MmioRead(addr, data) => {
-                    self.mmio_bus.read(addr, data);
-                    METRICS.vcpu.exit_mmio_read.inc();
+                    if let Some(ref mmio_bus) = self.mmio_bus {
+                        mmio_bus.read(addr, data);
+                        METRICS.vcpu.exit_mmio_read.inc();
+                    }
                     Ok(())
                 }
                 VcpuExit::MmioWrite(addr, data) => {
-                    self.mmio_bus.write(addr, data);
-                    METRICS.vcpu.exit_mmio_write.inc();
+                    if let Some(ref mmio_bus) = self.mmio_bus {
+                        mmio_bus.write(addr, data);
+                        METRICS.vcpu.exit_mmio_write.inc();
+                    }
                     Ok(())
                 }
                 VcpuExit::Hlt => {
@@ -455,7 +457,6 @@ mod tests {
             1,
             &vm,
             devices::Bus::new(),
-            devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
         .unwrap();
@@ -465,6 +466,14 @@ mod tests {
         }
 
         (vm, vcpu)
+    }
+
+    #[test]
+    fn test_set_mmio_bus() {
+        let (_, mut vcpu) = setup_vcpu();
+        assert!(vcpu.mmio_bus.is_none());
+        vcpu.set_mmio_bus(devices::Bus::new());
+        assert!(vcpu.mmio_bus.is_some());
     }
 
     #[test]
@@ -531,7 +540,6 @@ mod tests {
             1,
             &vm,
             devices::Bus::new(),
-            devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
         .unwrap();
@@ -569,7 +577,6 @@ mod tests {
         let _vcpu = Vcpu::new(
             1,
             &vm,
-            devices::Bus::new(),
             devices::Bus::new(),
             super::super::TimestampUs::default(),
         )

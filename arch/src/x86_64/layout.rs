@@ -16,6 +16,9 @@ pub const CMDLINE_START: usize = 0x20000;
 /// Kernel command line start address maximum size.
 pub const CMDLINE_MAX_SIZE: usize = 0x10000;
 
+/// Start of the high memory.
+pub const HIMEM_START: usize = 0x0010_0000; //1 MB.
+
 // Typically, on x86 systems 16 IRQs are used (0-15).
 /// First usable IRQ ID for virtio device interrupts on x86_64.
 pub const IRQ_BASE: u32 = 5;

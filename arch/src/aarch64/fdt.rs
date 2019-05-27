@@ -7,10 +7,13 @@
 
 use byteorder::{BigEndian, ByteOrder};
 use libc::{c_char, c_int, c_void};
+use std::collections::HashMap;
 use std::ffi::{CStr, CString, NulError};
+use std::fmt::Debug;
 use std::ptr::null;
 use std::{io, result};
 
+use super::super::DeviceType;
 use super::get_fdt_addr;
 use super::gic::{get_dist_addr, get_dist_size, get_redists_addr, get_redists_size};
 use super::layout::FDT_MAX_SIZE;
@@ -28,9 +31,11 @@ const ARCH_GIC_MAINT_IRQ: u32 = 9;
 // As per kvm tool and
 // https://www.kernel.org/doc/Documentation/devicetree/bindings/interrupt-controller/arm%2Cgic.txt
 // Look for "The 1st cell..."
+const GIC_FDT_IRQ_TYPE_SPI: u32 = 0;
 const GIC_FDT_IRQ_TYPE_PPI: u32 = 1;
 
 // From https://elixir.bootlin.com/linux/v4.9.62/source/include/dt-bindings/interrupt-controller/irq.h#L17
+const IRQ_TYPE_EDGE_RISING: u32 = 1;
 const IRQ_TYPE_LEVEL_HI: u32 = 4;
 
 // This links to libfdt which handles the creation of the binary blob
@@ -48,6 +53,13 @@ extern "C" {
     fn fdt_pack(fdt: *mut c_void) -> c_int;
 }
 
+pub trait DeviceInfoForFDT {
+    fn addr(&self) -> u64;
+    fn irq(&self) -> u32;
+    fn length(&self) -> u64;
+    fn type_(&self) -> &DeviceType;
+}
+
 #[derive(Debug)]
 pub enum Error {
     AppendFDTNode(io::Error),
@@ -61,9 +73,22 @@ pub enum Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
+/// Types of devices that get added to the FDT.
+#[derive(Clone, Debug)]
+pub enum FDTDeviceType {
+    Virtio,
+    #[cfg(target_arch = "aarch64")]
+    Serial,
+}
+
 // Creates the flattened device tree for this VM.
-pub fn create_fdt(guest_mem: &GuestMemory, num_cpus: u32, cmdline: &CStr) -> Result<(Vec<u8>)> {
-    // Allocate stuff necessary for holding the blob.
+pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
+    guest_mem: &GuestMemory,
+    num_cpus: u32,
+    cmdline: &CStr,
+    device_info: Option<&HashMap<String, T>>,
+) -> Result<(Vec<u8>)> {
+    // Alocate stuff necessary for the holding the blob.
     let mut fdt = vec![0; FDT_MAX_SIZE];
 
     allocate_fdt(&mut fdt)?;
@@ -88,6 +113,7 @@ pub fn create_fdt(guest_mem: &GuestMemory, num_cpus: u32, cmdline: &CStr) -> Res
     create_gic_node(&mut fdt, u64::from(num_cpus))?;
     create_timer_node(&mut fdt)?;
     create_psci_node(&mut fdt)?;
+    device_info.map_or(Ok(()), |v| create_devices_node(&mut fdt, v))?;
 
     // End Header node.
     append_end_node(&mut fdt)?;
@@ -393,11 +419,82 @@ fn create_psci_node(fdt: &mut Vec<u8>) -> Result<()> {
     Ok(())
 }
 
+fn create_virtio_node<T: DeviceInfoForFDT + Clone + Debug>(
+    fdt: &mut Vec<u8>,
+    dev_info: T,
+) -> Result<()> {
+    let device_reg_prop = generate_prop64(&[dev_info.addr(), dev_info.length()]);
+    let irq = generate_prop32(&[GIC_FDT_IRQ_TYPE_SPI, dev_info.irq(), IRQ_TYPE_EDGE_RISING]);
+
+    append_begin_node(fdt, &format!("virtio_mmio@{:x}", dev_info.addr()))?;
+    append_property_string(fdt, "compatible", "virtio,mmio")?;
+    append_property(fdt, "reg", &device_reg_prop)?;
+    append_property(fdt, "interrupts", &irq)?;
+    append_property_u32(fdt, "interrupt-parent", GIC_PHANDLE)?;
+    append_end_node(fdt)?;
+
+    Ok(())
+}
+
+fn create_serial_node<T: DeviceInfoForFDT + Clone + Debug>(
+    fdt: &mut Vec<u8>,
+    dev_info: T,
+) -> Result<()> {
+    let serial_reg_prop = generate_prop64(&[dev_info.addr(), dev_info.length()]);
+    let irq = generate_prop32(&[GIC_FDT_IRQ_TYPE_SPI, dev_info.irq(), IRQ_TYPE_LEVEL_HI]);
+
+    append_begin_node(fdt, &format!("uart@{:x}", dev_info.addr()))?;
+    append_property_string(fdt, "compatible", "ns16550a")?;
+    append_property(fdt, "reg", &serial_reg_prop)?;
+    append_property_u32(fdt, "clock-frequency", 3686400)?;
+    append_property(fdt, "interrupts", &irq)?;
+    append_end_node(fdt)?;
+
+    Ok(())
+}
+
+fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
+    fdt: &mut Vec<u8>,
+    dev_info: &HashMap<String, T>,
+) -> Result<()> {
+    for (_, info) in &*dev_info {
+        match info.type_() {
+            DeviceType::Virtio => create_virtio_node(fdt, info.clone())?,
+            DeviceType::Serial => create_serial_node(fdt, info.clone())?,
+        };
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use aarch64::{arch_memory_regions, layout};
 
+    const LEN: u64 = 4096;
+
+    #[derive(Clone, Debug)]
+    pub struct MMIODeviceInfo {
+        addr: u64,
+        irq: u32,
+        type_: u32,
+    }
+
+    impl DeviceInfoForFDT for MMIODeviceInfo {
+        fn addr(&self) -> u64 {
+            self.addr
+        }
+        fn irq(&self) -> u32 {
+            self.irq
+        }
+        fn length(&self) -> u64 {
+            LEN
+        }
+        fn type_(&self) -> u32 {
+            self.type_
+        }
+    }
     // The `load` function from the `device_tree` will mistakenly check the actual size
     // of the buffer with the allocated size. This works around that.
     fn set_size(buf: &mut [u8], pos: usize, val: usize) {
@@ -411,21 +508,44 @@ mod tests {
     fn test_create_fdt() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
         let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
-        let mut dtb = create_fdt(&mem, 1, &CString::new("console=tty0").unwrap()).unwrap();
+        let dev_info: HashMap<String, MMIODeviceInfo> = [
+            (
+                "uart".to_string(),
+                MMIODeviceInfo {
+                    addr: 0x00,
+                    irq: 1,
+                    type_: 0,
+                },
+            ),
+            (
+                "virtio".to_string(),
+                MMIODeviceInfo {
+                    addr: 0x00 + LEN,
+                    irq: 2,
+                    type_: 1,
+                },
+            ),
+        ]
+        .iter()
+        .cloned()
+        .collect();
+        let mut dtb =
+            create_fdt(&mem, 1, &CString::new("console=tty0").unwrap(), &dev_info).unwrap();
 
-        /* Use this code when wanting to generate a new DTB sample
-            {
-                use std::fs;
-                use std::io::Write;
-                let mut output = fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .open("output.dtb")
-                    .unwrap();
-                output.write_all(&dtb).unwrap();
-            }
+        /* Use this code when wanting to generate a new DTB sample.
+        {
+            use std::fs;
+            use std::io::Write;
+            use std::path::PathBuf;
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let mut output = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(path.join("src/aarch64/output.dtb"))
+                .unwrap();
+            output.write_all(&dtb).unwrap();
+        }
         */
-
         let bytes = include_bytes!("output.dtb");
         let pos = 4;
         let val = layout::FDT_MAX_SIZE;

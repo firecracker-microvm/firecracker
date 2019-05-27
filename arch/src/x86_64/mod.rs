@@ -81,6 +81,11 @@ pub fn get_32bit_gap_start() -> usize {
     FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE
 }
 
+/// Returns the memory address where the kernel could be loaded.
+pub fn get_kernel_start() -> usize {
+    layout::HIMEM_START
+}
+
 /// Configures the system and should be called once per vm before starting vcpu threads.
 ///
 /// # Arguments
@@ -102,7 +107,7 @@ pub fn configure_system(
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
     let end_32bit_gap_start = GuestAddress(get_32bit_gap_start());
 
-    let himem_start = GuestAddress(super::HIMEM_START);
+    let himem_start = GuestAddress(layout::HIMEM_START);
 
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(guest_mem, num_cpus).map_err(Error::MpTableSetup)?;
