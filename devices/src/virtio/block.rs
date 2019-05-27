@@ -247,13 +247,15 @@ impl Request {
             RequestType::In => {
                 mem.read_to_memory(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Read)?;
-                METRICS.block.read_count.add(self.data_len as usize);
+                METRICS.block.read_bytes.add(self.data_len as usize);
+                METRICS.block.read_count.inc();
                 return Ok(self.data_len);
             }
             RequestType::Out => {
                 mem.write_from_memory(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Write)?;
-                METRICS.block.write_count.add(self.data_len as usize);
+                METRICS.block.write_bytes.add(self.data_len as usize);
+                METRICS.block.write_count.inc();
             }
             RequestType::Flush => match disk.flush() {
                 Ok(_) => {
@@ -1263,7 +1265,12 @@ mod tests {
             vq.dtable[1].len.set(8);
             m.write_obj_at_addr::<u64>(123_456_789, data_addr).unwrap();
 
-            invoke_handler_for_queue_event(&mut h);
+            check_metric_after_block!(
+                &METRICS.block.write_count,
+                1,
+                invoke_handler_for_queue_event(&mut h)
+            );
+
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
@@ -1285,7 +1292,12 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
 
-            invoke_handler_for_queue_event(&mut h);
+            check_metric_after_block!(
+                &METRICS.block.read_count,
+                1,
+                invoke_handler_for_queue_event(&mut h)
+            );
+
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, vq.dtable[1].len.get());

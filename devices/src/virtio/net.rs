@@ -239,6 +239,7 @@ impl NetEpollHandler {
 
                     match write_result {
                         Ok(sz) => {
+                            METRICS.net.rx_count.inc();
                             write_count += sz;
                         }
                         Err(e) => {
@@ -318,6 +319,7 @@ impl NetEpollHandler {
             Ok(_) => {
                 METRICS.net.tx_bytes_count.add(frame_buf.len());
                 METRICS.net.tx_packets_count.inc();
+                METRICS.net.tx_count.inc();
             }
             Err(e) => {
                 error!("Failed to write to tap: {:?}", e);
@@ -348,6 +350,7 @@ impl NetEpollHandler {
             match self.read_from_mmds_or_tap() {
                 Ok(count) => {
                     self.rx.bytes_read = count;
+                    METRICS.net.rx_count.inc();
                     if !self.rate_limited_rx_single_frame() {
                         self.rx.deferred_frame = true;
                         break;
@@ -454,6 +457,7 @@ impl NetEpollHandler {
                 match read_result {
                     Ok(sz) => {
                         read_count += sz;
+                        METRICS.net.tx_count.inc();
                     }
                     Err(e) => {
                         error!("Failed to read slice: {:?}", e);
@@ -1687,8 +1691,14 @@ mod tests {
 
             h.rx.queue_evt.write(1).unwrap();
             h.interrupt_evt.write(1).unwrap();
-            h.handle_event(RX_QUEUE_EVENT, 0, EpollHandlerPayload::Empty)
-                .unwrap();
+
+            // rx_count increments 1 from rx_single_frame() and 1 from process_rx()
+            check_metric_after_block!(
+                &METRICS.net.rx_count,
+                2,
+                h.handle_event(RX_QUEUE_EVENT, 0, EpollHandlerPayload::Empty)
+                    .unwrap()
+            );
             assert_eq!(h.interrupt_evt.read().unwrap(), 2);
         }
 
@@ -1745,8 +1755,13 @@ mod tests {
 
             // following TX procedure should succeed because bandwidth should now be available
             {
-                h.handle_event(TX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
-                    .unwrap();
+                // tx_count increments 1 from process_tx() and 1 from write_to_mmds_or_tap()
+                check_metric_after_block!(
+                    &METRICS.net.tx_count,
+                    2,
+                    h.handle_event(TX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
+                        .unwrap()
+                );
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_tx_rate_limiter().is_blocked());
                 // make sure the data queue advanced
