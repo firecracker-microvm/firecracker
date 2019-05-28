@@ -41,9 +41,9 @@ pub use x86_64::{
 };
 
 /// Types of devices that can get attached to this platform.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DeviceType {
-    Virtio,
+    Virtio(u32),
     #[cfg(target_arch = "aarch64")]
     Serial,
     #[cfg(target_arch = "aarch64")]

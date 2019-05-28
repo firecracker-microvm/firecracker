@@ -75,7 +75,7 @@ pub struct MMIODeviceManager {
     mmio_base: u64,
     irq: u32,
     last_irq: u32,
-    id_to_dev_info: HashMap<String, MMIODeviceInfo>,
+    id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
 }
 
 impl MMIODeviceManager {
@@ -101,7 +101,8 @@ impl MMIODeviceManager {
         vm: &VmFd,
         device: Box<devices::virtio::VirtioDevice>,
         cmdline: &mut kernel_cmdline::Cmdline,
-        id: &str,
+        type_id: u32,
+        device_id: &str,
     ) -> Result<u64> {
         if self.irq > self.last_irq {
             return Err(Error::IrqsExhausted);
@@ -142,12 +143,11 @@ impl MMIODeviceManager {
         let ret = self.mmio_base;
 
         self.id_to_dev_info.insert(
-            id.to_string(),
+            (DeviceType::Virtio(type_id), device_id.to_string()),
             MMIODeviceInfo {
                 addr: ret,
                 len: MMIO_LEN,
                 irq: self.irq,
-                type_: DeviceType::Virtio,
             },
         );
 
@@ -188,12 +188,11 @@ impl MMIODeviceManager {
 
         let ret = self.mmio_base;
         self.id_to_dev_info.insert(
-            "uart".to_string(),
+            (DeviceType::Serial, "uart".to_string()),
             MMIODeviceInfo {
                 addr: ret,
                 len: MMIO_LEN,
                 irq: self.irq,
-                type_: DeviceType::Serial,
             },
         );
 
@@ -222,12 +221,11 @@ impl MMIODeviceManager {
 
         let ret = self.mmio_base;
         self.id_to_dev_info.insert(
-            "rtc".to_string(),
+            (DeviceType::RTC, "rtc".to_string()),
             MMIODeviceInfo {
                 addr: ret,
                 len: MMIO_LEN,
                 irq: self.irq,
-                type_: DeviceType::RTC,
             },
         );
 
@@ -239,7 +237,7 @@ impl MMIODeviceManager {
 
     #[cfg(target_arch = "aarch64")]
     /// Gets the information of the devices registered up to some point in time.
-    pub fn get_device_info(&self) -> &HashMap<String, MMIODeviceInfo> {
+    pub fn get_device_info(&self) -> &HashMap<(DeviceType, String), MMIODeviceInfo> {
         &self.id_to_dev_info
     }
 
@@ -259,8 +257,11 @@ impl MMIODeviceManager {
     }
 
     /// Gets the address of the specified device on the bus.
-    pub fn get_address(&self, id: &str) -> Option<&u64> {
-        if let Some(dev_info) = self.id_to_dev_info.get(id) {
+    pub fn get_address(&self, device_type: DeviceType, device_id: &str) -> Option<&u64> {
+        if let Some(dev_info) = self
+            .id_to_dev_info
+            .get(&(device_type, device_id.to_string()))
+        {
             return Some(&dev_info.addr);
         }
         None
@@ -273,7 +274,6 @@ pub struct MMIODeviceInfo {
     addr: u64,
     irq: u32,
     len: u64,
-    type_: DeviceType,
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -286,9 +286,6 @@ impl DeviceInfoForFDT for MMIODeviceInfo {
     }
     fn length(&self) -> u64 {
         self.len
-    }
-    fn type_(&self) -> &DeviceType {
-        &self.type_
     }
 }
 
@@ -311,8 +308,10 @@ mod tests {
         // Removing the address of a device will generate an error when you try to update the
         // drive. The purpose of this method is to test error scenarios and should otherwise
         // not be used.
-        pub fn remove_device_info(&mut self, id: &str) {
-            self.id_to_dev_info.remove(id).unwrap();
+        pub fn remove_device_info(&mut self, type_id: u32, id: &str) {
+            self.id_to_dev_info
+                .remove(&(DeviceType::Virtio(type_id), id.to_string()))
+                .unwrap();
         }
     }
 
@@ -390,7 +389,7 @@ mod tests {
         let vmm = create_vmm_object();
 
         assert!(device_manager
-            .register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, "dummy")
+            .register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, 0, "dummy")
             .is_ok());
     }
 
@@ -407,7 +406,13 @@ mod tests {
         let vmm = create_vmm_object();
         for _i in arch::IRQ_BASE..=arch::IRQ_MAX {
             device_manager
-                .register_virtio_device(vmm.vm.get_fd(), dummy_box.clone(), &mut cmdline, "dummy1")
+                .register_virtio_device(
+                    vmm.vm.get_fd(),
+                    dummy_box.clone(),
+                    &mut cmdline,
+                    0,
+                    "dummy1",
+                )
                 .unwrap();
         }
         assert_eq!(
@@ -418,6 +423,7 @@ mod tests {
                         vmm.vm.get_fd(),
                         dummy_box.clone(),
                         &mut cmdline,
+                        0,
                         "dummy2"
                     )
                     .unwrap_err()
@@ -524,9 +530,13 @@ mod tests {
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         let vmm = create_vmm_object();
 
-        if let Ok(addr) =
-            device_manager.register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, "foo")
-        {
+        if let Ok(addr) = device_manager.register_virtio_device(
+            vmm.vm.get_fd(),
+            dummy_box,
+            &mut cmdline,
+            0,
+            "foo",
+        ) {
             assert!(device_manager.update_drive(addr, 1_048_576).is_ok());
         }
         assert!(device_manager.update_drive(0xbeef, 1_048_576).is_err());
@@ -543,22 +553,40 @@ mod tests {
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         let vmm = create_vmm_object();
 
+        let type_id = 0;
         let id = String::from("foo");
-        if let Ok(addr) =
-            device_manager.register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, &id)
-        {
-            assert_eq!(Some(&addr), device_manager.get_address(&id));
-            assert_eq!(addr, device_manager.id_to_dev_info.get(&id).unwrap().addr);
+        if let Ok(addr) = device_manager.register_virtio_device(
+            vmm.vm.get_fd(),
+            dummy_box,
+            &mut cmdline,
+            type_id,
+            &id,
+        ) {
             assert_eq!(
-                arch::IRQ_BASE,
-                device_manager.id_to_dev_info.get(&id).unwrap().irq
+                Some(&addr),
+                device_manager.get_address(DeviceType::Virtio(type_id), &id)
             );
             assert_eq!(
-                DeviceType::Virtio,
-                device_manager.id_to_dev_info.get(&id).unwrap().type_
+                addr,
+                device_manager
+                    .id_to_dev_info
+                    .get(&(DeviceType::Virtio(type_id), id.clone()))
+                    .unwrap()
+                    .addr
+            );
+            assert_eq!(
+                arch::IRQ_BASE,
+                device_manager
+                    .id_to_dev_info
+                    .get(&(DeviceType::Virtio(type_id), id.clone()))
+                    .unwrap()
+                    .irq
             );
         }
         let id = "bar";
-        assert_eq!(None, device_manager.get_address(&id));
+        assert_eq!(
+            None,
+            device_manager.get_address(DeviceType::Virtio(type_id), &id)
+        );
     }
 }
