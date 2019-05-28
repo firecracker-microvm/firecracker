@@ -45,6 +45,8 @@
 //! use self::tempfile::NamedTempFile;
 //! use std::ops::Deref;
 //!
+//! use libc::c_char;
+//!
 //! #[macro_use]
 //! extern crate logger;
 //! use logger::{AppInfo, LOGGER};
@@ -58,10 +60,10 @@
 //!     let metrics = String::from(metrics_file_temp.path().to_path_buf().to_str().unwrap());
 //!
 //!     unsafe {
-//!          libc::mkfifo(logs.as_bytes().as_ptr() as *const i8, 0o644);
+//!          libc::mkfifo(logs.as_bytes().as_ptr() as *const c_char, 0o644);
 //!      }
 //!     unsafe {
-//!          libc::mkfifo(metrics.as_bytes().as_ptr() as *const i8, 0o644);
+//!          libc::mkfifo(metrics.as_bytes().as_ptr() as *const c_char, 0o644);
 //!     }
 //!     // Initialize the logger to log to a FIFO that was created beforehand.
 //!     assert!(LOGGER.deref().init(
