@@ -1098,7 +1098,7 @@ impl Vmm {
         // and is architectural specific.
         let device_manager = MMIODeviceManager::new(
             guest_mem.clone(),
-            arch::get_reserved_mem_addr() as u64,
+            &mut (arch::get_reserved_mem_addr() as u64),
             (arch::IRQ_BASE, arch::IRQ_MAX),
         );
         self.mmio_device_manager = Some(device_manager);
@@ -3320,7 +3320,7 @@ mod tests {
         let guest_mem = vmm.guest_memory.clone().unwrap();
         let device_manager = MMIODeviceManager::new(
             guest_mem.clone(),
-            arch::get_reserved_mem_addr() as u64,
+            &mut (arch::get_reserved_mem_addr() as u64),
             (arch::IRQ_BASE, arch::IRQ_MAX),
         );
         vmm.mmio_device_manager = Some(device_manager);

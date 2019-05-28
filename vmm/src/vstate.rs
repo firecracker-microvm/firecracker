@@ -25,7 +25,10 @@ use vmm_config::machine_config::VmConfig;
 
 const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
 
-const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u16 = 0x03f0;
+#[cfg(target_arch = "x86_64")]
+const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x03f0;
+#[cfg(target_arch = "aarch64")]
+const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x40000000;
 const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -322,6 +325,14 @@ impl Vcpu {
         Ok(())
     }
 
+    fn check_boot_complete_signal(&self, addr: u64, data: &[u8]) {
+        if addr == MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE
+            && data[0] == MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE
+        {
+            super::Vmm::log_boot_time(&self.create_ts);
+        }
+    }
+
     fn run_emulation(&mut self) -> Result<()> {
         match self.fd.run() {
             Ok(run) => match run {
@@ -331,11 +342,9 @@ impl Vcpu {
                     Ok(())
                 }
                 VcpuExit::IoOut(addr, data) => {
-                    if addr == MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE
-                        && data[0] == MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE
-                    {
-                        super::Vmm::log_boot_time(&self.create_ts);
-                    }
+                    #[cfg(target_arch = "x86_64")]
+                    self.check_boot_complete_signal(u64::from(addr), data);
+
                     self.io_bus.write(u64::from(addr), data);
                     METRICS.vcpu.exit_io_out.inc();
                     Ok(())
@@ -349,6 +358,9 @@ impl Vcpu {
                 }
                 VcpuExit::MmioWrite(addr, data) => {
                     if let Some(ref mmio_bus) = self.mmio_bus {
+                        #[cfg(target_arch = "aarch64")]
+                        self.check_boot_complete_signal(addr, data);
+
                         mmio_bus.write(addr, data);
                         METRICS.vcpu.exit_mmio_write.inc();
                     }
