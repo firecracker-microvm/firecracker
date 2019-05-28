@@ -36,6 +36,7 @@ const DEVICE_FEATURES_OK: u32 = 0x08;
 const DEVICE_FAILED: u32 = 0x80;
 
 /// Types taken from linux/virtio_ids.h.
+/// Type 0 is not used by virtio. Use it as wildcard for non-virtio devices
 pub const TYPE_NET: u32 = 1;
 pub const TYPE_BLOCK: u32 = 2;
 

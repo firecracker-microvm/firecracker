@@ -62,6 +62,7 @@ use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{Cap, Kvm};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
+use arch::DeviceType;
 use device_manager::legacy::LegacyDeviceManager;
 #[cfg(target_arch = "aarch64")]
 use device_manager::mmio::MMIODeviceInfo;
@@ -916,6 +917,7 @@ impl Vmm {
                     self.vm.get_fd(),
                     block_box,
                     &mut kernel_config.cmdline,
+                    TYPE_BLOCK,
                     &drive_config.drive_id,
                 )
                 .map_err(StartMicrovmError::RegisterBlockDevice)?;
@@ -976,6 +978,7 @@ impl Vmm {
                         self.vm.get_fd(),
                         net_box,
                         &mut kernel_config.cmdline,
+                        TYPE_NET,
                         &cfg.iface_id,
                     )
                     .map_err(StartMicrovmError::RegisterNetDevice)?;
@@ -1013,6 +1016,7 @@ impl Vmm {
                     self.vm.get_fd(),
                     vsock_box,
                     &mut kernel_config.cmdline,
+                    TYPE_VSOCK,
                     &cfg.id,
                 )
                 .map_err(StartMicrovmError::RegisterVsockDevice)?;
@@ -1132,7 +1136,7 @@ impl Vmm {
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn get_mmio_device_info(&self) -> Option<&HashMap<String, MMIODeviceInfo>> {
+    fn get_mmio_device_info(&self) -> Option<&HashMap<(DeviceType, String), MMIODeviceInfo>> {
         if let Some(ref device_manager) = self.mmio_device_manager {
             Some(device_manager.get_device_info())
         } else {
@@ -1871,7 +1875,7 @@ impl Vmm {
         // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
         // called before the guest boots, and this function is called after boot.
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
-        match device_manager.get_address(drive_id) {
+        match device_manager.get_address(DeviceType::Virtio(TYPE_BLOCK), drive_id) {
             Some(&address) => {
                 for drive_config in self.block_device_configs.config_list.iter() {
                     if drive_config.drive_id == *drive_id {
@@ -2180,11 +2184,11 @@ mod tests {
             }
         }
 
-        fn remove_device_info(&mut self, id: &str) {
+        fn remove_device_info(&mut self, type_id: u32, id: &str) {
             self.mmio_device_manager
                 .as_mut()
                 .unwrap()
-                .remove_device_info(id);
+                .remove_device_info(type_id, id);
         }
 
         fn default_kernel_config(&mut self, cust_kernel_path: Option<PathBuf>) {
@@ -2874,7 +2878,10 @@ mod tests {
         {
             let device_manager = vmm.mmio_device_manager.as_ref().unwrap();
             assert!(device_manager
-                .get_address(&non_root_block_device.drive_id)
+                .get_address(
+                    DeviceType::Virtio(TYPE_BLOCK),
+                    &non_root_block_device.drive_id
+                )
                 .is_some());
         }
 
@@ -3008,6 +3015,7 @@ mod tests {
                     vmm.vm.get_fd(),
                     dummy_box,
                     &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
+                    TYPE_BLOCK,
                     &scratch_id,
                 )
                 .unwrap();
@@ -3051,7 +3059,7 @@ mod tests {
         }
 
         // Test rescan_block_device with invalid device address.
-        vmm.remove_device_info(&scratch_id);
+        vmm.remove_device_info(TYPE_BLOCK, &scratch_id);
         match vmm.rescan_block_device(&scratch_id) {
             Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
             }

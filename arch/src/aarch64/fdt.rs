@@ -59,7 +59,6 @@ pub trait DeviceInfoForFDT {
     fn addr(&self) -> u64;
     fn irq(&self) -> u32;
     fn length(&self) -> u64;
-    fn type_(&self) -> &DeviceType;
 }
 
 #[derive(Debug)]
@@ -80,7 +79,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemory,
     num_cpus: u32,
     cmdline: &CStr,
-    device_info: Option<&HashMap<String, T>>,
+    device_info: Option<&HashMap<(DeviceType, String), T>>,
 ) -> Result<(Vec<u8>)> {
     // Alocate stuff necessary for the holding the blob.
     let mut fdt = vec![0; FDT_MAX_SIZE];
@@ -483,13 +482,13 @@ fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
 
 fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
     fdt: &mut Vec<u8>,
-    dev_info: &HashMap<String, T>,
+    dev_info: &HashMap<(DeviceType, String), T>,
 ) -> Result<()> {
-    for (_, info) in &*dev_info {
-        match info.type_() {
+    for ((device_type, _), info) in &*dev_info {
+        match device_type {
             DeviceType::RTC => create_rtc_node(fdt, info.clone())?,
             DeviceType::Serial => create_serial_node(fdt, info.clone())?,
-            DeviceType::Virtio => create_virtio_node(fdt, info.clone())?,
+            DeviceType::Virtio(_) => create_virtio_node(fdt, info.clone())?,
         };
     }
 
