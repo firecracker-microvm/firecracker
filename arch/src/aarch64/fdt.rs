@@ -533,9 +533,10 @@ mod tests {
     }
 
     #[test]
-    fn test_create_fdt() {
+    fn test_create_fdt_with_devices() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
         let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+
         let dev_info: HashMap<String, MMIODeviceInfo> = [
             (
                 "uart".to_string(),
@@ -565,11 +566,24 @@ mod tests {
         .iter()
         .cloned()
         .collect();
-        let mut dtb = create_fdt(
+        assert!(create_fdt(
             &mem,
             1,
             &CString::new("console=tty0").unwrap(),
             Some(&dev_info),
+        )
+        .is_ok())
+    }
+
+    #[test]
+    fn test_create_fdt() {
+        let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
+        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mut dtb = create_fdt(
+            &mem,
+            1,
+            &CString::new("console=tty0").unwrap(),
+            None::<&std::collections::HashMap<std::string::String, MMIODeviceInfo>>,
         )
         .unwrap();
 
