@@ -265,7 +265,7 @@ mod tests {
         assert_eq!(no_errors_after - no_errors_before, 1);
         // However, reading from the AMBA_ID_LOW should succeed upon read.
 
-        let mut data = [0; 8];
+        let mut data = [0; 4];
         rtc.read(AMBA_ID_LOW, &mut data);
         let index = AMBA_ID_LOW + 3;
         assert_eq!(data[0], PL031_ID[((index - AMBA_ID_LOW) >> 2) as usize]);
