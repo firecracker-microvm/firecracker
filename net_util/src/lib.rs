@@ -10,14 +10,13 @@
 #[cfg(test)]
 mod mac;
 mod tap;
+pub use tap::{Error as TapError, Tap};
 
 use std::io::Error as IoError;
 use std::mem;
 use std::net;
 use std::os::unix::io::FromRawFd;
 
-pub use crate::mac::{MacAddr, MAC_ADDR_LEN};
-pub use crate::tap::{Error as TapError, Tap};
 
 #[derive(Debug)]
 pub enum Error {
