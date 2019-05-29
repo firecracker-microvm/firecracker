@@ -12,9 +12,10 @@ mod mptable;
 pub mod regs;
 
 use std::mem;
-
-use arch_gen::x86::bootparam::{boot_params, E820_RAM};
-use memory_model::{DataInit, GuestAddress, GuestMemory};
+extern crate arch_gen;
+use self::arch_gen::x86::bootparam::{boot_params, E820_RAM};
+extern crate memory_model;
+use self::memory_model::{DataInit, GuestAddress, GuestMemory};
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `DataInit`) where:
@@ -182,7 +183,8 @@ fn add_e820_entry(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arch_gen::x86::bootparam::e820entry;
+    extern crate arch_gen;
+    use self::arch_gen::x86::bootparam::e820entry;
 
     #[test]
     fn regions_lt_4gb() {

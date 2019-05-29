@@ -2,15 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use libc;
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::{AsRawFd, RawFd};
-
 use super::{ioctl_error, Error, Result, Vhost};
 use memory_model::GuestMemory;
 use sys_util::ioctl_with_ref;
-use vhost_gen::*;
+
+extern crate libc;
+extern crate vhost_gen;
+use self::vhost_gen::*;
 
 const VHOST_PATH: &str = "/dev/vhost-vsock";
 

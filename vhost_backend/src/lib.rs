@@ -2,15 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 mod vsock;
-pub use crate::vsock::Vsock;
+pub use vsock::Vsock;
 
 use std::mem;
 use std::os::unix::io::AsRawFd;
 use std::ptr::null;
 
+extern crate memory_model;
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
-use sys_util::{ioctl, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref, EventFd};
-use vhost_gen::*;
+
+#[macro_use]
+extern crate sys_util;
+use sys_util::{ioctl, ioctl_with_ref, ioctl_with_mut_ref};
 
 #[derive(Debug)]
 pub enum Error {

@@ -6,13 +6,16 @@
 // found in the THIRD-PARTY file.
 
 use std::{io, mem, result};
-
-use kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_msrs, kvm_regs, kvm_sregs};
-use kvm_ioctls::VcpuFd;
+extern crate kvm_bindings;
+use self::kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_msrs, kvm_regs, kvm_sregs};
+extern crate kvm_ioctls;
+use self::kvm_ioctls::VcpuFd;
 
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
-use arch_gen::x86::msr_index;
-use memory_model::{GuestAddress, GuestMemory};
+extern crate arch_gen;
+use self::arch_gen::x86::msr_index;
+extern crate memory_model;
+use self::memory_model::{GuestAddress, GuestMemory};
 
 // Initial pagetables.
 const PML4_START: usize = 0x9000;
@@ -287,8 +290,11 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kvm_ioctls::Kvm;
-    use memory_model::{GuestAddress, GuestMemory};
+    
+    extern crate kvm_ioctls;
+    use self::kvm_ioctls::Kvm;
+    extern crate memory_model;
+    use self::memory_model::{GuestAddress, GuestMemory};
 
     fn create_guest_mem() -> GuestMemory {
         GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap()

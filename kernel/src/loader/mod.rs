@@ -6,14 +6,15 @@
 // found in the THIRD-PARTY file.
 
 //! Helper for loading a kernel image in the guest memory.
-use std;
+use cmdline::{Cmdline, Error as CmdlineError};
 use std::ffi::CString;
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
-use super::cmdline::Error as CmdlineError;
-use memory_model::{GuestAddress, GuestMemory};
-use sys_util;
+
+extern crate memory_model;
+use self::memory_model::{GuestAddress, GuestMemory};
+extern crate sys_util;
 
 #[allow(non_camel_case_types)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -257,10 +258,10 @@ pub fn load_cmdline(
 
 #[cfg(test)]
 mod tests {
-    use super::super::cmdline::Cmdline;
+    use self::memory_model::{GuestAddress, GuestMemory};
     use super::*;
-    use memory_model::{GuestAddress, GuestMemory};
     use std::io::Cursor;
+
 
     const MEM_SIZE: usize = 0x18_0000;
 

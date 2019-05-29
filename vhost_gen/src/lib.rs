@@ -7,7 +7,10 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 pub mod vhost;
-pub use crate::vhost::*;
+pub use vhost::*;
+
+#[macro_use]
+extern crate sys_util;
 
 pub const VHOST: ::std::os::raw::c_uint = 0xaf;
 
