@@ -8,8 +8,7 @@ edition = "2018"
 libc = ">=0.2.39"
 time = ">=0.1.39"
 timerfd = "1.0"
-serde = ">=1.0.27"
-serde_derive = ">=1.0.27"
+serde = { version = ">=1.0.27", features = ["derive"] }
 
 logger = { path = "../logger" }
 

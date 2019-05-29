@@ -44,10 +44,15 @@
 //! trait and provides an *event-handler* as part of its API. This *event-handler*
 //! needs to be called by the user on every event on the rate limiter's `AsRawFd` FD.
 //!
-use std::os::unix::io::{AsRawFd, RawFd};
+use serde::Deserialize;
 use std::time::Duration;
 use std::{fmt, io};
 use time;
+use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use std::os::unix::io::{AsRawFd, RawFd};
+
+#[macro_use]
+extern crate logger;
 
 #[derive(Debug)]
 /// Describes the errors that may occur while handling rate limiter events.
