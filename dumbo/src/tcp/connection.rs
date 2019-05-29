@@ -11,7 +11,9 @@ use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 use crate::pdu::bytes::NetworkBytes;
 use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
 use crate::pdu::Incomplete;
-use crate::tcp::{seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT};
+use crate::tcp::{
+    seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT,
+};
 use crate::ByteBuffer;
 
 bitflags! {
@@ -1226,7 +1228,11 @@ pub(crate) mod tests {
 
     // Checks if the segment ACKs the specified sequence number, and whether the additional_flags
     // are set (besides ACK).
-    fn check_acks<T: NetworkBytes>(s: &TcpSegment<'_, T>, ack_number: u32, additional_flags: TcpFlags) {
+    fn check_acks<T: NetworkBytes>(
+        s: &TcpSegment<'_, T>,
+        ack_number: u32,
+        additional_flags: TcpFlags,
+    ) {
         assert_eq!(s.flags_after_ns(), TcpFlags::ACK | additional_flags);
         assert_eq!(s.ack_number(), ack_number);
     }

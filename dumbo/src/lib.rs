@@ -10,6 +10,9 @@ pub mod tcp;
 
 use std::ops::Index;
 
+#[macro_use]
+extern crate bitflags;
+
 /// Represents a generalization of a borrowed `[u8]` slice.
 pub trait ByteBuffer: Index<usize, Output = u8> {
     /// Returns the length of the buffer.
