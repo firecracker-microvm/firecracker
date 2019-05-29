@@ -7,13 +7,14 @@ mod cgroup;
 mod chroot;
 mod env;
 use crate::env::Env;
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg, ArgMatches, crate_version, crate_authors};
 use fc_util::validators;
 use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::result;
+use std::ffi::{CString, NulError, OsString};
 
 
 const SOCKET_FILE_NAME: &str = "api.socket";
