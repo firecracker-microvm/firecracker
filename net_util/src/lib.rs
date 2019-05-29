@@ -8,9 +8,10 @@
 // This is only used by the tests module from tap.rs, but we cannot use #[macro_use] unless the
 // reference to lazy_static is declared at the root level of the importing crate.
 #[cfg(test)]
-mod mac;
-mod tap;
 pub use tap::{Error as TapError, Tap};
+
+mod mac;
+pub use mac::{MAC_ADDR_LEN, MacAddr};
 
 use std::io::Error as IoError;
 use std::mem;
