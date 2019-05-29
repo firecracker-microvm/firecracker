@@ -62,6 +62,7 @@ use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{Cap, Kvm};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
+#[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
 use device_manager::legacy::LegacyDeviceManager;
 #[cfg(target_arch = "aarch64")]
@@ -1875,31 +1876,26 @@ impl Vmm {
         // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
         // called before the guest boots, and this function is called after boot.
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
-        match device_manager.get_address(DeviceType::Virtio(TYPE_BLOCK), drive_id) {
-            Some(&address) => {
-                for drive_config in self.block_device_configs.config_list.iter() {
-                    if drive_config.drive_id == *drive_id {
-                        let metadata = metadata(&drive_config.path_on_host)
-                            .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-                        let new_size = metadata.len();
-                        if new_size % virtio::block::SECTOR_SIZE != 0 {
-                            warn!(
-                                "Disk size {} is not a multiple of sector size {}; \
-                                 the remainder will not be visible to the guest.",
-                                new_size,
-                                virtio::block::SECTOR_SIZE
-                            );
-                        }
-                        return device_manager
-                            .update_drive(address, new_size)
-                            .map(|_| VmmData::Empty)
-                            .map_err(|_| VmmActionError::from(DriveError::BlockDeviceUpdateFailed));
-                    }
+        for drive_config in self.block_device_configs.config_list.iter() {
+            if drive_config.drive_id == *drive_id {
+                let metadata = metadata(&drive_config.path_on_host)
+                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                let new_size = metadata.len();
+                if new_size % virtio::block::SECTOR_SIZE != 0 {
+                    warn!(
+                        "Disk size {} is not a multiple of sector size {}; \
+                         the remainder will not be visible to the guest.",
+                        new_size,
+                        virtio::block::SECTOR_SIZE
+                    );
                 }
-                Err(VmmActionError::from(DriveError::BlockDeviceUpdateFailed))
+                return device_manager
+                    .update_drive(drive_id, new_size)
+                    .map(|_| VmmData::Empty)
+                    .map_err(|_| VmmActionError::from(DriveError::BlockDeviceUpdateFailed));
             }
-            _ => Err(VmmActionError::from(DriveError::InvalidBlockDeviceID)),
         }
+        Err(VmmActionError::from(DriveError::InvalidBlockDeviceID))
     }
 
     // Only call this function as part of the API.
@@ -2156,6 +2152,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     use self::tempfile::NamedTempFile;
+    use arch::DeviceType;
     use devices::virtio::ActivateResult;
     use net_util::MacAddr;
     use vmm_config::machine_config::CpuFeaturesTemplate;
@@ -2878,7 +2875,7 @@ mod tests {
         {
             let device_manager = vmm.mmio_device_manager.as_ref().unwrap();
             assert!(device_manager
-                .get_address(
+                .get_device(
                     DeviceType::Virtio(TYPE_BLOCK),
                     &non_root_block_device.drive_id
                 )
@@ -3051,10 +3048,9 @@ mod tests {
         }
         vmm.change_id(&scratch_id, "scratch");
         match vmm.rescan_block_device(&scratch_id) {
-            Err(VmmActionError::DriveConfig(
-                ErrorKind::User,
-                DriveError::BlockDeviceUpdateFailed,
-            )) => (),
+            Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
+                ()
+            }
             _ => assert!(false),
         }
 
