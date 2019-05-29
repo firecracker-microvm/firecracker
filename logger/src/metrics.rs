@@ -23,9 +23,7 @@
 //!   (this could be a concern, I guess).
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
-
 use std::sync::atomic::{AtomicUsize, Ordering};
-
 use chrono;
 use serde::{Serialize, Serializer};
 

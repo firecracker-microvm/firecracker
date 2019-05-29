@@ -135,22 +135,25 @@ pub mod error;
 pub mod metrics;
 mod writers;
 
-use std::error::Error;
-use std::ops::Deref;
+use crate::error::LoggerError;
+use chrono::Local;
+use serde_json::Value;
 use std::result;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, RwLock};
+use std::error::Error;
 
-use chrono::Local;
-use serde_json::Value;
 
-use crate::error::LoggerError;
 pub use crate::metrics::{Metric, METRICS};
+
 use crate::writers::*;
 pub use log::*;
-use log::{set_logger, set_max_level, Log, Metadata, Record};
+use log::{set_max_level, Log, Metadata, Record};
 
+#[macro_use]
+extern crate lazy_static;
+use lazy_static::__Deref;
 
 /// Type for returning functions outcome.
 ///
