@@ -6,14 +6,13 @@
 // found in the THIRD-PARTY file.
 
 //! Emulates virtual and hardware devices.
-use rate_limiter::{Error as RateLimiterError, TokenBucket};
-use std::fs::File;
-use std::io;
-
 mod bus;
 pub mod legacy;
 pub mod virtio;
 
+use rate_limiter::{Error as RateLimiterError, TokenBucket};
+use std::fs::File;
+use std::io;
 pub use self::bus::{Bus, BusDevice, Error as BusError};
 
 pub type DeviceEventT = u16;

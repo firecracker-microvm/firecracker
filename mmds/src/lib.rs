@@ -1,14 +1,17 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+mod data_store;
+use data_store::{
+    Mmds,
+    Error as MmdsError
+};
 
-
-#[macro_use]
-pub mod data_store;
-
-
-use crate::data_store::{Error as MmdsError, Mmds};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 use std::sync::{Arc, Mutex};
+
+#[macro_use]
+extern crate lazy_static;
+
 lazy_static! {
     // A static reference to a global Mmds instance. We currently use this for ease of access during
     // prototyping. We'll consider something like passing Arc<Mutex<Mmds>> references to the
