@@ -303,6 +303,7 @@ def microvm(request, test_session_root_path, aux_bin_paths):
     )
     yield vm
     vm.kill()
+    shutil.rmtree(os.path.join(test_session_root_path, vm.id))
 
 
 @pytest.fixture
@@ -379,6 +380,7 @@ def test_multiple_microvms(
     yield microvms
     for i in range(how_many):
         microvms[i].kill()
+        shutil.rmtree(os.path.join(test_session_root_path, microvms[i].id))
 
 
 def pytest_generate_tests(metafunc):
