@@ -12,7 +12,7 @@ use std;
 use std::io::{self, Read, Write};
 use std::ptr::null_mut;
 
-use libc;
+extern crate libc;
 
 use crate::DataInit;
 
@@ -305,8 +305,6 @@ impl Drop for MemoryMapping {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
-
     use self::tempfile::tempfile;
     use super::*;
     use std::fs::File;

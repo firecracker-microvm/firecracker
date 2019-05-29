@@ -253,8 +253,8 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
 #[cfg(test)]
 #[cfg(target_env = "musl")]
 mod tests {
-    extern crate libc;
-    extern crate seccomp;
+    use libc;
+    
 
     use super::*;
 

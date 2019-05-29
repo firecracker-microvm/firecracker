@@ -8,8 +8,6 @@
 /// # Example
 ///
 /// ```
-/// #[macro_use]
-/// extern crate cpuid;
 /// use cpuid::bit_helper::*;
 ///
 /// fn main() {
@@ -45,8 +43,6 @@ pub trait BitRangeExt<T> {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate cpuid;
     /// use cpuid::bit_helper::*;
     ///
     /// fn main() {
@@ -113,8 +109,6 @@ pub trait BitHelper {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate cpuid;
     /// use cpuid::bit_helper::*;
     ///
     /// fn main() {
@@ -137,8 +131,6 @@ pub trait BitHelper {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate cpuid;
     /// use cpuid::bit_helper::*;
     ///
     /// fn main() {

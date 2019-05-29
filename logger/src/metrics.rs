@@ -418,7 +418,7 @@ lazy_static! {
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
+    use serde_json;
     use super::*;
 
     use std::sync::Arc;

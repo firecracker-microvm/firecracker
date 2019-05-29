@@ -21,12 +21,12 @@ use super::{
     ActivateError, ActivateResult, DescriptorChain, EpollHandlerPayload, Queue, VirtioDevice,
     TYPE_BLOCK, VIRTIO_MMIO_INT_VRING,
 };
-use logger::{Metric, METRICS};
+use crate::{DeviceEventT, EpollHandler};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
 use virtio_gen::virtio_blk::*;
-use crate::{DeviceEventT, EpollHandler};
+
 
 const CONFIG_SPACE_SIZE: usize = 8;
 const SECTOR_SHIFT: u8 = 9;
@@ -665,8 +665,6 @@ impl VirtioDevice for Block {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
-
     use self::tempfile::{tempfile, NamedTempFile};
     use super::*;
 

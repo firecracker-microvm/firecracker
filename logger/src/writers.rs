@@ -44,7 +44,7 @@ impl PipeLogWriter {
             .map_err(LoggerError::LogWrite)
     }
 
-    fn get_line_writer(&self) -> Result<(MutexGuard<LineWriter<File>>)> {
+    fn get_line_writer(&self) -> Result<(MutexGuard<'_, LineWriter<File>>)> {
         self.line_writer
             .lock()
             .map_err(|e| LoggerError::MutexLockFailure(format!("{}", e)))
@@ -53,7 +53,7 @@ impl PipeLogWriter {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
+    use tempfile;
 
     use self::tempfile::NamedTempFile;
     use super::*;

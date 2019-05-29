@@ -254,8 +254,6 @@ impl AsRawFd for Tap {
 
 #[cfg(test)]
 mod tests {
-    extern crate pnet;
-
     use std::net::Ipv4Addr;
     use std::str;
     use std::sync::{mpsc, Mutex};

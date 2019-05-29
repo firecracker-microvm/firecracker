@@ -6,24 +6,6 @@
 // found in the THIRD-PARTY file.
 
 //! Emulates virtual and hardware devices.
-extern crate byteorder;
-extern crate epoll;
-extern crate libc;
-
-extern crate dumbo;
-#[macro_use]
-extern crate logger;
-extern crate memory_model;
-extern crate net_gen;
-extern crate net_util;
-extern crate rate_limiter;
-extern crate sys_util;
-#[cfg(feature = "vsock")]
-extern crate vhost_backend;
-#[cfg(feature = "vsock")]
-extern crate vhost_gen;
-extern crate virtio_gen;
-
 use rate_limiter::{Error as RateLimiterError, TokenBucket};
 use std::fs::File;
 use std::io;

@@ -238,7 +238,7 @@ impl Cgroup {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
+    use tempfile;
 
     use self::tempfile::{tempdir, tempdir_in, NamedTempFile};
     use super::*;

@@ -1,20 +1,14 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-extern crate json_patch;
+
 #[macro_use]
-extern crate lazy_static;
-extern crate serde_json;
-
-extern crate micro_http;
-
 pub mod data_store;
 
-use std::sync::{Arc, Mutex};
 
 use crate::data_store::{Error as MmdsError, Mmds};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
-
+use std::sync::{Arc, Mutex};
 lazy_static! {
     // A static reference to a global Mmds instance. We currently use this for ease of access during
     // prototyping. We'll consider something like passing Arc<Mutex<Mmds>> references to the
@@ -105,9 +99,9 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
-    use super::*;
 
+    use super::*;
+    use serde_json;
     #[test]
     fn test_parse_request() {
         let data = r#"{

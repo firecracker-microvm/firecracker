@@ -7,9 +7,6 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-#[macro_use]
-extern crate sys_util;
-
 // generated with bindgen /usr/include/linux/if.h --no-unstable-rust
 // --constified-enum '*' --with-derive-default -- -D __UAPI_DEF_IF_IFNAMSIZ -D
 // __UAPI_DEF_IF_NET_DEVICE_FLAGS -D __UAPI_DEF_IF_IFREQ -D __UAPI_DEF_IF_IFMAP
@@ -34,6 +31,9 @@ pub use crate::inn::*;
 pub use crate::sockios::*;
 
 pub const TUNTAP: ::std::os::raw::c_uint = 84;
+
+#[macro_use]
+extern crate sys_util;
 
 ioctl_iow_nr!(TUNSETNOCSUM, TUNTAP, 200, ::std::os::raw::c_int);
 ioctl_iow_nr!(TUNSETDEBUG, TUNTAP, 201, ::std::os::raw::c_int);

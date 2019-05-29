@@ -4,16 +4,6 @@
 #![deny(missing_docs)]
 //! Provides helper logic for parsing and writing protocol data units, and minimalist
 //! implementations of a TCP listener, a TCP connection, and an HTTP/1.1 server.
-
-#[macro_use]
-extern crate bitflags;
-extern crate byteorder;
-
-extern crate fc_util;
-extern crate logger;
-extern crate mmds;
-extern crate net_util;
-
 pub mod ns;
 pub mod pdu;
 pub mod tcp;

@@ -64,7 +64,7 @@ pub enum Error {
 /// ARP is a generic protocol as far as data
 /// link layer and network layer protocols go, but this particular implementation is concerned with
 /// ARP frames related to IPv4 over Ethernet.
-pub struct EthIPv4ArpFrame<'a, T: 'a> {
+pub struct EthIPv4ArpFrame<'a, T> {
     bytes: InnerBytes<'a, T>,
 }
 
@@ -345,7 +345,7 @@ mod tests {
     use super::*;
 
     impl<'a, T: NetworkBytes> fmt::Debug for EthIPv4ArpFrame<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "(EthIPv4ArpFrame frame)")
         }
     }

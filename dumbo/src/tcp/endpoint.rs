@@ -77,7 +77,7 @@ pub struct Endpoint {
 
 impl Endpoint {
     pub fn new<T: NetworkBytes>(
-        segment: &TcpSegment<T>,
+        segment: &TcpSegment<'_, T>,
         eviction_threshold: NonZeroU64,
         connection_rto_period: NonZeroU64,
         connection_rto_count_max: NonZeroU16,
@@ -109,7 +109,7 @@ impl Endpoint {
     }
 
     pub fn new_with_defaults<T: NetworkBytes>(
-        segment: &TcpSegment<T>,
+        segment: &TcpSegment<'_, T>,
     ) -> Result<Self, PassiveOpenError> {
         // The unwraps are safe because the constants are greater than 0.
         Self::new(
@@ -120,7 +120,7 @@ impl Endpoint {
         )
     }
 
-    pub fn receive_segment<T: NetworkBytes>(&mut self, s: &TcpSegment<T>) {
+    pub fn receive_segment<T: NetworkBytes>(&mut self, s: &TcpSegment<'_, T>) {
         if self.stop_receiving {
             return;
         }
@@ -299,7 +299,7 @@ mod tests {
     use crate::tcp::connection::tests::ConnectionTester;
 
     impl fmt::Debug for Endpoint {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "(Endpoint)")
         }
     }

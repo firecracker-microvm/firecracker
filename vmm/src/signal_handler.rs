@@ -1,8 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-extern crate logger;
-extern crate sys_util;
+use logger;
+use sys_util;
 
 use std::io;
 use std::result::Result;

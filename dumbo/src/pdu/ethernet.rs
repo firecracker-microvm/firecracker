@@ -32,7 +32,7 @@ pub enum Error {
 }
 
 /// Interprets the inner bytes as an Ethernet frame.
-pub struct EthernetFrame<'a, T: 'a> {
+pub struct EthernetFrame<'a, T> {
     bytes: InnerBytes<'a, T>,
 }
 
@@ -188,7 +188,7 @@ mod tests {
     use std::fmt;
 
     impl<'a, T: NetworkBytes> fmt::Debug for EthernetFrame<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "(Ethernet frame)")
         }
     }

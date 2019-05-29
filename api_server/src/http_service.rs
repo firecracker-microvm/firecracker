@@ -136,7 +136,7 @@ fn parse_actions_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<
 }
 
 // This function is supposed to do id validation for requests.
-fn checked_id(id: &str) -> Result<&str> {
+fn checked_id(id: &str) -> Result<'_, &str> {
     // todo: are there any checks we want to do on id's?
     // not allow them to be empty strings maybe?
     // check: ensure string is not empty
@@ -484,7 +484,7 @@ impl hyper::server::Service for ApiServerHttpService {
     type Request = hyper::Request;
     type Response = hyper::Response;
     type Error = hyper::error::Error;
-    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+    type Future = Box<dyn Future<Item = Self::Response, Error = Self::Error>>;
 
     // This function returns a future that will resolve at some point to the response for
     // the HTTP request contained in req.
@@ -675,7 +675,7 @@ fn describe(method: &Method, path: &str, body: &Option<String>) -> String {
 
 #[cfg(test)]
 mod tests {
-    extern crate net_util;
+    use net_util;
 
     use self::net_util::MacAddr;
     use super::*;

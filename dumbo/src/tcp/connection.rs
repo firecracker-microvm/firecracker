@@ -208,7 +208,7 @@ pub struct Connection {
     status_flags: ConnStatusFlags,
 }
 
-fn parse_mss_option<T: NetworkBytes>(segment: &TcpSegment<T>) -> Result<u16, PassiveOpenError> {
+fn parse_mss_option<T: NetworkBytes>(segment: &TcpSegment<'_, T>) -> Result<u16, PassiveOpenError> {
     match segment.parse_mss_option_unchecked(segment.header_len()) {
         Ok(Some(value)) => Ok(value.get()),
         Ok(None) => Ok(MSS_DEFAULT),
@@ -216,7 +216,7 @@ fn parse_mss_option<T: NetworkBytes>(segment: &TcpSegment<T>) -> Result<u16, Pas
     }
 }
 
-fn is_valid_syn<T: NetworkBytes>(segment: &TcpSegment<T>) -> bool {
+fn is_valid_syn<T: NetworkBytes>(segment: &TcpSegment<'_, T>) -> bool {
     segment.flags_after_ns() == TcpFlags::SYN && segment.payload_len() == 0
 }
 
@@ -232,7 +232,7 @@ impl Connection {
     /// * `rto_count_max` - How many consecutive timeout-based retransmission may occur before
     ///   the connection resets itself.
     pub fn passive_open<T: NetworkBytes>(
-        segment: &TcpSegment<T>,
+        segment: &TcpSegment<'_, T>,
         local_rwnd_size: u32,
         rto_period: NonZeroU64,
         rto_count_max: NonZeroU16,
@@ -315,7 +315,7 @@ impl Connection {
         self.flags_intersect(ConnStatusFlags::FIN_ACKED)
     }
 
-    fn is_same_syn<T: NetworkBytes>(&self, segment: &TcpSegment<T>) -> bool {
+    fn is_same_syn<T: NetworkBytes>(&self, segment: &TcpSegment<'_, T>) -> bool {
         // This only really makes sense before getting into ESTABLISHED, but that's fine
         // because we only use it before that point.
         if !is_valid_syn(segment) || self.ack_to_send.0 != segment.sequence_number().wrapping_add(1)
@@ -329,7 +329,7 @@ impl Connection {
         }
     }
 
-    fn reset_for_segment<T: NetworkBytes>(&mut self, s: &TcpSegment<T>) {
+    fn reset_for_segment<T: NetworkBytes>(&mut self, s: &TcpSegment<'_, T>) {
         if !self.rst_pending() {
             self.send_rst = Some(RstConfig::new(s));
         }
@@ -510,7 +510,7 @@ impl Connection {
     // only used by the receive_segment() method.
     fn reset_for_segment_helper<T: NetworkBytes>(
         &mut self,
-        s: &TcpSegment<T>,
+        s: &TcpSegment<'_, T>,
         flags: RecvStatusFlags,
     ) -> Result<(Option<NonZeroUsize>, RecvStatusFlags), RecvError> {
         self.reset_for_segment(s);
@@ -531,7 +531,7 @@ impl Connection {
     /// * `now` - An opaque timestamp representing the current moment in time.
     pub fn receive_segment<T: NetworkBytes>(
         &mut self,
-        s: &TcpSegment<T>,
+        s: &TcpSegment<'_, T>,
         buf: &mut [u8],
         now: u64,
     ) -> Result<(Option<NonZeroUsize>, RecvStatusFlags), RecvError> {
@@ -839,7 +839,7 @@ impl Connection {
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
-        payload_src: PayloadSource<R>,
+        payload_src: PayloadSource<'_, R>,
         now: u64,
     ) -> Result<Option<Incomplete<TcpSegment<'a, &'a mut [u8]>>>, WriteNextError> {
         // TODO: like receive_segment(), this function is specific in some ways to Connections
@@ -1041,7 +1041,7 @@ pub(crate) mod tests {
     const BASIC_SEGMENT_SIZE: usize = 20;
 
     impl fmt::Debug for Connection {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "(connection)")
         }
     }
@@ -1079,7 +1079,7 @@ pub(crate) mod tests {
 
         fn passive_open<T: NetworkBytes>(
             &self,
-            s: &TcpSegment<T>,
+            s: &TcpSegment<'_, T>,
         ) -> Result<Connection, PassiveOpenError> {
             Connection::passive_open(
                 s,
@@ -1135,7 +1135,7 @@ pub(crate) mod tests {
         fn receive_segment<T: NetworkBytes>(
             &mut self,
             c: &mut Connection,
-            s: &TcpSegment<T>,
+            s: &TcpSegment<'_, T>,
         ) -> Result<(Option<NonZeroUsize>, RecvStatusFlags), RecvError> {
             c.receive_segment(s, self.buf.as_mut(), self.now)
         }
@@ -1144,7 +1144,7 @@ pub(crate) mod tests {
             &mut self,
             c: &mut Connection,
             payload_src: Option<(&[u8], Wrapping<u32>)>,
-        ) -> Result<Option<TcpSegment<&mut [u8]>>, WriteNextError> {
+        ) -> Result<Option<TcpSegment<'_, &mut [u8]>>, WriteNextError> {
             let src_port = self.src_port;
             let dst_port = self.dst_port;
             c.write_next_segment(self.buf.as_mut(), self.mss_reserved, payload_src, self.now)
@@ -1157,7 +1157,7 @@ pub(crate) mod tests {
         fn should_reset_after<T: NetworkBytes>(
             &mut self,
             c: &mut Connection,
-            s: &TcpSegment<T>,
+            s: &TcpSegment<'_, T>,
             recv_flags: RecvStatusFlags,
             additional_segment_flags: TcpFlags,
         ) {
@@ -1216,7 +1216,7 @@ pub(crate) mod tests {
 
     // Verifies whether we are dealing with a control segment with the specified flags.
     fn check_control_segment<T: NetworkBytes>(
-        s: &TcpSegment<T>,
+        s: &TcpSegment<'_, T>,
         options_len: usize,
         flags_after_ns: TcpFlags,
     ) {
@@ -1226,7 +1226,7 @@ pub(crate) mod tests {
 
     // Checks if the segment ACKs the specified sequence number, and whether the additional_flags
     // are set (besides ACK).
-    fn check_acks<T: NetworkBytes>(s: &TcpSegment<T>, ack_number: u32, additional_flags: TcpFlags) {
+    fn check_acks<T: NetworkBytes>(s: &TcpSegment<'_, T>, ack_number: u32, additional_flags: TcpFlags) {
         assert_eq!(s.flags_after_ns(), TcpFlags::ACK | additional_flags);
         assert_eq!(s.ack_number(), ack_number);
     }

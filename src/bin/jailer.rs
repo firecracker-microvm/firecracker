@@ -1,11 +1,11 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-extern crate chrono;
-extern crate clap;
+use chrono;
 
-extern crate fc_util;
-extern crate jailer;
+
+use fc_util;
+use jailer;
 
 fn main() {
     if let Err(error) = jailer::run(

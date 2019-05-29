@@ -123,7 +123,7 @@ impl MmdsNetworkStack {
         false
     }
 
-    fn detour_arp(&mut self, eth: EthernetFrame<&[u8]>) -> bool {
+    fn detour_arp(&mut self, eth: EthernetFrame<'_, &[u8]>) -> bool {
         if let Ok(arp) = EthIPv4ArpFrame::request_from_bytes(eth.payload()) {
             if arp.tpa() == self.ipv4_addr {
                 self.remote_mac_addr = arp.sha();
@@ -134,7 +134,7 @@ impl MmdsNetworkStack {
         false
     }
 
-    fn detour_ipv4(&mut self, eth: EthernetFrame<&[u8]>) -> bool {
+    fn detour_ipv4(&mut self, eth: EthernetFrame<'_, &[u8]>) -> bool {
         // TODO: We skip verifying the checksum, just in case the device model relies on offloading
         // checksum computation from the guest driver to some other entity. Clear up this entire
         // context at some point!
@@ -346,7 +346,7 @@ mod tests {
             eth_unsized.with_payload_len_unchecked(packet_len).len()
         }
 
-        fn next_frame_as_ipv4_packet<'a>(&mut self, buf: &'a mut [u8]) -> IPv4Packet<&'a [u8]> {
+        fn next_frame_as_ipv4_packet<'a>(&mut self, buf: &'a mut [u8]) -> IPv4Packet<'_, &'a [u8]> {
             let len = self.write_next_frame(buf).unwrap().get();
             let eth = EthernetFrame::from_bytes(&buf[..len]).unwrap();
             IPv4Packet::from_bytes(&buf[eth.payload_offset()..len], true).unwrap()

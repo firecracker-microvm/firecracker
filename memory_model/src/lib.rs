@@ -8,9 +8,6 @@
 //! Provides a wrapper for allocating, handling and interacting with the guest memory regions.
 
 #![deny(missing_docs)]
-
-extern crate libc;
-
 /// Types for which it is safe to initialize from raw data.
 ///
 /// A type `T` is `DataInit` if and only if it can be initialized by reading its contents from a

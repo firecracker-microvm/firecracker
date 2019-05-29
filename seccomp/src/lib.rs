@@ -20,8 +20,6 @@
 //! ## Example with Filtering Disabled
 //!
 //! ```
-//! extern crate libc;
-//!
 //! fn main() {
 //!     let buf = "Hello, world!";
 //!     assert_eq!(
@@ -48,9 +46,6 @@
 //! Without a signal handler in place, the process will die with exit code 159 (128 + `SIGSYS`).
 //!
 //! ```should_panic
-//! extern crate libc;
-//! extern crate seccomp;
-//!
 //! use seccomp::*;
 //!
 //! fn main() {
@@ -114,9 +109,6 @@
 //! A signal handler will catch `SIGSYS` and exit with code 159 on any other syscall.
 //!
 //! ```should_panic
-//! extern crate libc;
-//! extern crate seccomp;
-//!
 //! use seccomp::*;
 //! use std::mem;
 //! use std::process::exit;
@@ -228,7 +220,7 @@
 //! [`action`]: struct.SeccompRule.html#action
 //!
 
-extern crate libc;
+use libc;
 
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -321,7 +313,7 @@ pub enum Error {
 }
 
 impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use self::Error::*;
 
         match *self {

@@ -85,9 +85,6 @@ fn validate_signal_num(num: c_int) -> io::Result<c_int> {
 /// # Example
 ///
 /// ```
-/// extern crate libc;
-/// extern crate sys_util;
-///
 /// use libc::{c_int, c_void, raise, siginfo_t};
 /// use sys_util::register_vcpu_signal_handler;
 ///
@@ -126,9 +123,6 @@ pub unsafe fn register_vcpu_signal_handler(
 /// # Example
 ///
 /// ```
-/// extern crate libc;
-/// extern crate sys_util;
-///
 /// use std::sync::atomic::{AtomicBool, Ordering, ATOMIC_BOOL_INIT};
 /// use libc::{c_int, c_void, raise, siginfo_t, SIGUSR1};
 /// use sys_util::register_signal_handler;
