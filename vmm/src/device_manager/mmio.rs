@@ -61,7 +61,7 @@ type Result<T> = ::std::result::Result<T, Error>;
 /// This represents the size of the mmio device specified to the kernel as a cmdline option
 /// It has to be larger than 0x100 (the offset where the configuration space starts from
 /// the beginning of the memory mapped device registers) + the size of the configuration space
-/// Currently hardcoded to 4K
+/// Currently hardcoded to 4K.
 const MMIO_LEN: u64 = 0x1000;
 
 /// This represents the offset at which the device should call BusDevice::write in order to write
@@ -159,7 +159,7 @@ impl MMIODeviceManager {
 
     #[cfg(target_arch = "aarch64")]
     /// Register an early console at some MMIO address.
-    pub fn enable_earlycon(
+    pub fn register_mmio_serial(
         &mut self,
         vm: &VmFd,
         cmdline: &mut kernel_cmdline::Cmdline,
@@ -194,6 +194,40 @@ impl MMIODeviceManager {
                 len: MMIO_LEN,
                 irq: self.irq,
                 type_: DeviceType::Serial,
+            },
+        );
+
+        self.mmio_base += MMIO_LEN;
+        self.irq += 1;
+
+        Ok(())
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    /// Register a MMIO RTC device.
+    pub fn register_mmio_rtc(&mut self, vm: &VmFd) -> Result<()> {
+        if self.irq > self.last_irq {
+            return Err(Error::IrqsExhausted);
+        }
+
+        // Attaching the RTC device.
+        let rtc_evt = sys_util::EventFd::new().map_err(Error::EventFd)?;
+        let device = devices::legacy::RTC::new(rtc_evt.try_clone().map_err(Error::EventFd)?);
+        vm.register_irqfd(rtc_evt.as_raw_fd(), self.irq)
+            .map_err(Error::RegisterIrqFd)?;
+
+        self.bus
+            .insert(Arc::new(Mutex::new(device)), self.mmio_base, MMIO_LEN)
+            .map_err(|err| Error::BusError(err))?;
+
+        let ret = self.mmio_base;
+        self.id_to_dev_info.insert(
+            "rtc".to_string(),
+            MMIODeviceInfo {
+                addr: ret,
+                len: MMIO_LEN,
+                irq: self.irq,
+                type_: DeviceType::RTC,
             },
         );
 

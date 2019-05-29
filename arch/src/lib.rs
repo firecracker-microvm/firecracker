@@ -37,4 +37,6 @@ pub enum DeviceType {
     Virtio,
     #[cfg(target_arch = "aarch64")]
     Serial,
+    #[cfg(target_arch = "aarch64")]
+    RTC,
 }

@@ -643,6 +643,18 @@ mod tests {
         assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
     }
 
+    #[test]
+    #[should_panic]
+    fn invalid_seccomp_lvl() {
+        let (_, mut vcpu) = setup_vcpu();
+        // Setting an invalid seccomp level should panic.
+        vcpu.run(
+            Arc::new(Barrier::new(1)),
+            seccomp::SECCOMP_LEVEL_ADVANCED + 10,
+            EventFd::new().unwrap(),
+        );
+    }
+
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_run_vcpu() {

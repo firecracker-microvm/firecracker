@@ -55,7 +55,10 @@
 //!             allow_syscall(libc::SYS_close),
 //!             allow_syscall(libc::SYS_execve),
 //!             allow_syscall(libc::SYS_exit_group),
+//!             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 //!             allow_syscall(libc::SYS_open),
+//!             #[cfg(target_arch = "aarch64")]
+//!             allow_syscall(libc::SYS_openat),
 //!             allow_syscall(libc::SYS_read),
 //!         ]
 //!         .into_iter()
@@ -140,7 +143,10 @@
 //!         allow_syscall(libc::SYS_execve),
 //!         allow_syscall(libc::SYS_exit_group),
 //!         allow_syscall(libc::SYS_munmap),
+//!         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 //!         allow_syscall(libc::SYS_open),
+//!         #[cfg(target_arch = "aarch64")]
+//!         allow_syscall(libc::SYS_openat),
 //!         allow_syscall(libc::SYS_rt_sigreturn),
 //!         allow_syscall(libc::SYS_sigaltstack),
 //!     ]
@@ -269,11 +275,18 @@ const SECCOMP_RET_TRACE: u32 = 0x7ff0_0000;
 const SECCOMP_RET_TRAP: u32 = 0x0003_0000;
 const SECCOMP_RET_MASK: u32 = 0x0000_ffff;
 
-// x86_64 architecture identifier.
+// Architecture identifier.
 // See /usr/include/linux/audit.h .
+
+#[cfg(target_arch = "x86_64")]
 // Defined as:
 // `#define AUDIT_ARCH_X86_64	(EM_X86_64|__AUDIT_ARCH_64BIT|__AUDIT_ARCH_LE)`
 const AUDIT_ARCH_X86_64: u32 = 62 | 0x8000_0000 | 0x4000_0000;
+
+#[cfg(target_arch = "aarch64")]
+// Defined as:
+// `#define AUDIT_ARCH_AARCH64	(EM_AARCH64|__AUDIT_ARCH_64BIT|__AUDIT_ARCH_LE)`
+const AUDIT_ARCH_AARCH64: u32 = 183 | 0x8000_0000 | 0x4000_0000;
 
 // The maximum number of a syscall argument.
 // A syscall can have at most 6 arguments.
@@ -308,6 +321,8 @@ pub enum Error {
     IntoBpf,
     /// Argument number that exceeds the maximum value.
     InvalidArgumentNumber,
+    /// Invalid Seccomp level requested.
+    InvalidLevel,
     /// Failed to load seccomp rules into the kernel.
     Load(i32),
 }
@@ -323,6 +338,7 @@ impl Display for Error {
             InvalidArgumentNumber => {
                 write!(f, "The seccomp rule contains an invalid argument number.")
             }
+            InvalidLevel => write!(f, "The requested seccomp level is invalid."),
             Load(err) => write!(
                 f,
                 "Failed to load seccomp rules into the kernel with error {}.",
@@ -834,7 +850,6 @@ impl SeccompFilter {
     ///
     pub fn apply(self) -> Result<()> {
         let mut bpf_filter = Vec::new();
-
         bpf_filter.extend(VALIDATE_ARCHITECTURE());
         bpf_filter.extend(self.into_bpf().map_err(|_| Error::Load(libc::EINVAL))?);
 
@@ -1012,7 +1027,10 @@ fn BPF_STMT(code: u16, k: u32) -> sock_filter {
 fn VALIDATE_ARCHITECTURE() -> Vec<sock_filter> {
     vec![
         BPF_STMT(BPF_LD + BPF_W + BPF_ABS, 4),
+        #[cfg(target_arch = "x86_64")]
         BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, AUDIT_ARCH_X86_64, 1, 0),
+        #[cfg(target_arch = "aarch64")]
+        BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, AUDIT_ARCH_AARCH64, 1, 0),
         BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_KILL),
     ]
 }
@@ -1266,7 +1284,10 @@ mod tests {
                     code: 21,
                     jt: 1,
                     jf: 0,
-                    k: 0xC000_003E,
+                    #[cfg(target_arch = "x86_64")]
+                    k: AUDIT_ARCH_X86_64,
+                    #[cfg(target_arch = "aarch64")]
+                    k: AUDIT_ARCH_AARCH64,
                 },
                 sock_filter {
                     code: 6,
@@ -1307,6 +1328,10 @@ mod tests {
         assert_eq!(
             format!("{}", Error::InvalidArgumentNumber),
             "The seccomp rule contains an invalid argument number."
+        );
+        assert_eq!(
+            format!("{}", Error::InvalidLevel),
+            "The requested seccomp level is invalid."
         );
         assert_eq!(
             format!("{}", Error::Load(42)),
