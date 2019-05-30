@@ -6,12 +6,11 @@
 // found in the THIRD-PARTY file.
 
 //! Helper for loading a kernel image in the guest memory.
-use crate::cmdline::Error as CmdlineError;
-use std::ffi::CString;
+use crate::cmdline::{Cmdline, Error as CmdlineError};
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
-
+use std::ffi::CString;
 
 use self::memory_model::{GuestAddress, GuestMemory};
 use memory_model;
