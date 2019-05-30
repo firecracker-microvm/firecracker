@@ -225,8 +225,7 @@
 //! [`SeccompFilter`]: struct.SeccompFilter.html
 //! [`action`]: struct.SeccompRule.html#action
 //!
-
-use libc;
+extern crate libc;
 
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
