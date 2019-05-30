@@ -9,6 +9,7 @@ use std::io;
 use std::mem::zeroed;
 use std::os::unix::io::RawFd;
 
+use libc;
 use libc::{
     c_int, fcntl, isatty, read, tcgetattr, tcsetattr, termios, ECHO, F_GETFL, F_SETFL, ICANON,
     ISIG, O_NONBLOCK, STDIN_FILENO, TCSANOW,

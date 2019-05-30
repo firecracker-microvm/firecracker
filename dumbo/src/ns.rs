@@ -123,7 +123,7 @@ impl MmdsNetworkStack {
         false
     }
 
-    fn detour_arp(&mut self, eth: EthernetFrame<&[u8]>) -> bool {
+    fn detour_arp(&mut self, eth: EthernetFrame<'_, &[u8]>) -> bool {
         if let Ok(arp) = EthIPv4ArpFrame::request_from_bytes(eth.payload()) {
             if arp.tpa() == self.ipv4_addr {
                 self.remote_mac_addr = arp.sha();
@@ -134,7 +134,7 @@ impl MmdsNetworkStack {
         false
     }
 
-    fn detour_ipv4(&mut self, eth: EthernetFrame<&[u8]>) -> bool {
+    fn detour_ipv4(&mut self, eth: EthernetFrame<'_, &[u8]>) -> bool {
         // TODO: We skip verifying the checksum, just in case the device model relies on offloading
         // checksum computation from the guest driver to some other entity. Clear up this entire
         // context at some point!
@@ -143,19 +143,22 @@ impl MmdsNetworkStack {
                 if ip.protocol() == PROTOCOL_TCP {
                     self.remote_mac_addr = eth.src_mac();
                     match self.tcp_handler.receive_packet(&ip) {
-                        Ok(event) => match event {
-                            RecvEvent::NewConnectionSuccessful => {
-                                METRICS.mmds.connections_created.inc()
+                        Ok(event) => {
+                            METRICS.mmds.rx_count.inc();
+                            match event {
+                                RecvEvent::NewConnectionSuccessful => {
+                                    METRICS.mmds.connections_created.inc()
+                                }
+                                RecvEvent::NewConnectionReplacing => {
+                                    METRICS.mmds.connections_created.inc();
+                                    METRICS.mmds.connections_destroyed.inc();
+                                }
+                                RecvEvent::EndpointDone => {
+                                    METRICS.mmds.connections_destroyed.inc();
+                                }
+                                _ => (),
                             }
-                            RecvEvent::NewConnectionReplacing => {
-                                METRICS.mmds.connections_created.inc();
-                                METRICS.mmds.connections_destroyed.inc();
-                            }
-                            RecvEvent::EndpointDone => {
-                                METRICS.mmds.connections_destroyed.inc();
-                            }
-                            _ => (),
-                        },
+                        }
                         Err(_) => METRICS.mmds.rx_accepted_err.inc(),
                     }
                 } else {
@@ -177,6 +180,7 @@ impl MmdsNetworkStack {
         if let Some(spa) = self.pending_arp_reply {
             return match self.write_arp_reply(buf, spa) {
                 Ok(something) => {
+                    METRICS.mmds.tx_count.inc();
                     self.pending_arp_reply = None;
                     something
                 }
@@ -194,7 +198,10 @@ impl MmdsNetworkStack {
 
             if call_write {
                 return match self.write_packet(buf) {
-                    Ok(something) => something,
+                    Ok(something) => {
+                        METRICS.mmds.tx_count.inc();
+                        something
+                    }
                     Err(_) => {
                         METRICS.mmds.tx_errors.inc();
                         None
@@ -346,7 +353,7 @@ mod tests {
             eth_unsized.with_payload_len_unchecked(packet_len).len()
         }
 
-        fn next_frame_as_ipv4_packet<'a>(&mut self, buf: &'a mut [u8]) -> IPv4Packet<&'a [u8]> {
+        fn next_frame_as_ipv4_packet<'a>(&mut self, buf: &'a mut [u8]) -> IPv4Packet<'_, &'a [u8]> {
             let len = self.write_next_frame(buf).unwrap().get();
             let eth = EthernetFrame::from_bytes(&buf[..len]).unwrap();
             IPv4Packet::from_bytes(&buf[eth.payload_offset()..len], true).unwrap()
@@ -395,7 +402,9 @@ mod tests {
             // Buffer is too small.
             assert!(ns.write_next_frame(bad_buf.as_mut()).is_none());
 
+            let curr_tx_count = METRICS.mmds.tx_count.count();
             let len = ns.write_next_frame(buf.as_mut()).unwrap().get();
+            assert_eq!(curr_tx_count + 1, METRICS.mmds.tx_count.count());
             let eth = EthernetFrame::from_bytes(&buf[..len]).unwrap();
             let arp_reply = EthIPv4ArpFrame::from_bytes_unchecked(eth.payload());
 
@@ -423,7 +432,9 @@ mod tests {
         // Let's send a TCP segment which will cause a RST to come out of the inner TCP handler.
         {
             let len = ns.write_incoming_tcp_segment(buf.as_mut(), mmds_addr, TcpFlags::ACK);
+            let curr_rx_count = METRICS.mmds.rx_count.count();
             assert!(ns.detour_frame(&buf[..len]));
+            assert_eq!(curr_rx_count + 1, METRICS.mmds.rx_count.count());
         }
 
         // Let's check we actually get a RST when writing the next frame.

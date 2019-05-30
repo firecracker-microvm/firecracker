@@ -3,7 +3,7 @@
 
 use std;
 use std::fmt::{Display, Formatter, Result};
-
+use serde::Serialize;
 use crate::device_manager;
 use devices;
 use kernel::loader as kernel_loader;
@@ -107,7 +107,7 @@ pub enum StartMicrovmError {
 }
 
 impl Display for StartMicrovmError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         use self::StartMicrovmError::*;
         match *self {
             ConfigureSystem(ref err) => {

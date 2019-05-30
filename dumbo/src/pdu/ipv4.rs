@@ -51,7 +51,7 @@ pub enum Error {
 }
 
 /// Interprets the inner bytes as an IPv4 packet.
-pub struct IPv4Packet<'a, T: 'a> {
+pub struct IPv4Packet<'a, T> {
     bytes: InnerBytes<'a, T>,
 }
 
@@ -476,13 +476,13 @@ mod tests {
     const MAX_HEADER_LEN: usize = 60;
 
     impl<'a, T: NetworkBytes> fmt::Debug for IPv4Packet<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "(IPv4 packet)")
         }
     }
 
     impl<'a, T: NetworkBytes> fmt::Debug for Incomplete<IPv4Packet<'a, T>> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "(Incomplete IPv4 packet)")
         }
     }
@@ -582,7 +582,7 @@ mod tests {
 
         // Using a helper function here instead of a closure because it's hard (impossible?) to
         // specify lifetime bounds for closure arguments.
-        fn p(buf: &mut [u8]) -> IPv4Packet<&mut [u8]> {
+        fn p(buf: &mut [u8]) -> IPv4Packet<'_, &mut [u8]> {
             IPv4Packet::from_bytes_unchecked(buf)
         }
 

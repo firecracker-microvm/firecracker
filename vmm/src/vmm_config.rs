@@ -3,6 +3,7 @@
 
 use rate_limiter::{RateLimiter, TokenBucket};
 use std::io;
+use serde::Deserialize;
 
 /// Wrapper for configuring the microVM boot source.
 pub mod boot_source;

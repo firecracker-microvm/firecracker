@@ -1,8 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate seccomp;
-
 use seccomp::{allow_syscall, SyscallRuleSet};
 
 /// Returns a list of rules that allow syscalls required for running a rust program.

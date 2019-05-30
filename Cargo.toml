@@ -17,7 +17,7 @@ seccomp = { path = "seccomp" }
 vmm = { path = "vmm" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-backtrace = {version = "0.3", features = ["libunwind", "libbacktrace"], default-features = false}
+backtrace = {version = "0.3", features = ["libunwind", "libbacktrace", "std"], default-features = false}
 
 [dev-dependencies]
 tempfile = ">=3.0.2"

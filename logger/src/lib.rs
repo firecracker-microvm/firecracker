@@ -21,8 +21,6 @@
 //! ## Example for logging to stdout/stderr
 //!
 //! ```
-//! #[macro_use]
-//! extern crate logger;
 //! use logger::{AppInfo, LOGGER};
 //! use std::ops::Deref;
 //!
@@ -39,14 +37,8 @@
 //! ## Example for logging to FIFOs
 //!
 //! ```
-//! extern crate libc;
-//! extern crate tempfile;
-//!
 //! use self::tempfile::NamedTempFile;
 //! use std::ops::Deref;
-//!
-//! #[macro_use]
-//! extern crate logger;
 //! use logger::{AppInfo, LOGGER};
 //!
 //! fn main() {
@@ -134,38 +126,34 @@
 //! metric will get increased.
 //! Metrics are only logged to pipes. Logs can be flushed either to stdout/stderr or to a pipe.
 
-extern crate chrono;
-// workaround to macro_reexport
-#[macro_use]
-extern crate lazy_static;
-extern crate libc;
-extern crate log;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-extern crate time;
+use chrono;
+use log;
+use serde_json;
+
 
 pub mod error;
 pub mod metrics;
 mod writers;
 
-use std::error::Error;
-use std::ops::Deref;
+use crate::error::LoggerError;
+use chrono::Local;
+use serde_json::Value;
 use std::result;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, RwLock};
+use std::error::Error;
 
-use chrono::Local;
-use serde_json::Value;
 
-use crate::error::LoggerError;
-pub use log::Level::*;
-pub use log::*;
-use log::{set_logger, set_max_level, Log, Metadata, Record};
 pub use crate::metrics::{Metric, METRICS};
+
 use crate::writers::*;
+pub use log::*;
+use log::{set_max_level, Log, Metadata, Record};
+
+#[macro_use]
+extern crate lazy_static;
+use lazy_static::__Deref;
 
 /// Type for returning functions outcome.
 ///
@@ -355,9 +343,6 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate log;
-    /// extern crate logger;
     /// use logger::LOGGER;
     /// use std::ops::Deref;
     ///
@@ -389,8 +374,6 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate logger;
     /// use logger::LOGGER;
     /// use std::ops::Deref;
     ///
@@ -427,9 +410,6 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate logger;
-    /// extern crate log;
     /// use logger::LOGGER;
     /// use std::ops::Deref;
     ///
@@ -461,7 +441,7 @@ impl Logger {
     /// Creates the first portion (to the left of the separator)
     /// of the log statement based on the logger settings.
     ///
-    fn create_prefix(&self, record: &Record) -> String {
+    fn create_prefix(&self, record: &Record<'_>) -> String {
         let mut res = String::from(" [");
 
         {
@@ -497,7 +477,7 @@ impl Logger {
         res
     }
 
-    fn log_fifo_guard(&self) -> MutexGuard<Option<PipeLogWriter>> {
+    fn log_fifo_guard(&self) -> MutexGuard<'_, Option<PipeLogWriter>> {
         match self.log_fifo.lock() {
             Ok(guard) => guard,
             // If a thread panics while holding this lock, the writer within should still be usable.
@@ -506,7 +486,7 @@ impl Logger {
         }
     }
 
-    fn metrics_fifo_guard(&self) -> MutexGuard<Option<PipeLogWriter>> {
+    fn metrics_fifo_guard(&self) -> MutexGuard<'_, Option<PipeLogWriter>> {
         match self.metrics_fifo.lock() {
             Ok(guard) => guard,
             // If a thread panics while holding this lock, the writer within should still be usable.
@@ -570,7 +550,6 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// extern crate logger;
     /// use logger::LOGGER;
     /// use std::ops::Deref;
     ///
@@ -614,7 +593,6 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// extern crate logger;
     /// use logger::{AppInfo, LOGGER};
     /// use std::ops::Deref;
     ///
@@ -776,11 +754,11 @@ impl Log for Logger {
     // Test whether the level of the log line should be outputted or not based on the currently
     // configured level. If the configured level is "warning" but the line is logged through "info!"
     // marco then it will not get logged.
-    fn enabled(&self, metadata: &Metadata) -> bool {
+    fn enabled(&self, metadata: &Metadata<'_>) -> bool {
         metadata.level() as usize <= self.level_info.code()
     }
 
-    fn log(&self, record: &Record) {
+    fn log(&self, record: &Record<'_>) {
         if self.enabled(record.metadata()) {
             let msg = format!(
                 "{}{}{}{}",
@@ -800,7 +778,7 @@ impl Log for Logger {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
+    use tempfile;
 
     use self::tempfile::NamedTempFile;
     use super::*;

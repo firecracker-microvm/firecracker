@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::{de, Deserialize};
+use serde::{de, Serialize, Deserialize};
 use std::fmt::{Display, Formatter, Result};
 
 /// Firecracker aims to support small scale workloads only, so limit the maximum
@@ -21,7 +21,7 @@ pub enum VmConfigError {
 }
 
 impl Display for VmConfigError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         use self::VmConfigError::*;
         match *self {
             InvalidVcpuCount => write!(
@@ -98,7 +98,7 @@ pub enum CpuFeaturesTemplate {
 }
 
 impl Display for CpuFeaturesTemplate {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             CpuFeaturesTemplate::C3 => write!(f, "C3"),
             CpuFeaturesTemplate::T2 => write!(f, "T2"),

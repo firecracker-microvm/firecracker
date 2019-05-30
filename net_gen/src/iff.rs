@@ -30,7 +30,7 @@ impl<T> __IncompleteArrayField<T> {
     }
 }
 impl<T> ::std::fmt::Debug for __IncompleteArrayField<T> {
-    fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    fn fmt(&self, fmt: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         fmt.write_str("__IncompleteArrayField")
     }
 }
@@ -71,7 +71,7 @@ impl<T> ::std::clone::Clone for __BindgenUnionField<T> {
 }
 impl<T> ::std::marker::Copy for __BindgenUnionField<T> {}
 impl<T> ::std::fmt::Debug for __BindgenUnionField<T> {
-    fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    fn fmt(&self, fmt: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         fmt.write_str("__BindgenUnionField")
     }
 }
@@ -147,7 +147,7 @@ pub const PDP_ENDIAN: ::std::os::raw::c_uint = 3412;
 pub const BYTE_ORDER: ::std::os::raw::c_uint = 1234;
 pub const _BITS_BYTESWAP_H: ::std::os::raw::c_uint = 1;
 pub const _SYS_SELECT_H: ::std::os::raw::c_uint = 1;
-pub const __FD_ZERO_STOS: &'static [u8; 6usize] = b"stosq\x00";
+pub const __FD_ZERO_STOS: [u8; 6usize] = *b"stosq\x00";
 pub const _SIGSET_H_types: ::std::os::raw::c_uint = 1;
 pub const __timespec_defined: ::std::os::raw::c_uint = 1;
 pub const _STRUCT_TIMEVAL: ::std::os::raw::c_uint = 1;

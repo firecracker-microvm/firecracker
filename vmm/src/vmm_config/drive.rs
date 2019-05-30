@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::result;
+use serde::Deserialize;
 
 use super::RateLimiterConfig;
 
@@ -33,7 +34,7 @@ pub enum DriveError {
 }
 
 impl Display for DriveError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use self::DriveError::*;
         match *self {
             CannotOpenBlockDevice => {
@@ -227,7 +228,7 @@ impl BlockDeviceConfigs {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
+    use tempfile;
 
     use self::tempfile::NamedTempFile;
     use super::*;

@@ -2,6 +2,7 @@
 name = "sys_util"
 version = "0.1.0"
 authors = ["The Chromium OS Authors"]
+edition = "2018"
 
 [dependencies]
 libc = ">=0.2.39"

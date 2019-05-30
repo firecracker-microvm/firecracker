@@ -22,6 +22,8 @@ use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
+// This is a value for uniquely identifying the FDT node containing the clock definition.
+const CLOCK_PHANDLE: u32 = 2;
 // Read the documentation specified when appending the root node to the FDT.
 const ADDRESS_CELLS: u32 = 0x2;
 const SIZE_CELLS: u32 = 0x2;
@@ -73,14 +75,6 @@ pub enum Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
-/// Types of devices that get added to the FDT.
-#[derive(Clone, Debug)]
-pub enum FDTDeviceType {
-    Virtio,
-    #[cfg(target_arch = "aarch64")]
-    Serial,
-}
-
 // Creates the flattened device tree for this VM.
 pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemory,
@@ -112,6 +106,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     create_chosen_node(&mut fdt, cmdline)?;
     create_gic_node(&mut fdt, u64::from(num_cpus))?;
     create_timer_node(&mut fdt)?;
+    create_clock_node(&mut fdt)?;
     create_psci_node(&mut fdt)?;
     device_info.map_or(Ok(()), |v| create_devices_node(&mut fdt, v))?;
 
@@ -220,7 +215,6 @@ fn append_property_string(fdt: &mut Vec<u8>, name: &str, value: &str) -> Result<
 fn append_property_cstring(fdt: &mut Vec<u8>, name: &str, cstr_value: &CStr) -> Result<()> {
     let value_bytes = cstr_value.to_bytes_with_nul();
     let cstr_name = CString::new(name).map_err(CstringFDTTransform)?;
-
     // Safe because we allocated fdt, converted name and value to CStrings
     let fdt_ret = unsafe {
         fdt_property(
@@ -382,6 +376,22 @@ fn create_gic_node(fdt: &mut Vec<u8>, vcpu_count: u64) -> Result<()> {
     Ok(())
 }
 
+fn create_clock_node(fdt: &mut Vec<u8>) -> Result<()> {
+    // The Advanced Peripheral Bus (APB) is part of the Advanced Microcontroller Bus Architecture
+    // (AMBA) protocol family. It defines a low-cost interface that is optimized for minimal power
+    // consumption and reduced interface complexity.
+    // PCLK is the clock source and this node defines exactly the clock for the APB.
+    append_begin_node(fdt, "apb-pclk")?;
+    append_property_string(fdt, "compatible", "fixed-clock")?;
+    append_property_u32(fdt, "#clock-cells", 0x0)?;
+    append_property_u32(fdt, "clock-frequency", 24000000)?;
+    append_property_string(fdt, "clock-output-names", "clk24mhz")?;
+    append_property_u32(fdt, "phandle", CLOCK_PHANDLE)?;
+    append_end_node(fdt)?;
+
+    Ok(())
+}
+
 fn create_timer_node(fdt: &mut Vec<u8>) -> Result<()> {
     // See
     // https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/interrupt-controller/arch_timer.txt
@@ -453,14 +463,33 @@ fn create_serial_node<T: DeviceInfoForFDT + Clone + Debug>(
     Ok(())
 }
 
+fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
+    fdt: &mut Vec<u8>,
+    dev_info: T,
+) -> Result<()> {
+    let compatible = b"arm,pl031\0arm,primecell\0";
+    let rtc_reg_prop = generate_prop64(&[dev_info.addr(), dev_info.length()]);
+    let irq = generate_prop32(&[GIC_FDT_IRQ_TYPE_SPI, dev_info.irq(), IRQ_TYPE_LEVEL_HI]);
+    append_begin_node(fdt, &format!("rtc@{:x}", dev_info.addr()))?;
+    append_property(fdt, "compatible", compatible)?;
+    append_property(fdt, "reg", &rtc_reg_prop)?;
+    append_property(fdt, "interrupts", &irq)?;
+    append_property_u32(fdt, "clocks", CLOCK_PHANDLE)?;
+    append_property_string(fdt, "clock-names", "apb_pclk")?;
+    append_end_node(fdt)?;
+
+    Ok(())
+}
+
 fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
     fdt: &mut Vec<u8>,
     dev_info: &HashMap<String, T>,
 ) -> Result<()> {
     for (_, info) in &*dev_info {
         match info.type_() {
-            DeviceType::Virtio => create_virtio_node(fdt, info.clone())?,
+            DeviceType::RTC => create_rtc_node(fdt, info.clone())?,
             DeviceType::Serial => create_serial_node(fdt, info.clone())?,
+            DeviceType::Virtio => create_virtio_node(fdt, info.clone())?,
         };
     }
 
@@ -478,7 +507,7 @@ mod tests {
     pub struct MMIODeviceInfo {
         addr: u64,
         irq: u32,
-        type_: u32,
+        type_: DeviceType,
     }
 
     impl DeviceInfoForFDT for MMIODeviceInfo {
@@ -491,8 +520,8 @@ mod tests {
         fn length(&self) -> u64 {
             LEN
         }
-        fn type_(&self) -> u32 {
-            self.type_
+        fn type_(&self) -> &DeviceType {
+            &self.type_
         }
     }
     // The `load` function from the `device_tree` will mistakenly check the actual size
@@ -514,7 +543,7 @@ mod tests {
                 MMIODeviceInfo {
                     addr: 0x00,
                     irq: 1,
-                    type_: 0,
+                    type_: DeviceType::Serial,
                 },
             ),
             (
@@ -522,15 +551,28 @@ mod tests {
                 MMIODeviceInfo {
                     addr: 0x00 + LEN,
                     irq: 2,
-                    type_: 1,
+                    type_: DeviceType::Virtio,
+                },
+            ),
+            (
+                "rtc".to_string(),
+                MMIODeviceInfo {
+                    addr: 0x00 + 2 * LEN,
+                    irq: 3,
+                    type_: DeviceType::RTC,
                 },
             ),
         ]
         .iter()
         .cloned()
         .collect();
-        let mut dtb =
-            create_fdt(&mem, 1, &CString::new("console=tty0").unwrap(), &dev_info).unwrap();
+        let mut dtb = create_fdt(
+            &mem,
+            1,
+            &CString::new("console=tty0").unwrap(),
+            Some(&dev_info),
+        )
+        .unwrap();
 
         /* Use this code when wanting to generate a new DTB sample.
         {
@@ -546,6 +588,7 @@ mod tests {
             output.write_all(&dtb).unwrap();
         }
         */
+
         let bytes = include_bytes!("output.dtb");
         let pos = 4;
         let val = layout::FDT_MAX_SIZE;

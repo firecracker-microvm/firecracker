@@ -1,23 +1,10 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(target_arch = "x86_64")]
-extern crate backtrace;
-#[macro_use(crate_version, crate_authors)]
-extern crate clap;
 
-extern crate api_server;
-extern crate fc_util;
-extern crate jailer;
-#[macro_use]
-extern crate logger;
-extern crate mmds;
-extern crate seccomp;
-extern crate vmm;
-
+use vmm;
 #[cfg(target_arch = "x86_64")]
-use backtrace::Backtrace;
-use clap::{App, Arg};
+use clap::{App, Arg, crate_version, crate_authors};
 
 use std::io::ErrorKind;
 use std::panic;
@@ -25,6 +12,10 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
+use backtrace::Backtrace;
+
+#[macro_use]
+extern crate logger;
 
 use api_server::{ApiServer, Error};
 use fc_util::validators::validate_instance_id;
@@ -182,7 +173,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
+    use tempfile;
 
     use self::tempfile::NamedTempFile;
     use super::*;

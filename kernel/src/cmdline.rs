@@ -29,7 +29,7 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -50,7 +50,7 @@ pub type Result<T> = result::Result<T, Error>;
 
 fn valid_char(c: char) -> bool {
     match c {
-        ' '...'~' => true,
+        ' '..='~' => true,
         _ => false,
     }
 }

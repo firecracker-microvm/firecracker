@@ -305,13 +305,12 @@ impl Drop for MemoryMapping {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
-
-    use self::tempfile::tempfile;
     use super::*;
     use std::fs::File;
     use std::mem;
     use std::path::Path;
+
+    use tempfile;
 
     #[test]
     fn basic_map() {
@@ -381,7 +380,7 @@ mod tests {
             .read_to_memory(1, &mut file, mem::size_of::<u32>())
             .is_ok());
 
-        let mut f = tempfile().unwrap();
+        let mut f = tempfile::tempfile().unwrap();
         assert!(mem_map
             .read_to_memory(1, &mut f, mem::size_of::<u32>())
             .is_err());

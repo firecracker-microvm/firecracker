@@ -8,6 +8,7 @@ use super::super::Error as VmmInternalError;
 use super::RateLimiterConfig;
 use devices;
 use net_util::{MacAddr, Tap, TapError};
+use serde::Deserialize;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -97,7 +98,7 @@ pub enum NetworkInterfaceError {
 }
 
 impl Display for NetworkInterfaceError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         use self::NetworkInterfaceError::*;
         match *self {
             GuestMacAddressInUse(ref mac_addr) => write!(
@@ -150,7 +151,7 @@ impl NetworkInterfaceConfigs {
     }
 
     /// Returns a mutable iterator over the network interfaces.
-    pub fn iter_mut(&mut self) -> ::std::slice::IterMut<NetworkInterfaceConfig> {
+    pub fn iter_mut(&mut self) -> ::std::slice::IterMut<'_, NetworkInterfaceConfig> {
         self.if_list.iter_mut()
     }
 

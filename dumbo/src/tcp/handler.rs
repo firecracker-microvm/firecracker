@@ -180,7 +180,7 @@ impl TcpIPv4Handler {
     /// Any changes to the state if the handler are communicated through an `Ok(RecvEvent)`.
     pub fn receive_packet<T: NetworkBytes>(
         &mut self,
-        packet: &IPv4Packet<T>,
+        packet: &IPv4Packet<'_, T>,
     ) -> Result<RecvEvent, RecvError> {
         if packet.destination_address() != self.local_addr {
             return Err(RecvError::InvalidAddress);
@@ -343,7 +343,7 @@ impl TcpIPv4Handler {
         }
     }
 
-    fn enqueue_rst<T: NetworkBytes>(&mut self, tuple: ConnectionTuple, s: &TcpSegment<T>) {
+    fn enqueue_rst<T: NetworkBytes>(&mut self, tuple: ConnectionTuple, s: &TcpSegment<'_, T>) {
         self.enqueue_rst_config(tuple, RstConfig::new(&s));
     }
 

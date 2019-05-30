@@ -1,38 +1,20 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate chrono;
-extern crate futures;
-extern crate hyper;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-extern crate tokio_core;
-extern crate tokio_uds;
-
-extern crate fc_util;
-#[macro_use]
-extern crate logger;
-extern crate mmds;
-extern crate sys_util;
-extern crate vmm;
-
 mod http_service;
 pub mod request;
-
-use std::path::PathBuf;
+use crate::http_service::ApiServerHttpService;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::{fmt, io};
-
+use chrono;
+use hyper;
+use fc_util;
+use std::path::PathBuf;
 use futures::{Future, Stream};
 use hyper::server::Http;
 use tokio_core::reactor::Core;
 use tokio_uds::UnixListener;
-
-use crate::http_service::ApiServerHttpService;
 use logger::{Metric, METRICS};
 use mmds::data_store::Mmds;
 use sys_util::EventFd;
@@ -40,13 +22,16 @@ use vmm::default_syscalls;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::VmmAction;
 
+#[macro_use]
+extern crate logger;
+
 pub enum Error {
     Io(io::Error),
     Eventfd(io::Error),
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Error::Io(ref err) => write!(f, "IO error: {}", err),
             Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
@@ -55,7 +40,7 @@ impl fmt::Display for Error {
 }
 
 impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Error::Io(ref err) => write!(f, "IO error: {}", err),
             Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),

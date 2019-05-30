@@ -1,23 +1,36 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
-
-extern crate libc;
-
-extern crate memory_model;
-extern crate sys_util;
-extern crate vhost_gen;
-
 mod vsock;
-pub use crate::vsock::Vsock;
+pub use vsock::Vsock;
 
 use std::mem;
 use std::os::unix::io::AsRawFd;
 use std::ptr::null;
-
+use vhost_gen::{
+    vhost_vring_state,
+    vhost_vring_file,
+    vhost_vring_addr,
+    vhost_memory,
+    vhost_memory_region,
+    VHOST_SET_OWNER,
+    VHOST_GET_FEATURES,
+    VHOST_SET_FEATURES,
+    VHOST_SET_MEM_TABLE,
+    VHOST_SET_VRING_NUM,
+    VHOST_SET_VRING_ADDR,
+    VHOST_SET_VRING_BASE,
+    VHOST_SET_VRING_KICK,
+    VHOST_SET_VRING_CALL,
+};
+use sys_util::{
+    ioctl,
+    ioctl_with_ref,
+    ioctl_with_mut_ref,
+    ioctl_with_ptr,
+    EventFd
+};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
-use sys_util::{ioctl, ioctl_with_mut_ref, ioctl_with_ptr, ioctl_with_ref, EventFd};
-use vhost_gen::*;
 
 #[derive(Debug)]
 pub enum Error {

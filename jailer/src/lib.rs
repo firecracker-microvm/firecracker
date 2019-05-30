@@ -1,29 +1,21 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#[macro_use(crate_version, crate_authors)]
-extern crate clap;
-extern crate libc;
-extern crate regex;
-
-extern crate fc_util;
-extern crate sys_util;
-
+use libc;
+use regex;
 mod cgroup;
 mod chroot;
 mod env;
-
-use std::ffi::{CString, NulError, OsString};
+use crate::env::Env;
+use clap::{App, Arg, ArgMatches, crate_version, crate_authors};
+use fc_util::validators;
 use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::result;
+use std::ffi::{CString, NulError, OsString};
 
-use clap::{App, Arg, ArgMatches};
-
-use crate::env::Env;
-use fc_util::validators;
 
 const SOCKET_FILE_NAME: &str = "api.socket";
 
@@ -76,7 +68,7 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::Error::*;
 
         match *self {
@@ -321,7 +313,7 @@ fn sanitize_process() {
     }
 }
 
-pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Result<()> {
+pub fn run(args: ArgMatches<'_>, start_time_us: u64, start_time_cpu_us: u64) -> Result<()> {
     // We open /dev/kvm and create the listening socket. These file descriptors will be
     // passed on to Firecracker post exec, and used via knowing their values in advance.
 
