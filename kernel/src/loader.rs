@@ -6,15 +6,15 @@
 // found in the THIRD-PARTY file.
 
 //! Helper for loading a kernel image in the guest memory.
-use crate::cmdline::{Error as CmdlineError};
+use crate::cmdline::Error as CmdlineError;
 use std::ffi::CString;
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
-use memory_model;
+
 use self::memory_model::{GuestAddress, GuestMemory};
-use sys_util;
+use memory_model;
 
 #[allow(non_camel_case_types)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -271,12 +271,12 @@ mod tests {
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn make_test_bin() -> Vec<u8> {
-        include_bytes!("test_elf.bin").to_vec()
+        include_bytes!("loader/test_elf.bin").to_vec()
     }
 
     #[cfg(target_arch = "aarch64")]
     fn make_test_bin() -> Vec<u8> {
-        include_bytes!("test_pe.bin").to_vec()
+        include_bytes!("loader/test_pe.bin").to_vec()
     }
 
     #[test]
