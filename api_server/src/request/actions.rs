@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::result;
-
 use futures::sync::oneshot;
 use hyper::Method;
 use serde_json::Value;
-
+use serde::{Serialize, Deserialize};
 use crate::request::{IntoParsedRequest, ParsedRequest};
 use vmm::VmmAction;
 

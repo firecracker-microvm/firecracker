@@ -22,6 +22,9 @@ use vmm::default_syscalls;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::VmmAction;
 
+#[macro_use]
+extern crate logger;
+
 pub enum Error {
     Io(io::Error),
     Eventfd(io::Error),

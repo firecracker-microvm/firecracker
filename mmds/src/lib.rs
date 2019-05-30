@@ -1,6 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-mod data_store;
+pub mod data_store;
 use data_store::{
     Mmds,
     Error as MmdsError
