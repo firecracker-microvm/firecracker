@@ -10,8 +10,7 @@ use super::INTERRUPT_STATUS_USED_RING;
 
 use sys_util::EventFd;
 use vhost_backend::Vhost;
-use DeviceEventT;
-use EpollHandler;
+use crate::{DeviceEventT,EpollHandler};
 
 use super::super::super::Error as DeviceError;
 use std::os::unix::io::{AsRawFd, RawFd};

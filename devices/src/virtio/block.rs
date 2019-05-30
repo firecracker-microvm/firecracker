@@ -5,8 +5,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use epoll;
-use std::cmp;
+use super::super::Error as DeviceError;
+use super::{
+    ActivateError, ActivateResult, DescriptorChain, EpollHandlerPayload, Queue, VirtioDevice,
+    TYPE_BLOCK, VIRTIO_MMIO_INT_VRING,
+};
+use crate::{DeviceEventT, EpollHandler};
+use logger::{Metric, METRICS};
+use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
+use rate_limiter::{RateLimiter, TokenType};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
@@ -15,15 +22,8 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use logger::{Metric, METRICS};
-use super::super::Error as DeviceError;
-use super::{
-    ActivateError, ActivateResult, DescriptorChain, EpollHandlerPayload, Queue, VirtioDevice,
-    TYPE_BLOCK, VIRTIO_MMIO_INT_VRING,
-};
-use crate::{DeviceEventT, EpollHandler};
-use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
-use rate_limiter::{RateLimiter, TokenType};
+use std::cmp;
+
 use sys_util::EventFd;
 use virtio_gen::virtio_blk::*;
 
@@ -667,9 +667,9 @@ impl VirtioDevice for Block {
 
 #[cfg(test)]
 mod tests {
-    use self::tempfile::{tempfile, NamedTempFile};
-    use super::*;
 
+    use super::*;
+    use tempfile::{tempfile, NamedTempFile};
     use libc;
     use std::fs::{metadata, OpenOptions};
     use std::sync::mpsc::Receiver;
