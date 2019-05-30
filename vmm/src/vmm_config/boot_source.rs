@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter, Result};
+use serde::{Serialize, Deserialize};
 
 /// Strongly typed data structure used to configure the boot source of the
 /// microvm.

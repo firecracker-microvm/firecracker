@@ -1240,7 +1240,6 @@ dependencies = [
  "rate_limiter 0.1.0",
  "seccomp 0.1.0",
  "serde 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "sys_util 0.1.0",
  "tempfile 3.0.8 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -8,6 +8,7 @@ use super::super::Error as VmmInternalError;
 use super::RateLimiterConfig;
 use devices;
 use net_util::{MacAddr, Tap, TapError};
+use serde::Deserialize;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.

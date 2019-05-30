@@ -3,7 +3,7 @@
 
 use std;
 use std::fmt::{Display, Formatter, Result};
-
+use serde::Serialize;
 use crate::device_manager;
 use devices;
 use kernel::loader as kernel_loader;

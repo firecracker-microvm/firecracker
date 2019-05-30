@@ -24,7 +24,6 @@ use crate::vmm_config::machine_config::CpuFeaturesTemplate;
 use crate::vmm_config::machine_config::VmConfig;
 
 const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
-
 const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u16 = 0x03f0;
 const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 

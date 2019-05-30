@@ -4,7 +4,7 @@
 use serde_json;
 
 use std::fmt::{Display, Formatter, Result};
-
+use serde::{Serialize, Deserialize};
 use self::serde_json::Value;
 
 /// Enum used for setting the log level.

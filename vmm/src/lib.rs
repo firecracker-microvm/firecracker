@@ -76,6 +76,9 @@ use crate::vmm_config::net::{
 use vmm_config::vsock::{VsockDeviceConfig, VsockDeviceConfigs, VsockError};
 use crate::vstate::{Vcpu, Vm};
 
+#[macro_use]
+extern crate logger;
+
 /// Default guest kernel command line:
 /// - `reboot=k` shut down the guest on reboot, instead of well... rebooting;
 /// - `panic=1` on panic, reboot after 1 second;

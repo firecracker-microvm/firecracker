@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::result;
+use serde::Deserialize;
 
 use super::RateLimiterConfig;
 

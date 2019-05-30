@@ -3,6 +3,7 @@
 
 use std::fmt::{Display, Formatter, Result};
 use std::result;
+use serde::{Serialize, Deserialize};
 
 /// This struct represents the strongly typed equivalent of the json body
 /// from vsock related requests.
