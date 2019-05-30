@@ -456,7 +456,7 @@ cmd_build() {
     # accessible location (under build/release or build/debug).
     if [ $ret -eq 0 ]; then
         mkdir -p "${FC_BUILD_DIR}/${profile}"
-        cp -f "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/${profile}"/{firecracker,jailer} \
+        cp -f "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/${profile}"/{firecracker,jailer,firecracker_cmd} \
             "${FC_BUILD_DIR}/${profile}/"
         ret=$?
     fi

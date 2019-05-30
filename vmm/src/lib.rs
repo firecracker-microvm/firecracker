@@ -46,7 +46,7 @@ pub mod vmm_config;
 mod vstate;
 
 use futures::sync::oneshot;
-use std::collections::HashMap;
+use std::collections::{HashMap,VecDeque};
 use std::fmt::{Display, Formatter};
 use std::fs::{metadata, File, OpenOptions};
 use std::io;
@@ -445,6 +445,15 @@ pub struct TimestampUs {
     pub time_us: u64,
     /// Cpu time in microseconds.
     pub cputime_us: u64,
+}
+
+/// Holds kernel configuration
+#[derive(Clone, Default)]
+pub struct KernelConfiguration {
+    /// Path
+    pub kernel_image_path: String,
+    /// Command line
+    pub kernel_cmdline: Option<String>,
 }
 
 #[inline]
@@ -1481,6 +1490,7 @@ impl Vmm {
 
         // Exit from Firecracker using the provided exit code. Safe because we're terminating
         // the process anyway.
+        info!("Vmm is REALLY about to stop.");
         unsafe {
             libc::_exit(exit_code);
         }
@@ -2130,6 +2140,87 @@ pub fn start_vmm_thread(
             }
         })
         .expect("VMM thread spawn failed.")
+}
+
+/// Starts a new vmm without API.
+///
+/// # Arguments
+///
+/// * `api_shared_info` - A parameter for storing information on the VMM (e.g the current state).
+/// * `seccomp_level` - The level of seccomp filtering used. Filters are loaded before executing
+///                     guest code. Can be one of 0 (seccomp disabled), 1 (filter by syscall
+///                     number) or 2 (filter by syscall number and argument values).
+pub fn start_vmm_without_api(
+    api_shared_info: Arc<RwLock<InstanceInfo>>,
+    seccomp_level: u32,
+    kernel_configuration: KernelConfiguration,
+    vm_config: Option<VmConfig>,
+    block_device_configs: VecDeque<BlockDeviceConfig>,
+    network_interface_configs: VecDeque<NetworkInterfaceConfig>,
+) {
+    use serde_json::Value;
+
+    // If this fails, consider it fatal. Use expect().
+    let api_event_fd = EventFd::new().expect("cannot create eventFD");
+    let (_to_vmm, from_api) = channel();
+    let mut vmm = Vmm::new(api_shared_info, api_event_fd, from_api, seccomp_level)
+        .expect("Cannot create VMM");
+
+    let res = vmm.configure_boot_source(
+        kernel_configuration.kernel_image_path,
+        kernel_configuration.kernel_cmdline);
+
+    if res.is_err() {
+        error!("configure_boot_source() failed!");
+    }
+
+    if let Some(vm_configuration) = vm_config {
+        let res = vmm.set_vm_configuration(vm_configuration);
+        if res.is_err() {
+            error!("set_vm_configuration() failed!");
+        }
+    }
+
+    for block_device_config in block_device_configs {
+        let res = vmm.insert_block_device(block_device_config);
+        if res.is_err() {
+            error!("Failed to insert block device!");
+        }
+    }
+
+    for network_interface_config in network_interface_configs {
+        let res = vmm.insert_net_device(network_interface_config);
+        if res.is_err() {
+            error!("Failed to insert net device!");
+        }
+    }
+
+    let logger = LoggerConfig {
+        log_fifo: String::from("/tmp/fc.log"),
+        metrics_fifo: String::from("/tmp/fc_metrics.log"),
+        level: LoggerLevel::Info,
+        show_level: true,
+        show_log_origin: true,
+        #[cfg(target_arch = "x86_64")]
+        options: Value::Array(vec![]),
+    };
+    let res = vmm.init_logger(logger);
+    if res.is_err() {
+        error!("init_logger() failed!");
+    }
+
+    let _res = vmm.start_microvm();
+
+    match vmm.run_control() {
+        Ok(()) => {
+            info!("Gracefully terminated VMM control loop");
+            vmm.stop(i32::from(FC_EXIT_CODE_OK));
+        }
+        Err(e) => {
+            error!("Abruptly exited VMM control loop: {:?}", e);
+            vmm.stop(i32::from(FC_EXIT_CODE_GENERIC_ERROR));
+        }
+    }
 }
 
 #[cfg(test)]

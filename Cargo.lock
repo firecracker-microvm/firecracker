@@ -246,6 +246,7 @@ dependencies = [
  "jailer 0.16.0",
  "logger 0.1.0",
  "mmds 0.1.0",
+ "net_util 0.1.0",
  "seccomp 0.1.0",
  "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "vmm 0.1.0",
