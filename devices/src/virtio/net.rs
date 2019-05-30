@@ -506,7 +506,6 @@ impl EpollHandler for NetEpollHandler {
     fn handle_event(
         &mut self,
         device_event: DeviceEventT,
-        _: u32,
         payload: EpollHandlerPayload,
     ) -> result::Result<(), DeviceError> {
         match device_event {
@@ -1484,7 +1483,7 @@ mod tests {
         check_metric_after_block!(
             &METRICS.net.event_fails,
             1,
-            h.handle_event(RX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
+            h.handle_event(RX_RATE_LIMITER_EVENT, EpollHandlerPayload::Empty)
         );
 
         // TX rate limiter events should error since the limiter is not blocked.
@@ -1492,7 +1491,7 @@ mod tests {
         check_metric_after_block!(
             &METRICS.net.event_fails,
             1,
-            h.handle_event(TX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
+            h.handle_event(TX_RATE_LIMITER_EVENT, EpollHandlerPayload::Empty)
         );
     }
 
@@ -1503,7 +1502,7 @@ mod tests {
 
         let bad_event = 1000;
 
-        let r = h.handle_event(bad_event as DeviceEventT, 0, EpollHandlerPayload::Empty);
+        let r = h.handle_event(bad_event as DeviceEventT, EpollHandlerPayload::Empty);
         match r {
             Err(DeviceError::UnknownEvent { event, device }) => {
                 assert_eq!(event, bad_event as DeviceEventT);
@@ -1524,7 +1523,7 @@ mod tests {
         };
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, test_mutators);
-        let r = h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty);
+        let r = h.handle_event(RX_TAP_EVENT, EpollHandlerPayload::Empty);
         match r {
             Err(DeviceError::FailedReadTap) => (),
             _ => panic!("invalid"),
@@ -1537,7 +1536,7 @@ mod tests {
         let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
         let rl = RateLimiter::new(0, None, 0, 0, None, 0).unwrap();
         h.set_rx_rate_limiter(rl);
-        let r = h.handle_event(RX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty);
+        let r = h.handle_event(RX_RATE_LIMITER_EVENT, EpollHandlerPayload::Empty);
         match r {
             Err(DeviceError::RateLimited(_)) => (),
             _ => panic!("invalid"),
@@ -1550,7 +1549,7 @@ mod tests {
         let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
         let rl = RateLimiter::new(0, None, 0, 0, None, 0).unwrap();
         h.set_tx_rate_limiter(rl);
-        let r = h.handle_event(TX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty);
+        let r = h.handle_event(TX_RATE_LIMITER_EVENT, EpollHandlerPayload::Empty);
         match r {
             Err(DeviceError::RateLimited(_)) => (),
             _ => panic!("invalid"),
@@ -1618,7 +1617,7 @@ mod tests {
             txq.dtable[0].set(daddr, 0x1000, 0, 0);
 
             h.tx.queue_evt.write(1).unwrap();
-            h.handle_event(TX_QUEUE_EVENT, 0, EpollHandlerPayload::Empty)
+            h.handle_event(TX_QUEUE_EVENT, EpollHandlerPayload::Empty)
                 .unwrap();
             // Make sure the data queue advanced.
             assert_eq!(txq.used.idx.get(), 1);
@@ -1635,7 +1634,7 @@ mod tests {
             rxq.dtable[0].set(daddr, 0x1000, VIRTQ_DESC_F_WRITE, 0);
 
             h.interrupt_evt.write(1).unwrap();
-            h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty)
+            h.handle_event(RX_TAP_EVENT, EpollHandlerPayload::Empty)
                 .unwrap();
             assert!(h.rx.deferred_frame);
             assert_eq!(h.interrupt_evt.read().unwrap(), 2);
@@ -1652,7 +1651,7 @@ mod tests {
 
             // this should also be successful
             h.interrupt_evt.write(1).unwrap();
-            h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty)
+            h.handle_event(RX_TAP_EVENT, EpollHandlerPayload::Empty)
                 .unwrap();
             assert!(h.rx.deferred_frame);
             assert_eq!(h.interrupt_evt.read().unwrap(), 2);
@@ -1668,7 +1667,7 @@ mod tests {
             check_metric_after_block!(
                 &METRICS.net.rx_fails,
                 1,
-                h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(RX_TAP_EVENT, EpollHandlerPayload::Empty)
             );
             assert!(h.rx.deferred_frame);
             assert_eq!(h.interrupt_evt.read().unwrap(), 2);
@@ -1693,7 +1692,7 @@ mod tests {
             check_metric_after_block!(
                 &METRICS.net.rx_count,
                 2,
-                h.handle_event(RX_QUEUE_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(RX_QUEUE_EVENT, EpollHandlerPayload::Empty)
                     .unwrap()
             );
             assert_eq!(h.interrupt_evt.read().unwrap(), 2);
@@ -1737,7 +1736,7 @@ mod tests {
             {
                 // trigger the TX handler
                 h.tx.queue_evt.write(1).unwrap();
-                h.handle_event(TX_QUEUE_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(TX_QUEUE_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
 
                 // assert that limiter is blocked
@@ -1756,7 +1755,7 @@ mod tests {
                 check_metric_after_block!(
                     &METRICS.net.tx_count,
                     2,
-                    h.handle_event(TX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
+                    h.handle_event(TX_RATE_LIMITER_EVENT, EpollHandlerPayload::Empty)
                         .unwrap()
                 );
                 // validate the rate_limiter is no longer blocked
@@ -1787,7 +1786,7 @@ mod tests {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the RX handler
-                h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(RX_TAP_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
 
                 // assert that limiter is blocked
@@ -1807,7 +1806,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(RX_RATE_LIMITER_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rx_rate_limiter().is_blocked());
@@ -1849,7 +1848,7 @@ mod tests {
             {
                 // trigger the TX handler
                 h.tx.queue_evt.write(1).unwrap();
-                h.handle_event(TX_QUEUE_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(TX_QUEUE_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
 
                 // assert that limiter is blocked
@@ -1864,7 +1863,7 @@ mod tests {
 
             // following TX procedure should succeed because ops should now be available
             {
-                h.handle_event(TX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(TX_RATE_LIMITER_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_tx_rate_limiter().is_blocked());
@@ -1894,7 +1893,7 @@ mod tests {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the RX handler
-                h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(RX_TAP_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
 
                 // assert that limiter is blocked
@@ -1908,7 +1907,7 @@ mod tests {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the RX handler again, this time it should do the limiter fast path exit
-                h.handle_event(RX_TAP_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(RX_TAP_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
                 // assert that no operation actually completed, that the limiter blocked it
                 assert_eq!(h.interrupt_evt.read().unwrap(), 1);
@@ -1924,7 +1923,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RX_RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(RX_RATE_LIMITER_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
                 // make sure the virtio queue operation completed this time
                 assert_eq!(h.interrupt_evt.read().unwrap(), 2);
@@ -1952,7 +1951,6 @@ mod tests {
 
         h.handle_event(
             PATCH_RATE_LIMITERS_FAKE_EVENT,
-            0,
             EpollHandlerPayload::NetRateLimiterPayload {
                 rx_bytes: Some(rx_bytes.clone()),
                 rx_ops: Some(rx_ops.clone()),

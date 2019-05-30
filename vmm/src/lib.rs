@@ -806,7 +806,6 @@ impl Vmm {
             Ok(handler) => {
                 match handler.handle_event(
                     virtio::block::FS_UPDATE_EVENT,
-                    0,
                     EpollHandlerPayload::DrivePayload(disk_image),
                 ) {
                     Err(devices::Error::PayloadExpected) => {
@@ -1572,11 +1571,9 @@ impl Vmm {
                                 .get_device_handler_by_handler_id(device_idx)
                             {
                                 Ok(handler) => {
-                                    match handler.handle_event(
-                                        device_token,
-                                        event.events,
-                                        EpollHandlerPayload::Empty,
-                                    ) {
+                                    match handler
+                                        .handle_event(device_token, EpollHandlerPayload::Empty)
+                                    {
                                         Err(devices::Error::PayloadExpected) => panic!(
                                             "Received update disk image event with empty payload."
                                         ),
@@ -1791,7 +1788,6 @@ impl Vmm {
         handler
             .handle_event(
                 virtio::net::PATCH_RATE_LIMITERS_FAKE_EVENT,
-                0,
                 EpollHandlerPayload::NetRateLimiterPayload {
                     rx_bytes: new_cfg
                         .rx_rate_limiter
@@ -2233,7 +2229,6 @@ mod tests {
 
     struct DummyEpollHandler {
         evt: Option<DeviceEventT>,
-        flags: Option<u32>,
         payload: Option<EpollHandlerPayload>,
     }
 
@@ -2241,11 +2236,9 @@ mod tests {
         fn handle_event(
             &mut self,
             device_event: DeviceEventT,
-            event_flags: u32,
             payload: EpollHandlerPayload,
         ) -> std::result::Result<(), devices::Error> {
             self.evt = Some(device_event);
-            self.flags = Some(event_flags);
             self.payload = Some(payload);
             Ok(())
         }
@@ -2321,7 +2314,6 @@ mod tests {
 
         let handler = DummyEpollHandler {
             evt: None,
-            flags: None,
             payload: None,
         };
         assert!(sender.send(Box::new(handler)).is_ok());
@@ -2541,7 +2533,6 @@ mod tests {
         // Fake device activation by explicitly setting a dummy epoll handler.
         vmm.epoll_context.device_handlers[0].handler = Some(Box::new(DummyEpollHandler {
             evt: None,
-            flags: None,
             payload: None,
         }));
         vmm.update_net_device(NetworkInterfaceUpdateConfig {
