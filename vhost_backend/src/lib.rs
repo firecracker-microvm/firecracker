@@ -7,13 +7,30 @@ pub use vsock::Vsock;
 use std::mem;
 use std::os::unix::io::AsRawFd;
 use std::ptr::null;
-
-extern crate memory_model;
+use vhost_gen::{
+    vhost_vring_state,
+    vhost_vring_file,
+    vhost_vring_addr,
+    vhost_memory,
+    vhost_memory_region,
+    VHOST_SET_OWNER,
+    VHOST_GET_FEATURES,
+    VHOST_SET_FEATURES,
+    VHOST_SET_MEM_TABLE,
+    VHOST_SET_VRING_NUM,
+    VHOST_SET_VRING_ADDR,
+    VHOST_SET_VRING_BASE,
+    VHOST_SET_VRING_KICK,
+    VHOST_SET_VRING_CALL,
+};
+use sys_util::{
+    ioctl,
+    ioctl_with_ref,
+    ioctl_with_mut_ref,
+    ioctl_with_ptr,
+    EventFd
+};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
-
-#[macro_use]
-extern crate sys_util;
-use sys_util::{ioctl, ioctl_with_ref, ioctl_with_mut_ref};
 
 #[derive(Debug)]
 pub enum Error {
