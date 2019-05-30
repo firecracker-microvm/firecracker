@@ -6,15 +6,15 @@
 // found in the THIRD-PARTY file.
 
 //! Helper for loading a kernel image in the guest memory.
-use cmdline::{Cmdline, Error as CmdlineError};
+use crate::cmdline::{Error as CmdlineError};
 use std::ffi::CString;
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
-extern crate memory_model;
+use memory_model;
 use self::memory_model::{GuestAddress, GuestMemory};
-extern crate sys_util;
+use sys_util;
 
 #[allow(non_camel_case_types)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -38,7 +38,7 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",

@@ -12,9 +12,9 @@ mod mptable;
 pub mod regs;
 
 use std::mem;
-extern crate arch_gen;
+use arch_gen;
 use self::arch_gen::x86::bootparam::{boot_params, E820_RAM};
-extern crate memory_model;
+use memory_model;
 use self::memory_model::{DataInit, GuestAddress, GuestMemory};
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
@@ -183,7 +183,7 @@ fn add_e820_entry(
 #[cfg(test)]
 mod tests {
     use super::*;
-    extern crate arch_gen;
+    use arch_gen;
     use self::arch_gen::x86::bootparam::e820entry;
 
     #[test]

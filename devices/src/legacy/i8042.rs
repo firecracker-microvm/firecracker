@@ -5,13 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use logger::{Metric, METRICS};
+use crate::BusDevice;
 use std::fmt;
 use std::num::Wrapping;
 use std::{io, result};
+use logger::{Metric, METRICS};
 use sys_util::EventFd;
-
-use crate::BusDevice;
 
 #[derive(Debug)]
 pub enum Error {

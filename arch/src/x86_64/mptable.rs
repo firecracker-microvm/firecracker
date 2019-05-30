@@ -10,11 +10,11 @@ use std::mem;
 use std::result;
 use std::slice;
 
-extern crate libc;
+use libc;
 use self::libc::c_char;
-extern crate arch_gen;
+use arch_gen;
 use self::arch_gen::x86::mpspec;
-extern crate memory_model;
+use memory_model;
 use self::memory_model::{DataInit, GuestAddress, GuestMemory};
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign

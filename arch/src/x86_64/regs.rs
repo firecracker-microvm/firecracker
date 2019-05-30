@@ -6,15 +6,15 @@
 // found in the THIRD-PARTY file.
 
 use std::{io, mem, result};
-extern crate kvm_bindings;
+use kvm_bindings;
 use self::kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_msrs, kvm_regs, kvm_sregs};
-extern crate kvm_ioctls;
+use kvm_ioctls;
 use self::kvm_ioctls::VcpuFd;
 
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
-extern crate arch_gen;
+use arch_gen;
 use self::arch_gen::x86::msr_index;
-extern crate memory_model;
+use memory_model;
 use self::memory_model::{GuestAddress, GuestMemory};
 
 // Initial pagetables.
@@ -291,9 +291,9 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
 mod tests {
     use super::*;
     
-    extern crate kvm_ioctls;
+    use kvm_ioctls;
     use self::kvm_ioctls::Kvm;
-    extern crate memory_model;
+    use memory_model;
     use self::memory_model::{GuestAddress, GuestMemory};
 
     fn create_guest_mem() -> GuestMemory {

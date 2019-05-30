@@ -12,7 +12,7 @@ use std;
 use std::io::{self, Read, Write};
 use std::ptr::null_mut;
 
-extern crate libc;
+use libc;
 
 use crate::DataInit;
 
@@ -310,7 +310,7 @@ mod tests {
     use std::mem;
     use std::path::Path;
 
-    extern crate tempfile;
+    use tempfile;
 
     #[test]
     fn basic_map() {

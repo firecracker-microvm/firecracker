@@ -15,6 +15,9 @@ use std::fs::File;
 use std::io;
 pub use self::bus::{Bus, BusDevice, Error as BusError};
 
+#[macro_use]
+extern crate logger;
+
 pub type DeviceEventT = u16;
 
 /// The payload is used to handle events where the internal state of the VirtIO device

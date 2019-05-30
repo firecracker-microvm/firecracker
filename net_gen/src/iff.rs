@@ -30,7 +30,7 @@ impl<T> __IncompleteArrayField<T> {
     }
 }
 impl<T> ::std::fmt::Debug for __IncompleteArrayField<T> {
-    fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    fn fmt(&self, fmt: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         fmt.write_str("__IncompleteArrayField")
     }
 }
@@ -71,7 +71,7 @@ impl<T> ::std::clone::Clone for __BindgenUnionField<T> {
 }
 impl<T> ::std::marker::Copy for __BindgenUnionField<T> {}
 impl<T> ::std::fmt::Debug for __BindgenUnionField<T> {
-    fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    fn fmt(&self, fmt: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         fmt.write_str("__BindgenUnionField")
     }
 }

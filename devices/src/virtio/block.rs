@@ -15,7 +15,7 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-
+use logger::{Metric, METRICS};
 use super::super::Error as DeviceError;
 use super::{
     ActivateError, ActivateResult, DescriptorChain, EpollHandlerPayload, Queue, VirtioDevice,

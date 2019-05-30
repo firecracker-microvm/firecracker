@@ -8,11 +8,11 @@
 use std::io::{self, Cursor};
 use std::result;
 
-extern crate byteorder;
+use byteorder;
 use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-extern crate kvm_bindings;
+use kvm_bindings;
 use self::kvm_bindings::kvm_lapic_state;
-extern crate kvm_ioctls;
+use kvm_ioctls;
 use self::kvm_ioctls::VcpuFd;
 
 #[derive(Debug)]
@@ -84,7 +84,7 @@ pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    extern crate rand;
+    use rand;
     use self::rand::Rng;
     use super::*;
     use self::kvm_ioctls::Kvm;
