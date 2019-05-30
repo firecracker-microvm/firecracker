@@ -81,7 +81,6 @@ where
     fn handle_event(
         &mut self,
         device_event: DeviceEventT,
-        _: u32,
         _: EpollHandlerPayload,
     ) -> std::result::Result<(), DeviceError> {
         match device_event {

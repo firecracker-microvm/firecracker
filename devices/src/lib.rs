@@ -61,7 +61,6 @@ pub trait EpollHandler: Send {
     fn handle_event(
         &mut self,
         device_event: DeviceEventT,
-        event_flags: u32,
         payload: EpollHandlerPayload,
     ) -> Result<()>;
 }

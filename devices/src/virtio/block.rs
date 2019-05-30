@@ -396,7 +396,6 @@ impl EpollHandler for BlockEpollHandler {
     fn handle_event(
         &mut self,
         device_event: DeviceEventT,
-        _: u32,
         payload: EpollHandlerPayload,
     ) -> result::Result<(), DeviceError> {
         match device_event {
@@ -808,7 +807,7 @@ mod tests {
         // trigger the queue event
         h.queue_evt.write(1).unwrap();
         // handle event
-        h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
+        h.handle_event(QUEUE_AVAIL_EVENT, EpollHandlerPayload::Empty)
             .unwrap();
         // validate the queue operation finished successfully
         assert_eq!(h.interrupt_evt.read().unwrap(), 2);
@@ -1098,7 +1097,6 @@ mod tests {
         let (mut h, _vq) = default_test_blockepollhandler(&m);
         let r = h.handle_event(
             BLOCK_EVENTS_COUNT as DeviceEventT,
-            0,
             EpollHandlerPayload::Empty,
         );
         match r {
@@ -1119,7 +1117,7 @@ mod tests {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _vq) = default_test_blockepollhandler(&m);
         // This should panic because payload is empty for event type FS_UPDATE_EVENT.
-        let r = h.handle_event(FS_UPDATE_EVENT, 0, EpollHandlerPayload::Empty);
+        let r = h.handle_event(FS_UPDATE_EVENT, EpollHandlerPayload::Empty);
         match r {
             Err(DeviceError::PayloadExpected) => (),
             _ => panic!("invalid"),
@@ -1433,7 +1431,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(QUEUE_AVAIL_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
 
                 // assert that limiter is blocked
@@ -1452,7 +1450,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(RATE_LIMITER_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
@@ -1494,7 +1492,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(QUEUE_AVAIL_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
 
                 // assert that limiter is blocked
@@ -1511,7 +1509,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(QUEUE_AVAIL_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
 
                 // assert that limiter is blocked
@@ -1530,7 +1528,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
+                h.handle_event(RATE_LIMITER_EVENT, EpollHandlerPayload::Empty)
                     .unwrap();
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
@@ -1566,7 +1564,7 @@ mod tests {
                 .open(path)
                 .unwrap();
             let payload = EpollHandlerPayload::DrivePayload(file);
-            h.handle_event(FS_UPDATE_EVENT, 0, payload).unwrap();
+            h.handle_event(FS_UPDATE_EVENT, payload).unwrap();
 
             assert_eq!(h.disk_image.metadata().unwrap().st_ino(), mdata.st_ino());
             assert_eq!(h.disk_image_id, id);
