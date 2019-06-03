@@ -484,11 +484,34 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
     fdt: &mut Vec<u8>,
     dev_info: &HashMap<(DeviceType, String), T>,
 ) -> Result<()> {
-    for ((device_type, _), info) in &*dev_info {
+    // We are trying to detect the root block device. We know
+    // that if a root block device is attached, it will be the one with the lowest bus address.
+
+    // As per doc, `None` will be returned only if the iterator
+    // is empty. That cannot happen, since on aarch64 the RTC device is
+    // always appended to the hashmap of devices.
+    let ((first_device_type, first_device_id), first_device_info) = dev_info
+        .iter()
+        .min_by(|&(_, ref a), &(_, ref b)| a.addr().cmp(&b.addr()))
+        .expect("Device Information cannot be empty");
+
+    // We check that the device with the lowest bus address is indeed a virtio device.
+    // At this point, it does not matter whether we are dealing with network or block since
+    // the create_virtio_node function is agnostic of that.
+    if let DeviceType::Virtio(_) = first_device_type {
+        create_virtio_node(fdt, first_device_info.clone())?;
+    }
+
+    for ((device_type, device_id), info) in dev_info {
         match device_type {
             DeviceType::RTC => create_rtc_node(fdt, info.clone())?,
             DeviceType::Serial => create_serial_node(fdt, info.clone())?,
-            DeviceType::Virtio(_) => create_virtio_node(fdt, info.clone())?,
+            DeviceType::Virtio(_) => {
+                // We already appended the first virtio device.
+                if (device_type, device_id) != (&first_device_type, &first_device_id) {
+                    create_virtio_node(fdt, info.clone())?;
+                }
+            }
         };
     }
 
