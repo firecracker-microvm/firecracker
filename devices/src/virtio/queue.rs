@@ -378,7 +378,7 @@ impl Queue {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     extern crate memory_model;
 
     use std::marker::PhantomData;
