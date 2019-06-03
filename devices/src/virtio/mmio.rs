@@ -128,6 +128,11 @@ impl MmioDevice {
         })
     }
 
+    // Gets the encapsulated VirtioDevice
+    pub fn device_mut(&mut self) -> &mut dyn VirtioDevice {
+        &mut *self.device
+    }
+
     /// Gets the list of queue events that must be triggered whenever the VM writes to
     /// `virtio::NOTIFY_REG_OFFSET` past the MMIO base. Each event must be triggered when the
     /// value being written equals the index of the event in this list.

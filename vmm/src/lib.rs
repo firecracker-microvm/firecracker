@@ -2128,7 +2128,7 @@ mod tests {
 
     use self::tempfile::NamedTempFile;
     use arch::DeviceType;
-    use devices::virtio::ActivateResult;
+    use devices::virtio::{ActivateResult, MmioDevice, Queue};
     use net_util::MacAddr;
     use vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm_config::{RateLimiterConfig, TokenBucketConfig};
@@ -2503,9 +2503,31 @@ mod tests {
             })
             .is_err());
 
-        // Fake device activation by explicitly setting a dummy epoll handler.
-        vmm.epoll_context.device_handlers[0].handler =
-            Some(Box::new(DummyEpollHandler { evt: None }));
+        // Activate the device
+        {
+            let device_manager = vmm.mmio_device_manager.as_ref().unwrap();
+            let bus_device_mutex = device_manager
+                .get_device(DeviceType::Virtio(TYPE_NET), "1")
+                .unwrap();
+            let bus_device = &mut *bus_device_mutex.lock().unwrap();
+            let mmio_device: &mut MmioDevice = bus_device
+                .as_mut_any()
+                .downcast_mut::<MmioDevice>()
+                .unwrap();
+
+            assert!(mmio_device
+                .device_mut()
+                .activate(
+                    vmm.guest_memory.as_ref().unwrap().clone(),
+                    EventFd::new().unwrap(),
+                    Arc::new(AtomicUsize::new(0)),
+                    vec![Queue::new(0), Queue::new(0)],
+                    vec![EventFd::new().unwrap(), EventFd::new().unwrap()],
+                )
+                .is_ok());
+        }
+
+        // the update should succeed after the device activation
         vmm.update_net_device(NetworkInterfaceUpdateConfig {
             iface_id: "1".to_string(),
             rx_rate_limiter: Some(RateLimiterConfig {

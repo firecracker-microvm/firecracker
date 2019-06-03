@@ -12,13 +12,14 @@ use std::collections::btree_map::BTreeMap;
 use std::fmt;
 use std::result;
 use std::sync::{Arc, Mutex};
+use virtio::AsAny;
 
 /// Trait for devices that respond to reads or writes in an arbitrary address space.
 ///
 /// The device does not care where it exists in address space as each method is only given an offset
 /// into its allocated portion of address space.
 #[allow(unused_variables)]
-pub trait BusDevice: Send {
+pub trait BusDevice: AsAny + Send {
     /// Reads at `offset` from this device
     fn read(&mut self, offset: u64, data: &mut [u8]) {}
     /// Writes at `offset` into this device
