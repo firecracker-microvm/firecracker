@@ -529,7 +529,6 @@ mod tests {
     pub struct MMIODeviceInfo {
         addr: u64,
         irq: u32,
-        type_: DeviceType,
     }
 
     impl DeviceInfoForFDT for MMIODeviceInfo {
@@ -541,9 +540,6 @@ mod tests {
         }
         fn length(&self) -> u64 {
             LEN
-        }
-        fn type_(&self) -> &DeviceType {
-            &self.type_
         }
     }
     // The `load` function from the `device_tree` will mistakenly check the actual size
@@ -560,29 +556,23 @@ mod tests {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
         let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
 
-        let dev_info: HashMap<String, MMIODeviceInfo> = [
+        let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
             (
-                "uart".to_string(),
-                MMIODeviceInfo {
-                    addr: 0x00,
-                    irq: 1,
-                    type_: DeviceType::Serial,
-                },
+                (DeviceType::Serial, "uart".to_string()),
+                MMIODeviceInfo { addr: 0x00, irq: 1 },
             ),
             (
-                "virtio".to_string(),
+                (DeviceType::Virtio(1), "virtio".to_string()),
                 MMIODeviceInfo {
                     addr: 0x00 + LEN,
                     irq: 2,
-                    type_: DeviceType::Virtio,
                 },
             ),
             (
-                "rtc".to_string(),
+                (DeviceType::RTC, "rtc".to_string()),
                 MMIODeviceInfo {
                     addr: 0x00 + 2 * LEN,
                     irq: 3,
-                    type_: DeviceType::RTC,
                 },
             ),
         ]
@@ -606,7 +596,7 @@ mod tests {
             &mem,
             1,
             &CString::new("console=tty0").unwrap(),
-            None::<&std::collections::HashMap<std::string::String, MMIODeviceInfo>>,
+            None::<&std::collections::HashMap<(DeviceType, std::string::String), MMIODeviceInfo>>,
         )
         .unwrap();
 
