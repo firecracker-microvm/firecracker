@@ -3338,8 +3338,14 @@ mod tests {
             .bus
             .get_device(arch::get_reserved_mem_addr() as u64)
             .is_none());
-        assert!(dev_man.get_device_info().get("uart").is_none());
-        assert!(dev_man.get_device_info().get("rtc").is_some());
+        assert!(dev_man
+            .get_device_info()
+            .get(&(DeviceType::Serial, "uart".to_string()))
+            .is_none());
+        assert!(dev_man
+            .get_device_info()
+            .get(&(DeviceType::RTC, "rtc".to_string()))
+            .is_some());
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -3366,7 +3372,10 @@ mod tests {
         }
         assert!(vmm.attach_legacy_devices().is_ok());
         let dev_man = vmm.mmio_device_manager.as_ref().unwrap();
-        assert!(dev_man.get_device_info().get("uart").is_some());
+        assert!(dev_man
+            .get_device_info()
+            .get(&(DeviceType::Serial, "uart".to_string()))
+            .is_some());
     }
 
     // Helper function to get ErrorKind of error.
