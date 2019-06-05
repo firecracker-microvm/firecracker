@@ -22,6 +22,7 @@ TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
     "features, build_type, target",
     itertools.product(FEATURES, BUILD_TYPES, TARGETS)
 )
+@pytest.mark.timeout(400)
 def test_build(test_session_root_path, features, build_type, target):
     """
     Test different builds.
