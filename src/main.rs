@@ -74,14 +74,13 @@ fn main() {
             Arg::with_name("api_sock")
                 .long("api-sock")
                 .help("Path to unix domain socket used by the API")
-                .default_value(DEFAULT_API_SOCK_PATH)
-                .takes_value(true),
+                .takes_value(true)
+                .default_value(DEFAULT_API_SOCK_PATH),
         )
         .arg(
             Arg::with_name("id")
                 .long("id")
                 .help("MicroVM unique identifier")
-                .default_value(DEFAULT_API_SOCK_PATH)
                 .takes_value(true)
                 .default_value(DEFAULT_INSTANCE_ID)
                 .validator(|s: String| -> Result<(), String> {
