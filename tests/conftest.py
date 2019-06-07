@@ -230,6 +230,15 @@ def aux_bin_paths(test_session_root_path):
         cloner_bin_path
     )
 
+    vsock_helper_bin_path = os.path.join(
+        test_session_root_path,
+        'vsock_helper'
+    )
+    _gcc_compile(
+        'host_tools/vsock_helper.c',
+        vsock_helper_bin_path
+    )
+
     seccomp_build_path = os.path.join(
         test_session_root_path,
         build_tools.CARGO_RELEASE_REL_PATH
@@ -274,6 +283,7 @@ def aux_bin_paths(test_session_root_path):
 
     yield {
         'cloner': cloner_bin_path,
+        'vsock_helper': vsock_helper_bin_path,
         'demo_basic_jailer': demo_basic_jailer,
         'demo_advanced_jailer': demo_advanced_jailer,
         'demo_harmless': demo_harmless,
