@@ -40,7 +40,7 @@ pub type DeviceEventT = u16;
 type Result<T> = std::result::Result<T, Error>;
 
 pub trait EpollHandler: AsAny + Send {
-    fn handle_event(&mut self, device_event: DeviceEventT) -> Result<()>;
+    fn handle_event(&mut self, device_event: DeviceEventT, evset: epoll::Events) -> Result<()>;
 }
 
 #[derive(Debug)]
