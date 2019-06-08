@@ -393,7 +393,11 @@ impl BlockEpollHandler {
 }
 
 impl EpollHandler for BlockEpollHandler {
-    fn handle_event(&mut self, device_event: DeviceEventT) -> result::Result<(), DeviceError> {
+    fn handle_event(
+        &mut self,
+        device_event: DeviceEventT,
+        _evset: epoll::Events,
+    ) -> result::Result<(), DeviceError> {
         match device_event {
             QUEUE_AVAIL_EVENT => {
                 METRICS.block.queue_event_count.inc();
@@ -666,6 +670,8 @@ mod tests {
 
     use virtio::queue::tests::*;
 
+    const EPOLLIN: epoll::Events = epoll::Events::EPOLLIN;
+
     /// Will read $metric, run the code in $block, then assert metric has increased by $delta.
     macro_rules! check_metric_after_block {
         ($metric:expr, $delta:expr, $block:expr) => {{
@@ -796,7 +802,7 @@ mod tests {
         // trigger the queue event
         h.queue_evt.write(1).unwrap();
         // handle event
-        h.handle_event(QUEUE_AVAIL_EVENT).unwrap();
+        h.handle_event(QUEUE_AVAIL_EVENT, EPOLLIN).unwrap();
         // validate the queue operation finished successfully
         assert_eq!(h.interrupt_evt.read().unwrap(), 2);
     }
@@ -1083,7 +1089,7 @@ mod tests {
     fn test_invalid_event_handler() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _vq) = default_test_blockepollhandler(&m);
-        let r = h.handle_event(BLOCK_EVENTS_COUNT as DeviceEventT);
+        let r = h.handle_event(BLOCK_EVENTS_COUNT as DeviceEventT, EPOLLIN);
         match r {
             Err(DeviceError::UnknownEvent { event, device }) => {
                 assert_eq!(event, BLOCK_EVENTS_COUNT as DeviceEventT);
@@ -1404,7 +1410,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT).unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT, EPOLLIN).unwrap();
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1422,7 +1428,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RATE_LIMITER_EVENT).unwrap();
+                h.handle_event(RATE_LIMITER_EVENT, EPOLLIN).unwrap();
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
                 // make sure the virtio queue operation completed this time
@@ -1463,7 +1469,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT).unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT, EPOLLIN).unwrap();
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1479,7 +1485,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT).unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT, EPOLLIN).unwrap();
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1497,7 +1503,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RATE_LIMITER_EVENT).unwrap();
+                h.handle_event(RATE_LIMITER_EVENT, EPOLLIN).unwrap();
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
                 // make sure the virtio queue operation completed this time
