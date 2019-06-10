@@ -271,12 +271,10 @@ mod test {
         assert!(use_host_cpuid_function(&mut cpuid, topoext_fn, true).is_ok());
         let entries = cpuid.mut_entries_slice();
         assert!(entries.len() > 1);
-        let mut count = 0;
-        for entry in entries.iter_mut() {
+        for (count, entry) in entries.iter_mut().enumerate() {
             assert!(entry.function == topoext_fn);
-            assert!(entry.index == count);
+            assert!(entry.index == count as u32);
             assert!(entry.eax != 0);
-            count = count + 1;
         }
     }
 

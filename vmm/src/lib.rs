@@ -2166,11 +2166,11 @@ mod tests {
         fn default_kernel_config(&mut self, cust_kernel_path: Option<PathBuf>) {
             let kernel_temp_file =
                 NamedTempFile::new().expect("Failed to create temporary kernel file.");
-            let mut kernel_path = kernel_temp_file.path().to_path_buf();
-
-            if cust_kernel_path.is_some() {
-                kernel_path = cust_kernel_path.unwrap();
-            }
+            let kernel_path = if cust_kernel_path.is_some() {
+                cust_kernel_path.unwrap()
+            } else {
+                kernel_temp_file.path().to_path_buf()
+            };
             let kernel_file = File::open(kernel_path).expect("Cannot open kernel file");
             let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
             assert!(cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).is_ok());
@@ -3033,7 +3033,6 @@ mod tests {
         vmm.change_id(&scratch_id, "scratch");
         match vmm.rescan_block_device(&scratch_id) {
             Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
-                ()
             }
             _ => assert!(false),
         }
@@ -3299,7 +3298,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_conversion() {
+    fn test_drive_error_conversion() {
         // Test `DriveError` conversion
         assert_eq!(
             error_kind(DriveError::CannotOpenBlockDevice),
@@ -3329,7 +3328,10 @@ mod tests {
             error_kind(DriveError::RootBlockDeviceAlreadyAdded),
             ErrorKind::User
         );
+    }
 
+    #[test]
+    fn test_vmconfig_error_conversion() {
         // Test `VmConfigError` conversion
         assert_eq!(error_kind(VmConfigError::InvalidVcpuCount), ErrorKind::User);
         assert_eq!(
@@ -3340,7 +3342,10 @@ mod tests {
             error_kind(VmConfigError::UpdateNotAllowedPostBoot),
             ErrorKind::User
         );
+    }
 
+    #[test]
+    fn test_network_interface_error_conversion() {
         // Test `NetworkInterfaceError` conversion
         assert_eq!(
             error_kind(NetworkInterfaceError::GuestMacAddressInUse(String::new())),
@@ -3401,7 +3406,10 @@ mod tests {
             error_kind(NetworkInterfaceError::UpdateNotAllowedPostBoot),
             ErrorKind::User
         );
+    }
 
+    #[test]
+    fn test_start_microvm_error_conversion_cl() {
         // Test `StartMicrovmError` conversion
         #[cfg(target_arch = "x86_64")]
         assert_eq!(
@@ -3482,6 +3490,10 @@ mod tests {
             )),
             ErrorKind::Internal
         );
+    }
+
+    #[test]
+    fn test_start_microvm_error_conversion_mv() {
         assert_eq!(
             error_kind(StartMicrovmError::MicroVMAlreadyRunning),
             ErrorKind::User

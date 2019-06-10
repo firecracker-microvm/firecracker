@@ -542,13 +542,10 @@ mod tests {
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         let vmm = create_vmm_object();
 
-        if let Ok(_) = device_manager.register_virtio_device(
-            vmm.vm.get_fd(),
-            dummy_box,
-            &mut cmdline,
-            TYPE_BLOCK,
-            "foo",
-        ) {
+        if device_manager
+            .register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, TYPE_BLOCK, "foo")
+            .is_ok()
+        {
             assert!(device_manager.update_drive("foo", 1_048_576).is_ok());
         }
         assert!(device_manager
@@ -581,19 +578,11 @@ mod tests {
                 .is_some());
             assert_eq!(
                 addr,
-                device_manager
-                    .id_to_dev_info
-                    .get(&(DeviceType::Virtio(type_id), id.clone()))
-                    .unwrap()
-                    .addr
+                device_manager.id_to_dev_info[&(DeviceType::Virtio(type_id), id.clone())].addr
             );
             assert_eq!(
                 arch::IRQ_BASE,
-                device_manager
-                    .id_to_dev_info
-                    .get(&(DeviceType::Virtio(type_id), id.clone()))
-                    .unwrap()
-                    .irq
+                device_manager.id_to_dev_info[&(DeviceType::Virtio(type_id), id.clone())].irq
             );
         }
         let id = "bar";

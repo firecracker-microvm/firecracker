@@ -103,7 +103,7 @@ pub mod tests {
         }
 
         // check that get_cpuid returns correct error for invalid `function`
-        match get_cpuid(0x90000000, 0) {
+        match get_cpuid(0x9000_0000, 0) {
             Err(Error::InvalidParameters(s)) => {
                 assert!(s == "Function not supported: 0x90000000");
             }
