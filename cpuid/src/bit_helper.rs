@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn test_simple_read_bit() {
         // Set bit to 1
-        let val: u32 = 0b100000;
+        let val: u32 = 0b10_0000;
         assert!(val.read_bit(5));
         assert!(!val.read_bit(4));
     }
