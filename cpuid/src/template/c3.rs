@@ -1,6 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use bit_helper::BitHelper;
 use cpu_leaf::*;
 use kvm_bindings::kvm_cpuid_entry2;
 
@@ -66,15 +67,33 @@ pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::RDT_M_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::RDT_A_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512F_SHIFT);
+                    entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512DQ_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::RDSEED_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::ADX_SHIFT);
+                    entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512IFMA_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::PT_SHIFT);
+                    entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512PF_SHIFT);
+                    entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512ER_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512CD_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::SHA_SHIFT);
+                    entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512BW_SHIFT);
+                    entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512VL_SHIFT);
 
+                    entry.ecx &= !(1 << leaf_0x7::index0::ecx::AVX512_VBMI_SHIFT);
+                    entry.ecx &= !(1 << leaf_0x7::index0::ecx::AVX512_VPOPCNTDQ_SHIFT);
                     entry.ecx &= !(1 << leaf_0x7::index0::ecx::RDPID_SHIFT);
                     entry.ecx &= !(1 << leaf_0x7::index0::ecx::SGX_LC_SHIFT);
+
+                    entry.edx &= !(1 << leaf_0x7::index0::edx::AVX512_4VNNIW_SHIFT);
+                    entry.edx &= !(1 << leaf_0x7::index0::edx::AVX512_4FMAPS_SHIFT);
                 }
+            }
+            leaf_0xd::LEAF_NUM => {
+                // AVX-512 instructions are masked out with the C3 template so the size in bytes
+                // of the save area should be 0 (or invalid).
+                entry
+                    .eax
+                    .write_bits_in_range(&leaf_0xd::eax::AVX512_STATE_BITRANGE, 0);
             }
             leaf_0x80000001::LEAF_NUM => {
                 entry.ecx &= !(1 << leaf_0x80000001::ecx::PREFETCH_SHIFT);
