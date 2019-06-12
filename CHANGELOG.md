@@ -1,13 +1,29 @@
 # Changelog
 
-## [Unreleased]
+## [0.17.0]
 
 ### Added
 
+- New API call: `PATCH /machine-config/`, used to update VM configuration,
+  before the microVM boots.
 - Added an experimental swagger definition that includes the specification for
   the vsock API call.
 - Added a signal handler for `SIGBUS` and `SIGSEGV` that immediately terminates
   the process upon intercepting the signal.
+- Added documentation for signal handling utilities.
+- Added [alpha] aarch64 support.
+- Added metrics for successful read and write operations of MMDS, Net and Block devices.
+
+### Changed
+
+- `vcpu_count`, `mem_size_mib` and `ht_enabled` have been changed to be mandatory
+  for `PUT` requests on `/machine-config/`.
+- Disallow invalid seccomp levels by exiting with error.
+
+### Fixed
+
+- Incorrect handling of bind mounts within the jailed rootfs.
+- Corrected the guide for `Alpine` guest setup.
 
 ## [0.16.0]
 
@@ -19,8 +35,6 @@
 - New `devtool` command: `tag`. This creates a new git tag for the specified
   release number, based on the changelog contents.
 - New doc section about building with glibc.
-- New API call: `PATCH /machine-config/`, used to update VM configuration, 
-  before the microVM boots.
 
 ### Changed
 
@@ -32,8 +46,6 @@
   than `String`, `Array`, `Object` will return status code 400.
 - Improved multiple error messages.
 - Removed all kernel modules from the recommended kernel config.
-- `vcpu_count`, `mem_size_mib` and `ht_enabled` have been changed to be mandatory
-  for `PUT` requests on `/machine-config/`.
 
 ### Fixed
 
