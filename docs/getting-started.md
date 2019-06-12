@@ -25,8 +25,9 @@ The generic requirements are explained below:
 
 - **Linux 4.14+**
 
-  Firecracker currently supports physical Linux x86_64 hosts, running kernel
-  version 4.14 or later.
+  Firecracker currently supports physical Linux **x86_64** and **aarch64**
+  hosts, running kernel version 4.14 or later. However, the **aarch64** support
+  is not feature complete (alpha stage).
 
 - **KVM**
 
@@ -42,16 +43,18 @@ The generic requirements are explained below:
 the basic requirements to run Firecracker.</summary>
 
 ```bash
-err=""; \
-[ "$(uname) $(uname -m)" = "Linux x86_64" ] \
-  || err="ERROR: your system is not Linux x86_64."; \
-[ -r /dev/kvm ] && [ -w /dev/kvm ] \
-  || err="$err\nERROR: /dev/kvm is innaccessible."; \
-(( $(uname -r | cut -d. -f1)*1000 + $(uname -r | cut -d. -f2) >= 4014 )) \
-  || err="$err\nERROR: your kernel version ($(uname -r)) is too old."; \
-dmesg | grep -i "hypervisor detected" \
-  && echo "WARNING: you are running in a virtual machine. Firecracker is not well tested under nested virtualization."; \
-[ -z "$err" ] && echo "Your system looks ready for Firecracker!" || echo -e "$err"
+    err="";
+    [ "$(uname) $(uname -m)" = "Linux x86_64" ]  \
+      || [ "$(uname) $(uname -m)" = "Linux aarch64" ] \
+      || err="ERROR: your system is not Linux x86_64 or Linux aarch64."; \
+    [ -r /dev/kvm ] && [ -w /dev/kvm ] \
+      || err="$err\nERROR: /dev/kvm is innaccessible."; \
+    (( $(uname -r | cut -d. -f1)*1000 + $(uname -r | cut -d. -f2) >= 4014 )) \
+      || err="$err\nERROR: your kernel version ($(uname -r)) is too old."; \
+    dmesg | grep -i "hypervisor detected" \
+      && echo "WARNING: you are running in a virtual machine." \
+      && echo "Firecracker is not well tested under nested virtualization."; \
+    [ -z "$err" ] && echo "Your system looks ready for Firecracker!" || echo -e "$err"
 ```
 
 </details>
@@ -62,7 +65,7 @@ Firecracker is linked statically against
 [musl](https://www.musl-libc.org/), having no library dependencies. You can
 just download the latest binary from our
 [release page](https://github.com/firecracker-microvm/firecracker/releases),
-and run it on your x86_64 Linux machine.
+and run it on your x86_64 or aarch64 Linux machine.
 
 On the EC2 instance, this binary can be downloaded as:
 
@@ -82,7 +85,6 @@ Make the binary executable:
 chmod +x firecracker
 ```
 
-
 If, instead, you'd like to build Firecracker yourself, you should check out
 the [Building From Source section](#building-from-source) in this doc.
 
@@ -100,14 +102,14 @@ First, make sure you have the `firecracker` binary available - either
 [built from source](#building-from-source).
 
 Next, you will need an uncompressed Linux kernel binary, and an ext4
-file system image (to use as rootfs). You can use these files from our
-microVM image S3 bucket:
-[kernel](
-https://s3.amazonaws.com/spec.ccfc.min/img/hello/kernel/hello-vmlinux.bin
-), and
-[rootfs](
-https://s3.amazonaws.com/spec.ccfc.min/img/hello/fsfiles/hello-rootfs.ext4
-).
+file system image (to use as rootfs).
+
+1. To run an `x86_64` guest you can download such resources from:
+    [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/hello/kernel/hello-vmlinux.bin)
+    and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/hello/fsfiles/hello-rootfs.ext4).
+1. To run an `aarch64` guest, download them from:
+    [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/aarch64/ubuntu_with_ssh/kernel/vmlinux.bin)
+    and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/aarch64/ubuntu_with_ssh/fsfiles/xenial.rootfs.ext4).
 
 Now, let's open up two shell prompts: one to run Firecracker, and another one
 to control it (by writing to the API socket). For the purpose of this guide,
@@ -133,33 +135,72 @@ In your **second shell** prompt:
 - get the kernel and rootfs, if you don't have any available:
 
   ```bash
-  curl -fsSL -o hello-vmlinux.bin https://s3.amazonaws.com/spec.ccfc.min/img/hello/kernel/hello-vmlinux.bin
-  curl -fsSL -o hello-rootfs.ext4 https://s3.amazonaws.com/spec.ccfc.min/img/hello/fsfiles/hello-rootfs.ext4
+    arch=`uname -m`
+    dest_kernel="hello-vmlinux.bin"
+    dest_rootfs="hello-rootfs.ext4"
+    image_bucket_url="https://s3.amazonaws.com/spec.ccfc.min/img"
+
+    if [ ${arch} = "x86_64" ]; then
+            kernel="${image_bucket_url}/hello/kernel/hello-vmlinux.bin"
+            rootfs="${image_bucket_url}/hello/fsfiles/hello-rootfs.ext4"
+    elif [ ${arch} = "aarch64" ]; then
+            kernel="${image_bucket_url}/aarch64/ubuntu_with_ssh/kernel/vmlinux.bin"
+            rootfs="${image_bucket_url}/aarch64/ubuntu_with_ssh/fsfiles/xenial.rootfs.ext4"
+    else
+            echo "Cannot run firecracker on $arch architecture!"
+            exit 1
+    fi
+
+    echo "Downloading $kernel..."
+    curl -fsSL -o $dest_kernel $kernel
+
+    echo "Downloading $rootfs..."
+    curl -fsSL -o $dest_rootfs $rootfs
+
+    echo "Saved kernel file to $dest_kernel and root block device to $dest_rootfs."
   ```
 
 - set the guest kernel:
 
   ```bash
-  curl --unix-socket /tmp/firecracker.socket -i \
-      -X PUT 'http://localhost/boot-source'   \
-      -H 'Accept: application/json'           \
-      -H 'Content-Type: application/json'     \
-      -d '{
-          "kernel_image_path": "./hello-vmlinux.bin",
-          "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
-      }'
+    arch=`uname -m`
+    kernel_path="hello-vmlinux.bin"
+
+    if [ ${arch} = "x86_64" ]; then
+      curl --unix-socket /tmp/firecracker.socket -i \
+          -X PUT 'http://localhost/boot-source'   \
+          -H 'Accept: application/json'           \
+          -H 'Content-Type: application/json'     \
+          -d '{
+              "kernel_image_path": \"${kernel_path}\",
+              "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+          }'
+    elif [ ${arch} = "aarch64" ]; then
+        curl --unix-socket /tmp/firecracker.socket -i \
+          -X PUT 'http://localhost/boot-source'   \
+          -H 'Accept: application/json'           \
+          -H 'Content-Type: application/json'     \
+          -d '{
+              "kernel_image_path": \"${kernel_path}\,
+              "boot_args": "keep_bootcon console=tty1 reboot=k panic=1 pci=off"
+          }'
+    else
+        echo "Cannot run firecracker on $arch architecture!"
+        exit 1
+    fi
   ```
 
 - set the guest rootfs:
 
   ```bash
-  curl --unix-socket /tmp/firecracker.socket -i \
+    rootfs_path="hello-rootfs.ext4"
+    curl --unix-socket /tmp/firecracker.socket -i \
       -X PUT 'http://localhost/drives/rootfs' \
       -H 'Accept: application/json'           \
       -H 'Content-Type: application/json'     \
       -d '{
           "drive_id": "rootfs",
-          "path_on_host": "./hello-rootfs.ext4",
+          "path_on_host": \"${rootfs_path}\,
           "is_root_device": true,
           "is_read_only": false
       }'
@@ -181,11 +222,9 @@ Going back to your first shell, you should now see a serial TTY prompting you
 to log into the guest machine. If you used our `hello-rootfs.ext4` image,
 you can login as `root`, using the password `root`.
 
-When you're done,
-issuing a `reboot` command inside the guest will shutdown Firecracker
-gracefully. This is because, since microVMs are not designed to be restarted,
-and Firecracker doesn't currently implement guest power management, we're
-using the keyboard reset action as a shut down switch.
+When you're done, issuing a `reboot` command inside the guest will actually
+shutdown Firecracker gracefully. This is due to the fact that Firecracker
+doesn't implement guest power management.
 
 **Note**: the default microVM will have 1 vCPU and 128 MiB RAM. If you wish to
 customize that (say, 2 vCPUs and 1024MiB RAM), you can do so before issuing
@@ -206,7 +245,7 @@ curl --unix-socket /tmp/firecracker.socket -i  \
 
 The quickest way to build and test Firecracker is by using our development
 tool ([`tools/devtool`](../tools/devtool)). It employs a
-[Docker container](../tools/devctr/Dockerfile)  to store the software toolchain
+per-architecture [Docker container](../tools/devctr/)  to store the software toolchain
 used throughout the development process. If you need help setting up
 [Docker](https://docker.com) on your system, you can check out
 [Appendix B: Setting Up Docker](#appendix-b-setting-up-docker).
@@ -231,9 +270,8 @@ git checkout tags/v0.10.1
 
 Within the Firecracker repository root directory:
 
-```bash
-tools/devtool build
-```
+1. with the default musl target: ```tools/devtool build```
+1. using the gnu target: ```tools/devtool build -l gnu```
 
 This will build and place the two Firecracker binaries at
 `build/debug/firecracker` and `build/debug/jailer`. The default build profile
@@ -264,7 +302,8 @@ toolchains, such as the default Rust toolchains provided in certain Linux
 distributions:
 
 ```bash
-cargo build --target x86_64-unknown-linux-gnu
+arch=`uname -m`
+cargo build --target ${arch}-unknown-linux-gnu
 ```
 
 That being said, Firecracker binaries built without `devtool` are always
@@ -283,7 +322,11 @@ Please note that the test suite is designed to ensure our
 and, as such, some performance tests may fail when run on a regular desktop
 machine. Specifically, don't be alarmed if you see
 `tests/integration_tests/performance/test_process_startup_time.py` failing when
-not run on an EC2 .metal instance.
+not run on an EC2 .metal instance. You can skip performance tests with:
+
+```bash
+ ./tools/devtool test -- --ignore integration_tests/performance
+ ```
 
 ## Appendix A: Setting Up KVM Access
 
@@ -298,7 +341,8 @@ sudo setfacl -m u:${USER}:rw /dev/kvm
 Otherwise, if access is managed via the `kvm` group:
 
 ```bash
-[ $(stat -c "%G" /dev/kvm) = kvm ] && sudo usermod -aG kvm ${USER} && echo "Access granted."
+[ $(stat -c "%G" /dev/kvm) = kvm ] && sudo usermod -aG kvm ${USER} \
+&& echo "Access granted."
 ```
 
 If none of the above works, you will need to either install the file
@@ -306,9 +350,10 @@ system ACL package for your distro and use the `setfacl` command as above,
 or run Firecracker as `root` (via `sudo`).
 
 You can check if you have access to `/dev/kvm` with:
-  ```bash
-  [ -r /dev/kvm ] && [ -w /dev/kvm ] && echo "OK" || echo "FAIL"
-  ```
+
+```bash
+[ -r /dev/kvm ] && [ -w /dev/kvm ] && echo "OK" || echo "FAIL"
+```
 
 **Note:** If you've just added your user to the `kvm` group via `usermod`, don't
 forget to log out and then back in, so this change takes effect.
