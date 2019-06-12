@@ -217,14 +217,14 @@ dependencies = [
 
 [[package]]
 name = "firecracker"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "api_server 0.1.0",
  "backtrace 0.3.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.27.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "fc_util 0.1.0",
- "jailer 0.16.0",
+ "jailer 0.17.0",
  "logger 0.1.0",
  "mmds 0.1.0",
  "seccomp 0.1.0",
@@ -319,7 +319,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "jailer"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "clap 2.27.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "fc_util 0.1.0",

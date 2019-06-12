@@ -41,6 +41,7 @@ Contributors to the Firecracker repository:
 * Dan Lemmond <d.j.lemmond@gmail.com>
 * Deepesh Pathak <deepshpathak@gmail.com>
 * Diana Popa <dpopa@amazon.com>
+* Dmitrii <dmitrii.ustiugov@epfl.ch>
 * Filippo Sironi <sironi@amazon.de>
 * Gabe Jackson <gj@mail.co.de>
 * german gomez <germangb42@gmail.com>
@@ -55,6 +56,7 @@ Contributors to the Firecracker repository:
 * Lloyd <lloydmeta@gmail.com>
 * lloydmeta <lloydmeta@gmail.com>
 * maciejhirsz <maciej.hirsz@gmail.com>
+* Manohar Castelino <manohar.r.castelino@intel.com>
 * Marc Brooker <mbrooker@amazon.com>
 * Masatoshi Higuchi <matt9ucci@gmail.com>
 * Massimiliano Torromeo <massimiliano.torromeo@gmail.com>

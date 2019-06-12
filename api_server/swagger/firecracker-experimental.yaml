@@ -6,7 +6,7 @@ info:
                carrying JSON modeled data.
                The transport medium is a Unix Domain Socket.
                This API has definitions for experimental features like vsock.
-  version: 0.16.0
+  version: 0.17.0
   termsOfService: ""
   contact:
     email: "compute-capsule@amazon.com"
