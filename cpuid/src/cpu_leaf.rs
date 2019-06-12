@@ -129,37 +129,59 @@ pub mod leaf_0x7 {
             pub const RDT_A_SHIFT: u32 = 15;
             // AVX-512 Foundation instructions
             pub const AVX512F_SHIFT: u32 = 16;
+            // AVX-512 Doubleword and Quadword Instructions
+            pub const AVX512DQ_SHIFT: u32 = 17;
             pub const RDSEED_SHIFT: u32 = 18;
             pub const ADX_SHIFT: u32 = 19;
             // 20 = SMAP (Supervisor-Mode Access Prevention)
-            // 21 & 22 reserved
+            // AVX512IFMA = AVX-512 Integer Fused Multiply-Add Instructions
+            pub const AVX512IFMA_SHIFT: u32 = 21;
+            // 21 = PCOMMIT intruction
             // 23 = CLFLUSH_OPT (flushing multiple cache lines in parallel within a single logical processor)
             // 24 = CLWB (Cache Line Write Back)
             // PT = Intel Processor Trace
             pub const PT_SHIFT: u32 = 25;
-            // AVX512CD = AVX512 Conflict Detection
+            // AVX512PF = AVX512 Prefetch Instructions
+            pub const AVX512PF_SHIFT: u32 = 26;
+            // AVX512ER = AVX-512 Exponential and Reciprocal Instructions
+            pub const AVX512ER_SHIFT: u32 = 27;
+            // AVX512CD = AVX-512 Conflict Detection Instructions
             pub const AVX512CD_SHIFT: u32 = 28;
             // Intel Secure Hash Algorithm Extensions
             pub const SHA_SHIFT: u32 = 29;
-            // 30 - 32 reserved
+            // AVX-512 Byte and Word Instructions
+            pub const AVX512BW_SHIFT: u32 = 30;
+            // AVX-512 Vector Length Extensions
+            pub const AVX512VL_SHIFT: u32 = 31;
         }
 
         pub mod ecx {
             // 0 = PREFETCHWT1 (move data closer to the processor in anticipation of future use)
-            // 1 = reserved
+            // AVX512_VBMI = AVX-512 Vector Byte Manipulation Instructions
+            pub const AVX512_VBMI_SHIFT: u32 = 1;
             // 2 = UMIP (User Mode Instruction Prevention)
             // 3 = PKU (Protection Keys for user-mode pages)
             // 4 = OSPKE (If 1, OS has set CR4.PKE to enable protection keys)
-            // 5- 16 reserved
+            // 5 = WAITPKG
+            // 7-6 reserved
+            // 8 = GFNI
+            // 13-09 reserved
+            // AVX512_VPOPCNTDQ = Vector population count instruction (Intel® Xeon Phi™ only.)
+            pub const AVX512_VPOPCNTDQ_SHIFT: u32 = 14;
             // 21 - 17 = The value of MAWAU used by the BNDLDX and BNDSTX instructions in 64-bit mode.
-            pub const RDPID_SHIFT: u32 = 22; // Read Processor ID
-                                             // 23 - 29 reserved
-                                             // SGX_LC = SGX Launch Configuration
+            // Read Processor ID
+            pub const RDPID_SHIFT: u32 = 22;
+            // 23 - 29 reserved
+            // SGX_LC = SGX Launch Configuration
             pub const SGX_LC_SHIFT: u32 = 30;
             // 31 reserved
         }
 
         pub mod edx {
+            // AVX-512 4-register Neural Network Instructions
+            pub const AVX512_4VNNIW_SHIFT: u32 = 2;
+            // AVX-512 4-register Multiply Accumulation Single precision
+            pub const AVX512_4FMAPS_SHIFT: u32 = 3;
             pub const ARCH_CAPABILITIES_BITINDEX: u32 = 29;
         }
     }
@@ -198,6 +220,17 @@ pub mod leaf_0xb {
 
         pub const LEVEL_TYPE_BITRANGE: BitRange = bit_range!(15, 8);
         pub const LEVEL_NUMBER_BITRANGE: BitRange = bit_range!(7, 0);
+    }
+}
+
+// Processor Extended State Enumeration Sub-leaves
+pub mod leaf_0xd {
+    pub const LEAF_NUM: u32 = 0xd;
+
+    pub mod eax {
+        use bit_helper::BitRange;
+
+        pub const AVX512_STATE_BITRANGE: BitRange = bit_range!(7, 5);
     }
 }
 

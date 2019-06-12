@@ -301,3 +301,46 @@ def test_brand_string(test_microvm_with_ssh, network_config):
             expected_guest_brand_string += " @ " + mo.group(0)
 
     assert guest_brand_string == expected_guest_brand_string
+
+
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="AVX features are only available on x86_64"
+)
+@pytest.mark.parametrize("cpu_template", ["T2", "C3"])
+def test_avx_disabled(test_microvm_with_ssh, network_config, cpu_template):
+    """Check that AVX2 & AVX512 instructions are disabled.
+
+    This is a rather dummy test for checking that no AVX2 or AVX512
+    instructions are exposed. It is a first step into checking the t2 & c3
+    templates. In a next iteration we should check **all** cpuid entries, not
+    just the AVX family instructions. We can achieve this with a template
+    containing all features on a t2/c3 instance and check that the cpuid in
+    the guest is an exact match of the template.
+    """
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    test_microvm.basic_config(vcpu_count=1)
+    # Set the template to T2.
+    response = test_microvm.machine_cfg.put(
+        vcpu_count=1,
+        mem_size_mib=256,
+        ht_enabled=False,
+        cpu_template=cpu_template,
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    test_microvm.start()
+
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    guest_cmd = "cat /proc/cpuinfo | grep 'flags' | head -1"
+    _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
+    assert stderr.read().decode("utf-8") == ''
+
+    cpu_flags_output = stdout.readline().decode('utf-8').rstrip()
+    # On C3 there's no AVX2. Check that it is masked out.
+    if cpu_template == "C3":
+        assert not "avx2" in cpu_flags_output
+    # Check that AVX-512 is masked out with both C3 and T2 templates
+    assert not "avx512" in cpu_flags_output
