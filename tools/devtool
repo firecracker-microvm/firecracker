@@ -367,12 +367,14 @@ cmd_help() {
     echo ""
     echo "Available commands:"
     echo ""
-    echo "    build [--debug|--release] [-- [<cargo args>]]"
+    echo "    build [--debug|--release] [-l|--libc musl|gnu] [-- [<cargo args>]]"
     echo "        Build the Firecracker binaries."
     echo "        Firecracker is built using the Rust build system (cargo). All arguments after --"
     echo "        will be passed through to cargo."
-    echo "        --debug             Build the debug binaries. This is the default."
-    echo "        --release           Build the release binaries."
+    echo "        --debug               Build the debug binaries. This is the default."
+    echo "        --release             Build the release binaries."
+    echo "        -l, --libc musl|gnu   Choose the libc flavor against which Firecracker will"
+    echo "                              be linked. Default is musl."
     echo ""
     echo "    fmt"
     echo "        Auto-format all Rust source files, to match the Firecracker requirements."
@@ -414,6 +416,7 @@ cmd_build() {
 
     # By default, we'll build the debug binaries.
     profile="debug"
+    libc="musl"
 
     # Parse any command line args.
     while [ $# -gt 0 ]; do
@@ -421,6 +424,12 @@ cmd_build() {
             "-h"|"--help")  { cmd_help; exit 1;     } ;;
             "--debug")      { profile="debug";      } ;;
             "--release")    { profile="release";    } ;;
+            "-l"|"--libc")
+                shift
+                [[ "$1" =~ ^(musl|gnu)$ ]] || \
+                    die "Invalid libc: $1. Valid options are \"musl\" and \"gnu\"."
+                libc="$1"
+                ;;
             "--")           { shift; break;         } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -429,39 +438,55 @@ cmd_build() {
         shift
     done
 
+    target="$(uname -m)-unknown-linux-${libc}"
+
     # Check prerequisites
     ensure_devctr
     ensure_build_dir
 
-    say "Starting build ($profile) ..."
+    say "Starting build ($profile, $libc) ..."
 
     # Cargo uses the debug profile by default. If we're building the release
     # binaries, we need to pass an extra argument to cargo.
     cargo_args=("$@")
+
     [ $profile = "release" ] && cargo_args+=("--release")
 
     # Run the cargo build process inside the container.
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.
+    #
+    # Note: we need to pass an explicit TARGET_CC to cargo, because the `cc`
+    # crate gets confused for aarch64 musl.
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
+        --env TARGET_CC=musl-gcc \
         -- \
         cargo build \
-            --target-dir "${CTR_CARGO_TARGET_DIR}" \
+            --target-dir "$CTR_CARGO_TARGET_DIR" \
+            --target "$target" \
             "${cargo_args[@]}"
     ret=$?
 
     # If `cargo build` was successful, let's copy the binaries to a more
-    # accessible location (under build/release or build/debug).
-    if [ $ret -eq 0 ]; then
-        mkdir -p "${FC_BUILD_DIR}/${profile}"
-        cp -f "${CARGO_TARGET_DIR}/${profile}"/{firecracker,jailer} \
-            "${FC_BUILD_DIR}/${profile}/"
-        ret=$?
-    fi
-    [ $ret -eq 0 ] && \
-        say "Build complete. Binaries placed under ${FC_BUILD_DIR}/${profile}/"
+    # accessible location.
+    [ $ret -eq 0 ] && {
+        cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
+        friendly_bin_dir="$FC_BUILD_DIR/$profile-$libc"
+        say "Build successful."
+
+        mkdir -p "$friendly_bin_dir"
+        [ $? -eq 0 ] || {
+            say_warn "Unable to create dir $friendly_bin_dir."
+            say_warn "Binaries placed under $cargo_bin_dir/"
+            return $ret
+        }
+        cp -f "$cargo_bin_dir"/{firecracker,jailer} "$friendly_bin_dir/"
+        say "Build complete."
+        say "Binaries placed under $friendly_bin_dir"
+    }
+
     return $ret
 }
 
