@@ -305,24 +305,28 @@ def test_brand_string(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="AVX features are available only on x86_64."
+    reason="CPU features are masked only on x86_64."
 )
 @pytest.mark.parametrize("cpu_template", ["T2", "C3"])
-def test_avx_disabled(test_microvm_with_ssh, network_config, cpu_template):
+def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     """Check that AVX2 & AVX512 instructions are disabled.
 
-    This is a rather dummy test for checking that no AVX2 or AVX512
-    instructions are exposed. It is a first step into checking the t2 & c3
+    This is a rather dummy test for checking that some features are not
+    exposed by mistake. It is a first step into checking the t2 & c3
     templates. In a next iteration we should check **all** cpuid entries, not
-    just the AVX family instructions. We can achieve this with a template
+    just these features. We can achieve this with a template
     containing all features on a t2/c3 instance and check that the cpuid in
     the guest is an exact match of the template.
     """
+    common_masked_features = ["avx512", "mpx", "clflushopt", "clwb", "xsavec",
+                              "xgetbv1", "xsaves", "pku", "ospke"]
+    c3_masked_features = ["avx2"]
+
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
     test_microvm.basic_config(vcpu_count=1)
-    # Set the template to T2.
+    # Set template as specified in the `cpu_template` parameter.
     response = test_microvm.machine_cfg.put(
         vcpu_count=1,
         mem_size_mib=256,
@@ -339,8 +343,10 @@ def test_avx_disabled(test_microvm_with_ssh, network_config, cpu_template):
     assert stderr.read().decode("utf-8") == ''
 
     cpu_flags_output = stdout.readline().decode('utf-8').rstrip()
-    # On C3 there's no AVX2. Check that it is masked out.
+
     if cpu_template == "C3":
-        assert not "avx2" in cpu_flags_output
-    # Check that AVX-512 is masked out with both C3 and T2 templates
-    assert not "avx512" in cpu_flags_output
+        for feature in c3_masked_features:
+            assert feature not in cpu_flags_output
+    # Check that all features in `common_masked_features` are properly masked.
+    for feature in common_masked_features:
+        assert feature not in cpu_flags_output

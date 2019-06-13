@@ -124,7 +124,8 @@ pub mod leaf_0x7 {
             // Intel® Resource Director Technology (Intel® RDT) Monitoring
             pub const RDT_M_SHIFT: u32 = 12;
             // 13 = Deprecates FPU CS and FPU DS values if 1
-            // 14 = MPX (Intel® Memory Protection Extensions)
+            // Memory Protection Extensions
+            pub const MPX_SHIFT: u32 = 14;
             // RDT = Intel® Resource Director Technology
             pub const RDT_A_SHIFT: u32 = 15;
             // AVX-512 Foundation instructions
@@ -137,8 +138,11 @@ pub mod leaf_0x7 {
             // AVX512IFMA = AVX-512 Integer Fused Multiply-Add Instructions
             pub const AVX512IFMA_SHIFT: u32 = 21;
             // 21 = PCOMMIT intruction
-            // 23 = CLFLUSH_OPT (flushing multiple cache lines in parallel within a single logical processor)
-            // 24 = CLWB (Cache Line Write Back)
+            // 22 reserved
+            // CLFLUSHOPT (flushing multiple cache lines in parallel within a single logical processor)
+            pub const CLFLUSHOPT_SHIFT: u32 = 23;
+            // CLWB = Cache Line Write Back
+            pub const CLWB_SHIFT: u32 = 24;
             // PT = Intel Processor Trace
             pub const PT_SHIFT: u32 = 25;
             // AVX512PF = AVX512 Prefetch Instructions
@@ -160,8 +164,10 @@ pub mod leaf_0x7 {
             // AVX512_VBMI = AVX-512 Vector Byte Manipulation Instructions
             pub const AVX512_VBMI_SHIFT: u32 = 1;
             // 2 = UMIP (User Mode Instruction Prevention)
-            // 3 = PKU (Protection Keys for user-mode pages)
-            // 4 = OSPKE (If 1, OS has set CR4.PKE to enable protection keys)
+            // PKU = Protection Keys for user-mode pages
+            pub const PKU_SHIFT: u32 = 3;
+            // OSPKE = If 1, OS has set CR4.PKE to enable protection keys
+            pub const OSPKE_SHIFT: u32 = 4;
             // 5 = WAITPKG
             // 7-6 reserved
             // 8 = GFNI
@@ -227,11 +233,23 @@ pub mod leaf_0xb {
 pub mod leaf_0xd {
     pub const LEAF_NUM: u32 = 0xd;
 
-    pub mod eax {
-        use bit_helper::BitRange;
+    pub mod index0 {
+        pub mod eax {
+            use bit_helper::BitRange;
 
-        pub const AVX512_STATE_BITRANGE: BitRange = bit_range!(7, 5);
+            pub const MPX_STATE_BITRANGE: BitRange = bit_range!(4, 3);
+            pub const AVX512_STATE_BITRANGE: BitRange = bit_range!(7, 5);
+        }
     }
+
+    pub mod index1 {
+        pub mod eax {
+            pub const XSAVEC_SHIFT: u32 = 1;
+            pub const XGETBV_SHIFT: u32 = 2;
+            pub const XSAVES_SHIFT: u32 = 3;
+        }
+    }
+
 }
 
 pub mod leaf_0x80000000 {
