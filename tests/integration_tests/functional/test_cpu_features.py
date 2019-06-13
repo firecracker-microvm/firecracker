@@ -149,7 +149,7 @@ def _check_cache_topology(test_microvm, num_vcpus_on_lvl_1_cache,
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_1vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -165,7 +165,7 @@ def test_1vcpu_ht_disabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_1vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -181,7 +181,7 @@ def test_1vcpu_ht_enabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -197,7 +197,7 @@ def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_2vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -213,7 +213,7 @@ def test_2vcpu_ht_enabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_16vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -229,7 +229,7 @@ def test_16vcpu_ht_disabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_16vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -245,7 +245,7 @@ def test_16vcpu_ht_enabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="The CPU brand string is masked only on x86_64."
 )
 def test_brand_string(test_microvm_with_ssh, network_config):
     """Ensure good formatting for the guest band string.
@@ -305,7 +305,7 @@ def test_brand_string(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="AVX features are only available on x86_64"
+    reason="AVX features are available only on x86_64."
 )
 @pytest.mark.parametrize("cpu_template", ["T2", "C3"])
 def test_avx_disabled(test_microvm_with_ssh, network_config, cpu_template):
