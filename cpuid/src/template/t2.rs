@@ -59,11 +59,14 @@ pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::RTM_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::RDT_M_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::RDT_A_SHIFT);
+                    entry.ebx &= !(1 << leaf_0x7::index0::ebx::MPX_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512F_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512DQ_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::RDSEED_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::ADX_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512IFMA_SHIFT);
+                    entry.ebx &= !(1 << leaf_0x7::index0::ebx::CLFLUSHOPT_SHIFT);
+                    entry.ebx &= !(1 << leaf_0x7::index0::ebx::CLWB_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::PT_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512PF_SHIFT);
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512ER_SHIFT);
@@ -73,6 +76,8 @@ pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
                     entry.ebx &= !(1 << leaf_0x7::index0::ebx::AVX512VL_SHIFT);
 
                     entry.ecx &= !(1 << leaf_0x7::index0::ecx::AVX512_VBMI_SHIFT);
+                    entry.ecx &= !(1 << leaf_0x7::index0::ecx::PKU_SHIFT);
+                    entry.ecx &= !(1 << leaf_0x7::index0::ecx::OSPKE_SHIFT);
                     entry.ecx &= !(1 << leaf_0x7::index0::ecx::AVX512_VPOPCNTDQ_SHIFT);
                     entry.ecx &= !(1 << leaf_0x7::index0::ecx::RDPID_SHIFT);
                     entry.ecx &= !(1 << leaf_0x7::index0::ecx::SGX_LC_SHIFT);
@@ -82,11 +87,25 @@ pub fn set_cpuid_entries(entries: &mut [kvm_cpuid_entry2]) {
                 }
             }
             leaf_0xd::LEAF_NUM => {
-                // AVX-512 instructions are masked out with the T2 template so the size in bytes
-                // of the save area should be 0 (or invalid).
-                entry
-                    .eax
-                    .write_bits_in_range(&leaf_0xd::eax::AVX512_STATE_BITRANGE, 0);
+                if entry.index == 0 {
+                    // MPX is masked out with the T2 template so the size in in bytes of the save
+                    // area should be 0 (or invalid).
+                    entry
+                        .eax
+                        .write_bits_in_range(&leaf_0xd::index0::eax::MPX_STATE_BITRANGE, 0);
+
+                    // AVX-512 instructions are masked out with the T2 template so the size in bytes
+                    // of the save area should be 0 (or invalid).
+                    entry
+                        .eax
+                        .write_bits_in_range(&leaf_0xd::index0::eax::AVX512_STATE_BITRANGE, 0);
+                }
+
+                if entry.index == 1 {
+                    entry.eax &= !(1 << leaf_0xd::index1::eax::XSAVEC_SHIFT);
+                    entry.eax &= !(1 << leaf_0xd::index1::eax::XGETBV_SHIFT);
+                    entry.eax &= !(1 << leaf_0xd::index1::eax::XSAVES_SHIFT);
+                }
             }
             leaf_0x80000001::LEAF_NUM => {
                 entry.ecx &= !(1 << leaf_0x80000001::ecx::PREFETCH_SHIFT);
