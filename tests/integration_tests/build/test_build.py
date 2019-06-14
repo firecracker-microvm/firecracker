@@ -18,7 +18,7 @@ FEATURES = ["", "vsock"]
 if MACHINE == "aarch64":
     FEATURES = [""]
 
-BUILD_TYPES = ["debug", "release"]
+BUILD_TYPES = ["release"]
 
 TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
            "{}-unknown-linux-musl".format(MACHINE)]
