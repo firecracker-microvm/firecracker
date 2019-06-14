@@ -18,18 +18,17 @@ FEATURES = ["", "vsock"]
 if MACHINE == "aarch64":
     FEATURES = [""]
 
-BUILD_TYPES = ["release"]
 
 TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
            "{}-unknown-linux-musl".format(MACHINE)]
 
 
 @pytest.mark.parametrize(
-    "features, build_type, target",
-    itertools.product(FEATURES, BUILD_TYPES, TARGETS)
+    "features, target",
+    itertools.product(FEATURES, TARGETS)
 )
 @pytest.mark.timeout(400)
-def test_build(test_session_root_path, features, build_type, target):
+def test_build(test_session_root_path, features, target):
     """
     Test different builds.
 
@@ -38,9 +37,7 @@ def test_build(test_session_root_path, features, build_type, target):
     """
     extra_env = ''
     extra_args = "--target {} ".format(target)
-
-    if build_type == "release":
-        extra_args += "--release "
+    extra_args += "--release "
 
     if "musl" in target:
         extra_env += "TARGET_CC=musl-gcc"
@@ -53,7 +50,6 @@ def test_build(test_session_root_path, features, build_type, target):
     # relative directory will be "release-vsock".
     rel_path = os.path.join(
         host.CARGO_BUILD_REL_PATH,
-        build_type
     )
     if features:
         rel_path += "-{}".format(features)
