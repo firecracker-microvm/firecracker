@@ -149,7 +149,7 @@ def _check_cache_topology(test_microvm, num_vcpus_on_lvl_1_cache,
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_1vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -165,7 +165,7 @@ def test_1vcpu_ht_disabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_1vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -181,7 +181,7 @@ def test_1vcpu_ht_enabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -197,7 +197,7 @@ def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_2vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -213,7 +213,7 @@ def test_2vcpu_ht_enabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_16vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -229,7 +229,7 @@ def test_16vcpu_ht_disabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="Firecracker supports topology and feature masking only on x86_64."
 )
 def test_16vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
@@ -245,7 +245,7 @@ def test_16vcpu_ht_enabled(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="cpu feattures are only customized on x86_64"
+    reason="The CPU brand string is masked only on x86_64."
 )
 def test_brand_string(test_microvm_with_ssh, network_config):
     """Ensure good formatting for the guest band string.
@@ -301,3 +301,52 @@ def test_brand_string(test_microvm_with_ssh, network_config):
             expected_guest_brand_string += " @ " + mo.group(0)
 
     assert guest_brand_string == expected_guest_brand_string
+
+
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="CPU features are masked only on x86_64."
+)
+@pytest.mark.parametrize("cpu_template", ["T2", "C3"])
+def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
+    """Check that AVX2 & AVX512 instructions are disabled.
+
+    This is a rather dummy test for checking that some features are not
+    exposed by mistake. It is a first step into checking the t2 & c3
+    templates. In a next iteration we should check **all** cpuid entries, not
+    just these features. We can achieve this with a template
+    containing all features on a t2/c3 instance and check that the cpuid in
+    the guest is an exact match of the template.
+    """
+    common_masked_features = ["avx512", "mpx", "clflushopt", "clwb", "xsavec",
+                              "xgetbv1", "xsaves", "pku", "ospke"]
+    c3_masked_features = ["avx2"]
+
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    test_microvm.basic_config(vcpu_count=1)
+    # Set template as specified in the `cpu_template` parameter.
+    response = test_microvm.machine_cfg.put(
+        vcpu_count=1,
+        mem_size_mib=256,
+        ht_enabled=False,
+        cpu_template=cpu_template,
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    test_microvm.start()
+
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    guest_cmd = "cat /proc/cpuinfo | grep 'flags' | head -1"
+    _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
+    assert stderr.read().decode("utf-8") == ''
+
+    cpu_flags_output = stdout.readline().decode('utf-8').rstrip()
+
+    if cpu_template == "C3":
+        for feature in c3_masked_features:
+            assert feature not in cpu_flags_output
+    # Check that all features in `common_masked_features` are properly masked.
+    for feature in common_masked_features:
+        assert feature not in cpu_flags_output
