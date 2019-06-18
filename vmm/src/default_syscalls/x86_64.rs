@@ -47,6 +47,8 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     and![Cond::new(1, Eq, super::FUTEX_WAIT_PRIVATE)?],
                     and![Cond::new(1, Eq, super::FUTEX_WAKE_PRIVATE)?],
                     and![Cond::new(1, Eq, super::FUTEX_REQUEUE_PRIVATE)?],
+                    #[cfg(target_env = "gnu")]
+                    and![Cond::new(1, Eq, super::FUTEX_CMP_REQUEUE_PRIVATE)?],
                 ],
             ),
             allow_syscall(libc::SYS_getrandom),
@@ -59,7 +61,6 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             ),
             allow_syscall(libc::SYS_mmap),
             allow_syscall(libc::SYS_munmap),
-            #[cfg(target_env = "musl")]
             allow_syscall(libc::SYS_open),
             #[cfg(target_env = "gnu")]
             allow_syscall(libc::SYS_openat),
