@@ -12,9 +12,6 @@ use seccomp::{
 pub fn default_filter() -> Result<SeccompFilter, Error> {
     Ok(SeccompFilter::new(
         vec![
-            #[cfg(target_env = "musl")]
-            allow_syscall(libc::SYS_accept),
-            #[cfg(target_env = "gnu")]
             allow_syscall(libc::SYS_accept4),
             allow_syscall(libc::SYS_brk),
             allow_syscall(libc::SYS_clock_gettime),
