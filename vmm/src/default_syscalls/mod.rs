@@ -8,15 +8,9 @@ use seccomp::{
 
 #[macro_use]
 mod macros;
-#[cfg(target_arch = "aarch64")]
-mod aarch64;
-#[cfg(target_arch = "x86_64")]
-mod x86_64;
+mod filters;
 
-#[cfg(target_arch = "aarch64")]
-pub use self::aarch64::default_filter;
-#[cfg(target_arch = "x86_64")]
-pub use self::x86_64::default_filter;
+pub use self::filters::default_filter;
 
 /// Applies the configured level of seccomp filtering to the current thread.
 ///
