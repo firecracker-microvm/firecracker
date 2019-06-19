@@ -946,8 +946,8 @@ impl SeccompFilter {
         filter_len: &mut usize,
     ) -> Result<()> {
         // The rules of the chain are translated into BPF statements.
-        let chain: Vec<_> = chain.into_iter().map(|rule| rule.into_bpf()).collect();
-        let chain_len: usize = chain.iter().map(|rule| rule.len()).sum();
+        let chain: Vec<_> = chain.into_iter().map(SeccompRule::into_bpf).collect();
+        let chain_len: usize = chain.iter().map(std::vec::Vec::len).sum();
 
         // The chain starts with a comparison checking the loaded syscall number against the
         // syscall number of the chain.
