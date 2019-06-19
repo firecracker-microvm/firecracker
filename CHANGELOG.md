@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Corrected firecracker-experimental.yaml indentation issues that
+  prevented code generation
+
 ## [0.17.0]
 
 ### Added
