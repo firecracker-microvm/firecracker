@@ -210,6 +210,9 @@ mod tests {
     }
 
     #[test]
+    // Allow assertions on constants so we can have asserts on the values returned
+    // when result is Ok.
+    #[allow(clippy::assertions_on_constants)]
     fn test_into_request_line() {
         let expected_request_line = RequestLine {
             http_version: Version::Http10,

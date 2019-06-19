@@ -961,7 +961,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_virtio_device() {
         let mut dummy = DummyBlock::new(true);
         let b = dummy.block();
@@ -1098,7 +1098,7 @@ mod tests {
     //  * interrupt_evt.write
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_handler() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, vq) = default_test_blockepollhandler(&m);

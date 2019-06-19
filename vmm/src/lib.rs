@@ -1772,19 +1772,25 @@ impl Vmm {
         handler.patch_rate_limiters(
             new_cfg
                 .rx_rate_limiter
-                .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
+                .map(|rl| {
+                    rl.bandwidth
+                        .map(vmm_config::TokenBucketConfig::into_token_bucket)
+                })
                 .unwrap_or(None),
             new_cfg
                 .rx_rate_limiter
-                .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
+                .map(|rl| rl.ops.map(vmm_config::TokenBucketConfig::into_token_bucket))
                 .unwrap_or(None),
             new_cfg
                 .tx_rate_limiter
-                .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
+                .map(|rl| {
+                    rl.bandwidth
+                        .map(vmm_config::TokenBucketConfig::into_token_bucket)
+                })
                 .unwrap_or(None),
             new_cfg
                 .tx_rate_limiter
-                .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
+                .map(|rl| rl.ops.map(vmm_config::TokenBucketConfig::into_token_bucket))
                 .unwrap_or(None),
         );
 
@@ -2544,7 +2550,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_machine_configuration() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
 
@@ -2958,6 +2964,9 @@ mod tests {
     }
 
     #[test]
+    // Allow assertions on constants is necessary because we cannot implement
+    // PartialEq on VmmActionError.
+    #[allow(clippy::assertions_on_constants)]
     fn test_block_device_rescan() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config(None);
