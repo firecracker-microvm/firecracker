@@ -190,6 +190,8 @@ mod tests {
         unsafe {
             syscall(libc::SYS_kill, process::id(), SIGBUS);
         }
-        assert!(true);
+        // This assert has no effect. Commenting it out till it's fixed.
+        // Related issue: https://github.com/firecracker-microvm/firecracker/issues/1141
+        // assert!(true);
     }
 }

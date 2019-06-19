@@ -936,6 +936,10 @@ impl VirtioDevice for Net {
 }
 
 #[cfg(test)]
+// Allow assertions on constants is necessary because we cannot implement
+// PartialEq on ActivateError as we have references to std::io::Error which
+// don't implement the trait.
+#[allow(clippy::assertions_on_constants)]
 mod tests {
     use std::sync::mpsc::Receiver;
     use std::thread;
@@ -1100,11 +1104,10 @@ mod tests {
         n.activate(mem.clone(), interrupt_evt, status, queues, queue_evts)
     }
 
-    #[allow(clippy::needless_lifetimes)]
-    fn default_test_netepollhandler<'a>(
-        mem: &'a GuestMemory,
+    fn default_test_netepollhandler(
+        mem: &'_ GuestMemory,
         test_mutators: TestMutators,
-    ) -> (NetEpollHandler, VirtQueue<'a>, VirtQueue<'a>) {
+    ) -> (NetEpollHandler, VirtQueue<'_>, VirtQueue<'_>) {
         let mut dummy = DummyNet::new(None);
         let n = dummy.net();
 
@@ -1160,7 +1163,9 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
+    // Allowing assertions on constants because there is no way to implement
+    // `PartialEq` for `Error` without implementing it `TapError` as well.
     fn test_virtio_device() {
         let mac = MacAddr::parse_str("11:22:33:44:55:66").unwrap();
         let mut dummy = DummyNet::new(Some(&mac));
