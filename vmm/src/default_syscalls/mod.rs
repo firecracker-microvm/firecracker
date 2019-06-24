@@ -168,6 +168,7 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
 mod tests {
     use super::*;
     use seccomp::SeccompFilter;
+    use std::thread;
 
     const EXTRA_SYSCALLS: [i64; 5] = [
         libc::SYS_clone,
@@ -194,13 +195,27 @@ mod tests {
 
     #[test]
     fn test_basic_seccomp() {
-        let filter = default_filter().unwrap().allow_all();
-        add_syscalls_install_filter(filter);
+        // Spawn a new thread before running the tests because all tests run
+        // in the same thread. Otherwise other tests will fail because of the
+        // installed seccomp filters.
+        thread::spawn(move || {
+            let filter = default_filter().unwrap().allow_all();
+            add_syscalls_install_filter(filter);
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
     fn test_advanced_seccomp() {
-        let filter = default_filter().unwrap();
-        add_syscalls_install_filter(filter);
+        // Spawn a new thread before running the tests because all tests run
+        // in the same thread. Otherwise other tests will fail because of the
+        // installed seccomp filters.
+        thread::spawn(move || {
+            let filter = default_filter().unwrap();
+            add_syscalls_install_filter(filter);
+        })
+        .join()
+        .unwrap();
     }
 }
