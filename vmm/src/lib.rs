@@ -3218,12 +3218,6 @@ mod tests {
     }
 
     #[test]
-    fn test_setup_interrupt_controller() {
-        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-        assert!(vmm.setup_interrupt_controller().is_ok());
-    }
-
-    #[test]
     fn test_load_kernel() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert_eq!(
