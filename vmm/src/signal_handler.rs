@@ -143,6 +143,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "process alive")]
     fn test_signal_handler() {
         assert!(register_signal_handlers().is_ok());
 
@@ -190,8 +191,8 @@ mod tests {
         unsafe {
             syscall(libc::SYS_kill, process::id(), SIGBUS);
         }
-        // This assert has no effect. Commenting it out till it's fixed.
-        // Related issue: https://github.com/firecracker-microvm/firecracker/issues/1141
-        // assert!(true);
+        // Generate a panic to make sure the process is still alive. If the process exited before,
+        // the following panic will not be executed and the test will fail.
+        panic!("process alive");
     }
 }
