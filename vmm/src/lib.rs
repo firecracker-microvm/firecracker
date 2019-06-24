@@ -2282,7 +2282,7 @@ mod tests {
             shared_info,
             EventFd::new().expect("cannot create eventFD"),
             from_api,
-            seccomp::SECCOMP_LEVEL_ADVANCED,
+            seccomp::SECCOMP_LEVEL_NONE,
         )
         .expect("Cannot Create VMM")
     }
