@@ -1,7 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use json_patch::merge;
 use serde_json::Value;
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
@@ -77,7 +76,7 @@ impl Mmds {
     pub fn patch_data(&mut self, patch_data: Value) -> Result<(), Error> {
         Mmds::check_data_valid(&patch_data)?;
         self.check_data_store_initialized()?;
-        merge(&mut self.data_store, &patch_data);
+        super::json_patch(&mut self.data_store, &patch_data);
         Ok(())
     }
 
