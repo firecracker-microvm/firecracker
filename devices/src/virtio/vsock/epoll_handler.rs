@@ -220,3 +220,244 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::tests::TestContext;
+    use super::super::*;
+    use super::*;
+    use crate::virtio::vsock::defs::{BACKEND_EVENT, EVQ_EVENT, RXQ_EVENT, TXQ_EVENT};
+
+    #[test]
+    fn test_irq() {
+        // Test case: successful IRQ signaling.
+        {
+            let test_ctx = TestContext::new();
+            let ctx = test_ctx.create_epoll_handler_context();
+
+            ctx.handler.signal_used_queue().unwrap();
+            assert_eq!(
+                ctx.handler.interrupt_status.load(Ordering::SeqCst),
+                VIRTIO_MMIO_INT_VRING as usize
+            );
+            assert_eq!(ctx.handler.interrupt_evt.read().unwrap(), 1);
+        }
+
+        // Test case: error (a real stretch) - the event counter is full.
+        //
+        {
+            let test_ctx = TestContext::new();
+            let ctx = test_ctx.create_epoll_handler_context();
+
+            ctx.handler.interrupt_evt.write(std::u64::MAX - 1).unwrap();
+            match ctx.handler.signal_used_queue() {
+                Err(DeviceError::FailedSignalingUsedQueue(_)) => (),
+                other => panic!("{:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_txq_event() {
+        // Test case:
+        // - the driver has something to send (there's data in the TX queue); and
+        // - the backend has no pending RX data.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+
+            ctx.handler.backend.set_pending_rx(false);
+            ctx.signal_txq_event();
+
+            // The available TX descriptor should have been used.
+            assert_eq!(ctx.guest_txvq.used.idx.get(), 1);
+            // The available RX descriptor should be untouched.
+            assert_eq!(ctx.guest_rxvq.used.idx.get(), 0);
+        }
+
+        // Test case:
+        // - the driver has something to send (there's data in the TX queue); and
+        // - the backend also has some pending RX data.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+
+            ctx.handler.backend.set_pending_rx(true);
+            ctx.signal_txq_event();
+
+            // Both available RX and TX descriptors should have been used.
+            assert_eq!(ctx.guest_txvq.used.idx.get(), 1);
+            assert_eq!(ctx.guest_rxvq.used.idx.get(), 1);
+        }
+
+        // Test case:
+        // - the driver has something to send (there's data in the TX queue); and
+        // - the backend errors out and cannot process the TX queue.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+
+            ctx.handler.backend.set_pending_rx(false);
+            ctx.handler.backend.set_tx_err(Some(VsockError::NoData));
+            ctx.signal_txq_event();
+
+            // Both RX and TX queues should be untouched.
+            assert_eq!(ctx.guest_txvq.used.idx.get(), 0);
+            assert_eq!(ctx.guest_rxvq.used.idx.get(), 0);
+        }
+
+        // Test case:
+        // - the driver supplied a malformed TX buffer.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+
+            // Invalidate the packet header descriptor, by setting its length to 0.
+            ctx.guest_txvq.dtable[0].len.set(0);
+            ctx.signal_txq_event();
+
+            // The available descriptor should have been consumed, but no packet should have
+            // reached the backend.
+            assert_eq!(ctx.guest_txvq.used.idx.get(), 1);
+            assert_eq!(ctx.handler.backend.tx_ok_cnt, 0);
+        }
+
+        // Test case: spurious TXQ_EVENT.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+
+            match ctx.handler.handle_event(TXQ_EVENT, epoll::Events::EPOLLIN) {
+                Err(DeviceError::FailedReadingQueue { .. }) => (),
+                other => panic!("{:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_rxq_event() {
+        // Test case:
+        // - there is pending RX data in the backend; and
+        // - the driver makes RX buffers available; and
+        // - the backend successfully places its RX data into the queue.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+
+            ctx.handler.backend.set_pending_rx(true);
+            ctx.handler.backend.set_rx_err(Some(VsockError::NoData));
+            ctx.signal_rxq_event();
+
+            // The available RX buffer should've been left untouched.
+            assert_eq!(ctx.guest_rxvq.used.idx.get(), 0);
+        }
+
+        // Test case:
+        // - there is pending RX data in the backend; and
+        // - the driver makes RX buffers available; and
+        // - the backend errors out, when attempting to receive data.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+
+            ctx.handler.backend.set_pending_rx(true);
+            ctx.signal_rxq_event();
+
+            // The available RX buffer should have been used.
+            assert_eq!(ctx.guest_rxvq.used.idx.get(), 1);
+        }
+
+        // Test case: the driver provided a malformed RX descriptor chain.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+
+            // Invalidate the packet header descriptor, by setting its length to 0.
+            ctx.guest_rxvq.dtable[0].len.set(0);
+
+            // The chain should've been processed, without employing the backend.
+            assert_eq!(ctx.handler.process_rx(), true);
+            assert_eq!(ctx.guest_rxvq.used.idx.get(), 1);
+            assert_eq!(ctx.handler.backend.rx_ok_cnt, 0);
+        }
+
+        // Test case: spurious RXQ_EVENT.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+            ctx.handler.backend.set_pending_rx(false);
+            match ctx.handler.handle_event(RXQ_EVENT, epoll::Events::EPOLLIN) {
+                Err(DeviceError::FailedReadingQueue { .. }) => (),
+                other => panic!("{:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_evq_event() {
+        // Test case: spurious EVQ_EVENT.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+            ctx.handler.backend.set_pending_rx(false);
+            match ctx.handler.handle_event(EVQ_EVENT, epoll::Events::EPOLLIN) {
+                Err(DeviceError::FailedReadingQueue { .. }) => (),
+                other => panic!("{:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_backend_event() {
+        // Test case:
+        // - a backend event is received; and
+        // - the backend has pending RX data.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+
+            ctx.handler.backend.set_pending_rx(true);
+            ctx.handler
+                .handle_event(BACKEND_EVENT, epoll::Events::EPOLLIN)
+                .unwrap();
+
+            // The backend should've received this event.
+            assert_eq!(ctx.handler.backend.evset, Some(epoll::Events::EPOLLIN));
+            // TX queue processing should've been triggered.
+            assert_eq!(ctx.guest_txvq.used.idx.get(), 1);
+            // RX queue processing should've been triggered.
+            assert_eq!(ctx.guest_rxvq.used.idx.get(), 1);
+        }
+
+        // Test case:
+        // - a backend event is received; and
+        // - the backend doesn't have any pending RX data.
+        {
+            let test_ctx = TestContext::new();
+            let mut ctx = test_ctx.create_epoll_handler_context();
+
+            ctx.handler.backend.set_pending_rx(false);
+            ctx.handler
+                .handle_event(BACKEND_EVENT, epoll::Events::EPOLLIN)
+                .unwrap();
+
+            // The backend should've received this event.
+            assert_eq!(ctx.handler.backend.evset, Some(epoll::Events::EPOLLIN));
+            // TX queue processing should've been triggered.
+            assert_eq!(ctx.guest_txvq.used.idx.get(), 1);
+            // The RX queue should've been left untouched.
+            assert_eq!(ctx.guest_rxvq.used.idx.get(), 0);
+        }
+    }
+
+    #[test]
+    fn test_unknown_event() {
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_epoll_handler_context();
+
+        match ctx.handler.handle_event(0xff, epoll::Events::EPOLLIN) {
+            Err(DeviceError::UnknownEvent { .. }) => (),
+            other => panic!("{:?}", other),
+        }
+    }
+}

@@ -87,3 +87,31 @@ impl VsockDeviceConfigs {
         self.configs.iter()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vsock_device_config() {
+        const CID: u32 = 52;
+        let cfg = VsockDeviceConfig {
+            vsock_id: String::from("vsock"),
+            guest_cid: CID,
+            uds_path: String::from("/tmp/vsock.sock"),
+        };
+        let mut cfg_list = VsockDeviceConfigs::new();
+
+        cfg_list.add(cfg.clone()).unwrap();
+        assert!(cfg_list.contains_cid(CID));
+
+        assert_eq!(
+            format!("{}", cfg_list.add(cfg.clone()).err().unwrap()),
+            format!("The guest CID {} is already in use.", CID),
+        );
+
+        let mut cfg2 = cfg.clone();
+        cfg2.guest_cid = CID + 1;
+        assert!(cfg_list.add(cfg2).is_ok());
+    }
+}
