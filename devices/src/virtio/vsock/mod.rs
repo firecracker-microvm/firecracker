@@ -216,3 +216,185 @@ impl VsockChannel for DummyBackend {
     }
 }
 impl VsockBackend for DummyBackend {}
+
+#[cfg(test)]
+mod tests {
+    use super::epoll_handler::VsockEpollHandler;
+    use super::packet::VSOCK_PKT_HDR_SIZE;
+    use super::*;
+
+    use std::os::unix::io::AsRawFd;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::Arc;
+    use sys_util::EventFd;
+
+    use crate::virtio::queue::tests::VirtQueue as GuestQ;
+    use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use memory_model::{GuestAddress, GuestMemory};
+
+    pub struct TestBackend {
+        pub evfd: EventFd,
+        pub rx_err: Option<VsockError>,
+        pub tx_err: Option<VsockError>,
+        pub pending_rx: bool,
+        pub rx_ok_cnt: usize,
+        pub tx_ok_cnt: usize,
+        pub evset: Option<epoll::Events>,
+    }
+    impl TestBackend {
+        pub fn new() -> Self {
+            Self {
+                evfd: EventFd::new().unwrap(),
+                rx_err: None,
+                tx_err: None,
+                pending_rx: false,
+                rx_ok_cnt: 0,
+                tx_ok_cnt: 0,
+                evset: None,
+            }
+        }
+        pub fn set_rx_err(&mut self, err: Option<VsockError>) {
+            self.rx_err = err;
+        }
+        pub fn set_tx_err(&mut self, err: Option<VsockError>) {
+            self.tx_err = err;
+        }
+        pub fn set_pending_rx(&mut self, prx: bool) {
+            self.pending_rx = prx;
+        }
+    }
+    impl VsockChannel for TestBackend {
+        fn recv_pkt(&mut self, _pkt: &mut VsockPacket) -> Result<()> {
+            match self.rx_err.take() {
+                None => {
+                    self.rx_ok_cnt += 1;
+                    Ok(())
+                }
+                Some(e) => Err(e),
+            }
+        }
+        fn send_pkt(&mut self, _pkt: &VsockPacket) -> Result<()> {
+            match self.tx_err.take() {
+                None => {
+                    self.tx_ok_cnt += 1;
+                    Ok(())
+                }
+                Some(e) => Err(e),
+            }
+        }
+        fn has_pending_rx(&self) -> bool {
+            self.pending_rx
+        }
+    }
+    impl VsockEpollListener for TestBackend {
+        fn get_polled_fd(&self) -> RawFd {
+            self.evfd.as_raw_fd()
+        }
+        fn get_polled_evset(&self) -> epoll::Events {
+            epoll::Events::EPOLLIN
+        }
+        fn notify(&mut self, evset: epoll::Events) {
+            self.evset = Some(evset);
+        }
+    }
+    impl VsockBackend for TestBackend {}
+
+    pub struct TestContext {
+        pub cid: u64,
+        pub mem: GuestMemory,
+        pub mem_size: usize,
+        pub device: Vsock<TestBackend>,
+
+        // This needs to live here, so that sending the handler, at device activation, works.
+        _handler_receiver: mpsc::Receiver<Box<EpollHandler>>,
+    }
+
+    impl TestContext {
+        pub fn new() -> Self {
+            const CID: u64 = 52;
+            const MEM_SIZE: usize = 1024 * 1024 * 128;
+            let (sender, _handler_receiver) = mpsc::channel();
+            Self {
+                cid: CID,
+                mem: GuestMemory::new(&[(GuestAddress(0), MEM_SIZE)]).unwrap(),
+                mem_size: MEM_SIZE,
+                device: Vsock::new(
+                    CID,
+                    EpollConfig::new(0, epoll::create(true).unwrap(), sender),
+                    TestBackend::new(),
+                )
+                .unwrap(),
+                _handler_receiver,
+            }
+        }
+
+        pub fn create_epoll_handler_context(&self) -> EpollHandlerContext {
+            const QSIZE: u16 = 2;
+
+            let guest_rxvq = GuestQ::new(GuestAddress(0x0010_0000), &self.mem, QSIZE as u16);
+            let guest_txvq = GuestQ::new(GuestAddress(0x0020_0000), &self.mem, QSIZE as u16);
+            let guest_evvq = GuestQ::new(GuestAddress(0x0030_0000), &self.mem, QSIZE as u16);
+            let rxvq = guest_rxvq.create_queue();
+            let txvq = guest_txvq.create_queue();
+            let evvq = guest_evvq.create_queue();
+
+            // Set up one available descriptor in the RX queue.
+            guest_rxvq.dtable[0].set(
+                0x0040_0000,
+                VSOCK_PKT_HDR_SIZE as u32,
+                VIRTQ_DESC_F_WRITE | VIRTQ_DESC_F_NEXT,
+                1,
+            );
+            guest_rxvq.dtable[1].set(0x0040_1000, 4096, VIRTQ_DESC_F_WRITE, 0);
+            guest_rxvq.avail.ring[0].set(0);
+            guest_rxvq.avail.idx.set(1);
+
+            // Set up one available descriptor in the TX queue.
+            guest_txvq.dtable[0].set(0x0050_0000, VSOCK_PKT_HDR_SIZE as u32, VIRTQ_DESC_F_NEXT, 1);
+            guest_txvq.dtable[1].set(0x0050_1000, 4096, 0, 0);
+            guest_txvq.avail.ring[0].set(0);
+            guest_txvq.avail.idx.set(1);
+
+            EpollHandlerContext {
+                guest_rxvq,
+                guest_txvq,
+                guest_evvq,
+                handler: VsockEpollHandler {
+                    rxvq,
+                    rxvq_evt: EventFd::new().unwrap(),
+                    txvq,
+                    txvq_evt: EventFd::new().unwrap(),
+                    evvq,
+                    evvq_evt: EventFd::new().unwrap(),
+                    cid: self.cid,
+                    mem: self.mem.clone(),
+                    interrupt_status: Arc::new(AtomicUsize::new(0)),
+                    interrupt_evt: EventFd::new().unwrap(),
+                    backend: TestBackend::new(),
+                },
+            }
+        }
+    }
+
+    pub struct EpollHandlerContext<'a> {
+        pub handler: VsockEpollHandler<TestBackend>,
+        pub guest_rxvq: GuestQ<'a>,
+        pub guest_txvq: GuestQ<'a>,
+        pub guest_evvq: GuestQ<'a>,
+    }
+
+    impl<'a> EpollHandlerContext<'a> {
+        pub fn signal_txq_event(&mut self) {
+            self.handler.txvq_evt.write(1).unwrap();
+            self.handler
+                .handle_event(defs::TXQ_EVENT, epoll::Events::EPOLLIN)
+                .unwrap();
+        }
+        pub fn signal_rxq_event(&mut self) {
+            self.handler.rxvq_evt.write(1).unwrap();
+            self.handler
+                .handle_event(defs::RXQ_EVENT, epoll::Events::EPOLLIN)
+                .unwrap();
+        }
+    }
+}
