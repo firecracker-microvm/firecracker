@@ -224,3 +224,103 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::virtio::vsock::defs::uapi;
+
+    use super::super::tests::TestContext;
+    use super::*;
+
+    #[test]
+    fn test_virtio_device() {
+        let mut ctx = TestContext::new();
+        let device_features = AVAIL_FEATURES;
+        let driver_features: u64 = AVAIL_FEATURES | 1 | (1 << 32);
+        let device_pages = [
+            (device_features & 0xffff_ffff) as u32,
+            (device_features >> 32) as u32,
+        ];
+        let driver_pages = [
+            (driver_features & 0xffff_ffff) as u32,
+            (driver_features >> 32) as u32,
+        ];
+        assert_eq!(ctx.device.device_type(), uapi::VIRTIO_ID_VSOCK);
+        assert_eq!(ctx.device.queue_max_sizes(), defs::QUEUE_SIZES);
+        assert_eq!(ctx.device.features(0), device_pages[0]);
+        assert_eq!(ctx.device.features(1), device_pages[1]);
+        assert_eq!(ctx.device.features(2), 0);
+
+        // Ack device features, page 0.
+        ctx.device.ack_features(0, driver_pages[0]);
+        // Ack device features, page 1.
+        ctx.device.ack_features(1, driver_pages[1]);
+        // Ack some bogus page (i.e. 2). This should have no side effect.
+        ctx.device.ack_features(2, 0);
+        // Attempt to un-ack the first feature page. This should have no side effect.
+        ctx.device.ack_features(0, !driver_pages[0]);
+        // Check that no side effect are present, and that the acked features are exactly the same
+        // as the device features.
+        assert_eq!(ctx.device.acked_features, device_features & driver_features);
+
+        // Test reading 32-bit chunks.
+        let mut data = [0u8; 8];
+        ctx.device.read_config(0, &mut data[..4]);
+        assert_eq!(
+            u64::from(LittleEndian::read_u32(&data)),
+            ctx.cid & 0xffff_ffff
+        );
+        ctx.device.read_config(4, &mut data[4..]);
+        assert_eq!(
+            u64::from(LittleEndian::read_u32(&data[4..])),
+            (ctx.cid >> 32) & 0xffff_ffff
+        );
+
+        // Test reading 64-bit.
+        let mut data = [0u8; 8];
+        ctx.device.read_config(0, &mut data);
+        assert_eq!(LittleEndian::read_u64(&data), ctx.cid);
+
+        // Check that out-of-bounds reading doesn't mutate the destination buffer.
+        let mut data = [0u8, 1, 2, 3, 4, 5, 6, 7];
+        ctx.device.read_config(2, &mut data);
+        assert_eq!(data, [0u8, 1, 2, 3, 4, 5, 6, 7]);
+
+        // Just covering lines here, since the vsock device has no writable config.
+        // A warning is, however, logged, if the guest driver attempts to write any config data.
+        ctx.device.write_config(0, &data[..4]);
+
+        // Test a bad activation.
+        let bad_activate = ctx.device.activate(
+            ctx.mem.clone(),
+            EventFd::new().unwrap(),
+            Arc::new(AtomicUsize::new(0)),
+            Vec::new(),
+            Vec::new(),
+        );
+        match bad_activate {
+            Err(ActivateError::BadActivate) => (),
+            other => panic!("{:?}", other),
+        }
+
+        // Test a correct activation.
+        ctx.device
+            .activate(
+                ctx.mem.clone(),
+                EventFd::new().unwrap(),
+                Arc::new(AtomicUsize::new(0)),
+                vec![
+                    VirtQueue::new(256),
+                    VirtQueue::new(256),
+                    VirtQueue::new(256),
+                ],
+                vec![
+                    EventFd::new().unwrap(),
+                    EventFd::new().unwrap(),
+                    EventFd::new().unwrap(),
+                ],
+            )
+            .unwrap();
+    }
+
+}
