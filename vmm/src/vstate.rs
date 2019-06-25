@@ -155,7 +155,9 @@ impl Vm {
                     userspace_addr: host_addr as u64,
                     flags,
                 };
-                self.fd.set_user_memory_region(memory_region)
+                // Safe because we mapped the memory region, we made sure that the regions
+                // are not overlapping.
+                unsafe { self.fd.set_user_memory_region(memory_region) }
             })
             .map_err(Error::SetUserMemoryRegion)?;
         self.guest_mem = Some(guest_mem);
