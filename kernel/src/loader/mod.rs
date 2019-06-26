@@ -30,9 +30,8 @@ pub enum Error {
     InvalidProgramHeaderSize,
     InvalidProgramHeaderOffset,
     InvalidProgramHeaderAddress,
-    ReadElfHeader,
+    ReadKernelDataStruct(&'static str),
     ReadKernelImage,
-    ReadProgramHeader,
     SeekKernelStart,
     SeekKernelImage,
     SeekProgramHeader,
@@ -50,9 +49,8 @@ impl fmt::Display for Error {
                 Error::InvalidProgramHeaderSize => "Invalid ELF program header size",
                 Error::InvalidProgramHeaderOffset => "Invalid ELF program header offset",
                 Error::InvalidProgramHeaderAddress => "Invalid ELF program header address",
-                Error::ReadElfHeader => "Failed to read ELF header",
+                Error::ReadKernelDataStruct(ref e) => e,
                 Error::ReadKernelImage => "Failed to write kernel image to guest memory",
-                Error::ReadProgramHeader => "Failed to read ELF program header",
                 Error::SeekKernelStart => {
                     "Failed to seek to file offset as pointed by the ELF program header"
                 }
@@ -89,7 +87,8 @@ where
         .map_err(|_| Error::SeekKernelImage)?;
     unsafe {
         // read_struct is safe when reading a POD struct.  It can be used and dropped without issue.
-        sys_util::read_struct(kernel_image, &mut ehdr).map_err(|_| Error::ReadElfHeader)?;
+        sys_util::read_struct(kernel_image, &mut ehdr)
+            .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF header"))?;
     }
 
     // Sanity checks
@@ -120,7 +119,7 @@ where
     let phdrs: Vec<elf::Elf64_Phdr> = unsafe {
         // Reading the structs is safe for a slice of POD structs.
         sys_util::read_struct_slice(kernel_image, ehdr.e_phnum as usize)
-            .map_err(|_| Error::ReadProgramHeader)?
+            .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF program header"))?
     };
 
     // Read in each section pointed to by the program headers.
@@ -185,7 +184,7 @@ where
     let mut magic_number: u32 = 0;
     unsafe {
         sys_util::read_struct(kernel_image, &mut magic_number)
-            .map_err(|_| Error::ReadProgramHeader)?
+            .map_err(|_| Error::ReadKernelDataStruct("Failed to read magic number"))?
     }
     if u32::from_le(magic_number) != AARCH64_MAGIC_NUMBER {
         return Err(Error::InvalidElfMagicNumber);
@@ -198,7 +197,9 @@ where
     let mut hdrvals: [u64; 2] = [0; 2];
     unsafe {
         /* `read_struct` is safe when reading a POD struct. It can be used and dropped without issue. */
-        sys_util::read_struct(kernel_image, &mut hdrvals).map_err(|_| Error::ReadProgramHeader)?;
+        sys_util::read_struct(kernel_image, &mut hdrvals).map_err(|_| {
+            Error::ReadKernelDataStruct("Failed to read kernel offset and image size")
+        })?;
     }
     /* Following the boot protocol mentioned above. */
     if u64::from_le(hdrvals[1]) != 0 {
@@ -312,7 +313,7 @@ mod tests {
         let mut bad_image = make_test_bin();
         bad_image.truncate(56);
         assert_eq!(
-            Err(Error::ReadProgramHeader),
+            Err(Error::ReadKernelDataStruct("Failed to read magic number")),
             load_kernel(&gm, &mut Cursor::new(&bad_image), 0)
         );
     }

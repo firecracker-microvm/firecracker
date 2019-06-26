@@ -62,13 +62,20 @@ use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{Cap, Kvm};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
+#[cfg(target_arch = "aarch64")]
+use arch::DeviceType;
 use device_manager::legacy::LegacyDeviceManager;
 #[cfg(target_arch = "aarch64")]
 use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::I8042DeviceError;
 use devices::virtio;
-use devices::{DeviceEventT, EpollHandler, EpollHandlerPayload};
+#[cfg(feature = "vsock")]
+use devices::virtio::vhost::{handle::VHOST_EVENTS_COUNT, TYPE_VSOCK};
+use devices::virtio::EpollConfigConstructor;
+use devices::virtio::{BLOCK_EVENTS_COUNT, TYPE_BLOCK};
+use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
+use devices::{DeviceEventT, EpollHandler};
 use fc_util::now_cputime_us;
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
@@ -134,6 +141,8 @@ pub enum Error {
     EventFd(io::Error),
     /// An event arrived for a device, but the dispatcher can't find the event (epoll) handler.
     DeviceEventHandlerNotFound,
+    /// An epoll handler can't be downcasted to the desired type.
+    DeviceEventHandlerInvalidDowncast,
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
     /// permission to open the file descriptor.
     Kvm(io::Error),
@@ -164,6 +173,10 @@ impl std::fmt::Debug for Error {
             DeviceEventHandlerNotFound => write!(
                 f,
                 "Device event handler not found. This might point to a guest device driver issue."
+            ),
+            DeviceEventHandlerInvalidDowncast => write!(
+                f,
+                "Device event handler couldn't be downcasted to expected type."
             ),
             Kvm(os_err) => write!(f, "Cannot open /dev/kvm. Error: {}", os_err.to_string()),
             KvmApiVersion(ver) => write!(f, "Bad KVM API version: {}", ver),
@@ -236,6 +249,7 @@ impl std::convert::From<DriveError> for VmmActionError {
             | DriveError::InvalidBlockDeviceID
             | DriveError::InvalidBlockDevicePath
             | DriveError::BlockDevicePathAlreadyExists
+            | DriveError::EpollHandlerNotFound
             | DriveError::BlockDeviceUpdateFailed
             | DriveError::OperationNotAllowedPreBoot
             | DriveError::UpdateNotAllowedPostBoot
@@ -537,6 +551,7 @@ struct EpollContext {
     // FIXME: find a different design as this does not scale. This Vec can only grow.
     dispatch_table: Vec<Option<EpollDispatch>>,
     device_handlers: Vec<MaybeHandler>,
+    device_id_to_handler_id: HashMap<(u32, String), usize>,
 }
 
 impl EpollContext {
@@ -557,6 +572,7 @@ impl EpollContext {
             stdin_index,
             dispatch_table,
             device_handlers: Vec::with_capacity(6),
+            device_id_to_handler_id: HashMap::new(),
         })
     }
 
@@ -632,39 +648,22 @@ impl EpollContext {
         (dispatch_base, sender)
     }
 
-    // See the below comment for `allocate_virtio_net_tokens`, for an explanation on the returned
-    // values.
-    fn allocate_virtio_block_tokens(&mut self) -> (virtio::block::EpollConfig, usize) {
-        let (dispatch_base, sender) = self.allocate_tokens(virtio::block::BLOCK_EVENTS_COUNT);
-        (
-            virtio::block::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender),
+    fn allocate_virtio_tokens<T: EpollConfigConstructor>(
+        &mut self,
+        type_id: u32,
+        device_id: &str,
+        count: usize,
+    ) -> T {
+        let (dispatch_base, sender) = self.allocate_tokens(count);
+        self.device_id_to_handler_id.insert(
+            (type_id, device_id.to_string()),
             self.device_handlers.len() - 1,
-        )
+        );
+        T::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
-    // Horrible, horrible hack, because velocity: return a tuple (epoll_config, handler_idx),
-    // since, for some reason, the VMM doesn't own and cannot contact its live devices. I.e.
-    // after VM start, the device objects become some kind of useless hollow husks, their
-    // actual data being _moved_ to their corresponding `EpollHandler`s.
-    // The `handler_idx`, that we're returning here, can be used by the VMM to contact the
-    // device, by faking an event, sent straight to the device `EpollHandler`.
-    fn allocate_virtio_net_tokens(&mut self) -> (virtio::net::EpollConfig, usize) {
-        let (dispatch_base, sender) = self.allocate_tokens(virtio::net::NET_EVENTS_COUNT);
-        (
-            virtio::net::EpollConfig::new(dispatch_base, self.epoll_raw_fd, sender),
-            self.device_handlers.len() - 1,
-        )
-    }
-
-    #[cfg(feature = "vsock")]
-    fn allocate_virtio_vsock_tokens(&mut self) -> virtio::vhost::handle::VhostEpollConfig {
-        let (dispatch_base, sender) =
-            self.allocate_tokens(virtio::vhost::handle::VHOST_EVENTS_COUNT);
-        virtio::vhost::handle::VhostEpollConfig::new(dispatch_base, self.epoll_raw_fd, sender)
-    }
-
-    fn get_device_handler(&mut self, device_idx: usize) -> Result<&mut EpollHandler> {
-        let maybe = &mut self.device_handlers[device_idx];
+    fn get_device_handler_by_handler_id(&mut self, id: usize) -> Result<&mut EpollHandler> {
+        let maybe = &mut self.device_handlers[id];
         match maybe.handler {
             Some(ref mut v) => Ok(v.as_mut()),
             None => {
@@ -679,6 +678,22 @@ impl EpollContext {
                     .map_err(|_| Error::DeviceEventHandlerNotFound)?;
                 Ok(maybe.handler.get_or_insert(received).as_mut())
             }
+        }
+    }
+
+    fn get_device_handler_by_device_id<T: EpollHandler + 'static>(
+        &mut self,
+        type_id: u32,
+        device_id: &str,
+    ) -> Result<&mut T> {
+        let handler_id = *self
+            .device_id_to_handler_id
+            .get(&(type_id, device_id.to_string()))
+            .ok_or(Error::DeviceEventHandlerNotFound)?;
+        let device_handler = self.get_device_handler_by_handler_id(handler_id)?;
+        match device_handler.as_mut_any().downcast_mut::<T>() {
+            Some(res) => Ok(res),
+            None => Err(Error::DeviceEventHandlerInvalidDowncast),
         }
     }
 }
@@ -715,8 +730,6 @@ struct Vmm {
     // Guest VM devices.
     mmio_device_manager: Option<MMIODeviceManager>,
     legacy_device_manager: LegacyDeviceManager,
-    drive_handler_id_map: HashMap<String, usize>,
-    net_handler_id_map: HashMap<String, usize>,
 
     // Device configurations.
     // If there is a Root Block Device, this should be added as the first element of the list.
@@ -775,8 +788,6 @@ impl Vmm {
             mmio_device_manager: None,
             legacy_device_manager: LegacyDeviceManager::new().map_err(Error::CreateLegacyDevice)?,
             block_device_configs,
-            drive_handler_id_map: HashMap::new(),
-            net_handler_id_map: HashMap::new(),
             network_interface_configs: NetworkInterfaceConfigs::new(),
             #[cfg(feature = "vsock")]
             vsock_device_configs: VsockDeviceConfigs::new(),
@@ -793,31 +804,14 @@ impl Vmm {
         drive_id: &str,
         disk_image: File,
     ) -> result::Result<(), DriveError> {
-        if let Some(device_idx) = self.drive_handler_id_map.get(drive_id) {
-            match self.epoll_context.get_device_handler(*device_idx) {
-                Ok(handler) => {
-                    match handler.handle_event(
-                        virtio::block::FS_UPDATE_EVENT,
-                        *device_idx as u32,
-                        EpollHandlerPayload::DrivePayload(disk_image),
-                    ) {
-                        Err(devices::Error::PayloadExpected) => {
-                            panic!("Received update disk image event with empty payload.")
-                        }
-                        Err(devices::Error::UnknownEvent { device, event }) => {
-                            panic!("Unknown event: {:?} {:?}", device, event)
-                        }
-                        _ => Ok(()),
-                    }
-                }
-                Err(e) => {
-                    warn!("invalid handler for device {}: {:?}", device_idx, e);
-                    Err(DriveError::BlockDeviceUpdateFailed)
-                }
-            }
-        } else {
-            Err(DriveError::BlockDeviceUpdateFailed)
-        }
+        let handler = self
+            .epoll_context
+            .get_device_handler_by_device_id::<virtio::BlockEpollHandler>(TYPE_BLOCK, drive_id)
+            .map_err(|_| DriveError::EpollHandlerNotFound)?;
+
+        handler
+            .update_disk_image(disk_image)
+            .map_err(|_| DriveError::BlockDeviceUpdateFailed)
     }
 
     // Attaches all block devices from the BlockDevicesConfig.
@@ -885,9 +879,11 @@ impl Vmm {
                 }
             }
 
-            let (epoll_config, handler_idx) = epoll_context.allocate_virtio_block_tokens();
-            self.drive_handler_id_map
-                .insert(drive_config.drive_id.clone(), handler_idx);
+            let epoll_config = epoll_context.allocate_virtio_tokens(
+                TYPE_BLOCK,
+                &drive_config.drive_id,
+                BLOCK_EVENTS_COUNT,
+            );
             let rate_limiter = match drive_config.rate_limiter {
                 Some(rlim_cfg) => Some(
                     rlim_cfg
@@ -911,6 +907,7 @@ impl Vmm {
                     self.vm.get_fd(),
                     block_box,
                     &mut kernel_config.cmdline,
+                    TYPE_BLOCK,
                     &drive_config.drive_id,
                 )
                 .map_err(StartMicrovmError::RegisterBlockDevice)?;
@@ -931,9 +928,11 @@ impl Vmm {
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
         for cfg in self.network_interface_configs.iter_mut() {
-            let (epoll_config, handler_idx) = self.epoll_context.allocate_virtio_net_tokens();
-            self.net_handler_id_map
-                .insert(cfg.iface_id.clone(), handler_idx);
+            let epoll_config = self.epoll_context.allocate_virtio_tokens(
+                TYPE_NET,
+                &cfg.iface_id,
+                NET_EVENTS_COUNT,
+            );
 
             let allow_mmds_requests = cfg.allow_mmds_requests();
             let rx_rate_limiter = match cfg.rx_rate_limiter {
@@ -969,6 +968,7 @@ impl Vmm {
                         self.vm.get_fd(),
                         net_box,
                         &mut kernel_config.cmdline,
+                        TYPE_NET,
                         &cfg.iface_id,
                     )
                     .map_err(StartMicrovmError::RegisterNetDevice)?;
@@ -993,7 +993,9 @@ impl Vmm {
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
         for cfg in self.vsock_device_configs.iter() {
-            let epoll_config = self.epoll_context.allocate_virtio_vsock_tokens();
+            let epoll_config =
+                self.epoll_context
+                    .allocate_virtio_tokens(TYPE_VSOCK, &cfg.id, VHOST_EVENTS_COUNT);
 
             let vsock_box = Box::new(
                 devices::virtio::Vsock::new(u64::from(cfg.guest_cid), guest_mem, epoll_config)
@@ -1004,6 +1006,7 @@ impl Vmm {
                     self.vm.get_fd(),
                     vsock_box,
                     &mut kernel_config.cmdline,
+                    TYPE_VSOCK,
                     &cfg.id,
                 )
                 .map_err(StartMicrovmError::RegisterVsockDevice)?;
@@ -1095,7 +1098,7 @@ impl Vmm {
         // and is architectural specific.
         let device_manager = MMIODeviceManager::new(
             guest_mem.clone(),
-            arch::get_reserved_mem_addr() as u64,
+            &mut (arch::get_reserved_mem_addr() as u64),
             (arch::IRQ_BASE, arch::IRQ_MAX),
         );
         self.mmio_device_manager = Some(device_manager);
@@ -1123,7 +1126,7 @@ impl Vmm {
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn get_mmio_device_info(&self) -> Option<&HashMap<String, MMIODeviceInfo>> {
+    fn get_mmio_device_info(&self) -> Option<&HashMap<(DeviceType, String), MMIODeviceInfo>> {
         if let Some(ref device_manager) = self.mmio_device_manager {
             Some(device_manager.get_device_info())
         } else {
@@ -1553,22 +1556,19 @@ impl Vmm {
                         }
                         EpollDispatch::DeviceHandler(device_idx, device_token) => {
                             METRICS.vmm.device_events.inc();
-                            match self.epoll_context.get_device_handler(device_idx) {
-                                Ok(handler) => {
-                                    match handler.handle_event(
-                                        device_token,
-                                        event.events,
-                                        EpollHandlerPayload::Empty,
-                                    ) {
-                                        Err(devices::Error::PayloadExpected) => panic!(
-                                            "Received update disk image event with empty payload."
-                                        ),
-                                        Err(devices::Error::UnknownEvent { device, event }) => {
-                                            panic!("Unknown event: {:?} {:?}", device, event)
-                                        }
-                                        _ => (),
+                            match self
+                                .epoll_context
+                                .get_device_handler_by_handler_id(device_idx)
+                            {
+                                Ok(handler) => match handler.handle_event(device_token) {
+                                    Err(devices::Error::PayloadExpected) => panic!(
+                                        "Received update disk image event with empty payload."
+                                    ),
+                                    Err(devices::Error::UnknownEvent { device, event }) => {
+                                        panic!("Unknown event: {:?} {:?}", device, event)
                                     }
-                                }
+                                    _ => (),
+                                },
                                 Err(e) => {
                                     warn!("invalid handler for device {}: {:?}", device_idx, e)
                                 }
@@ -1764,42 +1764,29 @@ impl Vmm {
         // If we got to here, the VM is running. We need to update the live device.
         //
 
-        let handler_id = *self
-            .net_handler_id_map
-            .get(&new_cfg.iface_id)
-            .ok_or(NetworkInterfaceError::DeviceIdNotFound)?;
-
         let handler = self
             .epoll_context
-            .get_device_handler(handler_id)
+            .get_device_handler_by_device_id::<virtio::NetEpollHandler>(TYPE_NET, &new_cfg.iface_id)
             .map_err(NetworkInterfaceError::EpollHandlerNotFound)?;
 
-        // Hack because velocity (my new favorite phrase): fake an epoll event, because we can only
-        // contact a live device via its `EpollHandler`.
-        handler
-            .handle_event(
-                virtio::net::PATCH_RATE_LIMITERS_FAKE_EVENT,
-                handler_id as u32,
-                EpollHandlerPayload::NetRateLimiterPayload {
-                    rx_bytes: new_cfg
-                        .rx_rate_limiter
-                        .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
-                        .unwrap_or(None),
-                    rx_ops: new_cfg
-                        .rx_rate_limiter
-                        .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
-                        .unwrap_or(None),
-                    tx_bytes: new_cfg
-                        .tx_rate_limiter
-                        .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
-                        .unwrap_or(None),
-                    tx_ops: new_cfg
-                        .tx_rate_limiter
-                        .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
-                        .unwrap_or(None),
-                },
-            )
-            .map_err(NetworkInterfaceError::RateLimiterUpdateFailed)?;
+        handler.patch_rate_limiters(
+            new_cfg
+                .rx_rate_limiter
+                .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
+                .unwrap_or(None),
+            new_cfg
+                .rx_rate_limiter
+                .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
+                .unwrap_or(None),
+            new_cfg
+                .tx_rate_limiter
+                .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
+                .unwrap_or(None),
+            new_cfg
+                .tx_rate_limiter
+                .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
+                .unwrap_or(None),
+        );
 
         Ok(VmmData::Empty)
     }
@@ -1864,31 +1851,26 @@ impl Vmm {
         // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
         // called before the guest boots, and this function is called after boot.
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
-        match device_manager.get_address(drive_id) {
-            Some(&address) => {
-                for drive_config in self.block_device_configs.config_list.iter() {
-                    if drive_config.drive_id == *drive_id {
-                        let metadata = metadata(&drive_config.path_on_host)
-                            .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-                        let new_size = metadata.len();
-                        if new_size % virtio::block::SECTOR_SIZE != 0 {
-                            warn!(
-                                "Disk size {} is not a multiple of sector size {}; \
-                                 the remainder will not be visible to the guest.",
-                                new_size,
-                                virtio::block::SECTOR_SIZE
-                            );
-                        }
-                        return device_manager
-                            .update_drive(address, new_size)
-                            .map(|_| VmmData::Empty)
-                            .map_err(|_| VmmActionError::from(DriveError::BlockDeviceUpdateFailed));
-                    }
+        for drive_config in self.block_device_configs.config_list.iter() {
+            if drive_config.drive_id == *drive_id {
+                let metadata = metadata(&drive_config.path_on_host)
+                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                let new_size = metadata.len();
+                if new_size % virtio::block::SECTOR_SIZE != 0 {
+                    warn!(
+                        "Disk size {} is not a multiple of sector size {}; \
+                         the remainder will not be visible to the guest.",
+                        new_size,
+                        virtio::block::SECTOR_SIZE
+                    );
                 }
-                Err(VmmActionError::from(DriveError::BlockDeviceUpdateFailed))
+                return device_manager
+                    .update_drive(drive_id, new_size)
+                    .map(|_| VmmData::Empty)
+                    .map_err(|_| VmmActionError::from(DriveError::BlockDeviceUpdateFailed));
             }
-            _ => Err(VmmActionError::from(DriveError::InvalidBlockDeviceID)),
         }
+        Err(VmmActionError::from(DriveError::InvalidBlockDeviceID))
     }
 
     // Only call this function as part of the API.
@@ -2145,7 +2127,8 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     use self::tempfile::NamedTempFile;
-    use devices::virtio::ActivateResult;
+    use arch::DeviceType;
+    use devices::virtio::{ActivateResult, MmioDevice, Queue};
     use net_util::MacAddr;
     use vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm_config::{RateLimiterConfig, TokenBucketConfig};
@@ -2173,21 +2156,21 @@ mod tests {
             }
         }
 
-        fn remove_device_info(&mut self, id: &str) {
+        fn remove_device_info(&mut self, type_id: u32, id: &str) {
             self.mmio_device_manager
                 .as_mut()
                 .unwrap()
-                .remove_device_info(id);
+                .remove_device_info(type_id, id);
         }
 
         fn default_kernel_config(&mut self, cust_kernel_path: Option<PathBuf>) {
             let kernel_temp_file =
                 NamedTempFile::new().expect("Failed to create temporary kernel file.");
-            let mut kernel_path = kernel_temp_file.path().to_path_buf();
-
-            if cust_kernel_path.is_some() {
-                kernel_path = cust_kernel_path.unwrap();
-            }
+            let kernel_path = if cust_kernel_path.is_some() {
+                cust_kernel_path.unwrap()
+            } else {
+                kernel_temp_file.path().to_path_buf()
+            };
             let kernel_file = File::open(kernel_path).expect("Cannot open kernel file");
             let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
             assert!(cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).is_ok());
@@ -2225,20 +2208,14 @@ mod tests {
 
     struct DummyEpollHandler {
         evt: Option<DeviceEventT>,
-        flags: Option<u32>,
-        payload: Option<EpollHandlerPayload>,
     }
 
     impl EpollHandler for DummyEpollHandler {
         fn handle_event(
             &mut self,
             device_event: DeviceEventT,
-            event_flags: u32,
-            payload: EpollHandlerPayload,
         ) -> std::result::Result<(), devices::Error> {
             self.evt = Some(device_event);
-            self.flags = Some(event_flags);
-            self.payload = Some(payload);
             Ok(())
         }
     }
@@ -2311,13 +2288,9 @@ mod tests {
         assert_eq!(ep.device_handlers.len(), 1);
         assert_eq!(base, 1);
 
-        let handler = DummyEpollHandler {
-            evt: None,
-            flags: None,
-            payload: None,
-        };
+        let handler = DummyEpollHandler { evt: None };
         assert!(sender.send(Box::new(handler)).is_ok());
-        assert!(ep.get_device_handler(0).is_ok());
+        assert!(ep.get_device_handler_by_handler_id(0).is_ok());
     }
 
     #[test]
@@ -2513,7 +2486,8 @@ mod tests {
             assert_eq!(nic_1.tx_rate_limiter.unwrap().ops.unwrap(), tbc_2mtps);
         }
 
-        vmm.init_guest_memory().unwrap();
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.setup_interrupt_controller().is_ok());
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
             .expect("Cannot initialize mmio device manager");
@@ -2530,12 +2504,31 @@ mod tests {
             })
             .is_err());
 
-        // Fake device activation by explicitly setting a dummy epoll handler.
-        vmm.epoll_context.device_handlers[0].handler = Some(Box::new(DummyEpollHandler {
-            evt: None,
-            flags: None,
-            payload: None,
-        }));
+        // Activate the device
+        {
+            let device_manager = vmm.mmio_device_manager.as_ref().unwrap();
+            let bus_device_mutex = device_manager
+                .get_device(DeviceType::Virtio(TYPE_NET), "1")
+                .unwrap();
+            let bus_device = &mut *bus_device_mutex.lock().unwrap();
+            let mmio_device: &mut MmioDevice = bus_device
+                .as_mut_any()
+                .downcast_mut::<MmioDevice>()
+                .unwrap();
+
+            assert!(mmio_device
+                .device_mut()
+                .activate(
+                    vmm.guest_memory.as_ref().unwrap().clone(),
+                    EventFd::new().unwrap(),
+                    Arc::new(AtomicUsize::new(0)),
+                    vec![Queue::new(0), Queue::new(0)],
+                    vec![EventFd::new().unwrap(), EventFd::new().unwrap()],
+                )
+                .is_ok());
+        }
+
+        // the update should succeed after the device activation
         vmm.update_net_device(NetworkInterfaceUpdateConfig {
             iface_id: "1".to_string(),
             rx_rate_limiter: Some(RateLimiterConfig {
@@ -2803,6 +2796,7 @@ mod tests {
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
+        assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
@@ -2826,6 +2820,7 @@ mod tests {
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
+        assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
@@ -2853,6 +2848,7 @@ mod tests {
             .is_ok());
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
+        assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
@@ -2867,7 +2863,10 @@ mod tests {
         {
             let device_manager = vmm.mmio_device_manager.as_ref().unwrap();
             assert!(device_manager
-                .get_address(&non_root_block_device.drive_id)
+                .get_device(
+                    DeviceType::Virtio(TYPE_BLOCK),
+                    &non_root_block_device.drive_id
+                )
                 .is_some());
         }
 
@@ -2891,6 +2890,8 @@ mod tests {
         assert!(vmm.guest_memory.is_some());
 
         vmm.default_kernel_config(None);
+        vmm.setup_interrupt_controller()
+            .expect("Failed to setup interrupt controller");
         vmm.init_mmio_device_manager()
             .expect("Cannot initialize mmio device manager");
 
@@ -2918,6 +2919,8 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config(None);
         assert!(vmm.init_guest_memory().is_ok());
+        vmm.setup_interrupt_controller()
+            .expect("Failed to setup interrupt controller");
 
         vmm.init_mmio_device_manager()
             .expect("Cannot initialize mmio device manager");
@@ -2955,7 +2958,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rescan() {
+    fn test_block_device_rescan() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config(None);
 
@@ -2987,6 +2990,7 @@ mod tests {
 
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.guest_memory.is_some());
+        assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.init_mmio_device_manager()
             .expect("Cannot initialize mmio device manager");
@@ -3001,6 +3005,7 @@ mod tests {
                     vmm.vm.get_fd(),
                     dummy_box,
                     &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
+                    TYPE_BLOCK,
                     &scratch_id,
                 )
                 .unwrap();
@@ -3036,15 +3041,13 @@ mod tests {
         }
         vmm.change_id(&scratch_id, "scratch");
         match vmm.rescan_block_device(&scratch_id) {
-            Err(VmmActionError::DriveConfig(
-                ErrorKind::User,
-                DriveError::BlockDeviceUpdateFailed,
-            )) => (),
+            Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
+            }
             _ => assert!(false),
         }
 
         // Test rescan_block_device with invalid device address.
-        vmm.remove_device_info(&scratch_id);
+        vmm.remove_device_info(TYPE_BLOCK, &scratch_id);
         match vmm.rescan_block_device(&scratch_id) {
             Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
             }
@@ -3229,6 +3232,13 @@ mod tests {
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.vm.get_memory().is_some());
 
+        #[cfg(target_arch = "aarch64")]
+        assert_eq!(
+            vmm.load_kernel().unwrap_err().to_string(),
+            "Cannot load kernel due to invalid memory configuration or invalid kernel image. Failed to read magic number"
+        );
+
+        #[cfg(target_arch = "x86_64")]
         assert_eq!(
             vmm.load_kernel().unwrap_err().to_string(),
             "Cannot load kernel due to invalid memory configuration or invalid kernel image. Failed to read ELF header"
@@ -3266,6 +3276,8 @@ mod tests {
 
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.vm.get_memory().is_some());
+        vmm.setup_interrupt_controller()
+            .expect("Failed to setup interrupt controller");
 
         // Create test network interface.
         let network_interface = NetworkInterfaceConfig {
@@ -3283,6 +3295,7 @@ mod tests {
         assert!(vmm.mmio_device_manager.is_some());
     }
 
+    #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_attach_legacy_devices() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
@@ -3297,6 +3310,74 @@ mod tests {
         stdin_handle.lock().set_canon_mode().unwrap();
     }
 
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_attach_legacy_devices_without_uart() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.guest_memory.is_some());
+
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            &mut (arch::get_reserved_mem_addr() as u64),
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
+        vmm.mmio_device_manager = Some(device_manager);
+
+        vmm.default_kernel_config(None);
+        vmm.setup_interrupt_controller()
+            .expect("Failed to setup interrupt controller");
+        assert!(vmm.attach_legacy_devices().is_ok());
+        let kernel_config = vmm.kernel_config.as_mut();
+
+        let dev_man = vmm.mmio_device_manager.as_ref().unwrap();
+        // On aarch64, we are using first region of the memory
+        // reserved for attaching MMIO devices for measuring boot time.
+        assert!(dev_man
+            .bus
+            .get_device(arch::get_reserved_mem_addr() as u64)
+            .is_none());
+        assert!(dev_man
+            .get_device_info()
+            .get(&(DeviceType::Serial, "uart".to_string()))
+            .is_none());
+        assert!(dev_man
+            .get_device_info()
+            .get(&(DeviceType::RTC, "rtc".to_string()))
+            .is_some());
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_attach_legacy_devices_with_uart() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.guest_memory.is_some());
+
+        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let device_manager = MMIODeviceManager::new(
+            guest_mem.clone(),
+            &mut (arch::get_reserved_mem_addr() as u64),
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
+        vmm.mmio_device_manager = Some(device_manager);
+
+        vmm.default_kernel_config(None);
+        vmm.setup_interrupt_controller()
+            .expect("Failed to setup interrupt controller");
+        {
+            let kernel_config = vmm.kernel_config.as_mut().unwrap();
+            kernel_config.cmdline.insert("console", "tty1").unwrap();
+        }
+        assert!(vmm.attach_legacy_devices().is_ok());
+        let dev_man = vmm.mmio_device_manager.as_ref().unwrap();
+        assert!(dev_man
+            .get_device_info()
+            .get(&(DeviceType::Serial, "uart".to_string()))
+            .is_some());
+    }
+
     // Helper function to get ErrorKind of error.
     fn error_kind<T: std::convert::Into<VmmActionError>>(err: T) -> ErrorKind {
         let err: VmmActionError = err.into();
@@ -3304,7 +3385,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_conversion() {
+    fn test_drive_error_conversion() {
         // Test `DriveError` conversion
         assert_eq!(
             error_kind(DriveError::CannotOpenBlockDevice),
@@ -3334,7 +3415,10 @@ mod tests {
             error_kind(DriveError::RootBlockDeviceAlreadyAdded),
             ErrorKind::User
         );
+    }
 
+    #[test]
+    fn test_vmconfig_error_conversion() {
         // Test `VmConfigError` conversion
         assert_eq!(error_kind(VmConfigError::InvalidVcpuCount), ErrorKind::User);
         assert_eq!(
@@ -3345,7 +3429,10 @@ mod tests {
             error_kind(VmConfigError::UpdateNotAllowedPostBoot),
             ErrorKind::User
         );
+    }
 
+    #[test]
+    fn test_network_interface_error_conversion() {
         // Test `NetworkInterfaceError` conversion
         assert_eq!(
             error_kind(NetworkInterfaceError::GuestMacAddressInUse(String::new())),
@@ -3406,7 +3493,10 @@ mod tests {
             error_kind(NetworkInterfaceError::UpdateNotAllowedPostBoot),
             ErrorKind::User
         );
+    }
 
+    #[test]
+    fn test_start_microvm_error_conversion_cl() {
         // Test `StartMicrovmError` conversion
         #[cfg(target_arch = "x86_64")]
         assert_eq!(
@@ -3487,6 +3577,10 @@ mod tests {
             )),
             ErrorKind::Internal
         );
+    }
+
+    #[test]
+    fn test_start_microvm_error_conversion_mv() {
         assert_eq!(
             error_kind(StartMicrovmError::MicroVMAlreadyRunning),
             ErrorKind::User

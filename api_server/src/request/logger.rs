@@ -28,6 +28,7 @@ impl IntoParsedRequest for LoggerConfig {
 mod tests {
     use super::*;
 
+    #[cfg(target_arch = "x86_64")]
     use serde_json::Value;
     use vmm::vmm_config::logger::LoggerLevel;
 
@@ -39,6 +40,7 @@ mod tests {
             level: LoggerLevel::Warning,
             show_level: false,
             show_log_origin: false,
+            #[cfg(target_arch = "x86_64")]
             options: Value::Array(vec![]),
         };
         format!("{:?}", desc);

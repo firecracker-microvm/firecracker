@@ -18,13 +18,14 @@ use std::sync::Arc;
 
 use super::super::Error as DeviceError;
 use super::{
-    ActivateError, ActivateResult, DescriptorChain, EpollHandlerPayload, Queue, VirtioDevice,
-    TYPE_BLOCK, VIRTIO_MMIO_INT_VRING,
+    ActivateError, ActivateResult, DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK,
+    VIRTIO_MMIO_INT_VRING,
 };
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
+use virtio::EpollConfigConstructor;
 use virtio_gen::virtio_blk::*;
 use {DeviceEventT, EpollHandler};
 
@@ -39,10 +40,8 @@ const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE];
 const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
 // Rate limiter budget is now available.
 const RATE_LIMITER_EVENT: DeviceEventT = 1;
-// Backing file on the host has changed.
-pub const FS_UPDATE_EVENT: DeviceEventT = 2;
 // Number of DeviceEventT events supported by this implementation.
-pub const BLOCK_EVENTS_COUNT: usize = 3;
+pub const BLOCK_EVENTS_COUNT: usize = 2;
 
 #[derive(Debug)]
 enum Error {
@@ -277,7 +276,8 @@ impl Request {
     }
 }
 
-struct BlockEpollHandler {
+/// Handler that drives the execution of the Block devices
+pub struct BlockEpollHandler {
     queues: Vec<Queue>,
     mem: GuestMemory,
     disk_image: File,
@@ -378,7 +378,8 @@ impl BlockEpollHandler {
         })
     }
 
-    fn update_disk_image(&mut self, disk_image: File) -> result::Result<(), DeviceError> {
+    /// Update the backing file for the Block device
+    pub fn update_disk_image(&mut self, disk_image: File) -> result::Result<(), DeviceError> {
         self.disk_image = disk_image;
         self.disk_nsectors = self
             .disk_image
@@ -392,12 +393,7 @@ impl BlockEpollHandler {
 }
 
 impl EpollHandler for BlockEpollHandler {
-    fn handle_event(
-        &mut self,
-        device_event: DeviceEventT,
-        _: u32,
-        payload: EpollHandlerPayload,
-    ) -> result::Result<(), DeviceError> {
+    fn handle_event(&mut self, device_event: DeviceEventT) -> result::Result<(), DeviceError> {
         match device_event {
             QUEUE_AVAIL_EVENT => {
                 METRICS.block.queue_event_count.inc();
@@ -425,13 +421,6 @@ impl EpollHandler for BlockEpollHandler {
                     Ok(())
                 }
             }
-            FS_UPDATE_EVENT => {
-                if let EpollHandlerPayload::DrivePayload(file) = payload {
-                    self.update_disk_image(file)
-                } else {
-                    Err(DeviceError::PayloadExpected)
-                }
-            }
             unknown => Err(DeviceError::UnknownEvent {
                 device: "block",
                 event: unknown,
@@ -447,12 +436,8 @@ pub struct EpollConfig {
     sender: mpsc::Sender<Box<EpollHandler>>,
 }
 
-impl EpollConfig {
-    pub fn new(
-        first_token: u64,
-        epoll_raw_fd: RawFd,
-        sender: mpsc::Sender<Box<EpollHandler>>,
-    ) -> Self {
+impl EpollConfigConstructor for EpollConfig {
+    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self {
         EpollConfig {
             q_avail_token: first_token + u64::from(QUEUE_AVAIL_EVENT),
             rate_limiter_token: first_token + u64::from(RATE_LIMITER_EVENT),
@@ -811,8 +796,7 @@ mod tests {
         // trigger the queue event
         h.queue_evt.write(1).unwrap();
         // handle event
-        h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
-            .unwrap();
+        h.handle_event(QUEUE_AVAIL_EVENT).unwrap();
         // validate the queue operation finished successfully
         assert_eq!(h.interrupt_evt.read().unwrap(), 2);
     }
@@ -1099,11 +1083,7 @@ mod tests {
     fn test_invalid_event_handler() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _vq) = default_test_blockepollhandler(&m);
-        let r = h.handle_event(
-            BLOCK_EVENTS_COUNT as DeviceEventT,
-            0,
-            EpollHandlerPayload::Empty,
-        );
+        let r = h.handle_event(BLOCK_EVENTS_COUNT as DeviceEventT);
         match r {
             Err(DeviceError::UnknownEvent { event, device }) => {
                 assert_eq!(event, BLOCK_EVENTS_COUNT as DeviceEventT);
@@ -1116,18 +1096,6 @@ mod tests {
     // Cannot easily test failures for
     //  * queue_evt.read
     //  * interrupt_evt.write
-
-    #[test]
-    fn test_fs_update_event_error() {
-        let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let (mut h, _vq) = default_test_blockepollhandler(&m);
-        // This should panic because payload is empty for event type FS_UPDATE_EVENT.
-        let r = h.handle_event(FS_UPDATE_EVENT, 0, EpollHandlerPayload::Empty);
-        match r {
-            Err(DeviceError::PayloadExpected) => (),
-            _ => panic!("invalid"),
-        }
-    }
 
     #[test]
     #[allow(clippy::cyclomatic_complexity)]
@@ -1436,8 +1404,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
-                    .unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT).unwrap();
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1455,8 +1422,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
-                    .unwrap();
+                h.handle_event(RATE_LIMITER_EVENT).unwrap();
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
                 // make sure the virtio queue operation completed this time
@@ -1497,8 +1463,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
-                    .unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT).unwrap();
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1514,8 +1479,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
-                    .unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT).unwrap();
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1533,8 +1497,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
-                    .unwrap();
+                h.handle_event(RATE_LIMITER_EVENT).unwrap();
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
                 // make sure the virtio queue operation completed this time
@@ -1568,8 +1531,7 @@ mod tests {
                 .write(true)
                 .open(path)
                 .unwrap();
-            let payload = EpollHandlerPayload::DrivePayload(file);
-            h.handle_event(FS_UPDATE_EVENT, 0, payload).unwrap();
+            h.update_disk_image(file).unwrap();
 
             assert_eq!(h.disk_image.metadata().unwrap().st_ino(), mdata.st_ino());
             assert_eq!(h.disk_image_id, id);

@@ -25,8 +25,7 @@ extern crate vhost_backend;
 extern crate vhost_gen;
 extern crate virtio_gen;
 
-use rate_limiter::{Error as RateLimiterError, TokenBucket};
-use std::fs::File;
+use rate_limiter::Error as RateLimiterError;
 use std::io;
 
 mod bus;
@@ -34,36 +33,14 @@ pub mod legacy;
 pub mod virtio;
 
 pub use self::bus::{Bus, BusDevice, Error as BusError};
+use virtio::AsAny;
 
 pub type DeviceEventT = u16;
 
-/// The payload is used to handle events where the internal state of the VirtIO device
-/// needs to be changed.
-#[allow(clippy::large_enum_variant)]
-pub enum EpollHandlerPayload {
-    /// DrivePayload(disk_image)
-    DrivePayload(File),
-    /// Used to mutate current RateLimiter settings. The buckets are rx_bytes, rx_ops,
-    /// tx_bytes, and tx_ops, respectively.
-    NetRateLimiterPayload {
-        rx_bytes: Option<TokenBucket>,
-        rx_ops: Option<TokenBucket>,
-        tx_bytes: Option<TokenBucket>,
-        tx_ops: Option<TokenBucket>,
-    },
-    /// Events that do not need a payload.
-    Empty,
-}
-
 type Result<T> = std::result::Result<T, Error>;
 
-pub trait EpollHandler: Send {
-    fn handle_event(
-        &mut self,
-        device_event: DeviceEventT,
-        event_flags: u32,
-        payload: EpollHandlerPayload,
-    ) -> Result<()>;
+pub trait EpollHandler: AsAny + Send {
+    fn handle_event(&mut self, device_event: DeviceEventT) -> Result<()>;
 }
 
 #[derive(Debug)]

@@ -1,7 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(target_arch = "x86_64")]
 extern crate backtrace;
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
@@ -15,7 +14,6 @@ extern crate mmds;
 extern crate seccomp;
 extern crate vmm;
 
-#[cfg(target_arch = "x86_64")]
 use backtrace::Backtrace;
 use clap::{App, Arg};
 
@@ -54,11 +52,8 @@ fn main() {
         // from which the panic originated.
         error!("Firecracker {}", info);
         METRICS.vmm.panic_count.inc();
-        #[cfg(target_arch = "x86_64")]
-        {
-            let bt = Backtrace::new();
-            error!("{:?}", bt);
-        }
+        let bt = Backtrace::new();
+        error!("{:?}", bt);
 
         // Log the metrics before aborting.
         if let Err(e) = LOGGER.log_metrics() {
@@ -74,14 +69,13 @@ fn main() {
             Arg::with_name("api_sock")
                 .long("api-sock")
                 .help("Path to unix domain socket used by the API")
-                .default_value(DEFAULT_API_SOCK_PATH)
-                .takes_value(true),
+                .takes_value(true)
+                .default_value(DEFAULT_API_SOCK_PATH),
         )
         .arg(
             Arg::with_name("id")
                 .long("id")
                 .help("MicroVM unique identifier")
-                .default_value(DEFAULT_API_SOCK_PATH)
                 .takes_value(true)
                 .default_value(DEFAULT_INSTANCE_ID)
                 .validator(|s: String| -> Result<(), String> {

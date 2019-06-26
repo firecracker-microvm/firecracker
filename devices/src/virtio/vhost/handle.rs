@@ -5,11 +5,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use super::super::EpollHandlerPayload;
 use super::INTERRUPT_STATUS_USED_RING;
 
 use sys_util::EventFd;
 use vhost_backend::Vhost;
+use virtio::EpollConfigConstructor;
 use DeviceEventT;
 use EpollHandler;
 
@@ -73,16 +73,11 @@ impl<T: Vhost> VhostEpollHandler<T> {
     }
 }
 
-impl<T: Vhost> EpollHandler for VhostEpollHandler<T>
+impl<T: Vhost + 'static> EpollHandler for VhostEpollHandler<T>
 where
     T: std::marker::Send,
 {
-    fn handle_event(
-        &mut self,
-        device_event: DeviceEventT,
-        _: u32,
-        _: EpollHandlerPayload,
-    ) -> std::result::Result<(), DeviceError> {
+    fn handle_event(&mut self, device_event: DeviceEventT) -> std::result::Result<(), DeviceError> {
         match device_event {
             VHOST_IRQ_AVAILABLE => {
                 if let Err(e) = self.queue_evt.read() {
@@ -116,18 +111,6 @@ pub struct VhostEpollConfig {
 }
 
 impl VhostEpollConfig {
-    pub fn new(
-        first_token: u64,
-        epoll_raw_fd: RawFd,
-        sender: mpsc::Sender<Box<EpollHandler>>,
-    ) -> Self {
-        VhostEpollConfig {
-            queue_evt_token: first_token,
-            kill_token: first_token + 1,
-            epoll_raw_fd,
-            sender,
-        }
-    }
     pub fn get_sender(&self) -> mpsc::Sender<Box<EpollHandler>> {
         self.sender.clone()
     }
@@ -142,5 +125,16 @@ impl VhostEpollConfig {
 
     pub fn get_queue_evt_token(&self) -> u64 {
         self.queue_evt_token
+    }
+}
+
+impl EpollConfigConstructor for VhostEpollConfig {
+    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self {
+        VhostEpollConfig {
+            queue_evt_token: first_token,
+            kill_token: first_token + 1,
+            epoll_raw_fd,
+            sender,
+        }
     }
 }

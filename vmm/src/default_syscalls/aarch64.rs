@@ -38,7 +38,6 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     and![Cond::new(1, Eq, super::EPOLL_CTL_DEL)?],
                 ],
             ),
-            #[cfg(target_env = "musl")]
             allow_syscall(libc::SYS_epoll_pwait),
             allow_syscall(libc::SYS_exit),
             allow_syscall(libc::SYS_exit_group),
@@ -69,7 +68,6 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             ),
             allow_syscall(SYS_mmap),
             allow_syscall(libc::SYS_munmap),
-            #[cfg(target_env = "musl")]
             allow_syscall(libc::SYS_openat),
             allow_syscall(libc::SYS_read),
             allow_syscall(libc::SYS_readv),

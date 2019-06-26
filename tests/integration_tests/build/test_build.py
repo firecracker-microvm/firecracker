@@ -4,19 +4,31 @@
 
 import itertools
 import os
+import platform
+
 import pytest
 
 import host_tools.cargo_build as host  # pylint:disable=import-error
 
+MACHINE = platform.machine()
 FEATURES = ["", "vsock"]
+
+# Since this is a temporary feature, we do not test
+# it on aarch64.
+if MACHINE == "aarch64":
+    FEATURES = [""]
+
 BUILD_TYPES = ["debug", "release"]
-TARGETS = ["x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"]
+
+TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
+           "{}-unknown-linux-musl".format(MACHINE)]
 
 
 @pytest.mark.parametrize(
     "features, build_type, target",
     itertools.product(FEATURES, BUILD_TYPES, TARGETS)
 )
+@pytest.mark.timeout(400)
 def test_build(test_session_root_path, features, build_type, target):
     """
     Test different builds.
@@ -24,9 +36,14 @@ def test_build(test_session_root_path, features, build_type, target):
     This will generate build tests using the cartesian product of all
     features, build types (release/debug) and build targets (musl/gnu).
     """
+    extra_env = ''
     extra_args = "--target {} ".format(target)
+
     if build_type == "release":
         extra_args += "--release "
+
+    if "musl" in target:
+        extra_env += "TARGET_CC=musl-gcc"
 
     # The relative path of the binaries is computed using the build_type
     # (either release or debug) and if any features are provided also using
@@ -40,23 +57,11 @@ def test_build(test_session_root_path, features, build_type, target):
     )
     if features:
         rel_path += "-{}".format(features)
-        extra_args = "--features {} ".format(features)
+        extra_args += "--features {} ".format(features)
 
     build_path = os.path.join(
         test_session_root_path,
         rel_path
     )
 
-    host.cargo_build(build_path, extra_args=extra_args)
-
-
-def test_arm_build_release(test_session_root_path):
-    """Test cross compilation for arm in release mode."""
-    build_path = os.path.join(
-        test_session_root_path,
-        'arm-build'
-    )
-    host.cargo_build(
-        build_path,
-        '--target aarch64-unknown-linux-musl --release'
-    )
+    host.cargo_build(build_path, extra_args=extra_args, extra_env=extra_env)

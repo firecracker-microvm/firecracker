@@ -1226,7 +1226,7 @@ mod tests {
             BPF_JUMP(0x15, 0, 0, 3),
             BPF_STMT(0x20, 32),
             BPF_JUMP(0x25, 20, 0, 1),
-            BPF_STMT(0x06, 0x7fff0000),
+            BPF_STMT(0x06, 0x7fff_0000),
             BPF_STMT(0x05, 1),
             BPF_STMT(0x05, 7),
             BPF_STMT(0x20, 36),
@@ -1234,8 +1234,8 @@ mod tests {
             BPF_JUMP(0x15, 0, 0, 3),
             BPF_STMT(0x20, 32),
             BPF_JUMP(0x35, 42, 0, 1),
-            BPF_STMT(0x06, 0x7fff0000),
-            BPF_STMT(0x06, 0x00030000),
+            BPF_STMT(0x06, 0x7fff_0000),
+            BPF_STMT(0x06, 0x0003_0000),
             BPF_JUMP(0x15, 9, 0, 1),
             BPF_STMT(0x05, 1),
             BPF_STMT(0x05, 8),
@@ -1349,11 +1349,11 @@ mod tests {
 
     #[test]
     fn test_from_seccomp_action() {
-        assert_eq!(0x7fff0000, u32::from(SeccompAction::Allow));
-        assert_eq!(0x0005002a, u32::from(SeccompAction::Errno(42)));
-        assert_eq!(0x00000000, u32::from(SeccompAction::Kill));
-        assert_eq!(0x7ffc0000, u32::from(SeccompAction::Log));
-        assert_eq!(0x7ff0002a, u32::from(SeccompAction::Trace(42)));
-        assert_eq!(0x00030000, u32::from(SeccompAction::Trap));
+        assert_eq!(0x7fff_0000, u32::from(SeccompAction::Allow));
+        assert_eq!(0x0005_002a, u32::from(SeccompAction::Errno(42)));
+        assert_eq!(0x0000_0000, u32::from(SeccompAction::Kill));
+        assert_eq!(0x7ffc_0000, u32::from(SeccompAction::Log));
+        assert_eq!(0x7ff0_002a, u32::from(SeccompAction::Trace(42)));
+        assert_eq!(0x0003_0000, u32::from(SeccompAction::Trap));
     }
 }
