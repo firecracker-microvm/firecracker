@@ -489,65 +489,49 @@ mod tests {
     }
 
     #[test]
-    fn test_create_vm() {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_get_supported_cpuid() {
         let kvm = KvmContext::new().unwrap();
         let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        {
-            let mut cpuid = kvm
-                .kvm
-                .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
-                .expect("Cannot get supported cpuid");
-            assert_eq!(
-                vm.get_supported_cpuid().mut_entries_slice(),
-                cpuid.mut_entries_slice()
-            );
-        }
+        let mut cpuid = kvm
+            .kvm
+            .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
+            .expect("Cannot get supported cpuid");
+        assert_eq!(
+            vm.get_supported_cpuid().mut_entries_slice(),
+            cpuid.mut_entries_slice()
+        );
     }
 
     #[test]
-    fn test_vm_memory_init_success() {
-        let kvm = KvmContext::new().unwrap();
+    fn test_vm_memory_init() {
+        let mut kvm_context = KvmContext::new().unwrap();
+        let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
+
+        // Create valid memory region and test that the initialization is successful.
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-        assert!(vm.memory_init(gm, &kvm).is_ok());
-        let obj_addr = GuestAddress(0xf0);
-        vm.get_memory()
-            .unwrap()
-            .write_obj_at_addr(67u8, obj_addr)
+        assert!(vm.memory_init(gm, &kvm_context).is_ok());
+
+        // Set the maximum number of memory slots to 1 in KvmContext to check the error
+        // path of memory_init. Create 2 non-overlapping memory slots.
+        kvm_context.max_memslots = 1;
+        let gm = GuestMemory::new(&[(GuestAddress(0x0), 0x1000), (GuestAddress(0x1001), 0x2000)])
             .unwrap();
-        let read_val: u8 = vm
-            .get_memory()
-            .unwrap()
-            .read_obj_from_addr(obj_addr)
-            .unwrap();
-        assert_eq!(read_val, 67u8);
-    }
-
-    #[test]
-    fn test_vm_memory_init_failure() {
-        let kvm_fd = Kvm::new().unwrap();
-        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
-
-        let kvm = KvmContext {
-            kvm: kvm_fd,
-            max_memslots: 1,
-        };
-        let start_addr1 = GuestAddress(0x0);
-        let start_addr2 = GuestAddress(0x1000);
-        let gm = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-
-        assert!(vm.memory_init(gm, &kvm).is_err());
+        assert!(vm.memory_init(gm, &kvm_context).is_err());
     }
 
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_setup_irqchip() {
-        let kvm = KvmContext::new().unwrap();
-        let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
+        let kvm_context = KvmContext::new().unwrap();
+        let vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         vm.setup_irqchip().expect("Cannot setup irqchip");
+        // Trying to setup two irqchips will result in EEXIST error. At the moment
+        // there is no good way of testing the actual error because io::Error does not implement
+        // PartialEq.
+        assert!(vm.setup_irqchip().is_err());
+
         let _vcpu = Vcpu::new(
             1,
             &vm,
@@ -555,7 +539,7 @@ mod tests {
             super::super::TimestampUs::default(),
         )
         .unwrap();
-        // Trying to setup two irqchips will result in EEXIST error.
+        // Trying to setup irqchip after KVM_VCPU_CREATE was called will result in error.
         assert!(vm.setup_irqchip().is_err());
     }
 
@@ -577,28 +561,6 @@ mod tests {
         vm.setup_irqchip(vcpu_count).expect("Cannot setup irqchip");
         // Trying to setup two irqchips will result in EEXIST error.
         assert!(vm.setup_irqchip(vcpu_count).is_err());
-    }
-
-    #[test]
-    fn test_setup_irqchip_failure() {
-        let kvm = KvmContext::new().unwrap();
-        // On aarch64, this needs to be mutable.
-        #[allow(unused_mut)]
-        let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-        let _vcpu = Vcpu::new(
-            1,
-            &vm,
-            devices::Bus::new(),
-            super::super::TimestampUs::default(),
-        )
-        .unwrap();
-
-        #[cfg(target_arch = "x86_64")]
-        // Trying to setup irqchip after KVM_VCPU_CREATE was called will result in error on x86_64.
-        assert!(vm.setup_irqchip().is_err());
-        #[cfg(target_arch = "aarch64")]
-        // Trying to setup irqchip after KVM_VCPU_CREATE is actually the way to go on aarch64.
-        assert!(vm.setup_irqchip(1).is_ok());
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -654,7 +616,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn invalid_seccomp_lvl() {
+    fn test_vcpu_run_failed() {
         let (_, mut vcpu) = setup_vcpu();
         // Setting an invalid seccomp level should panic.
         vcpu.run(
@@ -662,21 +624,5 @@ mod tests {
             seccomp::SECCOMP_LEVEL_ADVANCED + 10,
             EventFd::new().unwrap(),
         );
-    }
-
-    #[test]
-    fn not_enough_mem_slots() {
-        let kvm_fd = Kvm::new().unwrap();
-        let mut vm = Vm::new(&kvm_fd).expect("new vm failed");
-
-        let kvm = KvmContext {
-            kvm: kvm_fd,
-            max_memslots: 1,
-        };
-        let start_addr1 = GuestAddress(0x0);
-        let start_addr2 = GuestAddress(0x1000);
-        let gm = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-
-        assert!(vm.memory_init(gm, &kvm).is_err());
     }
 }
