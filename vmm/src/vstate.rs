@@ -453,14 +453,8 @@ impl Vcpu {
 
 #[cfg(test)]
 mod tests {
-    use std::thread;
-    use std::time::Duration;
-
     use super::super::devices;
     use super::*;
-
-    use libc::{c_int, c_void, siginfo_t};
-    use sys_util::{register_vcpu_signal_handler, Killable};
 
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu() -> (Vm, Vcpu) {
@@ -668,56 +662,6 @@ mod tests {
             seccomp::SECCOMP_LEVEL_ADVANCED + 10,
             EventFd::new().unwrap(),
         );
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn test_run_vcpu() {
-        extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {}
-
-        let signum = 0;
-        // We install a signal handler for the specified signal; otherwise the whole process will
-        // be brought down when the signal is received, as part of the default behaviour. Signal
-        // handlers are global, so we install this before starting the thread.
-        unsafe {
-            register_vcpu_signal_handler(signum, handle_signal)
-                .expect("failed to register vcpu signal handler");
-        }
-
-        let (vm, mut vcpu) = setup_vcpu();
-
-        let vm_config = VmConfig::default();
-        #[cfg(target_arch = "x86_64")]
-        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
-
-        let thread_barrier = Arc::new(Barrier::new(2));
-        let exit_evt = EventFd::new().unwrap();
-
-        let vcpu_thread_barrier = thread_barrier.clone();
-        let vcpu_exit_evt = exit_evt.try_clone().expect("eventfd clone failed");
-        let seccomp_level = 0;
-
-        let thread = thread::Builder::new()
-            .name("fc_vcpu0".to_string())
-            .spawn(move || {
-                vcpu.run(vcpu_thread_barrier, seccomp_level, vcpu_exit_evt);
-            })
-            .expect("failed to spawn thread ");
-
-        thread_barrier.wait();
-
-        // Wait to make sure the vcpu starts its KVM_RUN ioctl.
-        thread::sleep(Duration::from_millis(100));
-
-        // Kick the vcpu out of KVM_RUN.
-        thread.kill(signum).expect("failed to signal thread");
-
-        // Wait some more.
-        thread::sleep(Duration::from_millis(100));
-
-        // Validate vcpu handled the EINTR gracefully and didn't exit.
-        let err = exit_evt.read().unwrap_err();
-        assert_eq!(err.raw_os_error().unwrap(), libc::EAGAIN);
     }
 
     #[test]
