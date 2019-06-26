@@ -2753,20 +2753,6 @@ mod tests {
     }
 
     #[test]
-    fn test_microvm_start() {
-        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-
-        vmm.default_kernel_config(Some(good_kernel_file()));
-        // The kernel provided contains  "return 0" which will make the
-        // advanced seccomp filter return bad syscall so we disable it.
-        vmm.seccomp_level = seccomp::SECCOMP_LEVEL_NONE;
-        let res = vmm.start_microvm();
-        let stdin_handle = io::stdin();
-        stdin_handle.lock().set_canon_mode().unwrap();
-        assert!(res.is_ok());
-    }
-
-    #[test]
     fn test_is_instance_initialized() {
         let vmm = create_vmm_object(InstanceState::Uninitialized);
         assert_eq!(vmm.is_instance_initialized(), false);
