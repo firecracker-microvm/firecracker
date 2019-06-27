@@ -72,6 +72,7 @@ RUN mkdir "$TMP_BUILD_DIR" \
         && rustup component add clippy-preview \
         && cd "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
+            && cargo install cargo-audit \
             && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
