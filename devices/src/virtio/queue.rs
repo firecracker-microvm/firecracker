@@ -142,65 +142,6 @@ impl<'a> DescriptorChain<'a> {
     }
 }
 
-/// Consuming iterator over all available descriptor chain heads in the queue.
-pub struct AvailIter<'a, 'b> {
-    mem: &'a GuestMemory,
-    desc_table: GuestAddress,
-    avail_ring: GuestAddress,
-    next_index: Wrapping<u16>,
-    last_index: Wrapping<u16>,
-    queue_size: u16,
-    next_avail: &'b mut Wrapping<u16>,
-}
-
-impl<'a, 'b> AvailIter<'a, 'b> {
-    pub fn new(mem: &'a GuestMemory, q_next_avail: &'b mut Wrapping<u16>) -> AvailIter<'a, 'b> {
-        AvailIter {
-            mem,
-            desc_table: GuestAddress(0),
-            avail_ring: GuestAddress(0),
-            next_index: Wrapping(0),
-            last_index: Wrapping(0),
-            queue_size: 0,
-            next_avail: q_next_avail,
-        }
-    }
-}
-
-impl<'a, 'b> Iterator for AvailIter<'a, 'b> {
-    type Item = DescriptorChain<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.next_index == self.last_index {
-            return None;
-        }
-
-        let offset = (4 + (self.next_index.0 % self.queue_size) * 2) as usize;
-        let avail_addr = match self.mem.checked_offset(self.avail_ring, offset) {
-            Some(a) => a,
-            None => return None,
-        };
-        // This index is checked below in checked_new
-        let desc_index: u16 = match self.mem.read_obj_from_addr(avail_addr) {
-            Ok(ret) => ret,
-            Err(_) => {
-                // TODO log address
-                error!("Failed to read from memory");
-                return None;
-            }
-        };
-
-        self.next_index += Wrapping(1);
-
-        let ret =
-            DescriptorChain::checked_new(self.mem, self.desc_table, self.queue_size, desc_index);
-        if ret.is_some() {
-            *self.next_avail += Wrapping(1);
-        }
-        ret
-    }
-}
-
 #[derive(Clone)]
 /// A virtio queue's parameters.
 pub struct Queue {
@@ -307,36 +248,6 @@ impl Queue {
             false
         } else {
             true
-        }
-    }
-
-    /// A consuming iterator over all available descriptor chain heads offered by the driver.
-    pub fn iter<'a, 'b>(&'b mut self, mem: &'a GuestMemory) -> AvailIter<'a, 'b> {
-        let queue_size = self.actual_size();
-        let avail_ring = self.avail_ring;
-
-        let index_addr = match mem.checked_offset(avail_ring, 2) {
-            Some(ret) => ret,
-            None => {
-                // TODO log address
-                warn!("Invalid offset");
-                return AvailIter::new(mem, &mut self.next_avail);
-            }
-        };
-        // Note that last_index has no invalid values
-        let last_index: u16 = match mem.read_obj_from_addr::<u16>(index_addr) {
-            Ok(ret) => ret,
-            Err(_) => return AvailIter::new(mem, &mut self.next_avail),
-        };
-
-        AvailIter {
-            mem,
-            desc_table: self.desc_table,
-            avail_ring,
-            next_index: self.next_avail,
-            last_index: Wrapping(last_index),
-            queue_size,
-            next_avail: &mut self.next_avail,
         }
     }
 
@@ -751,7 +662,7 @@ pub mod tests {
     }
 
     #[test]
-    fn test_queue_and_iterator() {
+    fn test_queue_validation() {
         let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
@@ -799,60 +710,74 @@ pub mod tests {
         q.used_ring = GuestAddress(0x1001);
         assert!(!q.is_valid(m));
         q.used_ring = vq.used_start();
+    }
 
-        {
-            // an invalid queue should return an iterator with no next
-            q.ready = false;
-            let mut i = q.iter(m);
-            assert!(i.next().is_none());
-        }
+    #[test]
+    fn test_queue_processing() {
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let mut q = vq.create_queue();
 
         q.ready = true;
 
-        // now let's create two simple descriptor chains
+        // Let's create two simple descriptor chains.
 
-        {
-            for j in 0..5 {
-                vq.dtable[j].set(
-                    0x1000 * (j + 1) as u64,
-                    0x1000,
-                    VIRTQ_DESC_F_NEXT,
-                    (j + 1) as u16,
-                );
-            }
-
-            // the chains are (0, 1) and (2, 3, 4)
-            vq.dtable[1].flags.set(0);
-            vq.dtable[4].flags.set(0);
-            vq.avail.ring[0].set(0);
-            vq.avail.ring[1].set(2);
-            vq.avail.idx.set(2);
-
-            let mut i = q.iter(m);
-
-            {
-                let mut c = i.next().unwrap();
-                c = c.next_descriptor().unwrap();
-                assert!(!c.has_next());
-            }
-
-            {
-                let mut c = i.next().unwrap();
-                c = c.next_descriptor().unwrap();
-                c = c.next_descriptor().unwrap();
-                assert!(!c.has_next());
-            }
+        for j in 0..5 {
+            vq.dtable[j].set(
+                0x1000 * (j + 1) as u64,
+                0x1000,
+                VIRTQ_DESC_F_NEXT,
+                (j + 1) as u16,
+            );
         }
 
-        // also test go_to_previous_position() works as expected
-        {
-            assert!(q.iter(m).next().is_none());
-            q.undo_pop();
-            let mut c = q.iter(m).next().unwrap();
-            c = c.next_descriptor().unwrap();
-            c = c.next_descriptor().unwrap();
-            assert!(!c.has_next());
-        }
+        // the chains are (0, 1) and (2, 3, 4)
+        vq.dtable[1].flags.set(0);
+        vq.dtable[4].flags.set(0);
+        vq.avail.ring[0].set(0);
+        vq.avail.ring[1].set(2);
+        vq.avail.idx.set(2);
+
+        // We've just set up two chains.
+        assert_eq!(q.len(m), 2);
+
+        // The first chain should hold exactly two descriptors.
+        let d = q.pop(m).unwrap().next_descriptor().unwrap();
+        assert!(!d.has_next());
+        assert!(d.next_descriptor().is_none());
+
+        // We popped one chain, so there should be only one left.
+        assert_eq!(q.len(m), 1);
+
+        // The next chain holds three descriptors.
+        let d = q
+            .pop(m)
+            .unwrap()
+            .next_descriptor()
+            .unwrap()
+            .next_descriptor()
+            .unwrap();
+        assert!(!d.has_next());
+        assert!(d.next_descriptor().is_none());
+
+        // We've popped both chains, so the queue should be empty.
+        assert!(q.is_empty(m));
+        assert!(q.pop(m).is_none());
+
+        // Undoing the last pop should let us walk the last chain again.
+        q.undo_pop();
+        assert_eq!(q.len(m), 1);
+
+        // Walk the last chain again (three descriptors).
+        let d = q
+            .pop(m)
+            .unwrap()
+            .next_descriptor()
+            .unwrap()
+            .next_descriptor()
+            .unwrap();
+        assert!(!d.has_next());
+        assert!(d.next_descriptor().is_none());
     }
 
     #[test]
