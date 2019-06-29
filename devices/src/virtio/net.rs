@@ -210,7 +210,7 @@ impl NetEpollHandler {
     // if a buffer was used, and false if the frame must be deferred until a buffer
     // is made available by the driver.
     fn rx_single_frame(&mut self) -> bool {
-        let mut next_desc = self.rx.queue.iter(&self.mem).next();
+        let mut next_desc = self.rx.queue.pop(&self.mem);
 
         if next_desc.is_none() {
             return false;
@@ -392,26 +392,25 @@ impl NetEpollHandler {
     }
 
     fn process_tx(&mut self) -> result::Result<(), DeviceError> {
-        let mut rate_limited = false;
-
         // The MMDS network stack works like a state machine, based on synchronous calls, and
         // without being added to any event loop. If any frame is accepted by the MMDS, we also
         // trigger a process_rx() which checks if there are any new frames to be sent, starting
         // with the MMDS network stack.
         let mut process_rx_for_mmds = false;
 
-        while let Some(avail_desc) = self.tx.queue.iter(&self.mem).next() {
+        while let Some(head) = self.tx.queue.pop(&self.mem) {
             // If limiter.consume() fails it means there is no more TokenType::Ops
             // budget and rate limiting is in effect.
             if !self.tx.rate_limiter.consume(1, TokenType::Ops) {
-                rate_limited = true;
-                // Stop processing the queue.
+                // Stop processing the queue and return this descriptor chain to the
+                // avail ring, for later processing.
+                self.tx.queue.undo_pop();
                 break;
             }
 
-            let head_index = avail_desc.index;
+            let head_index = head.index;
             let mut read_count = 0;
-            let mut next_desc = Some(avail_desc);
+            let mut next_desc = Some(head);
 
             self.tx.iovec.clear();
             while let Some(desc) = next_desc {
@@ -430,10 +429,11 @@ impl NetEpollHandler {
                 .rate_limiter
                 .consume(read_count as u64, TokenType::Bytes)
             {
-                rate_limited = true;
                 // revert the OPS consume()
                 self.tx.rate_limiter.manual_replenish(1, TokenType::Ops);
-                // stop processing the queue
+                // Stop processing the queue and return this descriptor chain to the
+                // avail ring, for later processing.
+                self.tx.queue.undo_pop();
                 break;
             }
 
@@ -474,11 +474,6 @@ impl NetEpollHandler {
             }
 
             self.tx.queue.add_used(&self.mem, head_index, 0);
-        }
-        if rate_limited {
-            // If rate limiting kicked in, queue had advanced one element that we aborted
-            // processing; go back one element so it can be processed next time.
-            self.tx.queue.go_to_previous_position();
         }
 
         // An incoming frame for the MMDS may trigger the transmission of a new message.
