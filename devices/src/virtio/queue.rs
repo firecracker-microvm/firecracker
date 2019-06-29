@@ -340,6 +340,68 @@ impl Queue {
         }
     }
 
+    /// Returns the number of yet-to-be-popped descriptor chains in the avail ring.
+    pub fn len(&self, mem: &GuestMemory) -> u16 {
+        (self.avail_idx(mem) - self.next_avail).0
+    }
+
+    /// Checks if the driver has made any descriptor chains available in the avail ring.
+    pub fn is_empty(&self, mem: &GuestMemory) -> bool {
+        self.len(mem) == 0
+    }
+
+    /// Pop the first available descriptor chain from the avail ring.
+    pub fn pop<'a, 'b>(&'a mut self, mem: &'b GuestMemory) -> Option<DescriptorChain<'b>> {
+        if self.len(mem) == 0 {
+            return None;
+        }
+
+        // We'll need to find the first available descriptor, that we haven't yet popped.
+        // In a naive notation, that would be:
+        // `descriptor_table[avail_ring[next_avail]]`.
+        //
+        // First, we compute the byte-offset (into `self.avail_ring`) of the index of the next available
+        // descriptor. `self.avail_ring` stores the address of a `struct virtq_avail`, as defined by
+        // the VirtIO spec:
+        //
+        // ```C
+        // struct virtq_avail {
+        //   le16 flags;
+        //   le16 idx;
+        //   le16 ring[QUEUE_SIZE];
+        //   le16 used_event
+        // }
+        // ```
+        //
+        // We use `self.next_avail` to store the position, in `ring`, of the next available
+        // descriptor index, with a twist: we always only increment `self.next_avail`, so the
+        // actual position will be `self.next_avail % self.actual_size()`.
+        // We are now looking for the offset of `ring[self.next_avail % self.actual_size()]`.
+        // `ring` starts after `flags` and `idx` (4 bytes into `struct virtq_avail`), and holds
+        // 2-byte items, so the offset will be:
+        let index_offset = 4 + 2 * (self.next_avail.0 % self.actual_size());
+
+        // `self.is_valid()` already performed all the bound checks on the descriptor table
+        // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
+        // offsets.
+        let desc_index: u16 = mem
+            .read_obj_from_addr(self.avail_ring.unchecked_add(usize::from(index_offset)))
+            .unwrap();
+
+        DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
+            |dc| {
+                self.next_avail += Wrapping(1);
+                dc
+            },
+        )
+    }
+
+    /// Undo the effects of the last `self.pop()` call.
+    /// The caller can use this, if it was unable to consume the last popped descriptor chain.
+    pub fn undo_pop(&mut self) {
+        self.next_avail -= Wrapping(1);
+    }
+
     /// Puts an available descriptor head into the used ring for use by the guest.
     pub fn add_used(&mut self, mem: &GuestMemory, desc_index: u16, len: u32) {
         if desc_index >= self.actual_size() {
@@ -374,6 +436,19 @@ impl Queue {
     /// of an iterator increment on the queue.
     pub fn go_to_previous_position(&mut self) {
         self.next_avail -= Wrapping(1);
+    }
+
+    /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.
+    /// This is written by the driver, to indicate the next slot that will be filled in the avail
+    /// ring.
+    fn avail_idx(&self, mem: &GuestMemory) -> Wrapping<u16> {
+        // Bound checks for queue inner data have already been performed, at device activation time,
+        // via `self.is_valid()`, so it's safe to unwrap and use unchecked offsets here.
+        // Note: the `MmioDevice` code ensures that queue addresses cannot be changed by the guest
+        //       after device activation, so we can be certain that no change has occured since
+        //       the last `self.is_valid()` check.
+        let addr = self.avail_ring.unchecked_add(2);
+        Wrapping(mem.read_obj_from_addr::<u16>(addr).unwrap())
     }
 }
 
@@ -772,7 +847,7 @@ pub mod tests {
         // also test go_to_previous_position() works as expected
         {
             assert!(q.iter(m).next().is_none());
-            q.go_to_previous_position();
+            q.undo_pop();
             let mut c = q.iter(m).next().unwrap();
             c = c.next_descriptor().unwrap();
             c = c.next_descriptor().unwrap();
