@@ -292,19 +292,18 @@ pub struct BlockEpollHandler {
 impl BlockEpollHandler {
     fn process_queue(&mut self, queue_index: usize) -> bool {
         let queue = &mut self.queues[queue_index];
-        let mut rate_limited = false;
+        let mut used_any = false;
 
-        let mut used_desc_heads = [(0, 0); QUEUE_SIZE as usize];
-        let mut used_count = 0;
-        for avail_desc in queue.iter(&self.mem) {
+        while let Some(head) = queue.pop(&self.mem) {
             let len;
-            match Request::parse(&avail_desc, &self.mem) {
+            match Request::parse(&head, &self.mem) {
                 Ok(request) => {
                     // If limiter.consume() fails it means there is no more TokenType::Ops
                     // budget and rate limiting is in effect.
                     if !self.rate_limiter.consume(1, TokenType::Ops) {
-                        rate_limited = true;
-                        // stop processing the queue
+                        // Stop processing the queue and return this descriptor chain to the
+                        // avail ring, for later processing.
+                        queue.undo_pop();
                         break;
                     }
                     // Exercise the rate limiter only if this request is of data transfer type.
@@ -317,10 +316,11 @@ impl BlockEpollHandler {
                             .rate_limiter
                             .consume(u64::from(request.data_len), TokenType::Bytes)
                         {
-                            rate_limited = true;
                             // Revert the OPS consume().
                             self.rate_limiter.manual_replenish(1, TokenType::Ops);
-                            // Stop processing the queue.
+                            // Stop processing the queue and return this descriptor chain to the
+                            // avail ring, for later processing.
+                            queue.undo_pop();
                             break;
                         }
                     }
@@ -353,19 +353,11 @@ impl BlockEpollHandler {
                     len = 0;
                 }
             }
-            used_desc_heads[used_count] = (avail_desc.index, len);
-            used_count += 1;
-        }
-        if rate_limited {
-            // If rate limiting kicked in, queue had advanced one element that we aborted
-            // processing; go back one element so it can be processed next time.
-            queue.go_to_previous_position();
+            queue.add_used(&self.mem, head.index, len);
+            used_any = true;
         }
 
-        for &(desc_index, len) in &used_desc_heads[..used_count] {
-            queue.add_used(&self.mem, desc_index, len);
-        }
-        used_count > 0
+        used_any
     }
 
     fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
@@ -878,7 +870,7 @@ mod tests {
                 .unwrap();
             m.write_obj_at_addr::<u64>(114, GuestAddress(0x1000 + 8))
                 .unwrap();
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::UnexpectedWriteOnlyDescriptor) => true,
                 _ => false,
             });
@@ -888,7 +880,7 @@ mod tests {
             let mut q = vq.create_queue();
             // chain too short; no data_desc
             vq.dtable[0].flags.set(0);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::DescriptorChainTooShort) => true,
                 _ => false,
             });
@@ -899,7 +891,7 @@ mod tests {
             // chain too short; no status desc
             vq.dtable[0].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].set(0x2000, 0x1000, 0, 2);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::DescriptorChainTooShort) => true,
                 _ => false,
             });
@@ -912,7 +904,7 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
             vq.dtable[2].set(0x3000, 0, 0, 0);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::UnexpectedWriteOnlyDescriptor) => true,
                 _ => false,
             });
@@ -924,7 +916,7 @@ mod tests {
             m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
                 .unwrap();
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::UnexpectedReadOnlyDescriptor) => true,
                 _ => false,
             });
@@ -936,7 +928,7 @@ mod tests {
             vq.dtable[1]
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::UnexpectedReadOnlyDescriptor) => true,
                 _ => false,
             });
@@ -946,7 +938,7 @@ mod tests {
             let mut q = vq.create_queue();
             // status desc too small
             vq.dtable[2].flags.set(VIRTQ_DESC_F_WRITE);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::DescriptorLengthTooSmall) => true,
                 _ => false,
             });
@@ -956,7 +948,7 @@ mod tests {
             let mut q = vq.create_queue();
             // should be OK now
             vq.dtable[2].len.set(0x1000);
-            let r = Request::parse(&q.iter(m).next().unwrap(), m).unwrap();
+            let r = Request::parse(&q.pop(m).unwrap(), m).unwrap();
 
             assert_eq!(r.request_type, RequestType::In);
             assert_eq!(r.sector, 114);
