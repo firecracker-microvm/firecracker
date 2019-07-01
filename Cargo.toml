@@ -4,7 +4,7 @@ version = "0.17.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-backtrace = {version = "0.3", features = ["libunwind", "libbacktrace"], default-features = false}
+backtrace = {version = "0.3", features = ["libunwind", "libbacktrace", "std"], default-features = false}
 chrono = ">=0.4"
 clap = { version = ">=2.27.1", default-features = false}
 
