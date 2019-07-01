@@ -459,6 +459,7 @@ type Result<T> = std::result::Result<T, Error>;
 
 /// Describes all possible reasons which may cause the event loop to return to the caller in
 /// the absence of errors.
+#[derive(Debug)]
 pub enum EventLoopExitReason {
     /// A break statement interrupted the event loop during normal execution. This is the
     /// default exit reason.
@@ -779,7 +780,8 @@ pub struct VmmConfig {
     vsock_device: Option<VsockDeviceConfig>,
 }
 
-struct Vmm {
+/// Contains the state and associated methods required for the Firecracker VMM.
+pub struct Vmm {
     kvm: KvmContext,
 
     vm_config: VmConfig,
@@ -813,7 +815,8 @@ struct Vmm {
 }
 
 impl Vmm {
-    fn new(
+    /// Creates a new VMM object.
+    pub fn new(
         api_shared_info: Arc<RwLock<InstanceInfo>>,
         control_fd: &AsRawFd,
         from_api: Receiver<Box<VmmAction>>,
@@ -1096,16 +1099,20 @@ impl Vmm {
     }
 
     fn init_guest_memory(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        let mem_size = self
-            .vm_config
-            .mem_size_mib
-            .ok_or(StartMicrovmError::GuestMemory(
-                memory_model::GuestMemoryError::MemoryNotInitialized,
-            ))?
-            << 20;
-        let arch_mem_regions = arch::arch_memory_regions(mem_size);
-        self.guest_memory =
-            Some(GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?);
+        if self.guest_memory().is_none() {
+            let mem_size = self
+                .vm_config
+                .mem_size_mib
+                .ok_or(StartMicrovmError::GuestMemory(
+                    memory_model::GuestMemoryError::MemoryNotInitialized,
+                ))?
+                << 20;
+            let arch_mem_regions = arch::arch_memory_regions(mem_size);
+            self.set_guest_memory(
+                GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?,
+            );
+        }
+
         self.vm
             .memory_init(
                 self.guest_memory
@@ -1443,7 +1450,18 @@ impl Vmm {
         Ok(())
     }
 
-    fn start_microvm(&mut self) -> std::result::Result<VmmData, VmmActionError> {
+    /// Set the guest memory based on a pre-constructed `GuestMemory` object.
+    pub fn set_guest_memory(&mut self, guest_memory: GuestMemory) {
+        self.guest_memory = Some(guest_memory);
+    }
+
+    /// Returns a reference to the inner `GuestMemory` object if present, or `None` otherwise.
+    pub fn guest_memory(&self) -> Option<&GuestMemory> {
+        self.guest_memory.as_ref()
+    }
+
+    /// Set up the initial microVM state and start the vCPU threads.
+    pub fn start_microvm(&mut self) -> std::result::Result<VmmData, VmmActionError> {
         info!("VMM received instance start command");
         if self.is_instance_initialized() {
             Err(StartMicrovmError::MicroVMAlreadyRunning)?;
@@ -1568,6 +1586,8 @@ impl Vmm {
         Ok(())
     }
 
+    /// Wait on VMM events and dispatch them to the appropriate handler. Returns to the caller
+    /// when a control action occurs.
     fn run_event_loop(&mut self) -> Result<EventLoopExitReason> {
         // TODO: try handling of errors/failures without breaking this main loop.
         loop {
@@ -1660,13 +1680,13 @@ impl Vmm {
                     .unwrap_or(0 as usize)
             };
 
-        self.guest_memory
-            .as_ref()
+        self.guest_memory()
             .map(|ref mem| mem.map_and_fold(0, dirty_pages_in_region, std::ops::Add::add))
             .unwrap_or(0)
     }
 
-    fn configure_boot_source(
+    /// Set the guest boot source configuration.
+    pub fn configure_boot_source(
         &mut self,
         kernel_image_path: String,
         kernel_cmdline: Option<String>,
@@ -1700,7 +1720,8 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
-    fn set_vm_configuration(
+    /// Set the machine configuration of the microVM.
+    pub fn set_vm_configuration(
         &mut self,
         machine_config: VmConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
@@ -1745,7 +1766,8 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
-    fn insert_net_device(
+    /// Inserts a network device to be attached when the VM starts.
+    pub fn insert_net_device(
         &mut self,
         body: NetworkInterfaceConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
@@ -1823,7 +1845,8 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
-    fn set_vsock_device(
+    /// Sets a vsock device to be attached when the VM starts.
+    pub fn set_vsock_device(
         &mut self,
         config: VsockDeviceConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
@@ -1904,9 +1927,10 @@ impl Vmm {
         Err(VmmActionError::from(DriveError::InvalidBlockDeviceID))
     }
 
+    /// Inserts a block to be attached when the VM starts.
     // Only call this function as part of the API.
     // If the drive_id does not exist, a new Block Device Config is added to the list.
-    fn insert_block_device(
+    pub fn insert_block_device(
         &mut self,
         block_device_config: BlockDeviceConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
@@ -2092,6 +2116,11 @@ impl Vmm {
             self.set_vsock_device(vsock_config)?;
         }
         Ok(())
+    }
+
+    /// Returns a reference to the inner KVM Vm object.
+    pub fn kvm_vm(&self) -> &Vm {
+        &self.vm
     }
 }
 
@@ -2647,7 +2676,7 @@ mod tests {
             assert!(mmio_device
                 .device_mut()
                 .activate(
-                    vmm.guest_memory.as_ref().unwrap().clone(),
+                    vmm.guest_memory().unwrap().clone(),
                     EventFd::new().unwrap(),
                     Arc::new(AtomicUsize::new(0)),
                     vec![Queue::new(0), Queue::new(0)],
@@ -2886,7 +2915,7 @@ mod tests {
         // Test that creating a new block device returns the correct output.
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
@@ -2910,7 +2939,7 @@ mod tests {
         // Test that creating a new block device returns the correct output.
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
@@ -2938,7 +2967,7 @@ mod tests {
             .insert_block_device(non_root_block_device.clone())
             .is_ok());
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
@@ -2991,7 +3020,7 @@ mod tests {
     fn test_attach_net_devices() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
 
         vmm.default_kernel_config(None);
         vmm.setup_interrupt_controller()
@@ -3096,7 +3125,7 @@ mod tests {
             .is_ok());
 
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.init_mmio_device_manager()
@@ -3418,11 +3447,11 @@ mod tests {
     fn test_attach_legacy_devices_without_uart() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
 
-        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let guest_mem = vmm.guest_memory().unwrap().clone();
         let device_manager = MMIODeviceManager::new(
-            guest_mem.clone(),
+            guest_mem,
             &mut (arch::get_reserved_mem_addr() as u64),
             (arch::IRQ_BASE, arch::IRQ_MAX),
         );
@@ -3456,11 +3485,11 @@ mod tests {
     fn test_attach_legacy_devices_with_uart() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
 
-        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let guest_mem = vmm.guest_memory().unwrap().clone();
         let device_manager = MMIODeviceManager::new(
-            guest_mem.clone(),
+            guest_mem,
             &mut (arch::get_reserved_mem_addr() as u64),
             (arch::IRQ_BASE, arch::IRQ_MAX),
         );
@@ -4165,6 +4194,25 @@ mod tests {
                 VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot)
             ),
             "VsockConfig(User, UpdateNotAllowedPostBoot)"
+        );
+    }
+
+    #[test]
+    fn test_misc() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+
+        assert!(vmm.guest_memory().is_none());
+
+        let mem = GuestMemory::new(&[(GuestAddress(0x1000), 0x100)]).unwrap();
+        vmm.set_guest_memory(mem);
+
+        let mem_ref = vmm.guest_memory().unwrap();
+        assert_eq!(mem_ref.num_regions(), 1);
+        assert_eq!(mem_ref.end_addr(), GuestAddress(0x1100));
+
+        assert_eq!(
+            vmm.kvm_vm().get_fd().as_raw_fd(),
+            vmm.vm.get_fd().as_raw_fd()
         );
     }
 }
