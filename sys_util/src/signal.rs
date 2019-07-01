@@ -181,14 +181,15 @@ pub unsafe trait Killable {
 
         // Safe because we ensure we are using a valid pthread handle, a valid signal number, and
         // check the return result.
-        SyscallReturnCode(unsafe { pthread_kill(self.pthread_handle(), num) }).into_empty_result()
+        SyscallReturnCode(unsafe { pthread_kill(self.pthread_handle() as _, num) })
+            .into_empty_result()
     }
 }
 
 // Safe because we fulfill our contract of returning a genuine pthread handle.
 unsafe impl<T> Killable for JoinHandle<T> {
     fn pthread_handle(&self) -> pthread_t {
-        self.as_pthread_t()
+        self.as_pthread_t() as _
     }
 }
 
