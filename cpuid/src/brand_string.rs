@@ -206,50 +206,99 @@ impl BrandString {
     /// Searches the brand string for the CPU frequency data it may contain (e.g. 4.01GHz),
     /// and, if found, returns it as an `u8` slice.
     ///
-    /// Basically, we're implementing a search for this regex: "([0-9]+\.[0-9]+[MG]Hz)".
+    /// Basically, we're implementing a search for this regex: "([0-9]+\.[0-9]+[MGT]Hz)".
     pub fn find_freq(&self) -> Option<&[u8]> {
-        let mut it = self
-            .as_bytes()
-            .iter()
-            .rev()
-            .skip(self.as_bytes().len() - self.len)
-            .enumerate();
-        let mut freq_start = 0_usize;
-        let mut freq_end = 0_usize;
+        // The algorithm for matching the regular expression above is based
+        // on a Moore machine, and 'stage' represents the current state of
+        // the machine.
+        enum Stages {
+            /// Initial state, looking for a digit.
+            Initial,
+            /// Found integer part of the frequency.
+            FoundFreqIntPart,
+            /// Found the decimal point.
+            FoundFreqDecimalPoint,
+            /// Found the decimal part.
+            FoundFreqDecimalPart,
+            /// Found the unit size.
+            FoundFreqUnitSize,
+            /// Found the H in 'Hz'.
+            FoundH,
+        };
 
-        while freq_start == 0 {
-            match it.next() {
-                Some((i, &b'z')) => freq_end = self.len - i - 1,
-                Some((_, _)) => continue,
-                None => break,
-            }
-            match it.next() {
-                Some((_, &b'H')) => {}
-                Some((_, _)) => continue,
-                None => break,
-            }
-            match it.next() {
-                Some((_, &ch)) => {
-                    if ch != b'M' && ch != b'G' {
-                        continue;
+        let mut freq_start = 0;
+        let mut decimal_start = 0;
+
+        let mut stage = Stages::Initial;
+
+        for (i, &ch) in self.as_bytes().iter().enumerate() {
+            match stage {
+                Stages::Initial => {
+                    // Looking for one or more digits.
+                    if ch.is_ascii_digit() {
+                        freq_start = i;
+                        stage = Stages::FoundFreqIntPart;
                     }
                 }
-                None => break,
-            }
-            while let Some((i, &ch)) = it.next() {
-                if ch == b'.' || (ch >= b'0' && ch <= b'9') {
-                    freq_start = self.len - i - 1;
-                    continue;
+                Stages::FoundFreqIntPart => {
+                    // Looking for a decimal point.
+                    if !ch.is_ascii_digit() {
+                        if ch == b'.' {
+                            stage = Stages::FoundFreqDecimalPoint;
+                        } else {
+                            stage = Stages::Initial;
+                        }
+                    }
                 }
-                break;
-            }
+                Stages::FoundFreqDecimalPoint => {
+                    // Looking for the decimal part.
+                    if ch.is_ascii_digit() {
+                        stage = Stages::FoundFreqDecimalPart;
+                        decimal_start = i;
+                    } else {
+                        stage = Stages::Initial;
+                    }
+                }
+                Stages::FoundFreqDecimalPart => {
+                    // Looking for the unit of measure.
+                    if !ch.is_ascii_digit() {
+                        if ch == b'.' {
+                            stage = Stages::FoundFreqDecimalPoint;
+                            freq_start = decimal_start;
+                        } else if ch == b'M' || ch == b'G' || ch == b'T' {
+                            stage = Stages::FoundFreqUnitSize;
+                        } else {
+                            stage = Stages::Initial;
+                        }
+                    }
+                }
+                Stages::FoundFreqUnitSize => {
+                    // Looking for the 'H' in 'Hz'.
+                    if ch == b'H' {
+                        stage = Stages::FoundH;
+                    } else if ch.is_ascii_digit() {
+                        stage = Stages::FoundFreqIntPart;
+                        freq_start = i;
+                    } else {
+                        stage = Stages::Initial;
+                    }
+                }
+                Stages::FoundH => {
+                    // Looking for the 'z' in 'Hz'.
+                    // If found, we stop the search and return the slice.
+                    if ch == b'z' {
+                        let freq_end = i + 1;
+                        return Some(&self.as_bytes()[freq_start..freq_end]);
+                    } else if ch.is_ascii_digit() {
+                        stage = Stages::FoundFreqIntPart;
+                        freq_start = i;
+                    } else {
+                        stage = Stages::Initial;
+                    }
+                }
+            };
         }
-
-        if freq_start == 0 {
-            return None;
-        }
-
-        Some(&self.as_bytes()[freq_start..=freq_end])
+        None
     }
 }
 
@@ -371,15 +420,11 @@ mod tests {
 
     #[test]
     fn test_find_freq_fails() {
-        // As per
-        // https://www.intel.com/content/dam/www/public/us/en/documents/manuals/
-        // 64-ia-32-architectures-software-developer-instruction-set-reference-manual-325383.pdf
-        // this test should pass for THz and does not. Uncomment when issue solved.
-        // let mut bstr_thz = BrandString::from_bytes_unchecked(b"5.20THz ");
-        // assert_eq!(bstr_thz.find_freq().unwrap(), b"5.20THz");
+        let bstr_thz = BrandString::from_bytes_unchecked(b"5.20THz");
+        assert_eq!(bstr_thz.find_freq().unwrap(), b"5.20THz");
 
-        let bstr_unused_end = BrandString::from_bytes_unchecked(b"AAA5.2MHzXz");
-        assert_eq!(bstr_unused_end.find_freq().unwrap(), b"5.2MHz");
+        let bstr_unused_end = BrandString::from_bytes_unchecked(b"AAA5.20MHzXz");
+        assert_eq!(bstr_unused_end.find_freq().unwrap(), b"5.20MHz");
 
         let bstr_faulty_unit = BrandString::from_bytes_unchecked(b"5.20BHz ");
         assert!(bstr_faulty_unit.find_freq().is_none());
@@ -395,5 +440,23 @@ mod tests {
 
         let short_bstr = BrandString::from_bytes_unchecked(b"GHz");
         assert!(short_bstr.find_freq().is_none());
+
+        let multiple_points_bstr = BrandString::from_bytes_unchecked(b"50.5.20GHz");
+        assert_eq!(multiple_points_bstr.find_freq().unwrap(), b"5.20GHz");
+
+        let no_decimal_bstr = BrandString::from_bytes_unchecked(b"5GHz");
+        assert!(no_decimal_bstr.find_freq().is_none());
+
+        let interrupted_bstr = BrandString::from_bytes_unchecked(b"500.00M5.20GHz");
+        assert_eq!(interrupted_bstr.find_freq().unwrap(), b"5.20GHz");
+
+        let split_bstr = BrandString::from_bytes_unchecked(b"5.30AMHz");
+        assert!(split_bstr.find_freq().is_none());
+
+        let long_bstr = BrandString::from_bytes_unchecked(b"1.12bc5.30MaHz2.4.25THz");
+        assert_eq!(long_bstr.find_freq().unwrap(), b"4.25THz");
+
+        let found_h_bstr = BrandString::from_bytes_unchecked(b"1.A5.2MH3.20GHx4.30GHz");
+        assert_eq!(found_h_bstr.find_freq().unwrap(), b"4.30GHz");
     }
 }
