@@ -219,13 +219,15 @@ mod tests {
         false
     }
 
-    #[test]
     #[allow(clippy::unit_cmp)]
+    #[test]
     fn test_main() {
-        const FIRECRACKER_INIT_TIMEOUT_MILLIS: u64 = 100;
+        const FIRECRACKER_INIT_TIMEOUT_MILLIS: u64 = 150;
 
-        // There is no reason to run this test if the default socket path exists.
-        assert!(!Path::new(DEFAULT_API_SOCK_PATH).exists());
+        // If the default api socket path exist, remove it so we can continue running the test.
+        if Path::new(DEFAULT_API_SOCK_PATH).exists() {
+            fs::remove_file(DEFAULT_API_SOCK_PATH).expect("failure in removing socket file");
+        }
 
         let log_file_temp =
             NamedTempFile::new().expect("Failed to create temporary output logging file.");
@@ -261,6 +263,11 @@ mod tests {
         let _ = panic::catch_unwind(|| {
             panic!("Oh, noes!");
         });
+
+        // Before checking the backtrace let's remove the API socket to make sure we don't
+        // leave it on the host in case the assert fails.
+        fs::remove_file(DEFAULT_API_SOCK_PATH).expect("failure in removing socket file");
+
         // Look for the expected backtrace inside the log
         assert!(
             validate_backtrace(
@@ -273,8 +280,5 @@ mod tests {
                 ],
             ) || println!("Could not validate backtrace!\n {:?}", Backtrace::new()) != ()
         );
-
-        // Clean up
-        fs::remove_file(DEFAULT_API_SOCK_PATH).expect("failure in removing socket file");
     }
 }

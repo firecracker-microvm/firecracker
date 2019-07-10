@@ -1516,6 +1516,14 @@ impl Vmm {
 
             for event in events.iter().take(num_events) {
                 let dispatch_idx = event.data as usize;
+                let evset = match epoll::Events::from_bits(event.events) {
+                    Some(evset) => evset,
+                    None => {
+                        let evbits = event.events;
+                        warn!("epoll: ignoring unknown event set: 0x{:x}", evbits);
+                        continue;
+                    }
+                };
 
                 if let Some(dispatch_type) = self.epoll_context.dispatch_table[dispatch_idx] {
                     match dispatch_type {
@@ -1560,7 +1568,7 @@ impl Vmm {
                                 .epoll_context
                                 .get_device_handler_by_handler_id(device_idx)
                             {
-                                Ok(handler) => match handler.handle_event(device_token) {
+                                Ok(handler) => match handler.handle_event(device_token, evset) {
                                     Err(devices::Error::PayloadExpected) => panic!(
                                         "Received update disk image event with empty payload."
                                     ),
@@ -1772,19 +1780,25 @@ impl Vmm {
         handler.patch_rate_limiters(
             new_cfg
                 .rx_rate_limiter
-                .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
+                .map(|rl| {
+                    rl.bandwidth
+                        .map(vmm_config::TokenBucketConfig::into_token_bucket)
+                })
                 .unwrap_or(None),
             new_cfg
                 .rx_rate_limiter
-                .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
+                .map(|rl| rl.ops.map(vmm_config::TokenBucketConfig::into_token_bucket))
                 .unwrap_or(None),
             new_cfg
                 .tx_rate_limiter
-                .map(|rl| rl.bandwidth.map(|b| b.into_token_bucket()))
+                .map(|rl| {
+                    rl.bandwidth
+                        .map(vmm_config::TokenBucketConfig::into_token_bucket)
+                })
                 .unwrap_or(None),
             new_cfg
                 .tx_rate_limiter
-                .map(|rl| rl.ops.map(|b| b.into_token_bucket()))
+                .map(|rl| rl.ops.map(vmm_config::TokenBucketConfig::into_token_bucket))
                 .unwrap_or(None),
         );
 
@@ -2130,6 +2144,7 @@ mod tests {
     use arch::DeviceType;
     use devices::virtio::{ActivateResult, MmioDevice, Queue};
     use net_util::MacAddr;
+    use vmm_config::drive::DriveError;
     use vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm_config::{RateLimiterConfig, TokenBucketConfig};
 
@@ -2214,6 +2229,7 @@ mod tests {
         fn handle_event(
             &mut self,
             device_event: DeviceEventT,
+            _evset: epoll::Events,
         ) -> std::result::Result<(), devices::Error> {
             self.evt = Some(device_event);
             Ok(())
@@ -2276,7 +2292,7 @@ mod tests {
             shared_info,
             EventFd::new().expect("cannot create eventFD"),
             from_api,
-            seccomp::SECCOMP_LEVEL_ADVANCED,
+            seccomp::SECCOMP_LEVEL_NONE,
         )
         .expect("Cannot Create VMM")
     }
@@ -2544,7 +2560,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_machine_configuration() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
 
@@ -2747,20 +2763,6 @@ mod tests {
     }
 
     #[test]
-    fn test_microvm_start() {
-        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-
-        vmm.default_kernel_config(Some(good_kernel_file()));
-        // The kernel provided contains  "return 0" which will make the
-        // advanced seccomp filter return bad syscall so we disable it.
-        vmm.seccomp_level = seccomp::SECCOMP_LEVEL_NONE;
-        let res = vmm.start_microvm();
-        let stdin_handle = io::stdin();
-        stdin_handle.lock().set_canon_mode().unwrap();
-        assert!(res.is_ok());
-    }
-
-    #[test]
     fn test_is_instance_initialized() {
         let vmm = create_vmm_object(InstanceState::Uninitialized);
         assert_eq!(vmm.is_instance_initialized(), false);
@@ -2881,6 +2883,19 @@ mod tests {
         assert!(vmm
             .set_block_device_path("not_root".to_string(), String::from("dummy_path"))
             .is_err());
+
+        vmm.set_instance_state(InstanceState::Running);
+
+        // Test updating the block device path, after instance start.
+        let path = String::from(new_block.path().to_path_buf().to_str().unwrap());
+        match vmm.set_block_device_path("not_root".to_string(), path) {
+            Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::EpollHandlerNotFound)) => {
+            }
+            Err(e) => panic!("Unexpected error: {:?}", e),
+            Ok(_) => {
+                panic!("Updating block device path shouldn't be possible without an epoll handler.")
+            }
+        }
     }
 
     #[test]
@@ -2958,6 +2973,9 @@ mod tests {
     }
 
     #[test]
+    // Allow assertions on constants is necessary because we cannot implement
+    // PartialEq on VmmActionError.
+    #[allow(clippy::assertions_on_constants)]
     fn test_block_device_rescan() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config(None);
@@ -3206,12 +3224,6 @@ mod tests {
         assert!(vmm
             .create_vcpus(GuestAddress(0x0), TimestampUs::default())
             .is_ok());
-    }
-
-    #[test]
-    fn test_setup_interrupt_controller() {
-        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-        assert!(vmm.setup_interrupt_controller().is_ok());
     }
 
     #[test]

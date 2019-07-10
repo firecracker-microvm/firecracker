@@ -78,6 +78,10 @@ mod tests {
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
+    // Allow assertions on constants is necessary because we cannot implement
+    // PartialEq on ParsedRequest due to the use of serde Value which doesn't
+    // implement PartialEq.
     fn test_into_parsed_request() {
         let body = VmConfig {
             vcpu_count: Some(8),

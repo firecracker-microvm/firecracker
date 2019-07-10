@@ -8,15 +8,9 @@ use seccomp::{
 
 #[macro_use]
 mod macros;
-#[cfg(target_arch = "aarch64")]
-mod aarch64;
-#[cfg(target_arch = "x86_64")]
-mod x86_64;
+mod filters;
 
-#[cfg(target_arch = "aarch64")]
-pub use self::aarch64::default_filter;
-#[cfg(target_arch = "x86_64")]
-pub use self::x86_64::default_filter;
+pub use self::filters::default_filter;
 
 /// Applies the configured level of seccomp filtering to the current thread.
 ///
@@ -44,10 +38,14 @@ const FCNTL_F_SETFD: u64 = 2;
 const FUTEX_WAIT: u64 = 0;
 const FUTEX_WAKE: u64 = 1;
 const FUTEX_REQUEUE: u64 = 3;
+#[cfg(target_env = "gnu")]
+const FUTEX_CMP_REQUEUE: u64 = 4;
 const FUTEX_PRIVATE_FLAG: u64 = 128;
 const FUTEX_WAIT_PRIVATE: u64 = FUTEX_WAIT | FUTEX_PRIVATE_FLAG;
 const FUTEX_WAKE_PRIVATE: u64 = FUTEX_WAKE | FUTEX_PRIVATE_FLAG;
 const FUTEX_REQUEUE_PRIVATE: u64 = FUTEX_REQUEUE | FUTEX_PRIVATE_FLAG;
+#[cfg(target_env = "gnu")]
+const FUTEX_CMP_REQUEUE_PRIVATE: u64 = FUTEX_CMP_REQUEUE | FUTEX_PRIVATE_FLAG;
 
 // See include/uapi/asm-generic/ioctls.h in the kernel code.
 const TCGETS: u64 = 0x5401;
@@ -170,6 +168,7 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
 mod tests {
     use super::*;
     use seccomp::SeccompFilter;
+    use std::thread;
 
     const EXTRA_SYSCALLS: [i64; 5] = [
         libc::SYS_clone,
@@ -196,13 +195,27 @@ mod tests {
 
     #[test]
     fn test_basic_seccomp() {
-        let filter = default_filter().unwrap().allow_all();
-        add_syscalls_install_filter(filter);
+        // Spawn a new thread before running the tests because all tests run
+        // in the same thread. Otherwise other tests will fail because of the
+        // installed seccomp filters.
+        thread::spawn(move || {
+            let filter = default_filter().unwrap().allow_all();
+            add_syscalls_install_filter(filter);
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
     fn test_advanced_seccomp() {
-        let filter = default_filter().unwrap();
-        add_syscalls_install_filter(filter);
+        // Spawn a new thread before running the tests because all tests run
+        // in the same thread. Otherwise other tests will fail because of the
+        // installed seccomp filters.
+        thread::spawn(move || {
+            let filter = default_filter().unwrap();
+            add_syscalls_install_filter(filter);
+        })
+        .join()
+        .unwrap();
     }
 }

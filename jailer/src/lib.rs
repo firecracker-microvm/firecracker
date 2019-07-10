@@ -382,7 +382,7 @@ mod tests {
         assert!(fs::remove_dir_all(tmp_dir_path).is_ok());
     }
 
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn test_error_display() {
         let path = PathBuf::from("/foo");

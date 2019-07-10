@@ -260,7 +260,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::assertions_on_constants)]
     fn test_brand_string() {
         #[inline]
         fn pack_u32(src: &[u8]) -> u32 {

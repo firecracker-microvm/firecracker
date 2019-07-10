@@ -77,7 +77,11 @@ impl<T: Vhost + 'static> EpollHandler for VhostEpollHandler<T>
 where
     T: std::marker::Send,
 {
-    fn handle_event(&mut self, device_event: DeviceEventT) -> std::result::Result<(), DeviceError> {
+    fn handle_event(
+        &mut self,
+        device_event: DeviceEventT,
+        _evset: epoll::Events,
+    ) -> std::result::Result<(), DeviceError> {
         match device_event {
             VHOST_IRQ_AVAILABLE => {
                 if let Err(e) = self.queue_evt.read() {
