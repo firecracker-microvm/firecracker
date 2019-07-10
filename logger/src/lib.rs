@@ -156,7 +156,7 @@ use std::error::Error;
 use std::ops::Deref;
 use std::result;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, RwLock};
 
 use chrono::Local;
@@ -184,7 +184,7 @@ const PREINITIALIZING: usize = 1;
 const INITIALIZING: usize = 2;
 const INITIALIZED: usize = 3;
 
-static STATE: AtomicUsize = ATOMIC_USIZE_INIT;
+static STATE: AtomicUsize = AtomicUsize::new(0);
 
 // Time format
 const TIME_FMT: &str = "%Y-%m-%dT%H:%M:%S.%f";
@@ -849,7 +849,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_init() {
         let app_info = AppInfo::new(TEST_APP_NAME, TEST_APP_VERSION);
 

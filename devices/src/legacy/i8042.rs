@@ -332,6 +332,12 @@ impl BusDevice for I8042Device {
 mod tests {
     use super::*;
 
+    impl PartialEq for Error {
+        fn eq(&self, other: &Error) -> bool {
+            self.to_string() == other.to_string()
+        }
+    }
+
     #[test]
     fn test_i8042_read_write_and_event() {
         let mut i8042 = I8042Device::new(EventFd::new().unwrap(), EventFd::new().unwrap());
@@ -424,10 +430,7 @@ mod tests {
             i8042.push_byte(i as u8).unwrap();
             assert_eq!(i8042.buf_len(), i + 1);
         }
-        match i8042.push_byte(0) {
-            Err(Error::InternalBufferFull) => (),
-            _ => assert!(false),
-        }
+        assert_eq!(i8042.push_byte(0).unwrap_err(), Error::InternalBufferFull);
     }
 
     #[test]
@@ -485,19 +488,19 @@ mod tests {
 
         // Test extended key trigger failure.
         assert_eq!(i8042.buf_len(), BUF_SIZE - 1);
-        match i8042.trigger_key(KEY_DEL) {
-            Err(Error::InternalBufferFull) => (),
-            _ => assert!(false),
-        }
+        assert_eq!(
+            i8042.trigger_key(KEY_DEL).unwrap_err(),
+            Error::InternalBufferFull
+        );
 
         // Test ctrl+alt+del trigger failure.
         i8042.pop_byte().unwrap();
         i8042.pop_byte().unwrap();
         assert_eq!(i8042.buf_len(), BUF_SIZE - 3);
-        match i8042.trigger_ctrl_alt_del() {
-            Err(Error::InternalBufferFull) => (),
-            _ => assert!(false),
-        }
+        assert_eq!(
+            i8042.trigger_ctrl_alt_del().unwrap_err(),
+            Error::InternalBufferFull
+        );
 
         // Test kbd interrupt disable.
         let mut data = [1];
@@ -506,9 +509,9 @@ mod tests {
         data[0] = i8042.control & !CB_KBD_INT;
         i8042.write(OFS_DATA, &data);
         i8042.trigger_key(KEY_CTRL).unwrap();
-        match i8042.trigger_kbd_interrupt() {
-            Err(Error::KbdInterruptDisabled) => (),
-            _ => assert!(false),
-        }
+        assert_eq!(
+            i8042.trigger_kbd_interrupt().unwrap_err(),
+            Error::KbdInterruptDisabled
+        )
     }
 }
