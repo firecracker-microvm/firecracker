@@ -40,7 +40,6 @@ pub unsafe fn read_struct<T: Copy, F: Read>(f: &mut F, out: &mut T) -> Result<()
 /// * `len` - The number of structs to fill with data read from `f`.
 // This lint check is now deprecated - https://github.com/rust-lang/rust-clippy/pull/3478/files
 // we can safely allow this.
-#[allow(clippy::unsafe_vector_initialization)]
 pub unsafe fn read_struct_slice<T: Copy, F: Read>(f: &mut F, len: usize) -> Result<Vec<T>> {
     let mut out: Vec<T> = Vec::with_capacity(len);
     out.set_len(len);
