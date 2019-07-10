@@ -33,7 +33,7 @@ RAM, etc.), customers can rely on the following:
    - the guest achieves up to `14.5 Gbps` network throughput by using `<= 80%`
      of the host CPU core for emulation. _`[integration test pending]`_
    - the guest achieves up to `1 GiB/s` storage throughput by using `<= 70%`
-     the host CPU cores for emulation. _`[integration test pending]`_
+     of the host CPU core for emulation. _`[integration test pending]`_
 1. **Telemetry:** Firecracker emits logs and metrics to the named pipes passed
    to the logging API. Any logs and metrics emitted while their respective
    pipes are full will be lost. Any such events will be signaled through the
