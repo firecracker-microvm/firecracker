@@ -370,7 +370,7 @@ pub struct VcpuMetrics {
     /// Number of errors during this VCPU's run.
     pub failures: SharedMetric,
     /// Failures in configuring the CPUID.
-    pub fitler_cpuid: SharedMetric,
+    pub filter_cpuid: SharedMetric,
 }
 
 /// Metrics specific to the machine manager as a whole.

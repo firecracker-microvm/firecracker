@@ -264,7 +264,11 @@ impl Vcpu {
         )
         .map_err(Error::CpuId)?;
 
-        filter_cpuid(&mut self.cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?;
+        filter_cpuid(&mut self.cpuid, &cpuid_vm_spec).map_err(|e| {
+            METRICS.vcpu.filter_cpuid.inc();
+            error!("Failure in configuring CPUID for vcpu {}: {:?}", self.id, e);
+            Error::CpuId(e)
+        })?;
 
         if let Some(template) = machine_config.cpu_template {
             match template {
