@@ -58,4 +58,5 @@ pub enum Error {
         event: DeviceEventT,
     },
     IoError(io::Error),
+    NoAvailBuffers,
 }

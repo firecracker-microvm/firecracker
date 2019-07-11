@@ -154,6 +154,9 @@ pub struct NetEpollHandler {
     acked_features: u64,
     mmds_ns: Option<MmdsNetworkStack>,
     guest_mac: Option<MacAddr>,
+    epoll_fd: RawFd,
+    rx_tap_listening: bool,
+    rx_tap_epoll_token: u64,
 
     #[cfg(test)]
     test_mutators: tests::TestMutators,
@@ -500,6 +503,28 @@ impl NetEpollHandler {
     fn read_tap(&mut self) -> io::Result<usize> {
         self.tap.read(&mut self.rx.frame_buf)
     }
+
+    fn register_tap_rx_listener(&mut self) -> std::result::Result<(), std::io::Error> {
+        epoll::ctl(
+            self.epoll_fd,
+            epoll::ControlOptions::EPOLL_CTL_ADD,
+            self.tap.as_raw_fd(),
+            epoll::Event::new(epoll::Events::EPOLLIN, self.rx_tap_epoll_token),
+        )?;
+        self.rx_tap_listening = true;
+        Ok(())
+    }
+
+    fn unregister_tap_rx_listener(&mut self) -> std::result::Result<(), std::io::Error> {
+        epoll::ctl(
+            self.epoll_fd,
+            epoll::ControlOptions::EPOLL_CTL_DEL,
+            self.tap.as_raw_fd(),
+            epoll::Event::new(epoll::Events::EPOLLIN, self.rx_tap_epoll_token),
+        )?;
+        self.rx_tap_listening = false;
+        Ok(())
+    }
 }
 
 impl EpollHandler for NetEpollHandler {
@@ -519,6 +544,10 @@ impl EpollHandler for NetEpollHandler {
                         underlying: e,
                     })
                 } else {
+                    if !self.rx_tap_listening {
+                        self.register_tap_rx_listener()
+                            .map_err(DeviceError::IoError)?;
+                    }
                     // If the limiter is not blocked, resume the receiving of bytes.
                     if !self.rx.rate_limiter.is_blocked() {
                         // There should be a buffer available now to receive the frame into.
@@ -530,6 +559,12 @@ impl EpollHandler for NetEpollHandler {
             }
             RX_TAP_EVENT => {
                 METRICS.net.rx_tap_event_count.inc();
+
+                if self.rx.queue.is_empty(&self.mem) {
+                    self.unregister_tap_rx_listener()
+                        .map_err(DeviceError::IoError)?;
+                    return Err(DeviceError::NoAvailBuffers);
+                }
 
                 // While limiter is blocked, don't process any more incoming.
                 if self.rx.rate_limiter.is_blocked() {
@@ -848,12 +883,14 @@ impl VirtioDevice for Net {
                 acked_features: self.acked_features,
                 mmds_ns,
                 guest_mac: self.guest_mac(),
+                epoll_fd: self.epoll_config.epoll_raw_fd,
+                rx_tap_listening: false,
+                rx_tap_epoll_token: self.epoll_config.rx_tap_token,
 
                 #[cfg(test)]
                 test_mutators: tests::TestMutators::default(),
             };
 
-            let tap_raw_fd = handler.tap.as_raw_fd();
             let rx_queue_raw_fd = handler.rx.queue_evt.as_raw_fd();
             let tx_queue_raw_fd = handler.tx.queue_evt.as_raw_fd();
 
@@ -867,17 +904,6 @@ impl VirtioDevice for Net {
                 .expect("Failed to send through the channel");
 
             //TODO: barrier needed here maybe?
-
-            epoll::ctl(
-                self.epoll_config.epoll_raw_fd,
-                epoll::ControlOptions::EPOLL_CTL_ADD,
-                tap_raw_fd,
-                epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.rx_tap_token),
-            )
-            .map_err(|e| {
-                METRICS.net.activate_fails.inc();
-                ActivateError::EpollCtl(e)
-            })?;
 
             epoll::ctl(
                 self.epoll_config.epoll_raw_fd,
@@ -1123,6 +1149,7 @@ mod tests {
         let interrupt_evt = EventFd::new().unwrap();
         let rx_queue_evt = EventFd::new().unwrap();
         let tx_queue_evt = EventFd::new().unwrap();
+        let epoll_fd = epoll::create(true).unwrap();
 
         (
             NetEpollHandler {
@@ -1136,6 +1163,9 @@ mod tests {
                 mmds_ns: Some(MmdsNetworkStack::new_with_defaults()),
                 test_mutators,
                 guest_mac: None,
+                epoll_fd,
+                rx_tap_epoll_token: 0,
+                rx_tap_listening: false,
             },
             txq,
             rxq,
@@ -1514,11 +1544,22 @@ mod tests {
             tap_read_fail: true,
         };
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, test_mutators);
-        let r = h.handle_event(RX_TAP_EVENT, EPOLLIN);
-        match r {
-            Err(DeviceError::FailedReadTap) => (),
+        let (mut h, _txq, rxq) = default_test_netepollhandler(&mem, test_mutators);
+        h.register_tap_rx_listener().unwrap();
+
+        // The RX queue is empty.
+        match h.handle_event(RX_TAP_EVENT, epoll::Events::EPOLLIN) {
+            Err(DeviceError::NoAvailBuffers) => (),
             _ => panic!("invalid"),
+        }
+        // Since the RX was empty, we shouldn't be listening for tap RX events.
+        assert!(!h.rx_tap_listening);
+
+        // Fake an avail buffer; this time, tap reading should error out.
+        rxq.avail.idx.set(1);
+        match h.handle_event(RX_TAP_EVENT, epoll::Events::EPOLLIN) {
+            Err(DeviceError::FailedReadTap) => (),
+            other => panic!("invalid: {:?}", other),
         }
     }
 
