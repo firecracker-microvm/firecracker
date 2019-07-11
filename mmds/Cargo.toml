@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-json-patch = { version = ">=0.2.1", default-features = false}
 lazy_static = ">=1.1.0"
 serde_json = ">=1.0.9"
 
