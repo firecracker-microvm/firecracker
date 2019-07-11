@@ -45,11 +45,8 @@
 //! needs to be called by the user on every event on the rate limiter's `AsRawFd` FD.
 //!
 
-extern crate serde;
 extern crate time;
 extern crate timerfd;
-#[macro_use]
-extern crate serde_derive;
 
 #[macro_use]
 extern crate logger;
@@ -87,8 +84,7 @@ fn gcd(x: u64, y: u64) -> u64 {
 
 /// TokenBucket provides a lower level interface to rate limiting with a
 /// configurable capacity, refill-rate and initial burst.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct TokenBucket {
     // Bucket defining traits.
     size: u64,
@@ -98,15 +94,11 @@ pub struct TokenBucket {
     refill_time: u64,
 
     // Internal state descriptors.
-    #[serde(skip)]
     budget: u64,
-    #[serde(skip)]
     last_update: u64,
 
     // Fields used for pre-processing optimizations.
-    #[serde(skip)]
     processed_capacity: u64,
-    #[serde(skip)]
     processed_refill_time: u64,
 }
 
