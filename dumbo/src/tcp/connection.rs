@@ -1258,7 +1258,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_connection() {
         // These are used to support some segments we play around with.
         let mut buf1 = [0u8; 100];
