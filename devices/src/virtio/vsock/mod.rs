@@ -9,11 +9,12 @@ mod csm;
 mod device;
 mod epoll_handler;
 mod packet;
+mod unix;
 
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::EVENT_COUNT as VSOCK_EVENTS_COUNT;
 pub use self::device::Vsock;
-pub use DummyBackend as VsockUnixBackend;
+pub use self::unix::VsockUnixBackend;
 
 use std::os::unix::io::RawFd;
 use std::sync::mpsc;
@@ -24,7 +25,6 @@ use super::super::EpollHandler;
 use super::EpollConfigConstructor;
 use packet::VsockPacket;
 
-#[allow(dead_code)]
 mod defs {
     use crate::DeviceEventT;
 
@@ -188,35 +188,6 @@ pub trait VsockChannel {
 /// Currently, the only implementation we have is `crate::virtio::unix::muxer::VsockMuxer`, which
 /// translates guest-side vsock connections to host-side Unix domain socket connections.
 pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {}
-
-/// Placeholder implementor for a future vsock backend.
-pub struct DummyBackend {}
-impl DummyBackend {
-    pub fn new(_cid: u64, _path: String) -> Result<Self> {
-        Ok(Self {})
-    }
-}
-impl VsockEpollListener for DummyBackend {
-    fn get_polled_fd(&self) -> RawFd {
-        -1
-    }
-    fn get_polled_evset(&self) -> epoll::Events {
-        epoll::Events::empty()
-    }
-    fn notify(&mut self, _evset: epoll::Events) {}
-}
-impl VsockChannel for DummyBackend {
-    fn recv_pkt(&mut self, _pkt: &mut VsockPacket) -> Result<()> {
-        Ok(())
-    }
-    fn send_pkt(&mut self, _pkt: &VsockPacket) -> Result<()> {
-        Ok(())
-    }
-    fn has_pending_rx(&self) -> bool {
-        false
-    }
-}
-impl VsockBackend for DummyBackend {}
 
 #[cfg(test)]
 mod tests {

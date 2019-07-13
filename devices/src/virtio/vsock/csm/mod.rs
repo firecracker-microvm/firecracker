@@ -4,7 +4,6 @@
 /// This module implements our vsock connection state machine. The heavy lifting is done by
 /// `connection::VsockConnection`, while this file only defines some constants and helper structs.
 ///
-#[allow(dead_code)]
 mod connection;
 mod txbuf;
 
