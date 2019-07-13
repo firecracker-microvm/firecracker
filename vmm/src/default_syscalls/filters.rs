@@ -36,14 +36,9 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall(libc::SYS_brk),
             allow_syscall(libc::SYS_clock_gettime),
             allow_syscall(libc::SYS_close),
+            allow_syscall(libc::SYS_connect),
             allow_syscall(libc::SYS_dup),
-            allow_syscall_if(
-                libc::SYS_epoll_ctl,
-                or![
-                    and![Cond::new(1, ArgLen::DWORD, Eq, super::EPOLL_CTL_ADD)?],
-                    and![Cond::new(1, ArgLen::DWORD, Eq, super::EPOLL_CTL_DEL)?],
-                ],
-            ),
+            allow_syscall(libc::SYS_epoll_ctl),
             allow_syscall(libc::SYS_epoll_pwait),
             #[cfg(all(target_env = "gnu", target_arch = "x86_64"))]
             allow_syscall(libc::SYS_epoll_wait),
@@ -101,10 +96,15 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall(libc::SYS_pipe),
             allow_syscall(libc::SYS_read),
             allow_syscall(libc::SYS_readv),
+            allow_syscall(libc::SYS_recvfrom),
             // SYS_rt_sigreturn is needed in case a fault does occur, so that the signal handler
             // can return. Otherwise we get stuck in a fault loop.
             allow_syscall(libc::SYS_rt_sigreturn),
             allow_syscall(libc::SYS_sigaltstack),
+            allow_syscall_if(
+                libc::SYS_socket,
+                or![and![Cond::new(0, ArgLen::DWORD, Eq, libc::AF_UNIX as u64)?],],
+            ),
             #[cfg(target_arch = "x86_64")]
             allow_syscall(libc::SYS_stat),
             allow_syscall(libc::SYS_timerfd_create),

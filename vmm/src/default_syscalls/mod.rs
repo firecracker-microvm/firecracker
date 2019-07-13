@@ -26,10 +26,6 @@ pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
     }
 }
 
-// See include/uapi/linux/eventpoll.h in the kernel code.
-const EPOLL_CTL_ADD: u64 = 1;
-const EPOLL_CTL_DEL: u64 = 2;
-
 // See include/uapi/asm-generic/fcntl.h in the kernel code.
 const FCNTL_FD_CLOEXEC: u64 = 1;
 const FCNTL_F_SETFD: u64 = 2;
