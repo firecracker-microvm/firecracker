@@ -929,7 +929,7 @@ impl Connection {
 
             // We can only send data if it's within both the send buffer and the remote rwnd, and
             // before the sequence number of the local FIN (if the connection is closing).
-            let mut actual_end = if seq_at_or_after(self.remote_rwnd_edge, payload_end) {
+            let actual_end = if seq_at_or_after(self.remote_rwnd_edge, payload_end) {
                 payload_end
             } else {
                 self.remote_rwnd_edge
