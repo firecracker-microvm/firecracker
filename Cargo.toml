@@ -5,7 +5,6 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
 backtrace = {version = "0.3", features = ["libunwind", "libbacktrace", "std"], default-features = false}
-chrono = ">=0.4"
 clap = { version = ">=2.27.1", default-features = false}
 
 api_server = { path = "api_server" }

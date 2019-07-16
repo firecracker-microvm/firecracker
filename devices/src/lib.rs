@@ -9,7 +9,6 @@
 extern crate byteorder;
 extern crate epoll;
 extern crate libc;
-extern crate time;
 
 extern crate dumbo;
 #[macro_use]

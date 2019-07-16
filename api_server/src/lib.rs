@@ -1,7 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-extern crate chrono;
 extern crate futures;
 extern crate hyper;
 extern crate serde;
@@ -103,7 +102,7 @@ impl ApiServer {
         let listener = UnixListener::bind(path, &handle).map_err(Error::Io)?;
 
         if let Some(start_time) = start_time_us {
-            let delta_us = (chrono::Utc::now().timestamp_nanos() / 1000) as u64 - start_time;
+            let delta_us = (fc_util::get_time(fc_util::ClockType::Monotonic) / 1000) - start_time;
             METRICS
                 .api_server
                 .process_startup_time_us
@@ -111,7 +110,8 @@ impl ApiServer {
         }
 
         if let Some(cpu_start_time) = start_time_cpu_us {
-            let delta_us = fc_util::now_cputime_us() - cpu_start_time;
+            let delta_us =
+                fc_util::get_time(fc_util::ClockType::ProcessCpu) / 1000 - cpu_start_time;
             METRICS
                 .api_server
                 .process_startup_time_cpu_us
