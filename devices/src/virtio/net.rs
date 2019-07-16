@@ -860,7 +860,7 @@ impl VirtioDevice for Net {
             let tx_queue = queues.remove(0);
             let rx_queue_evt = queue_evts.remove(0);
             let tx_queue_evt = queue_evts.remove(0);
-            let mut mmds_ns = if self.allow_mmds_requests {
+            let mmds_ns = if self.allow_mmds_requests {
                 Some(MmdsNetworkStack::new_with_defaults())
             } else {
                 None
