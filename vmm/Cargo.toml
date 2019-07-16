@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-chrono = ">=0.4"
 kvm-bindings = "0.1"
 kvm-ioctls = "0.2"
 libc = ">=0.2.39"
@@ -13,7 +12,6 @@ futures = ">=0.1.18"
 serde = ">=1.0.27"
 serde_derive = ">=1.0.27"
 serde_json = ">=1.0.9"
-time = ">=0.1.39"
 timerfd = ">=1.0"
 
 arch = { path = "../arch" }

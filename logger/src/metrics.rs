@@ -26,7 +26,6 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use chrono;
 use serde::{Serialize, Serializer};
 
 /// Used for defining new types of metrics that can be either incremented with an unit
@@ -395,7 +394,8 @@ struct SerializeToUtcTimestampMs;
 
 impl Serialize for SerializeToUtcTimestampMs {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_i64(chrono::Utc::now().timestamp_millis())
+        serializer
+            .serialize_i64(fc_util::get_time(fc_util::ClockType::Monotonic) as i64 / 1_000_000)
     }
 }
 

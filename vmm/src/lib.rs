@@ -9,7 +9,6 @@
 //! and other virtualization features to run a single lightweight micro-virtual
 //! machine (microVM).
 #![deny(missing_docs)]
-extern crate chrono;
 extern crate epoll;
 extern crate futures;
 extern crate kvm_bindings;
@@ -19,7 +18,6 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate time;
 extern crate timerfd;
 
 extern crate arch;
@@ -76,7 +74,7 @@ use devices::virtio::EpollConfigConstructor;
 use devices::virtio::{BLOCK_EVENTS_COUNT, TYPE_BLOCK};
 use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
 use devices::{DeviceEventT, EpollHandler};
-use fc_util::now_cputime_us;
+use fc_util::{get_time, ClockType};
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
@@ -464,7 +462,7 @@ pub struct TimestampUs {
 #[inline]
 /// Gets the wallclock timestamp as microseconds.
 fn get_time_us() -> u64 {
-    (chrono::Utc::now().timestamp_nanos() / 1000) as u64
+    (get_time(ClockType::Monotonic) / 1000)
 }
 
 /// Describes a KVM context that gets attached to the micro vm instance.
@@ -1385,7 +1383,7 @@ impl Vmm {
         }
         let request_ts = TimestampUs {
             time_us: get_time_us(),
-            cputime_us: now_cputime_us(),
+            cputime_us: get_time(ClockType::ProcessCpu) / 1000,
         };
 
         self.check_health()?;
@@ -2029,7 +2027,7 @@ impl Vmm {
     }
 
     fn log_boot_time(t0_ts: &TimestampUs) {
-        let now_cpu_us = now_cputime_us();
+        let now_cpu_us = get_time(ClockType::ProcessCpu) / 1000;
         let now_us = get_time_us();
 
         let boot_time_us = now_us - t0_ts.time_us;
