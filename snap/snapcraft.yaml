@@ -1,8 +1,7 @@
 name: firecracker
 version: git
 summary: Secure and fast microVMs.
-description:| 
-Secure and fast microVMs for serverless computing.
+description: Secure and fast microVMs for serverless computing.
   
 confinement: devmode
 base: core18
