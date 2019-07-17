@@ -4,8 +4,7 @@ summary: Secure and fast microVMs.
 description:| 
 Secure and fast microVMs for serverless computing.
   
-grade: stable
-confinement: strict
+confinement: devmode
 base: core18
 
 architectures:
@@ -16,6 +15,7 @@ architectures:
 parts:
   firecracker:
     plugin: rust
+    rust-revision: 1.32
     source: .
 
 apps:
@@ -23,4 +23,5 @@ apps:
     command: firecracker
     plugs:
       - home
+      - network
       - removable-media
