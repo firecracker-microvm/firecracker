@@ -6,13 +6,23 @@
 // found in the THIRD-PARTY file.
 
 use std;
-use std::io::Read;
+use std::fmt;
+use std::io::{self, Read};
 use std::mem;
 
 #[derive(Debug)]
 pub enum Error {
-    ReadStruct,
+    ReadStruct(io::Error),
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::ReadStruct(ref err) => write!(f, "fail to read struct: {}", err),
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Reads a struct from an input buffer.
@@ -25,7 +35,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// * `out` - The struct to fill with data read from `f`.
 pub unsafe fn read_struct<T: Copy, F: Read>(f: &mut F, out: &mut T) -> Result<()> {
     let out_slice = std::slice::from_raw_parts_mut(out as *mut T as *mut u8, mem::size_of::<T>());
-    f.read_exact(out_slice).map_err(|_| Error::ReadStruct)?;
+    f.read_exact(out_slice).map_err(Error::ReadStruct)?;
     Ok(())
 }
 
@@ -47,7 +57,7 @@ pub unsafe fn read_struct_slice<T: Copy, F: Read>(f: &mut F, len: usize) -> Resu
         out.as_ptr() as *mut T as *mut u8,
         mem::size_of::<T>() * len,
     );
-    f.read_exact(out_slice).map_err(|_| Error::ReadStruct)?;
+    f.read_exact(out_slice).map_err(Error::ReadStruct)?;
     Ok(out)
 }
 
@@ -108,8 +118,13 @@ mod tests {
         };
         let mut tr: TestRead = Default::default();
         unsafe {
-            assert!(read_struct(&mut Cursor::new(source), &mut tr).is_err());
-            format!("{:?}", read_struct(&mut Cursor::new(source), &mut tr));
+            assert_eq!(
+                "fail to read struct: failed to fill whole buffer",
+                format!(
+                    "{}",
+                    read_struct(&mut Cursor::new(source), &mut tr).unwrap_err()
+                )
+            );
         }
     }
 
