@@ -10,6 +10,7 @@
 
 
 import os
+import platform
 import re
 
 from subprocess import run
@@ -31,6 +32,10 @@ KCOV_COVERAGE_REGEX = r'"covered":"(\d+\.\d)"'
 
 
 @pytest.mark.timeout(400)
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="kcov hangs on aarch64"
+)
 def test_coverage(test_session_root_path, test_session_tmp_path):
     """Test line coverage with kcov.
 

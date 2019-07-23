@@ -1,7 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std;
 use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
@@ -22,6 +21,8 @@ pub enum DriveError {
     InvalidBlockDevicePath,
     /// The block device path was already used for a different drive.
     BlockDevicePathAlreadyExists,
+    /// Error retrieving device handler during update.
+    EpollHandlerNotFound,
     /// Cannot update the block device.
     BlockDeviceUpdateFailed,
     /// Cannot perform the requested operation before booting the microVM.
@@ -45,6 +46,7 @@ impl Display for DriveError {
                 f,
                 "The block device path was already added to a different drive!"
             ),
+            EpollHandlerNotFound => write!(f, "Error retrieving device epoll handler!"),
             BlockDeviceUpdateFailed => write!(f, "The update operation failed!"),
             OperationNotAllowedPreBoot => write!(f, "Operation not allowed pre-boot!"),
             RootBlockDeviceAlreadyAdded => write!(f, "A root block device already exists!"),

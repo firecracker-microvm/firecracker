@@ -42,13 +42,25 @@ impl IntoParsedRequest for VmConfig {
                 VmmAction::GetVmConfiguration(sender),
                 receiver,
             )),
-            Method::Put => {
+            Method::Patch => {
                 if self.vcpu_count.is_none()
                     && self.mem_size_mib.is_none()
                     && self.cpu_template.is_none()
                     && self.ht_enabled.is_none()
                 {
-                    return Err(String::from("Empty request."));
+                    return Err(String::from("Empty PATCH request."));
+                }
+                Ok(ParsedRequest::Sync(
+                    VmmAction::SetVmConfiguration(self, sender),
+                    receiver,
+                ))
+            }
+            Method::Put => {
+                if self.vcpu_count.is_none()
+                    || self.mem_size_mib.is_none()
+                    || self.ht_enabled.is_none()
+                {
+                    return Err(String::from("Missing mandatory fields."));
                 }
                 Ok(ParsedRequest::Sync(
                     VmmAction::SetVmConfiguration(self, sender),
@@ -66,6 +78,10 @@ mod tests {
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
+    // Allow assertions on constants is necessary because we cannot implement
+    // PartialEq on ParsedRequest due to the use of serde Value which doesn't
+    // implement PartialEq.
     fn test_into_parsed_request() {
         let body = VmConfig {
             vcpu_count: Some(8),
@@ -81,6 +97,7 @@ mod tests {
                 VmmAction::SetVmConfiguration(body, sender),
                 receiver
             ))));
+
         let uninitialized = VmConfig {
             vcpu_count: None,
             mem_size_mib: None,
@@ -91,14 +108,23 @@ mod tests {
             .clone()
             .into_parsed_request(None, Method::Get)
             .is_ok());
+
+        // Empty PATCH
         assert!(uninitialized
             .clone()
             .into_parsed_request(None, Method::Patch)
             .is_err());
 
-        match uninitialized.into_parsed_request(None, Method::Put) {
+        // Incomplete PUT payload
+        let body = VmConfig {
+            vcpu_count: Some(8),
+            mem_size_mib: Some(1024),
+            ht_enabled: None,
+            cpu_template: Some(CpuFeaturesTemplate::T2),
+        };
+        match body.into_parsed_request(None, Method::Put) {
             Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, String::from("Empty request.")),
+            Err(e) => assert_eq!(e, String::from("Missing mandatory fields.")),
         };
     }
 }

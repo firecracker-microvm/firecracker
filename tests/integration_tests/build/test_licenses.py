@@ -3,11 +3,13 @@
 """Tests ensuring codebase contains neccessary licenses."""
 
 import os
+import platform
 
 import pytest
 
+AMAZON_COPYRIGHT_YEARS = (2018, 2019)
 AMAZON_COPYRIGHT = (
-    "Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved."
+    "Copyright {} Amazon.com, Inc. or its affiliates. All Rights Reserved."
     )
 AMAZON_LICENSE = (
         "SPDX-License-Identifier: Apache-2.0"
@@ -28,7 +30,14 @@ TUNTAP_LICENSE = (
 EXCLUDED_DIRECTORIES = ((os.path.join(os.getcwd(), 'build')))
 
 
-def validate_license(filename):
+def _has_amazon_copyright(string):
+    for year in AMAZON_COPYRIGHT_YEARS:
+        if AMAZON_COPYRIGHT.format(year) in string:
+            return True
+    return False
+
+
+def _validate_license(filename):
     """Validate licenses in all .rs, .py. and .sh file.
 
     Python and Rust files should have the licenses on the first 2 lines
@@ -45,7 +54,7 @@ def validate_license(filename):
             copy = file.readline()
             local_license = file.readline()
             has_amazon_copyright = (
-                    AMAZON_COPYRIGHT in copy and
+                    _has_amazon_copyright(copy) and
                     AMAZON_LICENSE in local_license
             )
             has_chromium_copyright = (
@@ -65,10 +74,14 @@ def validate_license(filename):
 
 
 @pytest.mark.timeout(120)
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="no need to test it on multiple platforms"
+)
 def test_for_valid_licenses():
     """Fail if a file lacks an Amazon or Chromium OS license."""
     for subdir, _, files in os.walk(os.getcwd()):
         for file in files:
             filepath = os.path.join(subdir, file)
-            assert validate_license(filepath) is True, \
+            assert _validate_license(filepath) is True, \
                 "%s has invalid license" % filepath

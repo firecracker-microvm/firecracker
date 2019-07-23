@@ -27,19 +27,19 @@ pub fn chroot(path: &Path) -> Result<()> {
     let root_dir = CStr::from_bytes_with_nul(ROOT_DIR_NUL_TERMINATED)
         .map_err(|_| Error::FromBytesWithNul(ROOT_DIR_NUL_TERMINATED))?;
 
-    // Recursively change the propagation type of all the mounts in this namespace to PRIVATE, so
+    // Recursively change the propagation type of all the mounts in this namespace to SLAVE, so
     // we can call pivot_root. Safe because we provide valid parameters.
     SyscallReturnCode(unsafe {
         libc::mount(
             null(),
             root_dir.as_ptr(),
             null(),
-            libc::MS_PRIVATE | libc::MS_REC,
+            libc::MS_SLAVE | libc::MS_REC,
             null(),
         )
     })
     .into_empty_result()
-    .map_err(Error::MountPropagationPrivate)?;
+    .map_err(Error::MountPropagationSlave)?;
 
     // We need a CString for the following mount call.
     let chroot_dir = to_cstring(path)?;
@@ -52,7 +52,7 @@ pub fn chroot(path: &Path) -> Result<()> {
             chroot_dir.as_ptr(),
             chroot_dir.as_ptr(),
             null(),
-            libc::MS_BIND,
+            libc::MS_BIND | libc::MS_REC,
             null(),
         )
     })

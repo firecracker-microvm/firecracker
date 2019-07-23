@@ -1,6 +1,6 @@
 [package]
 name = "micro_http"
 version = "0.1.0"
-authors = ["Amazon firecracker team <firecracker-devel@amazon.com>"]
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]

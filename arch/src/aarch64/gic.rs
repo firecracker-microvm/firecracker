@@ -45,11 +45,10 @@ pub fn create_gicv3(vm: &VmFd, vcpu_count: u8) -> Result<DeviceFd> {
     /* Setting up the distributor attribute.
      We are placing the GIC below 1GB so we need to substract the size of the distributor.
     */
-    let dist_if_addr: u64 = super::layout::MAPPED_IO_START - KVM_VGIC_V3_DIST_SIZE;
     let dist_attr = kvm_bindings::kvm_device_attr {
         group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
         attr: u64::from(kvm_bindings::KVM_VGIC_V3_ADDR_TYPE_DIST),
-        addr: &dist_if_addr as *const u64 as u64,
+        addr: &get_dist_addr() as *const u64 as u64,
         flags: 0,
     };
     vgic_fd
@@ -59,11 +58,10 @@ pub fn create_gicv3(vm: &VmFd, vcpu_count: u8) -> Result<DeviceFd> {
     /* Setting up the redistributors' attribute.
     We are calculating here the start of the redistributors address. We have one per CPU.
     */
-    let redists_addr: u64 = dist_if_addr - u64::from(vcpu_count) * KVM_VGIC_V3_REDIST_SIZE;
     let redists_attr = kvm_bindings::kvm_device_attr {
         group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
         attr: u64::from(kvm_bindings::KVM_VGIC_V3_ADDR_TYPE_REDIST),
-        addr: &redists_addr as *const u64 as u64,
+        addr: &get_redists_addr(u64::from(vcpu_count)) as *const u64 as u64,
         flags: 0,
     };
     vgic_fd
@@ -101,11 +99,33 @@ pub fn create_gicv3(vm: &VmFd, vcpu_count: u8) -> Result<DeviceFd> {
     Ok(vgic_fd)
 }
 
+// Auxiliary functions for getting addresses and size of where the distributor and redistributor
+// are placed.
+/// Get the address of the GIC distributor.
+pub fn get_dist_addr() -> u64 {
+    super::layout::MAPPED_IO_START - KVM_VGIC_V3_DIST_SIZE
+}
+
+/// Get the size of the GIC distributor.
+pub fn get_dist_size() -> u64 {
+    KVM_VGIC_V3_DIST_SIZE
+}
+
+/// Get the address of the GIC redistributors.
+pub fn get_redists_addr(vcpu_count: u64) -> u64 {
+    get_dist_addr() - get_redists_size(vcpu_count)
+}
+
+/// Get the size of the GIC redistributors.
+pub fn get_redists_size(vcpu_count: u64) -> u64 {
+    vcpu_count * KVM_VGIC_V3_REDIST_SIZE
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
-    use kvm::Kvm;
+    use kvm_ioctls::Kvm;
 
     #[test]
     fn test_create_gicv3() {
@@ -113,5 +133,4 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         assert!(create_gicv3(&vm, 1).is_ok());
     }
-
 }

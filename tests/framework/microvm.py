@@ -249,6 +249,10 @@ class Microvm:
         self._api_socket = self._jailer.api_socket_path()
         self._api_session = Session()
 
+        # Don't time requests on vsock builds.
+        if self.build_feature == 'vsock':
+            self._api_session.untime()
+
         self.actions = Actions(self._api_socket, self._api_session)
         self.boot = BootSource(self._api_socket, self._api_session)
         self.drive = Drive(self._api_socket, self._api_session)
@@ -275,14 +279,10 @@ class Microvm:
         # our clone / exec to deadlock at some point.
         if self._jailer.daemonize:
             if self.aux_bin_paths:
-                _p = run(
-                    [self.aux_bin_paths['cloner']]
-                    + [self._jailer_binary_path]
-                    + jailer_param_list,
-                    stdout=PIPE,
-                    stderr=PIPE,
-                    check=True
-                )
+                cmd = [self.aux_bin_paths['cloner']] + \
+                      [self._jailer_binary_path] + \
+                      jailer_param_list
+                _p = run(cmd, stdout=PIPE, stderr=PIPE, check=True)
                 # Terrible hack to make the tests fail when starting the
                 # jailer fails with a panic. This is needed because we can't
                 # get the exit code of the jailer. In newpid_clone.c we are

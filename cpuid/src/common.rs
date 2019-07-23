@@ -66,7 +66,7 @@ pub fn get_vendor_id() -> Result<[u8; 12], Error> {
             };
             Ok(bytes)
         }
-        Err(_e) => Err(Error::NotSupported),
+        Err(e) => Err(e),
     }
 }
 
@@ -103,7 +103,7 @@ pub mod tests {
         }
 
         // check that get_cpuid returns correct error for invalid `function`
-        match get_cpuid(0x90000000, 0) {
+        match get_cpuid(0x9000_0000, 0) {
             Err(Error::InvalidParameters(s)) => {
                 assert!(s == "Function not supported: 0x90000000");
             }

@@ -139,8 +139,8 @@ fn update_extended_cache_topology_entry(
 pub struct IntelCpuidTransformer {}
 
 impl CpuidTransformer for IntelCpuidTransformer {
-    fn transform_entry(&self, entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error> {
-        let maybe_transformer_fn: Option<EntryTransformerFn> = match entry.function {
+    fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
+        match entry.function {
             leaf_0x1::LEAF_NUM => Some(intel::update_feature_info_entry),
             leaf_0x4::LEAF_NUM => Some(intel::update_deterministic_cache_entry),
             leaf_0x6::LEAF_NUM => Some(intel::update_power_management_entry),
@@ -148,25 +148,61 @@ impl CpuidTransformer for IntelCpuidTransformer {
             leaf_0xb::LEAF_NUM => Some(intel::update_extended_cache_topology_entry),
             0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
             _ => None,
-        };
-
-        if let Some(transformer_fn) = maybe_transformer_fn {
-            return transformer_fn(entry, vm_spec);
         }
-
-        Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use common::*;
     use cpu_leaf::leaf_0xb::LEVEL_TYPE_CORE;
     use cpu_leaf::leaf_0xb::LEVEL_TYPE_INVALID;
     use cpu_leaf::leaf_0xb::LEVEL_TYPE_THREAD;
     use kvm_bindings::kvm_cpuid_entry2;
     use transformer::VmSpec;
+
+    #[test]
+    fn test_update_feature_info_entry() {
+        use cpu_leaf::leaf_0x1::*;
+
+        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
+        let mut entry = &mut kvm_cpuid_entry2 {
+            function: leaf_0x1::LEAF_NUM,
+            index: 0,
+            flags: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            padding: [0, 0, 0],
+        };
+
+        assert!(update_feature_info_entry(&mut entry, &vm_spec).is_ok());
+
+        assert_eq!(entry.ecx.read_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX), true);
+    }
+
+    #[test]
+    fn test_update_perf_mon_entry() {
+        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
+        let mut entry = &mut kvm_cpuid_entry2 {
+            function: leaf_0xa::LEAF_NUM,
+            index: 0,
+            flags: 0,
+            eax: 1,
+            ebx: 1,
+            ecx: 1,
+            edx: 1,
+            padding: [0, 0, 0],
+        };
+
+        assert!(update_perf_mon_entry(&mut entry, &vm_spec).is_ok());
+
+        assert_eq!(entry.eax, 0);
+        assert_eq!(entry.ebx, 0);
+        assert_eq!(entry.ecx, 0);
+        assert_eq!(entry.edx, 0);
+    }
 
     fn check_update_deterministic_cache_entry(
         cpu_count: u8,
@@ -176,7 +212,7 @@ mod test {
     ) {
         use cpu_leaf::leaf_0x4::*;
 
-        let vm_spec = VmSpec::new(VENDOR_ID_INTEL, 0, cpu_count, ht_enabled);
+        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,
@@ -208,7 +244,7 @@ mod test {
     ) {
         use cpu_leaf::leaf_0xb::*;
 
-        let vm_spec = VmSpec::new(VENDOR_ID_INTEL, 0, cpu_count, ht_enabled);
+        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index,

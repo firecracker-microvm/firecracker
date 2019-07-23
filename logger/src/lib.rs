@@ -45,6 +45,8 @@
 //! use self::tempfile::NamedTempFile;
 //! use std::ops::Deref;
 //!
+//! use libc::c_char;
+//!
 //! #[macro_use]
 //! extern crate logger;
 //! use logger::{AppInfo, LOGGER};
@@ -58,10 +60,10 @@
 //!     let metrics = String::from(metrics_file_temp.path().to_path_buf().to_str().unwrap());
 //!
 //!     unsafe {
-//!          libc::mkfifo(logs.as_bytes().as_ptr() as *const i8, 0o644);
+//!          libc::mkfifo(logs.as_bytes().as_ptr() as *const c_char, 0o644);
 //!      }
 //!     unsafe {
-//!          libc::mkfifo(metrics.as_bytes().as_ptr() as *const i8, 0o644);
+//!          libc::mkfifo(metrics.as_bytes().as_ptr() as *const c_char, 0o644);
 //!     }
 //!     // Initialize the logger to log to a FIFO that was created beforehand.
 //!     assert!(LOGGER.deref().init(
@@ -154,7 +156,7 @@ use std::error::Error;
 use std::ops::Deref;
 use std::result;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, RwLock};
 
 use chrono::Local;
@@ -182,7 +184,7 @@ const PREINITIALIZING: usize = 1;
 const INITIALIZING: usize = 2;
 const INITIALIZED: usize = 3;
 
-static STATE: AtomicUsize = ATOMIC_USIZE_INIT;
+static STATE: AtomicUsize = AtomicUsize::new(0);
 
 // Time format
 const TIME_FMT: &str = "%Y-%m-%dT%H:%M:%S.%f";
@@ -847,7 +849,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_init() {
         let app_info = AppInfo::new(TEST_APP_NAME, TEST_APP_VERSION);
 

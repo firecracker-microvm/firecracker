@@ -80,6 +80,7 @@ be run on every microvm image in the bucket, each as a separate test case.
 
 import threading
 import os
+import platform
 import shutil
 from subprocess import run
 import sys
@@ -119,6 +120,12 @@ DEFAULT_ROOT_TESTSESSION_PATH = '/tmp/firecracker_test_session/'
 """If ENV_TMPDIR_VAR is not set, this path will be used instead."""
 
 IP4_GENERATOR_CREATE_LOCK = threading.Lock()
+
+MICROVM_FIXTURE_PARAMS = ['', 'vsock']
+# Since this is a temporary feature, we do not test
+# it on aarch64.
+if platform.machine() == "aarch64":
+    MICROVM_FIXTURE_PARAMS = ['']
 
 
 # This codebase uses Python features available in Python 3.6 or above
@@ -240,8 +247,10 @@ def aux_bin_paths(test_session_root_path):
         build_tools.CARGO_RELEASE_REL_PATH
     )
 
+    extra_args = '--release --target {}-unknown-linux-musl'
+    extra_args = extra_args.format(platform.machine())
     build_tools.cargo_build(seccomp_build_path,
-                            extra_args='--release',
+                            extra_args=extra_args,
                             src_dir='integration_tests/security/demo_seccomp')
 
     release_binaries_path = os.path.join(
@@ -285,7 +294,7 @@ def aux_bin_paths(test_session_root_path):
     }
 
 
-@pytest.fixture(params=['', 'vsock'])
+@pytest.fixture(params=MICROVM_FIXTURE_PARAMS)
 def microvm(request, test_session_root_path, aux_bin_paths):
     """Instantiate a microvm."""
     # pylint: disable=redefined-outer-name
@@ -300,6 +309,7 @@ def microvm(request, test_session_root_path, aux_bin_paths):
     )
     yield vm
     vm.kill()
+    shutil.rmtree(os.path.join(test_session_root_path, vm.id))
 
 
 @pytest.fixture
@@ -376,6 +386,7 @@ def test_multiple_microvms(
     yield microvms
     for i in range(how_many):
         microvms[i].kill()
+        shutil.rmtree(os.path.join(test_session_root_path, microvms[i].id))
 
 
 def pytest_generate_tests(metafunc):

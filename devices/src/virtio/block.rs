@@ -18,13 +18,14 @@ use std::sync::Arc;
 
 use super::super::Error as DeviceError;
 use super::{
-    ActivateError, ActivateResult, DescriptorChain, EpollHandlerPayload, Queue, VirtioDevice,
-    TYPE_BLOCK, VIRTIO_MMIO_INT_VRING,
+    ActivateError, ActivateResult, DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK,
+    VIRTIO_MMIO_INT_VRING,
 };
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
+use virtio::EpollConfigConstructor;
 use virtio_gen::virtio_blk::*;
 use {DeviceEventT, EpollHandler};
 
@@ -39,10 +40,8 @@ const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE];
 const QUEUE_AVAIL_EVENT: DeviceEventT = 0;
 // Rate limiter budget is now available.
 const RATE_LIMITER_EVENT: DeviceEventT = 1;
-// Backing file on the host has changed.
-pub const FS_UPDATE_EVENT: DeviceEventT = 2;
 // Number of DeviceEventT events supported by this implementation.
-pub const BLOCK_EVENTS_COUNT: usize = 3;
+pub const BLOCK_EVENTS_COUNT: usize = 2;
 
 #[derive(Debug)]
 enum Error {
@@ -247,13 +246,15 @@ impl Request {
             RequestType::In => {
                 mem.read_to_memory(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Read)?;
-                METRICS.block.read_count.add(self.data_len as usize);
+                METRICS.block.read_bytes.add(self.data_len as usize);
+                METRICS.block.read_count.inc();
                 return Ok(self.data_len);
             }
             RequestType::Out => {
                 mem.write_from_memory(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Write)?;
-                METRICS.block.write_count.add(self.data_len as usize);
+                METRICS.block.write_bytes.add(self.data_len as usize);
+                METRICS.block.write_count.inc();
             }
             RequestType::Flush => match disk.flush() {
                 Ok(_) => {
@@ -275,7 +276,8 @@ impl Request {
     }
 }
 
-struct BlockEpollHandler {
+/// Handler that drives the execution of the Block devices
+pub struct BlockEpollHandler {
     queues: Vec<Queue>,
     mem: GuestMemory,
     disk_image: File,
@@ -290,19 +292,18 @@ struct BlockEpollHandler {
 impl BlockEpollHandler {
     fn process_queue(&mut self, queue_index: usize) -> bool {
         let queue = &mut self.queues[queue_index];
-        let mut rate_limited = false;
+        let mut used_any = false;
 
-        let mut used_desc_heads = [(0, 0); QUEUE_SIZE as usize];
-        let mut used_count = 0;
-        for avail_desc in queue.iter(&self.mem) {
+        while let Some(head) = queue.pop(&self.mem) {
             let len;
-            match Request::parse(&avail_desc, &self.mem) {
+            match Request::parse(&head, &self.mem) {
                 Ok(request) => {
                     // If limiter.consume() fails it means there is no more TokenType::Ops
                     // budget and rate limiting is in effect.
                     if !self.rate_limiter.consume(1, TokenType::Ops) {
-                        rate_limited = true;
-                        // stop processing the queue
+                        // Stop processing the queue and return this descriptor chain to the
+                        // avail ring, for later processing.
+                        queue.undo_pop();
                         break;
                     }
                     // Exercise the rate limiter only if this request is of data transfer type.
@@ -315,10 +316,11 @@ impl BlockEpollHandler {
                             .rate_limiter
                             .consume(u64::from(request.data_len), TokenType::Bytes)
                         {
-                            rate_limited = true;
                             // Revert the OPS consume().
                             self.rate_limiter.manual_replenish(1, TokenType::Ops);
-                            // Stop processing the queue.
+                            // Stop processing the queue and return this descriptor chain to the
+                            // avail ring, for later processing.
+                            queue.undo_pop();
                             break;
                         }
                     }
@@ -351,19 +353,11 @@ impl BlockEpollHandler {
                     len = 0;
                 }
             }
-            used_desc_heads[used_count] = (avail_desc.index, len);
-            used_count += 1;
-        }
-        if rate_limited {
-            // If rate limiting kicked in, queue had advanced one element that we aborted
-            // processing; go back one element so it can be processed next time.
-            queue.go_to_previous_position();
+            queue.add_used(&self.mem, head.index, len);
+            used_any = true;
         }
 
-        for &(desc_index, len) in &used_desc_heads[..used_count] {
-            queue.add_used(&self.mem, desc_index, len);
-        }
-        used_count > 0
+        used_any
     }
 
     fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
@@ -376,7 +370,8 @@ impl BlockEpollHandler {
         })
     }
 
-    fn update_disk_image(&mut self, disk_image: File) -> result::Result<(), DeviceError> {
+    /// Update the backing file for the Block device
+    pub fn update_disk_image(&mut self, disk_image: File) -> result::Result<(), DeviceError> {
         self.disk_image = disk_image;
         self.disk_nsectors = self
             .disk_image
@@ -393,8 +388,7 @@ impl EpollHandler for BlockEpollHandler {
     fn handle_event(
         &mut self,
         device_event: DeviceEventT,
-        _: u32,
-        payload: EpollHandlerPayload,
+        _evset: epoll::Events,
     ) -> result::Result<(), DeviceError> {
         match device_event {
             QUEUE_AVAIL_EVENT => {
@@ -423,13 +417,6 @@ impl EpollHandler for BlockEpollHandler {
                     Ok(())
                 }
             }
-            FS_UPDATE_EVENT => {
-                if let EpollHandlerPayload::DrivePayload(file) = payload {
-                    self.update_disk_image(file)
-                } else {
-                    Err(DeviceError::PayloadExpected)
-                }
-            }
             unknown => Err(DeviceError::UnknownEvent {
                 device: "block",
                 event: unknown,
@@ -445,12 +432,8 @@ pub struct EpollConfig {
     sender: mpsc::Sender<Box<EpollHandler>>,
 }
 
-impl EpollConfig {
-    pub fn new(
-        first_token: u64,
-        epoll_raw_fd: RawFd,
-        sender: mpsc::Sender<Box<EpollHandler>>,
-    ) -> Self {
+impl EpollConfigConstructor for EpollConfig {
+    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self {
         EpollConfig {
             q_avail_token: first_token + u64::from(QUEUE_AVAIL_EVENT),
             rate_limiter_token: first_token + u64::from(RATE_LIMITER_EVENT),
@@ -679,6 +662,8 @@ mod tests {
 
     use virtio::queue::tests::*;
 
+    const EPOLLIN: epoll::Events = epoll::Events::EPOLLIN;
+
     /// Will read $metric, run the code in $block, then assert metric has increased by $delta.
     macro_rules! check_metric_after_block {
         ($metric:expr, $delta:expr, $block:expr) => {{
@@ -809,8 +794,7 @@ mod tests {
         // trigger the queue event
         h.queue_evt.write(1).unwrap();
         // handle event
-        h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
-            .unwrap();
+        h.handle_event(QUEUE_AVAIL_EVENT, EPOLLIN).unwrap();
         // validate the queue operation finished successfully
         assert_eq!(h.interrupt_evt.read().unwrap(), 2);
     }
@@ -886,7 +870,7 @@ mod tests {
                 .unwrap();
             m.write_obj_at_addr::<u64>(114, GuestAddress(0x1000 + 8))
                 .unwrap();
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::UnexpectedWriteOnlyDescriptor) => true,
                 _ => false,
             });
@@ -896,7 +880,7 @@ mod tests {
             let mut q = vq.create_queue();
             // chain too short; no data_desc
             vq.dtable[0].flags.set(0);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::DescriptorChainTooShort) => true,
                 _ => false,
             });
@@ -907,7 +891,7 @@ mod tests {
             // chain too short; no status desc
             vq.dtable[0].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].set(0x2000, 0x1000, 0, 2);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::DescriptorChainTooShort) => true,
                 _ => false,
             });
@@ -920,7 +904,7 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
             vq.dtable[2].set(0x3000, 0, 0, 0);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::UnexpectedWriteOnlyDescriptor) => true,
                 _ => false,
             });
@@ -932,7 +916,7 @@ mod tests {
             m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
                 .unwrap();
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::UnexpectedReadOnlyDescriptor) => true,
                 _ => false,
             });
@@ -944,7 +928,7 @@ mod tests {
             vq.dtable[1]
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::UnexpectedReadOnlyDescriptor) => true,
                 _ => false,
             });
@@ -954,7 +938,7 @@ mod tests {
             let mut q = vq.create_queue();
             // status desc too small
             vq.dtable[2].flags.set(VIRTQ_DESC_F_WRITE);
-            assert!(match Request::parse(&q.iter(m).next().unwrap(), m) {
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::DescriptorLengthTooSmall) => true,
                 _ => false,
             });
@@ -964,7 +948,7 @@ mod tests {
             let mut q = vq.create_queue();
             // should be OK now
             vq.dtable[2].len.set(0x1000);
-            let r = Request::parse(&q.iter(m).next().unwrap(), m).unwrap();
+            let r = Request::parse(&q.pop(m).unwrap(), m).unwrap();
 
             assert_eq!(r.request_type, RequestType::In);
             assert_eq!(r.sector, 114);
@@ -975,7 +959,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_virtio_device() {
         let mut dummy = DummyBlock::new(true);
         let b = dummy.block();
@@ -1097,11 +1081,7 @@ mod tests {
     fn test_invalid_event_handler() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _vq) = default_test_blockepollhandler(&m);
-        let r = h.handle_event(
-            BLOCK_EVENTS_COUNT as DeviceEventT,
-            0,
-            EpollHandlerPayload::Empty,
-        );
+        let r = h.handle_event(BLOCK_EVENTS_COUNT as DeviceEventT, EPOLLIN);
         match r {
             Err(DeviceError::UnknownEvent { event, device }) => {
                 assert_eq!(event, BLOCK_EVENTS_COUNT as DeviceEventT);
@@ -1116,19 +1096,7 @@ mod tests {
     //  * interrupt_evt.write
 
     #[test]
-    fn test_fs_update_event_error() {
-        let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let (mut h, _vq) = default_test_blockepollhandler(&m);
-        // This should panic because payload is empty for event type FS_UPDATE_EVENT.
-        let r = h.handle_event(FS_UPDATE_EVENT, 0, EpollHandlerPayload::Empty);
-        match r {
-            Err(DeviceError::PayloadExpected) => (),
-            _ => panic!("invalid"),
-        }
-    }
-
-    #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_handler() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, vq) = default_test_blockepollhandler(&m);
@@ -1263,7 +1231,12 @@ mod tests {
             vq.dtable[1].len.set(8);
             m.write_obj_at_addr::<u64>(123_456_789, data_addr).unwrap();
 
-            invoke_handler_for_queue_event(&mut h);
+            check_metric_after_block!(
+                &METRICS.block.write_count,
+                1,
+                invoke_handler_for_queue_event(&mut h)
+            );
+
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
@@ -1285,7 +1258,12 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
 
-            invoke_handler_for_queue_event(&mut h);
+            check_metric_after_block!(
+                &METRICS.block.read_count,
+                1,
+                invoke_handler_for_queue_event(&mut h)
+            );
+
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, vq.dtable[1].len.get());
@@ -1424,8 +1402,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
-                    .unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT, EPOLLIN).unwrap();
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1443,8 +1420,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
-                    .unwrap();
+                h.handle_event(RATE_LIMITER_EVENT, EPOLLIN).unwrap();
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
                 // make sure the virtio queue operation completed this time
@@ -1485,8 +1461,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
-                    .unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT, EPOLLIN).unwrap();
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1502,8 +1477,7 @@ mod tests {
                 h.interrupt_evt.write(1).unwrap();
                 // trigger the attempt to write
                 h.queue_evt.write(1).unwrap();
-                h.handle_event(QUEUE_AVAIL_EVENT, 0, EpollHandlerPayload::Empty)
-                    .unwrap();
+                h.handle_event(QUEUE_AVAIL_EVENT, EPOLLIN).unwrap();
 
                 // assert that limiter is blocked
                 assert!(h.get_rate_limiter().is_blocked());
@@ -1521,8 +1495,7 @@ mod tests {
             {
                 // leave at least one event here so that reading it later won't block
                 h.interrupt_evt.write(1).unwrap();
-                h.handle_event(RATE_LIMITER_EVENT, 0, EpollHandlerPayload::Empty)
-                    .unwrap();
+                h.handle_event(RATE_LIMITER_EVENT, EPOLLIN).unwrap();
                 // validate the rate_limiter is no longer blocked
                 assert!(!h.get_rate_limiter().is_blocked());
                 // make sure the virtio queue operation completed this time
@@ -1556,8 +1529,7 @@ mod tests {
                 .write(true)
                 .open(path)
                 .unwrap();
-            let payload = EpollHandlerPayload::DrivePayload(file);
-            h.handle_event(FS_UPDATE_EVENT, 0, payload).unwrap();
+            h.update_disk_image(file).unwrap();
 
             assert_eq!(h.disk_image.metadata().unwrap().st_ino(), mdata.st_ino());
             assert_eq!(h.disk_image_id, id);

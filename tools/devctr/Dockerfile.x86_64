@@ -4,6 +4,7 @@ FROM ubuntu:18.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
+ARG RUST_TOOLCHAIN="1.35.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG FIRECRACKER_SRC_DIR="/firecracker"
 ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
@@ -65,13 +66,13 @@ RUN apt-get update \
 # Install the Rust toolchain
 #
 RUN mkdir "$TMP_BUILD_DIR" \
-    && curl https://sh.rustup.rs -sSf | sh -s -- -y \
+    && curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
         && rustup target add x86_64-unknown-linux-musl \
-        && rustup target add aarch64-unknown-linux-musl \
         && rustup component add rustfmt \
         && rustup component add clippy-preview \
         && cd "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
+            && cargo install cargo-audit \
             && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \

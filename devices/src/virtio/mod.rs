@@ -7,7 +7,10 @@
 
 //! Implements virtio devices, queues, and transport mechanisms.
 use std;
+use std::any::Any;
 use std::io::Error as IOError;
+use std::os::unix::io::RawFd;
+use std::sync::mpsc;
 
 pub mod block;
 mod mmio;
@@ -23,7 +26,7 @@ pub use self::queue::*;
 #[cfg(feature = "vsock")]
 pub use self::vhost::vsock::*;
 
-use super::EpollHandlerPayload;
+use super::EpollHandler;
 
 const DEVICE_INIT: u32 = 0x0;
 const DEVICE_ACKNOWLEDGE: u32 = 0x01;
@@ -33,8 +36,9 @@ const DEVICE_FEATURES_OK: u32 = 0x08;
 const DEVICE_FAILED: u32 = 0x80;
 
 /// Types taken from linux/virtio_ids.h.
-const TYPE_NET: u32 = 1;
-const TYPE_BLOCK: u32 = 2;
+/// Type 0 is not used by virtio. Use it as wildcard for non-virtio devices
+pub const TYPE_NET: u32 = 1;
+pub const TYPE_BLOCK: u32 = 2;
 
 /// Interrupt flags (re: interrupt status & acknowledge registers).
 /// See linux/virtio_mmio.h.
@@ -54,3 +58,23 @@ pub enum ActivateError {
 }
 
 pub type ActivateResult = std::result::Result<(), ActivateError>;
+
+pub trait EpollConfigConstructor {
+    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self;
+}
+
+/// Trait that helps in upcasting an object to Any
+pub trait AsAny {
+    fn as_any(&self) -> &Any;
+
+    fn as_mut_any(&mut self) -> &mut Any;
+}
+impl<T: Any> AsAny for T {
+    fn as_any(&self) -> &Any {
+        self
+    }
+
+    fn as_mut_any(&mut self) -> &mut Any {
+        self
+    }
+}

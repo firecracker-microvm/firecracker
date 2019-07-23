@@ -3,6 +3,7 @@
 """Define a class for interacting with microvm images in s3."""
 
 import os
+import platform
 import re
 
 from shutil import copyfile
@@ -50,7 +51,7 @@ class MicrovmImageS3Fetcher:
     bucket where the microVM images are stored needs to be publicly accessible.
     """
 
-    MICROVM_IMAGES_RELPATH = 'img/'
+    MICROVM_IMAGES_RELPATH = 'img/' + platform.machine() + '/'
     MICROVM_IMAGE_KERNEL_RELPATH = 'kernel/'
     MICROVM_IMAGE_BLOCKDEV_RELPATH = 'fsfiles/'
     MICROVM_IMAGE_KERNEL_FILE_SUFFIX = r'vmlinux.bin'

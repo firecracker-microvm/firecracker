@@ -61,6 +61,7 @@ impl LegacyDeviceManager {
         let stdio_serial = Arc::new(Mutex::new(devices::legacy::Serial::new_out(
             com_evt_1_3.try_clone().map_err(Error::EventFd)?,
             Box::new(stdout()),
+            None,
         )));
 
         // Create exit event for i8042
@@ -81,6 +82,7 @@ impl LegacyDeviceManager {
         })
     }
 
+    #[cfg(target_arch = "x86_64")]
     /// Register supported legacy devices.
     pub fn register_devices(&mut self) -> Result<()> {
         self.io_bus
@@ -90,6 +92,7 @@ impl LegacyDeviceManager {
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
                     self.com_evt_2_4.try_clone().map_err(Error::EventFd)?,
+                    None,
                 ))),
                 0x2f8,
                 0x8,
@@ -99,6 +102,7 @@ impl LegacyDeviceManager {
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
                     self.com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+                    None,
                 ))),
                 0x3e8,
                 0x8,
@@ -108,6 +112,7 @@ impl LegacyDeviceManager {
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
                     self.com_evt_2_4.try_clone().map_err(Error::EventFd)?,
+                    None,
                 ))),
                 0x2e8,
                 0x8,
@@ -129,6 +134,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_register_legacy_devices() {
         let ldm = LegacyDeviceManager::new();
         assert!(ldm.is_ok());

@@ -547,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_handler() {
         let mut buf = [0u8; 100];
         let mut buf2 = [0u8; 2000];

@@ -128,6 +128,11 @@ impl MmioDevice {
         })
     }
 
+    // Gets the encapsulated VirtioDevice
+    pub fn device_mut(&mut self) -> &mut dyn VirtioDevice {
+        &mut *self.device
+    }
+
     /// Gets the list of queue events that must be triggered whenever the VM writes to
     /// `virtio::NOTIFY_REG_OFFSET` past the MMIO base. Each event must be triggered when the
     /// value being written equals the index of the event in this list.
@@ -229,10 +234,10 @@ impl MmioDevice {
                 // check will fail and take the device into an unusable state.
                 if !self.device_activated && self.are_queues_valid() {
                     if let Some(ref interrupt_evt) = self.interrupt_evt {
-                        if let Some(ref mem) = self.mem {
+                        if let Some(mem) = self.mem.take() {
                             self.device
                                 .activate(
-                                    mem.clone(),
+                                    mem,
                                     interrupt_evt.try_clone().expect("Failed to clone eventfd"),
                                     self.interrupt_status.clone(),
                                     self.queues.clone(),
@@ -396,11 +401,8 @@ impl BusDevice for MmioDevice {
 #[cfg(test)]
 mod tests {
     use byteorder::{ByteOrder, LittleEndian};
-    use std::sync::atomic::ATOMIC_USIZE_INIT;
 
     use super::*;
-
-    static DEVICE_RESET_ENABLED: AtomicUsize = ATOMIC_USIZE_INIT;
 
     struct DummyDevice {
         acked_features: u32,
@@ -458,17 +460,6 @@ mod tests {
             self.queue_evts = Some(queue_evts);
             Ok(())
         }
-
-        fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
-            if self.interrupt_evt.is_some() && DEVICE_RESET_ENABLED.load(Ordering::SeqCst) != 0 {
-                Some((
-                    self.interrupt_evt.take().unwrap(),
-                    self.queue_evts.take().unwrap(),
-                ))
-            } else {
-                None
-            }
-        }
     }
 
     fn set_driver_status(d: &mut MmioDevice, status: u32) {
@@ -502,17 +493,17 @@ mod tests {
         );
 
         d.queue_select = 0;
-        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 16);
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 16);
         assert!(d.with_queue_mut(|q| q.size = 16));
         assert_eq!(d.queues[d.queue_select as usize].size, 16);
 
         d.queue_select = 1;
-        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 32);
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 32);
         assert!(d.with_queue_mut(|q| q.size = 16));
         assert_eq!(d.queues[d.queue_select as usize].size, 16);
 
         d.queue_select = 2;
-        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 0);
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 0);
         assert!(!d.with_queue_mut(|q| q.size = 16));
 
         d.mem.take().unwrap();
@@ -591,7 +582,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_bus_device_write() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
 
@@ -851,19 +842,9 @@ mod tests {
         assert!(d.device_activated);
 
         // Nothing happens when backend driver doesn't support reset
-        DEVICE_RESET_ENABLED.store(0, Ordering::SeqCst);
         LittleEndian::write_u32(&mut buf[..], 0x0);
         d.write(0x70, &buf[..]);
         assert_eq!(d.driver_status, 0x8f);
         assert!(d.device_activated);
-
-        DEVICE_RESET_ENABLED.store(1, Ordering::SeqCst);
-        LittleEndian::write_u32(&mut buf[..], 0x0);
-        d.write(0x70, &buf[..]);
-        assert_eq!(d.driver_status, 0x0);
-        assert!(!d.device_activated);
-
-        DEVICE_RESET_ENABLED.store(0, Ordering::SeqCst);
-        activate_device(&mut d);
     }
 }

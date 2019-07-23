@@ -54,10 +54,9 @@ pub const DRAM_MEM_START: usize = 0x8000_0000; // 2 GB.
 /// The maximum addressable RAM address.
 pub const DRAM_MEM_END: usize = 0x00FF_8000_0000; // 1024 - 2 = 1022 GB.
 
-/// Kernel command line start address.
-pub const CMDLINE_START: usize = 0x0;
-/// Kernel command line start address maximum size.
-pub const CMDLINE_MAX_SIZE: usize = 0x0;
+/// Kernel command line maximum size.
+/// As per `arch/arm64/include/uapi/asm/setup.h`.
+pub const CMDLINE_MAX_SIZE: usize = 2048;
 
 /// Maximum size of the device tree blob as specified in https://www.kernel.org/doc/Documentation/arm64/booting.txt.
 pub const FDT_MAX_SIZE: usize = 0x20_0000;

@@ -4,7 +4,7 @@ info:
   description: RESTful public-facing API.
                The API is accessible through HTTP calls on specific URLs carrying JSON modeled data.
                The transport medium is a Unix Domain Socket.
-  version: 0.15.0
+  version: 0.17.0
   termsOfService: ""
   contact:
     email: "compute-capsule@amazon.com"
@@ -201,6 +201,30 @@ paths:
       - name: body
         in: body
         description: Machine Configuration Parameters
+        schema:
+          $ref: "#/definitions/MachineConfiguration"
+      responses:
+        204:
+          description: Machine Configuration created/updated
+        400:
+          description: Machine Configuration cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+    patch:
+      summary: Partially updates the Machine Configuration of the VM.
+      description:
+        Partially updates the Virtual Machine Configuration with the specified input.
+        If any of the parameters has an incorrect value, the whole update fails.
+      operationId: patchMachineConfiguration
+      parameters:
+      - name: body
+        in: body
+        description: A subset of Machine Configuration Parameters
         schema:
           $ref: "#/definitions/MachineConfiguration"
       responses:
@@ -470,6 +494,10 @@ definitions:
     description:
       Describes the number of vCPUs, memory size, Hyperthreading capabilities and
       the CPU template.
+    required:
+      - vcpu_count
+      - mem_size_mib
+      - ht_enabled
     properties:
       vcpu_count:
         type: integer

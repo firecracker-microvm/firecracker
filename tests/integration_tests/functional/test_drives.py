@@ -3,6 +3,9 @@
 """Tests for guest-side operations on /drives resources."""
 
 import os
+import platform
+
+import pytest
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -94,6 +97,10 @@ def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="need to create the proper rootfs for arm"
+)
 def test_partuuid_boot(test_microvm_with_partuuid, network_config):
     """Test the output reported by blockdev when booting with PARTUUID."""
     test_microvm = test_microvm_with_partuuid

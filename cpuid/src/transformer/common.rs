@@ -47,7 +47,9 @@ pub fn update_feature_info_entry(
     // A value of 1 for HTT indicates the value in CPUID.1.EBX[23:16]
     // (the Maximum number of addressable IDs for logical processors in this package)
     // is valid for the package
-    entry.edx.write_bit(edx::HTT, vm_spec.cpu_count > 1);
+    entry
+        .edx
+        .write_bit(edx::HTT_BITINDEX, vm_spec.cpu_count > 1);
 
     Ok(())
 }
@@ -56,7 +58,7 @@ pub fn update_brand_string_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    let brand_string = vm_spec.brand_string();
+    let brand_string = &vm_spec.brand_string;
     entry.eax = brand_string.get_reg_for_leaf(entry.function, BsReg::EAX);
     entry.ebx = brand_string.get_reg_for_leaf(entry.function, BsReg::EBX);
     entry.ecx = brand_string.get_reg_for_leaf(entry.function, BsReg::ECX);
@@ -143,7 +145,6 @@ pub fn use_host_cpuid_function(
 mod test {
     use super::*;
     use common::tests::get_topoext_fn;
-    use common::VENDOR_ID_INTEL;
     use kvm_bindings::kvm_cpuid_entry2;
     use transformer::VmSpec;
 
@@ -160,7 +161,7 @@ mod test {
     fn check_update_feature_info_entry(cpu_count: u8, expected_htt: bool) {
         use cpu_leaf::leaf_0x1::*;
 
-        let vm_spec = VmSpec::new(VENDOR_ID_INTEL, 0, cpu_count, false);
+        let vm_spec = VmSpec::new(0, cpu_count, false).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,
@@ -174,7 +175,7 @@ mod test {
 
         assert!(update_feature_info_entry(&mut entry, &vm_spec).is_ok());
 
-        assert!(entry.edx.read_bit(edx::HTT) == expected_htt)
+        assert!(entry.edx.read_bit(edx::HTT_BITINDEX) == expected_htt)
     }
 
     fn check_update_cache_parameters_entry(
@@ -185,7 +186,7 @@ mod test {
     ) {
         use cpu_leaf::leaf_cache_parameters::*;
 
-        let vm_spec = VmSpec::new(VENDOR_ID_INTEL, 0, cpu_count, ht_enabled);
+        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,
@@ -271,12 +272,10 @@ mod test {
         assert!(use_host_cpuid_function(&mut cpuid, topoext_fn, true).is_ok());
         let entries = cpuid.mut_entries_slice();
         assert!(entries.len() > 1);
-        let mut count = 0;
-        for entry in entries.iter_mut() {
+        for (count, entry) in entries.iter_mut().enumerate() {
             assert!(entry.function == topoext_fn);
-            assert!(entry.index == count);
+            assert!(entry.index == count as u32);
             assert!(entry.eax != 0);
-            count = count + 1;
         }
     }
 

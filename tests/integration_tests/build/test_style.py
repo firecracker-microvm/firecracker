@@ -5,6 +5,7 @@
 from subprocess import run, PIPE
 
 import os
+import platform
 
 import pytest
 import yaml
@@ -28,6 +29,10 @@ def test_rust_style():
 
 
 @pytest.mark.timeout(120)
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="no need to test it on multiple platforms"
+)
 def test_python_style():
     """Fail if there's misbehaving Python style in the test system."""
     # Check style with pylint.
@@ -76,24 +81,51 @@ def test_python_style():
     )
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="no need to test it on multiple platforms"
+)
 def test_rust_clippy():
     """Fails if clippy generates any error, warnings are ignored."""
     run(
-        'cargo clippy --all-targets --all-features -- -D warnings',
+        'cargo clippy --all --profile test -- -D warnings',
         shell=True,
         check=True,
         stdout=PIPE
     )
 
 
-def test_yaml_style():
-    """Fail if our swagger specification is malformed."""
-    yaml_spec = os.path.normpath(
-         os.path.join(os.getcwd(), '../api_server/swagger/firecracker.yaml')
-     )
+def check_swagger_style(yaml_spec):
+    """Check if the swagger definition is correctly formatted."""
     with open(yaml_spec, 'r') as file_stream:
         try:
             yaml.safe_load(file_stream)
         # pylint: disable=broad-except
         except Exception as exception:
             print(str(exception))
+
+
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="no need to test it on multiple platforms"
+)
+def test_firecracker_swagger():
+    """Fail if Firecracker swagger specification is malformed."""
+    yaml_spec = os.path.normpath(
+        os.path.join(os.getcwd(), '../api_server/swagger/firecracker.yaml')
+    )
+    check_swagger_style(yaml_spec)
+
+
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="no need to test it on multiple platforms"
+)
+def test_experimental_firecracker_swagger():
+    """Fail if experimental Firecracker swagger specification is malformed."""
+    yaml_spec = os.path.normpath(
+        os.path.join(
+            os.getcwd(),
+            '../api_server/swagger/firecracker-experimental.yaml')
+    )
+    check_swagger_style(yaml_spec)

@@ -294,13 +294,15 @@ mod tests {
         );
         check_error_response(vmm_resp, StatusCode::InternalServerError);
         #[cfg(target_arch = "x86_64")]
-        let vmm_resp = VmmActionError::StartMicrovm(
-            ErrorKind::Internal,
-            StartMicrovmError::ConfigureSystem(arch::Error::X86_64Setup(
-                arch::x86_64::Error::ZeroPagePastRamEnd,
-            )),
-        );
-        check_error_response(vmm_resp, StatusCode::InternalServerError);
+        {
+            let vmm_resp = VmmActionError::StartMicrovm(
+                ErrorKind::Internal,
+                StartMicrovmError::ConfigureSystem(arch::Error::X86_64Setup(
+                    arch::x86_64::Error::ZeroPagePastRamEnd,
+                )),
+            );
+            check_error_response(vmm_resp, StatusCode::InternalServerError);
+        }
         let vmm_resp =
             VmmActionError::StartMicrovm(ErrorKind::Internal, StartMicrovmError::EventFd);
         check_error_response(vmm_resp, StatusCode::InternalServerError);
@@ -324,12 +326,12 @@ mod tests {
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
-            StartMicrovmError::LoadCommandline(kernel::loader::Error::CommandLineCopy),
+            StartMicrovmError::LoadCommandline(kernel::cmdline::Error::CommandLineCopy),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
-            StartMicrovmError::LoadCommandline(kernel::loader::Error::CommandLineOverflow),
+            StartMicrovmError::LoadCommandline(kernel::cmdline::Error::CommandLineOverflow),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
@@ -359,17 +361,14 @@ mod tests {
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
-            StartMicrovmError::KernelLoader(kernel::loader::Error::ReadElfHeader),
+            StartMicrovmError::KernelLoader(kernel::loader::Error::ReadKernelDataStruct(
+                "Failed to read data structure from kernel image",
+            )),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(
             ErrorKind::User,
             StartMicrovmError::KernelLoader(kernel::loader::Error::ReadKernelImage),
-        );
-        check_error_response(vmm_resp, StatusCode::BadRequest);
-        let vmm_resp = VmmActionError::StartMicrovm(
-            ErrorKind::User,
-            StartMicrovmError::KernelLoader(kernel::loader::Error::ReadProgramHeader),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::StartMicrovm(

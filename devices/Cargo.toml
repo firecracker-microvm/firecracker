@@ -7,6 +7,7 @@ authors = ["The Chromium OS Authors"]
 byteorder = ">=1.2.1"
 epoll = "=4.0.1"
 libc = ">=0.2.39"
+time = ">=0.1.39"
 
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }
