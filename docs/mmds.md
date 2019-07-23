@@ -44,8 +44,7 @@ structure. For example, a `GET` request for
 `http://169.254.169.254/latest/meta-data/ami-id` will return a response body
 consisting of *ami-12345678*. The MMDS contents can be updated either via a
 subsequent `PUT` (that replaces them entirely), or using `PATCH` requests,
-which feed the JSON body into the merge functionality exposed by the
-`json-patch` Rust crate, based on
+which feed the JSON body into the JSON Merge Patch functionality, based on
 [RFC 7396](https://tools.ietf.org/html/rfc7396). MMDS related API requests come
 from the host, which is considered a trusted environment, so there are no
 checks beside the kind of validation done by HTTP server and `serde-json` (the

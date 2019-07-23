@@ -59,7 +59,6 @@ pub trait DeviceInfoForFDT {
     fn addr(&self) -> u64;
     fn irq(&self) -> u32;
     fn length(&self) -> u64;
-    fn type_(&self) -> &DeviceType;
 }
 
 #[derive(Debug)]
@@ -80,7 +79,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemory,
     num_cpus: u32,
     cmdline: &CStr,
-    device_info: Option<&HashMap<String, T>>,
+    device_info: Option<&HashMap<(DeviceType, String), T>>,
 ) -> Result<(Vec<u8>)> {
     // Alocate stuff necessary for the holding the blob.
     let mut fdt = vec![0; FDT_MAX_SIZE];
@@ -483,13 +482,36 @@ fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
 
 fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
     fdt: &mut Vec<u8>,
-    dev_info: &HashMap<String, T>,
+    dev_info: &HashMap<(DeviceType, String), T>,
 ) -> Result<()> {
-    for (_, info) in &*dev_info {
-        match info.type_() {
+    // We are trying to detect the root block device. We know
+    // that if a root block device is attached, it will be the one with the lowest bus address.
+
+    // As per doc, `None` will be returned only if the iterator
+    // is empty. That cannot happen, since on aarch64 the RTC device is
+    // always appended to the hashmap of devices.
+    let ((first_device_type, first_device_id), first_device_info) = dev_info
+        .iter()
+        .min_by(|&(_, ref a), &(_, ref b)| a.addr().cmp(&b.addr()))
+        .expect("Device Information cannot be empty");
+
+    // We check that the device with the lowest bus address is indeed a virtio device.
+    // At this point, it does not matter whether we are dealing with network or block since
+    // the create_virtio_node function is agnostic of that.
+    if let DeviceType::Virtio(_) = first_device_type {
+        create_virtio_node(fdt, first_device_info.clone())?;
+    }
+
+    for ((device_type, device_id), info) in dev_info {
+        match device_type {
             DeviceType::RTC => create_rtc_node(fdt, info.clone())?,
             DeviceType::Serial => create_serial_node(fdt, info.clone())?,
-            DeviceType::Virtio => create_virtio_node(fdt, info.clone())?,
+            DeviceType::Virtio(_) => {
+                // We already appended the first virtio device.
+                if (device_type, device_id) != (&first_device_type, &first_device_id) {
+                    create_virtio_node(fdt, info.clone())?;
+                }
+            }
         };
     }
 
@@ -507,7 +529,6 @@ mod tests {
     pub struct MMIODeviceInfo {
         addr: u64,
         irq: u32,
-        type_: DeviceType,
     }
 
     impl DeviceInfoForFDT for MMIODeviceInfo {
@@ -520,9 +541,6 @@ mod tests {
         fn length(&self) -> u64 {
             LEN
         }
-        fn type_(&self) -> &DeviceType {
-            &self.type_
-        }
     }
     // The `load` function from the `device_tree` will mistakenly check the actual size
     // of the buffer with the allocated size. This works around that.
@@ -534,43 +552,51 @@ mod tests {
     }
 
     #[test]
-    fn test_create_fdt() {
+    fn test_create_fdt_with_devices() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
         let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
-        let dev_info: HashMap<String, MMIODeviceInfo> = [
+
+        let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
             (
-                "uart".to_string(),
-                MMIODeviceInfo {
-                    addr: 0x00,
-                    irq: 1,
-                    type_: DeviceType::Serial,
-                },
+                (DeviceType::Serial, "uart".to_string()),
+                MMIODeviceInfo { addr: 0x00, irq: 1 },
             ),
             (
-                "virtio".to_string(),
+                (DeviceType::Virtio(1), "virtio".to_string()),
                 MMIODeviceInfo {
                     addr: 0x00 + LEN,
                     irq: 2,
-                    type_: DeviceType::Virtio,
                 },
             ),
             (
-                "rtc".to_string(),
+                (DeviceType::RTC, "rtc".to_string()),
                 MMIODeviceInfo {
                     addr: 0x00 + 2 * LEN,
                     irq: 3,
-                    type_: DeviceType::RTC,
                 },
             ),
         ]
         .iter()
         .cloned()
         .collect();
-        let mut dtb = create_fdt(
+        assert!(create_fdt(
             &mem,
             1,
             &CString::new("console=tty0").unwrap(),
             Some(&dev_info),
+        )
+        .is_ok())
+    }
+
+    #[test]
+    fn test_create_fdt() {
+        let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
+        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mut dtb = create_fdt(
+            &mem,
+            1,
+            &CString::new("console=tty0").unwrap(),
+            None::<&std::collections::HashMap<(DeviceType, std::string::String), MMIODeviceInfo>>,
         )
         .unwrap();
 

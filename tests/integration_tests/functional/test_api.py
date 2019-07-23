@@ -3,6 +3,7 @@
 """Tests that ensure the correctness of the Firecracker API."""
 
 import os
+import platform
 import time
 
 import pytest
@@ -628,6 +629,10 @@ def test_api_actions(test_microvm_with_api):
     assert "Invalid block device ID" in response.text
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="not yet implemented on aarch64"
+)
 def test_send_ctrl_alt_del(test_microvm_with_atkbd):
     """Test shutting down the microVM gracefully, by sending CTRL+ALT+DEL.
 

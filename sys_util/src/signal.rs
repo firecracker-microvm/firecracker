@@ -181,14 +181,15 @@ pub unsafe trait Killable {
 
         // Safe because we ensure we are using a valid pthread handle, a valid signal number, and
         // check the return result.
-        SyscallReturnCode(unsafe { pthread_kill(self.pthread_handle(), num) }).into_empty_result()
+        SyscallReturnCode(unsafe { pthread_kill(self.pthread_handle() as _, num) })
+            .into_empty_result()
     }
 }
 
 // Safe because we fulfill our contract of returning a genuine pthread handle.
 unsafe impl<T> Killable for JoinHandle<T> {
     fn pthread_handle(&self) -> pthread_t {
-        self.as_pthread_t()
+        self.as_pthread_t() as _
     }
 }
 
@@ -210,18 +211,18 @@ mod tests {
 
     #[test]
     fn test_register_signal_handler() {
-        unsafe {
-            // testing bad value
-            assert!(register_vcpu_signal_handler(SIGRTMAX(), handle_signal).is_err());
-            assert!(register_vcpu_signal_handler(0, handle_signal).is_ok());
-            assert!(register_signal_handler(SIGSYS, handle_signal).is_ok());
-            assert!(register_signal_handler(SIGSYS + 1, handle_signal).is_err());
-        }
+        assert!(register_signal_handler(SIGSYS, handle_signal).is_ok());
+        assert!(register_signal_handler(SIGSYS + 1, handle_signal).is_err());
     }
 
     #[test]
     #[allow(clippy::empty_loop)]
-    fn test_killing_thread() {
+    fn test_register_vcpu_handler() {
+        // Error case: invalid vCPU signal.
+        unsafe {
+            assert!(register_vcpu_signal_handler(SIGRTMAX(), handle_signal).is_err());
+        }
+
         let killable = thread::spawn(|| thread::current().id());
         let killable_id = killable.join().unwrap();
         assert_ne!(killable_id, thread::current().id());
@@ -260,7 +261,6 @@ mod tests {
             // timeout if we wait too long
             assert!(iter_count <= MAX_WAIT_ITERS);
         }
-
         // Our signal handler doesn't do anything which influences the killable thread, so the
         // previous signal is effectively ignored. If we were to join killable here, we would block
         // forever as the loop keeps running. Since we don't join, the thread will become detached

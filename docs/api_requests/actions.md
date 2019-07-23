@@ -86,7 +86,6 @@ curl --unix-socket /tmp/firecracker.socket -i \
     }"
 ```
 
-
 ## SendCtrlAltDel
 
 This action will send the CTRL+ALT+DEL key sequence to the microVM. By
@@ -100,11 +99,13 @@ i8042 controller. Driver support for both these devices needs to be present in
 the guest OS. For Linux, that means the guest kernel needs
 `CONFIG_SERIO_I8042` and `CONFIG_KEYBOARD_ATKBD`.
 
-**Note on boot time impact**: at, boot time the Linux driver for i8042 spends
+**Note1**: at boot time, the Linux driver for i8042 spends
 a few tens of milliseconds probing the device. This can be disabled by using
 these kernel command line parameters:
 
 ```i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd```
+
+**Note2** This action is only supported on `x86_64` architecture.
 
 ### SendCtrlAltDel Example
 

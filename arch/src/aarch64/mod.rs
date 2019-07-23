@@ -25,6 +25,7 @@ impl From<Error> for super::Error {
 }
 
 pub use self::fdt::DeviceInfoForFDT;
+use DeviceType;
 
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.
@@ -45,7 +46,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemory,
     cmdline_cstring: &CStr,
     num_cpus: u8,
-    device_info: Option<&HashMap<String, T>>,
+    device_info: Option<&HashMap<(DeviceType, String), T>>,
 ) -> super::Result<()> {
     fdt::create_fdt(guest_mem, u32::from(num_cpus), cmdline_cstring, device_info)
         .map_err(Error::SetupFDT)?;

@@ -7,10 +7,15 @@ up in the configured logging FIFO.
 """
 import json
 import os
+import platform
 import re
+
 from time import sleep, strptime
 
+import pytest
+
 import host_tools.logging as log_tools
+
 
 # Array of supported log levels of the current logging system.
 # Do not change order of values inside this array as logic depends on this.
@@ -116,6 +121,10 @@ def test_error_logs(test_microvm_with_ssh):
     )
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="not yet supported on aarch64"
+)
 def test_dirty_page_metrics(test_microvm_with_api):
     """Check the `dirty_pages` metric."""
     microvm = test_microvm_with_api
@@ -185,7 +194,6 @@ def test_api_requests_logs(test_microvm_with_api):
         level='Info',
         show_level=True,
         show_log_origin=True,
-        options=[]
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
 
@@ -300,15 +308,24 @@ def _test_log_config(
     metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
     log_fifo = log_tools.Fifo(log_fifo_path)
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    if platform.machine() == 'x86_64':
+        response = microvm.logger.put(
+            log_fifo=microvm.create_jailed_resource(log_fifo.path),
+            metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
+            level=log_level,
+            show_level=show_level,
+            show_log_origin=show_origin,
+            options=options
+           )
+    else:
+        response = microvm.logger.put(
+            log_fifo=microvm.create_jailed_resource(log_fifo.path),
+            metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
+            level=log_level,
+            show_level=show_level,
+            show_log_origin=show_origin,
+           )
 
-    response = microvm.logger.put(
-        log_fifo=microvm.create_jailed_resource(log_fifo.path),
-        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
-        level=log_level,
-        show_level=show_level,
-        show_log_origin=show_origin,
-        options=options
-    )
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     microvm.start()

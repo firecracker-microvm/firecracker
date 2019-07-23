@@ -128,6 +128,11 @@ impl MmioDevice {
         })
     }
 
+    // Gets the encapsulated VirtioDevice
+    pub fn device_mut(&mut self) -> &mut dyn VirtioDevice {
+        &mut *self.device
+    }
+
     /// Gets the list of queue events that must be triggered whenever the VM writes to
     /// `virtio::NOTIFY_REG_OFFSET` past the MMIO base. Each event must be triggered when the
     /// value being written equals the index of the event in this list.
@@ -488,17 +493,17 @@ mod tests {
         );
 
         d.queue_select = 0;
-        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 16);
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 16);
         assert!(d.with_queue_mut(|q| q.size = 16));
         assert_eq!(d.queues[d.queue_select as usize].size, 16);
 
         d.queue_select = 1;
-        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 32);
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 32);
         assert!(d.with_queue_mut(|q| q.size = 16));
         assert_eq!(d.queues[d.queue_select as usize].size, 16);
 
         d.queue_select = 2;
-        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 0);
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 0);
         assert!(!d.with_queue_mut(|q| q.size = 16));
 
         d.mem.take().unwrap();
@@ -577,7 +582,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_bus_device_write() {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
 

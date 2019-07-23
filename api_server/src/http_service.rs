@@ -674,6 +674,9 @@ fn describe(method: &Method, path: &str, body: &Option<String>) -> String {
 }
 
 #[cfg(test)]
+// Allowing assertions on constants so we can check enum variants using
+// match instead of equals.
+#[allow(clippy::assertions_on_constants)]
 mod tests {
     extern crate net_util;
 

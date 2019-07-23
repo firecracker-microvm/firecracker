@@ -279,14 +279,10 @@ class Microvm:
         # our clone / exec to deadlock at some point.
         if self._jailer.daemonize:
             if self.aux_bin_paths:
-                _p = run(
-                    [self.aux_bin_paths['cloner']]
-                    + [self._jailer_binary_path]
-                    + jailer_param_list,
-                    stdout=PIPE,
-                    stderr=PIPE,
-                    check=True
-                )
+                cmd = [self.aux_bin_paths['cloner']] + \
+                      [self._jailer_binary_path] + \
+                      jailer_param_list
+                _p = run(cmd, stdout=PIPE, stderr=PIPE, check=True)
                 # Terrible hack to make the tests fail when starting the
                 # jailer fails with a panic. This is needed because we can't
                 # get the exit code of the jailer. In newpid_clone.c we are

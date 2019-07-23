@@ -1,7 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use json_patch::merge;
 use serde_json::Value;
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
@@ -77,7 +76,7 @@ impl Mmds {
     pub fn patch_data(&mut self, patch_data: Value) -> Result<(), Error> {
         Mmds::check_data_valid(&patch_data)?;
         self.check_data_store_initialized()?;
-        merge(&mut self.data_store, &patch_data);
+        super::json_patch(&mut self.data_store, &patch_data);
         Ok(())
     }
 
@@ -196,44 +195,43 @@ mod tests {
         mmds.put_data(data_store).unwrap();
 
         // Test invalid path.
-        match mmds.get_value("/invalid_path".to_string()) {
-            Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, Error::NotFound),
-        };
-        match mmds.get_value("/invalid_path/".to_string()) {
-            Ok(_) => assert!(false),
-            Err(e) => assert_eq!(e, Error::NotFound),
-        };
+        assert_eq!(
+            mmds.get_value("/invalid_path".to_string()),
+            Err(Error::NotFound)
+        );
+        assert_eq!(
+            mmds.get_value("/invalid_path/".to_string()),
+            Err(Error::NotFound)
+        );
 
         // Test path ends with /; Value is a dictionary.
-        if let Ok(ret) = mmds.get_value("/phones/".to_string()) {
-            assert_eq!(ret, vec!["home/", "mobile"]);
-        } else {
-            assert!(false);
-        }
+        assert_eq!(
+            mmds.get_value("/phones/".to_string()).unwrap(),
+            vec!["home/", "mobile"]
+        );
 
-        match mmds.get_value("/phones/home/".to_string()) {
-            Ok(ret) => assert_eq!(ret, vec!["RO", "UK"]),
-            Err(_) => assert!(false),
-        };
+        assert_eq!(
+            mmds.get_value("/phones/home/".to_string()).unwrap(),
+            vec!["RO", "UK"]
+        );
 
         // Test path ends with /; Value is a String.
-        match mmds.get_value("/phones/mobile/".to_string()) {
-            Ok(ret) => assert_eq!(ret, vec!["+44 2345678"]),
-            Err(_) => assert!(false),
-        };
+        assert_eq!(
+            mmds.get_value("/phones/mobile/".to_string()).unwrap(),
+            vec!["+44 2345678"]
+        );
 
         // Test path does NOT end with /; Value is a dictionary.
-        match mmds.get_value("/phones".to_string()) {
-            Ok(ret) => assert_eq!(ret, vec!["home/", "mobile"]),
-            Err(_) => assert!(false),
-        };
+        assert_eq!(
+            mmds.get_value("/phones".to_string()).unwrap(),
+            vec!["home/", "mobile"]
+        );
 
         // Test path does NOT end with /; Value is a String.
-        match mmds.get_value("/phones/mobile".to_string()) {
-            Ok(ret) => assert_eq!(ret, vec!["+44 2345678"]),
-            Err(_) => assert!(false),
-        };
+        assert_eq!(
+            mmds.get_value("/phones/mobile".to_string()).unwrap(),
+            vec!["+44 2345678"]
+        );
     }
 
     #[test]
@@ -250,10 +248,10 @@ mod tests {
         mmds.put_data(data_store).unwrap();
 
         // Test path does NOT end with /; Value is a String.
-        match mmds.get_value("/phones/0".to_string()) {
-            Ok(ret) => assert_eq!(ret, vec!["+40 1234567"]),
-            Err(_) => assert!(false),
-        };
+        assert_eq!(
+            mmds.get_value("/phones/0".to_string()).unwrap(),
+            vec!["+40 1234567"]
+        );
     }
 
     #[test]

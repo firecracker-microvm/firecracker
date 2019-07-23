@@ -130,13 +130,14 @@ pub fn update_extended_apic_id_entry(
 pub struct AmdCpuidTransformer {}
 
 impl CpuidTransformer for AmdCpuidTransformer {
-    fn preprocess_cpuid(&self, cpuid: &mut CpuId) -> Result<(), Error> {
-        use_host_cpuid_function(cpuid, leaf_0x8000001e::LEAF_NUM, false)?;
-        use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, true)
+    fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
+        use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, false)?;
+        use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, true)?;
+        self.process_entries(cpuid, vm_spec)
     }
 
-    fn transform_entry(&self, entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error> {
-        let maybe_transformer_fn: Option<EntryTransformerFn> = match entry.function {
+    fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
+        match entry.function {
             leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
             leaf_0x7::LEAF_NUM => Some(amd::update_structured_extended_entry),
             leaf_0x80000000::LEAF_NUM => Some(amd::update_largest_extended_fn_entry),
@@ -146,27 +147,20 @@ impl CpuidTransformer for AmdCpuidTransformer {
             leaf_0x8000001e::LEAF_NUM => Some(amd::update_extended_apic_id_entry),
             0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
             _ => None,
-        };
-
-        if let Some(transformer_fn) = maybe_transformer_fn {
-            return transformer_fn(entry, vm_spec);
         }
-
-        Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use common::VENDOR_ID_AMD;
 
     #[test]
     fn test_update_structured_extended_entry() {
         use cpu_leaf::leaf_0x7::index0::*;
 
         // Check that if index == 0 the entry is processed
-        let vm_spec = VmSpec::new(VENDOR_ID_AMD, 0, 1, false);
+        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: leaf_0x7::LEAF_NUM,
             index: 0,
@@ -191,7 +185,7 @@ mod test {
     fn test_update_largest_extended_fn_entry() {
         use cpu_leaf::leaf_0x80000000::*;
 
-        let vm_spec = VmSpec::new(VENDOR_ID_AMD, 0, 1, false);
+        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
@@ -217,7 +211,7 @@ mod test {
     fn test_update_extended_feature_info_entry() {
         use cpu_leaf::leaf_0x80000001::*;
 
-        let vm_spec = VmSpec::new(VENDOR_ID_AMD, 0, 1, false);
+        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
@@ -237,7 +231,7 @@ mod test {
     fn check_update_amd_features_entry(cpu_count: u8, ht_enabled: bool) {
         use cpu_leaf::leaf_0x80000008::*;
 
-        let vm_spec = VmSpec::new(VENDOR_ID_AMD, 0, cpu_count, ht_enabled);
+        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
@@ -270,7 +264,7 @@ mod test {
     ) {
         use cpu_leaf::leaf_0x8000001e::*;
 
-        let vm_spec = VmSpec::new(VENDOR_ID_AMD, cpu_id, cpu_count, ht_enabled);
+        let vm_spec = VmSpec::new(cpu_id, cpu_count, ht_enabled).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
@@ -313,7 +307,7 @@ mod test {
 
     #[test]
     fn test_update_extended_cache_topology_entry() {
-        let vm_spec = VmSpec::new(VENDOR_ID_AMD, 0, 1, false);
+        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
             function: leaf_0x8000001d::LEAF_NUM,
             index: 0,

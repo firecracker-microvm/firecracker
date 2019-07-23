@@ -14,6 +14,8 @@ use std::{fmt, io};
 use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
 use devices;
+use devices::virtio::TYPE_BLOCK;
+use devices::BusDevice;
 use kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
 use memory_model::GuestMemory;
@@ -35,6 +37,8 @@ pub enum Error {
     RegisterIoEvent(io::Error),
     /// Registering an IRQ FD failed.
     RegisterIrqFd(io::Error),
+    /// The device couldn't be found
+    DeviceNotFound,
     /// Failed to update the mmio device.
     UpdateFailed,
 }
@@ -51,6 +55,7 @@ impl fmt::Display for Error {
             Error::IrqsExhausted => write!(f, "no more IRQs are available"),
             Error::RegisterIoEvent(ref e) => write!(f, "failed to register IO event: {}", e),
             Error::RegisterIrqFd(ref e) => write!(f, "failed to register irqfd: {}", e),
+            Error::DeviceNotFound => write!(f, "the device couldn't be found"),
             Error::UpdateFailed => write!(f, "failed to update the mmio device"),
         }
     }
@@ -75,19 +80,22 @@ pub struct MMIODeviceManager {
     mmio_base: u64,
     irq: u32,
     last_irq: u32,
-    id_to_dev_info: HashMap<String, MMIODeviceInfo>,
+    id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
 }
 
 impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
     pub fn new(
         guest_mem: GuestMemory,
-        mmio_base: u64,
+        mmio_base: &mut u64,
         irq_interval: (u32, u32),
     ) -> MMIODeviceManager {
+        if cfg!(target_arch = "aarch64") {
+            *mmio_base += MMIO_LEN;
+        }
         MMIODeviceManager {
             guest_mem,
-            mmio_base,
+            mmio_base: *mmio_base,
             irq: irq_interval.0,
             last_irq: irq_interval.1,
             bus: devices::Bus::new(),
@@ -101,7 +109,8 @@ impl MMIODeviceManager {
         vm: &VmFd,
         device: Box<devices::virtio::VirtioDevice>,
         cmdline: &mut kernel_cmdline::Cmdline,
-        id: &str,
+        type_id: u32,
+        device_id: &str,
     ) -> Result<u64> {
         if self.irq > self.last_irq {
             return Err(Error::IrqsExhausted);
@@ -142,12 +151,11 @@ impl MMIODeviceManager {
         let ret = self.mmio_base;
 
         self.id_to_dev_info.insert(
-            id.to_string(),
+            (DeviceType::Virtio(type_id), device_id.to_string()),
             MMIODeviceInfo {
                 addr: ret,
                 len: MMIO_LEN,
                 irq: self.irq,
-                type_: DeviceType::Virtio,
             },
         );
 
@@ -188,12 +196,11 @@ impl MMIODeviceManager {
 
         let ret = self.mmio_base;
         self.id_to_dev_info.insert(
-            "uart".to_string(),
+            (DeviceType::Serial, "uart".to_string()),
             MMIODeviceInfo {
                 addr: ret,
                 len: MMIO_LEN,
                 irq: self.irq,
-                type_: DeviceType::Serial,
             },
         );
 
@@ -222,12 +229,11 @@ impl MMIODeviceManager {
 
         let ret = self.mmio_base;
         self.id_to_dev_info.insert(
-            "rtc".to_string(),
+            (DeviceType::RTC, "rtc".to_string()),
             MMIODeviceInfo {
                 addr: ret,
                 len: MMIO_LEN,
                 irq: self.irq,
-                type_: DeviceType::RTC,
             },
         );
 
@@ -239,31 +245,41 @@ impl MMIODeviceManager {
 
     #[cfg(target_arch = "aarch64")]
     /// Gets the information of the devices registered up to some point in time.
-    pub fn get_device_info(&self) -> &HashMap<String, MMIODeviceInfo> {
+    pub fn get_device_info(&self) -> &HashMap<(DeviceType, String), MMIODeviceInfo> {
         &self.id_to_dev_info
     }
 
-    /// Update a drive by rebuilding its config space and rewriting it on the bus.
-    pub fn update_drive(&self, addr: u64, new_size: u64) -> Result<()> {
-        if let Some((_, device)) = self.bus.get_device(addr) {
-            let data = devices::virtio::build_config_space(new_size);
-            let mut busdev = device.lock().map_err(|_| Error::UpdateFailed)?;
-
-            busdev.write(MMIO_CFG_SPACE_OFF, &data[..]);
-            busdev.interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG);
-
-            Ok(())
-        } else {
-            Err(Error::UpdateFailed)
-        }
-    }
-
-    /// Gets the address of the specified device on the bus.
-    pub fn get_address(&self, id: &str) -> Option<&u64> {
-        if let Some(dev_info) = self.id_to_dev_info.get(id) {
-            return Some(&dev_info.addr);
+    /// Gets the the specified device.
+    pub fn get_device(
+        &self,
+        device_type: DeviceType,
+        device_id: &str,
+    ) -> Option<&Mutex<BusDevice>> {
+        if let Some(dev_info) = self
+            .id_to_dev_info
+            .get(&(device_type, device_id.to_string()))
+        {
+            if let Some((_, device)) = self.bus.get_device(dev_info.addr) {
+                return Some(device);
+            }
         }
         None
+    }
+
+    /// Update a drive by rebuilding its config space and rewriting it on the bus.
+    pub fn update_drive(&self, device_id: &str, new_size: u64) -> Result<()> {
+        match self.get_device(DeviceType::Virtio(TYPE_BLOCK), device_id) {
+            Some(device) => {
+                let data = devices::virtio::build_config_space(new_size);
+                let mut busdev = device.lock().map_err(|_| Error::UpdateFailed)?;
+
+                busdev.write(MMIO_CFG_SPACE_OFF, &data[..]);
+                busdev.interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG);
+
+                Ok(())
+            }
+            None => Err(Error::DeviceNotFound),
+        }
     }
 }
 
@@ -273,7 +289,6 @@ pub struct MMIODeviceInfo {
     addr: u64,
     irq: u32,
     len: u64,
-    type_: DeviceType,
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -287,9 +302,6 @@ impl DeviceInfoForFDT for MMIODeviceInfo {
     fn length(&self) -> u64 {
         self.len
     }
-    fn type_(&self) -> &DeviceType {
-        &self.type_
-    }
 }
 
 #[cfg(test)]
@@ -298,7 +310,7 @@ mod tests {
     use super::super::super::Vmm;
     use super::*;
     use arch;
-    use devices::virtio::{ActivateResult, VirtioDevice};
+    use devices::virtio::{ActivateResult, VirtioDevice, TYPE_BLOCK};
     use kernel_cmdline;
     use memory_model::{GuestAddress, GuestMemory};
     use std::sync::atomic::AtomicUsize;
@@ -311,8 +323,10 @@ mod tests {
         // Removing the address of a device will generate an error when you try to update the
         // drive. The purpose of this method is to test error scenarios and should otherwise
         // not be used.
-        pub fn remove_device_info(&mut self, id: &str) {
-            self.id_to_dev_info.remove(id).unwrap();
+        pub fn remove_device_info(&mut self, type_id: u32, id: &str) {
+            self.id_to_dev_info
+                .remove(&(DeviceType::Virtio(type_id), id.to_string()))
+                .unwrap();
         }
     }
 
@@ -378,36 +392,45 @@ mod tests {
     }
 
     #[test]
-    fn register_device() {
+    fn test_register_virtio_device() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
         let mut device_manager =
-            MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
+            MMIODeviceManager::new(guest_mem, &mut 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
-        let vmm = create_vmm_object();
+        let mut vmm = create_vmm_object();
+        assert!(vmm.setup_interrupt_controller().is_ok());
 
         assert!(device_manager
-            .register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, "dummy")
+            .register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, 0, "dummy")
             .is_ok());
     }
 
     #[test]
-    fn register_too_many_devices() {
+    fn test_register_too_many_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
         let mut device_manager =
-            MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
+            MMIODeviceManager::new(guest_mem, &mut 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
-        let vmm = create_vmm_object();
+        let mut vmm = create_vmm_object();
+        assert!(vmm.setup_interrupt_controller().is_ok());
+
         for _i in arch::IRQ_BASE..=arch::IRQ_MAX {
             device_manager
-                .register_virtio_device(vmm.vm.get_fd(), dummy_box.clone(), &mut cmdline, "dummy1")
+                .register_virtio_device(
+                    vmm.vm.get_fd(),
+                    dummy_box.clone(),
+                    &mut cmdline,
+                    0,
+                    "dummy1",
+                )
                 .unwrap();
         }
         assert_eq!(
@@ -418,6 +441,7 @@ mod tests {
                         vmm.vm.get_fd(),
                         dummy_box.clone(),
                         &mut cmdline,
+                        0,
                         "dummy2"
                     )
                     .unwrap_err()
@@ -447,7 +471,7 @@ mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
         let device_manager =
-            MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
+            MMIODeviceManager::new(guest_mem, &mut 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let e = Error::Cmdline(
             cmdline
@@ -519,17 +543,20 @@ mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
         let mut device_manager =
-            MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
+            MMIODeviceManager::new(guest_mem, &mut 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         let vmm = create_vmm_object();
 
-        if let Ok(addr) =
-            device_manager.register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, "foo")
+        if device_manager
+            .register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, TYPE_BLOCK, "foo")
+            .is_ok()
         {
-            assert!(device_manager.update_drive(addr, 1_048_576).is_ok());
+            assert!(device_manager.update_drive("foo", 1_048_576).is_ok());
         }
-        assert!(device_manager.update_drive(0xbeef, 1_048_576).is_err());
+        assert!(device_manager
+            .update_drive("invalid_id", 1_048_576)
+            .is_err());
     }
 
     #[test]
@@ -538,27 +565,35 @@ mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
         let mut device_manager =
-            MMIODeviceManager::new(guest_mem, 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
+            MMIODeviceManager::new(guest_mem, &mut 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mut cmdline = kernel_cmdline::Cmdline::new(4096);
         let dummy_box = Box::new(DummyDevice { dummy: 0 });
         let vmm = create_vmm_object();
 
+        let type_id = 0;
         let id = String::from("foo");
-        if let Ok(addr) =
-            device_manager.register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, &id)
-        {
-            assert_eq!(Some(&addr), device_manager.get_address(&id));
-            assert_eq!(addr, device_manager.id_to_dev_info.get(&id).unwrap().addr);
+        if let Ok(addr) = device_manager.register_virtio_device(
+            vmm.vm.get_fd(),
+            dummy_box,
+            &mut cmdline,
+            type_id,
+            &id,
+        ) {
+            assert!(device_manager
+                .get_device(DeviceType::Virtio(type_id), &id)
+                .is_some());
             assert_eq!(
-                arch::IRQ_BASE,
-                device_manager.id_to_dev_info.get(&id).unwrap().irq
+                addr,
+                device_manager.id_to_dev_info[&(DeviceType::Virtio(type_id), id.clone())].addr
             );
             assert_eq!(
-                DeviceType::Virtio,
-                device_manager.id_to_dev_info.get(&id).unwrap().type_
+                arch::IRQ_BASE,
+                device_manager.id_to_dev_info[&(DeviceType::Virtio(type_id), id.clone())].irq
             );
         }
         let id = "bar";
-        assert_eq!(None, device_manager.get_address(&id));
+        assert!(device_manager
+            .get_device(DeviceType::Virtio(type_id), &id)
+            .is_none());
     }
 }
