@@ -14,7 +14,7 @@ architectures:
 parts:
   firecracker:
     plugin: rust
-    rust-revision: 1.32
+    rust-revision: "1.35.0"
     source: .
 
 apps:
