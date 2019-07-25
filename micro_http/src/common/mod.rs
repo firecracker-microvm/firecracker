@@ -8,6 +8,7 @@ pub mod ascii {
     pub const COLON: u8 = b':';
     pub const LF: u8 = b'\n';
     pub const SP: u8 = b' ';
+    pub const CRLF_LEN: usize = 2;
 }
 
 /// Errors associated with parsing the HTTP Request from a u8 slice.
@@ -15,12 +16,16 @@ pub mod ascii {
 pub enum RequestError {
     /// The HTTP Method is not supported or it is invalid.
     InvalidHttpMethod(&'static str),
-    /// Cannot parse the Request Line due to invalid input.
-    InvalidRequest,
     /// Request URI is invalid.
     InvalidUri(&'static str),
     /// The HTTP Version in the Request is not supported or it is invalid.
     InvalidHttpVersion(&'static str),
+    /// The header specified may be valid, but is not supported by this HTTP implementation.
+    UnsupportedHeader,
+    /// Header specified is invalid.
+    InvalidHeader,
+    /// The Request is invalid and cannot be served.
+    InvalidRequest,
 }
 
 /// The Body associated with an HTTP Request or Response.
@@ -35,7 +40,8 @@ pub enum RequestError {
 /// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct Body {
-    body: Vec<u8>,
+    /// Body of the HTTP message as bytes.
+    pub body: Vec<u8>,
 }
 
 impl Body {
@@ -61,10 +67,14 @@ impl Body {
 }
 
 /// Supported HTTP Methods.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Method {
     /// GET Method.
     Get,
+    /// PUT Method.
+    Put,
+    /// PATCH Method.
+    Patch,
 }
 
 impl Method {
@@ -78,14 +88,18 @@ impl Method {
     pub fn try_from(bytes: &[u8]) -> Result<Self, RequestError> {
         match bytes {
             b"GET" => Ok(Method::Get),
+            b"PUT" => Ok(Method::Put),
+            b"PATCH" => Ok(Method::Patch),
             _ => Err(RequestError::InvalidHttpMethod("Unsupported HTTP method.")),
         }
     }
 
     /// Returns an `u8 slice` corresponding to the Method.
-    pub fn raw(&self) -> &'static [u8] {
+    pub fn raw(self) -> &'static [u8] {
         match self {
             Method::Get => b"GET",
+            Method::Put => b"PUT",
+            Method::Patch => b"PATCH",
         }
     }
 }
@@ -169,11 +183,15 @@ mod tests {
     fn test_method() {
         // Test for raw
         assert_eq!(Method::Get.raw(), b"GET");
+        assert_eq!(Method::Put.raw(), b"PUT");
+        assert_eq!(Method::Patch.raw(), b"PATCH");
 
         // Tests for try_from
         assert_eq!(Method::try_from(b"GET").unwrap(), Method::Get);
+        assert_eq!(Method::try_from(b"PUT").unwrap(), Method::Put);
+        assert_eq!(Method::try_from(b"PATCH").unwrap(), Method::Patch);
         assert_eq!(
-            Method::try_from(b"PUT").unwrap_err(),
+            Method::try_from(b"POST").unwrap_err(),
             RequestError::InvalidHttpMethod("Unsupported HTTP method.")
         );
     }
