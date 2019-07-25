@@ -291,6 +291,54 @@ impl MemoryMapping {
         // overflow. However, it is possible to alias.
         std::slice::from_raw_parts_mut(self.addr, self.size)
     }
+
+    /// Calls madvise with MADV_REMOVE to take back pages from the guest. If read from after this
+    /// call, the memory will contain only zeroes.
+    /// To learn more about madvise, read this manual page:
+    /// http://man7.org/linux/man-pages/man2/madvise.2.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use memory_model::MemoryMapping;
+    ///   let mut mem_map = MemoryMapping::new(1024).unwrap();
+    ///   assert!(mem_map.write_obj(123u32, 0).is_ok());
+    ///   assert!(mem_map.remove_range(0, 32).is_ok());
+    ///   // The kernel is now advised that the first 32 bytes of `mem_map` can be removed.
+    ///   assert_eq!(mem_map.read_obj::<u32>(32).unwrap(), 0);
+    /// ```
+    pub fn remove_range(&self, mem_offset: usize, count: usize) -> Result<()> {
+        self.range_end(mem_offset, count)
+            .map_err(|_| Error::InvalidRange(mem_offset, count))?;
+        let ret = unsafe {
+            // This is safe for the same reason that write_obj is safe:
+            // `madvise`-ing the kernel that some memory can be removed is,
+            // from the point of view of a userspace process, the same as
+            // setting the memory to 0 -- which is fine as long as we make sure
+            // that we get the bound check correct (which was done
+            // through the call to range_end previously).
+            libc::madvise(
+                (self.addr as usize + mem_offset) as *mut _,
+                count,
+                libc::MADV_REMOVE,
+            )
+        };
+        if ret < 0 {
+            Err(Error::SystemCallFailed(io::Error::last_os_error()))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Check that offset + count falls within our mapped range,
+    /// and return the result.
+    fn range_end(&self, offset: usize, count: usize) -> Result<usize> {
+        let mem_end = offset.checked_add(count).ok_or(Error::InvalidAddress)?;
+        if mem_end > self.size() {
+            return Err(Error::InvalidAddress);
+        }
+        Ok(mem_end)
+    }
 }
 
 impl Drop for MemoryMapping {
@@ -312,6 +360,16 @@ mod tests {
     use std::fs::File;
     use std::mem;
     use std::path::Path;
+
+    /// This asserts that $lhs matches $rhs.
+    macro_rules! assert_match {
+        ($lhs:expr, $rhs:pat) => {{
+            assert!(match $lhs {
+                $rhs => true,
+                _ => false,
+            })
+        }};
+    }
 
     #[test]
     fn basic_map() {
@@ -363,6 +421,40 @@ mod tests {
         assert_eq!(mem_map.read_obj::<u16>(2).unwrap(), 55u16);
         assert!(mem_map.read_obj::<u16>(4).is_err());
         assert!(mem_map.read_obj::<u16>(core::usize::MAX).is_err());
+    }
+
+    #[test]
+    fn test_remove_range() {
+        let mem_map = MemoryMapping::new(1024).unwrap();
+
+        // This should fail, since it's out of the mapping's bounds.
+        assert_match!(
+            mem_map.remove_range(600, 600),
+            Err(Error::InvalidRange(600, 600))
+        );
+
+        // Write, to test later that this disappears after the madvise.
+        assert!(mem_map.write_obj(123 as u32, 0).is_ok());
+
+        // Check that write was succesful.
+        assert_match!(mem_map.read_obj::<u32>(0), Ok(123));
+
+        // Remove range. This should succeed.
+        assert!(mem_map.remove_range(0, 500).is_ok());
+
+        // Now, reading the integer at 0 should yield 0.
+        assert_match!(mem_map.read_obj::<u32>(0), Ok(0));
+    }
+
+    #[test]
+    fn test_range_end() {
+        let mm = MemoryMapping::new(123).unwrap();
+
+        // This should work, since 50 + 50 < 123.
+        assert_match!(mm.range_end(50, 50), Ok(100));
+
+        // This should return an error, since 50 + 80 >= 123.
+        assert_match!(mm.range_end(50, 80), Err(Error::InvalidAddress));
     }
 
     #[test]

@@ -138,6 +138,34 @@ impl GuestMemory {
         self.regions.len()
     }
 
+    /// Calls madvise with MADV_REMOVE to take back memory back from the guest. If read from after this
+    /// call, the memory will contain only zeroes.
+    /// To learn more about madvise, read this manual page:
+    /// http://man7.org/linux/man-pages/man2/madvise.2.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
+    /// # fn test_remove_range() -> Result<(), ()> {
+    ///    let start_addr = GuestAddress(0x1000);
+    ///    let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///    gm.write_obj_at_addr(123, start_addr);
+    ///    assert_eq!(gm.read_obj_from_addr::<u32>(start_addr).unwrap(), 123);
+    ///    gm.remove_range(start_addr, 32);
+    ///    // The kernel is now advised that the next 32 bytes after `start_addr` can be removed.
+    ///    assert_eq!(gm.read_obj_from_addr::<u32>(start_addr).unwrap(), 0);
+    ///    Ok(())
+    /// # }
+    /// ```
+    pub fn remove_range(&self, addr: GuestAddress, count: u64) -> Result<()> {
+        self.do_in_region(addr, count as usize, move |mapping, offset| {
+            mapping
+                .remove_range(offset, count as usize)
+                .map_err(|e| Error::MemoryAccess(addr, e))
+        })
+    }
+
     /// Perform the specified action on each region's addresses.
     pub fn with_regions<F, E>(&self, cb: F) -> result::Result<(), E>
     where
@@ -467,6 +495,16 @@ mod tests {
     use std::mem;
     use std::path::Path;
 
+    /// This asserts that $lhs matches $rhs.
+    macro_rules! assert_match {
+        ($lhs:expr, $rhs:pat) => {{
+            assert!(match $lhs {
+                $rhs => true,
+                _ => false,
+            })
+        }};
+    }
+
     #[test]
     fn test_regions() {
         // No regions provided should return error.
@@ -640,5 +678,29 @@ mod tests {
             ),
             3
         );
+    }
+
+    #[test]
+    fn test_remove_range() {
+        let start_addr = GuestAddress(0x0);
+        let mem = GuestMemory::new(&[(start_addr, 1024)]).unwrap();
+
+        // Bad range leads to appropriate error.
+        assert!(match mem.remove_range(start_addr, 1025) {
+            Err(Error::InvalidGuestAddressRange(addr, 1025)) => addr == start_addr,
+            _ => false,
+        });
+
+        // Write into memory.
+        assert!(mem.write_obj_at_addr::<u32>(123, start_addr).is_ok());
+
+        // Check that the write was successful.
+        assert_match!(mem.read_obj_from_addr::<u32>(start_addr), Ok(123));
+
+        // Remove affected range.
+        assert!(mem.remove_range(start_addr, 32).is_ok());
+
+        // Check that the remove was succesful.
+        assert_match!(mem.read_obj_from_addr::<u32>(start_addr), Ok(0));
     }
 }
