@@ -11,23 +11,33 @@
 //! compression.
 //!
 //! ## Supported Headers
-//! The **micro_http** crate does not have support for parsing **Request**
-//! headers.
+//! The **micro_http** crate has support for parsing the following **Request**
+//! headers:
+//! - Content-Length
+//! - Expect
+//! - Transfer-Encoding
 //!
 //! The **Response** does not have a public interface for adding headers, but whenever
 //! a write to the **Body** is made, the headers **ContentLength** and **MediaType**
 //! are automatically updated.
 //!
 //! ### Media Types
-//! The only supported media type is **text/plain**.
+//! The supported media types are:
+//! - text/plain
+//! - application/json
 //!
 //! ## Supported Methods
-//! The only supported HTTP Method is **GET**.
+//! The supported HTTP Methods are:
+//! - GET
+//! - PUT
+//! - PATCH
 //!
 //! ## Supported Status Codes
 //! The supported status codes are:
 //!
+//! - Continue - 100
 //! - OK - 200
+//! - No Content - 204
 //! - Bad Request - 400
 //! - Not Found - 404
 //! - Internal Server Error - 500
@@ -38,7 +48,7 @@
 //! extern crate micro_http;
 //! use micro_http::{Request, Version};
 //!
-//! let http_request = Request::try_from(b"GET http://localhost/home HTTP/1.0\r\n").unwrap();
+//! let http_request = Request::try_from(b"GET http://localhost/home HTTP/1.0\r\n\r\n").unwrap();
 //! assert_eq!(http_request.http_version(), Version::Http10);
 //! assert_eq!(http_request.uri().get_abs_path(), "/home");
 //! ```
@@ -56,7 +66,7 @@
 //! assert_eq!(response.body().unwrap(), Body::new(body));
 //! assert_eq!(response.http_version(), Version::Http10);
 //!
-//! let mut response_buf: [u8; 77] = [0; 77];
+//! let mut response_buf: [u8; 122] = [0; 122];
 //! assert!(response.write_all(&mut response_buf.as_mut()).is_ok());
 //! ```
 mod common;
@@ -68,4 +78,5 @@ use common::headers;
 pub use request::{Request, RequestError};
 pub use response::{Response, StatusCode};
 
+pub use common::headers::Headers;
 pub use common::{Body, Version};

@@ -3,19 +3,19 @@
 
 use std::str::from_utf8;
 
-use common::ascii::{CR, LF, SP};
+use common::ascii::{CR, CRLF_LEN, LF, SP};
 pub use common::RequestError;
 use common::{Body, Method, Version};
 use headers::Headers;
 
-// Helper function used for parsing the HTTP Request.
-// Splits the bytes in a pair containing the bytes before the separator and after the separator.
-// The separator is not included in the return values.
-fn split(bytes: &[u8], separator: u8) -> (&[u8], &[u8]) {
-    match bytes.iter().position(|byte| *byte == separator) {
-        Some(index) => (&bytes[..index], &bytes[index + 1..]),
-        None => (&[], bytes),
-    }
+// Helper functions used for parsing the HTTP Request.
+// Finds the first occurrence of the sequence in a byte slice and returns its
+// position in the slice.
+// If no occurrence is found, it returns `None`.
+fn find(bytes: &[u8], sequence: &[u8]) -> Option<usize> {
+    bytes
+        .windows(sequence.len())
+        .position(|window| window == sequence)
 }
 
 /// Wrapper over HTTP URIs.
@@ -84,20 +84,24 @@ struct RequestLine<'a> {
 }
 
 impl<'a> RequestLine<'a> {
-    fn remove_trailing_cr(version: &[u8]) -> &[u8] {
-        match version.last() {
-            Some(&CR) => &version[..version.len() - 1],
-            _ => version,
-        }
-    }
-
     fn parse_request_line(request_line: &[u8]) -> (&[u8], &[u8], &[u8]) {
-        let (method, remaining_bytes) = split(request_line, SP);
-        let (uri, remaining_bytes) = split(remaining_bytes, SP);
-        let (mut version, _) = split(remaining_bytes, LF);
-        version = RequestLine::remove_trailing_cr(version);
+        if let Some(method_end) = find(request_line, &[SP]) {
+            let method = &request_line[..method_end];
 
-        (method, uri, version)
+            let uri_and_version = &request_line[(method_end + 1)..];
+
+            if let Some(uri_end) = find(uri_and_version, &[SP]) {
+                let uri = &uri_and_version[..uri_end];
+
+                let version = &uri_and_version[(uri_end + 1)..];
+
+                return (method, uri, version);
+            }
+
+            return (method, uri_and_version, b"");
+        }
+
+        (b"", b"", b"")
     }
 
     fn try_from(request_line: &'a [u8]) -> Result<Self, RequestError> {
@@ -112,9 +116,9 @@ impl<'a> RequestLine<'a> {
 
     // Returns the minimum length of a valid request. The request must contain
     // the method (GET), the URI (minmum 1 character), the HTTP version(HTTP/DIGIT.DIGIT) and
-    // 3 separators (2 SP + 1 LF).
+    // 2 separators (SP).
     fn min_len() -> usize {
-        Method::Get.raw().len() + 1 + Version::Http10.raw().len() + 3
+        Method::Get.raw().len() + 1 + Version::Http10.raw().len() + 2
     }
 }
 
@@ -151,20 +155,73 @@ impl<'a> Request<'a> {
     /// let http_request = Request::try_from(b"GET http://localhost/home HTTP/1.0\r\n");
     /// ```
     pub fn try_from(byte_stream: &'a [u8]) -> Result<Self, RequestError> {
-        // The first line of the request is the Request Line. The line ending is LF.
-        let (request_line, _) = split(byte_stream, LF);
-        if request_line.len() < RequestLine::min_len() {
+        // The first line of the request is the Request Line. The line ending is CR LF.
+        let request_line_end = match find(byte_stream, &[CR, LF]) {
+            Some(len) => len,
+            // If no CR LF is found in the stream, the request format is invalid.
+            None => return Err(RequestError::InvalidRequest),
+        };
+
+        let request_line_bytes = &byte_stream[..request_line_end];
+        if request_line_bytes.len() < RequestLine::min_len() {
             return Err(RequestError::InvalidRequest);
         }
 
-        // The Request Line should include the trailing LF.
-        let request_line = RequestLine::try_from(&byte_stream[..=request_line.len()])?;
-        // We ignore the Headers and Entity body because we don't need them for MMDS requests.
-        Ok(Request {
-            request_line,
-            headers: Headers::default(),
-            body: None,
-        })
+        let request_line = RequestLine::try_from(request_line_bytes)?;
+
+        // Find the next CR LF CR LF sequence in our buffer starting at the end on the Request
+        // Line, including the trailing CR LF previously found.
+        match find(&byte_stream[request_line_end..], &[CR, LF, CR, LF]) {
+            // If we have found a CR LF CR LF at the end of the Request Line, the request
+            // is complete.
+            Some(0) => Ok(Request {
+                request_line,
+                headers: Headers::default(),
+                body: None,
+            }),
+            Some(headers_end) => {
+                // Parse the request headers.
+                // Start by removing the leading CR LF from them.
+                let headers_and_body = &byte_stream[(request_line_end + CRLF_LEN)..];
+                let headers_end = headers_end - CRLF_LEN;
+                let headers = Headers::try_from(&headers_and_body[..headers_end])?;
+
+                // Parse the body of the request.
+                // Firstly check if we have a body.
+                let body = match headers.content_length() {
+                    0 => {
+                        // No request body.
+                        None
+                    }
+                    content_length => {
+                        // Headers suggest we have a body, but the buffer is shorter than the specified
+                        // content length.
+                        if headers_and_body.len() - (headers_end + 2 * CRLF_LEN)
+                            < content_length as usize
+                        {
+                            return Err(RequestError::InvalidRequest);
+                        }
+                        let body_as_bytes = &headers_and_body[(headers_end + 2 * CRLF_LEN)..];
+                        // If the actual length of the body is different than the `Content-Length` value
+                        // in the headers then this request is invalid.
+                        if body_as_bytes.len() == content_length as usize {
+                            Some(Body::new(body_as_bytes))
+                        } else {
+                            return Err(RequestError::InvalidRequest);
+                        }
+                    }
+                };
+
+                Ok(Request {
+                    request_line,
+                    headers,
+                    body,
+                })
+            }
+            // If we can't find a CR LF CR LF even though the request should have headers
+            // the request format is invalid.
+            None => Err(RequestError::InvalidRequest),
+        }
     }
 
     /// Returns the `Uri` from the parsed `Request`.
@@ -177,6 +234,11 @@ impl<'a> Request<'a> {
     /// Returns the HTTP `Version` of the `Request`.
     pub fn http_version(&self) -> Version {
         self.request_line.http_version
+    }
+
+    /// Returns the HTTP `Method` of the `Request`.
+    pub fn method(&self) -> Method {
+        self.request_line.method
     }
 }
 
@@ -210,6 +272,31 @@ mod tests {
     }
 
     #[test]
+    fn test_find() {
+        let bytes: &[u8; 13] = b"abcacrgbabsjl";
+        let i = find(&bytes[..], b"ac");
+        assert_eq!(i.unwrap(), 3);
+
+        let i = find(&bytes[..], b"rgb");
+        assert_eq!(i.unwrap(), 5);
+
+        let i = find(&bytes[..], b"ab");
+        assert_eq!(i.unwrap(), 0);
+
+        let i = find(&bytes[..], b"l");
+        assert_eq!(i.unwrap(), 12);
+
+        let i = find(&bytes[..], b"jle");
+        assert!(i.is_none());
+
+        let i = find(&bytes[..], b"asdkjhasjhdjhgsadg");
+        assert!(i.is_none());
+
+        let i = find(&bytes[..], b"abcacrgbabsjl");
+        assert_eq!(i.unwrap(), 0);
+    }
+
+    #[test]
     // Allow assertions on constants so we can have asserts on the values returned
     // when result is Ok.
     #[allow(clippy::assertions_on_constants)]
@@ -220,7 +307,7 @@ mod tests {
             uri: Uri::new("http://localhost/home"),
         };
 
-        let request_line = b"GET http://localhost/home HTTP/1.0\r\n";
+        let request_line = b"GET http://localhost/home HTTP/1.0";
         match RequestLine::try_from(request_line) {
             Ok(request) => assert_eq!(request, expected_request_line),
             Err(_) => assert!(false),
@@ -233,35 +320,35 @@ mod tests {
         };
 
         // Happy case with request line ending in CRLF.
-        let request_line = b"GET http://localhost/home HTTP/1.1\r\n";
+        let request_line = b"GET http://localhost/home HTTP/1.1";
         match RequestLine::try_from(request_line) {
             Ok(request) => assert_eq!(request, expected_request_line),
             Err(_) => assert!(false),
         };
 
         // Happy case with request line ending in LF instead of CRLF.
-        let request_line = b"GET http://localhost/home HTTP/1.1\n";
+        let request_line = b"GET http://localhost/home HTTP/1.1";
         match RequestLine::try_from(request_line) {
             Ok(request) => assert_eq!(request, expected_request_line),
             Err(_) => assert!(false),
         };
 
         // Test for invalid method.
-        let request_line = b"PUT http://localhost/home HTTP/1.0\r\n";
+        let request_line = b"POST http://localhost/home HTTP/1.0";
         assert_eq!(
             RequestLine::try_from(request_line).unwrap_err(),
             RequestError::InvalidHttpMethod("Unsupported HTTP method.")
         );
 
         // Test for invalid uri.
-        let request_line = b"GET  HTTP/1.0\r\n";
+        let request_line = b"GET  HTTP/1.0";
         assert_eq!(
             RequestLine::try_from(request_line).unwrap_err(),
             RequestError::InvalidUri("Empty URI not allowed.")
         );
 
         // Test for invalid HTTP version.
-        let request_line = b"GET http://localhost/home HTTP/2.0\r\n";
+        let request_line = b"GET http://localhost/home HTTP/2.0";
         assert_eq!(
             RequestLine::try_from(request_line).unwrap_err(),
             RequestError::InvalidHttpVersion("Unsupported HTTP version.")
@@ -280,11 +367,12 @@ mod tests {
             headers: Headers::default(),
         };
         let request_bytes = b"GET http://localhost/home HTTP/1.0\r\n \
-                                     Last-Modified: Tue, 15 Nov 1994 12:45:26 GMT";
+                                     Last-Modified: Tue, 15 Nov 1994 12:45:26 GMT\r\n\r\n";
         let request = Request::try_from(request_bytes).unwrap();
-        assert!(request == expected_request);
+        assert_eq!(request, expected_request);
         assert_eq!(request.uri(), &Uri::new("http://localhost/home"));
         assert_eq!(request.http_version(), Version::Http10);
+        assert!(request.body.is_none());
 
         // Test for invalid Request (length is less than minimum).
         let request_bytes = b"GET";
@@ -292,5 +380,62 @@ mod tests {
             Request::try_from(request_bytes).unwrap_err(),
             RequestError::InvalidRequest
         );
+
+        // Test for a request with the headers we are looking for.
+        let request = Request::try_from(
+            b"PATCH http://localhost/home HTTP/1.1\r\n \
+                                     Expect: 100-continue\r\n \
+                                     Transfer-Encoding: chunked\r\n \
+                                     Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody",
+        )
+        .unwrap();
+        assert_eq!(request.uri(), &Uri::new("http://localhost/home"));
+        assert_eq!(request.http_version(), Version::Http11);
+        assert_eq!(request.method(), Method::Patch);
+        assert_eq!(request.headers.chunked(), true);
+        assert_eq!(request.headers.expect(), true);
+        assert_eq!(request.headers.content_length(), 26);
+        assert_eq!(
+            request.body.unwrap().body,
+            String::from("this is not\n\r\na json \nbody")
+                .as_bytes()
+                .to_vec()
+        );
+
+        // Test for an invalid request format.
+        Request::try_from(b"PATCH http://localhost/home HTTP/1.1\r\n").unwrap_err();
+
+        // Test for an invalid encoding.
+        let request = Request::try_from(
+            b"PATCH http://localhost/home HTTP/1.1\r\n \
+                                     Expect: 100-continue\r\n \
+                                     Transfer-Encoding: identity; q=0\r\n \
+                                     Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody",
+        )
+        .unwrap_err();
+        assert_eq!(request, RequestError::InvalidHeader);
+
+        // Test for an invalid content length.
+        let request = Request::try_from(
+            b"PATCH http://localhost/home HTTP/1.1\r\n \
+                                     Expect: 100-continue\r\n \
+                                     Content-Length: 5000\r\n\r\nthis is a short body",
+        )
+        .unwrap_err();
+        assert_eq!(request, RequestError::InvalidRequest);
+
+        // Test for a request without a body and an optional header.
+        let request = Request::try_from(
+            b"GET http://localhost/ HTTP/1.0\r\n \
+                                     Accept-Encoding: gzip\r\n\r\n",
+        )
+        .unwrap();
+        assert_eq!(request.uri(), &Uri::new("http://localhost/"));
+        assert_eq!(request.http_version(), Version::Http10);
+        assert_eq!(request.method(), Method::Get);
+        assert_eq!(request.headers.chunked(), false);
+        assert_eq!(request.headers.expect(), false);
+        assert_eq!(request.headers.content_length(), 0);
+        assert!(request.body.is_none());
     }
 }
