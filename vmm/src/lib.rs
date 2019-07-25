@@ -71,6 +71,7 @@ use devices::virtio;
 #[cfg(feature = "vsock")]
 use devices::virtio::vhost::{handle::VHOST_EVENTS_COUNT, TYPE_VSOCK};
 use devices::virtio::EpollConfigConstructor;
+use devices::virtio::{BALLOON_EVENTS_COUNT, TYPE_BALLOON};
 use devices::virtio::{BLOCK_EVENTS_COUNT, TYPE_BLOCK};
 use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
 use devices::{DeviceEventT, EpollHandler};
@@ -84,6 +85,7 @@ use net_util::TapError;
 #[cfg(target_arch = "aarch64")]
 use serde_json::Value;
 use sys_util::{EventFd, Terminal};
+use vmm_config::balloon::{BalloonConfig, BalloonConfigs, BalloonError, BalloonUpdateConfig};
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
 use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
@@ -213,6 +215,10 @@ pub enum VmmActionError {
     /// The action `ConfigureBootSource` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     BootSource(ErrorKind, BootSourceConfigError),
+    /// One of the actions `UpdateBalloon` or `InsertBalloon`
+    /// failed either because of bad user input (`ErrorKind::User`) or an
+    /// internal error (`ErrorKind::Internal`).
+    BalloonConfig(ErrorKind, BalloonError),
     /// One of the actions `InsertBlockDevice`, `RescanBlockDevice` or `UpdateBlockDevicePath`
     /// failed either because of bad user input (`ErrorKind::User`) or an
     /// internal error (`ErrorKind::Internal`).
@@ -254,6 +260,20 @@ impl std::convert::From<DriveError> for VmmActionError {
             | DriveError::RootBlockDeviceAlreadyAdded => ErrorKind::User,
         };
         VmmActionError::DriveConfig(kind, e)
+    }
+}
+
+// It's convenient to turn BalloonErrors into VmmActionErrors directly.
+impl std::convert::From<BalloonError> for VmmActionError {
+    fn from(e: BalloonError) -> Self {
+        let kind = match e {
+            // User errors.
+            BalloonError::InsertNotAllowedPostBoot | BalloonError::UpdatedInexistentDevice => {
+                ErrorKind::User
+            }
+            BalloonError::EpollHandlerNotFound => ErrorKind::Internal,
+        };
+        VmmActionError::BalloonConfig(kind, e)
     }
 }
 
@@ -306,6 +326,7 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             StartMicrovmError::CreateVsockDevice(_) => ErrorKind::User,
             StartMicrovmError::CreateBlockDevice(_)
             | StartMicrovmError::CreateNetDevice(_)
+            | StartMicrovmError::CreateBalloon(_)
             | StartMicrovmError::KernelCmdline(_)
             | StartMicrovmError::KernelLoader(_)
             | StartMicrovmError::MicroVMAlreadyRunning
@@ -324,6 +345,7 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             | StartMicrovmError::GuestMemory(_)
             | StartMicrovmError::LegacyIOBus(_)
             | StartMicrovmError::RegisterBlockDevice(_)
+            | StartMicrovmError::RegisterBalloonDevice(_)
             | StartMicrovmError::RegisterEvent
             | StartMicrovmError::RegisterMMIODevice(_)
             | StartMicrovmError::RegisterNetDevice(_)
@@ -349,6 +371,7 @@ impl VmmActionError {
         match *self {
             BootSource(ref kind, _) => kind,
             DriveConfig(ref kind, _) => kind,
+            BalloonConfig(ref kind, _) => kind,
             Logger(ref kind, _) => kind,
             MachineConfig(ref kind, _) => kind,
             NetworkConfig(ref kind, _) => kind,
@@ -367,6 +390,7 @@ impl Display for VmmActionError {
         match *self {
             BootSource(_, ref err) => write!(f, "{}", err.to_string()),
             DriveConfig(_, ref err) => write!(f, "{}", err.to_string()),
+            BalloonConfig(_, ref err) => write!(f, "{}", err.to_string()),
             Logger(_, ref err) => write!(f, "{}", err.to_string()),
             MachineConfig(_, ref err) => write!(f, "{}", err.to_string()),
             NetworkConfig(_, ref err) => write!(f, "{}", err.to_string()),
@@ -395,6 +419,10 @@ pub enum VmmAction {
     /// Flush the metrics. This action can only be called after the logger has been configured.
     /// The response is sent using the `OutcomeSender`.
     FlushMetrics(OutcomeSender),
+    /// Add a new balloon device or update one that already exists using the `BalloonConfig` as
+    /// input. This action can only be called before the microVM has booted. The response is sent
+    /// using the `OutcomeSender`.
+    InsertBalloon(BalloonConfig, OutcomeSender),
     /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
     /// input. This action can only be called before the microVM has booted. The response
     /// is sent using the `OutcomeSender`.
@@ -422,6 +450,8 @@ pub enum VmmAction {
     /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
     /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
     SendCtrlAltDel(OutcomeSender),
+    /// Update a balloon device.
+    UpdateBalloon(BalloonUpdateConfig, OutcomeSender),
     /// Update the path of an existing block device. The data associated with this variant
     /// represents the `drive_id` and the `path_on_host`. The response is sent using
     /// the `OutcomeSender`.
@@ -734,6 +764,7 @@ struct Vmm {
     // This is necessary because we want the root to always be mounted on /dev/vda.
     block_device_configs: BlockDeviceConfigs,
     network_interface_configs: NetworkInterfaceConfigs,
+    balloon_configs: BalloonConfigs,
     #[cfg(feature = "vsock")]
     vsock_device_configs: VsockDeviceConfigs,
 
@@ -787,6 +818,7 @@ impl Vmm {
             legacy_device_manager: LegacyDeviceManager::new().map_err(Error::CreateLegacyDevice)?,
             block_device_configs,
             network_interface_configs: NetworkInterfaceConfigs::new(),
+            balloon_configs: None,
             #[cfg(feature = "vsock")]
             vsock_device_configs: VsockDeviceConfigs::new(),
             epoll_context,
@@ -1109,6 +1141,7 @@ impl Vmm {
 
         self.attach_block_devices()?;
         self.attach_net_devices()?;
+        self.attach_balloons()?;
         #[cfg(feature = "vsock")]
         {
             let guest_mem = self
@@ -1716,6 +1749,89 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
+    fn insert_balloon(
+        &mut self,
+        body: BalloonConfig,
+    ) -> std::result::Result<VmmData, VmmActionError> {
+        if self.is_instance_initialized() {
+            Err(VmmActionError::from(BalloonError::InsertNotAllowedPostBoot))
+        } else {
+            self.balloon_configs = Some(body);
+            Ok(VmmData::Empty)
+        }
+    }
+
+    fn update_balloon(
+        &mut self,
+        body: BalloonUpdateConfig,
+    ) -> std::result::Result<VmmData, VmmActionError> {
+        // Update the balloon configuration variable.
+        self.balloon_configs = Some(
+            self.balloon_configs
+                .iter()
+                .map(|c| {
+                    BalloonConfig::new(body.num_pages(), c.must_tell_host(), c.deflate_on_oom())
+                })
+                .collect::<Vec<_>>()
+                .pop()
+                .ok_or(BalloonError::UpdatedInexistentDevice)?,
+        );
+        // If the VM is running, update the live device.
+        if self.is_instance_initialized() {
+            let handler = self
+                .epoll_context
+                .get_device_handler_by_device_id::<virtio::BalloonEpollHandler>(
+                    TYPE_BALLOON,
+                    "balloon",
+                )
+                .map_err(|_| BalloonError::EpollHandlerNotFound)?;
+
+            handler.update_balloon_size(body.num_pages());
+        }
+        Ok(VmmData::Empty)
+    }
+
+    fn attach_balloons(&mut self) -> std::result::Result<(), StartMicrovmError> {
+        // We rely on check_health function for making sure kernel_config is not None.
+        let kernel_config = self
+            .kernel_config
+            .as_mut()
+            .ok_or(StartMicrovmError::MissingKernelConfig)?;
+
+        // `unwrap` is suitable for this context since this should be called only after the
+        // device manager has been initialized.
+        let device_manager = self.mmio_device_manager.as_mut().unwrap();
+
+        for cfg in self.balloon_configs.iter_mut() {
+            let epoll_config = self.epoll_context.allocate_virtio_tokens(
+                TYPE_BALLOON,
+                "balloon",
+                BALLOON_EVENTS_COUNT,
+            );
+
+            let balloon_box = Box::new(
+                devices::virtio::Balloon::new(
+                    cfg.num_pages(),
+                    cfg.must_tell_host(),
+                    cfg.deflate_on_oom(),
+                    epoll_config,
+                )
+                .map_err(StartMicrovmError::CreateBalloon)?,
+            );
+
+            device_manager
+                .register_virtio_device(
+                    self.vm.get_fd(),
+                    balloon_box,
+                    &mut kernel_config.cmdline,
+                    TYPE_BALLOON,
+                    "balloon",
+                )
+                .map_err(StartMicrovmError::RegisterBalloonDevice)?;
+        }
+        Ok(())
+    }
+
     fn insert_net_device(
         &mut self,
         body: NetworkInterfaceConfig,
@@ -1982,6 +2098,9 @@ impl Vmm {
                     sender,
                 );
             }
+            VmmAction::InsertBalloon(balloon_description, sender) => {
+                Vmm::send_response(self.insert_balloon(balloon_description), sender);
+            }
             VmmAction::ConfigureLogger(logger_description, sender) => {
                 Vmm::send_response(self.init_logger(logger_description), sender);
             }
@@ -2015,6 +2134,9 @@ impl Vmm {
             }
             VmmAction::SetVmConfiguration(machine_config_body, sender) => {
                 Vmm::send_response(self.set_vm_configuration(machine_config_body), sender);
+            }
+            VmmAction::UpdateBalloon(balloon_update_configs, sender) => {
+                Vmm::send_response(self.update_balloon(balloon_update_configs), sender);
             }
             VmmAction::UpdateBlockDevicePath(drive_id, path_on_host, sender) => {
                 Vmm::send_response(self.set_block_device_path(drive_id, path_on_host), sender);
@@ -2305,6 +2427,87 @@ mod tests {
         let handler = DummyEpollHandler { evt: None };
         assert!(sender.send(Box::new(handler)).is_ok());
         assert!(ep.get_device_handler_by_handler_id(0).is_ok());
+    }
+
+    #[test]
+    fn test_insert_balloon() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        // Test that creating a new balloon device returns the correct output.
+        let config = BalloonConfig::new(223, true, true);
+        assert_eq!(vmm.balloon_configs, None);
+        assert!(vmm.insert_balloon(config).is_ok());
+        assert_eq!(vmm.balloon_configs, Some(config));
+
+        // Test that inserting a balloon device again returns the correct output.
+
+        let config = BalloonConfig::new(41, false, false);
+        assert!(vmm.insert_balloon(config).is_ok());
+        assert_eq!(vmm.balloon_configs, Some(config));
+
+        // Test that an insert after boot leads to an error.
+        vmm.set_instance_state(InstanceState::Running);
+        assert!(vmm.insert_balloon(config).is_err());
+    }
+
+    #[test]
+    fn test_update_balloon() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        // Create a balloon device.
+        let config = BalloonConfig::new(233, true, true);
+        assert!(vmm.insert_balloon(config).is_ok());
+
+        // Test that updating a balloon device before boot works.
+        let update_config = BalloonUpdateConfig::new(43);
+
+        assert!(vmm.update_balloon(update_config).is_ok());
+        let config = BalloonConfig::new(43, true, true);
+        assert_eq!(vmm.balloon_configs, Some(config));
+
+        // Boot the machine.
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.setup_interrupt_controller().is_ok());
+        vmm.default_kernel_config(None);
+        vmm.init_mmio_device_manager()
+            .expect("Cannot initialize mmio device manager");
+
+        assert!(vmm.attach_balloons().is_ok());
+        vmm.set_instance_state(InstanceState::Running);
+
+        // An update should fail before device activation.
+        let update_config = BalloonUpdateConfig::new(45);
+
+        assert!(vmm.update_balloon(update_config).is_err());
+
+        // Activate the device.
+        {
+            let device_manager = vmm.mmio_device_manager.as_ref().unwrap();
+            let bus_device_mutex = device_manager
+                .get_device(DeviceType::Virtio(TYPE_BALLOON), "balloon")
+                .unwrap();
+            let bus_device = &mut *bus_device_mutex.lock().unwrap();
+            let mmio_device: &mut MmioDevice = bus_device
+                .as_mut_any()
+                .downcast_mut::<MmioDevice>()
+                .unwrap();
+
+            assert!(mmio_device
+                .device_mut()
+                .activate(
+                    vmm.guest_memory.as_ref().unwrap().clone(),
+                    EventFd::new().unwrap(),
+                    Arc::new(AtomicUsize::new(0)),
+                    vec![Queue::new(0), Queue::new(0)],
+                    vec![EventFd::new().unwrap(), EventFd::new().unwrap()],
+                )
+                .is_ok());
+        }
+
+        // An update should succeed after device activation.
+        let update_config = BalloonUpdateConfig::new(48);
+        let config = BalloonConfig::new(48, true, true);
+
+        assert!(vmm.update_balloon(update_config).is_ok());
+        assert_eq!(vmm.balloon_configs, Some(config));
     }
 
     #[test]
@@ -3428,6 +3631,23 @@ mod tests {
     }
 
     #[test]
+    fn test_balloon_error_conversion() {
+        // Test `BalloonError` conversion
+        assert_eq!(
+            error_kind(BalloonError::InsertNotAllowedPostBoot),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(BalloonError::UpdatedInexistentDevice),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(BalloonError::EpollHandlerNotFound),
+            ErrorKind::Internal
+        );
+    }
+
+    #[test]
     fn test_vmconfig_error_conversion() {
         // Test `VmConfigError` conversion
         assert_eq!(error_kind(VmConfigError::InvalidVcpuCount), ErrorKind::User);
@@ -3667,6 +3887,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn test_error_messages() {
         // Enum `Error`
 
@@ -3737,6 +3958,17 @@ mod tests {
         assert_eq!(format!("{:?}", ErrorKind::Internal), "Internal");
 
         // Enum VmmActionError
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::BalloonConfig(
+                    ErrorKind::User,
+                    BalloonError::InsertNotAllowedPostBoot
+                )
+            ),
+            "BalloonConfig(User, InsertNotAllowedPostBoot)"
+        );
 
         assert_eq!(
             format!(
@@ -3826,4 +4058,5 @@ mod tests {
             "VsockConfig(User, UpdateNotAllowedPostBoot)"
         );
     }
+
 }

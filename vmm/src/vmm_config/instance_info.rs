@@ -52,6 +52,8 @@ pub enum StartMicrovmError {
     /// Unable to seek the block device backing file due to invalid permissions or
     /// the file was deleted/corrupted.
     CreateBlockDevice(std::io::Error),
+    /// Splits this at some point.
+    CreateBalloon(devices::Error),
     /// Split this at some point.
     /// Internal errors are due to resource exhaustion.
     /// Users errors are due to invalid permissions.
@@ -83,6 +85,8 @@ pub enum StartMicrovmError {
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file.
     OpenBlockDevice(std::io::Error),
+    /// Cannot initialize a Balloon Device or add a device to the MMIO Bus.
+    RegisterBalloonDevice(device_manager::mmio::Error),
     /// Cannot initialize a MMIO Block Device or add a device to the MMIO Bus.
     RegisterBlockDevice(device_manager::mmio::Error),
     /// Cannot add event to Epoll.
@@ -121,6 +125,12 @@ impl Display for StartMicrovmError {
                 err_msg = err_msg.replace("\"", "");
 
                 write!(f, "Cannot configure virtual machine. {}", err_msg)
+            }
+            CreateBalloon(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot create balloon device. {}", err_msg)
             }
             CreateBlockDevice(ref err) => write!(
                 f,
@@ -182,6 +192,15 @@ impl Display for StartMicrovmError {
                 err_msg = err_msg.replace("\"", "");
 
                 write!(f, "Cannot open the block device backing file. {}", err_msg)
+            }
+            RegisterBalloonDevice(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(
+                    f,
+                    "Cannot initialize a MMIO Balloon Device or add a device to the MMIO Bus. {}",
+                    err_msg
+                )
             }
             RegisterBlockDevice(ref err) => {
                 let mut err_msg = format!("{}", err);

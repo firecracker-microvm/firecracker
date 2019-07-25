@@ -4,6 +4,8 @@
 use rate_limiter::{RateLimiter, TokenBucket};
 use std::io;
 
+/// Wrapper for configuring the balloon devices.
+pub mod balloon;
 /// Wrapper for configuring the microVM boot source.
 pub mod boot_source;
 /// Wrapper for configuring the block devices.

@@ -75,7 +75,10 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             #[cfg(target_env = "musl")]
             allow_syscall_if(
                 libc::SYS_madvise,
-                or![and![Cond::new(2, Eq, libc::MADV_DONTNEED as u64)?],],
+                or![
+                    and![Cond::new(2, Eq, libc::MADV_DONTNEED as u64)?],
+                    and![Cond::new(2, Eq, libc::MADV_REMOVE as u64)?],
+                ],
             ),
             allow_syscall(SYS_mmap),
             allow_syscall(libc::SYS_munmap),
