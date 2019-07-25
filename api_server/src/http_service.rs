@@ -19,6 +19,7 @@ use request::actions::ActionBody;
 use request::drive::PatchDrivePayload;
 use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
 use sys_util::EventFd;
+use vmm::vmm_config::balloon::{BalloonConfig, BalloonUpdateConfig};
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::drive::BlockDeviceConfig;
 use vmm::vmm_config::instance_info::InstanceInfo;
@@ -129,6 +130,48 @@ fn parse_actions_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<
                 .map_err(|msg| {
                     METRICS.put_api_requests.actions_fails.inc();
                     Error::Generic(StatusCode::BadRequest, msg)
+                })?)
+        }
+        _ => Err(Error::InvalidPathMethod(path, method)),
+    }
+}
+
+// Turns a PUT/PATCH /balloon HTTP request into a ParsedRequest.
+fn parse_balloon_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a, ParsedRequest> {
+    let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
+    match path_tokens.len() {
+        1 if method == Method::Put => {
+            let (count_metric, fail_metric) = (
+                &METRICS.put_api_requests.balloon_count,
+                &METRICS.put_api_requests.balloon_fails,
+            );
+            count_metric.inc();
+            Ok(serde_json::from_slice::<BalloonConfig>(body)
+                .map_err(|e| {
+                    fail_metric.inc();
+                    Error::SerdeJson(e)
+                })?
+                .into_parsed_request(None, method)
+                .map_err(|s| {
+                    fail_metric.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
+                })?)
+        }
+        1 if method == Method::Patch => {
+            let (count_metric, fail_metric) = (
+                &METRICS.patch_api_requests.balloon_count,
+                &METRICS.patch_api_requests.balloon_fails,
+            );
+            count_metric.inc();
+            Ok(serde_json::from_slice::<BalloonUpdateConfig>(body)
+                .map_err(|e| {
+                    fail_metric.inc();
+                    Error::SerdeJson(e)
+                })?
+                .into_parsed_request(None, method)
+                .map_err(|s| {
+                    fail_metric.inc();
+                    Error::Generic(StatusCode::BadRequest, s)
                 })?)
         }
         _ => Err(Error::InvalidPathMethod(path, method)),
@@ -426,6 +469,7 @@ fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, 
 
     match path_tokens[0] {
         "actions" => parse_actions_req(path, method, body),
+        "balloon" => parse_balloon_req(path, method, body),
         "boot-source" => parse_boot_source_req(path, method, body),
         "drives" => parse_drives_req(path, method, body),
         "logger" => parse_logger_req(path, method, body),
@@ -694,6 +738,29 @@ mod tests {
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm::VmmAction;
 
+    /// This asserts that $lhs matches $rhs.
+    macro_rules! assert_match {
+        ($lhs:expr, $rhs:pat) => {{
+            assert!(match $lhs {
+                $rhs => true,
+                _ => false,
+            })
+        }};
+    }
+
+    /// Given arguments of the form (metric[1], delta[1], metric[2], delta[2], ..., body),
+    /// it runs body, then checks that metric[i] is incremented by delta[i].
+    macro_rules! check_metrics_after_block {
+        ($block: expr) => {{
+            let _ = $block;
+        }};
+        ($metric:expr, $delta:expr $(, $rest:expr)*) => {{
+            let before = $metric.count();
+            check_metrics_after_block!($($rest),*);
+            assert_eq!($metric.count(), before + $delta, "unexpected metric value");
+        }};
+    }
+
     impl<'a> PartialEq for Error<'a> {
         fn eq(&self, other: &Error<'a>) -> bool {
             use super::Error::*;
@@ -844,6 +911,166 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_parse_put_balloon_req() {
+        let invalid_json = "aabbccdd";
+        let valid_balloon_cfg_json = "{
+            \"num_pages\": 123,
+            \"deflate_on_oom\": true,
+            \"must_tell_host\": false
+        }";
+        let invalid_balloon_cfg_json = "{
+            \"num_pages\": 123,
+            \"deflate_on_oom\": true,
+            \"must_tell_host\": false,
+        }";
+
+        let invalid_chunk: Chunk = Chunk::from(invalid_json);
+        let valid_balloon_cfg_body: Chunk = Chunk::from(valid_balloon_cfg_json);
+        let invalid_balloon_cfg_body: Chunk = Chunk::from(invalid_balloon_cfg_json);
+
+        // This should be ok.
+        check_metrics_after_block!(
+            METRICS.put_api_requests.balloon_count,
+            1,
+            METRICS.put_api_requests.balloon_fails,
+            0,
+            METRICS.patch_api_requests.balloon_count,
+            0,
+            METRICS.patch_api_requests.balloon_fails,
+            0,
+            {
+                assert!(
+                    parse_balloon_req("/balloon", Method::Put, &valid_balloon_cfg_body).is_ok()
+                );
+            }
+        );
+
+        // This one should not be ok, due to a SerdeJson error.
+        check_metrics_after_block!(
+            METRICS.put_api_requests.balloon_count,
+            1,
+            METRICS.put_api_requests.balloon_fails,
+            1,
+            METRICS.patch_api_requests.balloon_count,
+            0,
+            METRICS.patch_api_requests.balloon_fails,
+            0,
+            {
+                assert_match!(
+                    parse_balloon_req("/balloon", Method::Put, &invalid_chunk),
+                    Err(Error::SerdeJson(_))
+                );
+            }
+        );
+
+        // This one should not be ok, due to a SerdeJson error.
+        check_metrics_after_block!(
+            METRICS.put_api_requests.balloon_count,
+            1,
+            METRICS.put_api_requests.balloon_fails,
+            1,
+            METRICS.patch_api_requests.balloon_count,
+            0,
+            METRICS.patch_api_requests.balloon_fails,
+            0,
+            {
+                assert_match!(
+                    parse_balloon_req("/balloon", Method::Put, &invalid_balloon_cfg_body),
+                    Err(Error::SerdeJson(_))
+                );
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_patch_balloon_req() {
+        let invalid_json = "aabbccdd";
+        let valid_balloon_update_cfg_json = "{
+            \"num_pages\": 123
+        }";
+        let invalid_balloon_update_cfg_json = "{
+            \"num_pages\": 123,
+        }";
+
+        let invalid_chunk: Chunk = Chunk::from(invalid_json);
+        let valid_balloon_update_cfg_body: Chunk = Chunk::from(valid_balloon_update_cfg_json);
+        let invalid_balloon_update_cfg_body: Chunk = Chunk::from(invalid_balloon_update_cfg_json);
+
+        // This should be ok.
+        check_metrics_after_block!(
+            METRICS.put_api_requests.balloon_count,
+            0,
+            METRICS.put_api_requests.balloon_fails,
+            0,
+            METRICS.patch_api_requests.balloon_count,
+            1,
+            METRICS.patch_api_requests.balloon_fails,
+            0,
+            {
+                assert!(parse_balloon_req(
+                    "/balloon",
+                    Method::Patch,
+                    &valid_balloon_update_cfg_body
+                )
+                .is_ok());
+            }
+        );
+
+        // This one should not be ok, due to a SerdeJson error.
+        check_metrics_after_block!(
+            METRICS.put_api_requests.balloon_count,
+            0,
+            METRICS.put_api_requests.balloon_fails,
+            0,
+            METRICS.patch_api_requests.balloon_count,
+            1,
+            METRICS.patch_api_requests.balloon_fails,
+            1,
+            {
+                assert_match!(
+                    parse_balloon_req("/balloon", Method::Patch, &invalid_chunk),
+                    Err(Error::SerdeJson(_))
+                );
+            }
+        );
+
+        // This one should not be ok, due to a SerdeJson error.
+        check_metrics_after_block!(
+            METRICS.put_api_requests.balloon_count,
+            0,
+            METRICS.put_api_requests.balloon_fails,
+            0,
+            METRICS.patch_api_requests.balloon_count,
+            1,
+            METRICS.patch_api_requests.balloon_fails,
+            1,
+            {
+                assert_match!(
+                    parse_balloon_req("/balloon", Method::Patch, &invalid_balloon_update_cfg_body),
+                    Err(Error::SerdeJson(_))
+                );
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_get_balloon_req() {
+        let valid_balloon_cfg_json = "{
+            \"num_pages\": 123,
+            \"deflate_on_oom\": true,
+            \"must_tell_host\": false
+        }";
+
+        let valid_balloon_cfg_body: Chunk = Chunk::from(valid_balloon_cfg_json);
+
+        // This one should not be ok, due to an invalid path error.
+        assert_match!(
+            parse_balloon_req("/balloon", Method::Get, &valid_balloon_cfg_body),
+            Err(Error::InvalidPathMethod("/balloon", Method::Get))
+        );
     }
 
     #[test]
