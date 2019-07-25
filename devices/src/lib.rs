@@ -58,4 +58,6 @@ pub enum Error {
     },
     IoError(io::Error),
     NoAvailBuffers,
+    MalformedDescriptor,
+    GuestMemory(memory_model::GuestMemoryError),
 }
