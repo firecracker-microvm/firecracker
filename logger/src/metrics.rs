@@ -127,6 +127,10 @@ pub struct PutRequestsMetrics {
     pub boot_source_count: SharedMetric,
     /// Number of failures during attaching source of boot.
     pub boot_source_fails: SharedMetric,
+    /// Number of PUTs for inserting balloon devices.
+    pub balloon_count: SharedMetric,
+    /// Number of failures during inserting balloon devices.
+    pub balloon_fails: SharedMetric,
     /// Number of PUTs triggering a block attach.
     pub drive_count: SharedMetric,
     /// Number of failures in attaching a block device.
@@ -148,6 +152,10 @@ pub struct PutRequestsMetrics {
 /// Metrics specific to PATCH API Requests for counting user triggered actions and/or failures.
 #[derive(Default, Serialize)]
 pub struct PatchRequestsMetrics {
+    /// Number of tries to PATCH a balloon device.
+    pub balloon_count: SharedMetric,
+    /// Number of failures in PATCHing a balloon device.
+    pub balloon_fails: SharedMetric,
     /// Number of tries to PATCH a block device.
     pub drive_count: SharedMetric,
     /// Number of failures in PATCHing a block device.
@@ -193,6 +201,19 @@ pub struct BlockDeviceMetrics {
     pub read_count: SharedMetric,
     /// Number of sucessful write operations.
     pub write_count: SharedMetric,
+}
+
+/// Balloon Device associated metrics.
+#[derive(Default, Serialize)]
+pub struct BalloonMetrics {
+    /// Number of times when activate failed on a balloon device.
+    pub activate_fails: SharedMetric,
+    /// Number of balloon device inflations.
+    pub inflate_count: SharedMetric,
+    /// Number of balloon device deflations.
+    pub deflate_count: SharedMetric,
+    /// Number of times when handling events on a balloon device failed.
+    pub event_fails: SharedMetric,
 }
 
 /// Metrics specific to the i8042 device.
@@ -378,6 +399,8 @@ pub struct FirecrackerMetrics {
     pub api_server: ApiServerMetrics,
     /// A block device's related metrics.
     pub block: BlockDeviceMetrics,
+    /// A balloon device's related metrics.
+    pub balloon: BalloonMetrics,
     /// Metrics related to API GET requests.
     pub get_api_requests: GetRequestsMetrics,
     /// Metrics relaetd to the i8042 device.
