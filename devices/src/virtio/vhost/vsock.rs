@@ -5,6 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::cmp;
+use std::io::Write;
 use super::super::{ActivateError, ActivateResult, Queue, VirtioDevice};
 use super::handle::*;
 use super::*;
@@ -14,7 +16,6 @@ use sys_util::EventFd;
 use vhost_backend::Vhost;
 use vhost_backend::Vsock as VhostVsockFd;
 
-use byteorder::{ByteOrder, LittleEndian};
 use epoll;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
@@ -22,6 +23,7 @@ use std::sync::Arc;
 const QUEUE_SIZE: u16 = 256;
 const NUM_QUEUES: usize = 3;
 const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE; NUM_QUEUES];
+const VSOCK_CONFIG_SPACE_SIZE: usize = 8;
 
 impl std::convert::From<super::Error> for ActivateError {
     fn from(error: super::Error) -> Self {
@@ -44,13 +46,17 @@ impl Vsock {
     pub fn new(cid: u64, mem: &GuestMemory, epoll_config: VhostEpollConfig) -> Result<Vsock> {
         let fd = VhostVsockFd::new(mem).map_err(Error::VhostOpen)?;
         let avail_features = fd.get_features().map_err(Error::VhostGetFeatures)?;
+        let mut config_space = Vec::with_capacity(VSOCK_CONFIG_SPACE_SIZE);
+        for i in 0..8 {
+            config_space.push((cid >> (8 * i)) as u8);
+        }
 
         Ok(Vsock {
             vsock_fd: Some(fd),
             cid,
             avail_features,
             acked_features: 0,
-            config_space: Vec::new(),
+            config_space,
             epoll_config,
             interrupt: Some(EventFd::new().map_err(Error::VhostIrqCreate)?),
         })
@@ -106,19 +112,18 @@ impl VirtioDevice for Vsock {
         self.acked_features |= v;
     }
 
-    fn read_config(&self, offset: u64, data: &mut [u8]) {
-        match offset {
-            0 if data.len() == 8 => LittleEndian::write_u64(data, self.cid),
-            0 if data.len() == 4 => LittleEndian::write_u32(data, (self.cid & 0xffff_ffff) as u32),
-            4 if data.len() == 4 => {
-                LittleEndian::write_u32(data, ((self.cid >> 32) & 0xffff_ffff) as u32)
-            }
-            _ => warn!(
-                "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
-                data.len(),
-                offset
-            ),
+    fn read_config(&self, offset: u64, mut data: &mut [u8]) {
+        let config_len = self.config_space.len() as u64;
+        if offset >= config_len {
+            error!("Failed to read config space");
+            return;
         }
+        if let Some(end) = offset.checked_add(data.len() as u64) {
+            // This write can't fail, offset and end are checked against config_len.
+            data.write_all(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
+                .unwrap();
+        }
+
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
