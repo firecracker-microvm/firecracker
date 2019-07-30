@@ -59,6 +59,56 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /balloon:
+    put:
+      summary: Creates or updates a balloon device.
+      description:
+        Creates a new balloon device if one does not already exist, otherwise updates it, before machine startup.
+        Will fail if update is not possible.
+      operationId: putBalloon
+      parameters:
+      - name: body
+        in: body
+        description: Balloon properties
+        required: true
+        schema:
+          $ref: "#/definitions/Balloon"
+      responses:
+        204:
+          description: Balloon device created/updated
+        400:
+          description: Balloon device cannot be created/updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    patch:
+      summary: Updates a balloon device.
+      description:
+        Updates an existing balloon device, before or after machine startup.
+        Will fail if update is not possible.
+      operationId: patchBalloon
+      parameters:
+      - name: body
+        in: body
+        description: Balloon properties
+        required: true
+        schema:
+          $ref: "#/definitions/BalloonUpdate"
+      responses:
+        204:
+          description: Balloon device updated
+        400:
+          description: Balloon device cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /boot-source:
     put:
       summary: Creates or updates the boot source.
@@ -353,6 +403,36 @@ paths:
             $ref: "#/definitions/Error"
 
 definitions:
+  Balloon:
+    type: object
+    required:
+      - num_pages
+      - deflate_on_oom
+      - must_tell_host
+    description:
+      Balloon device descriptor.
+    properties:
+      num_pages:
+        type: integer
+        description: Number of pages that the balloon should contain.
+      deflate_on_oom:
+        type: boolean
+        description: Whether the balloon should deflate when the guest has memory pressure.
+      must_tell_host:
+        type: boolean
+        description: Whether the guest should wait for the host to acknowledge deflated pages or not.
+
+  BalloonUpdate:
+    type: object
+    required:
+      - num_pages
+    description:
+      Balloon device descriptor.
+    properties:
+      num_pages:
+        type: integer
+        description: Number of pages that the balloon should contain.
+
   BootSource:
     type: object
     required:
