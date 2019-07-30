@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Memory balloon device.
+
 ### Fixed
 
 - Corrected firecracker-experimental.yaml indentation issues that
