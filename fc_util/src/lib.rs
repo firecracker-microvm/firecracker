@@ -96,7 +96,7 @@ impl fmt::Display for LocalTime {
             f,
             "{}-{:02}-{:02}T{:02}:{:02}:{:02}.{:09}",
             self.year + 1900,
-            self.mon,
+            self.mon + 1,
             self.mday,
             self.hour,
             self.min,
@@ -149,7 +149,6 @@ pub fn seconds_to_nanoseconds(value: i64) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cmp::Ordering;
 
     #[test]
     fn test_get_time() {
@@ -175,13 +174,13 @@ mod tests {
             min: 15,
             hour: 10,
             mday: 4,
-            mon: 7,
+            mon: 6,
             year: 119,
             nsec: 123_456_789,
         };
         assert_eq!(
-            String::from("2019-07-04T10:15:30.123456789").cmp(&local_time.to_string()),
-            Ordering::Equal
+            String::from("2019-07-04T10:15:30.123456789"),
+            local_time.to_string()
         );
 
         let local_time = LocalTime {
@@ -189,7 +188,7 @@ mod tests {
             min: 5,
             hour: 5,
             mday: 23,
-            mon: 8,
+            mon: 7,
             year: 44,
             nsec: 123,
         };
@@ -197,10 +196,13 @@ mod tests {
             String::from("1944-08-23T05:05:05.000000123"),
             local_time.to_string()
         );
+
+        let local_time = LocalTime::now();
+        assert!(local_time.mon >= 0 && local_time.mon <= 11);
     }
 
     #[test]
-    fn test_seconds_to_nanos() {
+    fn test_seconds_to_nanoseconds() {
         assert_eq!(
             seconds_to_nanoseconds(100).unwrap() as u64,
             100 * NANOS_PER_SECOND
