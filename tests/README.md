@@ -8,67 +8,46 @@ contracts of Firecracker.
 To run all tests:
 
 ``` sh
-./testrun.sh
+tools/devtool test
 ```
 
-This will download test microvm images from the default test resource S3 bucket,
+This will download test microvm images from the default test resource S3 bucket
 and run all available tests.
 
 To run tests from specific directories and/or files:
 
 ``` sh
-./testrun.sh -- <test_dir_or_file_path>...
+tools/devtool test -- <test_dir_or_file_path>...
 ```
-
-To run all tests using a local directory for microvm images (as opposed to
-downloading them from the S3 bucket):
-
-``` sh
-./testrun.sh --local-images-path <microvm_images_path>
-```
-
-In the example above, `<microvm_images_path>` needs to mirror the structure of
-the [s3 test resource bucket](#adding-microvm-images). However, if
-`<microvm_images_path>` does not exist, it will be created, and the resources
-from the S3 testing bucket will be downloaded there. This means that to run
-with a local directory for microvm images, you can simply run twice with the
-same path passed to `--local-images-path`.
 
 The testing system is built around [pytest](https://docs.pytest.org/en/latest/).
-Any parameters passed to `testrun.sh` are passed to the `pytest` command.
-`testrun.sh` is used to automate fetching of test dependencies (useful for
-continuous integration), and to sandbox test runs (useful for development
+Any parameters passed to `tools/devtool test --` are passed to the `pytest`
+command. `devtool` is used to automate fetching of test dependencies (useful
+for continuous integration) and to sandbox test runs (useful for development
 environments). If you are not interested in these capabilities, use pytest
-directly:
+directly, either from inside the container:
+
+```sh
+tools/devtool shell -p
+pytest [<pytest argument>...]
+```
+
+Or natively on your dev box:
 
 ``` sh
 python3 -m pytest [<pytest argument>...]
 ```
 
-For help on usage, see `./testrun.sh (-h|--help)`
+For help on usage, see `tools/devtool help`.
 
 ### Output
 
 - Output, including testrun results, goes to `stdout`. Errors go to `stderr`.
-- `testrun.sh` will exit with the correct return code.
 
 ### Dependencies
 
 - A bare-metal `Linux` host with `uname -r` >= 4.14.
-- Either `yum` or `apt-get` (if you have both, run with
-  `./testrun.sh (-p|--pkg-manager) (yum|apt-get)` to specify which one to use).
-- Several basic GNU/Linux utilities: `curl`, `getopt`, `date`.
-- Root mode.
-
-Each test session will create a temporary sandbox and install all other required
-dependencies.
-
-### Caveats
-
-- The sandbox is currently just a best effort. Littering is possible. We should
-  move to a real sandbox, like a Firecracker microvm.
-- Packages installed via `yum` and `apt-get` are **not** uninstalled. See
-  `testrun.sh` for details.
+- Docker.
 
 ## Adding Tests
 
@@ -76,7 +55,7 @@ Tests can be added in any (existing or new) sub-directory of `tests/`, in files
 named `test_*.py`.
 
 Fixtures can be used to quickly build Firecracker microvm integration tests
-that run on all microvm images in `s3://spec.firecracker/microvm-images/`.
+that run on all microvm images in `s3://spec.ccfc.min/img/`.
 
 For example, the test below makes use of the `test_microvm_any` fixture and will
 be run on every microvm image in the bucket, each as a separate test case.
@@ -102,11 +81,11 @@ To see what fixtures are available, inspect `conftest.py`.
 
 ## Adding Microvm Images
 
-Simply place the microvm image under `s3://spec.firecracker/microvm-images/`.
+Simply place the microvm image under `s3://spec.ccfc.min/img/`.
 The layout is:
 
 ``` tree
-s3://<bucket-url>/microvm-images/
+s3://<bucket-url>/img/
     <microvm_test_image_folder_n>/
         kernel/
             <optional_kernel_name.>vmlinux.bin
@@ -123,6 +102,15 @@ Then, tag  `<microvm_test_image_folder_n>` with:
 
 ``` json
 TagSet = [{"key": "capability:<cap_name>", "value": ""}, ...]
+```
+
+For example, this can be done from the AWS CLI with:
+
+```sh
+aws s3api put-object-tagging                    \
+    --bucket ${bucket_name}                     \
+    --key img/${microvm_test_image_folder_n}    \
+    --tagging "TagSet=[{Key=capability:${cap_name},Value=''}]"
 ```
 
 ## Adding Fixtures
@@ -156,16 +144,13 @@ undefined behavior.
 Running on an EC2 `.metal` instance with an `Amazon Linux 2` AMI:
 
 ``` sh
-# Tests need to run as root, just switch to su
-sudo su
-
 # Get firecracker
 yum install -y git
 git clone https://<user>:<token>@github.com/aws/<firecracker repo>.git
 
 # Run all tests
-cd <firecracker repo>/tests
-./testrun.sh
+cd <firecracker repo>
+tools/devtool test
 ```
 
 ## Terminology

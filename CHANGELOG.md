@@ -5,7 +5,8 @@
 ### Fixed
 
 - Corrected firecracker-experimental.yaml indentation issues that
-  prevented code generation
+  prevented code generation.
+- Updated the documentation for integration tests.
 
 ## [0.17.0]
 
