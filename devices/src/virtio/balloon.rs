@@ -186,7 +186,8 @@ impl BalloonEpollHandler {
         for (page_frame_number, range_len) in page_ranges {
             // Transform the page frame number into a GuestAddress address,
             // by multiplying with the length of a page.
-            let guest_address = GuestAddress((page_frame_number as usize) << VIRTIO_BALLOON_PFN_SHIFT);
+            let guest_address =
+                GuestAddress((page_frame_number as usize) << VIRTIO_BALLOON_PFN_SHIFT);
 
             // Finally, actually remove the page from memory.
             self.mem

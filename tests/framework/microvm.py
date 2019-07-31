@@ -91,6 +91,7 @@ class Microvm:
         self.actions = None
         self.balloon = None
         self.boot = None
+        self.balloon = None
         self.drive = None
         self.logger = None
         self.mmds = None
