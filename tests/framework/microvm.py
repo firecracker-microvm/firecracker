@@ -23,8 +23,8 @@ import host_tools.network as net_tools
 from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
 from framework.http import Session
 from framework.jailer import JailerContext
-from framework.resources import Actions, BootSource, Drive, Logger, MMDS, \
-    MachineConfigure, Network, Vsock
+from framework.resources import Actions, Balloon, BootSource, Drive, Logger, \
+    MMDS, MachineConfigure, Network, Vsock
 
 
 class Microvm:
@@ -89,6 +89,7 @@ class Microvm:
 
         # nice-to-have: Put these in a dictionary.
         self.actions = None
+        self.balloon = None
         self.boot = None
         self.drive = None
         self.logger = None
@@ -254,6 +255,7 @@ class Microvm:
             self._api_session.untime()
 
         self.actions = Actions(self._api_socket, self._api_session)
+        self.balloon = Balloon(self._api_socket, self._api_session)
         self.boot = BootSource(self._api_socket, self._api_session)
         self.drive = Drive(self._api_socket, self._api_session)
         self.logger = Logger(self._api_socket, self._api_session)

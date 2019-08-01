@@ -45,6 +45,55 @@ class Actions:
         return datax
 
 
+class Balloon:
+    """Facility for specifying balloon device configurations."""
+
+    BALLOON_CFG_RESOURCE = 'balloon'
+
+    __balloon_cfg_url = None
+    __api_session = None
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        type(self).__balloon_cfg_url = api_url + self.BALLOON_CFG_RESOURCE
+        type(self).__api_session = api_session
+
+    @classmethod
+    def put(cls, **args):
+        """Specify the balloon device configuration."""
+        datax = cls.create_json(**args)
+        return Balloon.__api_session.put(
+            "{}".format(Balloon.__balloon_cfg_url),
+            json=datax
+        )
+
+    @classmethod
+    def patch(cls, **args):
+        """Update a previously attached balloon device."""
+        datax = cls.create_json(**args)
+        return Balloon.__api_session.patch(
+            "{}".format(Balloon.__balloon_cfg_url),
+            json=datax
+        )
+
+    @staticmethod
+    def create_json(
+            num_pages,
+            deflate_on_oom=None,
+            must_tell_host=None
+    ):
+        """Compose the json associated to this type of API request."""
+        datax = {}
+        datax['num_pages'] = num_pages
+        if deflate_on_oom is not None:
+            datax['deflate_on_oom'] = deflate_on_oom
+        if must_tell_host is not None:
+            datax['must_tell_host'] = must_tell_host
+        return datax
+
+
 class BootSource:
     """Facility for specifying the source of the boot process."""
 
