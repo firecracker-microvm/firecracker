@@ -20,7 +20,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::result;
 
-use clap::{App, Arg, ArgMatches};
+use clap::{App, AppSettings, Arg, ArgMatches};
 
 use env::Env;
 use fc_util::validators;
@@ -222,6 +222,7 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
         .version(crate_version!())
         .author(crate_authors!())
         .about("Jail a microVM.")
+        .setting(AppSettings::TrailingVarArg)
         .arg(
             Arg::with_name("id")
                 .long("id")
@@ -297,6 +298,13 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("2")
                 .possible_values(&["0", "1", "2"]),
+        )
+        .arg(
+            Arg::with_name("extra-args")
+                .help("Arguments that will be passed verbatim to the exec file.")
+                .required(false)
+                .takes_value(true)
+                .multiple(true),
         )
 }
 

@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## [Unreleased]
+
+### Added
+
+- New command-line parameter for `firecracker`, named `--config-file`, which 
+  represents the path to a file that contains a JSON which can be used for 
+  configuring and starting a microVM without sending any API requests.
+- The jailer adheres to the "end of command options" convention, meaning 
+  all parameters specified after `--` are forwarded verbatim to Firecracker.
 
 ### Changed
 

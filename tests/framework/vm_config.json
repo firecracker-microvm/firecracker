@@ -1,0 +1,23 @@
+{
+  "boot-source": {
+    "kernel_image_path": "vmlinux.bin",
+    "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+  },
+  "logger": {
+    "log_fifo": "log_fifo",
+    "metrics_fifo": "metrics_fifo"
+  },
+  "drives": [
+    {
+      "drive_id": "rootfs",
+      "path_on_host": "xenial.rootfs.ext4",
+      "is_root_device": true,
+      "is_read_only": false
+    }
+  ],
+  "machine-config": {
+    "vcpu_count": 2,
+    "mem_size_mib": 1024,
+    "ht_enabled": false
+  }
+}

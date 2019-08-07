@@ -14,6 +14,7 @@ jailer --id <id> \
        [--netns <netns>]
        [--daemonize]
        [--seccomp-level <level>]
+       [--...extra arguments for Firecracker]
 ```
 
 - `id` is the unique VM identification string, which may contain alphanumeric
@@ -38,6 +39,14 @@ jailer --id <id> \
     Firecracker.
   - 2 (default): advanced filtering. This adds further checks on some of the
     parameters of the allowed syscalls.
+- The jailer adheres to the "end of command options" convention, meaning 
+  all parameters specified after `--` are forwarded to Firecracker. For 
+  example, this can be paired with the `--config-file` Firecracker argument to 
+  specify a configuration file when starting Firecracker via the jailer (the 
+  file path and the resources referenced within must be valid relative to a 
+  jailed Firecracker). Please note the jailer already passes the following 
+  parameters to the Firecracker process: `--api-sock`, `--seccomp-level` and 
+  `--id`.
 
 ## Jailer Operation
 
@@ -79,8 +88,9 @@ After starting, the Jailer goes through the following operations:
 - Drop privileges via setting the provided `uid` and `gid`.
 - Exec into `<exec_file_name> --id=<id> --api-sock=/api.socket
   --seccomp-level=<level> --start-time-us=<opaque>
-  --start-time-cpu-us=<opaque>`.
-  Where:
+  --start-time-cpu-us=<opaque>` (and also forward any extra arguments provided
+  to the jailer after `--`, as mentioned in the **Jailer Usage** section),
+  where:
   - `id`: (`string`) - The `id` argument provided to jailer.
   - `level`: (`number`) - the `--seccomp-level` argument provided to jailer.
   - `opaque`: (`number`) time calculated by the jailer that it spent doing
