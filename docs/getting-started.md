@@ -242,6 +242,29 @@ curl --unix-socket /tmp/firecracker.socket -i  \
     }'
 ```
 
+#### Configuring the microVM without sending API requests
+
+If you'd like to boot up a guest machine without using the API socket, you can do that 
+by passing the parameter `--config-file` to the Firecracker process. The command for 
+starting Firecracker with this option will look like this:
+
+```bash
+./firecracker --api-sock /tmp/firecracker.socket --config-file 
+<path_to_the_configuration_file>
+```    
+
+`path_to_the_configuration_file` should represent the path to a file that contains a 
+JSON which stores the entire configuration for all of the microVM's resources. The 
+JSON **must** contain the configuration for the guest kernel and rootfs, as these 
+are mandatory, but all of the other resources are optional, so it's your choice 
+if you want to configure them or not. Because using this configuration method will 
+also start the microVM, you need to specify all desired pre-boot configurable resources 
+in that JSON. The names of the resources are the ones from the `firecracker.yaml` file 
+and the names of their fields are the same that are used in API requests. 
+You can find an example of configuration file at `tests/framework/vm_config.json`. 
+After the machine is booted, you can still use the socket to send API requests
+for post-boot operations.
+
 ## Building From Source
 
 The quickest way to build and test Firecracker is by using our development

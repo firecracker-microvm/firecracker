@@ -52,6 +52,7 @@ pub struct Env {
     seccomp_level: u32,
     start_time_us: u64,
     start_time_cpu_us: u64,
+    extra_args: Vec<String>,
 }
 
 impl Env {
@@ -112,6 +113,13 @@ impl Env {
             .parse::<u32>()
             .map_err(Error::SeccompLevel)?;
 
+        let extra_args = args
+            .values_of("extra-args")
+            .into_iter()
+            .flatten()
+            .map(String::from)
+            .collect();
+
         Ok(Env {
             id: id.to_string(),
             numa_node,
@@ -124,6 +132,7 @@ impl Env {
             seccomp_level,
             start_time_us,
             start_time_cpu_us,
+            extra_args,
         })
     }
 
@@ -302,6 +311,7 @@ impl Env {
                 .stderr(Stdio::inherit())
                 .uid(self.uid())
                 .gid(self.gid())
+                .args(self.extra_args)
                 .exec(),
         ))
     }
@@ -323,6 +333,7 @@ mod tests {
         chroot_base: &str,
         netns: Option<&str>,
         daemonize: bool,
+        extra_args: Vec<&str>,
     ) -> ArgMatches<'a> {
         let app = clap_app();
 
@@ -351,6 +362,11 @@ mod tests {
             arg_vec.push("--daemonize");
         }
 
+        arg_vec.push("--");
+        for extra_arg in extra_args {
+            arg_vec.push(extra_arg);
+        }
+
         app.get_matches_from_safe(arg_vec).unwrap()
     }
 
@@ -363,6 +379,7 @@ mod tests {
         let gid = "1002";
         let chroot_base = "/";
         let netns = "zzzns";
+        let extra_args = vec!["--config-file", "config_file_path"];
 
         // This should be fine.
         let good_env = Env::new(
@@ -375,6 +392,7 @@ mod tests {
                 chroot_base,
                 Some(netns),
                 true,
+                extra_args,
             ),
             0,
             0,
@@ -389,11 +407,26 @@ mod tests {
         assert_eq!(good_env.chroot_dir(), chroot_dir);
         assert_eq!(format!("{}", good_env.gid()), gid);
         assert_eq!(format!("{}", good_env.uid()), uid);
+
         assert_eq!(good_env.netns, Some(netns.to_string()));
         assert!(good_env.daemonize);
+        assert_eq!(
+            good_env.extra_args,
+            vec!["--config-file".to_string(), "config_file_path".to_string()]
+        );
 
         let another_good_env = Env::new(
-            make_args(node, id, exec_file, uid, gid, chroot_base, None, false),
+            make_args(
+                node,
+                id,
+                exec_file,
+                uid,
+                gid,
+                chroot_base,
+                None,
+                false,
+                vec![],
+            ),
             0,
             0,
         )
@@ -402,7 +435,17 @@ mod tests {
 
         // Not fine - invalid node.
         assert!(Env::new(
-            make_args("zzz", id, exec_file, uid, gid, chroot_base, None, true),
+            make_args(
+                "zzz",
+                id,
+                exec_file,
+                uid,
+                gid,
+                chroot_base,
+                None,
+                true,
+                vec![],
+            ),
             0,
             0,
         )
@@ -418,7 +461,8 @@ mod tests {
                 gid,
                 chroot_base,
                 None,
-                true
+                true,
+                vec![],
             ),
             0,
             0
@@ -435,7 +479,8 @@ mod tests {
                 gid,
                 chroot_base,
                 None,
-                true
+                true,
+                vec![],
             ),
             0,
             0
@@ -444,7 +489,17 @@ mod tests {
 
         // Not fine - invalid uid.
         assert!(Env::new(
-            make_args(node, id, exec_file, "zzz", gid, chroot_base, None, true),
+            make_args(
+                node,
+                id,
+                exec_file,
+                "zzz",
+                gid,
+                chroot_base,
+                None,
+                true,
+                vec![],
+            ),
             0,
             0
         )
@@ -452,7 +507,17 @@ mod tests {
 
         // Not fine - invalid gid.
         assert!(Env::new(
-            make_args(node, id, exec_file, uid, "zzz", chroot_base, None, true),
+            make_args(
+                node,
+                id,
+                exec_file,
+                uid,
+                "zzz",
+                chroot_base,
+                None,
+                true,
+                vec![],
+            ),
             0,
             0
         )

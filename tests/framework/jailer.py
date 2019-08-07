@@ -62,7 +62,7 @@ class JailerContext:
         """Cleanup this jailer context."""
         self.cleanup()
 
-    def construct_param_list(self):
+    def construct_param_list(self, config_file):
         """Create the list of parameters we want the jailer to start with.
 
         We want to be able to vary any parameter even the required ones as we
@@ -94,6 +94,9 @@ class JailerContext:
             jailer_param_list.extend(
                 ['--seccomp-level', str(self.seccomp_level)]
             )
+        if config_file is not None:
+            jailer_param_list.extend(['--'])
+            jailer_param_list.extend(['--config-file', str(config_file)])
         return jailer_param_list
 
     def chroot_base_with_id(self):
@@ -113,7 +116,7 @@ class JailerContext:
         """Return the MicroVM chroot path."""
         return os.path.join(self.chroot_base_with_id(), 'root')
 
-    def jailed_path(self, file_path, create=False):
+    def jailed_path(self, file_path, create=False, create_jail=False):
         """Create a hard link owned by uid:gid.
 
         Create a hard link to the specified file, changes the owner to
@@ -121,8 +124,9 @@ class JailerContext:
         """
         file_name = os.path.basename(file_path)
         global_p = os.path.join(self.chroot_path(), file_name)
+        if create_jail:
+            os.makedirs(self.chroot_path(), exist_ok=True)
         jailed_p = os.path.join("/", file_name)
-
         if create:
             cmd = 'ln -f {} {}'.format(file_path, global_p)
             run(cmd, shell=True, check=True)
