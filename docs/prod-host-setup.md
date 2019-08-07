@@ -19,6 +19,10 @@ To set up the jailer correctly, you'll need to:
   Firecracker should be owned by this user and group. Apply least privilege to
   the resource files owned by this user and group to prevent other accounts from
   unauthorized file access.
+  When running multiple Firecracker instances it is recommended that each runs
+  with its unique `uid` and `gid` to provide an extra layer of security for
+  their individually owned resources in the unlikely case where any one of the
+  jails is broken out of.
 
 - Use Jailer's ``--seccomp-level 2`` flag to enable seccomp filter. The Jailer
   will apply a restrictive filter on what ``syscall`` and associated call
@@ -49,7 +53,7 @@ nosmt=force
 Verification can be done by running:
 
 ```bash
-(grep -q "^forceoff$\|^notsupported$" /sys/devices/system/cpu/smt/control && echo "Hyperthreading: DISABLED") || echo "Hyperthreading: ENABLED"
+(grep -q "^forceoff$\|^notsupported$" /sys/devices/system/cpu/smt/control && echo "Hyperthreading: DISABLED (OK)") || echo "Hyperthreading: ENABLED (Recommendation: DISABLED)"
 ```
 
 #### Check Kernel Page-Table Isolation (KPTI) support
@@ -61,7 +65,7 @@ variants of Meltdown can be mitigated by enabling this feature.
 Verification can be done by running:
 
 ```bash
-(grep -q "^Mitigation: PTI$" /sys/devices/system/cpu/vulnerabilities/meltdown && echo "KPTI: SUPPORTED") || echo "KPTI: NOT SUPPORTED"
+(grep -q "^Mitigation: PTI$" /sys/devices/system/cpu/vulnerabilities/meltdown && echo "KPTI: SUPPORTED (OK)") || echo "KPTI: NOT SUPPORTED (Recommendation: SUPPORTED)"
 ```
 
 #### Disable Kernel Same-page Merging (KSM)
@@ -78,7 +82,7 @@ echo "0" > /sys/kernel/mm/ksm/run
 Verification can be done by running:
 
 ```bash
-(grep -q "^0$" /sys/kernel/mm/ksm/run && echo "KSM: DISABLED") || echo "KSM: ENABLED"
+(grep -q "^0$" /sys/kernel/mm/ksm/run && echo "KSM: DISABLED (OK)") || echo "KSM: ENABLED (Recommendation: DISABLED)"
 ```
 
 #### Check for speculative branch prediction issue mitigation
@@ -93,7 +97,7 @@ as the Branch Target Injection variant.
 Verification can be done by running:
 
 ```bash
-(grep -q "^Mitigation: Full generic retpoline, IBPB, IBRS_FW$" /sys/devices/system/cpu/vulnerabilities/spectre_v2 && echo "retpoline, IBPB, IBRS: ENABLED") || echo "retpoline, IBPB, IBRS: DISABLED"
+(grep -q "^Mitigation: Full generic retpoline, IBPB, IBRS_FW$" /sys/devices/system/cpu/vulnerabilities/spectre_v2 && echo "retpoline, IBPB, IBRS: ENABLED (OK)") || echo "retpoline, IBPB, IBRS: DISABLED (Recommendation: ENABLED)"
 ```
 
 #### Apply L1 Terminal Fault (L1TF) mitigation
@@ -114,8 +118,10 @@ Verification can be done by running:
 
 ```bash
 declare -a CONDITIONS=("Mitigation: PTE Inversion" "VMX: cache flushes")
-for cond in "${CONDITIONS[@]}"; do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf && echo "$cond: ENABLED") || echo "$cond: DISABLED"; done
+for cond in "${CONDITIONS[@]}"; do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf && echo "$cond: ENABLED (OK)") || echo "$cond: DISABLED (Recommendation: ENABLED)"; done
 ```
+
+See more details [here](https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html#guest-mitigation-mechanisms).
 
 #### Apply Speculative Store Bypass (SSBD) mitigation
 
@@ -133,12 +139,12 @@ which will apply SSB if seccomp is enabled by Firecracker's jailer.
 Verification can be done by running:
 
 ```bash
-cat /proc/*PID*/status | grep Speculation_Store_Bypass
+cat /proc/$(pgrep firecracker | head -n1)/status | grep Speculation_Store_Bypass
 ```
 
-where *PID* is the process ID being check.  Output shows one of the
-following:
+Output shows one of the following:
 
+- vulnerable
 - not vulnerable
 - thread mitigated
 - thread force mitigated
@@ -163,7 +169,5 @@ having guest memory contents on microVM storage devices.
 Verify that swap is disabled by running:
 
 ```bash
-cat /proc/swaps
+grep -q "/dev" /proc/swaps && echo "swap partitions present (Recommendation: no swap)" || echo "no swap partitions (OK)"
 ```
-
-The output should not show any swap partition.
