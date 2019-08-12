@@ -10,7 +10,9 @@ use std::io::{self, stdout};
 use std::sync::{Arc, Mutex};
 
 use devices;
-use sys_util::{EventFd, Terminal};
+use sys_util::EventFd;
+#[cfg(target_arch = "x86_64")]
+use sys_util::Terminal;
 
 /// Errors corresponding to the `LegacyDeviceManager`.
 #[derive(Debug)]
