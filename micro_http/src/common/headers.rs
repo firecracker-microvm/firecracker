@@ -3,7 +3,7 @@
 
 use std::result::Result;
 
-use RequestError;
+use crate::RequestError;
 
 /// Wrapper over an HTTP Header type.
 #[derive(Debug, Eq, Hash, PartialEq)]
