@@ -161,13 +161,13 @@ use std::sync::{Mutex, MutexGuard, RwLock};
 
 use serde_json::Value;
 
-use error::LoggerError;
+use crate::error::LoggerError;
 use fc_util::LocalTime;
 pub use log::Level::*;
 pub use log::*;
 use log::{set_logger, set_max_level, Log, Metadata, Record};
-pub use metrics::{Metric, METRICS};
-use writers::*;
+pub use crate::metrics::{Metric, METRICS};
+use crate::writers::*;
 
 /// Type for returning functions outcome.
 ///
