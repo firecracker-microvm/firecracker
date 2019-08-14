@@ -11,11 +11,11 @@ use std::process::{Command, Stdio};
 use clap::ArgMatches;
 use libc;
 
-use cgroup::Cgroup;
-use chroot::chroot;
+use crate::cgroup::Cgroup;
+use crate::chroot::chroot;
 use fc_util::validators;
 use sys_util::SyscallReturnCode;
-use {Error, Result};
+use crate::{Error, Result};
 
 const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
@@ -316,7 +316,7 @@ impl Env {
 mod tests {
     use super::*;
 
-    use clap_app;
+    use crate::clap_app;
 
     #[allow(clippy::too_many_arguments)]
     fn make_args<'a>(

@@ -2,6 +2,7 @@
 name = "jailer"
 version = "0.17.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2018"
 
 [dependencies]
 clap = { version = ">=2.27.1", default-features = false}
