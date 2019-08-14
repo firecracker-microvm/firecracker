@@ -13,7 +13,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use super::*;
 use memory_model::{GuestAddress, GuestMemory};
 use sys_util::EventFd;
-use BusDevice;
+use crate::BusDevice;
 
 //TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
 const VENDOR_ID: u32 = 0;

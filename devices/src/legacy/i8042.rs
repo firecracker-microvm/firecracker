@@ -11,7 +11,7 @@ use std::num::Wrapping;
 use std::{io, result};
 use sys_util::EventFd;
 
-use BusDevice;
+use crate::BusDevice;
 
 #[derive(Debug)]
 pub enum Error {

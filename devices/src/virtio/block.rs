@@ -25,9 +25,9 @@ use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
-use virtio::EpollConfigConstructor;
+use crate::virtio::EpollConfigConstructor;
 use virtio_gen::virtio_blk::*;
-use {DeviceEventT, EpollHandler};
+use crate::{DeviceEventT, EpollHandler};
 
 const CONFIG_SPACE_SIZE: usize = 8;
 const SECTOR_SHIFT: u8 = 9;
@@ -660,7 +660,7 @@ mod tests {
     use std::time::Duration;
     use std::u32;
 
-    use virtio::queue::tests::*;
+    use crate::virtio::queue::tests::*;
 
     const EPOLLIN: epoll::Events = epoll::Events::EPOLLIN;
 

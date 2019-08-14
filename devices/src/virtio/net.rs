@@ -29,9 +29,9 @@ use net_gen;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use rate_limiter::{RateLimiter, TokenBucket, TokenType};
 use sys_util::EventFd;
-use virtio::EpollConfigConstructor;
+use crate::virtio::EpollConfigConstructor;
 use virtio_gen::virtio_net::*;
-use {DeviceEventT, EpollHandler};
+use crate::{DeviceEventT, EpollHandler};
 
 /// The maximum buffer size when segmentation offload is enabled. This
 /// includes the 12-byte virtio net header.
@@ -975,7 +975,7 @@ mod tests {
 
     use super::*;
     use memory_model::GuestAddress;
-    use virtio::queue::tests::*;
+    use crate::virtio::queue::tests::*;
 
     use dumbo::pdu::{arp, ethernet};
     use rate_limiter::TokenBucket;
