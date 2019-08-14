@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use bit_helper::BitHelper;
-use cpu_leaf::*;
+use crate::bit_helper::BitHelper;
+use crate::cpu_leaf::*;
 
 // The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to get a
 // unique topology of the next level. This allows 64 logical processors/package.
@@ -13,7 +13,7 @@ pub fn update_feature_info_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use cpu_leaf::leaf_0x1::*;
+    use crate::cpu_leaf::leaf_0x1::*;
 
     common::update_feature_info_entry(entry, vm_spec)?;
 
@@ -26,7 +26,7 @@ fn update_deterministic_cache_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use cpu_leaf::leaf_0x4::*;
+    use crate::cpu_leaf::leaf_0x4::*;
 
     common::update_cache_parameters_entry(entry, vm_spec)?;
 
@@ -43,7 +43,7 @@ fn update_power_management_entry(
     entry: &mut kvm_cpuid_entry2,
     _vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use cpu_leaf::leaf_0x6::*;
+    use crate::cpu_leaf::leaf_0x6::*;
 
     entry.eax.write_bit(eax::TURBO_BOOST_BITINDEX, false);
     // Clear X86 EPB feature. No frequency selection in the hypervisor.
@@ -67,7 +67,7 @@ fn update_extended_cache_topology_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use cpu_leaf::leaf_0xb::*;
+    use crate::cpu_leaf::leaf_0xb::*;
 
     //reset eax, ebx, ecx
     entry.eax = 0 as u32;
@@ -155,15 +155,15 @@ impl CpuidTransformer for IntelCpuidTransformer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use cpu_leaf::leaf_0xb::LEVEL_TYPE_CORE;
-    use cpu_leaf::leaf_0xb::LEVEL_TYPE_INVALID;
-    use cpu_leaf::leaf_0xb::LEVEL_TYPE_THREAD;
+    use crate::cpu_leaf::leaf_0xb::LEVEL_TYPE_CORE;
+    use crate::cpu_leaf::leaf_0xb::LEVEL_TYPE_INVALID;
+    use crate::cpu_leaf::leaf_0xb::LEVEL_TYPE_THREAD;
     use kvm_bindings::kvm_cpuid_entry2;
-    use transformer::VmSpec;
+    use crate::transformer::VmSpec;
 
     #[test]
     fn test_update_feature_info_entry() {
-        use cpu_leaf::leaf_0x1::*;
+        use crate::cpu_leaf::leaf_0x1::*;
 
         let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
@@ -210,7 +210,7 @@ mod test {
         cache_level: u32,
         expected_max_cores_per_package: u32,
     ) {
-        use cpu_leaf::leaf_0x4::*;
+        use crate::cpu_leaf::leaf_0x4::*;
 
         let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
@@ -242,7 +242,7 @@ mod test {
         expected_num_logical_processors: u32,
         expected_level_type: u32,
     ) {
-        use cpu_leaf::leaf_0xb::*;
+        use crate::cpu_leaf::leaf_0xb::*;
 
         let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
