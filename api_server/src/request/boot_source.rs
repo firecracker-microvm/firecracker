@@ -6,7 +6,7 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::Method;
 
-use request::{IntoParsedRequest, ParsedRequest};
+use crate::request::{IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::VmmAction;
 

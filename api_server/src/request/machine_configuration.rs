@@ -6,8 +6,8 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
 
-use http_service::json_response;
-use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
+use crate::http_service::json_response;
+use crate::request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::machine_config::VmConfig;
 use vmm::VmmAction;
 

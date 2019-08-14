@@ -31,7 +31,7 @@ use hyper::server::Http;
 use tokio_core::reactor::Core;
 use tokio_uds::UnixListener;
 
-use http_service::ApiServerHttpService;
+use crate::http_service::ApiServerHttpService;
 use logger::{Metric, METRICS};
 use mmds::data_store::Mmds;
 use sys_util::EventFd;
