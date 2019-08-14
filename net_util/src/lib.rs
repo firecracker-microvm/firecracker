@@ -24,8 +24,8 @@ use std::mem;
 use std::net;
 use std::os::unix::io::FromRawFd;
 
-pub use mac::{MacAddr, MAC_ADDR_LEN};
-pub use tap::{Error as TapError, Tap};
+pub use crate::mac::{MacAddr, MAC_ADDR_LEN};
+pub use crate::tap::{Error as TapError, Tap};
 
 #[derive(Debug)]
 pub enum Error {
