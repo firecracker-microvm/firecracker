@@ -12,13 +12,13 @@ use std::result::Result;
 use fc_util::timestamp_cycles;
 use logger::{Metric, METRICS};
 use net_util::MacAddr;
-use pdu::arp::{test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
-use pdu::ethernet::{Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4};
-use pdu::ipv4::{test_speculative_dst_addr, Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
-use pdu::tcp::Error as TcpSegmentError;
-use pdu::Incomplete;
-use tcp::handler::{self, RecvEvent, TcpIPv4Handler, WriteEvent};
-use tcp::NextSegmentStatus;
+use crate::pdu::arp::{test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
+use crate::pdu::ethernet::{Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4};
+use crate::pdu::ipv4::{test_speculative_dst_addr, Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
+use crate::pdu::tcp::Error as TcpSegmentError;
+use crate::pdu::Incomplete;
+use crate::tcp::handler::{self, RecvEvent, TcpIPv4Handler, WriteEvent};
+use crate::tcp::NextSegmentStatus;
 
 const DEFAULT_MAC_ADDR: &str = "06:01:23:45:67:01";
 const DEFAULT_IPV4_ADDR: [u8; 4] = [169, 254, 169, 254];
@@ -281,7 +281,7 @@ impl MmdsNetworkStack {
 mod tests {
     use super::*;
 
-    use pdu::tcp::{Flags as TcpFlags, TcpSegment};
+    use crate::pdu::tcp::{Flags as TcpFlags, TcpSegment};
     use std::str::FromStr;
 
     // We use LOCALHOST here because const new() is not stable yet, so just reuse this const, since

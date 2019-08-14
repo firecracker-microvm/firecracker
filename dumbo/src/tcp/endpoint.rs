@@ -16,11 +16,11 @@ use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 use fc_util::timestamp_cycles;
 use logger::{Metric, METRICS};
 use mmds::parse_request;
-use pdu::bytes::NetworkBytes;
-use pdu::tcp::TcpSegment;
-use pdu::Incomplete;
-use tcp::connection::{Connection, PassiveOpenError, RecvStatusFlags};
-use tcp::{seq_after, NextSegmentStatus, MAX_WINDOW_SIZE};
+use crate::pdu::bytes::NetworkBytes;
+use crate::pdu::tcp::TcpSegment;
+use crate::pdu::Incomplete;
+use crate::tcp::connection::{Connection, PassiveOpenError, RecvStatusFlags};
+use crate::tcp::{seq_after, NextSegmentStatus, MAX_WINDOW_SIZE};
 
 // TODO: These are currently expressed in cycles. Normally, they would be the equivalent of a
 // certain duration, depending on the frequency of the CPU, but we still have a bit to go until
@@ -295,8 +295,8 @@ mod tests {
     use std::fmt;
     use std::str::from_utf8;
 
-    use pdu::tcp::Flags as TcpFlags;
-    use tcp::connection::tests::ConnectionTester;
+    use crate::pdu::tcp::Flags as TcpFlags;
+    use crate::tcp::connection::tests::ConnectionTester;
 
     impl fmt::Debug for Endpoint {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
