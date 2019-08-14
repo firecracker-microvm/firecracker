@@ -11,9 +11,9 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 use std::{mem, result};
 
-use guest_address::GuestAddress;
-use mmap::{self, MemoryMapping};
-use DataInit;
+use crate::guest_address::GuestAddress;
+use crate::mmap::{self, MemoryMapping};
+use crate::DataInit;
 
 /// Errors associated with handling guest memory regions.
 #[derive(Debug)]

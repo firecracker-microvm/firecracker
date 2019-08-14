@@ -55,7 +55,7 @@ mod guest_address;
 mod guest_memory;
 mod mmap;
 
-pub use guest_address::GuestAddress;
-pub use guest_memory::Error as GuestMemoryError;
-pub use guest_memory::GuestMemory;
-pub use mmap::{Error as MemoryMappingError, MemoryMapping};
+pub use crate::guest_address::GuestAddress;
+pub use crate::guest_memory::Error as GuestMemoryError;
+pub use crate::guest_memory::GuestMemory;
+pub use crate::mmap::{Error as MemoryMappingError, MemoryMapping};
