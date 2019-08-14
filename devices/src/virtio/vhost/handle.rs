@@ -9,9 +9,9 @@ use super::INTERRUPT_STATUS_USED_RING;
 
 use sys_util::EventFd;
 use vhost_backend::Vhost;
-use virtio::EpollConfigConstructor;
-use DeviceEventT;
-use EpollHandler;
+use crate::virtio::EpollConfigConstructor;
+use crate::DeviceEventT;
+use crate::EpollHandler;
 
 use super::super::super::Error as DeviceError;
 use std::os::unix::io::{AsRawFd, RawFd};
