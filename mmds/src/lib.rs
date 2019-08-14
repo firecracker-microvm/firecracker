@@ -12,7 +12,7 @@ pub mod data_store;
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
-use data_store::{Error as MmdsError, Mmds};
+use crate::data_store::{Error as MmdsError, Mmds};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 
 lazy_static! {
