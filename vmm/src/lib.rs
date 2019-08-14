@@ -62,10 +62,10 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
-use device_manager::legacy::LegacyDeviceManager;
+use crate::device_manager::legacy::LegacyDeviceManager;
 #[cfg(target_arch = "aarch64")]
 use device_manager::mmio::MMIODeviceInfo;
-use device_manager::mmio::MMIODeviceManager;
+use crate::device_manager::mmio::MMIODeviceManager;
 use devices::legacy::I8042DeviceError;
 use devices::virtio;
 #[cfg(feature = "vsock")]
@@ -84,18 +84,18 @@ use net_util::TapError;
 #[cfg(target_arch = "aarch64")]
 use serde_json::Value;
 use sys_util::{EventFd, Terminal};
-use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
-use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
-use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
-use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel};
-use vmm_config::machine_config::{VmConfig, VmConfigError};
-use vmm_config::net::{
+use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
+use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
+use crate::vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
+use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel};
+use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
+use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
     NetworkInterfaceUpdateConfig,
 };
 #[cfg(feature = "vsock")]
 use vmm_config::vsock::{VsockDeviceConfig, VsockDeviceConfigs, VsockError};
-use vstate::{Vcpu, Vm};
+use crate::vstate::{Vcpu, Vm};
 
 /// Default guest kernel command line:
 /// - `reboot=k` shut down the guest on reboot, instead of well... rebooting;
@@ -2142,9 +2142,9 @@ mod tests {
     use arch::DeviceType;
     use devices::virtio::{ActivateResult, MmioDevice, Queue};
     use net_util::MacAddr;
-    use vmm_config::drive::DriveError;
-    use vmm_config::machine_config::CpuFeaturesTemplate;
-    use vmm_config::{RateLimiterConfig, TokenBucketConfig};
+    use crate::vmm_config::drive::DriveError;
+    use crate::vmm_config::machine_config::CpuFeaturesTemplate;
+    use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 
     fn good_kernel_file() -> PathBuf {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
