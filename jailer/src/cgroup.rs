@@ -135,7 +135,7 @@ impl Cgroup {
 
         // Regex courtesy of Filippo.
         let re = Regex::new(
-            r"^(cgroup|none)[[:space:]](?P<dir>.*)[[:space:]]cgroup[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
+            r"^([a-z]*)[[:space:]](?P<dir>.*)[[:space:]]cgroup[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
         ).map_err(Error::RegEx)?;
         for l in BufReader::new(f).lines() {
             let l = l.map_err(|e| Error::ReadLine(PathBuf::from(PROC_MOUNTS), e))?;
