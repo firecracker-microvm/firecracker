@@ -9,7 +9,7 @@ extern crate sys_util;
 extern crate vhost_gen;
 
 mod vsock;
-pub use vsock::Vsock;
+pub use crate::vsock::Vsock;
 
 use std::mem;
 use std::os::unix::io::AsRawFd;
