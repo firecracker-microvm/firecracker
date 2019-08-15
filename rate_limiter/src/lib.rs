@@ -45,9 +45,9 @@
 //! needs to be called by the user on every event on the rate limiter's `AsRawFd` FD.
 //!
 
-extern crate timerfd;
 
-extern crate fc_util;
+
+
 #[macro_use]
 extern crate logger;
 
@@ -271,7 +271,7 @@ impl PartialEq for RateLimiter {
 }
 
 impl fmt::Debug for RateLimiter {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "RateLimiter {{ bandwidth: {:?}, ops: {:?} }}",
