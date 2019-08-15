@@ -227,7 +227,7 @@ impl<'a> Request<'a> {
     /// Returns the `Uri` from the parsed `Request`.
     ///
     /// The return value can be used to get the absolute path of the URI.
-    pub fn uri(&self) -> &Uri {
+    pub fn uri(&self) -> &Uri<'_> {
         &self.request_line.uri
     }
 
@@ -247,7 +247,7 @@ mod tests {
     use super::*;
 
     impl<'a> PartialEq for Request<'a> {
-        fn eq(&self, other: &Request) -> bool {
+        fn eq(&self, other: &Request<'_>) -> bool {
             // Ignore the other fields of Request for now because they are not used.
             self.request_line == other.request_line
         }
