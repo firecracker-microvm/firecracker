@@ -3,9 +3,9 @@
 
 #[macro_use]
 extern crate lazy_static;
-extern crate serde_json;
 
-extern crate micro_http;
+
+
 
 pub mod data_store;
 
@@ -139,7 +139,7 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
+    use serde_json;
     use super::*;
 
     #[test]
