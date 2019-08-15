@@ -1,21 +1,21 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-extern crate futures;
-extern crate hyper;
-extern crate serde;
+
+use hyper;
+
 #[macro_use]
 extern crate serde_derive;
-extern crate serde_json;
-extern crate tokio_core;
-extern crate tokio_uds;
 
-extern crate fc_util;
+
+
+
+use fc_util;
 #[macro_use]
 extern crate logger;
-extern crate mmds;
-extern crate sys_util;
-extern crate vmm;
+
+
+
 
 mod http_service;
 pub mod request;
@@ -45,7 +45,7 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Error::Io(ref err) => write!(f, "IO error: {}", err),
             Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
@@ -54,7 +54,7 @@ impl fmt::Display for Error {
 }
 
 impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Error::Io(ref err) => write!(f, "IO error: {}", err),
             Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),

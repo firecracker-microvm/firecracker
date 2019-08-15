@@ -54,8 +54,8 @@ impl IntoParsedRequest for NetworkInterfaceUpdateConfig {
 
 #[cfg(test)]
 mod tests {
-    extern crate net_util;
-    extern crate vmm;
+    use net_util;
+    use vmm;
 
     use self::net_util::MacAddr;
     use super::*;
