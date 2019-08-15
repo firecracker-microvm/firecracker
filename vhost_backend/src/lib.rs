@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-extern crate libc;
 
-extern crate memory_model;
-extern crate sys_util;
-extern crate vhost_gen;
+
+
+
+
 
 mod vsock;
 pub use crate::vsock::Vsock;
