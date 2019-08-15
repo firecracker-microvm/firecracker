@@ -37,7 +37,7 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
 }
 
 // Extracts an argument's value or returns a specific error if the argument is missing.
-fn get_value<'a>(args: &'a ArgMatches, arg_name: &'static str) -> Result<&'a str> {
+fn get_value<'a>(args: &'a ArgMatches<'_>, arg_name: &'static str) -> Result<&'a str> {
     args.value_of(arg_name)
         .ok_or_else(|| Error::MissingArgument(&arg_name))
 }
@@ -57,7 +57,7 @@ pub struct Env {
 }
 
 impl Env {
-    pub fn new(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Result<Self> {
+    pub fn new(args: ArgMatches<'_>, start_time_us: u64, start_time_cpu_us: u64) -> Result<Self> {
         // All arguments are either mandatory, or have default values, so the unwraps
         // should not fail.
         let id = get_value(&args, "id")?;

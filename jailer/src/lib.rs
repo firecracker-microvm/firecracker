@@ -3,11 +3,11 @@
 
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
-extern crate libc;
-extern crate regex;
+use libc;
+use regex;
 
-extern crate fc_util;
-extern crate sys_util;
+
+
 
 mod cgroup;
 mod chroot;
@@ -76,7 +76,7 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::Error::*;
 
         match *self {
@@ -321,7 +321,7 @@ fn sanitize_process() {
     }
 }
 
-pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Result<()> {
+pub fn run(args: ArgMatches<'_>, start_time_us: u64, start_time_cpu_us: u64) -> Result<()> {
     // We open /dev/kvm and create the listening socket. These file descriptors will be
     // passed on to Firecracker post exec, and used via knowing their values in advance.
 
