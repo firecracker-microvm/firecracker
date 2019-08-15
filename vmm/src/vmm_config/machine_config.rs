@@ -21,7 +21,7 @@ pub enum VmConfigError {
 }
 
 impl Display for VmConfigError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         use self::VmConfigError::*;
         match *self {
             InvalidVcpuCount => write!(
@@ -98,7 +98,7 @@ pub enum CpuFeaturesTemplate {
 }
 
 impl Display for CpuFeaturesTemplate {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             CpuFeaturesTemplate::C3 => write!(f, "C3"),
             CpuFeaturesTemplate::T2 => write!(f, "T2"),

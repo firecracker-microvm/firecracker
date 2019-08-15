@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-extern crate serde_json;
+use serde_json;
 
 use std::fmt::{Display, Formatter, Result};
 
@@ -64,7 +64,7 @@ pub enum LoggerConfigError {
 }
 
 impl Display for LoggerConfigError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         use self::LoggerConfigError::*;
         match *self {
             InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),

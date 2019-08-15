@@ -44,7 +44,7 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Error::BusError(ref e) => write!(f, "failed to perform bus operation: {}", e),
             Error::CreateMmioDevice(ref e) => write!(f, "failed to create mmio device: {}", e),
@@ -107,7 +107,7 @@ impl MMIODeviceManager {
     pub fn register_virtio_device(
         &mut self,
         vm: &VmFd,
-        device: Box<devices::virtio::VirtioDevice>,
+        device: Box<dyn devices::virtio::VirtioDevice>,
         cmdline: &mut kernel_cmdline::Cmdline,
         type_id: u32,
         device_id: &str,
@@ -254,7 +254,7 @@ impl MMIODeviceManager {
         &self,
         device_type: DeviceType,
         device_id: &str,
-    ) -> Option<&Mutex<BusDevice>> {
+    ) -> Option<&Mutex<dyn BusDevice>> {
         if let Some(dev_info) = self
             .id_to_dev_info
             .get(&(device_type, device_id.to_string()))

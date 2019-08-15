@@ -97,7 +97,7 @@ pub enum NetworkInterfaceError {
 }
 
 impl Display for NetworkInterfaceError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         use self::NetworkInterfaceError::*;
         match *self {
             GuestMacAddressInUse(ref mac_addr) => write!(
@@ -150,7 +150,7 @@ impl NetworkInterfaceConfigs {
     }
 
     /// Returns a mutable iterator over the network interfaces.
-    pub fn iter_mut(&mut self) -> ::std::slice::IterMut<NetworkInterfaceConfig> {
+    pub fn iter_mut(&mut self) -> ::std::slice::IterMut<'_, NetworkInterfaceConfig> {
         self.if_list.iter_mut()
     }
 

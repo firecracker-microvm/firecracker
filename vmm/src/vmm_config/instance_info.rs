@@ -107,7 +107,7 @@ pub enum StartMicrovmError {
 }
 
 impl Display for StartMicrovmError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         use self::StartMicrovmError::*;
         match *self {
             ConfigureSystem(ref err) => {

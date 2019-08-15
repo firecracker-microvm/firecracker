@@ -28,7 +28,7 @@ pub enum BootSourceConfigError {
 }
 
 impl Display for BootSourceConfigError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         use self::BootSourceConfigError::*;
         match *self {
             InvalidKernelPath => write!(

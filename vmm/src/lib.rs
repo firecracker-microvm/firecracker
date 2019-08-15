@@ -9,30 +9,29 @@
 //! and other virtualization features to run a single lightweight micro-virtual
 //! machine (microVM).
 #![deny(missing_docs)]
-extern crate epoll;
-extern crate futures;
-extern crate kvm_bindings;
-extern crate kvm_ioctls;
-extern crate libc;
-extern crate serde;
+use epoll;
+
+
+use kvm_ioctls;
+use libc;
+
 #[macro_use]
 extern crate serde_derive;
-extern crate serde_json;
-extern crate timerfd;
 
-extern crate arch;
-#[cfg(target_arch = "x86_64")]
-extern crate cpuid;
-extern crate devices;
-extern crate fc_util;
-extern crate kernel;
+
+
+use arch;
+
+use devices;
+
+use kernel;
 #[macro_use]
 extern crate logger;
-extern crate memory_model;
-extern crate net_util;
-extern crate rate_limiter;
-extern crate seccomp;
-extern crate sys_util;
+use memory_model;
+use net_util;
+
+
+
 
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
@@ -160,7 +159,7 @@ pub enum Error {
 
 // Implementing Debug as these errors are mostly used in panics & expects.
 impl std::fmt::Debug for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use self::Error::*;
 
         match self {
@@ -361,7 +360,7 @@ impl VmmActionError {
 }
 
 impl Display for VmmActionError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use self::VmmActionError::*;
 
         match *self {
@@ -523,12 +522,12 @@ enum EpollDispatch {
 }
 
 struct MaybeHandler {
-    handler: Option<Box<EpollHandler>>,
-    receiver: Receiver<Box<EpollHandler>>,
+    handler: Option<Box<dyn EpollHandler>>,
+    receiver: Receiver<Box<dyn EpollHandler>>,
 }
 
 impl MaybeHandler {
-    fn new(receiver: Receiver<Box<EpollHandler>>) -> Self {
+    fn new(receiver: Receiver<Box<dyn EpollHandler>>) -> Self {
         MaybeHandler {
             handler: None,
             receiver,
@@ -629,7 +628,7 @@ impl EpollContext {
         Ok(EpollEvent { fd })
     }
 
-    fn allocate_tokens(&mut self, count: usize) -> (u64, Sender<Box<EpollHandler>>) {
+    fn allocate_tokens(&mut self, count: usize) -> (u64, Sender<Box<dyn EpollHandler>>) {
         let dispatch_base = self.dispatch_table.len() as u64;
         let device_idx = self.device_handlers.len();
         let (sender, receiver) = channel();
@@ -660,7 +659,7 @@ impl EpollContext {
         T::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
-    fn get_device_handler_by_handler_id(&mut self, id: usize) -> Result<&mut EpollHandler> {
+    fn get_device_handler_by_handler_id(&mut self, id: usize) -> Result<&mut dyn EpollHandler> {
         let maybe = &mut self.device_handlers[id];
         match maybe.handler {
             Some(ref mut v) => Ok(v.as_mut()),
@@ -2128,7 +2127,7 @@ pub fn start_vmm_thread(
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
+    use tempfile;
 
     use super::*;
 
