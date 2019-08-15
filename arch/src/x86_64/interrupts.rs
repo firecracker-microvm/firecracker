@@ -82,7 +82,7 @@ pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    extern crate rand;
+    use rand;
     use self::rand::Rng;
 
     use super::*;
