@@ -160,7 +160,7 @@ struct Request {
 }
 
 impl Request {
-    fn parse(avail_desc: &DescriptorChain, mem: &GuestMemory) -> result::Result<Request, Error> {
+    fn parse(avail_desc: &DescriptorChain<'_>, mem: &GuestMemory) -> result::Result<Request, Error> {
         // The head contains the request type which MUST be readable.
         if avail_desc.is_write_only() {
             return Err(Error::UnexpectedWriteOnlyDescriptor);
@@ -429,11 +429,11 @@ pub struct EpollConfig {
     q_avail_token: u64,
     rate_limiter_token: u64,
     epoll_raw_fd: RawFd,
-    sender: mpsc::Sender<Box<EpollHandler>>,
+    sender: mpsc::Sender<Box<dyn EpollHandler>>,
 }
 
 impl EpollConfigConstructor for EpollConfig {
-    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self {
+    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<dyn EpollHandler>>) -> Self {
         EpollConfig {
             q_avail_token: first_token + u64::from(QUEUE_AVAIL_EVENT),
             rate_limiter_token: first_token + u64::from(RATE_LIMITER_EVENT),
@@ -648,9 +648,8 @@ impl VirtioDevice for Block {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
+    use tempfile::{tempfile, NamedTempFile};
 
-    use self::tempfile::{tempfile, NamedTempFile};
     use super::*;
 
     use libc;
@@ -690,7 +689,7 @@ mod tests {
     struct DummyBlock {
         block: Block,
         epoll_raw_fd: i32,
-        _receiver: Receiver<Box<EpollHandler>>,
+        _receiver: Receiver<Box<dyn EpollHandler>>,
     }
 
     impl DummyBlock {

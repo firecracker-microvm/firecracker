@@ -64,7 +64,7 @@ impl<'a> DescriptorChain<'a> {
         desc_table: GuestAddress,
         queue_size: u16,
         index: u16,
-    ) -> Option<DescriptorChain> {
+    ) -> Option<DescriptorChain<'_>> {
         if index >= queue_size {
             return None;
         }
@@ -365,7 +365,7 @@ impl Queue {
 
 #[cfg(test)]
 pub mod tests {
-    extern crate memory_model;
+    use memory_model;
 
     use std::marker::PhantomData;
     use std::mem;

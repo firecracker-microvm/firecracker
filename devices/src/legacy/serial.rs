@@ -66,14 +66,14 @@ pub struct Serial {
     scratch: u8,
     baud_divisor: u16,
     in_buffer: VecDeque<u8>,
-    out: Option<Box<io::Write + Send>>,
+    out: Option<Box<dyn io::Write + Send>>,
     data_len: usize,
 }
 
 impl Serial {
     fn new(
         interrupt_evt: EventFd,
-        out: Option<Box<io::Write + Send>>,
+        out: Option<Box<dyn io::Write + Send>>,
         len: Option<usize>,
     ) -> Serial {
         let data_len = len.unwrap_or(1);
@@ -96,7 +96,7 @@ impl Serial {
     /// Constructs a Serial port ready for output.
     pub fn new_out(
         interrupt_evt: EventFd,
-        out: Box<io::Write + Send>,
+        out: Box<dyn io::Write + Send>,
         data_len: Option<usize>,
     ) -> Serial {
         Self::new(interrupt_evt, Some(out), data_len)

@@ -650,11 +650,11 @@ pub struct EpollConfig {
     rx_rate_limiter_token: u64,
     tx_rate_limiter_token: u64,
     epoll_raw_fd: RawFd,
-    sender: mpsc::Sender<Box<EpollHandler>>,
+    sender: mpsc::Sender<Box<dyn EpollHandler>>,
 }
 
 impl EpollConfigConstructor for EpollConfig {
-    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self {
+    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<dyn EpollHandler>>) -> Self {
         EpollConfig {
             rx_tap_token: first_token + u64::from(RX_TAP_EVENT),
             rx_queue_token: first_token + u64::from(RX_QUEUE_EVENT),
@@ -1006,7 +1006,7 @@ mod tests {
     struct DummyNet {
         net: Net,
         epoll_raw_fd: i32,
-        _receiver: Receiver<Box<EpollHandler>>,
+        _receiver: Receiver<Box<dyn EpollHandler>>,
     }
 
     impl DummyNet {
