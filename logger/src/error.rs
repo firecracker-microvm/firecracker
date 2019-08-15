@@ -35,7 +35,7 @@ pub enum LoggerError {
 }
 
 impl fmt::Display for LoggerError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let printable = match *self {
             LoggerError::NeverInitialized(ref e) => e.to_string(),
             LoggerError::IsPreinitializing => {

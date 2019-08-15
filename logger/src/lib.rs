@@ -139,14 +139,14 @@
 // workaround to macro_reexport
 #[macro_use]
 extern crate lazy_static;
-extern crate libc;
-extern crate log;
-extern crate serde;
+
+use log;
+
 #[macro_use]
 extern crate serde_derive;
-extern crate serde_json;
+use serde_json;
 
-extern crate fc_util;
+
 
 pub mod error;
 pub mod metrics;
@@ -460,7 +460,7 @@ impl Logger {
     /// Creates the first portion (to the left of the separator)
     /// of the log statement based on the logger settings.
     ///
-    fn create_prefix(&self, record: &Record) -> String {
+    fn create_prefix(&self, record: &Record<'_>) -> String {
         let mut res = String::from(" [");
 
         {
@@ -496,7 +496,7 @@ impl Logger {
         res
     }
 
-    fn log_fifo_guard(&self) -> MutexGuard<Option<PipeLogWriter>> {
+    fn log_fifo_guard(&self) -> MutexGuard<'_, Option<PipeLogWriter>> {
         match self.log_fifo.lock() {
             Ok(guard) => guard,
             // If a thread panics while holding this lock, the writer within should still be usable.
@@ -505,7 +505,7 @@ impl Logger {
         }
     }
 
-    fn metrics_fifo_guard(&self) -> MutexGuard<Option<PipeLogWriter>> {
+    fn metrics_fifo_guard(&self) -> MutexGuard<'_, Option<PipeLogWriter>> {
         match self.metrics_fifo.lock() {
             Ok(guard) => guard,
             // If a thread panics while holding this lock, the writer within should still be usable.
@@ -775,11 +775,11 @@ impl Log for Logger {
     // Test whether the level of the log line should be outputted or not based on the currently
     // configured level. If the configured level is "warning" but the line is logged through "info!"
     // marco then it will not get logged.
-    fn enabled(&self, metadata: &Metadata) -> bool {
+    fn enabled(&self, metadata: &Metadata<'_>) -> bool {
         metadata.level() as usize <= self.level_info.code()
     }
 
-    fn log(&self, record: &Record) {
+    fn log(&self, record: &Record<'_>) {
         if self.enabled(record.metadata()) {
             let msg = format!(
                 "{}{}{}{}",
@@ -799,7 +799,7 @@ impl Log for Logger {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
+    use tempfile;
 
     use self::tempfile::NamedTempFile;
     use super::*;
