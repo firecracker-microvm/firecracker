@@ -234,7 +234,7 @@
 //! [`action`]: struct.SeccompRule.html#action
 //!
 
-extern crate libc;
+use libc;
 
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -336,7 +336,7 @@ pub enum Error {
 }
 
 impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use self::Error::*;
 
         match *self {
