@@ -47,7 +47,7 @@ pub enum RstConfig {
 
 impl RstConfig {
     /// Creates a `RstConfig` in response to the given segment.
-    pub fn new<T: NetworkBytes>(s: &TcpSegment<T>) -> Self {
+    pub fn new<T: NetworkBytes>(s: &TcpSegment<'_, T>) -> Self {
         if s.flags_after_ns().intersects(TcpFlags::ACK) {
             // If s contains an ACK number, we use that as the sequence number of the RST.
             RstConfig::Seq(s.ack_number())

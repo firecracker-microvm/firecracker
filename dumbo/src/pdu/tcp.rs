@@ -90,7 +90,7 @@ pub enum Error {
 // make it more generic at some point.
 
 /// Interprets the inner bytes as a TCP segment.
-pub struct TcpSegment<'a, T: 'a> {
+pub struct TcpSegment<'a, T> {
     bytes: InnerBytes<'a, T>,
 }
 
@@ -604,13 +604,13 @@ mod tests {
     use super::*;
 
     impl<'a, T: NetworkBytes> fmt::Debug for TcpSegment<'a, T> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "(TCP segment)")
         }
     }
 
     impl<'a, T: NetworkBytes> fmt::Debug for Incomplete<TcpSegment<'a, T>> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "(Incomplete TCP segment)")
         }
     }
@@ -765,7 +765,7 @@ mod tests {
 
         // Using a helper function here instead of a closure because it's hard (impossible?) to
         // specify lifetime bounds for closure arguments.
-        fn p(buf: &mut [u8]) -> TcpSegment<&mut [u8]> {
+        fn p(buf: &mut [u8]) -> TcpSegment<'_, &mut [u8]> {
             TcpSegment::from_bytes_unchecked(buf)
         }
 

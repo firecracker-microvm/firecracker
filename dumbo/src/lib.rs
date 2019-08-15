@@ -7,12 +7,12 @@
 
 #[macro_use]
 extern crate bitflags;
-extern crate byteorder;
 
-extern crate fc_util;
-extern crate logger;
-extern crate mmds;
-extern crate net_util;
+
+
+
+
+
 
 pub mod ns;
 pub mod pdu;
