@@ -305,9 +305,7 @@ impl Drop for MemoryMapping {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
-
-    use self::tempfile::tempfile;
+    use tempfile::tempfile;
     use super::*;
     use std::fs::File;
     use std::mem;

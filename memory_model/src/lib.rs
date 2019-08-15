@@ -9,7 +9,7 @@
 
 #![deny(missing_docs)]
 
-extern crate libc;
+
 
 /// Types for which it is safe to initialize from raw data.
 ///
