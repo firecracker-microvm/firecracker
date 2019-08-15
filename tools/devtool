@@ -455,6 +455,20 @@ cmd_build() {
     # Cargo uses the debug profile by default. If we're building the release
     # binaries, we need to pass an extra argument to cargo.
     cargo_args=("$@")
+    
+    # Add the default target if we did not get that argument in the build command.
+    add_default_target=true
+    for flag in "${@}"; do
+        if [[ "$flag" == "--" ]]; then
+            break
+        elif [[ "$flag" == "--target" || "$flag" =~ --target=.* ]]; then
+            add_default_target=false
+        fi
+    done
+
+    if [ "$add_default_target" = true ]; then
+        cargo_args+=(--target "$target")
+    fi
 
     [ $profile = "release" ] && cargo_args+=("--release")
 
@@ -471,7 +485,6 @@ cmd_build() {
         -- \
         cargo build \
             --target-dir "$CTR_CARGO_TARGET_DIR" \
-            --target "$target" \
             "${cargo_args[@]}"
     ret=$?
 
@@ -479,18 +492,8 @@ cmd_build() {
     # accessible location.
     [ $ret -eq 0 ] && {
         cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
-        friendly_bin_dir="$FC_BUILD_DIR/$profile-$libc"
         say "Build successful."
-
-        mkdir -p "$friendly_bin_dir"
-        [ $? -eq 0 ] || {
-            say_warn "Unable to create dir $friendly_bin_dir."
-            say_warn "Binaries placed under $cargo_bin_dir/"
-            return $ret
-        }
-        cp -f "$cargo_bin_dir"/{firecracker,jailer} "$friendly_bin_dir/"
-        say "Build complete."
-        say "Binaries placed under $friendly_bin_dir"
+        say "Binaries placed under $cargo_bin_dir"
     }
 
     return $ret
