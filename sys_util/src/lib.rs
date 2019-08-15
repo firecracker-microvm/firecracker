@@ -7,7 +7,7 @@
 
 //! Small system utility modules for usage by other modules.
 
-extern crate libc;
+use libc;
 use libc::c_int;
 
 #[macro_use]
