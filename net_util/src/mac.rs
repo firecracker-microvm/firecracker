@@ -95,7 +95,7 @@ impl<'de> Deserialize<'de> for MacAddr {
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
+    use serde_json;
 
     use super::*;
 

@@ -10,11 +10,11 @@
 #[cfg(test)]
 #[macro_use]
 extern crate lazy_static;
-extern crate libc;
-extern crate serde;
+use libc;
 
-extern crate net_gen;
-extern crate sys_util;
+
+use net_gen;
+
 
 mod mac;
 mod tap;

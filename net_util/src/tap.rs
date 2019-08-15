@@ -254,7 +254,7 @@ impl AsRawFd for Tap {
 
 #[cfg(test)]
 mod tests {
-    extern crate pnet;
+    use pnet;
 
     use std::net::Ipv4Addr;
     use std::str;
@@ -396,7 +396,7 @@ mod tests {
     // For a given interface name, this returns a tuple that contains the MAC address of the
     // interface, an object that can be used to send Ethernet frames, and a receiver of
     // Ethernet frames arriving at the specified interface.
-    fn pnet_get_mac_tx_rx(ifname: String) -> (MacAddr, Box<DataLinkSender>, Box<DataLinkReceiver>) {
+    fn pnet_get_mac_tx_rx(ifname: String) -> (MacAddr, Box<dyn DataLinkSender>, Box<dyn DataLinkReceiver>) {
         let interface_name_matches = |iface: &NetworkInterface| iface.name == ifname;
 
         // Find the network interface with the provided name.
