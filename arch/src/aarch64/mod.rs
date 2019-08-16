@@ -25,7 +25,7 @@ impl From<Error> for super::Error {
 }
 
 pub use self::fdt::DeviceInfoForFDT;
-use DeviceType;
+use self::DeviceType;
 
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.
