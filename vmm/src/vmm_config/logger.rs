@@ -46,10 +46,12 @@ pub struct LoggerConfig {
     pub options: Value,
 }
 
+#[allow(dead_code)]
 fn default_level() -> LoggerLevel {
     LoggerLevel::Warning
 }
 
+#[allow(dead_code)]
 fn default_log_options() -> Value {
     Value::Array(vec![])
 }
