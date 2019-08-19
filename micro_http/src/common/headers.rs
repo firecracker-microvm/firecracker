@@ -156,6 +156,15 @@ impl Headers {
         self.expect
     }
 
+    #[cfg(test)]
+    pub fn new(content_length: i32, expect: bool, chunked: bool) -> Self {
+        Headers {
+            content_length,
+            expect,
+            chunked,
+        }
+    }
+
     /// Parses a byte slice into a Headers structure for a HTTP request.
     ///
     /// The byte slice is expected to have the following format: </br>

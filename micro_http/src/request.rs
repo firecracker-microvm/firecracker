@@ -124,6 +124,15 @@ impl RequestLine {
     fn min_len() -> usize {
         Method::Get.raw().len() + 1 + Version::Http10.raw().len() + 2
     }
+
+    #[cfg(test)]
+    pub fn new(method: Method, uri: &str, http_version: Version) -> Self {
+        RequestLine {
+            method,
+            uri: Uri::new(uri),
+            http_version,
+        }
+    }
 }
 
 /// Wrapper over an HTTP Request.

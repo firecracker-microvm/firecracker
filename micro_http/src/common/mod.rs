@@ -28,6 +28,19 @@ pub enum RequestError {
     InvalidRequest,
 }
 
+/// Errors associated with a HTTP Connection.
+#[derive(Debug)]
+pub enum ConnectionError {
+    /// The request parsing has failed.
+    ParseError(RequestError),
+    /// Could not perform a stream operation successfully.
+    StreamError(std::io::Error),
+    /// Attempted to read or write on a closed connection.
+    ConnectionClosed,
+    /// Attempted to write on a stream when there was nothing to write.
+    InvalidWrite,
+}
+
 /// The Body associated with an HTTP Request or Response.
 ///
 /// ## Examples
@@ -160,6 +173,19 @@ impl Version {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl PartialEq for ConnectionError {
+        fn eq(&self, other: &Self) -> bool {
+            use self::ConnectionError::*;
+            match (self, other) {
+                (ParseError(_), ParseError(_)) => true,
+                (ConnectionClosed, ConnectionClosed) => true,
+                (StreamError(_), StreamError(_)) => true,
+                (InvalidWrite, InvalidWrite) => true,
+                _ => false,
+            }
+        }
+    }
 
     #[test]
     fn test_version() {
