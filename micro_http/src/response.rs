@@ -81,7 +81,7 @@ impl ResponseHeaders {
     pub fn write_all<T: Write>(&self, buf: &mut T) -> Result<(), WriteError> {
         buf.write_all(b"Server: Firecracker API")?;
         buf.write_all(&[CR, LF])?;
-        buf.write_all(b"Connection: Closed")?;
+        buf.write_all(b"Connection: keep-alive")?;
         buf.write_all(&[CR, LF])?;
 
         buf.write_all(Header::ContentType.raw())?;
@@ -205,12 +205,12 @@ mod tests {
 
         let expected_response: &'static [u8] = b"HTTP/1.0 200 \r\n\
             Server: Firecracker API\r\n\
-            Connection: Closed\r\n\
+            Connection: keep-alive\r\n\
             Content-Type: text/plain\r\n\
             Content-Length: 14\r\n\r\n\
             This is a test";
 
-        let mut response_buf: [u8; 122] = [0; 122];
+        let mut response_buf: [u8; 126] = [0; 126];
         assert!(response.write_all(&mut response_buf.as_mut()).is_ok());
         assert!(response_buf.as_ref() == expected_response);
 

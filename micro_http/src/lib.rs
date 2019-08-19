@@ -66,15 +66,18 @@
 //! assert_eq!(response.body().unwrap(), Body::new(body));
 //! assert_eq!(response.http_version(), Version::Http10);
 //!
-//! let mut response_buf: [u8; 122] = [0; 122];
+//! let mut response_buf: [u8; 126] = [0; 126];
 //! assert!(response.write_all(&mut response_buf.as_mut()).is_ok());
 //! ```
+
 mod common;
+mod connection;
 mod request;
 mod response;
 use common::ascii;
 use common::headers;
 
+pub use connection::HttpConnection;
 pub use request::{Request, RequestError};
 pub use response::{Response, StatusCode};
 
