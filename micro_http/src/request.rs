@@ -8,11 +8,11 @@ pub use common::RequestError;
 use common::{Body, Method, Version};
 use headers::Headers;
 
-// Helper functions used for parsing the HTTP Request.
-// Finds the first occurrence of the sequence in a byte slice and returns its
-// position in the slice.
-// If no occurrence is found, it returns `None`.
-fn find(bytes: &[u8], sequence: &[u8]) -> Option<usize> {
+/// Finds the first occurence of `sequence` in the `bytes` slice.
+///
+/// Returns the starting position of the `sequence` in `bytes` or `None` if the
+/// `sequence` is not found.
+pub fn find(bytes: &[u8], sequence: &[u8]) -> Option<usize> {
     bytes
         .windows(sequence.len())
         .position(|window| window == sequence)
@@ -22,16 +22,18 @@ fn find(bytes: &[u8], sequence: &[u8]) -> Option<usize> {
 ///
 /// The `Uri` can not be used directly and it is only accessible from an HTTP Request.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Uri<'a> {
-    slice: &'a str,
+pub struct Uri {
+    string: String,
 }
 
-impl<'a> Uri<'a> {
-    fn new(slice: &'a str) -> Self {
-        Uri { slice }
+impl Uri {
+    fn new(slice: &str) -> Self {
+        Uri {
+            string: String::from(slice),
+        }
     }
 
-    fn try_from(bytes: &'a [u8]) -> Result<Self, RequestError> {
+    fn try_from(bytes: &[u8]) -> Result<Self, RequestError> {
         if bytes.is_empty() {
             return Err(RequestError::InvalidUri("Empty URI not allowed."));
         }
@@ -52,11 +54,11 @@ impl<'a> Uri<'a> {
     /// # Errors
     /// Returns an empty byte array when the host or the path are empty/invalid.
     ///
-    pub fn get_abs_path(&self) -> &'a str {
+    pub fn get_abs_path(&self) -> &str {
         const HTTP_SCHEME_PREFIX: &str = "http://";
 
-        if self.slice.starts_with(HTTP_SCHEME_PREFIX) {
-            let without_scheme = &self.slice[HTTP_SCHEME_PREFIX.len()..];
+        if self.string.starts_with(HTTP_SCHEME_PREFIX) {
+            let without_scheme = &self.string[HTTP_SCHEME_PREFIX.len()..];
             if without_scheme.is_empty() {
                 return "";
             }
@@ -67,8 +69,8 @@ impl<'a> Uri<'a> {
                 None => "",
             }
         } else {
-            if self.slice.starts_with('/') {
-                return &self.slice;
+            if self.string.starts_with('/') {
+                return self.string.as_str();
             }
 
             ""
@@ -76,14 +78,15 @@ impl<'a> Uri<'a> {
     }
 }
 
+/// Wrapper over an HTTP Request Line.
 #[derive(Debug, PartialEq)]
-struct RequestLine<'a> {
+pub struct RequestLine {
     method: Method,
-    uri: Uri<'a>,
+    uri: Uri,
     http_version: Version,
 }
 
-impl<'a> RequestLine<'a> {
+impl RequestLine {
     fn parse_request_line(request_line: &[u8]) -> (&[u8], &[u8], &[u8]) {
         if let Some(method_end) = find(request_line, &[SP]) {
             let method = &request_line[..method_end];
@@ -104,7 +107,8 @@ impl<'a> RequestLine<'a> {
         (b"", b"", b"")
     }
 
-    fn try_from(request_line: &'a [u8]) -> Result<Self, RequestError> {
+    /// Tries to parse a byte stream in a request line. Fails if the request line is malformed.
+    pub fn try_from(request_line: &[u8]) -> Result<Self, RequestError> {
         let (method, uri, version) = RequestLine::parse_request_line(request_line);
 
         Ok(RequestLine {
@@ -125,13 +129,16 @@ impl<'a> RequestLine<'a> {
 /// Wrapper over an HTTP Request.
 #[allow(unused)]
 #[derive(Debug)]
-pub struct Request<'a> {
-    request_line: RequestLine<'a>,
-    headers: Headers,
-    body: Option<Body>,
+pub struct Request {
+    /// The request line of the request.
+    pub request_line: RequestLine,
+    /// The headers of the request.
+    pub headers: Headers,
+    /// The body of the request.
+    pub body: Option<Body>,
 }
 
-impl<'a> Request<'a> {
+impl Request {
     /// Parses a byte slice into a HTTP Request.
     ///
     /// The byte slice is expected to have the following format: </br>
@@ -154,7 +161,7 @@ impl<'a> Request<'a> {
     ///
     /// let http_request = Request::try_from(b"GET http://localhost/home HTTP/1.0\r\n");
     /// ```
-    pub fn try_from(byte_stream: &'a [u8]) -> Result<Self, RequestError> {
+    pub fn try_from(byte_stream: &[u8]) -> Result<Self, RequestError> {
         // The first line of the request is the Request Line. The line ending is CR LF.
         let request_line_end = match find(byte_stream, &[CR, LF]) {
             Some(len) => len,
@@ -246,10 +253,13 @@ impl<'a> Request<'a> {
 mod tests {
     use super::*;
 
-    impl<'a> PartialEq for Request<'a> {
+    impl PartialEq for Request {
         fn eq(&self, other: &Request) -> bool {
             // Ignore the other fields of Request for now because they are not used.
             self.request_line == other.request_line
+                && self.headers.content_length() == other.headers.content_length()
+                && self.headers.expect() == other.headers.expect()
+                && self.headers.chunked() == other.headers.chunked()
         }
     }
 
@@ -349,6 +359,20 @@ mod tests {
 
         // Test for invalid HTTP version.
         let request_line = b"GET http://localhost/home HTTP/2.0";
+        assert_eq!(
+            RequestLine::try_from(request_line).unwrap_err(),
+            RequestError::InvalidHttpVersion("Unsupported HTTP version.")
+        );
+
+        // Test for invalid format with no method, uri or version.
+        let request_line = b"nothing";
+        assert_eq!(
+            RequestLine::try_from(request_line).unwrap_err(),
+            RequestError::InvalidHttpMethod("Unsupported HTTP method.")
+        );
+
+        // Test for invalid format with no version.
+        let request_line = b"GET /";
         assert_eq!(
             RequestLine::try_from(request_line).unwrap_err(),
             RequestError::InvalidHttpVersion("Unsupported HTTP version.")
