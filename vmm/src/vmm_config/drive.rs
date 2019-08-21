@@ -36,24 +36,23 @@ pub enum DriveError {
 impl Display for DriveError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::DriveError::*;
-        match *self {
-            CannotOpenBlockDevice => {
-                write!(f, "Cannot open block device. Invalid permission/path.")
+        write!(
+            f,
+            "{}",
+            match *self {
+                CannotOpenBlockDevice => "Cannot open block device. Invalid permission/path.",
+                InvalidBlockDeviceID => "Invalid block device ID!",
+                InvalidBlockDevicePath => "Invalid block device path!",
+                BlockDevicePathAlreadyExists => {
+                    "The block device path was already added to a different drive!"
+                }
+                EpollHandlerNotFound => "Error retrieving device epoll handler!",
+                BlockDeviceUpdateFailed => "The update operation failed!",
+                OperationNotAllowedPreBoot => "Operation not allowed pre-boot!",
+                RootBlockDeviceAlreadyAdded => "A root block device already exists!",
+                UpdateNotAllowedPostBoot => "The update operation is not allowed after boot.",
             }
-            InvalidBlockDeviceID => write!(f, "Invalid block device ID!"),
-            InvalidBlockDevicePath => write!(f, "Invalid block device path!"),
-            BlockDevicePathAlreadyExists => write!(
-                f,
-                "The block device path was already added to a different drive!"
-            ),
-            EpollHandlerNotFound => write!(f, "Error retrieving device epoll handler!"),
-            BlockDeviceUpdateFailed => write!(f, "The update operation failed!"),
-            OperationNotAllowedPreBoot => write!(f, "Operation not allowed pre-boot!"),
-            RootBlockDeviceAlreadyAdded => write!(f, "A root block device already exists!"),
-            UpdateNotAllowedPostBoot => {
-                write!(f, "The update operation is not allowed after boot.")
-            }
-        }
+        )
     }
 }
 

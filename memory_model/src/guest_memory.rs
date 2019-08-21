@@ -43,6 +43,7 @@ pub struct MemoryRegion {
 }
 
 impl MemoryRegion {
+    /// Returns the size of the memory region in bytes.
     pub fn size(&self) -> usize {
         self.mapping.size()
     }
@@ -133,7 +134,7 @@ impl GuestMemory {
         None
     }
 
-    /// Returns the size of the memory region in bytes.
+    /// Returns the size of the memory region.
     pub fn num_regions(&self) -> usize {
         self.regions.len()
     }
