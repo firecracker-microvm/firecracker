@@ -619,11 +619,15 @@ impl EpollContext {
         self.dispatch_table[self.stdin_index as usize] = None;
     }
 
-    fn add_event<T>(&mut self, fd: T, token: EpollDispatch) -> Result<EpollEvent<T>>
-    where
-        T: AsRawFd,
-    {
+    /// Given a file descriptor `fd`, and an EpollDispatch token `token`,
+    /// associate `token` with an `EPOLLIN` event for `fd`, through the
+    /// `dispatch_table`.
+    fn add_event<T: AsRawFd>(&mut self, fd: &T, token: EpollDispatch) -> Result<()> {
+        // The index in the dispatch where the new token will be added.
         let dispatch_index = self.dispatch_table.len() as u64;
+
+        // Add a new epoll event on `fd`, associated with index
+        // `dispatch_index`.
         epoll::ctl(
             self.epoll_raw_fd,
             epoll::ControlOptions::EPOLL_CTL_ADD,
@@ -796,14 +800,17 @@ impl Vmm {
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
-        let api_event = epoll_context
-            .add_event(api_event_fd, EpollDispatch::VmmActionRequest)
+        epoll_context
+            .add_event(&api_event_fd, EpollDispatch::VmmActionRequest)
             .expect("Cannot add API eventfd to epoll.");
 
-        let write_metrics_event = epoll_context
+        let write_metrics_event_fd =
+            TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?;
+
+        epoll_context
             .add_event(
                 // non-blocking & close on exec
-                TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?,
+                &write_metrics_event_fd,
                 EpollDispatch::WriteMetrics,
             )
             .expect("Cannot add write metrics TimerFd to epoll.");
@@ -1373,23 +1380,24 @@ impl Vmm {
     }
 
     fn register_events(&mut self) -> std::result::Result<(), StartMicrovmError> {
+        use StartMicrovmError::*;
+
         // If the lock is poisoned, it's OK to panic.
-        let event_fd = self
+        let exit_poll_evt_fd = self
             .legacy_device_manager
             .i8042
             .lock()
             .expect("Failed to register events on the event fd due to poisoned lock")
             .get_reset_evt_clone()
-            .map_err(|_| StartMicrovmError::EventFd)?;
-        let exit_epoll_evt = self
-            .epoll_context
-            .add_event(event_fd, EpollDispatch::Exit)
-            .map_err(|_| StartMicrovmError::RegisterEvent)?;
-        self.exit_evt = Some(exit_epoll_evt);
+            .map_err(|_| EventFd)?;
 
         self.epoll_context
-            .enable_stdin_event()
-            .map_err(|_| StartMicrovmError::RegisterEvent)?;
+            .add_event(&exit_poll_evt_fd, EpollDispatch::Exit)
+            .map_err(|_| RegisterEvent)?;
+
+        self.exit_evt = Some(exit_poll_evt_fd);
+
+        self.epoll_context.enable_stdin_event();
 
         Ok(())
     }
@@ -2632,8 +2640,7 @@ mod tests {
         let evfd = EventFd::new().unwrap();
 
         // adding new event should work
-        let epev = ep.add_event(evfd, EpollDispatch::Exit);
-        assert!(epev.is_ok());
+        assert!(ep.add_event(&evfd, EpollDispatch::Exit).is_ok());
     }
 
     #[test]
@@ -2642,9 +2649,7 @@ mod tests {
         let evfd = EventFd::new().unwrap();
 
         // adding new event should work
-        let epev = ep.add_event(evfd, EpollDispatch::Exit);
-        assert!(epev.is_ok());
-        let epev = epev.unwrap();
+        assert!(ep.add_event(&evfd, EpollDispatch::Exit).is_ok());
 
         let evpoll_events_len = 10;
         let mut events = vec![epoll::Event::new(epoll::Events::empty(), 0); evpoll_events_len];
