@@ -78,7 +78,9 @@ use fc_util::{get_time, ClockType};
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
-use logger::{AppInfo, Level, LogOption, Metric, LOGGER, METRICS};
+#[cfg(target_arch = "x86_64")]
+use logger::LogOption;
+use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use net_util::TapError;
 #[cfg(target_arch = "aarch64")]
