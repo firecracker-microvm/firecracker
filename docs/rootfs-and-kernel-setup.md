@@ -113,6 +113,7 @@ Alpine Linux:
    # Make sure special file systems are mounted on boot:
    rc-update add devfs boot
    rc-update add procfs boot
+   rc-update add sysfs boot
   
    # Then, copy the newly configured system to the rootfs image:
    for d in bin etc lib root sbin usr; do tar c "/$d" | tar x -C /my-rootfs; done
