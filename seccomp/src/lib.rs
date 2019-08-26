@@ -182,8 +182,8 @@
 //!             libc::SYS_write,
 //!             vec![SeccompRule::new(
 //!                 vec![
-//!                     SeccompCondition::new(0, SeccompCmpOp::Eq, libc::STDOUT_FILENO as u64).unwrap(),
-//!                     SeccompCondition::new(2, SeccompCmpOp::Eq, 13).unwrap(),
+//!                     SeccompCondition::new(0, SeccompCmpArgLen::DWORD, SeccompCmpOp::Eq, libc::STDOUT_FILENO as u64).unwrap(),
+//!                     SeccompCondition::new(2, SeccompCmpArgLen::QWORD, SeccompCmpOp::Eq, 13).unwrap(),
 //!                 ],
 //!                 SeccompAction::Allow,
 //!             )],
@@ -359,6 +359,7 @@ impl Display for Error {
 type Result<T> = std::result::Result<T, Error>;
 
 /// Comparison to perform when matching a condition.
+#[derive(Clone)]
 pub enum SeccompCmpOp {
     /// Argument value is equal to the specified value.
     Eq,
@@ -376,10 +377,22 @@ pub enum SeccompCmpOp {
     Ne,
 }
 
+/// Seccomp argument length.
+#[derive(Clone)]
+pub enum SeccompCmpArgLen {
+    /// Argument length is 4 bytes.
+    DWORD,
+    /// Argument length is 8 bytes.
+    QWORD,
+}
+
 /// Condition that syscall must match in order to satisfy a rule.
+#[derive(Clone)]
 pub struct SeccompCondition {
     /// Number of the argument value that is to be compared.
     arg_number: u8,
+    /// Length of the argument that is to be compared.
+    arg_len: SeccompCmpArgLen,
     /// Comparison to perform.
     operator: SeccompCmpOp,
     /// The value that will be compared with the argument value.
@@ -387,6 +400,7 @@ pub struct SeccompCondition {
 }
 
 /// Actions that `seccomp` can apply to process calling a syscall.
+#[derive(Clone)]
 pub enum SeccompAction {
     /// Allows syscall.
     Allow,
@@ -407,6 +421,7 @@ pub enum SeccompAction {
 /// If all conditions match then rule gets matched.
 /// The action of the first rule that matches will be applied to the calling process.
 /// If no rule matches the default action is applied.
+#[derive(Clone)]
 pub struct SeccompRule {
     /// Conditions of rule that need to match in order for the rule to get matched.
     conditions: Vec<SeccompCondition>,
@@ -474,7 +489,12 @@ impl SeccompCondition {
     ///
     /// [`SeccompCondition`]: struct.SeccompCondition.html
     ///
-    pub fn new(arg_number: u8, operator: SeccompCmpOp, value: u64) -> Result<Self> {
+    pub fn new(
+        arg_number: u8,
+        arg_len: SeccompCmpArgLen,
+        operator: SeccompCmpOp,
+        value: u64,
+    ) -> Result<Self> {
         // Checks that the given argument number is valid.
         if arg_number > ARG_NUMBER_MAX {
             return Err(Error::InvalidArgumentNumber);
@@ -482,6 +502,7 @@ impl SeccompCondition {
 
         Ok(Self {
             arg_number,
+            arg_len,
             operator,
             value,
         })
@@ -535,12 +556,20 @@ impl SeccompCondition {
     ///
     fn into_eq_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
-        vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
-            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+
+        let mut bpf = match self.arg_len {
+            SeccompCmpArgLen::DWORD => vec![],
+            SeccompCmpArgLen::QWORD => vec![
+                BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
+                BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+            ],
+        };
+
+        bpf.append(&mut vec![
             BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, lsb, 0, offset),
-        ]
+        ]);
+        bpf
     }
 
     /// Translates the `ge` (greater than or equal) condition into BPF statements.
@@ -551,13 +580,21 @@ impl SeccompCondition {
     ///
     fn into_ge_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
-        vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
-            BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
-            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+
+        let mut bpf = match self.arg_len {
+            SeccompCmpArgLen::DWORD => vec![],
+            SeccompCmpArgLen::QWORD => vec![
+                BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
+                BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
+                BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+            ],
+        };
+
+        bpf.append(&mut vec![
             BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, lsb, 0, offset),
-        ]
+        ]);
+        bpf
     }
 
     /// Translates the `gt` (greater than) condition into BPF statements.
@@ -568,13 +605,21 @@ impl SeccompCondition {
     ///
     fn into_gt_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
-        vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
-            BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
-            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+
+        let mut bpf = match self.arg_len {
+            SeccompCmpArgLen::DWORD => vec![],
+            SeccompCmpArgLen::QWORD => vec![
+                BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
+                BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
+                BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
+            ],
+        };
+
+        bpf.append(&mut vec![
             BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, lsb, 0, offset),
-        ]
+        ]);
+        bpf
     }
 
     /// Translates the `le` (less than or equal) condition into BPF statements.
@@ -585,13 +630,21 @@ impl SeccompCondition {
     ///
     fn into_le_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
-        vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
-            BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
-            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
+
+        let mut bpf = match self.arg_len {
+            SeccompCmpArgLen::DWORD => vec![],
+            SeccompCmpArgLen::QWORD => vec![
+                BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
+                BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
+                BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
+            ],
+        };
+
+        bpf.append(&mut vec![
             BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, lsb, offset, 0),
-        ]
+        ]);
+        bpf
     }
 
     /// Translates the `lt` (less than) condition into BPF statements.
@@ -602,13 +655,21 @@ impl SeccompCondition {
     ///
     fn into_lt_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
-        vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
-            BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
-            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
+
+        let mut bpf = match self.arg_len {
+            SeccompCmpArgLen::DWORD => vec![],
+            SeccompCmpArgLen::QWORD => vec![
+                BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
+                BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
+                BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
+            ],
+        };
+
+        bpf.append(&mut vec![
             BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, lsb, offset, 0),
-        ]
+        ]);
+        bpf
     }
 
     /// Translates the `masked_eq` (masked equal) condition into BPF statements.
@@ -626,14 +687,21 @@ impl SeccompCondition {
         let (msb, lsb) = ((masked_value >> 32) as u32, masked_value as u32);
         let (mask_msb, mask_lsb) = ((mask >> 32) as u32, mask as u32);
 
-        vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
-            BPF_STMT(BPF_ALU + BPF_AND + BPF_K, mask_msb),
-            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 3),
+        let mut bpf = match self.arg_len {
+            SeccompCmpArgLen::DWORD => vec![],
+            SeccompCmpArgLen::QWORD => vec![
+                BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
+                BPF_STMT(BPF_ALU + BPF_AND + BPF_K, mask_msb),
+                BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 3),
+            ],
+        };
+
+        bpf.append(&mut vec![
             BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_STMT(BPF_ALU + BPF_AND + BPF_K, mask_lsb),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, lsb, 0, offset),
-        ]
+        ]);
+        bpf
     }
 
     /// Translates the `ne` (not equal) condition into BPF statements.
@@ -644,12 +712,20 @@ impl SeccompCondition {
     ///
     fn into_ne_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
-        vec![
-            BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
-            BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
+
+        let mut bpf = match self.arg_len {
+            SeccompCmpArgLen::DWORD => vec![],
+            SeccompCmpArgLen::QWORD => vec![
+                BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
+                BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
+            ],
+        };
+
+        bpf.append(&mut vec![
             BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(lsb_offset)),
             BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, lsb, offset, 0),
-        ]
+        ]);
+        bpf
     }
 
     /// Translates the [`SeccompCondition`] into BPF statements.
@@ -1057,19 +1133,504 @@ fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::thread;
+    use SeccompCmpArgLen as ArgLen;
     use SeccompCmpOp::*;
     use SeccompCondition as Cond;
+
+    // The type of the `req` parameter is different for the `musl` library. This will enable
+    // successful build for other non-musl libraries.
+    #[cfg(target_env = "musl")]
+    type IoctlRequest = i32;
+    #[cfg(not(target_env = "musl"))]
+    type IoctlRequest = u64;
+
+    // We use KVM_GET_PIT2 as the second parameter for ioctl syscalls in some unit tests
+    // because it's a corner case. More details
+    // [here](https://github.com/firecracker-microvm/firecracker/issues/1206)
+    const KVM_GET_PIT2: u64 = 0x8070_ae9f;
+    const KVM_GET_PIT2_MSB: u64 = 0x0000_ae9f;
+    const KVM_GET_PIT2_LSB: u64 = 0x8070_0000;
+
+    const EXTRA_SYSCALLS: [i64; 5] = [
+        libc::SYS_rt_sigprocmask,
+        libc::SYS_sigaltstack,
+        libc::SYS_munmap,
+        libc::SYS_exit,
+        libc::SYS_rt_sigreturn,
+    ];
+
+    fn validate_seccomp_filter(
+        rules: Vec<(i64, Vec<SeccompRule>)>,
+        validation_fn: fn(),
+        should_trigger_sigsys: bool,
+    ) {
+        let mut filter =
+            SeccompFilter::new(rules.into_iter().collect(), SeccompAction::Kill).unwrap();
+
+        let triggered_sigsys: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
+        let shared_triggered_sigsys = triggered_sigsys.clone();
+
+        // We need 2 threads here: in case of a seccomp denial, the inner thread will be killed
+        // and the outter thread will fail. The execution will be returned to the instruction
+        // that follows the outter thread `join()` method.
+        let outter_thread = thread::spawn(move || {
+            let inner_thread = thread::spawn(move || {
+                // whitelist needed syscalls
+                for syscall in EXTRA_SYSCALLS.iter() {
+                    assert!(filter
+                        .add_rules(
+                            *syscall,
+                            vec![SeccompRule::new(vec![], SeccompAction::Allow)],
+                        )
+                        .is_ok());
+                }
+                // apply filter
+                assert!(filter.apply().is_ok());
+
+                // call validation fn
+                validation_fn();
+
+                // if we reach this point, then SIGSYS hasn't been triggered
+                shared_triggered_sigsys.store(false, Ordering::Relaxed);
+            })
+            .join();
+
+            if !should_trigger_sigsys {
+                assert!(inner_thread.is_ok());
+            }
+        })
+        .join();
+
+        if !should_trigger_sigsys {
+            assert!(outter_thread.is_ok());
+        }
+
+        assert_eq!(
+            triggered_sigsys.load(Ordering::Relaxed),
+            should_trigger_sigsys
+        );
+    }
+
+    #[test]
+    fn test_eq_operator() {
+        // check use cases for SeccompCmpArgLen::DWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Eq, KVM_GET_PIT2).unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, KVM_GET_PIT2 as IoctlRequest);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0);
+            },
+            true,
+        );
+
+        // check use cases for SeccompCmpArgLen::QWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(2, SeccompCmpArgLen::QWORD, Eq, std::u64::MAX).unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, std::u64::MAX);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0, 0);
+            },
+            true,
+        );
+    }
+
+    #[test]
+    fn test_ge_operator() {
+        // check use case for SeccompCmpArgLen::DWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Ge, KVM_GET_PIT2).unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, KVM_GET_PIT2 as IoctlRequest);
+                libc::ioctl(0, (KVM_GET_PIT2 + 1) as IoctlRequest);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, (KVM_GET_PIT2 - 1) as IoctlRequest);
+            },
+            true,
+        );
+
+        // check use case for SeccompCmpArgLen::QWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(2, SeccompCmpArgLen::QWORD, Ge, u64::from(std::u32::MAX)).unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX));
+                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 1);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, 1);
+            },
+            true,
+        );
+    }
+
+    #[test]
+    fn test_gt_operator() {
+        // check use case for SeccompCmpArgLen::DWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Gt, KVM_GET_PIT2).unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, (KVM_GET_PIT2 + 1) as IoctlRequest);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, KVM_GET_PIT2 as IoctlRequest);
+            },
+            true,
+        );
+
+        // check use case for SeccompCmpArgLen::QWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(
+                    2,
+                    SeccompCmpArgLen::QWORD,
+                    Gt,
+                    u64::from(std::u32::MAX) + 10,
+                )
+                .unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 11);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 10);
+            },
+            true,
+        );
+    }
+
+    #[test]
+    fn test_le_operator() {
+        // check use case for SeccompCmpArgLen::DWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Le, KVM_GET_PIT2).unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, KVM_GET_PIT2 as IoctlRequest);
+                libc::ioctl(0, (KVM_GET_PIT2 - 1) as IoctlRequest);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, (KVM_GET_PIT2 + 1) as IoctlRequest);
+            },
+            true,
+        );
+
+        // check use case for SeccompCmpArgLen::QWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(
+                    2,
+                    SeccompCmpArgLen::QWORD,
+                    Le,
+                    u64::from(std::u32::MAX) + 10,
+                )
+                .unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 10);
+                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 9);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 11);
+            },
+            true,
+        );
+    }
+
+    #[test]
+    fn test_lt_operator() {
+        // check use case for SeccompCmpArgLen::DWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Lt, KVM_GET_PIT2).unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, (KVM_GET_PIT2 - 1) as IoctlRequest);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, KVM_GET_PIT2 as IoctlRequest);
+            },
+            true,
+        );
+
+        // check use case for SeccompCmpArgLen::QWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(
+                    2,
+                    SeccompCmpArgLen::QWORD,
+                    Lt,
+                    u64::from(std::u32::MAX) + 10,
+                )
+                .unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 9);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 10);
+            },
+            true,
+        );
+    }
+
+    #[test]
+    fn test_masked_eq_operator() {
+        // check use case for SeccompCmpArgLen::DWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(
+                    1,
+                    SeccompCmpArgLen::DWORD,
+                    MaskedEq(KVM_GET_PIT2_MSB),
+                    KVM_GET_PIT2,
+                )
+                .unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, KVM_GET_PIT2 as IoctlRequest);
+                libc::ioctl(0, KVM_GET_PIT2_MSB as IoctlRequest);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, KVM_GET_PIT2_LSB as IoctlRequest);
+            },
+            true,
+        );
+
+        // check use case for SeccompCmpArgLen::QWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(
+                    2,
+                    SeccompCmpArgLen::QWORD,
+                    MaskedEq(u64::from(std::u32::MAX)),
+                    std::u64::MAX,
+                )
+                .unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX));
+                libc::ioctl(0, 0 as IoctlRequest, std::u64::MAX);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, 0);
+            },
+            true,
+        );
+    }
+
+    #[test]
+    fn test_ne_operator() {
+        // check use case for SeccompCmpArgLen::DWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Ne, KVM_GET_PIT2).unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, KVM_GET_PIT2 as IoctlRequest);
+            },
+            true,
+        );
+
+        // check use case for SeccompCmpArgLen::QWORD
+        let rules = vec![allow_syscall_if(
+            libc::SYS_ioctl,
+            vec![SeccompRule::new(
+                vec![Cond::new(2, SeccompCmpArgLen::QWORD, Ne, std::u64::MAX).unwrap()],
+                SeccompAction::Allow,
+            )],
+        )];
+        // check syscalls that are supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, 0);
+            },
+            false,
+        );
+        // check syscalls that are not supposed to work
+        validate_seccomp_filter(
+            rules.clone(),
+            || unsafe {
+                libc::ioctl(0, 0 as IoctlRequest, std::u64::MAX);
+            },
+            true,
+        );
+    }
 
     // Checks that rule gets translated correctly into BPF statements.
     #[test]
     fn test_rule_bpf_output() {
-        assert!(Cond::new(6, Eq, 1).is_err());
+        assert!(Cond::new(6, ArgLen::QWORD, Eq, 1).is_err());
 
         // Builds rule.
         let rule = SeccompRule::new(
             vec![
-                Cond::new(0, Eq, 1).unwrap(),
-                Cond::new(2, MaskedEq(0b1010), 14).unwrap(),
+                Cond::new(0, ArgLen::DWORD, Eq, 1).unwrap(),
+                Cond::new(2, ArgLen::QWORD, MaskedEq(0b1010), 14).unwrap(),
             ],
             SeccompAction::Allow,
         );
@@ -1089,15 +1650,13 @@ mod tests {
         // Builds hardcoded BPF instructions.
         let instructions = vec![
             BPF_STMT(0x05, 1),
-            BPF_STMT(0x05, 12),
+            BPF_STMT(0x05, 10),
             BPF_STMT(0x20, 32 + msb_offset),
             BPF_STMT(0x54, 0),
-            BPF_JUMP(0x15, 0, 0, 8),
+            BPF_JUMP(0x15, 0, 0, 6),
             BPF_STMT(0x20, 32 + lsb_offset),
             BPF_STMT(0x54, 0b1010),
-            BPF_JUMP(0x15, 14 & 0b1010, 0, 5),
-            BPF_STMT(0x20, 16 + msb_offset),
-            BPF_JUMP(0x15, 0, 0, 3),
+            BPF_JUMP(0x15, 14 & 0b1010, 0, 3),
             BPF_STMT(0x20, 16 + lsb_offset),
             BPF_JUMP(0x15, 1, 0, 1),
             BPF_STMT(0x06, 0x7fff_0000),
@@ -1114,9 +1673,9 @@ mod tests {
         // Builds rule.
         let mut conditions = Vec::with_capacity(43);
         for _ in 0..42 {
-            conditions.push(Cond::new(0, MaskedEq(0), 0).unwrap());
+            conditions.push(Cond::new(0, ArgLen::QWORD, MaskedEq(0), 0).unwrap());
         }
-        conditions.push(Cond::new(0, Eq, 0).unwrap());
+        conditions.push(Cond::new(0, ArgLen::QWORD, Eq, 0).unwrap());
         let rule = SeccompRule::new(conditions, SeccompAction::Allow);
 
         // Calculates architecture dependent argument value offsets.
@@ -1161,35 +1720,36 @@ mod tests {
         assert_eq!(rule.into_bpf(), instructions);
     }
 
-    #[test]
-    fn test_filter_bpf_output() {
-        // Compares translated filter with hardcoded BPF program.
-        {
-            let mut empty_rule_map = BTreeMap::new();
-            empty_rule_map.insert(1, vec![]);
-            assert!(SeccompFilter::new(empty_rule_map, SeccompAction::Allow).is_err());
-        }
-
-        let filter = SeccompFilter::new(
+    fn create_test_bpf_filter(arg_len: ArgLen) -> SeccompFilter {
+        SeccompFilter::new(
             vec![
                 allow_syscall_if(
                     1,
                     vec![
                         SeccompRule::new(
-                            vec![Cond::new(2, Le, 14).unwrap(), Cond::new(2, Ne, 10).unwrap()],
+                            vec![
+                                Cond::new(2, arg_len.clone(), Le, 14).unwrap(),
+                                Cond::new(2, arg_len.clone(), Ne, 10).unwrap(),
+                            ],
                             SeccompAction::Allow,
                         ),
                         SeccompRule::new(
-                            vec![Cond::new(2, Gt, 20).unwrap(), Cond::new(2, Lt, 30).unwrap()],
+                            vec![
+                                Cond::new(2, arg_len.clone(), Gt, 20).unwrap(),
+                                Cond::new(2, arg_len.clone(), Lt, 30).unwrap(),
+                            ],
                             SeccompAction::Allow,
                         ),
-                        SeccompRule::new(vec![Cond::new(2, Ge, 42).unwrap()], SeccompAction::Allow),
+                        SeccompRule::new(
+                            vec![Cond::new(2, arg_len.clone(), Ge, 42).unwrap()],
+                            SeccompAction::Allow,
+                        ),
                     ],
                 ),
                 allow_syscall_if(
                     9,
                     vec![SeccompRule::new(
-                        vec![Cond::new(1, MaskedEq(0b100), 36).unwrap()],
+                        vec![Cond::new(1, arg_len.clone(), MaskedEq(0b100), 36).unwrap()],
                         SeccompAction::Allow,
                     )],
                 ),
@@ -1198,7 +1758,68 @@ mod tests {
             .collect(),
             SeccompAction::Trap,
         )
-        .unwrap();
+        .unwrap()
+    }
+
+    #[test]
+    fn test_filter_bpf_output_dword() {
+        // Compares translated filter with hardcoded BPF program.
+        {
+            let mut empty_rule_map = BTreeMap::new();
+            empty_rule_map.insert(1, vec![]);
+            assert!(SeccompFilter::new(empty_rule_map, SeccompAction::Allow).is_err());
+        }
+
+        let filter = create_test_bpf_filter(ArgLen::DWORD);
+
+        let instructions = vec![
+            BPF_STMT(0x20, 0),
+            BPF_JUMP(0x15, 1, 0, 1),
+            BPF_STMT(0x05, 1),
+            BPF_STMT(0x05, 6),
+            BPF_STMT(0x20, 32),
+            BPF_JUMP(0x15, 10, 3, 0),
+            BPF_STMT(0x20, 32),
+            BPF_JUMP(0x25, 14, 1, 0),
+            BPF_STMT(0x06, 0x7fff_0000),
+            BPF_STMT(0x05, 1),
+            BPF_STMT(0x05, 6),
+            BPF_STMT(0x20, 32),
+            BPF_JUMP(0x35, 30, 3, 0),
+            BPF_STMT(0x20, 32),
+            BPF_JUMP(0x25, 20, 0, 1),
+            BPF_STMT(0x06, 0x7fff_0000),
+            BPF_STMT(0x05, 1),
+            BPF_STMT(0x05, 4),
+            BPF_STMT(0x20, 32),
+            BPF_JUMP(0x35, 42, 0, 1),
+            BPF_STMT(0x06, 0x7fff_0000),
+            BPF_STMT(0x06, 0x0003_0000),
+            BPF_JUMP(0x15, 9, 0, 1),
+            BPF_STMT(0x05, 1),
+            BPF_STMT(0x05, 5),
+            BPF_STMT(0x20, 24),
+            BPF_STMT(0x54, 0b100),
+            BPF_JUMP(0x15, 36 & 0b100, 0, 1),
+            BPF_STMT(0x06, 0x7fff_0000),
+            BPF_STMT(0x06, 0x0003_0000),
+            BPF_STMT(0x06, 0x0003_0000),
+        ];
+
+        assert_eq!(filter.into_bpf().unwrap(), instructions);
+    }
+
+    #[test]
+    fn test_filter_bpf_output_qword() {
+        // Compares translated filter with hardcoded BPF program.
+        {
+            let mut empty_rule_map = BTreeMap::new();
+            empty_rule_map.insert(1, vec![]);
+            assert!(SeccompFilter::new(empty_rule_map, SeccompAction::Allow).is_err());
+        }
+
+        let filter = create_test_bpf_filter(ArgLen::QWORD);
+
         let instructions = vec![
             BPF_STMT(0x20, 0),
             BPF_JUMP(0x15, 1, 0, 1),
