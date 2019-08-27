@@ -146,10 +146,10 @@ Running on an EC2 `.metal` instance with an `Amazon Linux 2` AMI:
 ``` sh
 # Get firecracker
 yum install -y git
-git clone https://<user>:<token>@github.com/aws/<firecracker repo>.git
+git clone https://github.com/firecracker-microvm/firecracker.git
 
 # Run all tests
-cd <firecracker repo>
+cd firecracker
 tools/devtool test
 ```
 
