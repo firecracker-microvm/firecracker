@@ -9,6 +9,7 @@ extern crate libc;
 extern crate arch_gen;
 extern crate memory_model;
 
+use std::fmt;
 use std::result;
 
 #[derive(Debug)]
@@ -41,11 +42,17 @@ pub use x86_64::{
 };
 
 /// Types of devices that can get attached to this platform.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Copy)]
 pub enum DeviceType {
     Virtio(u32),
     #[cfg(target_arch = "aarch64")]
     Serial,
     #[cfg(target_arch = "aarch64")]
     RTC,
+}
+
+impl fmt::Display for DeviceType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }

@@ -15,7 +15,7 @@ use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
 use devices;
 use devices::virtio::TYPE_BLOCK;
-use devices::BusDevice;
+use devices::{BusDevice, RawIOHandler};
 use kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
 use memory_model::GuestMemory;
@@ -81,6 +81,7 @@ pub struct MMIODeviceManager {
     irq: u32,
     last_irq: u32,
     id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
+    raw_io_handlers: HashMap<(DeviceType, String), Arc<Mutex<RawIOHandler>>>,
 }
 
 impl MMIODeviceManager {
@@ -100,6 +101,7 @@ impl MMIODeviceManager {
             last_irq: irq_interval.1,
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
+            raw_io_handlers: HashMap::new(),
         }
     }
 
@@ -182,12 +184,21 @@ impl MMIODeviceManager {
             Box::new(io::stdout()),
         );
 
+        let bus_device = Arc::new(Mutex::new(device));
+        let raw_io_device = bus_device.clone();
+
         vm.register_irqfd(com_evt.as_raw_fd(), self.irq)
             .map_err(Error::RegisterIrqFd)?;
 
         self.bus
-            .insert(device, self.mmio_base, MMIO_LEN)
+            .insert(bus_device, self.mmio_base, MMIO_LEN)
             .map_err(|err| Error::BusError(err))?;
+
+        // Register the RawIOHandler trait.
+        self.raw_io_handlers.insert(
+            (DeviceType::Serial, DeviceType::Serial.to_string()),
+            raw_io_device,
+        );
 
         cmdline
             .insert("earlycon", &format!("uart,mmio,0x{:08x}", self.mmio_base))
@@ -195,7 +206,7 @@ impl MMIODeviceManager {
 
         let ret = self.mmio_base;
         self.id_to_dev_info.insert(
-            (DeviceType::Serial, "uart".to_string()),
+            (DeviceType::Serial, DeviceType::Serial.to_string()),
             MMIODeviceInfo {
                 addr: ret,
                 len: MMIO_LEN,
@@ -263,6 +274,13 @@ impl MMIODeviceManager {
             }
         }
         None
+    }
+
+    // Used only on 'aarch64', but needed by unit tests on all platforms.
+    #[allow(dead_code)]
+    pub fn get_raw_io_device(&self, device_type: DeviceType) -> Option<&Arc<Mutex<RawIOHandler>>> {
+        self.raw_io_handlers
+            .get(&(device_type, device_type.to_string()))
     }
 
     /// Update a drive by rebuilding its config space and rewriting it on the bus.
@@ -372,6 +390,8 @@ mod tests {
             Ok(())
         }
     }
+
+    impl devices::RawIOHandler for DummyDevice {}
 
     fn create_vmm_object() -> Vmm {
         let shared_info = Arc::new(RwLock::new(InstanceInfo {
@@ -594,5 +614,29 @@ mod tests {
         assert!(device_manager
             .get_device(DeviceType::Virtio(type_id), &id)
             .is_none());
+    }
+
+    #[test]
+    fn test_raw_io_device() {
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x1000);
+        let guest_mem = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let mut device_manager =
+            MMIODeviceManager::new(guest_mem, &mut 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
+        let dummy_device = Arc::new(Mutex::new(DummyDevice { dummy: 0 }));
+
+        device_manager.raw_io_handlers.insert(
+            (
+                arch::DeviceType::Virtio(1337),
+                arch::DeviceType::Virtio(1337).to_string(),
+            ),
+            dummy_device,
+        );
+
+        let mut raw_io_device = device_manager.get_raw_io_device(arch::DeviceType::Virtio(1337));
+        assert!(raw_io_device.is_some());
+
+        raw_io_device = device_manager.get_raw_io_device(arch::DeviceType::Virtio(7331));
+        assert!(raw_io_device.is_none());
     }
 }
