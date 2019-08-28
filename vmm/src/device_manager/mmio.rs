@@ -180,18 +180,17 @@ impl MMIODeviceManager {
         let device = devices::legacy::Serial::new_out(
             com_evt.try_clone().map_err(Error::EventFd)?,
             Box::new(io::stdout()),
-            Some(4),
         );
 
         vm.register_irqfd(com_evt.as_raw_fd(), self.irq)
             .map_err(Error::RegisterIrqFd)?;
 
         self.bus
-            .insert(Arc::new(Mutex::new(device)), self.mmio_base, MMIO_LEN)
+            .insert(device, self.mmio_base, MMIO_LEN)
             .map_err(|err| Error::BusError(err))?;
 
         cmdline
-            .insert("earlycon", &format!("uart,mmio32,0x{:08x}", self.mmio_base))
+            .insert("earlycon", &format!("uart,mmio,0x{:08x}", self.mmio_base))
             .map_err(Error::Cmdline)?;
 
         let ret = self.mmio_base;

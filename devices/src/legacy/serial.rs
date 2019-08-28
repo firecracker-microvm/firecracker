@@ -67,16 +67,10 @@ pub struct Serial {
     baud_divisor: u16,
     in_buffer: VecDeque<u8>,
     out: Option<Box<io::Write + Send>>,
-    data_len: usize,
 }
 
 impl Serial {
-    fn new(
-        interrupt_evt: EventFd,
-        out: Option<Box<io::Write + Send>>,
-        len: Option<usize>,
-    ) -> Serial {
-        let data_len = len.unwrap_or(1);
+    fn new(interrupt_evt: EventFd, out: Option<Box<io::Write + Send>>) -> Serial {
         Serial {
             interrupt_enable: 0,
             interrupt_identification: DEFAULT_INTERRUPT_IDENTIFICATION,
@@ -89,22 +83,17 @@ impl Serial {
             baud_divisor: DEFAULT_BAUD_DIVISOR,
             in_buffer: VecDeque::new(),
             out,
-            data_len,
         }
     }
 
     /// Constructs a Serial port ready for output.
-    pub fn new_out(
-        interrupt_evt: EventFd,
-        out: Box<io::Write + Send>,
-        data_len: Option<usize>,
-    ) -> Serial {
-        Self::new(interrupt_evt, Some(out), data_len)
+    pub fn new_out(interrupt_evt: EventFd, out: Box<io::Write + Send>) -> Serial {
+        Self::new(interrupt_evt, Some(out))
     }
 
     /// Constructs a Serial port with no connected output.
-    pub fn new_sink(interrupt_evt: EventFd, data_len: Option<usize>) -> Serial {
-        Self::new(interrupt_evt, None, data_len)
+    pub fn new_sink(interrupt_evt: EventFd) -> Serial {
+        Self::new(interrupt_evt, None)
     }
 
     /// Queues raw bytes for the guest to read and signals the interrupt if the line status would
@@ -206,12 +195,12 @@ impl Serial {
 
 impl BusDevice for Serial {
     fn read(&mut self, offset: u64, data: &mut [u8]) {
-        if data.len() != self.data_len {
+        if data.len() != 1 {
             METRICS.uart.missed_read_count.inc();
             return;
         }
 
-        data[0] = match (offset / self.data_len as u64) as u8 {
+        data[0] = match (offset as u64) as u8 {
             DLAB_LOW if self.is_dlab_set() => self.baud_divisor as u8,
             DLAB_HIGH if self.is_dlab_set() => (self.baud_divisor >> 8) as u8,
             DATA => {
@@ -238,11 +227,11 @@ impl BusDevice for Serial {
     }
 
     fn write(&mut self, offset: u64, data: &[u8]) {
-        if data.len() != self.data_len {
+        if data.len() != 1 {
             METRICS.uart.missed_write_count.inc();
             return;
         }
-        let offset = offset / self.data_len as u64;
+        let offset = offset as u64;
         if let Err(e) = self.handle_write(offset as u8, data[0]) {
             error!("Failed the write to serial: {:?}", e);
             METRICS.uart.error_count.inc();
@@ -283,7 +272,7 @@ mod tests {
         let intr_evt = EventFd::new().unwrap();
         let serial_out = SharedBuffer::new();
 
-        let mut serial = Serial::new_out(intr_evt, Box::new(serial_out.clone()), None);
+        let mut serial = Serial::new_out(intr_evt, Box::new(serial_out.clone()));
 
         serial.write(u64::from(DATA), &[b'x', b'y']);
         serial.write(u64::from(DATA), &[b'a']);
@@ -300,11 +289,8 @@ mod tests {
         let intr_evt = EventFd::new().unwrap();
         let serial_out = SharedBuffer::new();
 
-        let mut serial = Serial::new_out(
-            intr_evt.try_clone().unwrap(),
-            Box::new(serial_out.clone()),
-            None,
-        );
+        let mut serial =
+            Serial::new_out(intr_evt.try_clone().unwrap(), Box::new(serial_out.clone()));
 
         // write 1 to the interrupt event fd, so that read doesn't block in case the event fd
         // counter doesn't change (for 0 it blocks)
@@ -337,7 +323,7 @@ mod tests {
     #[test]
     fn serial_thr() {
         let intr_evt = EventFd::new().unwrap();
-        let mut serial = Serial::new_sink(intr_evt.try_clone().unwrap(), None);
+        let mut serial = Serial::new_sink(intr_evt.try_clone().unwrap());
 
         // write 1 to the interrupt event fd, so that read doesn't block in case the event fd
         // counter doesn't change (for 0 it blocks)
@@ -355,7 +341,7 @@ mod tests {
 
     #[test]
     fn serial_dlab() {
-        let mut serial = Serial::new_sink(EventFd::new().unwrap(), None);
+        let mut serial = Serial::new_sink(EventFd::new().unwrap());
 
         serial.write(u64::from(LCR), &[LCR_DLAB_BIT as u8]);
         serial.write(u64::from(DLAB_LOW), &[0x12 as u8]);
@@ -372,7 +358,7 @@ mod tests {
 
     #[test]
     fn serial_modem() {
-        let mut serial = Serial::new_sink(EventFd::new().unwrap(), None);
+        let mut serial = Serial::new_sink(EventFd::new().unwrap());
 
         serial.write(u64::from(MCR), &[MCR_LOOP_BIT as u8]);
         serial.write(u64::from(DATA), &[b'a']);
@@ -394,7 +380,7 @@ mod tests {
 
     #[test]
     fn serial_scratch() {
-        let mut serial = Serial::new_sink(EventFd::new().unwrap(), None);
+        let mut serial = Serial::new_sink(EventFd::new().unwrap());
 
         serial.write(u64::from(SCR), &[0x12 as u8]);
 
@@ -405,13 +391,13 @@ mod tests {
 
     #[test]
     fn test_serial_data_len() {
-        const LEN: usize = 4;
-        let mut serial = Serial::new_sink(EventFd::new().unwrap(), Some(LEN));
+        const LEN: usize = 1;
+        let mut serial = Serial::new_sink(EventFd::new().unwrap());
 
         let missed_writes_before = METRICS.uart.missed_write_count.count();
         // Trying to write data of length different than the one that we initialized the device with
         // should increase the `missed_write_count` metric.
-        serial.write(u64::from(DATA), &[b'x']);
+        serial.write(u64::from(DATA), &[b'x',b'x']);
         let missed_writes_after = METRICS.uart.missed_write_count.count();
         assert_eq!(missed_writes_before, missed_writes_after - 1);
 
