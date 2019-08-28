@@ -11,7 +11,7 @@ use std::io;
 use logger::{Metric, METRICS};
 use sys_util::EventFd;
 
-use crate::bus::BusDevice;
+use crate::bus::{BusDevice, RawIOHandler};
 
 const LOOP_SIZE: usize = 0x40;
 
@@ -54,7 +54,7 @@ const DEFAULT_BAUD_DIVISOR: u16 = 12; // 9600 bps
 /// Emulates serial COM ports commonly seen on x86 I/O ports 0x3f8/0x2f8/0x3e8/0x2e8.
 ///
 /// This can optionally write the guest's output to a Write trait object. To send input to the
-/// guest, use `queue_input_bytes`.
+/// guest, use `raw_input`.
 pub struct Serial {
     interrupt_enable: u8,
     interrupt_identification: u8,
@@ -94,16 +94,6 @@ impl Serial {
     /// Constructs a Serial port with no connected output.
     pub fn new_sink(interrupt_evt: EventFd) -> Serial {
         Self::new(interrupt_evt, None)
-    }
-
-    /// Queues raw bytes for the guest to read and signals the interrupt if the line status would
-    /// change.
-    pub fn queue_input_bytes(&mut self, c: &[u8]) -> io::Result<()> {
-        if !self.is_loop() {
-            self.in_buffer.extend(c);
-            self.recv_data()?;
-        }
-        Ok(())
     }
 
     fn is_dlab_set(&self) -> bool {
@@ -188,6 +178,16 @@ impl Serial {
             MCR => self.modem_control = v,
             SCR => self.scratch = v,
             _ => {}
+        }
+        Ok(())
+    }
+}
+
+impl RawIOHandler for Serial {
+    fn raw_input(&mut self, data: &[u8]) -> io::Result<()> {
+        if !self.is_loop() {
+            self.in_buffer.extend(data);
+            self.recv_data()?;
         }
         Ok(())
     }
@@ -288,6 +288,7 @@ mod tests {
     fn serial_input() {
         let intr_evt = EventFd::new().unwrap();
         let serial_out = SharedBuffer::new();
+        let mut buffer: Vec<u8> = Vec::with_capacity(16);
 
         let mut serial =
             Serial::new_out(intr_evt.try_clone().unwrap(), Box::new(serial_out.clone()));
@@ -296,7 +297,8 @@ mod tests {
         // counter doesn't change (for 0 it blocks)
         assert!(intr_evt.write(1).is_ok());
         serial.write(u64::from(IER), &[IER_RECV_BIT]);
-        serial.queue_input_bytes(&[b'a', b'b', b'c']).unwrap();
+        serial.raw_input(&[b'a', b'b', b'c']).unwrap();
+        serial.raw_output(buffer.as_mut_slice()).unwrap();
 
         assert_eq!(intr_evt.read().unwrap(), 2);
 
@@ -397,7 +399,7 @@ mod tests {
         let missed_writes_before = METRICS.uart.missed_write_count.count();
         // Trying to write data of length different than the one that we initialized the device with
         // should increase the `missed_write_count` metric.
-        serial.write(u64::from(DATA), &[b'x',b'x']);
+        serial.write(u64::from(DATA), &[b'x', b'x']);
         let missed_writes_after = METRICS.uart.missed_write_count.count();
         assert_eq!(missed_writes_before, missed_writes_after - 1);
 

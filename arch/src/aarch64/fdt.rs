@@ -559,7 +559,7 @@ mod tests {
 
         let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
             (
-                (DeviceType::Serial, "uart".to_string()),
+                (DeviceType::Serial, DeviceType::Serial.to_string()),
                 MMIODeviceInfo { addr: 0x00, irq: 1 },
             ),
             (

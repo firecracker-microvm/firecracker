@@ -102,6 +102,8 @@ pub enum StartMicrovmError {
     VcpusNotConfigured,
     /// Cannot spawn a new vCPU thread.
     VcpuSpawn(std::io::Error),
+    /// Cannot set mode for terminal.
+    StdinHandle(std::io::Error),
 }
 
 /// It's convenient to automatically convert `kernel::cmdline::Error`s
@@ -244,6 +246,7 @@ impl Display for StartMicrovmError {
 
                 write!(f, "Cannot spawn vCPU thread. {}", err_msg)
             }
+            StdinHandle(ref err) => write!(f, "Failed to set mode for terminal: {}", err),
         }
     }
 }

@@ -52,7 +52,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::result;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Barrier, RwLock};
+use std::sync::{Arc, Barrier, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
@@ -62,7 +62,7 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
-use device_manager::legacy::LegacyDeviceManager;
+use device_manager::legacy::PortIODeviceManager;
 #[cfg(target_arch = "aarch64")]
 use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
@@ -72,6 +72,7 @@ use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
 use devices::virtio::EpollConfigConstructor;
 use devices::virtio::{BLOCK_EVENTS_COUNT, TYPE_BLOCK};
 use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
+use devices::RawIOHandler;
 use devices::{DeviceEventT, EpollHandler};
 use fc_util::{get_time, ClockType};
 use kernel::cmdline as kernel_cmdline;
@@ -336,6 +337,7 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
                 kernel::cmdline::Error::CommandLineOverflow => ErrorKind::User,
                 _ => ErrorKind::Internal,
             },
+            StdinHandle(_) => ErrorKind::Internal,
         };
         VmmActionError::StartMicrovm(kind, e)
     }
@@ -752,6 +754,8 @@ struct Vmm {
     vm_config: VmConfig,
     shared_info: Arc<RwLock<InstanceInfo>>,
 
+    stdin_handle: io::Stdin,
+
     // Guest VM core resources.
     guest_memory: Option<GuestMemory>,
     kernel_config: Option<KernelConfig>,
@@ -761,7 +765,7 @@ struct Vmm {
 
     // Guest VM devices.
     mmio_device_manager: Option<MMIODeviceManager>,
-    legacy_device_manager: LegacyDeviceManager,
+    pio_device_manager: PortIODeviceManager,
 
     // Device configurations.
     // If there is a Root Block Device, this should be added as the first element of the list.
@@ -814,13 +818,14 @@ impl Vmm {
             kvm,
             vm_config: VmConfig::default(),
             shared_info: api_shared_info,
+            stdin_handle: io::stdin(),
             guest_memory: None,
             kernel_config: None,
             vcpus_handles: vec![],
             exit_evt: None,
             vm,
             mmio_device_manager: None,
-            legacy_device_manager: LegacyDeviceManager::new().map_err(Error::CreateLegacyDevice)?,
+            pio_device_manager: PortIODeviceManager::new().map_err(Error::CreateLegacyDevice)?,
             block_device_configs,
             network_interface_configs: NetworkInterfaceConfigs::new(),
             vsock_device_configs: VsockDeviceConfigs::new(),
@@ -1125,6 +1130,19 @@ impl Vmm {
         Ok(())
     }
 
+    #[cfg(target_arch = "x86_64")]
+    fn get_serial_device(&self) -> Option<Arc<Mutex<RawIOHandler>>> {
+        Some(self.pio_device_manager.stdio_serial.clone())
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn get_serial_device(&self) -> Option<&Arc<Mutex<RawIOHandler>>> {
+        self.mmio_device_manager
+            .as_ref()
+            .unwrap()
+            .get_raw_io_device(DeviceType::Serial)
+    }
+
     #[cfg(target_arch = "aarch64")]
     fn get_mmio_device_info(&self) -> Option<&HashMap<(DeviceType, String), MMIODeviceInfo>> {
         if let Some(ref device_manager) = self.mmio_device_manager {
@@ -1155,7 +1173,7 @@ impl Vmm {
 
     #[cfg(target_arch = "x86_64")]
     fn attach_legacy_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        self.legacy_device_manager
+        self.pio_device_manager
             .register_devices()
             .map_err(StartMicrovmError::LegacyIOBus)?;
 
@@ -1163,7 +1181,7 @@ impl Vmm {
             ($evt: ident, $index: expr) => {{
                 self.vm
                     .get_fd()
-                    .register_irqfd(self.legacy_device_manager.$evt.as_raw_fd(), $index)
+                    .register_irqfd(self.pio_device_manager.$evt.as_raw_fd(), $index)
                     .map_err(|e| {
                         StartMicrovmError::LegacyIOBus(device_manager::legacy::Error::EventFd(e))
                     })?;
@@ -1218,7 +1236,7 @@ impl Vmm {
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
 
         for cpu_id in 0..vcpu_count {
-            let io_bus = self.legacy_device_manager.io_bus.clone();
+            let io_bus = self.pio_device_manager.io_bus.clone();
             let mut vcpu = Vcpu::new(cpu_id, &self.vm, io_bus, request_ts.clone())
                 .map_err(StartMicrovmError::Vcpu)?;
 
@@ -1253,7 +1271,7 @@ impl Vmm {
 
             // If the lock is poisoned, it's OK to panic.
             let vcpu_exit_evt = self
-                .legacy_device_manager
+                .pio_device_manager
                 .i8042
                 .lock()
                 .expect("Failed to start VCPUs due to poisoned i8042 lock")
@@ -1358,6 +1376,8 @@ impl Vmm {
             )
             .map_err(ConfigureSystem)?;
         }
+
+        self.configure_stdin()?;
         Ok(())
     }
 
@@ -1366,7 +1386,7 @@ impl Vmm {
 
         // If the lock is poisoned, it's OK to panic.
         let exit_poll_evt_fd = self
-            .legacy_device_manager
+            .pio_device_manager
             .i8042
             .lock()
             .expect("Failed to register events on the event fd due to poisoned lock")
@@ -1380,6 +1400,16 @@ impl Vmm {
         self.exit_evt = Some(exit_poll_evt_fd);
 
         self.epoll_context.enable_stdin_event();
+
+        Ok(())
+    }
+
+    fn configure_stdin(&self) -> std::result::Result<(), StartMicrovmError> {
+        // Set raw mode for stdin.
+        self.stdin_handle
+            .lock()
+            .set_raw_mode()
+            .map_err(StartMicrovmError::StdinHandle)?;
 
         Ok(())
     }
@@ -1458,7 +1488,7 @@ impl Vmm {
     }
 
     fn send_ctrl_alt_del(&mut self) -> std::result::Result<VmmData, VmmActionError> {
-        self.legacy_device_manager
+        self.pio_device_manager
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")
@@ -1471,12 +1501,7 @@ impl Vmm {
     fn stop(&mut self, exit_code: i32) {
         info!("Vmm is stopping.");
 
-        if let Err(e) = self
-            .legacy_device_manager
-            .stdin_handle
-            .lock()
-            .set_canon_mode()
-        {
+        if let Err(e) = self.stdin_handle.lock().set_canon_mode() {
             warn!("Cannot set canonical mode for the terminal. {:?}", e);
         }
 
@@ -1495,6 +1520,23 @@ impl Vmm {
     fn is_instance_initialized(&self) -> bool {
         let error_string = "Cannot check instance initialization as shared info lock is poisoned";
         self.shared_info.read().expect(error_string).state != InstanceState::Uninitialized
+    }
+
+    fn handle_stdin_event(&self, buffer: &[u8]) -> Result<()> {
+        match self.get_serial_device() {
+            Some(serial) => {
+                // Use expect() to panic if another thread panicked
+                // while holding the lock.
+                serial
+                    .lock()
+                    .expect("Failed to process stdin event due to poisoned lock")
+                    .raw_input(buffer)
+                    .map_err(Error::Serial)?;
+            }
+            None => warn!("Unable to handle stdin event: no serial device available"),
+        }
+
+        Ok(())
     }
 
     fn run_control(&mut self) -> Result<()> {
@@ -1522,7 +1564,7 @@ impl Vmm {
                 }
                 Some(EpollDispatch::Stdin) => {
                     let mut out = [0u8; 64];
-                    let stdin_lock = self.legacy_device_manager.stdin_handle.lock();
+                    let stdin_lock = self.stdin_handle.lock();
                     match stdin_lock.read_raw(&mut out[..]) {
                         Ok(0) => {
                             // Zero-length read indicates EOF. Remove from pollables.
@@ -1533,14 +1575,7 @@ impl Vmm {
                             self.epoll_context.disable_stdin_event();
                         }
                         Ok(count) => {
-                            // Use expect() to panic if another thread panicked
-                            // while holding the lock.
-                            self.legacy_device_manager
-                                .stdio_serial
-                                .lock()
-                                .expect("Failed to process stdin event due to poisoned lock")
-                                .queue_input_bytes(&out[..count])
-                                .map_err(Error::Serial)?;
+                            self.handle_stdin_event(&out[..count])?;
                         }
                     }
                 }
@@ -3206,6 +3241,7 @@ mod tests {
         assert!(vmm.vm.get_memory().is_some());
 
         assert!(vmm.configure_system().is_ok());
+        vmm.stdin_handle.lock().set_canon_mode().unwrap();
     }
 
     #[test]
@@ -3240,13 +3276,14 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
 
         assert!(vmm.attach_legacy_devices().is_ok());
-        assert!(vmm.legacy_device_manager.io_bus.get_device(0x3f8).is_some());
-        assert!(vmm.legacy_device_manager.io_bus.get_device(0x2f8).is_some());
-        assert!(vmm.legacy_device_manager.io_bus.get_device(0x3e8).is_some());
-        assert!(vmm.legacy_device_manager.io_bus.get_device(0x2e8).is_some());
-        assert!(vmm.legacy_device_manager.io_bus.get_device(0x060).is_some());
-        let stdin_handle = io::stdin();
-        stdin_handle.lock().set_canon_mode().unwrap();
+        assert!(vmm.pio_device_manager.io_bus.get_device(0x3f8).is_some());
+        assert!(vmm.pio_device_manager.io_bus.get_device(0x2f8).is_some());
+        assert!(vmm.pio_device_manager.io_bus.get_device(0x3e8).is_some());
+        assert!(vmm.pio_device_manager.io_bus.get_device(0x2e8).is_some());
+        assert!(vmm.pio_device_manager.io_bus.get_device(0x060).is_some());
+        assert!(vmm.configure_stdin().is_ok());
+        assert!(vmm.handle_stdin_event(&[b'a', b'b', b'c']).is_ok());
+        vmm.stdin_handle.lock().set_canon_mode().unwrap();
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -3279,7 +3316,7 @@ mod tests {
             .is_none());
         assert!(dev_man
             .get_device_info()
-            .get(&(DeviceType::Serial, "uart".to_string()))
+            .get(&(DeviceType::Serial, DeviceType::Serial.to_string()))
             .is_none());
         assert!(dev_man
             .get_device_info()
@@ -3313,8 +3350,15 @@ mod tests {
         let dev_man = vmm.mmio_device_manager.as_ref().unwrap();
         assert!(dev_man
             .get_device_info()
-            .get(&(DeviceType::Serial, "uart".to_string()))
+            .get(&(DeviceType::Serial, DeviceType::Serial.to_string()))
             .is_some());
+
+        let serial_device = vmm.get_serial_device();
+        assert!(serial_device.is_some());
+
+        assert!(vmm.configure_stdin().is_ok());
+        vmm.stdin_handle.lock().set_canon_mode().unwrap();
+        assert!(vmm.handle_stdin_event(&[b'a', b'b', b'c']).is_ok());
     }
 
     // Helper function to get ErrorKind of error.
@@ -3588,6 +3632,12 @@ mod tests {
             error_kind(StartMicrovmError::VcpuSpawn(io::Error::from_raw_os_error(
                 0
             ))),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::StdinHandle(
+                io::Error::from_raw_os_error(0)
+            )),
             ErrorKind::Internal
         );
     }
