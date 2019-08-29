@@ -106,6 +106,14 @@ pub enum StartMicrovmError {
     VcpuSpawn(std::io::Error),
 }
 
+/// It's convenient to automatically convert `kernel::cmdline::Error`s
+/// to `StartMicrovmError`s.
+impl std::convert::From<kernel::cmdline::Error> for StartMicrovmError {
+    fn from(e: kernel::cmdline::Error) -> StartMicrovmError {
+        StartMicrovmError::KernelCmdline(e.to_string())
+    }
+}
+
 impl Display for StartMicrovmError {
     fn fmt(&self, f: &mut Formatter) -> Result {
         use self::StartMicrovmError::*;
