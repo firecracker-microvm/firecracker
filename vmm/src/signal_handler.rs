@@ -75,6 +75,12 @@ extern "C" fn sigbus_sigsegv_handler(num: c_int, info: *mut siginfo_t, _unused: 
 
     // Other signals which might do async unsafe things incompatible with the rest of this
     // function are blocked due to the sa_mask used when registering the signal handler.
+    match si_signo {
+        SIGBUS => METRICS.signals.sigbus.inc(),
+        SIGSEGV => METRICS.signals.sigsegv.inc(),
+        _ => (),
+    }
+
     error!(
         "Shutting down VM after intercepting signal {}, code {}.",
         si_signo, si_code
@@ -172,26 +178,33 @@ mod tests {
             // Call the blacklisted `SYS_mkdirat`.
             unsafe { syscall(libc::SYS_mkdirat, "/foo/bar\0") };
 
-            assert!(cpu_count() > 0);
-
-            // Kcov somehow messes with our handler getting the SIGSYS signal when a bad syscall
-            // is caught, so the following assertion no longer holds. Ideally, we'd have a surefire
-            // way of either preventing this behaviour, or detecting for certain whether this test is
-            // run by kcov or not. The best we could do so far is to look at the perceived number of
-            // available CPUs. Kcov seems to make a single CPU available to the process running the
-            // tests, so we use this as an heuristic to decide if we check the assertion.
-            if cpu_count() > 1 {
-                // The signal handler should let the program continue during unit tests.
-                assert_eq!(METRICS.seccomp.num_faults.count(), 1);
-            }
-
-            // Call SIGBUS signal handler. We are not testing that the SIGBUS handler was executed
-            // successfully.
-            // Tracking issue: https://github.com/firecracker-microvm/firecracker/issues/1141
+            // Call SIGBUS signal handler.
+            assert_eq!(METRICS.signals.sigbus.count(), 0);
             unsafe {
                 syscall(libc::SYS_kill, process::id(), SIGBUS);
             }
+
+            // Call SIGSEGV signal handler.
+            assert_eq!(METRICS.signals.sigsegv.count(), 0);
+            unsafe {
+                syscall(libc::SYS_kill, process::id(), SIGSEGV);
+            }
         });
         assert!(child.join().is_ok());
+
+        // Sanity check.
+        assert!(cpu_count() > 0);
+        // Kcov somehow messes with our handler getting the SIGSYS signal when a bad syscall
+        // is caught, so the following assertion no longer holds. Ideally, we'd have a surefire
+        // way of either preventing this behaviour, or detecting for certain whether this test is
+        // run by kcov or not. The best we could do so far is to look at the perceived number of
+        // available CPUs. Kcov seems to make a single CPU available to the process running the
+        // tests, so we use this as an heuristic to decide if we check the assertion.
+        if cpu_count() > 1 {
+            // The signal handler should let the program continue during unit tests.
+            assert!(METRICS.seccomp.num_faults.count() >= 1);
+        }
+        assert!(METRICS.signals.sigbus.count() >= 1);
+        assert!(METRICS.signals.sigsegv.count() >= 1);
     }
 }
