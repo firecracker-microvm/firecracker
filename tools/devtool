@@ -93,6 +93,11 @@ FC_BUILD_DIR="${FC_ROOT_DIR}/build"
 # we build or test.
 CARGO_REGISTRY_DIR="${FC_BUILD_DIR}/cargo_registry"
 
+# Full path to the cargo git registry on the host. This serves the same purpose
+# as CARGO_REGISTRY_DIR, for crates downloaded from GitHub repos instead of
+# crates.io.
+CARGO_GIT_REGISTRY_DIR="${FC_BUILD_DIR}/cargo_git_registry"
+
 # Full path to the cargo target dir on the host.
 CARGO_TARGET_DIR="${FC_BUILD_DIR}/cargo_target"
 
@@ -214,7 +219,8 @@ ensure_kvm() {
 # Upon returning from this call, the caller can be certain the build/ dirs exist.
 #
 ensure_build_dir() {
-    for dir in "$FC_BUILD_DIR" "$CARGO_TARGET_DIR" "$CARGO_REGISTRY_DIR"; do
+    for dir in "$FC_BUILD_DIR" "$CARGO_TARGET_DIR" \
+               "$CARGO_REGISTRY_DIR" "$CARGO_GIT_REGISTRY_DIR"; do
         mkdir -p "$dir" || die "Error: cannot create dir $dir"
         [ -x "$dir" ] && [ -w "$dir" ] || \
             {

@@ -359,6 +359,15 @@ pub struct MemoryMetrics {
     pub dirty_pages: SharedMetric,
 }
 
+/// Metrics related to signals.
+#[derive(Default, Serialize)]
+pub struct SignalMetrics {
+    /// Number of times that SIGBUS was handled.
+    pub sigbus: SharedMetric,
+    /// Number of times that SIGSEGV was handled.
+    pub sigsegv: SharedMetric,
+}
+
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
 #[derive(Default)]
 struct SerializeToUtcTimestampMs;
@@ -404,6 +413,8 @@ pub struct FirecrackerMetrics {
     pub uart: SerialDeviceMetrics,
     /// Memory usage metrics.
     pub memory: MemoryMetrics,
+    /// Metrics related to signals.
+    pub signals: SignalMetrics,
 }
 
 lazy_static! {
