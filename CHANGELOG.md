@@ -2,11 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- New device: virtio-vsock, backed by Unix domain sockets. See
+  `docs/vsock.md`.
+
 ### Fixed
 
 - Corrected firecracker-experimental.yaml indentation issues that
   prevented code generation.
 - Updated the documentation for integration tests.
+
+### Removed
+- Removed experimental support for vhost-based vsock devices.
 
 ## [0.17.0]
 
