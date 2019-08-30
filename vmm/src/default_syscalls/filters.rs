@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use seccomp::{
-    allow_syscall, allow_syscall_if, Error, SeccompAction, SeccompCmpOp::Eq,
-    SeccompCondition as Cond, SeccompFilter, SeccompRule,
+    allow_syscall, allow_syscall_if, Error, SeccompAction, SeccompCmpArgLen as ArgLen,
+    SeccompCmpOp::Eq, SeccompCondition as Cond, SeccompFilter, SeccompRule,
 };
 
 // Currently these variables are missing from rust libc:
@@ -40,8 +40,8 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall_if(
                 libc::SYS_epoll_ctl,
                 or![
-                    and![Cond::new(1, Eq, super::EPOLL_CTL_ADD)?],
-                    and![Cond::new(1, Eq, super::EPOLL_CTL_DEL)?],
+                    and![Cond::new(1, ArgLen::DWORD, Eq, super::EPOLL_CTL_ADD)?],
+                    and![Cond::new(1, ArgLen::DWORD, Eq, super::EPOLL_CTL_DEL)?],
                 ],
             ),
             allow_syscall(libc::SYS_epoll_pwait),
@@ -52,8 +52,8 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall_if(
                 SYS_fcntl,
                 or![and![
-                    Cond::new(1, Eq, super::FCNTL_F_SETFD)?,
-                    Cond::new(2, Eq, super::FCNTL_FD_CLOEXEC)?,
+                    Cond::new(1, ArgLen::DWORD, Eq, super::FCNTL_F_SETFD)?,
+                    Cond::new(2, ArgLen::QWORD, Eq, super::FCNTL_FD_CLOEXEC)?,
                 ]],
             ),
             allow_syscall(SYS_fstat),
@@ -62,11 +62,21 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall_if(
                 libc::SYS_futex,
                 or![
-                    and![Cond::new(1, Eq, super::FUTEX_WAIT_PRIVATE)?],
-                    and![Cond::new(1, Eq, super::FUTEX_WAKE_PRIVATE)?],
-                    and![Cond::new(1, Eq, super::FUTEX_REQUEUE_PRIVATE)?],
+                    and![Cond::new(1, ArgLen::DWORD, Eq, super::FUTEX_WAIT_PRIVATE)?],
+                    and![Cond::new(1, ArgLen::DWORD, Eq, super::FUTEX_WAKE_PRIVATE)?],
+                    and![Cond::new(
+                        1,
+                        ArgLen::DWORD,
+                        Eq,
+                        super::FUTEX_REQUEUE_PRIVATE
+                    )?],
                     #[cfg(target_env = "gnu")]
-                    and![Cond::new(1, Eq, super::FUTEX_CMP_REQUEUE_PRIVATE)?],
+                    and![Cond::new(
+                        1,
+                        ArgLen::DWORD,
+                        Eq,
+                        super::FUTEX_CMP_REQUEUE_PRIVATE
+                    )?],
                 ],
             ),
             allow_syscall(libc::SYS_getrandom),
@@ -75,7 +85,12 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             #[cfg(target_env = "musl")]
             allow_syscall_if(
                 libc::SYS_madvise,
-                or![and![Cond::new(2, Eq, libc::MADV_DONTNEED as u64)?],],
+                or![and![Cond::new(
+                    2,
+                    ArgLen::DWORD,
+                    Eq,
+                    libc::MADV_DONTNEED as u64
+                )?],],
             ),
             allow_syscall(SYS_mmap),
             allow_syscall(libc::SYS_munmap),

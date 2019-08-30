@@ -10,7 +10,7 @@ use std::env::args;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
-use seccomp::{SeccompAction, SeccompCmpOp, SeccompCondition, SeccompFilter, SeccompRule};
+use seccomp::{SeccompAction, SeccompCmpOp, SeccompCondition, SeccompFilter, SeccompRule, SeccompCmpArgLen};
 use seccomp_rules::*;
 
 fn main() {
@@ -27,8 +27,8 @@ fn main() {
         libc::SYS_write,
         vec![SeccompRule::new(
             vec![
-                SeccompCondition::new(0, SeccompCmpOp::Eq, libc::STDOUT_FILENO as u64).unwrap(),
-                SeccompCondition::new(2, SeccompCmpOp::Eq, 14).unwrap(),
+                SeccompCondition::new(0, SeccompCmpArgLen::DWORD, SeccompCmpOp::Eq, libc::STDOUT_FILENO as u64).unwrap(),
+                SeccompCondition::new(2, SeccompCmpArgLen::QWORD, SeccompCmpOp::Eq, 14).unwrap(),
             ],
             SeccompAction::Allow,
         )],
