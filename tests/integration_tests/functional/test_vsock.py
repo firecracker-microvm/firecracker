@@ -159,7 +159,7 @@ class HostEchoWorker(Thread):
 def test_vsock(
         test_microvm_with_ssh,
         network_config,
-        aux_bin_paths,
+        bin_vsock_path,
         test_session_root_path
 ):
     """Vsock tests. See the module docstring for a high-level description."""
@@ -191,7 +191,8 @@ def test_vsock(
     assert ecode == 0
 
     # Copy `vsock_helper` and the random blob to the guest.
-    conn.scp_file(aux_bin_paths['vsock_helper'], '/bin/vsock_helper')
+    vsock_helper = bin_vsock_path
+    conn.scp_file(vsock_helper, '/bin/vsock_helper')
     conn.scp_file(blob_path, vm_blob_path)
 
     # Test guest-initiated connections.

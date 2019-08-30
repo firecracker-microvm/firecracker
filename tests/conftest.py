@@ -143,8 +143,10 @@ def test_images_s3_bucket():
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(test_images_s3_bucket())
 
 
-def init_microvm(root_path, aux_binary_paths, features=''):
+def init_microvm(root_path, bin_cloner_path, features=''):
     """Auxiliary function for instantiating a microvm and setting it up."""
+    # pylint: disable=redefined-outer-name
+    # The fixture pattern causes a pylint false positive for that rule.
     microvm_id = str(uuid.uuid4())
     fc_binary, jailer_binary = build_tools.get_firecracker_binaries(
         root_path,
@@ -156,7 +158,7 @@ def init_microvm(root_path, aux_binary_paths, features=''):
         jailer_binary_path=jailer_binary,
         build_feature=features,
         microvm_id=microvm_id,
-        aux_bin_paths=aux_binary_paths
+        bin_cloner_path=bin_cloner_path
     )
     vm.setup()
     return vm
@@ -211,16 +213,11 @@ def _gcc_compile(src_file, output_file):
 
 
 @pytest.fixture(scope='session')
-def aux_bin_paths(test_session_root_path):
-    """Build external tools.
+def bin_cloner_path(test_session_root_path):
+    """Build a binary that `clone`s into the jailer.
 
-    They currently consist of:
-
-    * a binary that can properly use the `clone()` syscall;
-    * a jailer with a simple syscall whitelist;
-    * a jailer with a (syscall, arguments) advanced whitelist;
-    * a jailed binary that follows the seccomp rules;
-    * a jailed binary that breaks the seccomp rules.
+    It's necessary because Python doesn't interface well with the `clone()`
+    syscall directly.
     """
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
@@ -229,7 +226,14 @@ def aux_bin_paths(test_session_root_path):
         'host_tools/newpid_cloner.c',
         cloner_bin_path
     )
+    yield cloner_bin_path
 
+
+@pytest.fixture(scope='session')
+def bin_vsock_path(test_session_root_path):
+    """Build a simple vsock client/server application."""
+    # pylint: disable=redefined-outer-name
+    # The fixture pattern causes a pylint false positive for that rule.
     vsock_helper_bin_path = os.path.join(
         test_session_root_path,
         'vsock_helper'
@@ -238,7 +242,22 @@ def aux_bin_paths(test_session_root_path):
         'host_tools/vsock_helper.c',
         vsock_helper_bin_path
     )
+    yield vsock_helper_bin_path
 
+
+@pytest.fixture(scope='session')
+def bin_seccomp_paths(test_session_root_path):
+    """Build jailers and jailed binaries to test seccomp.
+
+    They currently consist of:
+
+    * a jailer with a simple syscall whitelist;
+    * a jailer with a (syscall, arguments) advanced whitelist;
+    * a jailed binary that follows the seccomp rules;
+    * a jailed binary that breaks the seccomp rules.
+    """
+    # pylint: disable=redefined-outer-name
+    # The fixture pattern causes a pylint false positive for that rule.
     seccomp_build_path = os.path.join(
         test_session_root_path,
         build_tools.CARGO_RELEASE_REL_PATH
@@ -282,8 +301,6 @@ def aux_bin_paths(test_session_root_path):
     )
 
     yield {
-        'cloner': cloner_bin_path,
-        'vsock_helper': vsock_helper_bin_path,
         'demo_basic_jailer': demo_basic_jailer,
         'demo_advanced_jailer': demo_advanced_jailer,
         'demo_harmless': demo_harmless,
@@ -291,8 +308,8 @@ def aux_bin_paths(test_session_root_path):
     }
 
 
-@pytest.fixture
-def microvm(test_session_root_path, aux_bin_paths):
+@pytest.fixture()
+def microvm(test_session_root_path, bin_cloner_path):
     """Instantiate a microvm."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
@@ -301,7 +318,7 @@ def microvm(test_session_root_path, aux_bin_paths):
     # microvm.
     vm = init_microvm(
         test_session_root_path,
-        aux_bin_paths,
+        bin_cloner_path,
         features=''
     )
     yield vm
@@ -345,7 +362,7 @@ def test_microvm_any(request, microvm):
 def test_multiple_microvms(
         test_session_root_path,
         context,
-        aux_bin_paths
+        bin_cloner_path
 ):
     """Yield one or more microvms based on the context provided.
 
@@ -361,7 +378,7 @@ def test_multiple_microvms(
 
     # When the context specifies multiple microvms, we use the first vm to
     # populate the other ones by hardlinking its resources.
-    first_vm = init_microvm(test_session_root_path, aux_bin_paths)
+    first_vm = init_microvm(test_session_root_path, bin_cloner_path)
     MICROVM_S3_FETCHER.init_vm_resources(
         microvm_resources,
         first_vm
@@ -372,7 +389,7 @@ def test_multiple_microvms(
     # asserts that the `how_many` parameter is always positive
     # (i.e strictly greater than 0).
     for _ in range(how_many - 1):
-        vm = init_microvm(test_session_root_path, aux_bin_paths)
+        vm = init_microvm(test_session_root_path, bin_cloner_path)
         MICROVM_S3_FETCHER.hardlink_vm_resources(
             microvm_resources,
             first_vm,
