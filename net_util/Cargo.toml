@@ -11,5 +11,5 @@ net_gen = { path = "../net_gen" }
 sys_util = { path = "../sys_util" }
 
 [dev-dependencies]
-pnet = ">=0.21.0"
+dumbo = { path = "../dumbo" }
 serde_json = ">=1.0.9"

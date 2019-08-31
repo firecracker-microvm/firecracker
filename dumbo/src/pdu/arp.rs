@@ -16,19 +16,25 @@ use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::ethernet::{self, ETHERTYPE_IPV4};
-use net_util::{MacAddr, MAC_ADDR_LEN};
+use crate::mac::{MacAddr, MAC_ADDR_LEN};
+
+/// ARP Request operation
+pub const OPER_REQUEST: u16 = 0x0001;
+
+/// ARP Reply operation
+pub const OPER_REPLY: u16 = 0x0002;
+
+/// ARP is for Ethernet hardware
+pub const HTYPE_ETHERNET: u16 = 0x0001;
+
+/// The length of an ARP frame for IPv4 over Ethernet.
+pub const ETH_IPV4_FRAME_LEN: usize = 28;
 
 const HTYPE_OFFSET: usize = 0;
-const HTYPE_ETHERNET: u16 = 0x0001;
-
 const PTYPE_OFFSET: usize = 2;
 const HLEN_OFFSET: usize = 4;
 const PLEN_OFFSET: usize = 5;
-
 const OPER_OFFSET: usize = 6;
-const OPER_REQUEST: u16 = 0x0001;
-const OPER_REPLY: u16 = 0x0002;
-
 const SHA_OFFSET: usize = 8;
 
 // The following constants are specific to ARP requests/responses
@@ -39,11 +45,8 @@ const ETH_IPV4_TPA_OFFSET: usize = 24;
 
 const IPV4_ADDR_LEN: usize = 4;
 
-/// The length of an ARP frame for IPv4 over Ethernet.
-pub const ETH_IPV4_FRAME_LEN: usize = 28;
-
 /// Represents errors which may occur while parsing or writing a frame.
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// Invalid hardware address length.
     HLen,
@@ -68,6 +71,7 @@ pub struct EthIPv4ArpFrame<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
     /// Interprets the given bytes as an ARP frame, without doing any validity checks beforehand.
     ///
@@ -178,12 +182,6 @@ impl<'a, T: NetworkBytes> EthIPv4ArpFrame<'a, T> {
         // This might as well return ETH_IPV4_FRAME_LEN directly, since we check this is the actual
         // length in request_from_bytes(). For some reason it seems nicer leaving it as is.
         self.bytes.len()
-    }
-
-    /// Check if the frame is empty
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.bytes.len() == 0
     }
 }
 
@@ -393,7 +391,6 @@ mod tests {
             assert_eq!(f.spa(), spa);
             assert_eq!(f.tha(), tha);
             assert_eq!(f.tpa(), tpa);
-            assert_eq!(f.is_empty(), false);
         }
 
         // Now let's try to parse a request.

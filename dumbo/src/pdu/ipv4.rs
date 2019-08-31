@@ -27,14 +27,19 @@ const SOURCE_ADDRESS_OFFSET: usize = 12;
 const DESTINATION_ADDRESS_OFFSET: usize = 16;
 const OPTIONS_OFFSET: usize = 20;
 
-const IPV4_VERSION: u8 = 0x04;
-const DEFAULT_TTL: u8 = 200;
+/// Indicates version 4 of the IP protocol
+pub const IPV4_VERSION: u8 = 0x04;
+/// Default TTL value
+pub const DEFAULT_TTL: u8 = 200;
 
 /// The IP protocol number associated with TCP.
 pub const PROTOCOL_TCP: u8 = 0x06;
 
+/// The IP protocol number associated with UDP.
+pub const PROTOCOL_UDP: u8 = 0x11;
+
 /// Describes the errors which may occur while handling IPv4 packets.
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// The header checksum is invalid.
     Checksum,
@@ -55,6 +60,7 @@ pub struct IPv4Packet<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     /// Interpret `bytes` as an IPv4Packet without checking the validity of the header fields, and
     /// the length of the inner byte sequence.
@@ -210,12 +216,6 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     #[inline]
     pub fn len(&self) -> usize {
         self.bytes.len()
-    }
-
-    /// Checks if the inner byte sequence is empty or not
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.bytes.len() == 0
     }
 
     /// Computes and returns the packet header checksum using the provided header length.
@@ -469,7 +469,7 @@ pub fn test_speculative_dst_addr(buf: &[u8], addr: Ipv4Addr) -> bool {
 mod tests {
     use std::fmt;
 
-    use net_util::MacAddr;
+    use crate::MacAddr;
 
     use super::*;
 
@@ -556,7 +556,6 @@ mod tests {
             assert_eq!(p.version_and_header_len(), (IPV4_VERSION, header_len));
             assert_eq!(p.dscp_and_ecn(), (0, 0));
             assert_eq!(p.total_len() as usize, buf_len);
-            assert_eq!(p.is_empty(), false);
             assert_eq!(p.identification(), 0);
             assert_eq!(p.flags_and_fragment_offset(), (0, 0));
             assert_eq!(p.ttl(), DEFAULT_TTL);

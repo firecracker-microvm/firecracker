@@ -237,14 +237,11 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use self::pnet::datalink::Channel::Ethernet;
-    use self::pnet::datalink::{self, DataLinkReceiver, DataLinkSender, NetworkInterface};
-    use self::pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
-    use self::pnet::packet::ip::IpNextHeaderProtocols;
-    use self::pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
-    use self::pnet::packet::udp::{MutableUdpPacket, UdpPacket};
-    use self::pnet::packet::{MutablePacket, Packet};
-    use self::pnet::util::MacAddr;
+    use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
+    use dumbo::pdu::ethernet::{EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4, PAYLOAD_OFFSET};
+    use dumbo::pdu::ipv4::{IPv4Packet, PROTOCOL_UDP};
+    use dumbo::pdu::udp::{UdpDatagram, UDP_HEADER_SIZE};
+    use dumbo::MacAddr;
 
     use super::*;
 
@@ -336,29 +333,28 @@ mod tests {
     // Describes the outcomes we are currently interested in when parsing a packet (we use
     // an UDP packet for testing).
     struct ParsedPkt<'a> {
-        eth: EthernetPacket<'a>,
-        ipv4: Option<Ipv4Packet<'a>>,
-        udp: Option<UdpPacket<'a>>,
+        eth: EthernetFrame<'a, &'a [u8]>,
+        ipv4: Option<IPv4Packet<'a, &'a [u8]>>,
+        udp: Option<UdpDatagram<'a, &'a [u8]>>,
     }
 
     impl<'a> ParsedPkt<'a> {
         fn new(buf: &'a [u8]) -> Self {
-            let eth = EthernetPacket::new(buf).unwrap();
+            let eth = EthernetFrame::from_bytes(buf).unwrap();
             let mut ipv4 = None;
             let mut udp = None;
 
-            if eth.get_ethertype() == EtherTypes::Ipv4 {
+            if eth.ethertype() == ETHERTYPE_IPV4 {
                 let ipv4_start = 14;
-                ipv4 = Some(Ipv4Packet::new(&buf[ipv4_start..]).unwrap());
+                ipv4 = Some(IPv4Packet::from_bytes(&buf[ipv4_start..], false).unwrap());
 
                 // Hiding the old ipv4 variable for the rest of this block.
-                let ipv4 = Ipv4Packet::new(eth.payload()).unwrap();
+                let ipv4 = IPv4Packet::from_bytes(eth.payload(), false).unwrap();
+                let (_, header_length) = ipv4.version_and_header_len();
 
-                if ipv4.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
-                    // The value in header_length indicates the number of 32 bit words
-                    // that make up the header, not the actual length in bytes.
-                    let udp_start = ipv4_start + ipv4.get_header_length() as usize * 4;
-                    udp = Some(UdpPacket::new(&buf[udp_start..]).unwrap());
+                if ipv4.protocol() == PROTOCOL_UDP {
+                    let udp_start = ipv4_start + header_length;
+                    udp = Some(UdpDatagram::from_bytes(&buf[udp_start..], None).unwrap());
                 }
             }
 
@@ -368,23 +364,23 @@ mod tests {
         fn print(&self) {
             print!(
                 "{} {} {} ",
-                self.eth.get_source(),
-                self.eth.get_destination(),
-                self.eth.get_ethertype()
+                self.eth.src_mac().to_string(),
+                self.eth.dst_mac().to_string(),
+                self.eth.ethertype()
             );
             if let Some(ref ipv4) = self.ipv4 {
                 print!(
                     "{} {} {} ",
-                    ipv4.get_source(),
-                    ipv4.get_destination(),
-                    ipv4.get_next_level_protocol()
+                    ipv4.source_address(),
+                    ipv4.destination_address(),
+                    ipv4.protocol()
                 );
             }
             if let Some(ref udp) = self.udp {
                 print!(
                     "{} {} {}",
-                    udp.get_source(),
-                    udp.get_destination(),
+                    udp.source_port(),
+                    udp.destination_port(),
                     str::from_utf8(udp.payload()).unwrap()
                 );
             }
@@ -402,25 +398,36 @@ mod tests {
     // Given a buffer of appropriate size, this fills in the relevant fields based on the
     // provided information. Payload refers to the UDP payload.
     fn pnet_build_packet(buf: &mut [u8], dst_mac: MacAddr, payload: &[u8]) {
-        let mut eth = MutableEthernetPacket::new(buf).unwrap();
-        eth.set_source(MacAddr::new(0x06, 0, 0, 0, 0, 0));
-        eth.set_destination(dst_mac);
-        eth.set_ethertype(EtherTypes::Ipv4);
+        // Make a new vector that can accommodate the header (buf) and data (payload)
+        // we can't escape the copy here, because from_bytes consumes buf
+        // unless we change the ether API in dumbo
+        let mut v = vec![0u8; buf.len()];
+        let mut eth = EthernetFrame::from_bytes(v.as_mut_slice()).unwrap();
 
-        let mut ipv4 = MutableIpv4Packet::new(eth.payload_mut()).unwrap();
-        ipv4.set_version(4);
-        ipv4.set_header_length(5);
-        ipv4.set_total_length(20 + 8 + payload.len() as u16);
-        ipv4.set_ttl(200);
-        ipv4.set_next_level_protocol(IpNextHeaderProtocols::Udp);
-        ipv4.set_source(Ipv4Addr::new(192, 168, 241, 1));
-        ipv4.set_destination(Ipv4Addr::new(192, 168, 241, 2));
+        let src_mac = MacAddr::from_bytes(&[0x06, 0, 0, 0, 0, 0]).unwrap();
+        eth.set_src_mac(src_mac);
+        eth.set_dst_mac(dst_mac);
+        eth.set_ethertype(ETHERTYPE_IPV4);
 
-        let mut udp = MutableUdpPacket::new(ipv4.payload_mut()).unwrap();
-        udp.set_source(1000);
-        udp.set_destination(1001);
-        udp.set_length(8 + payload.len() as u16);
-        udp.set_payload(payload);
+        // Because we're borrowing eth as mutable
+        {
+            let mut ipv4 = IPv4Packet::from_bytes_unchecked(eth.payload_mut());
+            let ip_header_len_bytes = 20;
+            ipv4.set_version_and_header_len(IPV4_VERSION, ip_header_len_bytes);
+            ipv4.set_total_len((ip_header_len_bytes + UDP_HEADER_SIZE + payload.len()) as u16);
+            ipv4.set_ttl(DEFAULT_TTL);
+            ipv4.set_protocol(PROTOCOL_UDP);
+            ipv4.set_source_address(Ipv4Addr::new(192, 168, 241, 1));
+            ipv4.set_destination_address(Ipv4Addr::new(192, 168, 241, 2));
+
+            let mut udp = UdpDatagram::from_bytes(ipv4.payload_mut(), None).unwrap();
+            udp.set_source_port(1000);
+            udp.set_destination_port(1001);
+            udp.set_len((UDP_HEADER_SIZE + payload.len()) as u16);
+            udp.set_payload(payload);
+        }
+
+        buf.copy_from_slice(eth.as_raw()); // Copy the raw data by the buf of pnet
     }
 
     // Sends a test packet on the interface named "ifname".
@@ -452,7 +459,17 @@ mod tests {
         let interface = interfaces.into_iter().find(interface_name_matches).unwrap();
 
         if let Ok(Ethernet(tx, rx)) = datalink::channel(&interface, Default::default()) {
-            (interface.mac_address(), tx, rx)
+            let mac_addr = interface.mac_address();
+            // TODO: replace pnet interfaces
+            let mut mac_bytes = [0u8; 6];
+            mac_bytes[0] = mac_addr.0;
+            mac_bytes[1] = mac_addr.1;
+            mac_bytes[2] = mac_addr.2;
+            mac_bytes[3] = mac_addr.3;
+            mac_bytes[4] = mac_addr.4;
+            mac_bytes[5] = mac_addr.5;
+            let mac = MacAddr::from_bytes(mac_bytes.as_mut()).unwrap();
+            (mac, tx, rx)
         } else {
             panic!("datalink channel error or unhandled channel type");
         }
@@ -573,29 +590,27 @@ mod tests {
             // is created, and the legacy header is 10 bytes long without a certain flag which
             // is not set in Tap::new().
             let eth_bytes = &buf[10..size];
-
-            let packet = EthernetPacket::new(eth_bytes).unwrap();
-            if packet.get_ethertype() != EtherTypes::Ipv4 {
+            let packet = EthernetFrame::from_bytes(eth_bytes).unwrap();
+            if packet.ethertype() != ETHERTYPE_IPV4 {
                 // not an IPv4 packet
                 continue;
             }
 
             let ipv4_bytes = &eth_bytes[14..];
-            let packet = Ipv4Packet::new(ipv4_bytes).unwrap();
+            let packet = IPv4Packet::from_bytes(ipv4_bytes, false).unwrap();
 
             // Our packet should carry an UDP payload, and not contain IP options.
-            if packet.get_next_level_protocol() != IpNextHeaderProtocols::Udp
-                && packet.get_header_length() != 5
-            {
+            if packet.protocol() != PROTOCOL_UDP && packet.header_len() != 5 {
                 continue;
             }
 
-            let udp_bytes = &ipv4_bytes[20..];
+            let ipv4_data_start = 20;
+            let udp_bytes = &ipv4_bytes[ipv4_data_start..];
 
-            let udp_len = UdpPacket::new(udp_bytes).unwrap().get_length() as usize;
+            let udp_len = UdpDatagram::from_bytes(udp_bytes, None).unwrap().len() as usize;
 
             // Skip the header bytes.
-            let inner_string = str::from_utf8(&udp_bytes[8..udp_len]).unwrap();
+            let inner_string = str::from_utf8(&udp_bytes[UDP_HEADER_SIZE..udp_len]).unwrap();
 
             if inner_string.eq(DATA_STRING) {
                 found_packet_sz = Some(size);

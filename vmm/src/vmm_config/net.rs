@@ -7,7 +7,8 @@ use std::result;
 use super::super::error::Error as VmmInternalError;
 use super::RateLimiterConfig;
 use devices;
-use net_util::{MacAddr, Tap, TapError};
+use dumbo::MacAddr;
+use net_util::{Tap, TapError};
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -264,7 +265,6 @@ mod tests {
     use std::str;
 
     use super::*;
-    use net_util::MacAddr;
 
     fn create_netif(id: &str, name: &str, mac: &str) -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {

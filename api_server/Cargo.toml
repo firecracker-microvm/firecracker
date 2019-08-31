@@ -19,6 +19,7 @@ vmm = { path = "../vmm" }
 [dev-dependencies]
 arch = { path = "../arch" }
 devices = { path = "../devices" }
+dumbo = { path = "../dumbo" }
 kernel = { path = "../kernel" }
 memory_model = { path = "../memory_model" }
 net_util = { path = "../net_util" }

@@ -27,6 +27,7 @@ extern crate fc_util;
 extern crate kernel;
 #[macro_use]
 extern crate logger;
+extern crate dumbo;
 extern crate memory_model;
 extern crate net_util;
 extern crate rate_limiter;
@@ -1694,7 +1695,7 @@ mod tests {
     use self::tempfile::NamedTempFile;
     use arch::DeviceType;
     use devices::virtio::{ActivateResult, MmioDevice, Queue};
-    use net_util::MacAddr;
+    use dumbo::MacAddr;
     use vmm_config::drive::DriveError;
     use vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm_config::{RateLimiterConfig, TokenBucketConfig};

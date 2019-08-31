@@ -19,11 +19,11 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::vec::Vec;
 
-use dumbo::{ns::MmdsNetworkStack, pdu::ethernet::EthernetFrame};
+use dumbo::{ns::MmdsNetworkStack, EthernetFrame, MacAddr, MAC_ADDR_LEN};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use net_gen;
-use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
+use net_util::{Tap, TapError};
 use rate_limiter::{RateLimiter, TokenBucket, TokenType};
 use sys_util::EventFd;
 use virtio_gen::virtio_net::*;
@@ -924,7 +924,7 @@ mod tests {
     use std::time::Duration;
     use std::u32;
 
-    use dumbo::pdu::{arp, ethernet};
+    use dumbo::{EthIPv4ArpFrame, EthernetFrame, ETHERTYPE_ARP, ETH_IPV4_FRAME_LEN};
     use libc;
     use memory_model::GuestAddress;
     use rate_limiter::TokenBucket;
@@ -1308,24 +1308,22 @@ mod tests {
         let packet_len;
         {
             // Create an ethernet frame.
-            let eth_frame_i = ethernet::EthernetFrame::write_incomplete(
+            let eth_frame_i = EthernetFrame::write_incomplete(
                 frame_bytes_from_buf_mut(&mut h.tx.frame_buf),
                 tha,
                 sha,
-                ethernet::ETHERTYPE_ARP,
+                ETHERTYPE_ARP,
             )
             .ok()
             .unwrap();
             // Set its length to hold an ARP request.
-            let mut eth_frame_complete =
-                eth_frame_i.with_payload_len_unchecked(arp::ETH_IPV4_FRAME_LEN);
+            let mut eth_frame_complete = eth_frame_i.with_payload_len_unchecked(ETH_IPV4_FRAME_LEN);
 
             // Save the total frame length.
-            packet_len =
-                vnet_hdr_len() + eth_frame_complete.payload_offset() + arp::ETH_IPV4_FRAME_LEN;
+            packet_len = vnet_hdr_len() + eth_frame_complete.payload_offset() + ETH_IPV4_FRAME_LEN;
 
             // Create the ARP request.
-            let arp_req = arp::EthIPv4ArpFrame::write_request(
+            let arp_req = EthIPv4ArpFrame::write_request(
                 eth_frame_complete.payload_mut(),
                 sha,
                 spa,
@@ -1372,24 +1370,22 @@ mod tests {
         let packet_len;
         {
             // Create an ethernet frame.
-            let eth_frame_i = ethernet::EthernetFrame::write_incomplete(
+            let eth_frame_i = EthernetFrame::write_incomplete(
                 frame_bytes_from_buf_mut(&mut h.tx.frame_buf),
                 dst_mac,
                 guest_mac,
-                ethernet::ETHERTYPE_ARP,
+                ETHERTYPE_ARP,
             )
             .ok()
             .unwrap();
             // Set its length to hold an ARP request.
-            let mut eth_frame_complete =
-                eth_frame_i.with_payload_len_unchecked(arp::ETH_IPV4_FRAME_LEN);
+            let mut eth_frame_complete = eth_frame_i.with_payload_len_unchecked(ETH_IPV4_FRAME_LEN);
 
             // Save the total frame length.
-            packet_len =
-                vnet_hdr_len() + eth_frame_complete.payload_offset() + arp::ETH_IPV4_FRAME_LEN;
+            packet_len = vnet_hdr_len() + eth_frame_complete.payload_offset() + ETH_IPV4_FRAME_LEN;
 
             // Create the ARP request.
-            let arp_req = arp::EthIPv4ArpFrame::write_request(
+            let arp_req = EthIPv4ArpFrame::write_request(
                 eth_frame_complete.payload_mut(),
                 guest_mac,
                 guest_ip,

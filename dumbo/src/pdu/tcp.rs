@@ -8,14 +8,13 @@
 //! [Here]: https://en.wikipedia.org/wiki/Transmission_Control_Protocol#TCP_segment_structure
 
 use std::cmp::min;
-use std::convert::From;
 use std::net::Ipv4Addr;
 use std::num::NonZeroU16;
 use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
-use super::ipv4::PROTOCOL_TCP;
 use super::Incomplete;
+use pdu::ChecksumProto;
 use ByteBuffer;
 
 const SOURCE_PORT_OFFSET: usize = 0;
@@ -93,6 +92,7 @@ pub struct TcpSegment<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     /// Returns the source port.
     #[inline]
@@ -188,12 +188,6 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
         self.bytes.len()
     }
 
-    /// Checks if the segment is empty
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.bytes.len() == 0
-    }
-
     /// Returns a slice which contains the payload of the segment.
     #[inline]
     pub fn payload(&self) -> &[u8] {
@@ -211,35 +205,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     ///
     /// [here]: https://en.wikipedia.org/wiki/Transmission_Control_Protocol#Checksum_computation
     pub fn compute_checksum(&self, src_addr: Ipv4Addr, dst_addr: Ipv4Addr) -> u16 {
-        // TODO: Is u32 enough to prevent overflow for the code in this function? I think so, but it
-        // would be nice to double-check.
-        let mut sum = 0u32;
-
-        let a = u32::from(src_addr);
-        sum += a & 0xffff;
-        sum += a >> 16;
-
-        let b = u32::from(dst_addr);
-        sum += b & 0xffff;
-        sum += b >> 16;
-
-        let len = self.len();
-        sum += u32::from(PROTOCOL_TCP);
-        sum += len as u32;
-
-        for i in 0..len / 2 {
-            sum += u32::from(self.bytes.ntohs_unchecked(i * 2));
-        }
-
-        if len % 2 != 0 {
-            sum += u32::from(self.bytes[len - 1]) << 8;
-        }
-
-        while sum >> 16 != 0 {
-            sum = (sum & 0xffff) + (sum >> 16);
-        }
-
-        !(sum as u16)
+        crate::pdu::compute_checksum(&self.bytes, src_addr, dst_addr, ChecksumProto::Tcp)
     }
 
     /// Parses TCP header options (only `MSS` is supported for now).
@@ -724,8 +690,6 @@ mod tests {
 
             // Payload was smaller than mss_left after options.
             assert_eq!(p.len(), header_len + b.len());
-            assert_eq!(p.is_empty(), p.is_empty());
-
             p.len()
             // Mutable borrow of a goes out of scope.
         };

@@ -12,21 +12,27 @@ extern crate byteorder;
 extern crate fc_util;
 extern crate logger;
 extern crate mmds;
-extern crate net_util;
+extern crate serde;
 
+mod mac;
 pub mod ns;
-pub mod pdu;
-pub mod tcp;
+mod pdu;
+mod tcp;
 
+pub use mac::{MacAddr, MAC_ADDR_LEN};
+pub use pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
+pub use pdu::ethernet::{
+    EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4, PAYLOAD_OFFSET as ETHERNET_PAYLOAD_OFFSET,
+};
+pub use pdu::ipv4::{IPv4Packet, PROTOCOL_TCP, PROTOCOL_UDP};
+pub use pdu::udp::{UdpDatagram, UDP_HEADER_SIZE};
 use std::ops::Index;
 
 /// Represents a generalization of a borrowed `[u8]` slice.
+#[allow(clippy::len_without_is_empty)]
 pub trait ByteBuffer: Index<usize, Output = u8> {
     /// Returns the length of the buffer.
     fn len(&self) -> usize;
-
-    /// Checks if the buffer is empty.
-    fn is_empty(&self) -> bool;
 
     /// Reads `buf.len()` bytes from `buf` into the inner buffer, starting at `offset`.
     ///
@@ -40,11 +46,6 @@ impl ByteBuffer for [u8] {
     #[inline]
     fn len(&self) -> usize {
         self.len()
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     #[inline]
