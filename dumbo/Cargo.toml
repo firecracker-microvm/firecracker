@@ -6,8 +6,11 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 [dependencies]
 bitflags = ">=1.0.4"
 byteorder = ">=1.2.1"
+serde = ">=1.0.27"
 
 fc_util = { path = "../fc_util" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
-net_util = { path = "../net_util" }
+
+[dev-dependencies]
+serde_json = ">=1.0.9"

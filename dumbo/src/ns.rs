@@ -9,9 +9,9 @@ use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 use std::result::Result;
 
+use crate::MacAddr;
 use fc_util::time::timestamp_cycles;
 use logger::{Metric, METRICS};
-use net_util::MacAddr;
 use pdu::arp::{test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
 use pdu::ethernet::{Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4};
 use pdu::ipv4::{test_speculative_dst_addr, Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};

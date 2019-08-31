@@ -55,10 +55,10 @@ pub fn parse_patch_net(body: &Body, id_from_path: Option<&&str>) -> Result<Parse
 
 #[cfg(test)]
 mod tests {
-    extern crate net_util;
+    extern crate dumbo;
     extern crate vmm;
 
-    use self::net_util::MacAddr;
+    use self::dumbo::MacAddr;
     use super::*;
 
     use serde_json;

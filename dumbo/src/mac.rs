@@ -5,6 +5,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+//! Contains support for parsing and constructing MAC addresses
+//! More information about MAC addresses can be found [here]
+//!
+//! [here]: https://en.wikipedia.org/wiki/MAC_address
+
 use std::fmt;
 use std::result::Result;
 
@@ -14,6 +19,7 @@ use serde::ser::{Serialize, Serializer};
 /// The number of tuples (the ones separated by ":") contained in a MAC address.
 pub const MAC_ADDR_LEN: usize = 6;
 
+/// Represents a MAC address
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// Representation of a MAC address.
 pub struct MacAddr {
@@ -40,9 +46,9 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// extern crate net_util;
+    /// extern crate dumbo;
     ///
-    /// use self::net_util::MacAddr;
+    /// use self::dumbo::MacAddr;
     /// MacAddr::parse_str("12:34:56:78:9a:BC").unwrap();
     /// ```
     pub fn parse_str<S>(s: &S) -> Result<MacAddr, &str>
@@ -74,9 +80,9 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// extern crate net_util;
+    /// extern crate dumbo;
     ///
-    /// use self::net_util::MacAddr;
+    /// use self::dumbo::MacAddr;
     /// let mac = MacAddr::from_bytes_unchecked(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
     /// println!("{}", mac.to_string());
     /// ```
@@ -98,9 +104,9 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// extern crate net_util;
+    /// extern crate dumbo;
     ///
-    /// use self::net_util::MacAddr;
+    /// use self::dumbo::MacAddr;
     /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
     /// println!("{}", mac.to_string());
     /// ```
@@ -116,9 +122,9 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// extern crate net_util;
+    /// extern crate dumbo;
     ///
-    /// use self::net_util::MacAddr;
+    /// use self::dumbo::MacAddr;
     /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
     /// assert_eq!([0x01, 0x02, 0x03, 0x04, 0x05, 0x06], mac.get_bytes());
     /// ```

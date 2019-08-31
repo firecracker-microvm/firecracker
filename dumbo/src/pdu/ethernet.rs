@@ -8,7 +8,7 @@ use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::Incomplete;
-use net_util::MacAddr;
+use crate::MacAddr;
 
 const DST_MAC_OFFSET: usize = 0;
 const SRC_MAC_OFFSET: usize = 6;
@@ -17,7 +17,8 @@ const ETHERTYPE_OFFSET: usize = 12;
 // We don't support 802.1Q tags.
 // TODO: support 802.1Q tags?! If so, don't forget to change the speculative_test_* functions
 // for ARP and IPv4.
-pub(super) const PAYLOAD_OFFSET: usize = 14;
+/// Payload offset in an ethernet frame
+pub const PAYLOAD_OFFSET: usize = 14;
 
 /// Ethertype value for ARP frames.
 pub const ETHERTYPE_ARP: u16 = 0x0806;
@@ -25,7 +26,7 @@ pub const ETHERTYPE_ARP: u16 = 0x0806;
 pub const ETHERTYPE_IPV4: u16 = 0x0800;
 
 /// Describes the errors which may occur when handling Ethernet frames.
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// The specified byte sequence is shorter than the Ethernet header length.
     SliceTooShort,
@@ -36,6 +37,7 @@ pub struct EthernetFrame<'a, T: 'a> {
     bytes: InnerBytes<'a, T>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
     /// Interprets `bytes` as an Ethernet frame without any validity checks.
     ///
@@ -95,12 +97,6 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
-
-    /// Checks if the frame is empty or not.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.bytes.len() == 0
-    }
 }
 
 impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
@@ -117,9 +113,10 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
 
         let mut frame = EthernetFrame::from_bytes_unchecked(buf);
 
-        frame.set_dst_mac(dst_mac);
-        frame.set_src_mac(src_mac);
-        frame.set_ethertype(ethertype);
+        frame
+            .set_dst_mac(dst_mac)
+            .set_src_mac(src_mac)
+            .set_ethertype(ethertype);
 
         Ok(frame)
     }
@@ -140,20 +137,23 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
 
     /// Sets the destination MAC address.
     #[inline]
-    pub fn set_dst_mac(&mut self, addr: MacAddr) {
+    pub fn set_dst_mac(&mut self, addr: MacAddr) -> &mut Self {
         self.bytes[DST_MAC_OFFSET..SRC_MAC_OFFSET].copy_from_slice(addr.get_bytes());
+        self
     }
 
     /// Sets the source MAC address.
     #[inline]
-    pub fn set_src_mac(&mut self, addr: MacAddr) {
+    pub fn set_src_mac(&mut self, addr: MacAddr) -> &mut Self {
         self.bytes[SRC_MAC_OFFSET..ETHERTYPE_OFFSET].copy_from_slice(addr.get_bytes());
+        self
     }
 
     /// Sets the ethertype of the frame.
     #[inline]
-    pub fn set_ethertype(&mut self, value: u16) {
+    pub fn set_ethertype(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(ETHERTYPE_OFFSET, value);
+        self
     }
 
     /// Returns the payload of the frame as a `&mut [u8]` slice.
@@ -230,7 +230,6 @@ mod tests {
             assert_eq!(f2.ethertype(), ethertype);
             assert_eq!(f2.payload()[1], 132);
             assert_eq!(f2.len(), f2.bytes.len());
-            assert_eq!(f2.is_empty(), f2.bytes.len() == 0);
         }
 
         {

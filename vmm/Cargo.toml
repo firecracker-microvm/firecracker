@@ -15,6 +15,7 @@ timerfd = ">=1.0"
 
 arch = { path = "../arch" }
 devices = { path = "../devices" }
+dumbo = { path = "../dumbo" }
 fc_util = { path = "../fc_util" }
 kernel = { path = "../kernel" }
 logger = { path = "../logger" }
