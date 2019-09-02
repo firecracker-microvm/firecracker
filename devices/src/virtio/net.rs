@@ -7,7 +7,6 @@
 
 use epoll;
 use libc::EAGAIN;
-use std::cmp;
 #[cfg(not(test))]
 use std::io::Read;
 use std::io::{self, Write};
@@ -18,6 +17,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::vec::Vec;
+use std::{cmp, fmt};
 
 use dumbo::{ns::MmdsNetworkStack, pdu::ethernet::EthernetFrame};
 use logger::{Metric, METRICS};
@@ -25,6 +25,7 @@ use memory_model::{GuestAddress, GuestMemory};
 use net_gen;
 use net_util::{MacAddr, Tap, TapError, MAC_ADDR_LEN};
 use rate_limiter::{RateLimiter, TokenBucket, TokenType};
+use std::fmt::Formatter;
 use sys_util::EventFd;
 use virtio_gen::virtio_net::*;
 
@@ -68,6 +69,21 @@ pub enum Error {
 }
 
 pub type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::TapOpen(err) => write!(f, "Open tap device failed: {}", err),
+            Error::TapSetIp(err) => write!(f, "Setting tap IP failed: {}", err),
+            Error::TapSetNetmask(err) => write!(f, "Setting tap netmask failed: {}", err),
+            Error::TapSetOffload(err) => {
+                write!(f, "Setting tap interface offload flags failed: {}", err)
+            }
+            Error::TapSetVnetHdrSize(err) => write!(f, "Setting vnet header size failed: {}", err),
+            Error::TapEnable(err) => write!(f, "Enabling tap interface failed: {}", err),
+        }
+    }
+}
 
 struct TxVirtio {
     queue_evt: EventFd,

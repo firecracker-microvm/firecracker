@@ -25,6 +25,8 @@ pub use self::queue::*;
 pub use self::vsock::*;
 
 use super::EpollHandler;
+use std::fmt;
+use std::fmt::Formatter;
 
 const DEVICE_INIT: u32 = 0x0;
 const DEVICE_ACKNOWLEDGE: u32 = 0x01;
@@ -47,10 +49,20 @@ pub const VIRTIO_MMIO_INT_CONFIG: u32 = 0x02;
 /// queue events.
 pub const NOTIFY_REG_OFFSET: u32 = 0x50;
 
-#[derive(Debug)]
 pub enum ActivateError {
     EpollCtl(IOError),
     BadActivate,
+}
+
+impl fmt::Display for ActivateError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            ActivateError::EpollCtl(err) => write!(f, "{}", err),
+            ActivateError::BadActivate => write!(f, "Device bad activate."),
+            #[cfg(feature = "vsock")]
+            ActivateError::BadVhostActivate(err) => write!(f, "{}", err),
+        }
+    }
 }
 
 pub type ActivateResult = std::result::Result<(), ActivateError>;

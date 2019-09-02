@@ -20,23 +20,20 @@ pub enum Error {
     KbdInterruptFailure(io::Error),
     InternalBufferFull,
 }
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::CloneCpuResetEvt(io_err) => write!(
-                f,
-                "Could not clone CPU reset eventfd: {}.",
-                io_err.to_string()
-            ),
-            Error::KbdInterruptDisabled => {
-                write!(f, "Keyboard interrupt disabled by guest driver.",)
+            Error::CloneCpuResetEvt(io_err) => {
+                write!(f, "Could not clone CPU reset eventfd: {}", io_err)
             }
-            Error::KbdInterruptFailure(io_err) => write!(
-                f,
-                "Could not trigger keyboard interrupt: {}.",
-                io_err.to_string()
-            ),
-            Error::InternalBufferFull => write!(f, "i8042 internal buffer full."),
+            Error::KbdInterruptDisabled => {
+                write!(f, "Keyboard interrupt disabled by guest driver.")
+            }
+            Error::KbdInterruptFailure(io_err) => {
+                write!(f, "Could not trigger keyboard interrupt: {}", io_err)
+            }
+            Error::InternalBufferFull => write!(f, "I8042 internal buffer full."),
         }
     }
 }
@@ -221,7 +218,7 @@ impl BusDevice for I8042Device {
                 // port 0x60.
                 if (self.status & SB_OUT_DATA_AVAIL) != 0 {
                     if let Err(Error::KbdInterruptFailure(err)) = self.trigger_kbd_interrupt() {
-                        warn!("Failed to trigger i8042 kbd interrupt {:?}", err);
+                        warn!("Failed to trigger i8042 kbd interrupt {}", err);
                     }
                 }
             }
@@ -249,7 +246,7 @@ impl BusDevice for I8042Device {
                 // our exit event fd. Meaning Firecracker will be exiting as soon as the VMM
                 // thread wakes up to handle this event.
                 if let Err(e) = self.reset_evt.write(1) {
-                    error!("Failed to trigger i8042 reset event: {:?}", e);
+                    error!("Failed to trigger i8042 reset event: {}", e);
                     METRICS.i8042.error_count.inc();
                 }
                 METRICS.i8042.reset_count.inc();
@@ -311,7 +308,7 @@ impl BusDevice for I8042Device {
                 // Buffer is empty, push() will always succeed.
                 self.push_byte(0xFA).unwrap();
                 if let Err(Error::KbdInterruptFailure(err)) = self.trigger_kbd_interrupt() {
-                    warn!("Failed to trigger i8042 kbd interrupt {:?}", err);
+                    warn!("Failed to trigger i8042 kbd interrupt {}", err);
                 }
             }
             _ => {

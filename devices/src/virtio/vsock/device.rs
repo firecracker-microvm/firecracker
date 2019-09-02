@@ -278,7 +278,7 @@ mod tests {
         );
         match bad_activate {
             Err(ActivateError::BadActivate) => (),
-            other => panic!("{:?}", other),
+            other => panic!("{}", other.unwrap_err()),
         }
 
         // Test a correct activation.
@@ -298,7 +298,7 @@ mod tests {
                     EventFd::new().unwrap(),
                 ],
             )
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
     }
 
 }

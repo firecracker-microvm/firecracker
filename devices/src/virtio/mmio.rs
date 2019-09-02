@@ -285,7 +285,7 @@ impl MmioDevice {
                                     self.queues.clone(),
                                     self.queue_evts.split_off(0),
                                 )
-                                .expect("Failed to activate device");
+                                .unwrap_or_else(|err| panic!("Failed to activate device: {}", err));
                             self.device_activated = true;
                         }
                     }

@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use epoll;
-use std::cmp;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
@@ -15,10 +14,12 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::{cmp, fmt};
 
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
+use std::fmt::Formatter;
 use sys_util::EventFd;
 use virtio_gen::virtio_blk::*;
 
@@ -42,7 +43,6 @@ const RATE_LIMITER_EVENT: DeviceEventT = 1;
 // Number of DeviceEventT events supported by this implementation.
 pub const BLOCK_EVENTS_COUNT: usize = 2;
 
-#[derive(Debug)]
 enum Error {
     /// Guest gave us bad memory addresses.
     GuestMemory(GuestMemoryError),
@@ -62,7 +62,36 @@ enum Error {
     InvalidOffset,
 }
 
-#[derive(Debug)]
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::GuestMemory(err) => write!(f, "Received bag memory address from guest: {}", err),
+            Error::CheckedOffset(_, _) => {
+                write!(f, "Received offsets that would overflow the usize.")
+            }
+            Error::UnexpectedWriteOnlyDescriptor => write!(
+                f,
+                "Received a write only descriptor that protocol says to read from."
+            ),
+            Error::UnexpectedReadOnlyDescriptor => write!(
+                f,
+                "Received a read only descriptor that protocol says to write to."
+            ),
+            Error::DescriptorChainTooShort => {
+                write!(f, "Received too few descriptors in a descriptor chain.")
+            }
+            Error::DescriptorLengthTooSmall => {
+                write!(f, "Received a descriptor that was too short to use.")
+            }
+            Error::GetFileMetadata => write!(f, "Getting a block's metadata failed."),
+            Error::InvalidOffset => write!(
+                f,
+                "The requested operation would cause a seek beyond disk end."
+            ),
+        }
+    }
+}
+
 enum ExecuteError {
     BadRequest(Error),
     Flush(io::Error),
@@ -70,6 +99,19 @@ enum ExecuteError {
     Seek(io::Error),
     Write(GuestMemoryError),
     Unsupported(u32),
+}
+
+impl fmt::Display for ExecuteError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            ExecuteError::BadRequest(err) => write!(f, "{}", err),
+            ExecuteError::Flush(err) => write!(f, "{}", err),
+            ExecuteError::Read(err) => write!(f, "{}", err),
+            ExecuteError::Seek(err) => write!(f, "{}", err),
+            ExecuteError::Write(err) => write!(f, "{}", err),
+            ExecuteError::Unsupported(t) => write!(f, "Unsupported request: {}", t),
+        }
+    }
 }
 
 impl ExecuteError {
@@ -333,7 +375,7 @@ impl BlockEpollHandler {
                             VIRTIO_BLK_S_OK
                         }
                         Err(e) => {
-                            error!("Failed to execute request: {:?}", e);
+                            error!("Failed to execute request: {}", e);
                             METRICS.block.invalid_reqs_count.inc();
                             len = 1; // We need at least 1 byte for the status.
                             e.status()
@@ -346,7 +388,7 @@ impl BlockEpollHandler {
                         .unwrap();
                 }
                 Err(e) => {
-                    error!("Failed to parse available descriptor chain: {:?}", e);
+                    error!("Failed to parse available descriptor chain: {}", e);
                     METRICS.block.execute_fails.inc();
                     len = 0;
                 }
@@ -362,7 +404,7 @@ impl BlockEpollHandler {
         self.interrupt_status
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
         self.interrupt_evt.write(1).map_err(|e| {
-            error!("Failed to signal used queue: {:?}", e);
+            error!("Failed to signal used queue: {}", e);
             METRICS.block.event_fails.inc();
             DeviceError::FailedSignalingUsedQueue(e)
         })
@@ -392,7 +434,7 @@ impl EpollHandler for BlockEpollHandler {
             QUEUE_AVAIL_EVENT => {
                 METRICS.block.queue_event_count.inc();
                 if let Err(e) = self.queue_evt.read() {
-                    error!("Failed to get queue event: {:?}", e);
+                    error!("Failed to get queue event: {}", e);
                     METRICS.block.event_fails.inc();
                     Err(DeviceError::FailedReadingQueue {
                         event_type: "queue event",
@@ -621,6 +663,7 @@ impl VirtioDevice for Block {
 
             return Ok(());
         }
+
         METRICS.block.activate_fails.inc();
         Err(ActivateError::BadActivate)
     }
@@ -717,7 +760,8 @@ mod tests {
         let interrupt_evt = EventFd::new().unwrap();
         let queue_evt = EventFd::new().unwrap();
 
-        let disk_image_id_str = build_device_id(&disk_image).unwrap();
+        let disk_image_id_str =
+            build_device_id(&disk_image).unwrap_or_else(|err| panic!("{}", err));
         let mut disk_image_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
         let disk_image_id_bytes = disk_image_id_str.as_bytes();
         let bytes_to_copy = cmp::min(disk_image_id_bytes.len(), VIRTIO_BLK_ID_BYTES as usize);
@@ -785,22 +829,34 @@ mod tests {
         // and verify the request type is parsed correctly.
 
         m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, a).unwrap();
-        assert_eq!(request_type(m, a).unwrap(), RequestType::In);
+        assert_eq!(
+            request_type(m, a).unwrap_or_else(|err| panic!("{}", err)),
+            RequestType::In
+        );
 
         m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, a).unwrap();
-        assert_eq!(request_type(m, a).unwrap(), RequestType::Out);
+        assert_eq!(
+            request_type(m, a).unwrap_or_else(|err| panic!("{}", err)),
+            RequestType::Out
+        );
 
         m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH, a).unwrap();
-        assert_eq!(request_type(m, a).unwrap(), RequestType::Flush);
+        assert_eq!(
+            request_type(m, a).unwrap_or_else(|err| panic!("{}", err)),
+            RequestType::Flush
+        );
 
         m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_GET_ID, a).unwrap();
-        assert_eq!(request_type(m, a).unwrap(), RequestType::GetDeviceID);
+        assert_eq!(
+            request_type(m, a).unwrap_or_else(|err| panic!("{}", err)),
+            RequestType::GetDeviceID
+        );
 
         // The value written here should be invalid.
         m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH + 10, a)
             .unwrap();
         assert_eq!(
-            request_type(m, a).unwrap(),
+            request_type(m, a).unwrap_or_else(|err| panic!("{}", err)),
             RequestType::Unsupported(VIRTIO_BLK_T_FLUSH + 10)
         );
 
@@ -820,10 +876,16 @@ mod tests {
 
         m.write_obj_at_addr::<u64>(123_454_321, a.checked_add(8).unwrap())
             .unwrap();
-        assert_eq!(sector(m, a).unwrap(), 123_454_321);
+        assert_eq!(
+            sector(m, a).unwrap_or_else(|err| panic!("{}", err)),
+            123_454_321
+        );
 
         // Reading from a slightly different address should not lead a correct result in this case.
-        assert_ne!(sector(m, a.checked_add(1).unwrap()).unwrap(), 123_454_321);
+        assert_ne!(
+            sector(m, a.checked_add(1).unwrap()).unwrap_or_else(|err| panic!("{}", err)),
+            123_454_321
+        );
 
         // The provided address is outside the valid memory range.
         assert!(sector(m, a.checked_add(0x1000).unwrap()).is_err());
@@ -925,7 +987,7 @@ mod tests {
             let mut q = vq.create_queue();
             // should be OK now
             vq.dtable[2].len.set(0x1000);
-            let r = Request::parse(&q.pop(m).unwrap(), m).unwrap();
+            let r = Request::parse(&q.pop(m).unwrap(), m).unwrap_or_else(|err| panic!("{}", err));
 
             assert_eq!(r.request_type, RequestType::In);
             assert_eq!(r.sector, 114);
