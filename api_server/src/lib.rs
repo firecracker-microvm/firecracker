@@ -47,8 +47,8 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::Io(ref err) => write!(f, "IO error: {}", err),
-            Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
+            Error::Io(ref err) => write!(f, "{}", err),
+            Error::Eventfd(ref err) => write!(f, "{}", err),
         }
     }
 }
@@ -56,8 +56,8 @@ impl fmt::Display for Error {
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::Io(ref err) => write!(f, "IO error: {}", err),
-            Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
+            Error::Io(ref err) => write!(f, "{}", err),
+            Error::Eventfd(ref err) => write!(f, "{}", err),
         }
     }
 }
@@ -132,6 +132,7 @@ impl ApiServer {
                     self.api_request_sender.clone(),
                     self.efd.clone(),
                 );
+
                 let connection = http.serve_connection(stream, service);
                 // todo: is spawn() any better/worse than execute()?
                 // We have to adjust the future item and error, to fit spawn()'s definition.
@@ -167,12 +168,12 @@ mod tests {
         let e = Error::Io(io::Error::from_raw_os_error(0));
         assert_eq!(
             format!("{}", e),
-            format!("IO error: {}", io::Error::from_raw_os_error(0))
+            format!("{}", io::Error::from_raw_os_error(0))
         );
         let e = Error::Eventfd(io::Error::from_raw_os_error(0));
         assert_eq!(
             format!("{}", e),
-            format!("EventFd error: {}", io::Error::from_raw_os_error(0))
+            format!("{}", io::Error::from_raw_os_error(0))
         );
     }
 
@@ -181,12 +182,12 @@ mod tests {
         let e = Error::Io(io::Error::from_raw_os_error(0));
         assert_eq!(
             format!("{:?}", e),
-            format!("IO error: {}", io::Error::from_raw_os_error(0))
+            format!("{}", io::Error::from_raw_os_error(0))
         );
         let e = Error::Eventfd(io::Error::from_raw_os_error(0));
         assert_eq!(
             format!("{:?}", e),
-            format!("EventFd error: {}", io::Error::from_raw_os_error(0))
+            format!("{}", io::Error::from_raw_os_error(0))
         );
     }
 }
