@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt;
 use std::fs::File;
 use std::io::{Error as IoError, Read, Result as IoResult, Write};
 use std::net::UdpSocket;
@@ -14,6 +15,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use libc;
 
 use net_gen;
+use std::fmt::Formatter;
 use sys_util::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 
 // As defined in the Linux UAPI:
@@ -42,6 +44,17 @@ ioctl_iow_nr!(TUNSETIFF, TUNTAP, 202, ::std::os::raw::c_int);
 ioctl_iow_nr!(TUNSETOFFLOAD, TUNTAP, 208, ::std::os::raw::c_uint);
 ioctl_iow_nr!(TUNSETVNETHDRSZ, TUNTAP, 216, ::std::os::raw::c_int);
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::CreateSocket(err) => write!(f, "Failed to create a socket: {}", err),
+            Error::CreateTap(err) => write!(f, "Unable to create tap interface: {}", err),
+            Error::InvalidIfname => write!(f, "Invalid interface name."),
+            Error::IoctlError(err) => write!(f, "Ioctl failed: {}", err),
+            Error::OpenTun(err) => write!(f, "Couldn't open /dev/net/tun: {}", err),
+        }
+    }
+}
 /// Handle for a network tap interface.
 ///
 /// For now, this simply wraps the file descriptor for the tap device so methods

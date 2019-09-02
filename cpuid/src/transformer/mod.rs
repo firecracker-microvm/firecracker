@@ -11,6 +11,8 @@ use kvm_ioctls::CpuId;
 use brand_string::BrandString;
 use brand_string::Reg as BsReg;
 use common::get_vendor_id;
+use std::fmt;
+use std::fmt::Formatter;
 
 /// Structure containing the specifications of the VM
 ///
@@ -59,6 +61,21 @@ pub enum Error {
     SizeLimitExceeded,
     /// A call to an internal helper method failed
     InternalError(super::common::Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::VcpuCountOverflow => write!(
+                f,
+                "The maximum number of addressable logical CPUs cannot be stored in an `u8`."
+            ),
+            Error::SizeLimitExceeded => write!(f, "The max size has been exceeded."),
+            Error::InternalError(err) => {
+                write!(f, "A call to an internal helper method failed: {}", err)
+            }
+        }
+    }
 }
 
 pub type EntryTransformerFn =

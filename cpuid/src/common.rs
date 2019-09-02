@@ -7,6 +7,8 @@ use std::arch::x86::{CpuidResult, __cpuid_count, __get_cpuid_max};
 use std::arch::x86_64::{CpuidResult, __cpuid_count, __get_cpuid_max};
 
 use cpu_leaf::*;
+use std::fmt;
+use std::fmt::Formatter;
 
 pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
 pub const VENDOR_ID_AMD: &[u8; 12] = b"AuthenticAMD";
@@ -15,6 +17,18 @@ pub const VENDOR_ID_AMD: &[u8; 12] = b"AuthenticAMD";
 pub enum Error {
     InvalidParameters(String),
     NotSupported,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::InvalidParameters(err_msg) => write!(f, "{}", err_msg),
+            Error::NotSupported => write!(
+                f,
+                "CpuId instruction is not supported on the current target arch."
+            ),
+        }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

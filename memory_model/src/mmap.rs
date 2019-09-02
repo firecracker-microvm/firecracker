@@ -14,6 +14,8 @@ use std::ptr::null_mut;
 
 use libc;
 
+use std::fmt;
+use std::fmt::Formatter;
 use DataInit;
 
 /// Errors associated with memory mapping.
@@ -33,6 +35,28 @@ pub enum Error {
     ReadFromMemory(io::Error),
 }
 type Result<T> = std::result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::InvalidAddress => write!(f, "Requested memory out of range."),
+            Error::InvalidRange(_, _) => write!(
+                f,
+                "Requested memory range spans past the end of the \
+                 region."
+            ),
+            Error::ReadFromSource(err) => write!(
+                f,
+                "Couldn't read from the given \
+                 source: {}",
+                err
+            ),
+            Error::SystemCallFailed(err) => write!(f, "`mmap` failed: {}", err),
+            Error::WriteToMemory(err) => write!(f, "Writing to memory failed: {}", err),
+            Error::ReadFromMemory(err) => write!(f, "Reading from memory failed: {}", err),
+        }
+    }
+}
 
 /// Wraps an anonymous shared memory mapping in the current process.
 pub struct MemoryMapping {
@@ -323,12 +347,12 @@ mod tests {
     fn map_invalid_size() {
         let res = MemoryMapping::new(0);
         match res {
-            Ok(_) => panic!("should panic!"),
+            Ok(_) => panic!("Should panic!"),
             Err(err) => {
                 if let Error::SystemCallFailed(e) = err {
                     assert_eq!(e.raw_os_error(), Some(libc::EINVAL));
                 } else {
-                    panic!("unexpected error: {:?}", err);
+                    panic!("Unexpected error: {}", err);
                 }
             }
         }
