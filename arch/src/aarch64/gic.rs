@@ -1,9 +1,10 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{io, result};
+use std::{fmt, io, result};
 
 use kvm_ioctls::{DeviceFd, VmFd};
+use std::fmt::Formatter;
 
 // Unfortunately bindgen omits defines that are based on other defines.
 // See arch/arm64/include/uapi/asm/kvm.h file from the linux kernel.
@@ -12,7 +13,6 @@ const KVM_VGIC_V3_DIST_SIZE: u64 = SZ_64K;
 const KVM_VGIC_V3_REDIST_SIZE: u64 = (2 * SZ_64K);
 
 /// Errors thrown while setting up the GIC.
-#[derive(Debug)]
 pub enum Error {
     /// Error while calling KVM ioctl for setting up the global interrupt controller.
     CreateGIC(io::Error),
@@ -20,6 +20,19 @@ pub enum Error {
     SetDeviceAttribute(io::Error),
 }
 type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::CreateGIC(err) => write!(f, "KVM ioctl for creating GIC failed: {}", err),
+            Error::SetDeviceAttribute(err) => write!(
+                f,
+                "KVM ioctl for setting device attributes for GIC failed: {}",
+                err
+            ),
+        }
+    }
+}
 
 /// Create a GICv3 device.
 ///
@@ -132,5 +145,26 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         assert!(create_gicv3(&vm, 1).is_ok());
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::CreateGIC(io::Error::from_raw_os_error(0))),
+            format!(
+                "KVM ioctl for creating GIC failed: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetDeviceAttribute(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "KVM ioctl for setting device attributes for GIC failed: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
     }
 }

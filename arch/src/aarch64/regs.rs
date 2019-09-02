@@ -5,21 +5,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{io, mem, result};
+use std::{fmt, io, mem, result};
 
 use kvm_ioctls::VcpuFd;
 
 use super::get_fdt_addr;
 use kvm_bindings::{user_pt_regs, KVM_REG_ARM64, KVM_REG_ARM_CORE, KVM_REG_SIZE_U64};
 use memory_model::GuestMemory;
+use std::fmt::Formatter;
 
 /// Errors thrown while setting aarch64 registers.
-#[derive(Debug)]
 pub enum Error {
     /// Failed to set core register (PC, PSTATE or general purpose ones).
     SetCoreRegister(io::Error),
 }
-type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::SetCoreRegister(err) => write!(f, "Failed to set core register: {}", err),
+        }
+    }
+}
+
+pub type Result<T> = result::Result<T, Error>;
 
 #[allow(non_upper_case_globals)]
 // PSR (Processor State Register) bits.

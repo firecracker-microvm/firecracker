@@ -12,18 +12,26 @@ pub mod regs;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::ffi::CStr;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 
 use memory_model::{GuestAddress, GuestMemory};
 
 /// Errors thrown while configuring aarch64 system.
-#[derive(Debug)]
 pub enum Error {
     /// Failed to create a Flattened Device Tree for this aarch64 microVM.
     SetupFDT(fdt::Error),
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::SetupFDT(err) => write!(f, "FDT setup failed: {}", err),
+        }
+    }
+}
+
 pub use self::fdt::DeviceInfoForFDT;
+use std::fmt;
 use DeviceType;
 
 /// Returns a Vec of the valid memory addresses for aarch64.

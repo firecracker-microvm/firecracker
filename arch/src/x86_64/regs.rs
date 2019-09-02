@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{io, mem, result};
+use std::{fmt, io, mem, result};
 
 use kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_msrs, kvm_regs, kvm_sregs};
 use kvm_ioctls::VcpuFd;
@@ -13,6 +13,7 @@ use kvm_ioctls::VcpuFd;
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 use arch_gen::x86::msr_index;
 use memory_model::{GuestAddress, GuestMemory};
+use std::fmt::Formatter;
 
 // Initial pagetables.
 const PML4_START: usize = 0x9000;
@@ -44,6 +45,29 @@ pub enum Error {
     WritePML4Address,
 }
 type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::GetStatusRegisters(err) => {
+                write!(f, "Failed to get SREGs for this CPU: {}", err)
+            }
+            Error::SetBaseRegisters(err) => {
+                write!(f, "Failed to set base registers for this CPU: {}", err)
+            }
+            Error::SetFPURegisters(err) => write!(f, "Failed to configure the FPU: {}", err),
+            Error::SetModelSpecificRegisters(err) => write!(f, "Setting up MSRs failed: {}", err),
+            Error::SetStatusRegisters(err) => {
+                write!(f, "Failed to set SREGs for this CPU: {}", err)
+            }
+            Error::WriteGDT => write!(f, "Writing the GDT to RAM failed."),
+            Error::WriteIDT => write!(f, "Writing the IDT to RAM failed."),
+            Error::WritePDPTEAddress => write!(f, "Writing PDPTE to RAM failed."),
+            Error::WritePDEAddress => write!(f, "Writing PDE to RAM failed."),
+            Error::WritePML4Address => write!(f, "Writing PML4 to RAM failed."),
+        }
+    }
+}
 
 /// Configure Floating-Point Unit (FPU) registers for a given CPU.
 ///

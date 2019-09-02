@@ -5,15 +5,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::io;
 use std::mem;
 use std::result;
 use std::slice;
+use std::{fmt, io};
 
 use libc::c_char;
 
 use arch_gen::x86::mpspec;
 use memory_model::{DataInit, GuestAddress, GuestMemory};
+use std::fmt::Formatter;
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `DataInit`) where:
@@ -71,6 +72,31 @@ pub enum Error {
     WriteMpcLintsrc,
     /// Failure to write MP table header.
     WriteMpcTable,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::NotEnoughMemory => write!(
+                f,
+                "There was too little guest memory to store the entire MP table."
+            ),
+            Error::AddressOverflow => {
+                write!(f, "The MP table has too little address space to be stored.")
+            }
+            Error::Clear => write!(f, "Failure while zeroing out the memory for the MP table."),
+            Error::TooManyCpus => write!(f, "Number of CPUs exceeds the maximum supported CPUs."),
+            Error::WriteMpfIntel => write!(f, "Failure to write the MP floating pointer."),
+            Error::WriteMpcCpu => write!(f, "Failure to write MP CPU entry."),
+            Error::WriteMpcIoapic => write!(f, "Failure to write MP ioapic entry."),
+            Error::WriteMpcBus => write!(f, "Failure to write MP bus entry."),
+            Error::WriteMpcIntsrc => write!(f, "Failure to write MP interrupt source entry."),
+            Error::WriteMpcLintsrc => {
+                write!(f, "Failure to write MP local interrupt source entry.")
+            }
+            Error::WriteMpcTable => write!(f, "Failure to write MP table header."),
+        }
+    }
 }
 
 pub type Result<T> = result::Result<T, Error>;

@@ -12,8 +12,7 @@ extern crate libc;
 extern crate arch_gen;
 extern crate memory_model;
 
-use std::fmt;
-use std::result;
+use std::{fmt, result};
 
 /// Module for aarch64 related functionality.
 #[cfg(target_arch = "aarch64")]

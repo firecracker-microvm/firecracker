@@ -14,10 +14,11 @@ mod mptable;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 
-use std::mem;
+use std::{fmt, mem};
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
 use memory_model::{DataInit, GuestAddress, GuestMemory};
+use std::fmt::Formatter;
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `DataInit`) where:
@@ -37,10 +38,23 @@ pub enum Error {
     E820Configuration,
     /// Error writing MP table to memory.
     MpTableSetup(mptable::Error),
-    /// The zero page extends past the end of guest_mem.
+    /// Error writing the zero page to guest memory.
     ZeroPagePastRamEnd,
     /// Error writing the zero page of guest memory.
     ZeroPageSetup,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::E820Configuration => write!(f, "Invalid e820 setup params."),
+            Error::MpTableSetup(err) => write!(f, "Error writing MP table to memory: {}", err),
+            Error::ZeroPagePastRamEnd => {
+                write!(f, "The zero page extends past the end of guest_mem.")
+            }
+            Error::ZeroPageSetup => write!(f, "Error writing the zero page to guest memory."),
+        }
+    }
 }
 
 // Where BIOS/VGA magic would live on a real PC.
@@ -257,11 +271,13 @@ mod tests {
             e820_map[0].size,
             e820_map[0].type_,
         )
-        .unwrap();
+        .unwrap_or_else(|err| panic!("{}", err));
+
         assert_eq!(
             format!("{:?}", params.e820_map[0]),
             format!("{:?}", expected_params.e820_map[0])
         );
+
         assert_eq!(params.e820_entries, expected_params.e820_entries);
 
         // Exercise the scenario where the field storing the length of the e820 entry table is
@@ -274,5 +290,23 @@ mod tests {
             e820_map[0].type_
         )
         .is_err());
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::ZeroPageSetup),
+            "Error writing the zero page to guest memory."
+        );
+
+        assert_eq!(
+            format!("{}", Error::E820Configuration),
+            "Invalid e820 setup params."
+        );
+
+        assert_eq!(
+            format!("{}", Error::ZeroPagePastRamEnd),
+            "The zero page extends past the end of guest_mem."
+        );
     }
 }

@@ -6,12 +6,13 @@
 // found in the THIRD-PARTY file.
 
 use std::io::{self, Cursor};
-use std::result;
+use std::{fmt, result};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use kvm_bindings::kvm_lapic_state;
 use kvm_ioctls::VcpuFd;
+use std::fmt::Formatter;
 
 /// Errors thrown while configuring the LAPIC.
 #[derive(Debug)]
@@ -22,6 +23,15 @@ pub enum Error {
     SetLapic(io::Error),
 }
 type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::GetLapic(err) => write!(f, "Get Lapic failed: {}", err),
+            Error::SetLapic(err) => write!(f, "Set Lapic failed: {}", err),
+        }
+    }
+}
 
 // Defines poached from apicdef.h kernel header.
 const APIC_LVT0: usize = 0x350;
@@ -136,7 +146,7 @@ mod tests {
         let lint0_mode_expected = set_apic_delivery_mode(lint0, APIC_MODE_EXTINT);
         let lint1_mode_expected = set_apic_delivery_mode(lint1, APIC_MODE_NMI);
 
-        set_lint(&vcpu).unwrap();
+        set_lint(&vcpu).unwrap_or_else(|err| panic!("{}", err));
 
         // Compute the value that represents LVT0 and LVT1 after set_lint.
         let klapic_actual: kvm_lapic_state = vcpu.get_lapic().unwrap();
@@ -154,5 +164,18 @@ mod tests {
         // 'get_lapic' ioctl triggered by the 'set_lint' function will fail if there is no
         // irqchip created beforehand.
         assert!(set_lint(&vcpu).is_err());
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::GetLapic(io::Error::from_raw_os_error(0))),
+            format!("Get Lapic failed: {}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!("{}", Error::SetLapic(io::Error::from_raw_os_error(0))),
+            format!("Set Lapic failed: {}", io::Error::from_raw_os_error(0))
+        );
     }
 }
