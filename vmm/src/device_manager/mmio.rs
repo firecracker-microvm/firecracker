@@ -365,10 +365,20 @@ mod tests {
             QUEUE_SIZES
         }
 
-        fn ack_features(&mut self, page: u32, value: u32) {
+        fn ack_features_by_page(&mut self, page: u32, value: u32) {
             let _ = page;
             let _ = value;
         }
+
+        fn avail_features(&self) -> u64 {
+            0
+        }
+
+        fn acked_features(&self) -> u64 {
+            0
+        }
+
+        fn set_acked_features(&mut self, _: u64) {}
 
         fn read_config(&self, offset: u64, data: &mut [u8]) {
             let _ = offset;
