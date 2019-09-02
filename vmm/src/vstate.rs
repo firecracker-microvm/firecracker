@@ -5,9 +5,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::io;
 use std::result;
 use std::sync::{Arc, Barrier};
+use std::{fmt, io};
 
 use super::{KvmContext, TimestampUs};
 use arch;
@@ -20,6 +20,7 @@ use kvm_bindings::{kvm_pit_config, KVM_PIT_SPEAKER_DUMMY};
 use kvm_ioctls::*;
 use logger::{LogOption, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
+use std::fmt::Formatter;
 use sys_util::EventFd;
 #[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::CpuFeaturesTemplate;
@@ -94,6 +95,74 @@ pub enum Error {
     VcpuArmInit(io::Error),
 }
 pub type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::CpuId(err) => write!(f, "A call to cpuid instruction failed: {}", err),
+            Error::GuestMemory(err) => write!(f, "Invalid guest memory configuration: {}", err),
+            Error::HTNotInitialized => write!(f, "Hyperthreading is not initialized."),
+            Error::VcpuCountNotInitialized => write!(f, "vCPU count is not initialized."),
+            Error::VmFd(err) => write!(f, "Cannot open the VM file descriptor: {}", err),
+            Error::VcpuFd(err) => write!(f, "Cannot open the VCPU file descriptor: {}", err),
+            Error::VmSetup(err) => write!(f, "Cannot configure the microvm: {}", err),
+            Error::VcpuRun(err) => write!(f, "Cannot run the VCPUs: {}", err),
+            Error::SetSupportedCpusFailed(err) => {
+                write!(f, "The call to KVM_SET_CPUID2 failed: {}", err)
+            }
+            Error::NotEnoughMemorySlots => write!(
+                f,
+                "The number of configured slots is bigger than the maximum reported by KVM."
+            ),
+            #[cfg(target_arch = "x86_64")]
+            Error::LocalIntConfiguration(err) => {
+                write!(f, "Bad local interruption configuration: {}", err)
+            }
+            Error::SetUserMemoryRegion(err) => write!(f, "Cannot set the memory regions: {}", err),
+            #[cfg(target_arch = "x86_64")]
+            Error::MSRSConfiguration(err) => {
+                write!(f, "Error configuring the MSR registers: {}", err)
+            }
+            #[cfg(target_arch = "x86_64")]
+            Error::REGSConfiguration(err) => write!(
+                f,
+                "Error configuring the general purpose registers: {}",
+                err
+            ),
+            #[cfg(target_arch = "aarch64")]
+            Error::REGSConfiguration(err) => write!(
+                f,
+                "Error configuring the general purpose aarch64 registers: {}",
+                err
+            ),
+            #[cfg(target_arch = "x86_64")]
+            Error::SREGSConfiguration(err) => {
+                write!(f, "Error configuring the special registers: {}", err)
+            }
+            #[cfg(target_arch = "x86_64")]
+            Error::FPUConfiguration(err) => write!(
+                f,
+                "Error configuring the floating point related registers: {}",
+                err
+            ),
+            Error::Irq(err) => write!(f, "Cannot configure the IRQ: {}", err),
+            Error::VcpuSpawn(err) => write!(f, "Cannot spawn a new vCPU thread: {}", err),
+            Error::VcpuUnhandledKvmExit => write!(f, "Unexpected KVM_RUN exit reason"),
+            #[cfg(target_arch = "aarch64")]
+            Error::SetupGIC(err) => write!(
+                f,
+                "Error setting up the global interrupt controller: {}",
+                err
+            ),
+            #[cfg(target_arch = "aarch64")]
+            Error::VcpuArmPreferredTarget(err) => {
+                write!(f, "Error getting the vCPU preferred target on arm: {}", err)
+            }
+            #[cfg(target_arch = "aarch64")]
+            Error::VcpuArmInit(err) => write!(f, "Error doing vCPU init on arm: {}", err),
+        }
+    }
+}
 
 /// A wrapper around creating and using a VM.
 pub struct Vm {
@@ -268,7 +337,7 @@ impl Vcpu {
 
         filter_cpuid(&mut self.cpuid, &cpuid_vm_spec).map_err(|e| {
             METRICS.vcpu.filter_cpuid.inc();
-            error!("Failure in configuring CPUID for vcpu {}: {:?}", self.id, e);
+            error!("Failure in configuring CPUID for vCPU {}: {}", self.id, e);
             Error::CpuId(e)
         })?;
 
@@ -464,7 +533,7 @@ mod tests {
 
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu() -> (Vm, Vcpu) {
-        let kvm = KvmContext::new().unwrap();
+        let kvm = KvmContext::new().unwrap_or_else(|err| panic!("{}", err));
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(gm, &kvm).is_ok());
@@ -497,7 +566,7 @@ mod tests {
     #[test]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_get_supported_cpuid() {
-        let kvm = KvmContext::new().unwrap();
+        let kvm = KvmContext::new().unwrap_or_else(|err| panic!("{}", err));
         let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         let mut cpuid = kvm
             .kvm
@@ -511,7 +580,7 @@ mod tests {
 
     #[test]
     fn test_vm_memory_init() {
-        let mut kvm_context = KvmContext::new().unwrap();
+        let mut kvm_context = KvmContext::new().unwrap_or_else(|err| panic!("{}", err));
         let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
@@ -529,7 +598,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_setup_irqchip() {
-        let kvm_context = KvmContext::new().unwrap();
+        let kvm_context = KvmContext::new().unwrap_or_else(|err| panic!("{}", err));
         let vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         vm.setup_irqchip().expect("Cannot setup irqchip");

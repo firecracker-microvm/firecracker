@@ -74,7 +74,6 @@ pub struct NetworkInterfaceUpdateConfig {
 }
 
 /// Errors associated with `NetworkInterfaceConfig`.
-#[derive(Debug)]
 pub enum NetworkInterfaceError {
     /// The MAC address is already in use.
     GuestMacAddressInUse(String),
@@ -102,7 +101,7 @@ impl Display for NetworkInterfaceError {
                 format!("The guest MAC address {} is already in use.", mac_addr)
             ),
             EpollHandlerNotFound(ref e) => {
-                write!(f, "Error retrieving device epoll handler: {:?}", e)
+                write!(f, "Error retrieving device epoll handler: {}", e)
             }
             HostDeviceNameInUse(ref host_dev_name) => write!(
                 f,
@@ -401,12 +400,12 @@ mod tests {
     #[test]
     fn test_error_display() {
         let _ = format!(
-            "{}{:?}",
+            "{}{}",
             NetworkInterfaceError::GuestMacAddressInUse("00:00:00:00:00:00".to_string()),
             NetworkInterfaceError::GuestMacAddressInUse("00:00:00:00:00:00".to_string())
         );
         let _ = format!(
-            "{}{:?}",
+            "{}{}",
             NetworkInterfaceError::EpollHandlerNotFound(
                 VmmInternalError::DeviceEventHandlerNotFound
             ),
@@ -415,22 +414,22 @@ mod tests {
             )
         );
         let _ = format!(
-            "{}{:?}",
+            "{}{}",
             NetworkInterfaceError::HostDeviceNameInUse("hostdev".to_string()),
             NetworkInterfaceError::HostDeviceNameInUse("hostdev".to_string())
         );
         let _ = format!(
-            "{}{:?}",
+            "{}{}",
             NetworkInterfaceError::DeviceIdNotFound,
             NetworkInterfaceError::DeviceIdNotFound
         );
         let _ = format!(
-            "{}{:?}",
+            "{}{}",
             NetworkInterfaceError::OpenTap(TapError::InvalidIfname),
             NetworkInterfaceError::OpenTap(TapError::InvalidIfname)
         );
         let _ = format!(
-            "{}{:?}",
+            "{}{}",
             NetworkInterfaceError::RateLimiterUpdateFailed(devices::Error::IoError(
                 io::Error::last_os_error()
             )),
@@ -439,7 +438,7 @@ mod tests {
             ))
         );
         let _ = format!(
-            "{}{:?}",
+            "{}{}",
             NetworkInterfaceError::UpdateNotAllowedPostBoot,
             NetworkInterfaceError::UpdateNotAllowedPostBoot
         );

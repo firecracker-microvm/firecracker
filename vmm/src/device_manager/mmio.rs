@@ -21,7 +21,6 @@ use kvm_ioctls::{IoEventAddress, VmFd};
 use memory_model::GuestMemory;
 
 /// Errors for MMIO device manager.
-#[derive(Debug)]
 pub enum Error {
     /// Failed to perform an operation on the bus.
     BusError(devices::BusError),
@@ -46,17 +45,17 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::BusError(ref e) => write!(f, "failed to perform bus operation: {}", e),
-            Error::CreateMmioDevice(ref e) => write!(f, "failed to create mmio device: {}", e),
+            Error::BusError(ref e) => write!(f, "Failed to perform bus operation: {}", e),
+            Error::CreateMmioDevice(ref e) => write!(f, "Failed to create mmio device: {}", e),
             Error::Cmdline(ref e) => {
-                write!(f, "unable to add device to kernel command line: {}", e)
+                write!(f, "Unable to add device to kernel command line: {}", e)
             }
-            Error::EventFd(ref e) => write!(f, "failed to create or clone event descriptor: {}", e),
-            Error::IrqsExhausted => write!(f, "no more IRQs are available"),
-            Error::RegisterIoEvent(ref e) => write!(f, "failed to register IO event: {}", e),
-            Error::RegisterIrqFd(ref e) => write!(f, "failed to register irqfd: {}", e),
-            Error::DeviceNotFound => write!(f, "the device couldn't be found"),
-            Error::UpdateFailed => write!(f, "failed to update the mmio device"),
+            Error::EventFd(ref e) => write!(f, "Failed to create or clone event descriptor: {}", e),
+            Error::IrqsExhausted => write!(f, "No more IRQs are available."),
+            Error::RegisterIoEvent(ref e) => write!(f, "Failed to register IO event: {}", e),
+            Error::RegisterIrqFd(ref e) => write!(f, "Failed to register irqfd: {}", e),
+            Error::DeviceNotFound => write!(f, "The device couldn't be found."),
+            Error::UpdateFailed => write!(f, "Failed to update the mmio device."),
         }
     }
 }
@@ -421,7 +420,7 @@ mod tests {
             0,
             kvm_ioctls::Kvm::new().expect("Cannot create KVM object"),
         )
-        .expect("Cannot Create VMM")
+        .unwrap_or_else(|err| panic!("Can not create VMM: {}", err))
     }
 
     #[test]
@@ -464,7 +463,7 @@ mod tests {
                     0,
                     "dummy1",
                 )
-                .unwrap();
+                .unwrap_or_else(|err| panic!("{}", err));
         }
         assert_eq!(
             format!(
@@ -479,7 +478,7 @@ mod tests {
                     )
                     .unwrap_err()
             ),
-            "no more IRQs are available".to_string()
+            "No more IRQs are available.".to_string()
         );
     }
 
@@ -521,52 +520,38 @@ mod tests {
         );
         assert_eq!(
             format!("{}", e),
-            format!(
-                "unable to add device to kernel command line: {}",
-                kernel_cmdline::Error::HasEquals
-            ),
+            "Unable to add device to kernel command line: Command line string contains an equals sign"
         );
         assert_eq!(
             format!("{}", Error::UpdateFailed),
-            "failed to update the mmio device"
+            "Failed to update the mmio device."
         );
         assert_eq!(
             format!("{}", Error::BusError(devices::BusError::Overlap)),
-            format!(
-                "failed to perform bus operation: {}",
-                devices::BusError::Overlap
-            )
+            "Failed to perform bus operation: New device overlaps with an old device."
         );
         assert_eq!(
             format!(
                 "{}",
                 Error::CreateMmioDevice(io::Error::from_raw_os_error(0))
             ),
-            format!(
-                "failed to create mmio device: {}",
-                io::Error::from_raw_os_error(0)
-            )
+            format!("Failed to create mmio device: {}",
+            io::Error::from_raw_os_error(0))
         );
         assert_eq!(
             format!("{}", Error::IrqsExhausted),
-            "no more IRQs are available"
+            "No more IRQs are available."
         );
         assert_eq!(
             format!(
                 "{}",
                 Error::RegisterIoEvent(io::Error::from_raw_os_error(0))
             ),
-            format!(
-                "failed to register IO event: {}",
-                io::Error::from_raw_os_error(0)
-            )
+            "Failed to register IO event: No error information (os error 0)"
         );
         assert_eq!(
             format!("{}", Error::RegisterIrqFd(io::Error::from_raw_os_error(0))),
-            format!(
-                "failed to register irqfd: {}",
-                io::Error::from_raw_os_error(0)
-            )
+            "Failed to register irqfd: No error information (os error 0)"
         );
     }
 

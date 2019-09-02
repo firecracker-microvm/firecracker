@@ -110,7 +110,6 @@ fn default_log_options() -> Value {
 }
 
 /// Errors associated with actions on the `LoggerConfig`.
-#[derive(Debug)]
 pub enum LoggerConfigError {
     /// Cannot initialize the logger due to bad user input.
     InitializationFailure(String),
@@ -122,8 +121,8 @@ impl Display for LoggerConfigError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::LoggerConfigError::*;
         match *self {
-            InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
-            FlushMetrics(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
+            InitializationFailure(ref err_msg) => write!(f, "Initialization failure: {}", err_msg),
+            FlushMetrics(ref err_msg) => write!(f, "Flush metrics: {}", err_msg),
         }
     }
 }

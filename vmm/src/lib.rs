@@ -47,7 +47,6 @@ use futures::sync::oneshot;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs::{metadata, File, OpenOptions};
-use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::process;
@@ -56,6 +55,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Barrier, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
+use std::{fmt, io};
 
 use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{Cap, Kvm};
@@ -165,16 +165,16 @@ pub enum Error {
     Vm(vstate::Error),
 }
 
-// Implementing Debug as these errors are mostly used in panics & expects.
-impl std::fmt::Debug for Error {
+// Implementing Display as these errors are mostly used in panics & expects.
+impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::Error::*;
 
         match self {
-            ApiChannel => write!(f, "ApiChannel: error receiving data from the API server"),
-            CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
-            EpollFd(e) => write!(f, "Epoll fd error: {}", e.to_string()),
-            EventFd(e) => write!(f, "Event fd error: {}", e.to_string()),
+            ApiChannel => write!(f, "ApiChannel: error receiving data from the API server."),
+            CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {}", e),
+            EpollFd(e) => write!(f, "Epoll fd error: {}", e),
+            EventFd(e) => write!(f, "Event fd error: {}", e),
             DeviceEventHandlerNotFound => write!(
                 f,
                 "Device event handler not found. This might point to a guest device driver issue."
@@ -183,19 +183,19 @@ impl std::fmt::Debug for Error {
                 f,
                 "Device event handler couldn't be downcasted to expected type."
             ),
-            Kvm(os_err) => write!(f, "Cannot open /dev/kvm. Error: {}", os_err.to_string()),
+            Kvm(os_err) => write!(f, "Cannot open /dev/kvm. Error: {}", os_err),
             KvmApiVersion(ver) => write!(f, "Bad KVM API version: {}", ver),
             KvmCap(cap) => write!(f, "Missing KVM capability: {:?}", cap),
-            Poll(e) => write!(f, "Epoll wait failed: {}", e.to_string()),
-            Serial(e) => write!(f, "Error writing to the serial console: {:?}", e),
-            TimerFd(e) => write!(f, "Error creating timer fd: {}", e.to_string()),
-            Vm(e) => write!(f, "Error opening VM fd: {:?}", e),
+            Poll(e) => write!(f, "Epoll wait failed: {}", e),
+            Serial(e) => write!(f, "Error writing to the serial console: {}", e),
+            TimerFd(e) => write!(f, "Error creating timer fd: {}", e),
+            Vm(e) => write!(f, "Error opening VM fd: {}", e),
         }
     }
 }
 
 /// Types of errors associated with vmm actions.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone)]
 pub enum ErrorKind {
     /// User Errors describe bad configuration (user input).
     User,
@@ -204,8 +204,35 @@ pub enum ErrorKind {
     Internal,
 }
 
+impl fmt::Display for ErrorKind {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            ErrorKind::User => write!(f, "User"),
+            ErrorKind::Internal => write!(f, "Internal"),
+        }
+    }
+}
+
+impl fmt::Debug for ErrorKind {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            ErrorKind::User => write!(f, "User"),
+            ErrorKind::Internal => write!(f, "Internal"),
+        }
+    }
+}
+
+impl PartialEq for ErrorKind {
+    fn eq(&self, other: &ErrorKind) -> bool {
+        match (self, other) {
+            (&ErrorKind::User, &ErrorKind::User) => true,
+            (&ErrorKind::Internal, &ErrorKind::Internal) => true,
+            _ => false,
+        }
+    }
+}
+
 /// Wrapper for all errors associated with VMM actions.
-#[derive(Debug)]
 pub enum VmmActionError {
     /// The action `ConfigureBootSource` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
@@ -370,25 +397,22 @@ impl VmmActionError {
 impl Display for VmmActionError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::VmmActionError::*;
-
-        let error = match *self {
-            BootSource(_, ref err) => err as &dyn ToString,
-            DriveConfig(_, ref err) => err,
-            Logger(_, ref err) => err,
-            MachineConfig(_, ref err) => err,
-            NetworkConfig(_, ref err) => err,
-            StartMicrovm(_, ref err) => err,
-            SendCtrlAltDel(_, ref err) => err,
-            VsockConfig(_, ref err) => err,
-        };
-
-        write!(f, "{}", error.to_string())
+        match *self {
+            BootSource(_, ref err) => write!(f, "{}", err),
+            DriveConfig(_, ref err) => write!(f, "{}", err),
+            Logger(_, ref err) => write!(f, "{}", err),
+            MachineConfig(_, ref err) => write!(f, "{}", err),
+            NetworkConfig(_, ref err) => write!(f, "{}", err),
+            StartMicrovm(_, ref err) => write!(f, "{}", err),
+            SendCtrlAltDel(_, ref err) => write!(f, "{}", err),
+            VsockConfig(_, ref err) => write!(f, "{}", err),
+        }
     }
 }
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
-#[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum VmmAction {
     /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
     /// action can only be called before the microVM has booted. The response is sent using the
@@ -826,7 +850,7 @@ impl Vmm {
         // If this fails, it's fatal; using expect() to crash.
         epoll_context
             .add_event(control_fd, EpollDispatch::VmmActionRequest)
-            .expect("Cannot add API control_fd to epoll.");
+            .unwrap_or_else(|err| panic!("Cannot add API eventfd to epoll: {}", err));
 
         let write_metrics_event_fd =
             TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?;
@@ -837,7 +861,7 @@ impl Vmm {
                 &write_metrics_event_fd,
                 EpollDispatch::WriteMetrics,
             )
-            .expect("Cannot add write metrics TimerFd to epoll.");
+            .unwrap_or_else(|err| panic!("Cannot add write metrics TimerFd to epoll: {}", err));
 
         let device_configs = DeviceConfigs::new(
             BlockDeviceConfigs::new(),
@@ -1548,7 +1572,7 @@ impl Vmm {
         info!("Vmm is stopping.");
 
         if let Err(e) = self.stdin_handle.lock().set_canon_mode() {
-            warn!("Cannot set canonical mode for the terminal. {:?}", e);
+            warn!("Cannot set canonical mode for the terminal: {}", e);
         }
 
         // Log the metrics before exiting.
@@ -1606,7 +1630,7 @@ impl Vmm {
                         Some(ref ev) => {
                             ev.read().map_err(Error::EventFd)?;
                         }
-                        None => warn!("leftover exit-evt in epollcontext!"),
+                        None => warn!("Leftover exit-evt in epollcontext!"),
                     }
                     self.stop(i32::from(FC_EXIT_CODE_OK));
                 }
@@ -1642,7 +1666,7 @@ impl Vmm {
                             }
                             _ => (),
                         },
-                        Err(e) => warn!("invalid handler for device {}: {:?}", device_idx, e),
+                        Err(e) => warn!("invalid handler for device {}: {}", device_idx, e),
                     }
                 }
                 Some(EpollDispatch::VmmActionRequest) => {
@@ -2209,7 +2233,7 @@ pub fn start_vmm(
         seccomp_level,
         Kvm::new().expect("Error creating the Kvm object"),
     )
-    .expect("Cannot create VMM");
+    .unwrap_or_else(|err| panic!("Cannot create VMM: {}", err));
 
     if let Some(json) = config_json {
         vmm.configure_from_json(json).unwrap_or_else(|err| {
@@ -2232,22 +2256,22 @@ pub fn start_vmm(
     let exit_code = loop {
         match vmm.run_event_loop() {
             Err(e) => {
-                error!("Abruptly exited VMM control loop: {:?}", e);
+                error!("Abruptly exited VMM control loop: {}", e);
                 break FC_EXIT_CODE_GENERIC_ERROR;
             }
             Ok(exit_reason) => match exit_reason {
                 EventLoopExitReason::Break => {
-                    info!("Gracefully terminated VMM control loop");
+                    info!("Gracefully terminated VMM control loop.");
                     break FC_EXIT_CODE_OK;
                 }
                 EventLoopExitReason::ControlAction => {
                     if let Err(e) = api_event_fd.read() {
-                        error!("Error reading VMM API event_fd {:?}", e);
+                        error!("Error reading VMM API event_fd: {}", e);
                         break FC_EXIT_CODE_GENERIC_ERROR;
                     } else {
                         // In this case, we run the loop again.
                         vmm.run_vmm_action().unwrap_or_else(|_| {
-                            warn!("Got a spurious notification from api thread");
+                            warn!("Got a spurious notification from api thread.");
                         });
                     }
                 }
@@ -2449,12 +2473,12 @@ mod tests {
             seccomp::SECCOMP_LEVEL_NONE,
             Kvm::new().expect("Error creating Kvm object"),
         )
-        .expect("Cannot Create VMM")
+        .unwrap_or_else(|err| panic!("Can not create VMM: {}", err))
     }
 
     #[test]
     fn test_device_handler() {
-        let mut ep = EpollContext::new().unwrap();
+        let mut ep = EpollContext::new().unwrap_or_else(|err| panic!("{}", err));
         let (base, sender) = ep.allocate_tokens_for_device(1);
         assert_eq!(ep.device_handlers.len(), 1);
         assert_eq!(base, 1);
@@ -2626,7 +2650,7 @@ mod tests {
             tx_rate_limiter: None,
             allow_mmds_requests: false,
         })
-        .unwrap();
+        .unwrap_or_else(|err| panic!("{}", err));
 
         vmm.update_net_device(NetworkInterfaceUpdateConfig {
             iface_id: "1".to_string(),
@@ -2639,7 +2663,7 @@ mod tests {
                 ops: Some(tbc_2mtps),
             }),
         })
-        .unwrap();
+        .unwrap_or_else(|err| panic!("{}", err));
 
         {
             let nic_1: &mut NetworkInterfaceConfig = vmm
@@ -2662,9 +2686,10 @@ mod tests {
         assert!(vmm.setup_interrupt_controller().is_ok());
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+            .unwrap_or_else(|err| panic!("Can not initialize mmio device manager: {}", err));
 
-        vmm.attach_net_devices().unwrap();
+        vmm.attach_net_devices()
+            .unwrap_or_else(|err| panic!("{}", err));
         vmm.set_instance_state(InstanceState::Running);
 
         // The update should fail before device activation.
@@ -2712,7 +2737,7 @@ mod tests {
                 ops: None,
             }),
         })
-        .unwrap();
+        .unwrap_or_else(|err| panic!("{}", err));
     }
 
     #[test]
@@ -2822,7 +2847,7 @@ mod tests {
 
     #[test]
     fn add_event_test() {
-        let mut ep = EpollContext::new().unwrap();
+        let mut ep = EpollContext::new().unwrap_or_else(|err| panic!("{}", err));
         let evfd = EventFd::new().unwrap();
 
         // adding new event should work
@@ -2831,7 +2856,7 @@ mod tests {
 
     #[test]
     fn epoll_event_test() {
-        let mut ep = EpollContext::new().unwrap();
+        let mut ep = EpollContext::new().unwrap_or_else(|err| panic!("{}", err));
         let evfd = EventFd::new().unwrap();
 
         // adding new event should work
@@ -2867,7 +2892,7 @@ mod tests {
         use std::os::unix::fs::MetadataExt;
         use std::os::unix::io::FromRawFd;
 
-        let c = KvmContext::new().unwrap();
+        let c = KvmContext::new().unwrap_or_else(|err| panic!("{}", err));
 
         assert!(c.max_memslots >= 32);
 
@@ -2915,7 +2940,7 @@ mod tests {
 
     #[test]
     fn test_epoll_stdin_event() {
-        let mut epoll_context = EpollContext::new().unwrap();
+        let mut epoll_context = EpollContext::new().unwrap_or_else(|err| panic!("{}", err));
         epoll_context.enable_stdin_event();
         assert_eq!(
             epoll_context.dispatch_table[epoll_context.stdin_index as usize].unwrap(),
@@ -2951,7 +2976,7 @@ mod tests {
 
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+            .unwrap_or_else(|err| panic!("Can not initialize mmio device manager: {}", err));
 
         assert!(vmm.attach_block_devices().is_ok());
         assert!(vmm.get_kernel_cmdline_str().contains("root=/dev/vda rw"));
@@ -2975,7 +3000,7 @@ mod tests {
 
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+            .unwrap_or_else(|err| panic!("Can not initialize mmio device manager: {}", err));
 
         assert!(vmm.attach_block_devices().is_ok());
         assert!(vmm
@@ -3003,7 +3028,7 @@ mod tests {
 
         vmm.default_kernel_config(None);
         vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+            .unwrap_or_else(|err| panic!("Can not initialize mmio device manager: {}", err));
 
         assert!(vmm.attach_block_devices().is_ok());
         // Test that kernel commandline does not contain either /dev/vda or PARTUUID.
@@ -3040,7 +3065,7 @@ mod tests {
         match vmm.set_block_device_path("not_root".to_string(), path) {
             Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::EpollHandlerNotFound)) => {
             }
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => panic!("Unexpected error: {}", e),
             Ok(_) => {
                 panic!("Updating block device path shouldn't be possible without an epoll handler.")
             }
@@ -3055,9 +3080,9 @@ mod tests {
 
         vmm.default_kernel_config(None);
         vmm.setup_interrupt_controller()
-            .expect("Failed to setup interrupt controller");
+            .unwrap_or_else(|err| panic!("Failed to setup interrupt controller: {}", err));
         vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+            .unwrap_or_else(|err| panic!("Can not initialize mmio device manager: {}", err));
 
         // test create network interface
         let network_interface = NetworkInterfaceConfig {
@@ -3083,10 +3108,10 @@ mod tests {
         vmm.default_kernel_config(None);
         assert!(vmm.init_guest_memory().is_ok());
         vmm.setup_interrupt_controller()
-            .expect("Failed to setup interrupt controller");
+            .unwrap_or_else(|err| panic!("Failed to setup interrupt controller: {}", err));
 
         vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+            .unwrap_or_else(|err| panic!("Can not initialize mmio device manager: {}", err));
         assert!(vmm.attach_virtio_devices().is_ok());
     }
 
@@ -3156,7 +3181,7 @@ mod tests {
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+            .unwrap_or_else(|err| panic!("Can not initialize mmio device manager: {}", err));
 
         {
             let dummy_box = Box::new(DummyDevice { dummy: 0 });
@@ -3171,7 +3196,7 @@ mod tests {
                     TYPE_BLOCK,
                     &scratch_id,
                 )
-                .unwrap();
+                .unwrap_or_else(|err| panic!("{}", err));
         }
 
         vmm.set_instance_state(InstanceState::Running);
@@ -3309,6 +3334,7 @@ mod tests {
             #[cfg(target_arch = "x86_64")]
             options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
         };
+
         // Flushing metrics before initializing logger is not erroneous.
         assert!(vmm.flush_metrics().is_ok());
 
@@ -3400,7 +3426,7 @@ mod tests {
 
         assert_eq!(
             vmm.load_kernel().unwrap_err().to_string(),
-            "Invalid Memory Configuration: MemoryNotInitialized"
+            "Invalid memory configuration: Failure in initializing guest memory."
         );
 
         assert!(vmm.init_guest_memory().is_ok());
@@ -3415,7 +3441,7 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         assert_eq!(
             vmm.load_kernel().unwrap_err().to_string(),
-            "Cannot load kernel due to invalid memory configuration or invalid kernel image. Failed to read ELF header"
+            "Cannot load kernel due to invalid memory configuration or invalid kernel image: Failed to read ELF header"
         );
 
         vmm.default_kernel_config(Some(good_kernel_file()));
@@ -3434,7 +3460,7 @@ mod tests {
 
         assert_eq!(
             vmm.configure_system().unwrap_err().to_string(),
-            "Invalid Memory Configuration: MemoryNotInitialized"
+            "Invalid memory configuration: Failure in initializing guest memory."
         );
 
         assert!(vmm.init_guest_memory().is_ok());
@@ -3452,7 +3478,7 @@ mod tests {
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.vm.get_memory().is_some());
         vmm.setup_interrupt_controller()
-            .expect("Failed to setup interrupt controller");
+            .unwrap_or_else(|err| panic!("Failed to setup interrupt controller: {}", err));
 
         // Create test network interface.
         let network_interface = NetworkInterfaceConfig {
@@ -4085,63 +4111,60 @@ mod tests {
         // Enum `Error`
 
         assert_eq!(
-            format!("{:?}", Error::ApiChannel),
-            "ApiChannel: error receiving data from the API server"
+            format!("{}", Error::ApiChannel),
+            "ApiChannel: error receiving data from the API server."
         );
         assert_eq!(
             format!(
-                "{:?}",
+                "{}",
                 Error::CreateLegacyDevice(device_manager::legacy::Error::EventFd(
                     io::Error::from_raw_os_error(42)
                 ))
             ),
-            format!(
-                "Error creating legacy device: EventFd({:?})",
-                io::Error::from_raw_os_error(42)
-            )
+            "Error creating legacy device: Failed to create EventFd: No message of desired type (os error 42)"
         );
         assert_eq!(
-            format!("{:?}", Error::EpollFd(io::Error::from_raw_os_error(42))),
+            format!("{}", Error::EpollFd(io::Error::from_raw_os_error(42))),
             "Epoll fd error: No message of desired type (os error 42)"
         );
         assert_eq!(
-            format!("{:?}", Error::EventFd(io::Error::from_raw_os_error(42))),
+            format!("{}", Error::EventFd(io::Error::from_raw_os_error(42))),
             "Event fd error: No message of desired type (os error 42)"
         );
         assert_eq!(
-            format!("{:?}", Error::DeviceEventHandlerNotFound),
+            format!("{}", Error::DeviceEventHandlerNotFound),
             "Device event handler not found. This might point to a guest device driver issue."
         );
         assert_eq!(
-            format!("{:?}", Error::Kvm(io::Error::from_raw_os_error(42))),
+            format!("{}", Error::Kvm(io::Error::from_raw_os_error(42))),
             "Cannot open /dev/kvm. Error: No message of desired type (os error 42)"
         );
         assert_eq!(
-            format!("{:?}", Error::KvmApiVersion(42)),
+            format!("{}", Error::KvmApiVersion(42)),
             "Bad KVM API version: 42"
         );
         assert_eq!(
-            format!("{:?}", Error::KvmCap(Cap::Hlt)),
+            format!("{}", Error::KvmCap(Cap::Hlt)),
             "Missing KVM capability: Hlt"
         );
         assert_eq!(
-            format!("{:?}", Error::Poll(io::Error::from_raw_os_error(42))),
+            format!("{}", Error::Poll(io::Error::from_raw_os_error(42))),
             "Epoll wait failed: No message of desired type (os error 42)"
         );
         assert_eq!(
-            format!("{:?}", Error::Serial(io::Error::from_raw_os_error(42))),
+            format!("{}", Error::Serial(io::Error::from_raw_os_error(42))),
             format!(
-                "Error writing to the serial console: {:?}",
+                "Error writing to the serial console: {}",
                 io::Error::from_raw_os_error(42)
             )
         );
         assert_eq!(
-            format!("{:?}", Error::TimerFd(io::Error::from_raw_os_error(42))),
+            format!("{}", Error::TimerFd(io::Error::from_raw_os_error(42))),
             "Error creating timer fd: No message of desired type (os error 42)"
         );
         assert_eq!(
-            format!("{:?}", Error::Vm(vstate::Error::HTNotInitialized)),
-            "Error opening VM fd: HTNotInitialized"
+            format!("{}", Error::Vm(vstate::Error::HTNotInitialized)),
+            "Error opening VM fd: Hyperthreading is not initialized."
         );
 
         // Enum `ErrorKind`
@@ -4151,26 +4174,25 @@ mod tests {
         assert_eq!(format!("{:?}", ErrorKind::Internal), "Internal");
 
         // Enum VmmActionError
-
         assert_eq!(
             format!(
-                "{:?}",
+                "{}",
                 VmmActionError::BootSource(
                     ErrorKind::User,
                     BootSourceConfigError::InvalidKernelCommandLine
                 )
             ),
-            "BootSource(User, InvalidKernelCommandLine)"
+            "The kernel command line is invalid."
         );
         assert_eq!(
             format!(
-                "{:?}",
+                "{}",
                 VmmActionError::DriveConfig(
                     ErrorKind::User,
                     DriveError::BlockDevicePathAlreadyExists
                 )
             ),
-            "DriveConfig(User, BlockDevicePathAlreadyExists)"
+            "The block device path was already added to a different drive."
         );
         assert_eq!(
             format!(
@@ -4180,17 +4202,17 @@ mod tests {
                     LoggerConfigError::FlushMetrics(String::from("Failed to flush metrics"))
                 )
             ),
-            "Failed to flush metrics"
+            "Flush metrics: Failed to flush metrics"
         );
         assert_eq!(
             format!(
-                "{:?}",
+                "{}",
                 VmmActionError::Logger(
                     ErrorKind::User,
                     LoggerConfigError::FlushMetrics(String::from("foobar"))
                 )
             ),
-            "Logger(User, FlushMetrics(\"foobar\"))"
+            "Flush metrics: foobar"
         );
         assert_eq!(
             format!(
@@ -4202,51 +4224,51 @@ mod tests {
                     ))
                 )
             ),
-            "Failed to initialize logger"
+            "Initialization failure: Failed to initialize logger"
         );
         assert_eq!(
             format!(
-                "{:?}",
+                "{}",
                 VmmActionError::Logger(
                     ErrorKind::User,
                     LoggerConfigError::InitializationFailure(String::from("foobar"))
                 )
             ),
-            "Logger(User, InitializationFailure(\"foobar\"))"
+            "Initialization failure: foobar"
         );
         assert_eq!(
             format!(
-                "{:?}",
+                "{}",
                 VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::InvalidMemorySize)
             ),
-            "MachineConfig(User, InvalidMemorySize)"
+            "The memory size (MiB) is invalid."
         );
         assert_eq!(
             format!(
-                "{:?}",
+                "{}",
                 VmmActionError::NetworkConfig(
                     ErrorKind::User,
                     NetworkInterfaceError::DeviceIdNotFound
                 )
             ),
-            "NetworkConfig(User, DeviceIdNotFound)"
+            "Invalid interface ID - not found."
         );
         assert_eq!(
             format!(
-                "{:?}",
+                "{}",
                 VmmActionError::StartMicrovm(ErrorKind::User, StartMicrovmError::EventFd)
             ),
-            "StartMicrovm(User, EventFd)"
+            "Cannot read from an Event file descriptor."
         );
         assert_eq!(
             format!(
-                "{:?}",
+                "{}",
                 VmmActionError::SendCtrlAltDel(
                     ErrorKind::User,
                     I8042DeviceError::InternalBufferFull
                 )
             ),
-            "SendCtrlAltDel(User, InternalBufferFull)"
+            "I8042 internal buffer full."
         );
         assert_eq!(
             format!(
@@ -4265,10 +4287,10 @@ mod tests {
         );
         assert_eq!(
             format!(
-                "{:?}",
+                "{}",
                 VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot)
             ),
-            "VsockConfig(User, UpdateNotAllowedPostBoot)"
+            "The update operation is not allowed after boot."
         );
     }
 

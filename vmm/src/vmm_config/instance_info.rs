@@ -42,7 +42,6 @@ pub struct InstanceInfo {
 
 /// Errors associated with starting the instance.
 // TODO: add error kind to these variants because not all these errors are user or internal.
-#[derive(Debug)]
 pub enum StartMicrovmError {
     /// This error is thrown by the minimal boot loader implementation.
     /// It is related to a faulty memory configuration.
@@ -118,18 +117,8 @@ impl Display for StartMicrovmError {
     fn fmt(&self, f: &mut Formatter) -> Result {
         use self::StartMicrovmError::*;
         match *self {
-            ConfigureSystem(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Faulty memory configuration. {}", err_msg)
-            }
-            ConfigureVm(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot configure virtual machine. {}", err_msg)
-            }
+            ConfigureSystem(ref err) => write!(f, "Faulty memory configuration: {}", err),
+            ConfigureVm(ref err) => write!(f, "Cannot configure virtual machine: {}", err),
             CreateBlockDevice(ref err) => write!(
                 f,
                 "Unable to seek the block device backing file due to invalid permissions or \
@@ -138,115 +127,52 @@ impl Display for StartMicrovmError {
             ),
             CreateRateLimiter(ref err) => write!(f, "Cannot create RateLimiter: {}", err),
             CreateVsockDevice => write!(f, "Cannot create vsock device."),
-            CreateNetDevice(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot create network device. {}", err_msg)
-            }
+            CreateNetDevice(ref err) => write!(f, "Cannot create network device: {}", err),
             DeviceManager => write!(f, "The device manager was not configured."),
             EventFd => write!(f, "Cannot read from an Event file descriptor."),
-            GuestMemory(ref err) => {
-                // Remove imbricated quotes from error message.
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-                write!(f, "Invalid Memory Configuration: {}", err_msg)
-            }
+            GuestMemory(ref err) => write!(f, "Invalid memory configuration: {}", err),
             KernelCmdline(ref err) => write!(f, "Invalid kernel command line: {}", err),
-            KernelLoader(ref err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace("\"", "");
-                write!(
-                    f,
-                    "Cannot load kernel due to invalid memory configuration or invalid kernel \
-                     image. {}",
-                    err_msg
-                )
-            }
-            LegacyIOBus(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot add devices to the legacy I/O Bus. {}", err_msg)
-            }
-            LoadCommandline(ref err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace("\"", "");
-                write!(f, "Cannot load command line string. {}", err_msg)
-            }
+            KernelLoader(ref err) => write!(
+                f,
+                "Cannot load kernel due to invalid memory configuration or invalid kernel \
+                 image: {}",
+                err
+            ),
+            LegacyIOBus(ref err) => write!(f, "Cannot add devices to the legacy I/O Bus: {}", err),
+            LoadCommandline(ref err) => write!(f, "Cannot load command line string: {}", err),
             MicroVMAlreadyRunning => write!(f, "Microvm already running."),
             MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),
             NetDeviceNotConfigured => {
                 write!(f, "The net device configuration is missing the tap device.")
             }
             OpenBlockDevice(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot open the block device backing file. {}", err_msg)
+                write!(f, "Cannot open the block device backing file: {}", err)
             }
-            RegisterBlockDevice(ref err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace("\"", "");
-                write!(
-                    f,
-                    "Cannot initialize a MMIO Block Device or add a device to the MMIO Bus. {}",
-                    err_msg
-                )
-            }
+            RegisterBlockDevice(ref err) => write!(
+                f,
+                "Cannot initialize a MMIO Block Device or add a device to the MMIO Bus: {}",
+                err
+            ),
             RegisterEvent => write!(f, "Cannot add event to Epoll."),
             RegisterMMIODevice(ref err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot add a device to the MMIO Bus. {}", err_msg)
+                write!(f, "Cannot add a device to the MMIO Bus: {}", err)
             }
-            RegisterNetDevice(ref err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(
-                    f,
-                    "Cannot initialize a MMIO Network Device or add a device to the MMIO Bus. {}",
-                    err_msg
-                )
-            }
-            RegisterVsockDevice(ref err) => {
-                let mut err_msg = format!("{}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(
-                    f,
-                    "Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus. {}",
-                    err_msg
-                )
-            }
-            SeccompFilters(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot build seccomp filters. {}", err_msg)
-            }
-            Vcpu(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot create a new vCPU. {}", err_msg)
-            }
-            VcpuConfigure(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "vCPU configuration failed. {}", err_msg)
-            }
+            RegisterNetDevice(ref err) => write!(
+                f,
+                "Cannot initialize a MMIO Network Device or add a device to the MMIO Bus: {}",
+                err
+            ),
+            RegisterVsockDevice(ref err) => write!(
+                f,
+                "Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus: {}",
+                err
+            ),
+            SeccompFilters(ref err) => write!(f, "Cannot build seccomp filters: {}", err),
+            Vcpu(ref err) => write!(f, "Cannot create a new vCPU: {}", err),
+            VcpuConfigure(ref err) => write!(f, "vCPU configuration failed: {}", err),
             VcpusNotConfigured => write!(f, "vCPUs were not configured."),
-            VcpuSpawn(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot spawn vCPU thread. {}", err_msg)
-            }
             StdinHandle(ref err) => write!(f, "Failed to set mode for terminal: {}", err),
+            VcpuSpawn(ref err) => write!(f, "Cannot spawn vCPU thread: {}", err),
         }
     }
 }

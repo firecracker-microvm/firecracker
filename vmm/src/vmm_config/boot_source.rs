@@ -17,13 +17,12 @@ pub struct BootSourceConfig {
 }
 
 /// Errors associated with actions on `BootSourceConfig`.
-#[derive(Debug)]
 pub enum BootSourceConfigError {
     /// The kernel file cannot be opened.
     InvalidKernelPath,
     /// The kernel command line is invalid.
     InvalidKernelCommandLine,
-    /// The boot source cannot be update post boot.
+    /// The boot source cannot be updated post boot.
     UpdateNotAllowedPostBoot,
 }
 
@@ -36,7 +35,7 @@ impl Display for BootSourceConfigError {
                 "The kernel file cannot be opened due to invalid kernel path or \
                  invalid permissions.",
             ),
-            InvalidKernelCommandLine => write!(f, "The kernel command line is invalid!"),
+            InvalidKernelCommandLine => write!(f, "The kernel command line is invalid."),
             UpdateNotAllowedPostBoot => {
                 write!(f, "The update operation is not allowed after boot.")
             }

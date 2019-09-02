@@ -74,8 +74,6 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Error::TapOpen(err) => write!(f, "Open tap device failed: {}", err),
-            Error::TapSetIp(err) => write!(f, "Setting tap IP failed: {}", err),
-            Error::TapSetNetmask(err) => write!(f, "Setting tap netmask failed: {}", err),
             Error::TapSetOffload(err) => {
                 write!(f, "Setting tap interface offload flags failed: {}", err)
             }

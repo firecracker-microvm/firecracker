@@ -17,7 +17,6 @@ pub struct VsockDeviceConfig {
 }
 
 /// Errors associated with `VsockDeviceConfig`.
-#[derive(Debug)]
 pub enum VsockError {
     /// The update is not allowed after booting the microvm.
     UpdateNotAllowedPostBoot,
