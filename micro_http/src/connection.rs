@@ -361,6 +361,11 @@ impl<T: Read + Write> HttpConnection<T> {
     pub fn pop_parsed_request(&mut self) -> Option<Request> {
         self.parsed_requests.pop_front()
     }
+
+    /// Returns true if there are bytes waiting to be written into the stream.
+    pub fn pending_write(&self) -> bool {
+        self.response_buffer.is_some() || !self.response_queue.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -377,9 +382,9 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
-                                 Content-Length: 26\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
+                                 Content-Length: 26\r\n\
                                  Transfer-Encoding: chunked\r\n\r\n",
             )
             .unwrap();
@@ -406,8 +411,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n",
             )
             .unwrap();
@@ -441,8 +446,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n",
             )
             .unwrap();
@@ -474,8 +479,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n",
             )
             .unwrap();
@@ -504,9 +509,9 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
-                                 Transfer-Encoding: chunked\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
+                                 Transfer-Encoding: chunked\r\n\
                                  Content-Length: 1400\r\n\r\n",
             )
             .unwrap();
@@ -577,8 +582,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n\r\n",
             )
             .unwrap();
@@ -667,8 +672,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Transfer-Encoding: chunked\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Transfer-Encoding: chunked\r\n\
                                  Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody",
             )
             .unwrap();
@@ -705,8 +710,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Transfer-Encoding: chunked\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Transfer-Encoding: chunked\r\n\
                                  Content-Len",
             )
             .unwrap();
