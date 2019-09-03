@@ -79,16 +79,21 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
     print("Coverage is: " + str(coverage))
 
     coverage_low_msg = (
-        'Current code coverage is below the target of {}%'
-        .format(COVERAGE_TARGET_PCT)
+        'Current code coverage ({}%) is below the target ({}%).'
+        .format(coverage, COVERAGE_TARGET_PCT)
     )
 
     assert coverage >= COVERAGE_TARGET_PCT, coverage_low_msg
 
+    # Get the name of the variable that needs updating.
+    namespace = globals()
+    cov_target_name = [name for name in namespace if namespace[name]
+                       is COVERAGE_TARGET_PCT][0]
+
     coverage_high_msg = (
-        'Please update the value of COVERAGE_TARGET_PCT '
-        'in test_coverage.py such that current_coverage - '
-        'COVERAGE_TARGET_PCT <= {}'.format(COVERAGE_MAX_DELTA)
+        'Current code coverage ({}%) is above the target ({}%).\n'
+        'Please update the value of {}.'
+        .format(coverage, COVERAGE_TARGET_PCT, cov_target_name)
     )
 
     assert coverage - COVERAGE_TARGET_PCT <= COVERAGE_MAX_DELTA,\
