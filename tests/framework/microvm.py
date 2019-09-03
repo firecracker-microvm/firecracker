@@ -45,7 +45,7 @@ class Microvm:
         microvm_id,
         build_feature='',
         monitor_memory=True,
-        aux_bin_paths=None
+        bin_cloner_path=None
     ):
         """Set up microVM attributes, paths, and data structures."""
         # Unique identifier for this machine.
@@ -111,7 +111,7 @@ class Microvm:
             self._memory_events_queue = None
 
         # External clone/exec tool, because Python can't into clone
-        self.aux_bin_paths = aux_bin_paths
+        self.bin_cloner_path = bin_cloner_path
 
     def kill(self):
         """All clean up associated with this microVM should go here."""
@@ -272,8 +272,8 @@ class Microvm:
         # 2) Python's ctypes libc interface appears to be broken, causing
         # our clone / exec to deadlock at some point.
         if self._jailer.daemonize:
-            if self.aux_bin_paths:
-                cmd = [self.aux_bin_paths['cloner']] + \
+            if self.bin_cloner_path:
+                cmd = [self.bin_cloner_path] + \
                       [self._jailer_binary_path] + \
                       jailer_param_list
                 _p = run(cmd, stdout=PIPE, stderr=PIPE, check=True)

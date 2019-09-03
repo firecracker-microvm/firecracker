@@ -7,7 +7,7 @@ import os
 from subprocess import run, PIPE
 
 
-def test_seccomp_ls(aux_bin_paths):
+def test_seccomp_ls(bin_seccomp_paths):
     """Assert that the seccomp filters deny a blacklisted syscall."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
@@ -15,7 +15,7 @@ def test_seccomp_ls(aux_bin_paths):
     # Path to the `ls` binary, which attempts to execute the blacklisted
     # `SYS_access`.
     ls_command_path = '/bin/ls'
-    demo_jailer = aux_bin_paths['demo_basic_jailer']
+    demo_jailer = bin_seccomp_paths['demo_basic_jailer']
 
     assert os.path.exists(demo_jailer)
 
@@ -27,7 +27,7 @@ def test_seccomp_ls(aux_bin_paths):
     assert outcome.returncode != 0
 
 
-def test_advanced_seccomp_harmless(aux_bin_paths):
+def test_advanced_seccomp_harmless(bin_seccomp_paths):
     """
     Test `demo_harmless`.
 
@@ -36,8 +36,8 @@ def test_advanced_seccomp_harmless(aux_bin_paths):
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
-    demo_advanced_jailer = aux_bin_paths['demo_advanced_jailer']
-    demo_harmless = aux_bin_paths['demo_harmless']
+    demo_advanced_jailer = bin_seccomp_paths['demo_advanced_jailer']
+    demo_harmless = bin_seccomp_paths['demo_harmless']
 
     assert os.path.exists(demo_advanced_jailer)
     assert os.path.exists(demo_harmless)
@@ -48,7 +48,7 @@ def test_advanced_seccomp_harmless(aux_bin_paths):
     assert outcome.returncode == 0
 
 
-def test_advanced_seccomp_malicious(aux_bin_paths):
+def test_advanced_seccomp_malicious(bin_seccomp_paths):
     """
     Test `demo_malicious`.
 
@@ -57,8 +57,8 @@ def test_advanced_seccomp_malicious(aux_bin_paths):
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
-    demo_advanced_jailer = aux_bin_paths['demo_advanced_jailer']
-    demo_malicious = aux_bin_paths['demo_malicious']
+    demo_advanced_jailer = bin_seccomp_paths['demo_advanced_jailer']
+    demo_malicious = bin_seccomp_paths['demo_malicious']
 
     assert os.path.exists(demo_advanced_jailer)
     assert os.path.exists(demo_malicious)
