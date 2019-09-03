@@ -4,14 +4,19 @@
 
 ### Added
 
-- New device: virtio-vsock, backed by Unix domain sockets. See
-  `docs/vsock.md`.
+- New device: virtio-vsock, backed by Unix domain sockets (GitHub issue #650).
+  See `docs/vsock.md`.
 
 ### Fixed
 
-- Corrected firecracker-experimental.yaml indentation issues that
-  prevented code generation.
 - Updated the documentation for integration tests.
+- Fixed high CPU usage before guest network interface is brought up (GitHub
+  issue #1049).
+- Fixed an issue that caused the wrong date (month) to appear in the log.
+- Fixed a bug that caused the seccomp filter to reject legit syscalls in some
+  rare cases (GitHub issue #1206).
+- Docs: updated the production host setup guide.
+- Docs: updated the rootfs and kernel creation guide.
 
 ### Removed
 - Removed experimental support for vhost-based vsock devices.
@@ -28,7 +33,8 @@
   the process upon intercepting the signal.
 - Added documentation for signal handling utilities.
 - Added [alpha] aarch64 support.
-- Added metrics for successful read and write operations of MMDS, Net and Block devices.
+- Added metrics for successful read and write operations of MMDS, Net and Block
+  devices.
 
 ### Changed
 
@@ -58,8 +64,8 @@
   in favor of individual classic command-line parameters.
 - When running with `jailer` the location of the API socket has changed to
   `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
-- `PUT` and `PATCH` requests on `/mmds` with data containing any value type other
-  than `String`, `Array`, `Object` will return status code 400.
+- `PUT` and `PATCH` requests on `/mmds` with data containing any value type
+  other than `String`, `Array`, `Object` will return status code 400.
 - Improved multiple error messages.
 - Removed all kernel modules from the recommended kernel config.
 
@@ -167,7 +173,8 @@
   called `memory.dirty_pages` is computed as the number of pages dirtied by the
   guest since the last time the metric was flushed.
 - Log messages on both graceful and forceful termination.
-- Availability of the list of dependencies for each commit inside the code base.
+- Availability of the list of dependencies for each commit inside the code
+  base.
 - Documentation on vsock experimental feature and host setup recommendations.
 
 ### Changed
