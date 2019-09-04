@@ -13,7 +13,7 @@ This document assumes the reader is familiar with running Firecracker and
 issuing API commands over its API socket. For a more details on how to run
 Firecracker, check out the [getting started guide](getting-started.md).
 
-Familiarty with socket programming, in particular Unix sockets, is also
+Familiarity with socket programming, in particular Unix sockets, is also
 assumed.
 
 ## Firecracker Virtio-vsock Design
@@ -21,7 +21,7 @@ assumed.
 The Firecracker vsock device aims to provide full virtio-vsock support to
 software running inside the guest VM, while bypassing vhost kernel code on the
 host. To that end, Firecracker implements the virtio-vsock device model, and
-mediate communication between AF_UNIX sockets (on the host end) and AF_VSOCK
+mediates communication between AF_UNIX sockets (on the host end) and AF_VSOCK
 sockets (on the guest end). 
 
 In order to provide channel multiplexing, AF_VSOCK ports are translated into

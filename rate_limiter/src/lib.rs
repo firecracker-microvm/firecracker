@@ -281,7 +281,9 @@ impl fmt::Debug for RateLimiter {
 }
 
 impl RateLimiter {
-    // description
+    /// This function creates a `TokenBucket` wrapped in an `Option` with a given total capacity,
+    /// one time burst, and complete refill time (in miliseconds). If the total capacity or the
+    /// complete refill time are zero, then `None` is returned.
     fn make_bucket(
         total_capacity: u64,
         one_time_burst: Option<u64>,
@@ -426,7 +428,7 @@ impl RateLimiter {
     }
 
     /// Updates the parameters of the token buckets associated with this RateLimiter.
-    // TODO: Pls note that, right now, the buckets become full after being updated.
+    // TODO: Please note that, right now, the buckets become full after being updated.
     pub fn update_buckets(&mut self, bytes: Option<TokenBucket>, ops: Option<TokenBucket>) {
         // TODO: We should reconcile the create and update paths, such that they use the same data
         // format. Currently, the TokenBucket config data is used for create, but the live
