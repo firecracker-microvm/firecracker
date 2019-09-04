@@ -1095,7 +1095,7 @@ impl Vmm {
         // The dirty pages are only available on x86_64.
         #[cfg(target_arch = "x86_64")]
         self.log_dirty_pages();
-        LOGGER.log_metrics()
+        LOGGER.log_metrics().map(|_| ())
     }
 
     fn init_guest_memory(&mut self) -> std::result::Result<(), StartMicrovmError> {
@@ -3261,13 +3261,8 @@ mod tests {
             #[cfg(target_arch = "x86_64")]
             options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
         };
-        // Flushing metrics before initializing logger is erroneous.
-        let err = vmm.flush_metrics();
-        assert!(err.is_err());
-        assert_eq!(
-            format!("{:?}", err.unwrap_err()),
-            "Logger(Internal, FlushMetrics(\"Logger was not initialized.\"))"
-        );
+        // Flushing metrics before initializing logger is not erroneous.
+        assert!(vmm.flush_metrics().is_ok());
 
         assert!(vmm.init_logger(desc).is_ok());
 
