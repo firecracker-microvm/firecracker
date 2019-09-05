@@ -65,6 +65,7 @@ class Microvm:
         self._fsfiles_path = os.path.join(self._path, MICROVM_FSFILES_RELPATH)
         self._kernel_file = ''
         self._rootfs_file = ''
+        self._initrd_file = ''
 
         # The binaries this microvm will use to start.
         self._fc_binary_path = fc_binary_path
@@ -185,6 +186,16 @@ class Microvm:
         self._kernel_file = path
 
     @property
+    def initrd_file(self):
+        """Return the name of the initrd file used by this microVM to boot."""
+        return self._initrd_file
+
+    @initrd_file.setter
+    def initrd_file(self, path):
+        """Set the path to the initrd file."""
+        self._initrd_file = path
+
+    @property
     def rootfs_file(self):
         """Return the path to the image this microVM can boot into."""
         return self._rootfs_file
@@ -246,6 +257,7 @@ class Microvm:
                      ....
                  fsfiles/
                      <fsfile_n>
+                     <initrd_file_n>
                      <ssh_key_n>
                      <other fsfiles>
                      ...
@@ -292,7 +304,7 @@ class Microvm:
             if self.bin_cloner_path:
                 cmd = [self.bin_cloner_path] + \
                       [self._jailer_binary_path] + \
-                      jailer_param_list
+                    jailer_param_list
                 _p = run(cmd, stdout=PIPE, stderr=PIPE, check=True)
                 # Terrible hack to make the tests fail when starting the
                 # jailer fails with a panic. This is needed because we can't
@@ -374,6 +386,7 @@ class Microvm:
         mem_size_mib: int = 256,
         add_root_device: bool = True,
         boot_args: str = None,
+        use_initrd: bool = False
     ):
         """Shortcut for quickly configuring a microVM.
 
@@ -400,14 +413,19 @@ class Microvm:
                 self._memory_events_queue
             )
 
-        # Add a kernel to start booting from.
-        response = self.boot.put(
-            kernel_image_path=self.create_jailed_resource(self.kernel_file),
-            boot_args=boot_args
-        )
+        boot_source_args = {
+            'kernel_image_path': self.create_jailed_resource(self.kernel_file),
+            'boot_args': boot_args
+        }
+
+        if use_initrd and self.initrd_file != '':
+            boot_source_args.update(
+                initrd_path=self.create_jailed_resource(self.initrd_file))
+
+        response = self.boot.put(**boot_source_args)
         assert self._api_session.is_status_no_content(response.status_code)
 
-        if add_root_device:
+        if add_root_device and self.rootfs_file != '':
             # Add the root file system with rw permissions.
             response = self.drive.put(
                 drive_id='rootfs',
