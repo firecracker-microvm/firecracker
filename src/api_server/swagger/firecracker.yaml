@@ -391,6 +391,9 @@ definitions:
       kernel_image_path:
         type: string
         description: Host level path to the kernel image used to boot the guest
+      initrd_path:
+        type: string
+        description: Host level path to the initrd image used to boot the guest
       boot_args:
         type: string
         description: Kernel boot arguments

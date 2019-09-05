@@ -91,6 +91,7 @@ s3://<bucket-url>/img/
             <optional_kernel_name.>vmlinux.bin
         fsfiles/
             <rootfs_name>rootfs.ext4
+            <optional_initrd_name.>initrd.img
             <other_fsfile_n>
             ...
         <other_resource_n>
