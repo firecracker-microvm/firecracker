@@ -544,6 +544,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
 impl<'a, T: NetworkBytesMut> Incomplete<TcpSegment<'a, T>> {
     /// Transforms `self` into a `TcpSegment<T>` by specifying values for the `source port`,
     /// `destination port`, and (optionally) the information required to compute the TCP checksum.
+    #[inline]
     pub fn finalize(
         mut self,
         src_port: u16,
