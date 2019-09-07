@@ -11,8 +11,6 @@
 //! Provides tools for representing and handling network related concepts like MAC addresses and
 //! network interfaces.
 
-#[cfg(test)]
-extern crate dumbo;
 extern crate libc;
 extern crate serde;
 
