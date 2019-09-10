@@ -20,18 +20,12 @@ pub enum LoggerError {
     AlreadyInitialized,
     /// Invalid logger option specified.
     InvalidLogOption(String),
-    /// Opening named pipe fails.
-    OpenFIFO(std::io::Error),
     /// Writing to named pipe fails.
     LogWrite(std::io::Error),
     /// Flushing to disk fails.
     LogFlush(std::io::Error),
-    /// Error obtaining lock on mutex.
-    MutexLockFailure(String),
     /// Error in the logging of the metrics.
     LogMetricFailure(String),
-    /// Signals not logging a metric due to rate limiting.
-    LogMetricRateLimit,
 }
 
 impl fmt::Display for LoggerError {
@@ -50,18 +44,13 @@ impl fmt::Display for LoggerError {
                 "Reinitialization of logger not allowed.".to_string()
             }
             LoggerError::InvalidLogOption(ref s) => format!("Invalid log option: {}", s),
-            LoggerError::OpenFIFO(ref e) => {
-                format!("Failed to open pipe. Error: {}", e.description())
-            }
             LoggerError::LogWrite(ref e) => {
                 format!("Failed to write logs. Error: {}", e.description())
             }
             LoggerError::LogFlush(ref e) => {
                 format!("Failed to flush logs. Error: {}", e.description())
             }
-            LoggerError::MutexLockFailure(ref e) => e.to_string(),
             LoggerError::LogMetricFailure(ref e) => e.to_string(),
-            LoggerError::LogMetricRateLimit => "Metric will not yet be logged.".to_string(),
         };
         write!(f, "{}", printable)
     }
@@ -131,19 +120,6 @@ mod tests {
 
         assert!(format!(
             "{:?}",
-            LoggerError::MutexLockFailure(String::from("Mutex lock"))
-        )
-        .contains("MutexLockFailure"));
-        assert_eq!(
-            format!(
-                "{}",
-                LoggerError::MutexLockFailure(String::from("Mutex lock"))
-            ),
-            "Mutex lock"
-        );
-
-        assert!(format!(
-            "{:?}",
             LoggerError::LogMetricFailure("Failure in the logging of the metrics.".to_string())
         )
         .contains("LogMetricFailure"));
@@ -153,12 +129,6 @@ mod tests {
                 LoggerError::LogMetricFailure("Failed to log metrics.".to_string())
             ),
             "Failed to log metrics."
-        );
-
-        assert!(format!("{:?}", LoggerError::LogMetricRateLimit).contains("LogMetricRateLimit"));
-        assert_eq!(
-            format!("{}", LoggerError::LogMetricRateLimit),
-            "Metric will not yet be logged."
         );
     }
 }
