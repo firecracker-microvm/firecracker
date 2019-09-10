@@ -182,7 +182,7 @@ In your **second shell** prompt:
           -H 'Content-Type: application/json'     \
           -d "{
                 \"kernel_image_path\": \"${kernel_path}\",
-                \"boot_args\": \"keep_bootcon console=tty1 reboot=k panic=1 pci=off\"
+                \"boot_args\": \"keep_bootcon console=ttyS0 reboot=k panic=1 pci=off\"
            }"
     else
         echo "Cannot run firecracker on $arch architecture!"
