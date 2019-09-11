@@ -14,15 +14,15 @@ pub enum LoggerError {
     NeverInitialized(String),
     /// The logger is locked while preinitializing.
     IsPreinitializing,
-    /// The logger is locked while initializing
+    /// The logger is locked while initializing.
     IsInitializing,
     /// The logger does not allow reinitialization.
     AlreadyInitialized,
     /// Invalid logger option specified.
     InvalidLogOption(String),
-    /// Writing to named pipe fails.
+    /// Writing to specified buffer failed.
     LogWrite(std::io::Error),
-    /// Flushing to disk fails.
+    /// Flushing messages stored in buffer to disk failed.
     LogFlush(std::io::Error),
     /// Error in the logging of the metrics.
     LogMetricFailure(String),
@@ -62,7 +62,7 @@ mod tests {
     use std::io::ErrorKind;
 
     #[test]
-    fn test_formatting() {
+    fn test_error_messages() {
         assert!(format!(
             "{:?}",
             LoggerError::NeverInitialized(String::from("Bad Log Path Provided"))
@@ -85,6 +85,11 @@ mod tests {
         assert_eq!(
             format!("{}", LoggerError::IsPreinitializing),
             "The logger is preinitializing. Can't perform the requested action right now."
+        );
+
+        assert_eq!(
+            format!("{}", LoggerError::InvalidLogOption("dirty-log".to_string())),
+            "Invalid log option: dirty-log"
         );
 
         assert_eq!(

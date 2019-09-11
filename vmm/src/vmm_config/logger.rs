@@ -23,6 +23,11 @@ pub struct LoggerWriter {
 
 impl LoggerWriter {
     /// Create and open a FIFO for writing to it.
+    /// In order to not block the instance if nobody is consuming the logs that are flushed to the
+    /// two pipes, we are opening them with `O_NONBLOCK` flag. In this case, writing to a pipe will
+    /// start failing when reaching 64K of unconsumed content. Simultaneously,
+    /// the `missed_metrics_count` metric will get increased.
+    ///
     pub fn new(fifo_path: &str) -> Result<LoggerWriter> {
         let fifo = PathBuf::from(fifo_path);
         OpenOptions::new()
