@@ -1,11 +1,61 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Auxiliary module for configuring the logger.
 extern crate serde_json;
 
-use std::fmt::{Display, Formatter, Result};
+use libc::O_NONBLOCK;
+use std::fmt::{Display, Formatter};
+use std::fs::{File, OpenOptions};
+use std::io::{LineWriter, Write};
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 
 use self::serde_json::Value;
+
+type Result<T> = std::result::Result<T, std::io::Error>;
+
+/// Structure `LoggerWriter` used for writing to a FIFO.
+pub struct LoggerWriter {
+    line_writer: Mutex<LineWriter<File>>,
+}
+
+impl LoggerWriter {
+    /// Create and open a FIFO for writing to it.
+    pub fn new(fifo_path: &str) -> Result<LoggerWriter> {
+        let fifo = PathBuf::from(fifo_path);
+        OpenOptions::new()
+            .custom_flags(O_NONBLOCK)
+            .read(true)
+            .write(true)
+            .open(&fifo)
+            .map(|t| LoggerWriter {
+                line_writer: Mutex::new(LineWriter::new(t)),
+            })
+    }
+
+    fn get_line_writer(&self) -> MutexGuard<LineWriter<File>> {
+        match self.line_writer.lock() {
+            Ok(guard) => guard,
+            // If a thread panics while holding this lock, the writer within should still be usable.
+            // (we might get an incomplete log line or something like that).
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+}
+
+impl Write for LoggerWriter {
+    fn write(&mut self, msg: &[u8]) -> Result<(usize)> {
+        let mut line_writer = self.get_line_writer();
+        line_writer.write_all(msg).map(|()| msg.len())
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        let mut line_writer = self.get_line_writer();
+        line_writer.flush()
+    }
+}
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -64,11 +114,40 @@ pub enum LoggerConfigError {
 }
 
 impl Display for LoggerConfigError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::LoggerConfigError::*;
         match *self {
             InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
             FlushMetrics(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate tempfile;
+
+    use self::tempfile::NamedTempFile;
+    use super::*;
+
+    #[test]
+    fn test_new() {
+        let log_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary output logging file.");
+        let good_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
+        let res = LoggerWriter::new(&good_file);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_write_trait() {
+        let log_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary output logging file.");
+        let file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
+
+        let mut fw = LoggerWriter::new(&file).unwrap();
+        let msg = String::from("some message");
+        assert!(fw.write(&msg.as_bytes()).is_ok());
+        assert!(fw.flush().is_ok());
     }
 }
