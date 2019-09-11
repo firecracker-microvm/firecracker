@@ -353,19 +353,15 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
-  /vsocks/{id}:
+  /vsock:
     put:
-      summary: Creates new vsock with ID specified by the id parameter.
+      summary: Creates/updates a vsock device.
       description:
-        If the vsock device with the specified ID already exists, its body will
-        be updated based on the new input. May fail if update is not possible.
-      operationId: putGuestVsockByID
+        The first call creates the device with the configuration specified 
+        in body. Subsequent calls will update the device configuration. 
+        May fail if update is not possible.
+      operationId: putGuestVsock
       parameters:
-      - name: id
-        in: path
-        description: The id of the vsock device
-        required: true
-        type: string
       - name: body
         in: body
         description: Guest vsock properties

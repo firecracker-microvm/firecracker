@@ -364,19 +364,14 @@ fn parse_netif_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a
     }
 }
 
-// Turns a GET/PUT /vsocks HTTP request into a ParsedRequest.
-fn parse_vsocks_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a, ParsedRequest> {
+// Turns a GET/PUT /vsock HTTP request into a ParsedRequest.
+fn parse_vsock_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a, ParsedRequest> {
     let path_tokens: Vec<&str> = path[1..].split_terminator('/').collect();
-    let id_from_path = if path_tokens.len() > 1 {
-        checked_id(path_tokens[1])?
-    } else {
-        return Err(Error::EmptyID);
-    };
 
-    match path_tokens[1..].len() {
+    match path_tokens.len() {
         1 if method == Method::Put => Ok(serde_json::from_slice::<VsockDeviceConfig>(body)
             .map_err(Error::SerdeJson)?
-            .into_parsed_request(Some(id_from_path.to_string()), method)
+            .into_parsed_request(None, method)
             .map_err(|s| {
                 METRICS.put_api_requests.network_fails.inc();
                 Error::Generic(StatusCode::BadRequest, s)
@@ -430,7 +425,7 @@ fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, 
         "machine-config" => parse_machine_config_req(path, method, body),
         "network-interfaces" => parse_netif_req(path, method, body),
         "mmds" => parse_mmds_request(path, method, body),
-        "vsocks" => parse_vsocks_req(path, method, body),
+        "vsock" => parse_vsock_req(path, method, body),
         _ => Err(Error::InvalidPathMethod(path, method)),
     }
 }
