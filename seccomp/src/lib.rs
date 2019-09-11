@@ -1133,8 +1133,6 @@ fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
     use std::thread;
     use SeccompCmpArgLen as ArgLen;
     use SeccompCmpOp::*;
@@ -1165,53 +1163,45 @@ mod tests {
     fn validate_seccomp_filter(
         rules: Vec<(i64, Vec<SeccompRule>)>,
         validation_fn: fn(),
-        should_trigger_sigsys: bool,
+        should_fail: bool,
     ) {
-        let mut filter =
-            SeccompFilter::new(rules.into_iter().collect(), SeccompAction::Kill).unwrap();
-
-        let triggered_sigsys: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
-        let shared_triggered_sigsys = triggered_sigsys.clone();
-
-        // We need 2 threads here: in case of a seccomp denial, the inner thread will be killed
-        // and the outter thread will fail. The execution will be returned to the instruction
-        // that follows the outter thread `join()` method.
-        let outter_thread = thread::spawn(move || {
-            let inner_thread = thread::spawn(move || {
-                // whitelist needed syscalls
-                for syscall in EXTRA_SYSCALLS.iter() {
-                    assert!(filter
-                        .add_rules(
-                            *syscall,
-                            vec![SeccompRule::new(vec![], SeccompAction::Allow)],
-                        )
-                        .is_ok());
-                }
-                // apply filter
-                assert!(filter.apply().is_ok());
-
-                // call validation fn
-                validation_fn();
-
-                // if we reach this point, then SIGSYS hasn't been triggered
-                shared_triggered_sigsys.store(false, Ordering::Relaxed);
-            })
-            .join();
-
-            if !should_trigger_sigsys {
-                assert!(inner_thread.is_ok());
-            }
-        })
-        .join();
-
-        if !should_trigger_sigsys {
-            assert!(outter_thread.is_ok());
+        let failure_code: i32 = 1000;
+        // Build seccomp filter.
+        let mut filter = SeccompFilter::new(
+            rules.into_iter().collect(),
+            SeccompAction::Errno(failure_code as u32),
+        )
+        .unwrap();
+        for syscall in EXTRA_SYSCALLS.iter() {
+            filter
+                .add_rules(
+                    *syscall,
+                    vec![SeccompRule::new(vec![], SeccompAction::Allow)],
+                )
+                .unwrap();
         }
 
-        assert_eq!(
-            triggered_sigsys.load(Ordering::Relaxed),
-            should_trigger_sigsys
-        );
+        // We need to run the validation inside another thread in order to avoid setting
+        // the seccomp filter for the entire unit tests process.
+        let errno = thread::spawn(move || {
+            // Apply seccomp filter.
+            filter.apply().unwrap();
+
+            // Call the validation fn.
+            validation_fn();
+
+            // Return errno.
+            std::io::Error::last_os_error().raw_os_error().unwrap()
+        })
+        .join()
+        .unwrap();
+
+        // In case of a seccomp denial `errno` should be `failure_code`
+        if should_fail {
+            assert_eq!(errno, failure_code);
+        } else {
+            assert_ne!(errno, failure_code);
+        }
     }
 
     #[test]
