@@ -91,7 +91,7 @@ use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::device_config::DeviceConfigs;
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
 use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
-use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel};
+use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel, LoggerWriter};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
@@ -1957,11 +1957,10 @@ impl Vmm {
             ));
         }
 
-        let instance_id;
         let firecracker_version;
         {
             let guard = self.shared_info.read().unwrap();
-            instance_id = guard.id.clone();
+            LOGGER.set_instance_id(guard.id.clone());
             firecracker_version = guard.vmm_version.clone();
         }
 
@@ -1981,13 +1980,28 @@ impl Vmm {
         #[cfg(target_arch = "x86_64")]
         let options = api_logger.options.as_array().unwrap();
 
+        LOGGER.set_flags(options).map_err(|e| {
+            VmmActionError::Logger(
+                ErrorKind::User,
+                LoggerConfigError::InitializationFailure(e.to_string()),
+            )
+        })?;
+
         LOGGER
             .init(
                 &AppInfo::new("Firecracker", &firecracker_version),
-                &instance_id,
-                api_logger.log_fifo,
-                api_logger.metrics_fifo,
-                options,
+                Box::new(LoggerWriter::new(&api_logger.log_fifo).map_err(|e| {
+                    VmmActionError::Logger(
+                        ErrorKind::User,
+                        LoggerConfigError::InitializationFailure(e.to_string()),
+                    )
+                })?),
+                Box::new(LoggerWriter::new(&api_logger.metrics_fifo).map_err(|e| {
+                    VmmActionError::Logger(
+                        ErrorKind::User,
+                        LoggerConfigError::InitializationFailure(e.to_string()),
+                    )
+                })?),
             )
             .map(|_| VmmData::Empty)
             .map_err(|e| {
@@ -3225,11 +3239,23 @@ mod tests {
         // Reset vmm state to test the other scenarios.
         vmm.set_instance_state(InstanceState::Uninitialized);
 
-        // Error case: initializing logger with invalid pipes returns error.
+        // Error case: initializing logger with invalid log pipe returns error.
         let desc = LoggerConfig {
             log_fifo: String::from("not_found_file_log"),
+            metrics_fifo: metrics_file.path().to_str().unwrap().to_string(),
+            level: LoggerLevel::Debug,
+            show_level: false,
+            show_log_origin: false,
+            #[cfg(target_arch = "x86_64")]
+            options: Value::Array(vec![]),
+        };
+        assert!(vmm.init_logger(desc).is_err());
+
+        // Error case: initializing logger with invalid metrics pipe returns error.
+        let desc = LoggerConfig {
+            log_fifo: log_file.path().to_str().unwrap().to_string(),
             metrics_fifo: String::from("not_found_file_metrics"),
-            level: LoggerLevel::Warning,
+            level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
             #[cfg(target_arch = "x86_64")]
@@ -3264,7 +3290,8 @@ mod tests {
         // Flushing metrics before initializing logger is not erroneous.
         assert!(vmm.flush_metrics().is_ok());
 
-        assert!(vmm.init_logger(desc).is_ok());
+        assert!(vmm.init_logger(desc.clone()).is_ok());
+        assert!(vmm.init_logger(desc).is_err());
 
         assert!(vmm.flush_metrics().is_ok());
 

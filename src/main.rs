@@ -269,10 +269,8 @@ mod tests {
         LOGGER
             .init(
                 &AppInfo::new("Firecracker", "1.0"),
-                "TEST-ID",
-                log_file_temp.path().to_str().unwrap().to_string(),
-                metrics_file_temp.path().to_str().unwrap().to_string(),
-                &[],
+                Box::new(log_file_temp),
+                Box::new(metrics_file_temp),
             )
             .expect("Could not initialize logger.");
 

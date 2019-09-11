@@ -42,9 +42,7 @@
 //! extern crate libc;
 //! extern crate tempfile;
 //!
-//! use self::tempfile::NamedTempFile;
-//! use std::ops::Deref;
-//!
+//! use std::io::Cursor;
 //! use libc::c_char;
 //!
 //! #[macro_use]
@@ -52,28 +50,16 @@
 //! use logger::{AppInfo, LOGGER};
 //!
 //! fn main() {
-//!     let log_file_temp =
-//!            NamedTempFile::new().expect("Failed to create temporary output logging file.");
-//!     let metrics_file_temp =
-//!            NamedTempFile::new().expect("Failed to create temporary metrics logging file.");
-//!     let logs = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
-//!     let metrics = String::from(metrics_file_temp.path().to_path_buf().to_str().unwrap());
+//!     let mut logs = Cursor::new(vec![0; 15]);
+//!     let mut metrics = Cursor::new(vec![0; 15]);
 //!
-//!     unsafe {
-//!          libc::mkfifo(logs.as_bytes().as_ptr() as *const c_char, 0o644);
-//!      }
-//!     unsafe {
-//!          libc::mkfifo(metrics.as_bytes().as_ptr() as *const c_char, 0o644);
-//!     }
 //!     // Initialize the logger to log to a FIFO that was created beforehand.
-//!     assert!(LOGGER.deref().init(
+//!     assert!(LOGGER.init(
 //!                 &AppInfo::new("Firecracker", "1.0"),
-//!                 "MY-INSTANCE",
-//!                 logs,
-//!                 metrics,
-//!                 &vec![]
+//!                 Box::new(logs),
+//!                 Box::new(metrics),
 //!             ).is_ok());
-//!     // The following messages should appear in the `log_file_temp` file.
+//!     // The following messages should appear in the in-memory buffer `logs`.
 //!     warn!("this is a warning");
 //!     error!("this is an error");
 //! }
@@ -150,7 +136,6 @@ extern crate fc_util;
 
 pub mod error;
 pub mod metrics;
-mod writers;
 
 use std::error::Error;
 use std::io::Write;
@@ -168,7 +153,6 @@ pub use log::Level::*;
 pub use log::*;
 use log::{set_logger, set_max_level, Log, Metadata, Record};
 pub use metrics::{Metric, METRICS};
-use writers::PipeLogWriter;
 
 /// Type for returning functions outcome.
 ///
@@ -202,7 +186,6 @@ lazy_static! {
 
 /// Enum representing logging options that can be activated from the API.
 ///
-#[derive(PartialEq)]
 #[repr(usize)]
 pub enum LogOption {
     /// Enable KVM dirty page tracking and a metric that counts dirty pages.
@@ -287,7 +270,6 @@ impl Logger {
     }
 
     /// Returns the configured flags for the logger.
-    ///
     pub fn flags(&self) -> usize {
         self.flags.load(Ordering::Relaxed)
     }
@@ -304,7 +286,8 @@ impl Logger {
         self.show_line_numbers.load(Ordering::Relaxed)
     }
 
-    fn set_flags(&self, options: &[Value]) -> Result<()> {
+    /// Configure flags for the logger.
+    pub fn set_flags(&self, options: &[Value]) -> Result<()> {
         let mut flags = 0;
         for option in options.iter() {
             if let Value::String(s_opt) = option {
@@ -387,6 +370,15 @@ impl Logger {
             .store(file_path && line_numbers, Ordering::Relaxed);
     }
 
+    /// Sets the ID for this logger session.
+    pub fn set_instance_id(&self, instance_id: String) {
+        let mut id_guard = match self.instance_id.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *id_guard = instance_id;
+    }
+
     /// Explicitly sets the log level for the Logger.
     /// User needs to say the level code(error, warn...) and the output destination will be
     /// updated if and only if the logger was not initialized to log to a FIFO.
@@ -428,15 +420,9 @@ impl Logger {
     fn create_prefix(&self, record: &Record) -> String {
         let mut res = String::from(" [");
 
-        {
-            // It's safe to unwrap here, because `instance_id` is only written to
-            // during log initialization, so there aren't any writers that could
-            // poison the lock.
-            let id_guard = self
-                .instance_id
-                .read()
-                .expect("Failed to read instance ID due to poisoned lock");
-            res.push_str(id_guard.as_ref());
+        match self.instance_id.read() {
+            Ok(guard) => res.push_str(guard.as_ref()),
+            Err(poisoned) => res.push_str(poisoned.into_inner().as_ref()),
         }
 
         if self.show_level() {
@@ -531,14 +517,7 @@ impl Logger {
         self.try_lock(PREINITIALIZING)?;
 
         if let Some(some_instance_id) = instance_id {
-            // Use a block in order to avoid poisoning the lock in case of an unrelated error.
-            {
-                let mut id_guard = self
-                    .instance_id
-                    .write()
-                    .expect("Failed to set instance ID due to poisoned lock");
-                *id_guard = some_instance_id.to_string();
-            }
+            self.set_instance_id(some_instance_id);
         }
 
         set_max_level(Level::Trace.to_level_filter());
@@ -565,73 +544,36 @@ impl Logger {
     /// ```
     /// extern crate logger;
     /// use logger::{AppInfo, LOGGER};
-    /// use std::ops::Deref;
+    ///
+    /// use std::io::Cursor;
     ///
     /// fn main() {
-    ///     LOGGER.deref().init(
+    /// let mut logs = Cursor::new(vec![0; 15]);
+    /// let mut metrics = Cursor::new(vec![0; 15]);
+    ///
+    ///     LOGGER.init(
     ///         &AppInfo::new("Firecracker", "1.0"),
-    ///         "MY-INSTANCE",
-    ///         "/tmp/log".to_string(),
-    ///         "/tmp/metrics".to_string(),
-    ///         &vec![]
+    ///         Box::new(logs),
+    ///         Box::new(metrics),
     ///     );
     /// }
     /// ```
     pub fn init(
         &self,
         app_info: &AppInfo,
-        instance_id: &str,
-        log_dest: String,
-        metrics_dest: String,
-        options: &[Value],
+        log_dest: Box<dyn Write + Send>,
+        metrics_dest: Box<dyn Write + Send>,
     ) -> Result<()> {
         self.try_lock(INITIALIZING)?;
-
-        // Use a block in order to avoid poisoning the lock in case of an unrelated error.
         {
-            let mut id_guard = self
-                .instance_id
-                .write()
-                .expect("Failed to set instance ID due to poisoned lock");
-            *id_guard = instance_id.to_string();
+            let mut g = self.log_buf_guard();
+            *g = Some(log_dest);
         }
 
-        match PipeLogWriter::new(&log_dest) {
-            Ok(t) => {
-                // The mutex shouldn't be poisoned before init otherwise panic!.
-                let mut g = self.log_buf_guard();
-                *g = Some(Box::new(t));
-            }
-            Err(ref e) => {
-                STATE.store(UNINITIALIZED, Ordering::SeqCst);
-                return Err(LoggerError::NeverInitialized(format!(
-                    "Could not open logging fifo: {}",
-                    e
-                )));
-            }
-        };
+        {
+            let mut g = self.metrics_buf_guard();
 
-        match PipeLogWriter::new(&metrics_dest) {
-            Ok(t) => {
-                // The mutex shouldn't be poisoned before init otherwise panic!.
-                let mut g = self.metrics_buf_guard();
-                *g = Some(Box::new(t));
-            }
-            Err(ref e) => {
-                STATE.store(UNINITIALIZED, Ordering::SeqCst);
-                return Err(LoggerError::NeverInitialized(format!(
-                    "Could not open metrics fifo: {}",
-                    e
-                )));
-            }
-        };
-
-        if let Err(e) = self.set_flags(options) {
-            STATE.store(UNINITIALIZED, Ordering::SeqCst);
-            return Err(LoggerError::NeverInitialized(format!(
-                "Could not set option flags: {}",
-                e
-            )));
+            *g = Some(metrics_dest);
         }
 
         set_max_level(Level::Trace.to_level_filter());
@@ -775,15 +717,6 @@ mod tests {
     #[allow(clippy::cognitive_complexity)]
     fn test_init() {
         let app_info = AppInfo::new(TEST_APP_NAME, TEST_APP_VERSION);
-
-        let log_file_temp =
-            NamedTempFile::new().expect("Failed to create temporary output logging file.");
-        let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
-
-        let metrics_file_temp =
-            NamedTempFile::new().expect("Failed to create temporary metrics logging file.");
-        let metrics_file = String::from(metrics_file_temp.path().to_path_buf().to_str().unwrap());
-
         let l = LOGGER.deref();
 
         l.set_include_origin(false, true);
@@ -800,29 +733,15 @@ mod tests {
         let res = l.log_metrics();
         assert!(res.is_ok() && !res.unwrap());
 
-        // Assert that initialization with invalid options is not allowed.
-        assert_eq!(
-            format!(
-                "{:?}",
-                l.init(&app_info, TEST_INSTANCE_ID, log_file.clone(), metrics_file.clone(), &[Value::Bool(true)])
-                    .err()
-            ),
-            "Some(NeverInitialized(\"Could not set option flags: Invalid log option: Bool(true)\"))"
-        );
-        assert_eq!(
-            format!(
-                "{:?}",
-                l.init(
-                    &app_info,
-                    TEST_INSTANCE_ID,
-                    log_file.clone(),
-                    metrics_file.clone(),
-                    &[Value::String("foobar".to_string())]
-                )
-                .err()
-            ),
-            "Some(NeverInitialized(\"Could not set option flags: Invalid log option: foobar\"))"
-        );
+        l.set_instance_id(TEST_INSTANCE_ID.to_string());
+
+        // Test flag configuration.
+        assert!(l.set_flags(&[Value::Bool(true)]).is_err());
+        assert!(l.set_flags(&[Value::String("foobar".to_string())]).is_err());
+        assert_eq!(l.flags(), 0);
+        assert!(l
+            .set_flags(&[Value::String("LogDirtyPages".to_string())])
+            .is_ok());
 
         // Assert that metrics cannot be flushed to stdout/stderr.
         let res = l.log_metrics();
@@ -838,13 +757,17 @@ mod tests {
         error!("error");
 
         // Assert that initialization works only once.
+        let log_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary output logging file.");
+        let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
+        let metrics_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary metrics logging file.");
+        l.set_instance_id(TEST_INSTANCE_ID.to_string());
         assert!(l
             .init(
                 &app_info,
-                TEST_INSTANCE_ID,
-                log_file.clone(),
-                metrics_file.clone(),
-                &[Value::String("LogDirtyPages".to_string())]
+                Box::new(log_file_temp),
+                Box::new(metrics_file_temp),
             )
             .is_ok());
 
@@ -854,18 +777,14 @@ mod tests {
         assert!(l
             .init(
                 &app_info,
-                TEST_INSTANCE_ID,
-                log_file.clone(),
-                metrics_file.clone(),
-                &[]
+                Box::new(NamedTempFile::new().unwrap()),
+                Box::new(NamedTempFile::new().unwrap()),
             )
             .is_err());
 
         info!("info");
         warn!("warning");
         error!("error");
-
-        l.flush();
 
         // Here we also test that the last initialization had no effect given that the
         // logging system can only be initialized with pipes once per program.
@@ -883,30 +802,6 @@ mod tests {
         assert!(l.log_metrics().is_ok());
 
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
-        let log_file_temp =
-            NamedTempFile::new().expect("Failed to create temporary output logging file.");
-        let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
-
-        // Exercise the case when there is an error in opening file.
-        STATE.store(UNINITIALIZED, Ordering::SeqCst);
-        assert!(l
-            .init(
-                &app_info,
-                TEST_INSTANCE_ID,
-                String::from(""),
-                metrics_file.clone(),
-                &[]
-            )
-            .is_err());
-
-        let res = l.init(
-            &app_info,
-            TEST_INSTANCE_ID,
-            log_file.clone(),
-            String::from(""),
-            &[],
-        );
-        assert!(res.is_err());
 
         l.set_include_level(true);
         l.set_include_origin(false, false);
@@ -927,23 +822,5 @@ mod tests {
         assert_eq!(l.show_level(), false);
         assert_eq!(l.show_file_path(), true);
         assert_eq!(l.show_line_numbers(), true);
-
-        STATE.store(INITIALIZED, Ordering::SeqCst);
-        let l = Logger::new();
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                l.init(
-                    &app_info,
-                    TEST_INSTANCE_ID,
-                    log_file.clone(),
-                    metrics_file.clone(),
-                    &[]
-                )
-                .err()
-            ),
-            "Some(AlreadyInitialized)"
-        );
     }
 }
