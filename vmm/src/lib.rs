@@ -95,7 +95,7 @@ use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
     NetworkInterfaceUpdateConfig,
 };
-use vmm_config::vsock::{VsockDeviceConfig, VsockDeviceConfigs, VsockError};
+use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 use vstate::{Vcpu, Vm};
 
 /// Default guest kernel command line:
@@ -223,7 +223,7 @@ pub enum VmmActionError {
     /// The action `SendCtrlAltDel` failed. Details are provided by the device-specific error
     /// `I8042DeviceError`.
     SendCtrlAltDel(ErrorKind, I8042DeviceError),
-    /// The action `insert_vsock_device` failed either because of bad user input (`ErrorKind::User`)
+    /// The action `set_vsock_device` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     VsockConfig(ErrorKind, VsockError),
 }
@@ -405,10 +405,10 @@ pub enum VmmAction {
     /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
     /// booted. The response is sent using the `OutcomeSender`.
     InsertNetworkDevice(NetworkInterfaceConfig, OutcomeSender),
-    /// Add a new vsock device or update one that already exists using the
+    /// Set the vsock device or update the one that already exists using the
     /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
     /// booted. The response is sent using the `OutcomeSender`.
-    InsertVsockDevice(VsockDeviceConfig, OutcomeSender),
+    SetVsockDevice(VsockDeviceConfig, OutcomeSender),
     /// Update the size of an existing block device specified by an ID. The ID is the first data
     /// associated with this enum variant. This action can only be called after the microVM is
     /// started. The response is sent using the `OutcomeSender`.
@@ -772,7 +772,7 @@ struct Vmm {
     // This is necessary because we want the root to always be mounted on /dev/vda.
     block_device_configs: BlockDeviceConfigs,
     network_interface_configs: NetworkInterfaceConfigs,
-    vsock_device_configs: VsockDeviceConfigs,
+    vsock_device_config: Option<VsockDeviceConfig>,
 
     epoll_context: EpollContext,
 
@@ -828,7 +828,7 @@ impl Vmm {
             pio_device_manager: PortIODeviceManager::new().map_err(Error::CreateLegacyDevice)?,
             block_device_configs,
             network_interface_configs: NetworkInterfaceConfigs::new(),
-            vsock_device_configs: VsockDeviceConfigs::new(),
+            vsock_device_config: None,
             epoll_context,
             api_event_fd,
             from_api,
@@ -1003,11 +1003,12 @@ impl Vmm {
             .kernel_config
             .as_mut()
             .ok_or(StartMicrovmError::MissingKernelConfig)?;
+
         // `unwrap` is suitable for this context since this should be called only after the
         // device manager has been initialized.
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
-        for cfg in self.vsock_device_configs.iter() {
+        if let Some(cfg) = &self.vsock_device_config {
             let backend = devices::virtio::vsock::VsockUnixBackend::new(
                 u64::from(cfg.guest_cid),
                 cfg.uds_path.clone(),
@@ -1793,9 +1794,9 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
-    fn insert_vsock_device(
+    fn set_vsock_device(
         &mut self,
-        body: VsockDeviceConfig,
+        config: VsockDeviceConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
         if self.is_instance_initialized() {
             Err(VmmActionError::VsockConfig(
@@ -1803,10 +1804,8 @@ impl Vmm {
                 VsockError::UpdateNotAllowedPostBoot,
             ))
         } else {
-            self.vsock_device_configs
-                .add(body)
-                .map(|_| VmmData::Empty)
-                .map_err(|e| VmmActionError::VsockConfig(ErrorKind::User, e))
+            self.vsock_device_config = Some(config);
+            Ok(VmmData::Empty)
         }
     }
 
@@ -1992,8 +1991,8 @@ impl Vmm {
             InsertNetworkDevice(netif_body, sender) => {
                 Vmm::send_response(self.insert_net_device(netif_body), sender);
             }
-            InsertVsockDevice(vsock_cfg, sender) => {
-                Vmm::send_response(self.insert_vsock_device(vsock_cfg), sender);
+            SetVsockDevice(vsock_cfg, sender) => {
+                Vmm::send_response(self.set_vsock_device(vsock_cfg), sender);
             }
             RescanBlockDevice(drive_id, sender) => {
                 Vmm::send_response(self.rescan_block_device(&drive_id), sender);

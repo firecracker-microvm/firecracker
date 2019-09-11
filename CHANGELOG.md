@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Vsock API call: `PUT /vsocks/{id}` changed to `PUT /vsock` and no longer 
+  appear to support multiple vsock devices. Any subsequent calls to this API endpoint
+  will override the previous vsock device configuration.
+
+### Fixed
+
+- Fixed serial console on aarch64 (GitHub issue #1147).
+
 ## [0.18.0]
 
 ### Added
