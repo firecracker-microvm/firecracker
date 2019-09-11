@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
-//! Utility for sending log related messages and metrics to two different named pipes (FIFO) or
+//! Utility for sending log related messages and metrics to two different storing destinations or
 //! simply to stdout/stderr. The logging destination is specified upon the initialization of the
 //! logging system.
 //!
@@ -14,7 +14,7 @@
 //! The logger can be preinitialized any number of times before calling `LOGGER.init()`.
 //!
 //! 2) Calling `LOGGER.init()`. This will enable the logger to work in full mode.
-//! In this mode the logger can write both messages and metrics to pipes.
+//! In this mode the logger can write both messages and metrics to arbitrary buffers.
 //! The logger can be initialized only once. Any call to the `LOGGER.init()` following that will
 //! fail with an explicit error.
 //!
@@ -36,7 +36,7 @@
 //!     error!("this is an error");
 //! }
 //! ```
-//! ## Example for logging to FIFOs
+//! ## Example for logging to a `File`:
 //!
 //! ```
 //! extern crate libc;
@@ -116,13 +116,10 @@
 //! the block device such as `activate_fails`, `cfg_fails`, etc.
 //!
 //! # Limitations
-//! In order to not block the instance if nobody is consuming the logs that are flushed to the two
-//! pipes, we are opening them with `O_NONBLOCK` flag. In this case, writing to a pipe will
-//! start failing when reaching 64K of unconsumed content. Simultaneously, the `missed_metrics_count`
-//! metric will get increased.
-//! Metrics are only logged to pipes. Logs can be flushed either to stdout/stderr or to a pipe.
+//! Metrics are only logged to buffers. Logs can be flushed either to stdout/stderr or to a
+//! byte-oriented sink (File, FIFO, Ring Buffer etc).
 
-// workaround to macro_reexport
+// Workaround to `macro_reexport`.
 #[macro_use]
 extern crate lazy_static;
 extern crate libc;
@@ -213,8 +210,8 @@ impl AppInfo {
     /// Creates a new instance of AppInfo.
     /// # Arguments
     ///
-    /// * `name` - App name.
-    /// * `version` - App version.
+    /// * `name` - Name of the application using this logger.
+    /// * `version` - Version of the application using this logger.
     pub fn new(name: &str, version: &str) -> AppInfo {
         AppInfo {
             name: name.to_string(),
@@ -232,15 +229,15 @@ pub struct Logger {
     show_file_path: AtomicBool,
     show_line_numbers: AtomicBool,
     level: AtomicUsize,
-    // Used in case we want to send logs to a FIFO.
+    // Human readable logs will be outputted here.
     log_buf: Mutex<Option<Box<dyn Write + Send>>>,
-    // Used in case we want to send metrics to a FIFO.
+    // Metrics will get flushed here.
     metrics_buf: Mutex<Option<Box<dyn Write + Send>>>,
     instance_id: RwLock<String>,
     flags: AtomicUsize,
 }
 
-// Auxiliary function to flush a message to a PipeLogWriter.
+// Auxiliary function to flush a message to a entity implementing `Write` and `Send` traits.
 // This is used by the internal logger to either flush human-readable logs or metrics.
 fn write_to_destination(mut msg: String, buffer: &mut (dyn Write + Send)) -> Result<()> {
     msg = format!("{}\n", msg);
@@ -380,11 +377,8 @@ impl Logger {
     }
 
     /// Explicitly sets the log level for the Logger.
-    /// User needs to say the level code(error, warn...) and the output destination will be
-    /// updated if and only if the logger was not initialized to log to a FIFO.
     /// The default level is WARN. So, ERROR and WARN statements will be shown (i.e. all that is
     /// bigger than the level code).
-    /// If level is decreased at INFO, ERROR, WARN and INFO statements will be outputted, etc.
     ///
     /// # Arguments
     ///
@@ -407,7 +401,7 @@ impl Logger {
     /// ```
     /// The code above will more or less print:
     /// ```bash
-    /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:INFO:logger/src/lib.rs:353] An informational log
+    /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:INFO:logger/src/lib.rs:389] An informational log
     /// message
     /// ```
     pub fn set_level(&self, level: Level) {
@@ -495,12 +489,12 @@ impl Logger {
     /// Performs the most basic steps in order to enable the logger to write to stdout or stderr
     /// even before calling LOGGER.init(). Calling this method is optional.
     /// This function can be called any number of times before the initialization.
-    /// Any calls made after the initialization will result in Err()
-    /// appropriately (read description of error's enum items).
+    /// Any calls made after the initialization will result in `Err()`.
     ///
     /// # Arguments
     ///
-    /// * `instance_id` - Unique string identifying this logger session. This id is temporary and will be overwritten upon initialization.
+    /// * `instance_id` - Unique string identifying this logger session.
+    ///                   This id is temporary and will be overwritten upon initialization.
     ///
     /// # Example
     ///
@@ -528,16 +522,15 @@ impl Logger {
     }
 
     /// Initialize log system (once and only once).
-    /// Every call made after the first will have no effect besides return `Ok` or `Err`
-    /// appropriately (read description of error's enum items).
+    /// Every call made after the first will have no effect besides returning `Ok` or `Err`.
     ///
     /// # Arguments
     ///
     /// * `app_info` - Info about the app that uses the logger.
     /// * `instance_id` - Unique string identifying this logger session.
-    /// * `log_path` - Path to a FIFO used for logging plain text.
-    /// * `metrics_pipe` - Path to a FIFO used for logging JSON formatted metrics.
-    /// * `options` - Logger options
+    /// * `log_dest` - Buffer for plain text logs. Needs to implements `Write` and `Send`.
+    /// * `metrics_dest` - Buffer for JSON formatted metrics. Needs to implement `Write` and `Send`.
+    /// * `options` - Logger options.
     ///
     /// # Example
     ///
@@ -787,7 +780,7 @@ mod tests {
         error!("error");
 
         // Here we also test that the last initialization had no effect given that the
-        // logging system can only be initialized with pipes once per program.
+        // logging system can only be initialized with byte-oriented sinks once per program.
         validate_logs(
             &log_file,
             &[
