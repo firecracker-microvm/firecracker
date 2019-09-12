@@ -27,6 +27,11 @@
 - New device: virtio-vsock, backed by Unix domain sockets (GitHub issue #650).
   See `docs/vsock.md`.
 
+### Changed
+
+- No error is thrown upon a flush metrics intent if logger has not been
+  configured.
+
 ### Fixed
 
 - Updated the documentation for integration tests.
