@@ -6,6 +6,8 @@ use std::io;
 
 /// Wrapper for configuring the microVM boot source.
 pub mod boot_source;
+/// Wrapper for device configurations.
+pub mod device_config;
 /// Wrapper for configuring the block devices.
 pub mod drive;
 /// Wrapper over the microVM general information attached to the microVM.
