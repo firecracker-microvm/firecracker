@@ -296,7 +296,7 @@ impl std::convert::From<NetworkInterfaceError> for VmmActionError {
                 // User errors.
                 OpenTun(_) | CreateTap(_) | InvalidIfname => ErrorKind::User,
                 // Internal errors.
-                IoctlError(_) | NetUtil(_) => ErrorKind::Internal,
+                IoctlError(_) | CreateSocket(_) => ErrorKind::Internal,
             },
         };
 
@@ -3850,8 +3850,8 @@ mod tests {
                 ErrorKind::Internal
             );
             assert_eq!(
-                error_kind(NetworkInterfaceError::OpenTap(TapError::NetUtil(
-                    net_util::Error::CreateSocket(io::Error::from_raw_os_error(0))
+                error_kind(NetworkInterfaceError::OpenTap(TapError::CreateSocket(
+                    io::Error::from_raw_os_error(0)
                 ))),
                 ErrorKind::Internal
             );

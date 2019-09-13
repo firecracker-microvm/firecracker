@@ -7,26 +7,28 @@
 
 use std::fs::File;
 use std::io::{Error as IoError, Read, Result as IoResult, Write};
-use std::net;
+use std::net::UdpSocket;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
-use super::{create_sockaddr, create_socket, Error as NetUtilError};
 use libc;
+
 use net_gen;
 use sys_util::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 
+/// List of errors the tap implementation can throw.
 #[derive(Debug)]
 pub enum Error {
-    /// Couldn't open /dev/net/tun.
-    OpenTun(IoError),
+    /// Failed to create a socket.
+    CreateSocket(IoError),
     /// Unable to create tap interface.
     CreateTap(IoError),
+    /// Invalid interface name.
+    InvalidIfname,
     /// ioctl failed.
     IoctlError(IoError),
-    /// Failed to create a socket.
-    NetUtil(NetUtilError),
-    InvalidIfname,
+    /// Couldn't open /dev/net/tun.
+    OpenTun(IoError),
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
@@ -40,8 +42,7 @@ ioctl_iow_nr!(TUNSETVNETHDRSZ, TUNTAP, 216, ::std::os::raw::c_int);
 ///
 /// For now, this simply wraps the file descriptor for the tap device so methods
 /// can run ioctls on the interface. The tap interface fd will be closed when
-/// Tap goes out of scope, and the kernel will clean up the interface
-/// automatically.
+/// Tap goes out of scope, and the kernel will clean up the interface automatically.
 #[derive(Debug)]
 pub struct Tap {
     tap_file: File,
@@ -52,6 +53,17 @@ impl PartialEq for Tap {
     fn eq(&self, other: &Tap) -> bool {
         self.if_name == other.if_name
     }
+}
+
+fn create_socket() -> Result<UdpSocket> {
+    // This is safe since we check the return value.
+    let sock = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
+    if sock < 0 {
+        return Err(Error::CreateSocket(IoError::last_os_error()));
+    }
+
+    // This is safe; nothing else will use or hold onto the raw sock fd.
+    Ok(unsafe { UdpSocket::from_raw_fd(sock) })
 }
 
 // Returns a byte vector representing the contents of a null terminated C string which
@@ -74,6 +86,18 @@ fn build_terminated_if_name(if_name: &str) -> Result<Vec<u8>> {
 }
 
 impl Tap {
+    /// Create a TUN/TAP device given the interface name.
+    /// # Arguments
+    ///
+    /// * `if_name` - the name of the interface.
+    /// # Example
+    ///
+    /// ```
+    /// extern crate net_util;
+    ///
+    /// use self::net_util::Tap;
+    /// Tap::open_named("doc-test-tap").unwrap();
+    /// ```
     pub fn open_named(if_name: &str) -> Result<Tap> {
         let terminated_if_name = build_terminated_if_name(if_name)?;
 
@@ -120,59 +144,6 @@ impl Tap {
         })
     }
 
-    /// Create a new tap interface.
-    pub fn new() -> Result<Tap> {
-        Self::open_named("vmtap%d")
-    }
-
-    /// Set the host-side IP address for the tap interface.
-    pub fn set_ip_addr(&self, ip_addr: net::Ipv4Addr) -> Result<()> {
-        let sock = create_socket().map_err(Error::NetUtil)?;
-        let addr = create_sockaddr(ip_addr);
-
-        let mut ifreq = self.get_ifreq();
-
-        // We only access one field of the ifru union, hence this is safe.
-        unsafe {
-            let ifru_addr = ifreq.ifr_ifru.ifru_addr.as_mut();
-            *ifru_addr = addr;
-        }
-
-        // ioctl is safe. Called with a valid sock fd, and we check the return.
-        #[allow(clippy::cast_lossless)]
-        let ret =
-            unsafe { ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFADDR as c_ulong, &ifreq) };
-        if ret < 0 {
-            return Err(Error::IoctlError(IoError::last_os_error()));
-        }
-
-        Ok(())
-    }
-
-    /// Set the netmask for the subnet that the tap interface will exist on.
-    pub fn set_netmask(&self, netmask: net::Ipv4Addr) -> Result<()> {
-        let sock = create_socket().map_err(Error::NetUtil)?;
-        let addr = create_sockaddr(netmask);
-
-        let mut ifreq = self.get_ifreq();
-
-        // We only access one field of the ifru union, hence this is safe.
-        unsafe {
-            let ifru_addr = ifreq.ifr_ifru.ifru_addr.as_mut();
-            *ifru_addr = addr;
-        }
-
-        // ioctl is safe. Called with a valid sock fd, and we check the return.
-        #[allow(clippy::cast_lossless)]
-        let ret =
-            unsafe { ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFNETMASK as c_ulong, &ifreq) };
-        if ret < 0 {
-            return Err(Error::IoctlError(IoError::last_os_error()));
-        }
-
-        Ok(())
-    }
-
     /// Set the offload flags for the tap interface.
     pub fn set_offload(&self, flags: c_uint) -> Result<()> {
         // ioctl is safe. Called with a valid tap fd, and we check the return.
@@ -187,7 +158,7 @@ impl Tap {
 
     /// Enable the tap interface.
     pub fn enable(&self) -> Result<()> {
-        let sock = create_socket().map_err(Error::NetUtil)?;
+        let sock = create_socket()?;
 
         let mut ifreq = self.get_ifreq();
 
@@ -259,10 +230,11 @@ impl AsRawFd for Tap {
 #[cfg(test)]
 mod tests {
     extern crate pnet;
-
+    use std::mem;
     use std::net::Ipv4Addr;
     use std::str;
-    use std::sync::{mpsc, Mutex};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
 
@@ -277,18 +249,86 @@ mod tests {
 
     use super::*;
 
-    static DATA_STRING: &str = "test for tap";
-    static SUBNET_MASK: &str = "255.255.255.0";
+    const DATA_STRING: &str = "test for tap";
+    const SUBNET_MASK: &str = "255.255.255.0";
 
-    // We needed to have a mutex as a global variable, so we used the crate that provides the
-    // lazy_static! macro for testing. The main potential problem, caused by tests being run in
-    // parallel by cargo, is creating different TAPs and trying to associate the same address,
-    // so we hide the IP address &str behind this mutex, more as a convention to remember to lock
-    // it at the very beginning of each function susceptible to this issue. Another variant is
-    // to use a different IP address per function, but we must remember to pick an unique one
-    // each time.
-    lazy_static! {
-        static ref TAP_IP_LOCK: Mutex<&'static str> = Mutex::new("192.168.241.1");
+    const TAP_IP_PREFIX: &str = "192.168.241.";
+    static NEXT_IP: AtomicUsize = AtomicUsize::new(1);
+
+    // Create a sockaddr_in from an IPv4 address, and expose it as
+    // an opaque sockaddr suitable for usage by socket ioctls.
+    fn create_sockaddr(ip_addr: Ipv4Addr) -> net_gen::sockaddr {
+        // IPv4 addresses big-endian (network order), but Ipv4Addr will give us
+        // a view of those bytes directly so we can avoid any endian trickiness.
+        let addr_in = net_gen::sockaddr_in {
+            sin_family: net_gen::AF_INET as u16,
+            sin_port: 0,
+            sin_addr: unsafe { mem::transmute(ip_addr.octets()) },
+            __pad: [0; 8usize],
+        };
+
+        unsafe { mem::transmute(addr_in) }
+    }
+    impl Tap {
+        // We do not run unit tests in parallel so we should have no problem
+        // assigning the same IP.
+
+        /// Create a new tap interface.
+        pub fn new() -> Result<Tap> {
+            // The name of the tap should be {module_name}{index} so that
+            // we make sure it stays different when tests are run concurrently.
+            let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
+            Self::open_named(&format!("tap{}", next_ip))
+        }
+
+        // Set the host-side IP address for the tap interface.
+        pub fn set_ip_addr(&self, ip_addr: Ipv4Addr) -> Result<()> {
+            let sock = create_socket()?;
+            let addr = create_sockaddr(ip_addr);
+
+            let mut ifreq = self.get_ifreq();
+
+            // We only access one field of the ifru union, hence this is safe.
+            unsafe {
+                let ifru_addr = ifreq.ifr_ifru.ifru_addr.as_mut();
+                *ifru_addr = addr;
+            }
+
+            // ioctl is safe. Called with a valid sock fd, and we check the return.
+            #[allow(clippy::cast_lossless)]
+            let ret =
+                unsafe { ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFADDR as c_ulong, &ifreq) };
+            if ret < 0 {
+                return Err(Error::IoctlError(IoError::last_os_error()));
+            }
+
+            Ok(())
+        }
+
+        // Set the netmask for the subnet that the tap interface will exist on.
+        pub fn set_netmask(&self, netmask: Ipv4Addr) -> Result<()> {
+            let sock = create_socket()?;
+            let addr = create_sockaddr(netmask);
+
+            let mut ifreq = self.get_ifreq();
+
+            // We only access one field of the ifru union, hence this is safe.
+            unsafe {
+                let ifru_addr = ifreq.ifr_ifru.ifru_addr.as_mut();
+                *ifru_addr = addr;
+            }
+
+            // ioctl is safe. Called with a valid sock fd, and we check the return.
+            #[allow(clippy::cast_lossless)]
+            let ret = unsafe {
+                ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFNETMASK as c_ulong, &ifreq)
+            };
+            if ret < 0 {
+                return Err(Error::IoctlError(IoError::last_os_error()));
+            }
+
+            Ok(())
+        }
     }
 
     // Describes the outcomes we are currently interested in when parsing a packet (we use
@@ -415,22 +455,13 @@ mod tests {
     }
 
     #[test]
-    fn test_tap_create() {
-        let t = Tap::new().unwrap();
-        println!("created tap: {:?}", t);
-    }
-
-    #[test]
     fn test_tap_configure() {
-        // This should be the first thing to be called inside the function, so everything else
-        // is torn down by the time the mutex is automatically released. Also, we should
-        // explicitly bind the MutexGuard to a variable via let, the make sure it lives until
-        // the end of the function.
-        let tap_ip_guard = TAP_IP_LOCK.lock().unwrap();
+        // `fetch_add` adds to the current value, returning the previous value.
+        let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
 
         let tap = Tap::new().unwrap();
-        let ip_addr: net::Ipv4Addr = (*tap_ip_guard).parse().unwrap();
-        let netmask: net::Ipv4Addr = SUBNET_MASK.parse().unwrap();
+        let ip_addr: Ipv4Addr = format!("{}{}", TAP_IP_PREFIX, next_ip).parse().unwrap();
+        let netmask: Ipv4Addr = SUBNET_MASK.parse().unwrap();
 
         let ret = tap.set_ip_addr(ip_addr);
         assert!(ret.is_ok());
@@ -471,10 +502,13 @@ mod tests {
 
     #[test]
     fn test_read() {
-        let tap_ip_guard = TAP_IP_LOCK.lock().unwrap();
+        // `fetch_add` adds to the current value, returning the previous value.
+        let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
 
         let mut tap = Tap::new().unwrap();
-        tap.set_ip_addr((*tap_ip_guard).parse().unwrap()).unwrap();
+        let ip_addr = format!("{}{}", TAP_IP_PREFIX, next_ip).parse().unwrap();
+
+        tap.set_ip_addr(ip_addr).unwrap();
         tap.set_netmask(SUBNET_MASK.parse().unwrap()).unwrap();
         tap.enable().unwrap();
 
@@ -532,10 +566,14 @@ mod tests {
 
     #[test]
     fn test_write() {
-        let tap_ip_guard = TAP_IP_LOCK.lock().unwrap();
+        // `fetch_add` adds to the current value, returning the previous value.
+        let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
 
         let mut tap = Tap::new().unwrap();
-        tap.set_ip_addr((*tap_ip_guard).parse().unwrap()).unwrap();
+        let ip_addr = format!("{}{}", TAP_IP_PREFIX, next_ip).parse().unwrap();
+
+        tap.set_ip_addr(ip_addr).unwrap();
+
         tap.set_netmask(SUBNET_MASK.parse().unwrap()).unwrap();
         tap.enable().unwrap();
 
