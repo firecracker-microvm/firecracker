@@ -46,6 +46,7 @@ RUN apt-get update \
         python3-pip \
         python3-venv    \
         zlib1g-dev \
+        screen \
     && python3 -m pip install \
         setuptools \
         wheel \
