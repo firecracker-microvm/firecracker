@@ -70,7 +70,7 @@ class Microvm:
         # Create the jailer context associated with this microvm.
         self._jailer = JailerContext(
             jailer_id=self._microvm_id,
-            exec_file=self._fc_binary_path
+            exec_file=self._fc_binary_path,
         )
         self.jailer_clone_pid = None
 
@@ -292,7 +292,6 @@ class Microvm:
                 # successfully.
                 if _p.stderr.decode().strip():
                     raise Exception(_p.stderr.decode())
-
                 self.jailer_clone_pid = int(_p.stdout.decode().rstrip())
             else:
                 # This code path is not used at the moment, but I just feel
@@ -306,7 +305,15 @@ class Microvm:
                     )
                 self.jailer_clone_pid = _pid
         else:
-            start_cmd = 'screen -dmS {session} {binary} {params}'
+            # Delete old screen log if any.
+            try:
+                os.unlink('/tmp/screen.log')
+            except OSError:
+                pass
+            # Log screen output to /tmp/screen.log.
+            # This file will collect any output from 'screen'ed Firecracker.
+            start_cmd = 'screen -L -Logfile /tmp/screen.log '\
+                        '-dmS {session} {binary} {params}'
             start_cmd = start_cmd.format(
                 session=self._session_name,
                 binary=self._jailer_binary_path,
@@ -323,6 +330,11 @@ class Microvm:
                                          .format(screen_pid)
                                          ).read().strip()
 
+            # Configure screen to flush stdout to file.
+            flush_cmd = 'screen -S {session} -X colon "logfile flush 0^M"'
+            run(flush_cmd.format(session=self._session_name),
+                shell=True, check=True)
+
         # Wait for the jailer to create resources needed, and Firecracker to
         # create its API socket.
         # We expect the jailer to start within 80 ms. However, we wait for
@@ -335,12 +347,20 @@ class Microvm:
         """Wait until the API socket and chroot folder are available."""
         os.stat(self._jailer.api_socket_path())
 
+    def serial_input(self, input_string):
+        """Send a string to the Firecracker serial console via screen."""
+        input_cmd = 'screen -S {session} -p 0 -X stuff "{input_string}^M"'
+        run(input_cmd.format(session=self._session_name,
+                             input_string=input_string),
+            shell=True, check=True)
+
     def basic_config(
         self,
         vcpu_count: int = 2,
         ht_enabled: bool = False,
         mem_size_mib: int = 256,
-        add_root_device: bool = True
+        add_root_device: bool = True,
+        boot_args: str = None,
     ):
         """Shortcut for quickly configuring a microVM.
 
@@ -369,7 +389,8 @@ class Microvm:
 
         # Add a kernel to start booting from.
         response = self.boot.put(
-            kernel_image_path=self.create_jailed_resource(self.kernel_file)
+            kernel_image_path=self.create_jailed_resource(self.kernel_file),
+            boot_args=boot_args
         )
         assert self._api_session.is_status_no_content(response.status_code)
 
