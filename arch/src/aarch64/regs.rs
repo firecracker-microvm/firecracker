@@ -13,12 +13,13 @@ use super::get_fdt_addr;
 use kvm_bindings::{user_pt_regs, KVM_REG_ARM64, KVM_REG_ARM_CORE, KVM_REG_SIZE_U64};
 use memory_model::GuestMemory;
 
+/// Errors thrown while setting aarch64 registers.
 #[derive(Debug)]
 pub enum Error {
+    /// Failed to set core register (PC, PSTATE or general purpose ones).
     SetCoreRegister(io::Error),
 }
-
-pub type Result<T> = result::Result<T, Error>;
+type Result<T> = result::Result<T, Error>;
 
 #[allow(non_upper_case_globals)]
 // PSR (Processor State Register) bits.
