@@ -13,11 +13,9 @@ use std::{fmt, mem, result};
 
 use guest_address::GuestAddress;
 use mmap::{self, MemoryMapping};
-use std::fmt::Formatter;
 use DataInit;
 
 /// Errors associated with handling guest memory regions.
-#[derive(Debug)]
 pub enum Error {
     /// Failure in finding a guest address in any memory regions mapped by this guest.
     InvalidGuestAddress(GuestAddress),
@@ -37,28 +35,18 @@ pub enum Error {
 type Result<T> = result::Result<T, Error>;
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::InvalidGuestAddress(_) => write!(
-                f,
-                "Failure in finding guest address in any memory regions \
-                 mapped by this guest."
-            ),
-            Error::InvalidGuestAddressRange(_, _) => write!(
-                f,
-                "Failure in finding a guest address in range in any \
-                 memory regions mapped by this guest."
-            ),
-            Error::MemoryAccess(_, err) => write!(
-                f,
-                "Failed to access the memory located guest address: {}",
-                err
-            ),
-            Error::MemoryMappingFailed(err) => write!(
-                f,
-                "Failure in creating an anonymous shared mapping: {}",
-                err
-            ),
+            Error::InvalidGuestAddress(_) => {
+                write!(f, "Guest address was not found in mapped memory.")
+            }
+            Error::InvalidGuestAddressRange(_, _) => {
+                write!(f, "Guest Address range was not found in mapped memory.")
+            }
+            Error::MemoryAccess(_, err) => write!(f, "Failed memory access: {}", err),
+            Error::MemoryMappingFailed(err) => {
+                write!(f, "Failure in creating memory mapping: {}", err)
+            }
             Error::MemoryNotInitialized => write!(f, "Failure in initializing guest memory."),
             Error::MemoryRegionOverlap => write!(f, "Two of the memory regions are overlapping."),
             Error::NoMemoryRegions => write!(
@@ -413,7 +401,7 @@ impl GuestMemory {
     /// # fn test_host_addr() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
-    ///     let addr = gm.get_host_address(GuestAddress(0x1200)).unwrap();
+    ///     let addr = gm.get_host_address(GuestAddress(0x1200)).unwrap_or_else(|err| panic!("{}", err));
     ///     println!("Host address is {:p}", addr);
     ///     Ok(())
     /// # }
@@ -447,7 +435,7 @@ impl GuestMemory {
     /// # fn test_map_fold() -> Result<(), ()> {
     ///     let start_addr1 = GuestAddress(0x0);
     ///     let start_addr2 = GuestAddress(0x400);
-    ///     let mem = GuestMemory::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
+    ///     let mem = GuestMemory::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap_or_else(|err| panic!("{}", err));
     ///     let total_size = mem.map_and_fold(
     ///         0,
     ///         |(_, region)| region.size() / 1024,
@@ -507,13 +495,14 @@ mod tests {
     fn test_regions() {
         // No regions provided should return error.
         assert_eq!(
-            format!("{:?}", GuestMemory::new(&[]).err().unwrap()),
-            format!("{:?}", Error::NoMemoryRegions)
+            format!("{}", GuestMemory::new(&[]).err().unwrap()),
+            format!("{}", Error::NoMemoryRegions)
         );
 
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
-        let guest_mem = GuestMemory::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
+        let guest_mem = GuestMemory::new(&[(start_addr1, 0x400), (start_addr2, 0x400)])
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(guest_mem.num_regions(), 2);
         assert!(guest_mem.address_in_range(GuestAddress(0x200)));
         assert!(!guest_mem.address_in_range(GuestAddress(0x600)));
@@ -532,8 +521,8 @@ mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let res = GuestMemory::new(&[(start_addr1, 0x2000), (start_addr2, 0x2000)]);
         assert_eq!(
-            format!("{:?}", res.err().unwrap()),
-            format!("{:?}", Error::MemoryRegionOverlap)
+            format!("{}", res.err().unwrap()),
+            format!("{}", Error::MemoryRegionOverlap)
         );
     }
 
@@ -544,32 +533,30 @@ mod tests {
         let bad_addr = GuestAddress(0x2001);
         let bad_addr2 = GuestAddress(0x1ffc);
 
-        let gm = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let gm = GuestMemory::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)])
+            .unwrap_or_else(|err| panic!("{}", err));
 
         let val1: u64 = 0xaa55_aa55_aa55_aa55;
         let val2: u64 = 0x55aa_55aa_55aa_55aa;
         assert_eq!(
-            format!("{:?}", gm.write_obj_at_addr(val1, bad_addr).err().unwrap()),
-            format!(
-                "InvalidGuestAddressRange({:?}, {:?})",
-                bad_addr,
-                std::mem::size_of::<u64>()
-            )
+            format!("{}", gm.write_obj_at_addr(val1, bad_addr).err().unwrap()),
+            "Guest Address range was not found in mapped memory.",
         );
         assert_eq!(
-            format!("{:?}", gm.write_obj_at_addr(val1, bad_addr2).err().unwrap()),
-            format!(
-                "InvalidGuestAddressRange({:?}, {:?})",
-                bad_addr2,
-                std::mem::size_of::<u64>()
-            )
+            format!("{}", gm.write_obj_at_addr(val1, bad_addr2).err().unwrap()),
+            "Guest Address range was not found in mapped memory."
         );
 
-        gm.write_obj_at_addr(val1, GuestAddress(0x500)).unwrap();
+        gm.write_obj_at_addr(val1, GuestAddress(0x500))
+            .unwrap_or_else(|err| panic!("{}", err));
         gm.write_obj_at_addr(val2, GuestAddress(0x1000 + 32))
-            .unwrap();
-        let num1: u64 = gm.read_obj_from_addr(GuestAddress(0x500)).unwrap();
-        let num2: u64 = gm.read_obj_from_addr(GuestAddress(0x1000 + 32)).unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
+        let num1: u64 = gm
+            .read_obj_from_addr(GuestAddress(0x500))
+            .unwrap_or_else(|err| panic!("{}", err));
+        let num2: u64 = gm
+            .read_obj_from_addr(GuestAddress(0x1000 + 32))
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(val1, num1);
         assert_eq!(val2, num2);
     }
@@ -577,38 +564,58 @@ mod tests {
     #[test]
     fn write_and_read_slice() {
         let mut start_addr = GuestAddress(0x1000);
-        let gm = GuestMemory::new(&[(start_addr, 0x400)]).unwrap();
+        let gm = GuestMemory::new(&[(start_addr, 0x400)]).unwrap_or_else(|err| panic!("{}", err));
         let sample_buf = &[1, 2, 3, 4, 5];
 
-        assert_eq!(gm.write_slice_at_addr(sample_buf, start_addr).unwrap(), 5);
+        assert_eq!(
+            gm.write_slice_at_addr(sample_buf, start_addr)
+                .unwrap_or_else(|err| panic!("{}", err)),
+            5
+        );
 
         let buf = &mut [0u8; 5];
-        assert_eq!(gm.read_slice_at_addr(buf, start_addr).unwrap(), 5);
+        assert_eq!(
+            gm.read_slice_at_addr(buf, start_addr)
+                .unwrap_or_else(|err| panic!("{}", err)),
+            5
+        );
         assert_eq!(buf, sample_buf);
 
         start_addr = GuestAddress(0x13ff);
-        assert_eq!(gm.write_slice_at_addr(sample_buf, start_addr).unwrap(), 1);
-        assert_eq!(gm.read_slice_at_addr(buf, start_addr).unwrap(), 1);
+        assert_eq!(
+            gm.write_slice_at_addr(sample_buf, start_addr)
+                .unwrap_or_else(|err| panic!("{}", err)),
+            1
+        );
+        assert_eq!(
+            gm.read_slice_at_addr(buf, start_addr)
+                .unwrap_or_else(|err| panic!("{}", err)),
+            1
+        );
         assert_eq!(buf[0], sample_buf[0]);
     }
 
     #[test]
     fn read_to_and_write_from_mem() {
-        let gm = GuestMemory::new(&[(GuestAddress(0x1000), 0x400)]).unwrap();
+        let gm = GuestMemory::new(&[(GuestAddress(0x1000), 0x400)])
+            .unwrap_or_else(|err| panic!("{}", err));
         let addr = GuestAddress(0x1010);
-        gm.write_obj_at_addr(!0u32, addr).unwrap();
+        gm.write_obj_at_addr(!0u32, addr)
+            .unwrap_or_else(|err| panic!("{}", err));
         gm.read_to_memory(
             addr,
-            &mut File::open(Path::new("/dev/zero")).unwrap(),
+            &mut File::open(Path::new("/dev/zero")).unwrap_or_else(|err| panic!("{}", err)),
             mem::size_of::<u32>(),
         )
-        .unwrap();
-        let value: u32 = gm.read_obj_from_addr(addr).unwrap();
+        .unwrap_or_else(|err| panic!("{}", err));
+        let value: u32 = gm
+            .read_obj_from_addr(addr)
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(value, 0);
 
         let mut sink = Vec::new();
         gm.write_from_memory(addr, &mut sink, mem::size_of::<u32>())
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
     }
 
@@ -620,7 +627,7 @@ mod tests {
             (GuestAddress(0x1000), region_size),
         ];
         let mut iterated_regions = Vec::new();
-        let gm = GuestMemory::new(&regions).unwrap();
+        let gm = GuestMemory::new(&regions).unwrap_or_else(|err| panic!("{}", err));
 
         let res: Result<()> = gm.with_regions(|_, _, size, _| {
             assert_eq!(size, region_size);
@@ -647,13 +654,18 @@ mod tests {
     fn guest_to_host() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x100);
-        let mem = GuestMemory::new(&[(start_addr1, 0x100), (start_addr2, 0x400)]).unwrap();
+        let mem = GuestMemory::new(&[(start_addr1, 0x100), (start_addr2, 0x400)])
+            .unwrap_or_else(|err| panic!("{}", err));
 
         // Verify the host addresses match what we expect from the mappings.
-        let addr1_base = get_mapping(&mem, start_addr1).unwrap();
-        let addr2_base = get_mapping(&mem, start_addr2).unwrap();
-        let host_addr1 = mem.get_host_address(start_addr1).unwrap();
-        let host_addr2 = mem.get_host_address(start_addr2).unwrap();
+        let addr1_base = get_mapping(&mem, start_addr1).unwrap_or_else(|err| panic!("{}", err));
+        let addr2_base = get_mapping(&mem, start_addr2).unwrap_or_else(|err| panic!("{}", err));
+        let host_addr1 = mem
+            .get_host_address(start_addr1)
+            .unwrap_or_else(|err| panic!("{}", err));
+        let host_addr2 = mem
+            .get_host_address(start_addr2)
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(host_addr1, addr1_base);
         assert_eq!(host_addr2, addr2_base);
 
@@ -666,7 +678,8 @@ mod tests {
     fn test_map_fold() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x400);
-        let mem = GuestMemory::new(&[(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
+        let mem = GuestMemory::new(&[(start_addr1, 1024), (start_addr2, 2048)])
+            .unwrap_or_else(|err| panic!("{}", err));
 
         assert_eq!(
             mem.map_and_fold(

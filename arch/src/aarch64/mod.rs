@@ -107,15 +107,18 @@ mod tests {
     #[test]
     fn test_get_fdt_addr() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE - 0x1000);
-        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mem = GuestMemory::new(&regions)
+            .unwrap_or_else(|err| panic!("Cannot initialize memory: {}", err));
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE);
-        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mem = GuestMemory::new(&regions)
+            .unwrap_or_else(|err| panic!("Cannot initialize memory: {}", err));
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mem = GuestMemory::new(&regions)
+            .unwrap_or_else(|err| panic!("Cannot initialize memory: {}", err));
         assert_eq!(get_fdt_addr(&mem), 0x1000 + layout::DRAM_MEM_START);
     }
 }

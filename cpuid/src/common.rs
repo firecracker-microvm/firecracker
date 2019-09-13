@@ -8,19 +8,18 @@ use std::arch::x86_64::{CpuidResult, __cpuid_count, __get_cpuid_max};
 
 use cpu_leaf::*;
 use std::fmt;
-use std::fmt::Formatter;
 
 pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
 pub const VENDOR_ID_AMD: &[u8; 12] = b"AuthenticAMD";
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Error {
     InvalidParameters(String),
     NotSupported,
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::InvalidParameters(err_msg) => write!(f, "{}", err_msg),
             Error::NotSupported => write!(

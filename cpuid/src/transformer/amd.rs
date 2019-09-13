@@ -160,7 +160,8 @@ mod test {
         use cpu_leaf::leaf_0x7::index0::*;
 
         // Check that if index == 0 the entry is processed
-        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(0, 1, false)
+            .unwrap_or_else(|err| panic!("Error creating vm_spec: {}", err));
         let mut entry = &mut kvm_cpuid_entry2 {
             function: leaf_0x7::LEAF_NUM,
             index: 0,
@@ -185,7 +186,8 @@ mod test {
     fn test_update_largest_extended_fn_entry() {
         use cpu_leaf::leaf_0x80000000::*;
 
-        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(0, 1, false)
+            .unwrap_or_else(|err| panic!("Error creating vm_spec: {}", err));
         let mut entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
@@ -211,7 +213,8 @@ mod test {
     fn test_update_extended_feature_info_entry() {
         use cpu_leaf::leaf_0x80000001::*;
 
-        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(0, 1, false)
+            .unwrap_or_else(|err| panic!("Error creating vm_spec: {}", err));
         let mut entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
@@ -231,7 +234,8 @@ mod test {
     fn check_update_amd_features_entry(cpu_count: u8, ht_enabled: bool) {
         use cpu_leaf::leaf_0x80000008::*;
 
-        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled)
+            .unwrap_or_else(|err| panic!("Error creating vm_spec: {}", err));
         let mut entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
@@ -264,7 +268,8 @@ mod test {
     ) {
         use cpu_leaf::leaf_0x8000001e::*;
 
-        let vm_spec = VmSpec::new(cpu_id, cpu_count, ht_enabled).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(cpu_id, cpu_count, ht_enabled)
+            .unwrap_or_else(|err| panic!("Error creating vm_spec: {}", err));
         let mut entry = &mut kvm_cpuid_entry2 {
             function: LEAF_NUM,
             index: 0,
@@ -307,7 +312,8 @@ mod test {
 
     #[test]
     fn test_update_extended_cache_topology_entry() {
-        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(0, 1, false)
+            .unwrap_or_else(|err| panic!("Error creating vm_spec: {}", err));
         let mut entry = &mut kvm_cpuid_entry2 {
             function: leaf_0x8000001d::LEAF_NUM,
             index: 0,

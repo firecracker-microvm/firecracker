@@ -24,6 +24,7 @@ use memory_model::GuestMemoryError;
 use super::super::EpollHandler;
 use super::EpollConfigConstructor;
 use packet::VsockPacket;
+use std::fmt;
 
 mod defs {
     use crate::DeviceEventT;
@@ -99,7 +100,6 @@ mod defs {
     }
 }
 
-#[derive(Debug)]
 pub enum VsockError {
     /// The vsock data/buffer virtio descriptor length is smaller than expected.
     BufDescTooSmall,
@@ -122,6 +122,46 @@ pub enum VsockError {
     /// Encountered an unexpected read-only virtio descriptor.
     UnwritableDescriptor,
 }
+
+impl fmt::Display for VsockError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            VsockError::BufDescTooSmall => write!(
+                f,
+                "The vsock data/buffer virtio descriptor length is smaller than expected."
+            ),
+            VsockError::BufDescMissing => write!(
+                f,
+                "The vsock data/buffer virtio descriptor is expected, but missing."
+            ),
+
+            VsockError::GuestMemory(_) => write!(f, "Bounds check failed on guest memory pointer."),
+            VsockError::GuestMemoryBounds => {
+                write!(f, "The vsock header descriptor length is too small.")
+            }
+            VsockError::HdrDescTooSmall(_) => {
+                write!(f, "The vsock header `len` field holds an invalid value.")
+            }
+            VsockError::InvalidPktLen(_) => {
+                write!(f, "A data fetch was attempted when no data was available.")
+            }
+            VsockError::NoData => write!(
+                f,
+                "A data buffer was expected for the provided packet, but it is missing."
+            ),
+            VsockError::PktBufMissing => {
+                write!(f, "Encountered an unexpected write-only virtio descriptor.")
+            }
+            VsockError::UnreadableDescriptor => {
+                write!(f, "Encountered an unexpected write-only virtio descriptor.")
+            }
+            VsockError::UnwritableDescriptor => {
+                write!(f, "Encountered an unexpected read-only virtio descriptor.")
+            }
+        }
+    }
+}
+
 type Result<T> = std::result::Result<T, VsockError>;
 
 pub struct EpollConfig {
@@ -292,14 +332,15 @@ mod tests {
             let (sender, _handler_receiver) = mpsc::channel();
             Self {
                 cid: CID,
-                mem: GuestMemory::new(&[(GuestAddress(0), MEM_SIZE)]).unwrap(),
+                mem: GuestMemory::new(&[(GuestAddress(0), MEM_SIZE)])
+                    .unwrap_or_else(|err| panic!("{}", err)),
                 mem_size: MEM_SIZE,
                 device: Vsock::new(
                     CID,
                     EpollConfig::new(0, epoll::create(true).unwrap(), sender),
                     TestBackend::new(),
                 )
-                .unwrap(),
+                .unwrap_or_else(|err| panic!("{}", err)),
                 _handler_receiver,
             }
         }

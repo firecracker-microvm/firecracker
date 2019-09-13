@@ -12,7 +12,6 @@ use brand_string::BrandString;
 use brand_string::Reg as BsReg;
 use common::get_vendor_id;
 use std::fmt;
-use std::fmt::Formatter;
 
 /// Structure containing the specifications of the VM
 ///
@@ -53,7 +52,7 @@ impl VmSpec {
 }
 
 /// Errors associated with processing the CPUID leaves.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Error {
     /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
     VcpuCountOverflow,
@@ -64,16 +63,13 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::VcpuCountOverflow => write!(
-                f,
-                "The maximum number of addressable logical CPUs cannot be stored in an `u8`."
-            ),
-            Error::SizeLimitExceeded => write!(f, "The max size has been exceeded."),
-            Error::InternalError(err) => {
-                write!(f, "A call to an internal helper method failed: {}", err)
+            Error::VcpuCountOverflow => {
+                write!(f, "The maximum number of CPUID entries was exceeded.")
             }
+            Error::SizeLimitExceeded => write!(f, "The max size has been exceeded."),
+            Error::InternalError(err) => write!(f, "{}", err),
         }
     }
 }
@@ -145,7 +141,7 @@ mod test {
         let vm_spec = VmSpec::new(0, 1, false);
         cpuid.mut_entries_slice()[0].function = PROCESSED_FN;
         assert!(MockCpuidTransformer {}
-            .process_cpuid(&mut cpuid, &vm_spec.unwrap())
+            .process_cpuid(&mut cpuid, &vm_spec.unwrap_or_else(|err| panic!("{}", err)))
             .is_ok());
 
         assert!(cpuid.mut_entries_slice().len() == num_entries);
@@ -159,5 +155,24 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::VcpuCountOverflow),
+            "The maximum number of CPUID entries was exceeded."
+        );
+        assert_eq!(
+            format!("{}", Error::SizeLimitExceeded),
+            "The max size has been exceeded."
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::InternalError(super::super::common::Error::NotSupported)
+            ),
+            format!("{}", super::super::common::Error::NotSupported)
+        );
     }
 }

@@ -765,7 +765,7 @@ mod tests {
             let mut pkt = VsockPacket::from_rx_virtq_head(
                 &handler_ctx.handler.rxvq.pop(&vsock_test_ctx.mem).unwrap(),
             )
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
             let conn = match conn_state {
                 ConnState::PeerInit => VsockConnection::<TestStream>::new_peer_init(
                     stream,
@@ -788,7 +788,8 @@ mod tests {
                         PEER_BUF_ALLOC,
                     );
                     assert!(conn.has_pending_rx());
-                    conn.recv_pkt(&mut pkt).unwrap();
+                    conn.recv_pkt(&mut pkt)
+                        .unwrap_or_else(|err| panic!("{}", err));
                     assert_eq!(pkt.op(), uapi::VSOCK_OP_RESPONSE);
                     conn
                 }
@@ -814,11 +815,15 @@ mod tests {
         }
 
         fn send(&mut self) {
-            self.conn.send_pkt(&self.pkt).unwrap();
+            self.conn
+                .send_pkt(&self.pkt)
+                .unwrap_or_else(|err| panic!("{}", err));
         }
 
         fn recv(&mut self) {
-            self.conn.recv_pkt(&mut self.pkt).unwrap();
+            self.conn
+                .recv_pkt(&mut self.pkt)
+                .unwrap_or_else(|err| panic!("{}", err));
         }
 
         fn notify_epollin(&mut self) {
@@ -910,7 +915,7 @@ mod tests {
         // There's no more data in the stream, so `recv_pkt` should yield `VsockError::NoData`.
         match ctx.conn.recv_pkt(&mut ctx.pkt) {
             Err(VsockError::NoData) => (),
-            other => panic!("{:?}", other),
+            other => panic!("{}", other.err().unwrap()),
         }
 
         // A recv attempt in an invalid state should yield an instant reset packet.

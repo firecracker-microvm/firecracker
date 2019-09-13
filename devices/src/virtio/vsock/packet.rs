@@ -371,14 +371,16 @@ mod tests {
             match VsockPacket::$ctor(&$handler_ctx.handler.$vq.pop(&$test_ctx.mem).unwrap()) {
                 Err($err) => (),
                 Ok(_) => panic!("Packet assembly should've failed!"),
-                Err(other) => panic!("Packet assembly failed with: {:?}", other),
+                Err(other) => panic!("Packet assembly failed with: {}", other),
             }
         };
     }
 
     fn set_pkt_len(len: u32, guest_desc: &GuestQDesc, mem: &GuestMemory) {
         let hdr_gpa = guest_desc.addr.get() as usize;
-        let hdr_ptr = mem.get_host_address(GuestAddress(hdr_gpa)).unwrap() as *mut u8;
+        let hdr_ptr = mem
+            .get_host_address(GuestAddress(hdr_gpa))
+            .unwrap_or_else(|err| panic!("{}", err)) as *mut u8;
         let len_ptr = unsafe { hdr_ptr.add(HDROFF_LEN) };
 
         LittleEndian::write_u32(unsafe { std::slice::from_raw_parts_mut(len_ptr, 4) }, len);
@@ -394,7 +396,7 @@ mod tests {
             let pkt = VsockPacket::from_tx_virtq_head(
                 &handler_ctx.handler.txvq.pop(&test_ctx.mem).unwrap(),
             )
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
             assert_eq!(pkt.hdr().len(), VSOCK_PKT_HDR_SIZE);
             assert_eq!(
                 pkt.buf().unwrap().len(),
@@ -427,7 +429,7 @@ mod tests {
             let mut pkt = VsockPacket::from_tx_virtq_head(
                 &handler_ctx.handler.txvq.pop(&test_ctx.mem).unwrap(),
             )
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
             assert!(pkt.buf().is_none());
             assert!(pkt.buf_mut().is_none());
         }
@@ -480,7 +482,7 @@ mod tests {
             let pkt = VsockPacket::from_rx_virtq_head(
                 &handler_ctx.handler.rxvq.pop(&test_ctx.mem).unwrap(),
             )
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
             assert_eq!(pkt.hdr().len(), VSOCK_PKT_HDR_SIZE);
             assert_eq!(
                 pkt.buf().unwrap().len(),
@@ -531,7 +533,7 @@ mod tests {
         create_context!(test_ctx, handler_ctx);
         let mut pkt =
             VsockPacket::from_rx_virtq_head(&handler_ctx.handler.rxvq.pop(&test_ctx.mem).unwrap())
-                .unwrap();
+                .unwrap_or_else(|err| panic!("{}", err));
 
         // Test field accessors.
         pkt.set_src_cid(SRC_CID)
@@ -616,7 +618,7 @@ mod tests {
         create_context!(test_ctx, handler_ctx);
         let mut pkt =
             VsockPacket::from_rx_virtq_head(&handler_ctx.handler.rxvq.pop(&test_ctx.mem).unwrap())
-                .unwrap();
+                .unwrap_or_else(|err| panic!("{}", err));
 
         assert_eq!(
             pkt.buf().unwrap().len(),

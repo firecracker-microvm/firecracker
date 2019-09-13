@@ -15,7 +15,6 @@ use std::ptr::null_mut;
 use libc;
 
 use std::fmt;
-use std::fmt::Formatter;
 use DataInit;
 
 /// Errors associated with memory mapping.
@@ -37,7 +36,7 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::InvalidAddress => write!(f, "Requested memory out of range."),
             Error::InvalidRange(_, _) => write!(
@@ -51,7 +50,7 @@ impl fmt::Display for Error {
                  source: {}",
                 err
             ),
-            Error::SystemCallFailed(err) => write!(f, "`mmap` failed: {}", err),
+            Error::SystemCallFailed(err) => write!(f, "{}", err),
             Error::WriteToMemory(err) => write!(f, "Writing to memory failed: {}", err),
             Error::ReadFromMemory(err) => write!(f, "Reading from memory failed: {}", err),
         }
@@ -431,5 +430,30 @@ mod tests {
             mem_map.write_from_memory(2, &mut sink, mem::size_of::<u32>())
         );
         assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SystemCallFailed(io::Error::from_raw_os_error(0))
+            ),
+            format!("{}", io::Error::from_raw_os_error(0))
+        );
+        assert_eq!(
+            format!("{}", Error::WriteToMemory(io::Error::from_raw_os_error(0))),
+            format!(
+                "Writing to memory failed: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::ReadFromMemory(io::Error::from_raw_os_error(0))),
+            format!(
+                "Reading from memory failed: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
     }
 }

@@ -268,7 +268,7 @@ mod tests {
     const MEM_SIZE: usize = 0x18_0000;
 
     fn create_guest_mem() -> GuestMemory {
-        GuestMemory::new(&[(GuestAddress(0x0), MEM_SIZE)]).unwrap()
+        GuestMemory::new(&[(GuestAddress(0x0), MEM_SIZE)]).unwrap_or_else(|err| panic!("{}", err))
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -298,7 +298,8 @@ mod tests {
 
     #[test]
     fn test_load_kernel_no_memory() {
-        let gm = GuestMemory::new(&[(GuestAddress(0x0), 79)]).unwrap();
+        let gm =
+            GuestMemory::new(&[(GuestAddress(0x0), 79)]).unwrap_or_else(|err| panic!("{}", err));
         let image = make_test_bin();
         assert_eq!(
             Err(Error::ReadKernelImage),
@@ -405,19 +406,29 @@ mod tests {
         cmdline.insert_str("1234").unwrap();
         let cmdline = cmdline.as_cstring().unwrap();
         assert_eq!(Ok(()), load_cmdline(&gm, cmdline_address, &cmdline));
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm
+            .read_obj_from_addr(cmdline_address)
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(val, b'1');
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm
+            .read_obj_from_addr(cmdline_address)
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(val, b'2');
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm
+            .read_obj_from_addr(cmdline_address)
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(val, b'3');
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm
+            .read_obj_from_addr(cmdline_address)
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(val, b'4');
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm
+            .read_obj_from_addr(cmdline_address)
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(val, b'\0');
     }
 }

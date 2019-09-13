@@ -150,10 +150,22 @@ mod test {
 
     #[test]
     fn test_get_max_cpus_per_package() {
-        assert_eq!(get_max_cpus_per_package(1).unwrap(), 1);
-        assert_eq!(get_max_cpus_per_package(2).unwrap(), 2);
-        assert_eq!(get_max_cpus_per_package(4).unwrap(), 4);
-        assert_eq!(get_max_cpus_per_package(6).unwrap(), 8);
+        assert_eq!(
+            get_max_cpus_per_package(1).unwrap_or_else(|err| panic!("{}", err)),
+            1
+        );
+        assert_eq!(
+            get_max_cpus_per_package(2).unwrap_or_else(|err| panic!("{}", err)),
+            2
+        );
+        assert_eq!(
+            get_max_cpus_per_package(4).unwrap_or_else(|err| panic!("{}", err)),
+            4
+        );
+        assert_eq!(
+            get_max_cpus_per_package(6).unwrap_or_else(|err| panic!("{}", err)),
+            8
+        );
 
         assert!(get_max_cpus_per_package(u8::max_value()).is_err());
     }
@@ -161,7 +173,8 @@ mod test {
     fn check_update_feature_info_entry(cpu_count: u8, expected_htt: bool) {
         use cpu_leaf::leaf_0x1::*;
 
-        let vm_spec = VmSpec::new(0, cpu_count, false).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(0, cpu_count, false)
+            .unwrap_or_else(|err| panic!("Error creating vm_spec: {}", err));
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,
@@ -186,7 +199,8 @@ mod test {
     ) {
         use cpu_leaf::leaf_cache_parameters::*;
 
-        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
+        let vm_spec = VmSpec::new(0, cpu_count, ht_enabled)
+            .unwrap_or_else(|err| panic!("Error creating vm_spec: {}", err));
         let mut entry = &mut kvm_cpuid_entry2 {
             function: 0x0,
             index: 0,

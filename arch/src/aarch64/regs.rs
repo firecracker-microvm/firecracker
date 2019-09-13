@@ -131,7 +131,8 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mem = GuestMemory::new(&regions)
+            .unwrap_or_else(|err| panic!("Cannot initialize memory: {}", err));
 
         match setup_regs(&vcpu, 0, 0x0, &mem).unwrap_err() {
             Error::SetCoreRegister(ref e) => assert_eq!(e.raw_os_error(), Some(libc::ENOEXEC)),

@@ -299,7 +299,7 @@ impl Queue {
         // offsets.
         let desc_index: u16 = mem
             .read_obj_from_addr(self.avail_ring.unchecked_add(usize::from(index_offset)))
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
 
         DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
             |dc| {
@@ -331,9 +331,9 @@ impl Queue {
 
         // These writes can't fail as we are guaranteed to be within the descriptor ring.
         mem.write_obj_at_addr(u32::from(desc_index), used_elem)
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
         mem.write_obj_at_addr(len as u32, used_elem.unchecked_add(4))
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
 
         self.next_used += Wrapping(1);
 
@@ -341,7 +341,7 @@ impl Queue {
         fence(Ordering::Release);
 
         mem.write_obj_at_addr(self.next_used.0 as u16, used_ring.unchecked_add(2))
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
     }
 
     /// Goes back one position in the available descriptor chain offered by the driver.
@@ -361,7 +361,10 @@ impl Queue {
         //       after device activation, so we can be certain that no change has occured since
         //       the last `self.is_valid()` check.
         let addr = self.avail_ring.unchecked_add(2);
-        Wrapping(mem.read_obj_from_addr::<u16>(addr).unwrap())
+        Wrapping(
+            mem.read_obj_from_addr::<u16>(addr)
+                .unwrap_or_else(|err| panic!("{}", err)),
+        )
     }
 }
 
@@ -397,12 +400,16 @@ pub mod tests {
 
         // Reads from the actual memory location.
         pub fn get(&self) -> T {
-            self.mem.read_obj_from_addr(self.location).unwrap()
+            self.mem
+                .read_obj_from_addr(self.location)
+                .unwrap_or_else(|err| panic!("{}", err))
         }
 
         // Writes to the actual memory location.
         pub fn set(&self, val: T) {
-            self.mem.write_obj_at_addr(val, self.location).unwrap()
+            self.mem
+                .write_obj_at_addr(val, self.location)
+                .unwrap_or_else(|err| panic!("{}", err))
         }
 
         // This function returns a place in memory which holds a value of type U, and starts
@@ -606,7 +613,8 @@ pub mod tests {
 
     #[test]
     fn test_checked_new_descriptor_chain() {
-        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)])
+            .unwrap_or_else(|err| panic!("{}", err));
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         assert!(vq.end().0 < 0x1000);
@@ -665,7 +673,8 @@ pub mod tests {
 
     #[test]
     fn test_queue_validation() {
-        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)])
+            .unwrap_or_else(|err| panic!("{}", err));
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();
@@ -716,7 +725,8 @@ pub mod tests {
 
     #[test]
     fn test_queue_processing() {
-        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)])
+            .unwrap_or_else(|err| panic!("{}", err));
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
         let mut q = vq.create_queue();
 
@@ -784,7 +794,8 @@ pub mod tests {
 
     #[test]
     fn test_add_used() {
-        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)])
+            .unwrap_or_else(|err| panic!("{}", err));
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();

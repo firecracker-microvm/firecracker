@@ -66,7 +66,6 @@ pub trait DeviceInfoForFDT {
 }
 
 /// Errors thrown while configuring the Flattened Device Tree for aarch64.
-#[derive(Debug)]
 pub enum Error {
     /// Failed to append node to the FDT.
     AppendFDTNode(io::Error),
@@ -566,7 +565,8 @@ mod tests {
     #[test]
     fn test_create_fdt_with_devices() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mem = GuestMemory::new(&regions)
+            .unwrap_or_else(|err| panic!("Cannot initialize memory: {}", err));
 
         let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
             (
@@ -603,14 +603,15 @@ mod tests {
     #[test]
     fn test_create_fdt() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mem = GuestMemory::new(&regions)
+            .unwrap_or_else(|err| panic!("Cannot initialize memory: {}", err));
         let mut dtb = create_fdt(
             &mem,
             1,
             &CString::new("console=tty0").unwrap(),
             None::<&std::collections::HashMap<(DeviceType, std::string::String), MMIODeviceInfo>>,
         )
-        .unwrap();
+        .unwrap_or_else(|err| panic!("Cannot initialize memory: {}", err));
 
         /* Use this code when wanting to generate a new DTB sample.
         {

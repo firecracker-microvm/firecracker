@@ -35,7 +35,6 @@ const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x40000000;
 const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 
 /// Errors associated with the wrappers over KVM ioctls.
-#[derive(Debug)]
 pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// A call to cpuid instruction failed.
@@ -534,22 +533,25 @@ mod tests {
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu() -> (Vm, Vcpu) {
         let kvm = KvmContext::new().unwrap_or_else(|err| panic!("{}", err));
-        let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
+        let gm =
+            GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap_or_else(|err| panic!("{}", err));
+        let mut vm =
+            Vm::new(kvm.fd()).unwrap_or_else(|err| panic!("Cannot create new vm: {}", err));
         assert!(vm.memory_init(gm, &kvm).is_ok());
 
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        vm.setup_irqchip().unwrap();
+        vm.setup_irqchip().unwrap_or_else(|err| panic!("{}", err));
         let vcpu = Vcpu::new(
             1,
             &vm,
             devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
-        .unwrap();
+        .unwrap_or_else(|err| panic!("{}", err));
         #[cfg(target_arch = "aarch64")]
         {
-            vm.setup_irqchip(1).expect("Cannot setup irqchip");
+            vm.setup_irqchip(1)
+                .unwrap_or_else(|err| panic!("Cannot setup irqchip: {}", err));
         }
 
         (vm, vcpu)
@@ -567,7 +569,7 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_get_supported_cpuid() {
         let kvm = KvmContext::new().unwrap_or_else(|err| panic!("{}", err));
-        let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
+        let vm = Vm::new(kvm.fd()).unwrap_or_else(|err| panic!("Cannot create new vm: {}", err));
         let mut cpuid = kvm
             .kvm
             .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
@@ -581,17 +583,19 @@ mod tests {
     #[test]
     fn test_vm_memory_init() {
         let mut kvm_context = KvmContext::new().unwrap_or_else(|err| panic!("{}", err));
-        let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
+        let mut vm =
+            Vm::new(kvm_context.fd()).unwrap_or_else(|err| panic!("Cannot create new vm: {}", err));
 
         // Create valid memory region and test that the initialization is successful.
-        let gm = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let gm =
+            GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap_or_else(|err| panic!("{}", err));
         assert!(vm.memory_init(gm, &kvm_context).is_ok());
 
         // Set the maximum number of memory slots to 1 in KvmContext to check the error
         // path of memory_init. Create 2 non-overlapping memory slots.
         kvm_context.max_memslots = 1;
         let gm = GuestMemory::new(&[(GuestAddress(0x0), 0x1000), (GuestAddress(0x1001), 0x2000)])
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
         assert!(vm.memory_init(gm, &kvm_context).is_err());
     }
 
@@ -599,9 +603,11 @@ mod tests {
     #[test]
     fn test_setup_irqchip() {
         let kvm_context = KvmContext::new().unwrap_or_else(|err| panic!("{}", err));
-        let vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
+        let vm =
+            Vm::new(kvm_context.fd()).unwrap_or_else(|err| panic!("Cannot create new vm: {}", err));
 
-        vm.setup_irqchip().expect("Cannot setup irqchip");
+        vm.setup_irqchip()
+            .unwrap_or_else(|err| panic!("Cannot setup irqchip: {}", err));
         // Trying to setup two irqchips will result in EEXIST error. At the moment
         // there is no good way of testing the actual error because io::Error does not implement
         // PartialEq.
@@ -613,7 +619,7 @@ mod tests {
             devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
-        .unwrap();
+        .unwrap_or_else(|err| panic!("{}", err));
         // Trying to setup irqchip after KVM_VCPU_CREATE was called will result in error.
         assert!(vm.setup_irqchip().is_err());
     }
@@ -623,7 +629,7 @@ mod tests {
     fn test_setup_irqchip() {
         let kvm = KvmContext::new().unwrap();
 
-        let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
+        let mut vm = Vm::new(kvm.fd()).unwrap_or_else(|err| panic!("Cannot create new vm: {}"));
         let vcpu_count = 1;
         let _vcpu = Vcpu::new(
             1,
@@ -631,9 +637,10 @@ mod tests {
             devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
-        .unwrap();
+        .unwrap_or_else(|err| panic!("{}", err));
 
-        vm.setup_irqchip(vcpu_count).expect("Cannot setup irqchip");
+        vm.setup_irqchip(vcpu_count)
+            .unwrap_or_else(|err| panic!("Cannot setup irqchip: {}", err));
         // Trying to setup two irqchips will result in EEXIST error.
         assert!(vm.setup_irqchip(vcpu_count).is_err());
     }
@@ -660,9 +667,10 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     #[test]
     fn test_configure_vcpu() {
-        let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
+        let kvm = KvmContext::new().unwrap_or_else(|err| panic!("{}", err));
+        let gm =
+            GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap_or_else(|err| panic!("{}", err));
+        let mut vm = Vm::new(kvm.fd()).unwrap_or_else(|err| panic!("New vm failed: {}", err));
         assert!(vm.memory_init(gm, &kvm).is_ok());
 
         // Try it for when vcpu id is 0.
@@ -672,7 +680,7 @@ mod tests {
             devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
-        .unwrap();
+        .unwrap_or_else(|err| panic!("{}", err));
 
         let vm_config = VmConfig::default();
         assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
@@ -684,7 +692,7 @@ mod tests {
             devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
-        .unwrap();
+        .unwrap_or_else(|err| panic!("{}", err));
 
         assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
     }

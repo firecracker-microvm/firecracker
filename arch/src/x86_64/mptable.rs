@@ -325,8 +325,8 @@ mod tests {
     #[test]
     fn bounds_check() {
         let num_cpus = 4;
-        let mem =
-            GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))]).unwrap();
+        let mem = GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))])
+            .unwrap_or_else(|err| panic!("{}", err));
 
         setup_mptable(&mem, num_cpus).unwrap();
     }
@@ -335,7 +335,7 @@ mod tests {
     fn bounds_check_fails() {
         let num_cpus = 4;
         let mem = GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus) - 1)])
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
 
         assert!(setup_mptable(&mem, num_cpus).is_err());
     }
@@ -343,13 +343,14 @@ mod tests {
     #[test]
     fn mpf_intel_checksum() {
         let num_cpus = 1;
-        let mem =
-            GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))]).unwrap();
+        let mem = GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))])
+            .unwrap_or_else(|err| panic!("{}", err));
 
-        setup_mptable(&mem, num_cpus).unwrap();
+        setup_mptable(&mem, num_cpus).unwrap_or_else(|err| panic!("{}", err));
 
-        let mpf_intel: MpfIntelWrapper =
-            mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+        let mpf_intel: MpfIntelWrapper = mem
+            .read_obj_from_addr(GuestAddress(MPTABLE_START))
+            .unwrap_or_else(|err| panic!("{}", err));
 
         assert_eq!(
             mpf_intel_compute_checksum(&mpf_intel.0),
@@ -360,15 +361,18 @@ mod tests {
     #[test]
     fn mpc_table_checksum() {
         let num_cpus = 4;
-        let mem =
-            GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))]).unwrap();
+        let mem = GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(num_cpus))])
+            .unwrap_or_else(|err| panic!("{}", err));
 
-        setup_mptable(&mem, num_cpus).unwrap();
+        setup_mptable(&mem, num_cpus).unwrap_or_else(|err| panic!("{}", err));
 
-        let mpf_intel: MpfIntelWrapper =
-            mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+        let mpf_intel: MpfIntelWrapper = mem
+            .read_obj_from_addr(GuestAddress(MPTABLE_START))
+            .unwrap_or_else(|err| panic!("{}", err));
         let mpc_offset = GuestAddress(mpf_intel.0.physptr as usize);
-        let mpc_table: MpcTableWrapper = mem.read_obj_from_addr(mpc_offset).unwrap();
+        let mpc_table: MpcTableWrapper = mem
+            .read_obj_from_addr(mpc_offset)
+            .unwrap_or_else(|err| panic!("{}", err));
 
         struct Sum(u8);
         impl io::Write for Sum {
@@ -385,7 +389,7 @@ mod tests {
 
         let mut sum = Sum(0);
         mem.write_from_memory(mpc_offset, &mut sum, mpc_table.0.length as usize)
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(sum.0, 0);
     }
 
@@ -395,15 +399,18 @@ mod tests {
             GuestAddress(MPTABLE_START),
             compute_mp_size(MAX_SUPPORTED_CPUS as u8),
         )])
-        .unwrap();
+        .unwrap_or_else(|err| panic!("{}", err));
 
         for i in 0..MAX_SUPPORTED_CPUS as u8 {
-            setup_mptable(&mem, i).unwrap();
+            setup_mptable(&mem, i).unwrap_or_else(|err| panic!("{}", err));
 
-            let mpf_intel: MpfIntelWrapper =
-                mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+            let mpf_intel: MpfIntelWrapper = mem
+                .read_obj_from_addr(GuestAddress(MPTABLE_START))
+                .unwrap_or_else(|err| panic!("{}", err));
             let mpc_offset = GuestAddress(mpf_intel.0.physptr as usize);
-            let mpc_table: MpcTableWrapper = mem.read_obj_from_addr(mpc_offset).unwrap();
+            let mpc_table: MpcTableWrapper = mem
+                .read_obj_from_addr(mpc_offset)
+                .unwrap_or_else(|err| panic!("{}", err));
             let mpc_end = mpc_offset.checked_add(mpc_table.0.length as usize).unwrap();
 
             let mut entry_offset = mpc_offset
@@ -411,7 +418,9 @@ mod tests {
                 .unwrap();
             let mut cpu_count = 0;
             while entry_offset < mpc_end {
-                let entry_type: u8 = mem.read_obj_from_addr(entry_offset).unwrap();
+                let entry_type: u8 = mem
+                    .read_obj_from_addr(entry_offset)
+                    .unwrap_or_else(|err| panic!("{}", err));
                 entry_offset = entry_offset
                     .checked_add(table_entry_size(entry_type))
                     .unwrap();
@@ -428,7 +437,7 @@ mod tests {
     fn cpu_entry_count_max() {
         let cpus = MAX_SUPPORTED_CPUS + 1;
         let mem = GuestMemory::new(&[(GuestAddress(MPTABLE_START), compute_mp_size(cpus as u8))])
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
 
         let result = setup_mptable(&mem, cpus as u8).unwrap_err();
         assert_eq!(result, Error::TooManyCpus);

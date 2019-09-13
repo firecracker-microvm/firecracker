@@ -68,7 +68,7 @@ where
         self.interrupt_status
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
         self.interrupt_evt.write(1).map_err(|e| {
-            error!("Failed to signal used queue: {:?}", e);
+            error!("Failed to signal used queue: {}", e);
             DeviceError::FailedSignalingUsedQueue(e)
         })
     }
@@ -94,7 +94,7 @@ where
                     }
                 }
                 Err(e) => {
-                    warn!("vsock: RX queue error: {:?}", e);
+                    warn!("vsock: RX queue error: {}", e);
                     0
                 }
             };
@@ -118,7 +118,7 @@ where
             let pkt = match VsockPacket::from_tx_virtq_head(&head) {
                 Ok(pkt) => pkt,
                 Err(e) => {
-                    error!("vsock: error reading TX packet: {:?}", e);
+                    error!("vsock: error reading TX packet: {}", e);
                     have_used = true;
                     self.txvq.add_used(&self.mem, head.index, 0);
                     continue;

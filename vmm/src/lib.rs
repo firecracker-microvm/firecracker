@@ -3407,7 +3407,7 @@ mod tests {
         // `KVM_CREATE_VCPU` fails if the irqchip is not created beforehand. This is x86_64 speciifc.
         vmm.vm
             .setup_irqchip()
-            .expect("Cannot create IRQCHIP or PIT");
+            .unwrap_or_else(|err| panic!("Cannot create IRQCHIP or PIT: {}", err));
 
         assert!(vmm
             .create_vcpus(GuestAddress(0x0), TimestampUs::default())
@@ -4300,7 +4300,8 @@ mod tests {
 
         assert!(vmm.guest_memory().is_none());
 
-        let mem = GuestMemory::new(&[(GuestAddress(0x1000), 0x100)]).unwrap();
+        let mem = GuestMemory::new(&[(GuestAddress(0x1000), 0x100)])
+            .unwrap_or_else(|err| panic!("{}", err));
         vmm.set_guest_memory(mem);
 
         let mem_ref = vmm.guest_memory().unwrap();

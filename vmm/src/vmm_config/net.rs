@@ -112,15 +112,7 @@ impl Display for NetworkInterfaceError {
             OpenTap(ref e) => {
                 // We are propagating the Tap Error. This error can contain
                 // imbricated quotes which would result in an invalid json.
-                let mut tap_err = format!("{:?}", e);
-                tap_err = tap_err.replace("\"", "");
-
-                write!(
-                    f,
-                    "{}{}",
-                    "Cannot open TAP device. Invalid name/permissions. ".to_string(),
-                    tap_err
-                )
+                write!(f, "Cannot open TAP device. Invalid name/permissions: {}", e)
             }
             RateLimiterUpdateFailed(ref e) => write!(f, "Unable to update rate limiter: {:?}", e),
             UpdateNotAllowedPostBoot => {

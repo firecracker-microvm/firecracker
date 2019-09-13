@@ -23,7 +23,6 @@ use sys_util::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 const IFACE_NAME_MAX_LEN: usize = 16;
 
 /// List of errors the tap implementation can throw.
-#[derive(Debug)]
 pub enum Error {
     /// Failed to create a socket.
     CreateSocket(IoError),
@@ -50,7 +49,7 @@ impl fmt::Display for Error {
             Error::CreateSocket(err) => write!(f, "Failed to create a socket: {}", err),
             Error::CreateTap(err) => write!(f, "Unable to create tap interface: {}", err),
             Error::InvalidIfname => write!(f, "Invalid interface name."),
-            Error::IoctlError(err) => write!(f, "Ioctl failed: {}", err),
+            Error::IoctlError(err) => write!(f, "{}", err),
             Error::OpenTun(err) => write!(f, "Couldn't open /dev/net/tun: {}", err),
         }
     }
@@ -497,7 +496,16 @@ mod tests {
 
     #[test]
     fn test_tap_partial_eq() {
-        assert_ne!(Tap::new().unwrap(), Tap::new().unwrap());
+        assert_ne!(
+            Tap::new().unwrap_or_else(|err| panic!("{}", err)),
+            Tap::new().unwrap_or_else(|err| panic!("{}", err))
+        );
+    }
+
+    #[test]
+    fn test_tap_create() {
+        let t = Tap::new().unwrap_or_else(|err| panic!("{}", err));
+        println!("created tap: {:?}", t);
     }
 
     #[test]
@@ -505,7 +513,7 @@ mod tests {
         // `fetch_add` adds to the current value, returning the previous value.
         let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
 
-        let tap = Tap::new().unwrap();
+        let tap = Tap::new().unwrap_or_else(|err| panic!("{}", err));
         let ip_addr: Ipv4Addr = format!("{}{}", TAP_IP_PREFIX, next_ip).parse().unwrap();
         let netmask: Ipv4Addr = SUBNET_MASK.parse().unwrap();
 
@@ -518,9 +526,12 @@ mod tests {
     #[test]
     fn test_set_options() {
         // This line will fail to provide an initialized FD if the test is not run as root.
-        let tap = Tap::new().unwrap();
-        tap.set_vnet_hdr_size(16).unwrap();
-        tap.set_offload(0).unwrap();
+        let tap = Tap::new().unwrap_or_else(|err| panic!("{}", err));
+        tap.set_vnet_hdr_size(16)
+            .unwrap_or_else(|err| panic!("{}", err));
+        tap.set_vnet_hdr_size(16)
+            .unwrap_or_else(|err| panic!("{}", err));
+        tap.set_offload(0).unwrap_or_else(|err| panic!("{}", err));
 
         let faulty_tap = Tap {
             tap_file: unsafe { File::from_raw_fd(-1) },
@@ -532,14 +543,14 @@ mod tests {
 
     #[test]
     fn test_tap_enable() {
-        let tap = Tap::new().unwrap();
+        let tap = Tap::new().unwrap_or_else(|err| panic!("{}", err));
         let ret = tap.enable();
         assert!(ret.is_ok());
     }
 
     #[test]
     fn test_tap_get_ifreq() {
-        let tap = Tap::new().unwrap();
+        let tap = Tap::new().unwrap_or_else(|err| panic!("{}", err));
         let ret = tap.get_ifreq();
         assert_eq!(
             "__BindgenUnionField",
@@ -549,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_raw_fd() {
-        let tap = Tap::new().unwrap();
+        let tap = Tap::new().unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(tap.as_raw_fd(), tap.tap_file.as_raw_fd());
     }
 
@@ -558,77 +569,15 @@ mod tests {
         // `fetch_add` adds to the current value, returning the previous value.
         let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
 
-        let mut tap = Tap::new().unwrap();
+        let mut tap = Tap::new().unwrap_or_else(|err| panic!("{}", err));
         let ip_addr = format!("{}{}", TAP_IP_PREFIX, next_ip).parse().unwrap();
 
-        tap.set_ip_addr(ip_addr).unwrap();
-        tap.set_netmask(SUBNET_MASK.parse().unwrap()).unwrap();
-        tap.enable().unwrap();
+        tap.set_ip_addr(ip_addr)
+            .unwrap_or_else(|err| panic!("{}", err));
+        tap.set_netmask(SUBNET_MASK.parse().unwrap())
+            .unwrap_or_else(|err| panic!("{}", err));
 
-        // Send a packet to the interface. We expect to be able to receive it on the associated fd.
-        pnet_send_packet(tap_name_to_string(&tap));
-
-        let mut buf = [0u8; 4096];
-
-        let mut found_packet_sz = None;
-
-        // In theory, this could actually loop forever if something keeps sending data through the
-        // tap interface, but it's highly unlikely.
-        while found_packet_sz.is_none() {
-            let result = tap.read(&mut buf);
-            assert!(result.is_ok());
-
-            let size = result.unwrap();
-
-            // We skip the first 10 bytes because the IFF_VNET_HDR flag is set when the interface
-            // is created, and the legacy header is 10 bytes long without a certain flag which
-            // is not set in Tap::new().
-            let eth_bytes = &buf[10..size];
-
-            let packet = EthernetPacket::new(eth_bytes).unwrap();
-            if packet.get_ethertype() != EtherTypes::Ipv4 {
-                // not an IPv4 packet
-                continue;
-            }
-
-            let ipv4_bytes = &eth_bytes[14..];
-            let packet = Ipv4Packet::new(ipv4_bytes).unwrap();
-
-            // Our packet should carry an UDP payload, and not contain IP options.
-            if packet.get_next_level_protocol() != IpNextHeaderProtocols::Udp
-                && packet.get_header_length() != 5
-            {
-                continue;
-            }
-
-            let udp_bytes = &ipv4_bytes[20..];
-
-            let udp_len = UdpPacket::new(udp_bytes).unwrap().get_length() as usize;
-
-            // Skip the header bytes.
-            let inner_string = str::from_utf8(&udp_bytes[8..udp_len]).unwrap();
-
-            if inner_string.eq(DATA_STRING) {
-                found_packet_sz = Some(size);
-                break;
-            }
-        }
-
-        assert!(found_packet_sz.is_some());
-    }
-
-    #[test]
-    fn test_write() {
-        // `fetch_add` adds to the current value, returning the previous value.
-        let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
-
-        let mut tap = Tap::new().unwrap();
-        let ip_addr = format!("{}{}", TAP_IP_PREFIX, next_ip).parse().unwrap();
-
-        tap.set_ip_addr(ip_addr).unwrap();
-
-        tap.set_netmask(SUBNET_MASK.parse().unwrap()).unwrap();
-        tap.enable().unwrap();
+        tap.enable().unwrap_or_else(|err| panic!("{}", err));
 
         let (mac, _, mut rx) = pnet_get_mac_tx_rx(tap_name_to_string(&tap));
 
@@ -677,5 +626,23 @@ mod tests {
         }
 
         assert!(found_test_packet);
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::CreateTap(std::io::Error::from_raw_os_error(0))),
+            format!(
+                "Unable to create tap interface: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::IoctlError(std::io::Error::from_raw_os_error(0))
+            ),
+            format!("{}", std::io::Error::from_raw_os_error(0))
+        );
     }
 }

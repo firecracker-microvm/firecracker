@@ -315,12 +315,13 @@ mod tests {
     use memory_model::{GuestAddress, GuestMemory};
 
     fn create_guest_mem() -> GuestMemory {
-        GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap()
+        GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap_or_else(|err| panic!("{}", err))
     }
 
     fn read_u64(gm: &GuestMemory, offset: usize) -> u64 {
         let read_addr = GuestAddress(offset);
-        gm.read_obj_from_addr(read_addr).unwrap()
+        gm.read_obj_from_addr(read_addr)
+            .unwrap_or_else(|err| panic!("{}", err))
     }
 
     fn validate_segments_and_sregs(gm: &GuestMemory, sregs: &kvm_sregs) {
@@ -347,7 +348,7 @@ mod tests {
     fn test_configure_segments_and_sregs() {
         let mut sregs: kvm_sregs = Default::default();
         let gm = create_guest_mem();
-        configure_segments_and_sregs(&gm, &mut sregs).unwrap();
+        configure_segments_and_sregs(&gm, &mut sregs).unwrap_or_else(|err| panic!("{}", err));
 
         validate_segments_and_sregs(&gm, &sregs);
     }
@@ -371,7 +372,7 @@ mod tests {
     fn test_setup_page_tables() {
         let mut sregs: kvm_sregs = Default::default();
         let gm = create_guest_mem();
-        setup_page_tables(&gm, &mut sregs).unwrap();
+        setup_page_tables(&gm, &mut sregs).unwrap_or_else(|err| panic!("{}", err));
 
         validate_page_tables(&gm, &sregs);
     }
@@ -380,15 +381,15 @@ mod tests {
     fn test_setup_fpu() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
-        setup_fpu(&vcpu).unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap_or_else(|err| panic!("{}", err));
+        setup_fpu(&vcpu).unwrap_or_else(|err| panic!("{}", err));
 
         let expected_fpu: kvm_fpu = kvm_fpu {
             fcw: 0x37f,
             mxcsr: 0x1f80,
             ..Default::default()
         };
-        let actual_fpu: kvm_fpu = vcpu.get_fpu().unwrap();
+        let actual_fpu: kvm_fpu = vcpu.get_fpu().unwrap_or_else(|err| panic!("{}", err));
         // TODO: auto-generate kvm related structures with PartialEq on.
         assert_eq!(expected_fpu.fcw, actual_fpu.fcw);
         // Setting the mxcsr register from kvm_fpu inside setup_fpu does not influence anything.
@@ -401,10 +402,10 @@ mod tests {
     #[test]
     #[allow(clippy::cast_ptr_alignment)]
     fn test_setup_msrs() {
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
-        setup_msrs(&vcpu).unwrap();
+        let kvm = Kvm::new().unwrap_or_else(|err| panic!("{}", err));
+        let vm = kvm.create_vm().unwrap_or_else(|err| panic!("{}", err));
+        let vcpu = vm.create_vcpu(0).unwrap_or_else(|err| panic!("{}", err));
+        setup_msrs(&vcpu).unwrap_or_else(|err| panic!("{}", err));
 
         // This test will check against the last MSR entry configured (the tenth one).
         // See create_msr_entries for details.
@@ -428,7 +429,9 @@ mod tests {
         msrs.nmsrs = 1;
         // get_msrs returns the number of msrs that it succeed in reading. We only want to read 1
         // in this test case scenario.
-        let read_msrs = vcpu.get_msrs(&mut msrs).unwrap();
+        let read_msrs = vcpu
+            .get_msrs(&mut msrs)
+            .unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(read_msrs, 1);
 
         // Official entries that were setup when we did setup_msrs. We need to assert that the
@@ -442,9 +445,9 @@ mod tests {
 
     #[test]
     fn test_setup_regs() {
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
+        let kvm = Kvm::new().unwrap_or_else(|err| panic!("{}", err));
+        let vm = kvm.create_vm().unwrap_or_else(|err| panic!("{}", err));
+        let vcpu = vm.create_vcpu(0).unwrap_or_else(|err| panic!("{}", err));
 
         let expected_regs: kvm_regs = kvm_regs {
             rflags: 0x0000_0000_0000_0002u64,
@@ -455,23 +458,23 @@ mod tests {
             ..Default::default()
         };
 
-        setup_regs(&vcpu, expected_regs.rip).unwrap();
+        setup_regs(&vcpu, expected_regs.rip).unwrap_or_else(|err| panic!("{}", err));
 
-        let actual_regs: kvm_regs = vcpu.get_regs().unwrap();
+        let actual_regs: kvm_regs = vcpu.get_regs().unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(actual_regs, expected_regs);
     }
 
     #[test]
     fn test_setup_sregs() {
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let vcpu = vm.create_vcpu(0).unwrap();
+        let kvm = Kvm::new().unwrap_or_else(|err| panic!("{}", err));
+        let vm = kvm.create_vm().unwrap_or_else(|err| panic!("{}", err));
+        let vcpu = vm.create_vcpu(0).unwrap_or_else(|err| panic!("{}", err));
         let gm = create_guest_mem();
 
         assert!(vcpu.set_sregs(&Default::default()).is_ok());
-        setup_sregs(&gm, &vcpu).unwrap();
+        setup_sregs(&gm, &vcpu).unwrap_or_else(|err| panic!("{}", err));
 
-        let mut sregs: kvm_sregs = vcpu.get_sregs().unwrap();
+        let mut sregs: kvm_sregs = vcpu.get_sregs().unwrap_or_else(|err| panic!("{}", err));
         // for AMD KVM_GET_SREGS returns g = 0 for each kvm_segment.
         // We set it to 1, otherwise the test will fail.
         sregs.gs.g = 1;

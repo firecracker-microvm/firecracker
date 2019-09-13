@@ -524,11 +524,12 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m =
+            GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap_or_else(|err| panic!("{}", err));
         let mut dummy = DummyDevice::new();
         // Validate reset is no-op.
         assert!(dummy.reset().is_none());
-        let mut d = MmioDevice::new(m, Box::new(dummy)).unwrap();
+        let mut d = MmioDevice::new(m, Box::new(dummy)).unwrap_or_else(|err| panic!("{}", err));
 
         // We just make sure here that the implementation of a mmio device behaves as we expect,
         // given a known virtio device implementation (the dummy device).
@@ -566,8 +567,10 @@ mod tests {
 
     #[test]
     fn test_bus_device_read() {
-        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
+        let m =
+            GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap_or_else(|err| panic!("{}", err));
+        let mut d = MmioDevice::new(m, Box::new(DummyDevice::new()))
+            .unwrap_or_else(|err| panic!("{}", err));
 
         let mut buf = vec![0xff, 0, 0xfe, 0];
         let buf_copy = buf.to_vec();
@@ -644,13 +647,14 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_bus_device_write() {
-        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m =
+            GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap_or_else(|err| panic!("{}", err));
 
         let mut dummy_box = Box::new(DummyDevice::new());
         let dummy_dev_acked_features = &dummy_box.acked_features as *const u64;
         let dummy_dev_avail_features = &mut dummy_box.avail_features as *mut u64;
 
-        let mut d = MmioDevice::new(m, dummy_box).unwrap();
+        let mut d = MmioDevice::new(m, dummy_box).unwrap_or_else(|err| panic!("{}", err));
 
         let mut buf = vec![0; 5];
         LittleEndian::write_u32(&mut buf[..4], 1);
@@ -798,8 +802,10 @@ mod tests {
 
     #[test]
     fn test_bus_device_activate() {
-        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
+        let m =
+            GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap_or_else(|err| panic!("{}", err));
+        let mut d = MmioDevice::new(m, Box::new(DummyDevice::new()))
+            .unwrap_or_else(|err| panic!("{}", err));
 
         assert!(!d.are_queues_valid());
         assert!(!d.device_activated);
@@ -893,8 +899,10 @@ mod tests {
 
     #[test]
     fn test_bus_device_reset() {
-        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
+        let m =
+            GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap_or_else(|err| panic!("{}", err));
+        let mut d = MmioDevice::new(m, Box::new(DummyDevice::new()))
+            .unwrap_or_else(|err| panic!("{}", err));
         let mut buf = vec![0; 4];
 
         assert!(!d.are_queues_valid());

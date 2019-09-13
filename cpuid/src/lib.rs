@@ -49,9 +49,9 @@ mod brand_string;
 /// let kvm = Kvm::new().unwrap();
 /// let mut kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
 ///
-/// let vm_spec = VmSpec::new(0, 1, true).unwrap();
+/// let vm_spec = VmSpec::new(0, 1, true).unwrap_or_else(|err| panic!("{}", err));
 ///
-/// filter_cpuid(&mut kvm_cpuid, &vm_spec).unwrap();
+/// filter_cpuid(&mut kvm_cpuid, &vm_spec).unwrap_or_else(|err| panic!("{}", err));
 ///
 /// // Get expected `kvm_cpuid` entries.
 /// let entries = kvm_cpuid.mut_entries_slice();

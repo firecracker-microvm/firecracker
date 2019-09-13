@@ -800,7 +800,7 @@ mod tests {
             let pkt = VsockPacket::from_rx_virtq_head(
                 &handler_ctx.handler.rxvq.pop(&vsock_test_ctx.mem).unwrap(),
             )
-            .unwrap();
+            .unwrap_or_else(|err| panic!("{}", err));
             let uds_path = format!("test_vsock_{}.sock", name);
             let muxer = VsockMuxer::new(PEER_CID, uds_path).unwrap();
 
@@ -839,11 +839,15 @@ mod tests {
         }
 
         fn send(&mut self) {
-            self.muxer.send_pkt(&self.pkt).unwrap();
+            self.muxer
+                .send_pkt(&self.pkt)
+                .unwrap_or_else(|err| panic!("{}", err));
         }
 
         fn recv(&mut self) {
-            self.muxer.recv_pkt(&mut self.pkt).unwrap();
+            self.muxer
+                .recv_pkt(&mut self.pkt)
+                .unwrap_or_else(|err| panic!("{}", err));
         }
 
         fn notify_muxer(&mut self) {
