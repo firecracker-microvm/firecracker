@@ -55,26 +55,37 @@ extern "C" {
     fn fdt_pack(fdt: *mut c_void) -> c_int;
 }
 
+/// Trait for devices to be added to the Flattened Device Tree.
 pub trait DeviceInfoForFDT {
+    /// Returns the address where this device will be loaded.
     fn addr(&self) -> u64;
+    /// Returns the associated interrupt for this device.
     fn irq(&self) -> u32;
+    /// Returns the amount of memory that needs to be reserved for this device.
     fn length(&self) -> u64;
 }
 
+/// Errors thrown while configuring the Flattened Device Tree for aarch64.
 #[derive(Debug)]
 pub enum Error {
+    /// Failed to append node to the FDT.
     AppendFDTNode(io::Error),
+    /// Failed to append a property to the FDT.
     AppendFDTProperty(io::Error),
+    /// Syscall for creating FDT failed.
     CreateFDT(io::Error),
+    /// Failed to obtain a C style string.
     CstringFDTTransform(NulError),
+    /// Failure in calling syscall for terminating this FDT.
     FinishFDTReserveMap(io::Error),
+    /// FDT was partially written to memory.
     IncompleteFDTMemoryWrite,
+    /// Failure in writing FDT in memory.
     WriteFDTToMemory(GuestMemoryError),
 }
+type Result<T> = result::Result<T, Error>;
 
-pub type Result<T> = result::Result<T, Error>;
-
-// Creates the flattened device tree for this VM.
+/// Creates the flattened device tree for this aarch64 microVM.
 pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemory,
     num_cpus: u32,

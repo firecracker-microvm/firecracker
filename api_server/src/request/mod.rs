@@ -296,9 +296,7 @@ mod tests {
         {
             let vmm_resp = VmmActionError::StartMicrovm(
                 ErrorKind::Internal,
-                StartMicrovmError::ConfigureSystem(arch::Error::X86_64Setup(
-                    arch::x86_64::Error::ZeroPagePastRamEnd,
-                )),
+                StartMicrovmError::ConfigureSystem(arch::Error::ZeroPagePastRamEnd),
             );
             check_error_response(vmm_resp, StatusCode::InternalServerError);
         }

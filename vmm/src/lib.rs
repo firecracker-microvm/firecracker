@@ -3875,11 +3875,11 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_start_microvm_error_conversion_cl() {
-        // Test `StartMicrovmError` conversion
+        // Test `StartMicrovmError` conversion.
         #[cfg(target_arch = "x86_64")]
         assert_eq!(
             error_kind(StartMicrovmError::ConfigureSystem(
-                arch::Error::X86_64Setup(arch::x86_64::Error::ZeroPageSetup)
+                arch::Error::ZeroPageSetup
             )),
             ErrorKind::Internal
         );

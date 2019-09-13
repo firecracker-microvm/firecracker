@@ -19,6 +19,7 @@ const PML4_START: usize = 0x9000;
 const PDPTE_START: usize = 0xa000;
 const PDE_START: usize = 0xb000;
 
+/// Errors thrown while setting up x86_64 registers.
 #[derive(Debug)]
 pub enum Error {
     /// Failed to get SREGs for this CPU.
@@ -42,8 +43,7 @@ pub enum Error {
     /// Writing PML4 to RAM failed.
     WritePML4Address,
 }
-
-pub type Result<T> = result::Result<T, Error>;
+type Result<T> = result::Result<T, Error>;
 
 /// Configure Floating-Point Unit (FPU) registers for a given CPU.
 ///

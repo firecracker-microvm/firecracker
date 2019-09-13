@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod fdt;
+/// Module for the global interrupt controller configuration.
 pub mod gic;
+/// Layout for this aarch64 system.
 pub mod layout;
+/// Logic for configuring aarch64 registers.
 pub mod regs;
 
 use std::cmp::min;
@@ -13,15 +16,11 @@ use std::fmt::Debug;
 
 use memory_model::{GuestAddress, GuestMemory};
 
+/// Errors thrown while configuring aarch64 system.
 #[derive(Debug)]
 pub enum Error {
+    /// Failed to create a Flattened Device Tree for this aarch64 microVM.
     SetupFDT(fdt::Error),
-}
-
-impl From<Error> for super::Error {
-    fn from(e: Error) -> super::Error {
-        super::Error::Aarch64Setup(e)
-    }
 }
 
 pub use self::fdt::DeviceInfoForFDT;
