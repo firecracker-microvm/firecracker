@@ -480,7 +480,6 @@ version = "0.1.0"
 name = "net_util"
 version = "0.1.0"
 dependencies = [
- "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.62 (registry+https://github.com/rust-lang/crates.io-index)",
  "net_gen 0.1.0",
  "pnet 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",

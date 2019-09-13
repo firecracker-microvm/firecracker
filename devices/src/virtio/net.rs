@@ -12,7 +12,6 @@ use std::cmp;
 use std::io::Read;
 use std::io::{self, Write};
 use std::mem;
-use std::net::Ipv4Addr;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -60,10 +59,6 @@ pub const NET_EVENTS_COUNT: usize = 5;
 pub enum Error {
     /// Open tap device failed.
     TapOpen(TapError),
-    /// Setting tap IP failed.
-    TapSetIp(TapError),
-    /// Setting tap netmask failed.
-    TapSetNetmask(TapError),
     /// Setting tap interface offload flags failed.
     TapSetOffload(TapError),
     /// Setting vnet header size failed.
@@ -739,32 +734,6 @@ impl Net {
         })
     }
 
-    /// Create a new virtio network device with the given IP address and
-    /// netmask.
-    pub fn new(
-        ip_addr: Ipv4Addr,
-        netmask: Ipv4Addr,
-        guest_mac: Option<&MacAddr>,
-        epoll_config: EpollConfig,
-        rx_rate_limiter: Option<RateLimiter>,
-        tx_rate_limiter: Option<RateLimiter>,
-        allow_mmds_requests: bool,
-    ) -> Result<Self> {
-        let tap = Tap::new().map_err(Error::TapOpen)?;
-        tap.set_ip_addr(ip_addr).map_err(Error::TapSetIp)?;
-        tap.set_netmask(netmask).map_err(Error::TapSetNetmask)?;
-        tap.enable().map_err(Error::TapEnable)?;
-
-        Self::new_with_tap(
-            tap,
-            guest_mac,
-            epoll_config,
-            rx_rate_limiter,
-            tx_rate_limiter,
-            allow_mmds_requests,
-        )
-    }
-
     fn guest_mac(&self) -> Option<MacAddr> {
         if self.config_space.len() < MAC_ADDR_LEN {
             None
@@ -972,14 +941,14 @@ impl VirtioDevice for Net {
 // don't implement the trait.
 #[allow(clippy::assertions_on_constants)]
 mod tests {
+    use std::net::Ipv4Addr;
     use std::sync::mpsc::Receiver;
     use std::thread;
     use std::time::Duration;
     use std::u32;
 
-    use libc;
-
     use dumbo::pdu::{arp, ethernet};
+    use libc;
     use memory_model::GuestAddress;
     use rate_limiter::TokenBucket;
 
@@ -988,6 +957,8 @@ mod tests {
 
     const EPOLLIN: epoll::Events = epoll::Events::EPOLLIN;
 
+    static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
+
     /// Will read $metric, run the code in $block, then assert metric has increased by $delta.
     macro_rules! check_metric_after_block {
         ($metric:expr, $delta:expr, $block:expr) => {{
@@ -995,6 +966,26 @@ mod tests {
             let _ = $block;
             assert_eq!($metric.count(), before + $delta, "unexpected metric value");
         }};
+    }
+    fn create_net(
+        guest_mac: Option<&MacAddr>,
+        epoll_config: EpollConfig,
+        rx_rate_limiter: Option<RateLimiter>,
+        tx_rate_limiter: Option<RateLimiter>,
+        allow_mmds_requests: bool,
+    ) -> Result<Net> {
+        let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
+        let tap = Tap::open_named(&format!("net{}", next_tap)).map_err(Error::TapOpen)?;
+        tap.enable().map_err(Error::TapEnable)?;
+
+        Net::new_with_tap(
+            tap,
+            guest_mac,
+            epoll_config,
+            rx_rate_limiter,
+            tx_rate_limiter,
+            allow_mmds_requests,
+        )
     }
 
     pub struct TestMutators {
@@ -1022,9 +1013,7 @@ mod tests {
             let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
 
             DummyNet {
-                net: Net::new(
-                    "192.168.249.1".parse().unwrap(),
-                    "255.255.255.0".parse().unwrap(),
+                net: create_net(
                     guest_mac,
                     epoll_config,
                     // rate limiters present but with _very high_ allowed rate
@@ -1327,46 +1316,6 @@ mod tests {
             n.read_config(0, &mut new_config_read);
             assert_eq!(new_config, new_config_read);
         }
-    }
-
-    #[test]
-    fn test_error_tap_set_ip() {
-        let epoll_raw_fd = epoll::create(true).unwrap();
-        let (sender, _receiver) = mpsc::channel();
-        let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
-
-        match Net::new(
-            "255.255.255.255".parse().unwrap(),
-            "0.0.0.0".parse().unwrap(),
-            None,
-            epoll_config,
-            None,
-            None,
-            false,
-        ) {
-            Err(Error::TapSetIp(_)) => (),
-            _ => assert!(false),
-        };
-    }
-
-    #[test]
-    fn test_error_tap_set_netmask() {
-        let epoll_raw_fd = epoll::create(true).unwrap();
-        let (sender, _receiver) = mpsc::channel();
-        let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
-
-        match Net::new(
-            "0.0.0.0".parse().unwrap(),
-            "0.0.0.255".parse().unwrap(),
-            None,
-            epoll_config,
-            None,
-            None,
-            false,
-        ) {
-            Err(Error::TapSetNetmask(_)) => (),
-            _ => assert!(false),
-        };
     }
 
     #[test]
