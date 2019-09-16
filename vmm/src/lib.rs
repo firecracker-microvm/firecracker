@@ -2180,7 +2180,7 @@ impl PartialEq for VmmAction {
     }
 }
 
-/// Starts a new vmm thread that can service API requests.
+/// Creates and starts a vmm.
 ///
 /// # Arguments
 ///
@@ -2190,83 +2190,76 @@ impl PartialEq for VmmAction {
 /// * `seccomp_level` - The level of seccomp filtering used. Filters are loaded before executing
 ///                     guest code. Can be one of 0 (seccomp disabled), 1 (filter by syscall
 ///                     number) or 2 (filter by syscall number and argument values).
-/// * `kvm_fd` - Provides the option of supplying an already existing raw file descriptor
-///              associated with `/dev/kvm`.
 /// * `config_json` - Optional parameter that can be used to configure the guest machine without
 ///                   using the API socket.
-pub fn start_vmm_thread(
+pub fn start_vmm(
     api_shared_info: Arc<RwLock<InstanceInfo>>,
     api_event_fd: EventFd,
     from_api: Receiver<Box<VmmAction>>,
     seccomp_level: u32,
     config_json: Option<String>,
-) -> thread::JoinHandle<()> {
-    thread::Builder::new()
-        .name("fc_vmm".to_string())
-        .spawn(move || {
-            // If this fails, consider it fatal. Use expect().
-            let mut vmm = Vmm::new(
-                api_shared_info,
-                &api_event_fd,
-                from_api,
-                seccomp_level,
-                Kvm::new().expect("Error creating the Kvm object"),
-            )
-            .expect("Cannot create VMM");
+) {
+    // If this fails, consider it fatal. Use expect().
+    let mut vmm = Vmm::new(
+        api_shared_info,
+        &api_event_fd,
+        from_api,
+        seccomp_level,
+        Kvm::new().expect("Error creating the Kvm object"),
+    )
+    .expect("Cannot create VMM");
 
-            if let Some(json) = config_json {
-                if let Err(e) = vmm.configure_from_json(json) {
-                    error!(
-                        "Setting configuration for VMM from one single json failed: {}",
-                        e
-                    );
-                    process::exit(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
-                } else if let Err(e) = vmm.start_microvm() {
-                    error!(
-                        "Starting microvm that was configured from one single json failed: {}",
-                        e
-                    );
-                    process::exit(i32::from(FC_EXIT_CODE_UNEXPECTED_ERROR));
-                } else {
-                    info!("Successfully started microvm that was configured from one single json");
+    if let Some(json) = config_json {
+        vmm.configure_from_json(json).unwrap_or_else(|err| {
+            error!(
+                "Setting configuration for VMM from one single json failed: {}",
+                err
+            );
+            process::exit(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
+        });
+        vmm.start_microvm().unwrap_or_else(|err| {
+            error!(
+                "Starting microvm that was configured from one single json failed: {}",
+                err
+            );
+            process::exit(i32::from(FC_EXIT_CODE_UNEXPECTED_ERROR));
+        });
+        info!("Successfully started microvm that was configured from one single json");
+    }
+
+    // The loop continues to run as long as there is no error. Whenever run_event_loop
+    // returns due to a ControlAction, we handle it and invoke `continue`. Clippy thinks
+    // this never loops and complains about it, but Clippy is wrong.
+    #[allow(clippy::never_loop)]
+    let exit_code = loop {
+        // `break <expression>` causes the outer loop to break and return the result
+        // of evaluating <expression>, which in this case is the exit code.
+        break match vmm.run_event_loop() {
+            Ok(exit_reason) => match exit_reason {
+                EventLoopExitReason::Break => {
+                    info!("Gracefully terminated VMM control loop");
+                    FC_EXIT_CODE_OK
                 }
-            }
-
-            // The loop continues to run as long as there is no error. Whenever run_event_loop
-            // returns due to a ControlAction, we handle it and invoke `continue`. Clippy thinks
-            // this never loops and complains about it, but Clippy is wrong.
-            #[allow(clippy::never_loop)]
-            let exit_code = loop {
-                // `break <expression>` causes the outer loop to break and return the result
-                // of evaluating <expression>, which in this case is the exit code.
-                break match vmm.run_event_loop() {
-                    Ok(exit_reason) => match exit_reason {
-                        EventLoopExitReason::Break => {
-                            info!("Gracefully terminated VMM control loop");
-                            FC_EXIT_CODE_OK
-                        }
-                        EventLoopExitReason::ControlAction => {
-                            if let Err(e) = api_event_fd.read() {
-                                error!("Error reading VMM API event_fd {:?}", e);
-                                FC_EXIT_CODE_GENERIC_ERROR
-                            } else {
-                                vmm.run_vmm_action().unwrap_or_else(|_| {
-                                    warn!("Got a spurious notification from api thread");
-                                });
-                                continue;
-                            }
-                        }
-                    },
-                    Err(e) => {
-                        error!("Abruptly exited VMM control loop: {:?}", e);
+                EventLoopExitReason::ControlAction => {
+                    if let Err(e) = api_event_fd.read() {
+                        error!("Error reading VMM API event_fd {:?}", e);
                         FC_EXIT_CODE_GENERIC_ERROR
+                    } else {
+                        vmm.run_vmm_action().unwrap_or_else(|_| {
+                            warn!("Got a spurious notification from api thread");
+                        });
+                        continue;
                     }
-                };
-            };
+                }
+            },
+            Err(e) => {
+                error!("Abruptly exited VMM control loop: {:?}", e);
+                FC_EXIT_CODE_GENERIC_ERROR
+            }
+        };
+    };
 
-            vmm.stop(i32::from(exit_code));
-        })
-        .expect("VMM thread spawn failed.")
+    vmm.stop(i32::from(exit_code));
 }
 
 #[cfg(test)]

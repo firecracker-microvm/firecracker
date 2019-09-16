@@ -79,12 +79,13 @@ impl ApiServer {
         mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
         api_request_sender: mpsc::Sender<Box<VmmAction>>,
+        kick_vmm_efd: EventFd,
     ) -> Result<Self> {
         Ok(ApiServer {
             mmds_info,
             vmm_shared_info,
             api_request_sender: Rc::new(api_request_sender),
-            efd: Rc::new(EventFd::new().map_err(Error::Eventfd)?),
+            efd: Rc::new(kick_vmm_efd),
         })
     }
 
@@ -154,10 +155,6 @@ impl ApiServer {
         // do something in their future chain). When this returns, ongoing connections will be
         // interrupted, and other futures will not complete, as the event loop stops working.
         core.run(f)
-    }
-
-    pub fn get_event_fd_clone(&self) -> Result<EventFd> {
-        self.efd.try_clone().map_err(Error::Eventfd)
     }
 }
 
