@@ -4,6 +4,11 @@
 
 ### Added
 
+- New command-line parameter for `firecracker`, named `--no-api`, which 
+  will disable the API server thread. If set, the user won't be able to send 
+  any API requests, neither before, nor after the vm has booted. It must be 
+  paired with `--config-file` parameter. Also, when API server is disabled, 
+  MMDS is no longer available now.
 - New command-line parameter for `firecracker`, named `--config-file`, which 
   represents the path to a file that contains a JSON which can be used for 
   configuring and starting a microVM without sending any API requests.
