@@ -19,10 +19,10 @@ the Linux Kernel Virtual Machine (KVM) to create and run microVMs. Firecracker
 has a minimalist design. It excludes unnecessary devices and guest-facing
 functionality to reduce the memory footprint and attack surface area of each
 microVM. This improves security, decreases the startup time, and increases
-hardware utilization. Firecracker currently supports Intel CPUs, with planned
-AMD and Arm support. Firecracker will also be integrated with popular container
-runtimes.
-
+hardware utilization. Firecracker currently supports Intel, AMD (beta) and Arm
+(beta) CPUs. Firecracker can also be integrated in container runtimes. Checkout
+[Kata Containers with Firecracker.](https://github.com/kata-containers/documentation/wiki/Initial-release-of-Kata-Containers-with-Firecracker-support)
+ 
 Firecracker was developed at Amazon Web Services to accelerate the speed and
 efficiency of services like [AWS Lambda](https://aws.amazon.com/lambda/) and
 [AWS Fargate](https://aws.amazon.com/fargate/). Firecracker is open
@@ -43,10 +43,11 @@ development container) as follows:
 git clone https://github.com/firecracker-microvm/firecracker
 cd firecracker
 tools/devtool build
+toolchain="$(uname -m)-unkown-linux-musl"
 ```
 
-The Firecracker binary will be placed at `build/debug/firecracker`. For more
-information on building, testing, and running Firecracker, go to the
+The Firecracker binary will be placed at `build/cargo_target/${toolchain}/debug/firecracker`. 
+For more information on building, testing, and running Firecracker, go to the
 [quickstart guide](docs/getting-started.md).
 
 The overall security of Firecracker microVMs, including the ability to meet the

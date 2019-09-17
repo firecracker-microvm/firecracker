@@ -295,12 +295,15 @@ git checkout tags/v0.10.1
 Within the Firecracker repository root directory:
 
 1. with the default musl target: ```tools/devtool build```
-1. using the gnu target: ```tools/devtool build -l gnu```
+2. using the gnu target: ```tools/devtool build -l gnu```
 
-This will build and place the two Firecracker binaries at
-`build/debug/firecracker` and `build/debug/jailer`. The default build profile
-is `debug`. If you want to build the release binaries (optimized and stripped
-of debug info), use the `--release` option:
+This will build and place the two Firecracker binaries at:
+- `build/cargo_target/${toolchain}/debug/firecracker` and
+- `build/cargo_target/${toolchain}/debug/jailer`. 
+
+The default build profile is `debug`. If you want to build 
+the release binaries (optimized and stripped of debug info), 
+use the `--release` option:
 
 ```bash
 tools/devtool build --release
