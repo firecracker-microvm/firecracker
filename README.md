@@ -100,9 +100,7 @@ The **API endpoint** can be used to:
 - Configure the logging and metric system.
 - `[BETA]` Configure the data tree of the guest-facing metadata service. The
   service is only available to the guest if this resource is configured.
-- `[EXPERIMENTAL]` Add one or more [vsock sockets](docs/experimental-vsock.md)
-  to the microVM. Check the complete vsock API definition in
-  [firecracker-experimental.yaml](api_server/swagger/firecracker-experimental.yaml).
+- Add a [vsock socket](docs/vsock.md) to the microVM.
 - Start the microVM using a given kernel image, root file system, and boot
   arguments.
 - Stop the microVM.

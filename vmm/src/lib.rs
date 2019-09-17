@@ -87,6 +87,7 @@ use net_util::TapError;
 use serde_json::Value;
 use sys_util::{EventFd, Terminal};
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
+use vmm_config::device_config::DeviceConfigs;
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
 use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
 use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel};
@@ -95,7 +96,7 @@ use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
     NetworkInterfaceUpdateConfig,
 };
-use vmm_config::vsock::{VsockDeviceConfig, VsockDeviceConfigs, VsockError};
+use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 use vstate::{Vcpu, Vm};
 
 /// Default guest kernel command line:
@@ -223,7 +224,7 @@ pub enum VmmActionError {
     /// The action `SendCtrlAltDel` failed. Details are provided by the device-specific error
     /// `I8042DeviceError`.
     SendCtrlAltDel(ErrorKind, I8042DeviceError),
-    /// The action `insert_vsock_device` failed either because of bad user input (`ErrorKind::User`)
+    /// The action `set_vsock_device` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     VsockConfig(ErrorKind, VsockError),
 }
@@ -405,10 +406,10 @@ pub enum VmmAction {
     /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
     /// booted. The response is sent using the `OutcomeSender`.
     InsertNetworkDevice(NetworkInterfaceConfig, OutcomeSender),
-    /// Add a new vsock device or update one that already exists using the
+    /// Set the vsock device or update the one that already exists using the
     /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
     /// booted. The response is sent using the `OutcomeSender`.
-    InsertVsockDevice(VsockDeviceConfig, OutcomeSender),
+    SetVsockDevice(VsockDeviceConfig, OutcomeSender),
     /// Update the size of an existing block device specified by an ID. The ID is the first data
     /// associated with this enum variant. This action can only be called after the microVM is
     /// started. The response is sent using the `OutcomeSender`.
@@ -768,11 +769,7 @@ struct Vmm {
     pio_device_manager: PortIODeviceManager,
 
     // Device configurations.
-    // If there is a Root Block Device, this should be added as the first element of the list.
-    // This is necessary because we want the root to always be mounted on /dev/vda.
-    block_device_configs: BlockDeviceConfigs,
-    network_interface_configs: NetworkInterfaceConfigs,
-    vsock_device_configs: VsockDeviceConfigs,
+    device_configs: DeviceConfigs,
 
     epoll_context: EpollContext,
 
@@ -810,7 +807,11 @@ impl Vmm {
             )
             .expect("Cannot add write metrics TimerFd to epoll.");
 
-        let block_device_configs = BlockDeviceConfigs::new();
+        let device_configs = DeviceConfigs::new(
+            BlockDeviceConfigs::new(),
+            NetworkInterfaceConfigs::new(),
+            None,
+        );
         let kvm = KvmContext::new()?;
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
@@ -826,9 +827,7 @@ impl Vmm {
             vm,
             mmio_device_manager: None,
             pio_device_manager: PortIODeviceManager::new().map_err(Error::CreateLegacyDevice)?,
-            block_device_configs,
-            network_interface_configs: NetworkInterfaceConfigs::new(),
-            vsock_device_configs: VsockDeviceConfigs::new(),
+            device_configs,
             epoll_context,
             api_event_fd,
             from_api,
@@ -860,12 +859,12 @@ impl Vmm {
         let kernel_config = self.kernel_config.as_mut().ok_or(MissingKernelConfig)?;
 
         // If no PARTUUID was specified for the root device, try with the /dev/vda.
-        if self.block_device_configs.has_root_block_device()
-            && !self.block_device_configs.has_partuuid_root()
+        if self.device_configs.block.has_root_block_device()
+            && !self.device_configs.block.has_partuuid_root()
         {
             kernel_config.cmdline.insert_str("root=/dev/vda")?;
 
-            let flags = if self.block_device_configs.has_read_only_root() {
+            let flags = if self.device_configs.block.has_read_only_root() {
                 "ro"
             } else {
                 "rw"
@@ -879,7 +878,7 @@ impl Vmm {
         // device manager has been initialized.
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
-        for drive_config in self.block_device_configs.config_list.iter_mut() {
+        for drive_config in self.device_configs.block.config_list.iter_mut() {
             // Add the block device from file.
             let block_file = OpenOptions::new()
                 .read(true)
@@ -947,7 +946,7 @@ impl Vmm {
         // device manager has been initialized.
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
-        for cfg in self.network_interface_configs.iter_mut() {
+        for cfg in self.device_configs.network_interface.iter_mut() {
             let epoll_config = self.epoll_context.allocate_tokens_for_virtio_device(
                 TYPE_NET,
                 &cfg.iface_id,
@@ -1003,11 +1002,12 @@ impl Vmm {
             .kernel_config
             .as_mut()
             .ok_or(StartMicrovmError::MissingKernelConfig)?;
+
         // `unwrap` is suitable for this context since this should be called only after the
         // device manager has been initialized.
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
-        for cfg in self.vsock_device_configs.iter() {
+        if let Some(cfg) = &self.device_configs.vsock {
             let backend = devices::virtio::vsock::VsockUnixBackend::new(
                 u64::from(cfg.guest_cid),
                 cfg.uds_path.clone(),
@@ -1724,7 +1724,8 @@ impl Vmm {
         if self.is_instance_initialized() {
             Err(NetworkInterfaceError::UpdateNotAllowedPostBoot)?;
         }
-        self.network_interface_configs
+        self.device_configs
+            .network_interface
             .insert(body)
             .map(|_| VmmData::Empty)
             .map_err(|e| VmmActionError::NetworkConfig(ErrorKind::User, e))
@@ -1738,7 +1739,8 @@ impl Vmm {
             // VM not started yet, so we only need to update the device configs, not the actual
             // live device.
             let old_cfg = self
-                .network_interface_configs
+                .device_configs
+                .network_interface
                 .iter_mut()
                 .find(|&&mut ref c| c.iface_id == new_cfg.iface_id)
                 .ok_or(NetworkInterfaceError::DeviceIdNotFound)?;
@@ -1793,9 +1795,9 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
-    fn insert_vsock_device(
+    fn set_vsock_device(
         &mut self,
-        body: VsockDeviceConfig,
+        config: VsockDeviceConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
         if self.is_instance_initialized() {
             Err(VmmActionError::VsockConfig(
@@ -1803,10 +1805,8 @@ impl Vmm {
                 VsockError::UpdateNotAllowedPostBoot,
             ))
         } else {
-            self.vsock_device_configs
-                .add(body)
-                .map(|_| VmmData::Empty)
-                .map_err(|e| VmmActionError::VsockConfig(ErrorKind::User, e))
+            self.device_configs.vsock = Some(config);
+            Ok(VmmData::Empty)
         }
     }
 
@@ -1817,7 +1817,8 @@ impl Vmm {
     ) -> std::result::Result<VmmData, VmmActionError> {
         // Get the block device configuration specified by drive_id.
         let block_device_index = self
-            .block_device_configs
+            .device_configs
+            .block
             .get_index_of_drive_id(&drive_id)
             .ok_or(DriveError::InvalidBlockDeviceID)?;
 
@@ -1825,12 +1826,12 @@ impl Vmm {
         // Try to open the file specified by path_on_host using the permissions of the block_device.
         let disk_file = OpenOptions::new()
             .read(true)
-            .write(!self.block_device_configs.config_list[block_device_index].is_read_only())
+            .write(!self.device_configs.block.config_list[block_device_index].is_read_only())
             .open(&file_path)
             .map_err(|_| DriveError::CannotOpenBlockDevice)?;
 
         // Update the path of the block device with the specified path_on_host.
-        self.block_device_configs.config_list[block_device_index].path_on_host = file_path;
+        self.device_configs.block.config_list[block_device_index].path_on_host = file_path;
 
         // When the microvm is running, we also need to update the drive handler and send a
         // rescan command to the drive.
@@ -1853,7 +1854,7 @@ impl Vmm {
         // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
         // called before the guest boots, and this function is called after boot.
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
-        for drive_config in self.block_device_configs.config_list.iter() {
+        for drive_config in self.device_configs.block.config_list.iter() {
             if drive_config.drive_id == *drive_id {
                 let metadata = metadata(&drive_config.path_on_host)
                     .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
@@ -1884,7 +1885,8 @@ impl Vmm {
         if self.is_instance_initialized() {
             Err(DriveError::UpdateNotAllowedPostBoot)?;
         }
-        self.block_device_configs
+        self.device_configs
+            .block
             .insert(block_device_config)
             .map(|_| VmmData::Empty)
             .map_err(VmmActionError::from)
@@ -1992,8 +1994,8 @@ impl Vmm {
             InsertNetworkDevice(netif_body, sender) => {
                 Vmm::send_response(self.insert_net_device(netif_body), sender);
             }
-            InsertVsockDevice(vsock_cfg, sender) => {
-                Vmm::send_response(self.insert_vsock_device(vsock_cfg), sender);
+            SetVsockDevice(vsock_cfg, sender) => {
+                Vmm::send_response(self.set_vsock_device(vsock_cfg), sender);
             }
             RescanBlockDevice(drive_id, sender) => {
                 Vmm::send_response(self.rescan_block_device(&drive_id), sender);
@@ -2188,7 +2190,7 @@ mod tests {
         }
 
         fn update_block_device_path(&mut self, block_device_id: &str, new_path: PathBuf) {
-            for config in self.block_device_configs.config_list.iter_mut() {
+            for config in self.device_configs.block.config_list.iter_mut() {
                 if config.drive_id == block_device_id {
                     config.path_on_host = new_path;
                     break;
@@ -2197,7 +2199,7 @@ mod tests {
         }
 
         fn change_id(&mut self, prev_id: &str, new_id: &str) {
-            for config in self.block_device_configs.config_list.iter_mut() {
+            for config in self.device_configs.block.config_list.iter_mut() {
                 if config.drive_id == prev_id {
                     config.drive_id = new_id.to_string();
                     break;
@@ -2309,7 +2311,8 @@ mod tests {
         };
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm
-            .block_device_configs
+            .device_configs
+            .block
             .config_list
             .contains(&root_block_device));
 
@@ -2324,7 +2327,8 @@ mod tests {
         };
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm
-            .block_device_configs
+            .device_configs
+            .block
             .config_list
             .contains(&root_block_device));
 
@@ -2475,8 +2479,12 @@ mod tests {
         .unwrap();
 
         {
-            let nic_1: &mut NetworkInterfaceConfig =
-                vmm.network_interface_configs.iter_mut().next().unwrap();
+            let nic_1: &mut NetworkInterfaceConfig = vmm
+                .device_configs
+                .network_interface
+                .iter_mut()
+                .next()
+                .unwrap();
             // The RX bandwidth should be unaffected.
             assert_eq!(nic_1.rx_rate_limiter.unwrap().bandwidth.unwrap(), tbc_1mtps);
             // The RX ops should be set to 2mtps.

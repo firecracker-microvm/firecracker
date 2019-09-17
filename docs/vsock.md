@@ -84,7 +84,7 @@ AF_UNIX socket:
 ```bash
 curl -X PUT \
   --unix-socket ./firecracker-api.sock \
-  /vsocks/1 \
+  /vsock \
   -H accept:application/json \
   -H content-type:application/json \
   -d '{
