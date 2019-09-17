@@ -475,9 +475,6 @@ dependencies = [
 [[package]]
 name = "net_gen"
 version = "0.1.0"
-dependencies = [
- "sys_util 0.1.0",
-]
 
 [[package]]
 name = "net_util"

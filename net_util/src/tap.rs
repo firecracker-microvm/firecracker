@@ -31,6 +31,11 @@ pub enum Error {
 
 pub type Result<T> = ::std::result::Result<T, Error>;
 
+const TUNTAP: ::std::os::raw::c_uint = 84;
+ioctl_iow_nr!(TUNSETIFF, TUNTAP, 202, ::std::os::raw::c_int);
+ioctl_iow_nr!(TUNSETOFFLOAD, TUNTAP, 208, ::std::os::raw::c_uint);
+ioctl_iow_nr!(TUNSETVNETHDRSZ, TUNTAP, 216, ::std::os::raw::c_int);
+
 /// Handle for a network tap interface.
 ///
 /// For now, this simply wraps the file descriptor for the tap device so methods
@@ -102,7 +107,7 @@ impl Tap {
 
         // ioctl is safe since we call it with a valid tap fd and check the return
         // value.
-        let ret = unsafe { ioctl_with_mut_ref(&tuntap, net_gen::TUNSETIFF(), &mut ifreq) };
+        let ret = unsafe { ioctl_with_mut_ref(&tuntap, TUNSETIFF(), &mut ifreq) };
 
         if ret < 0 {
             return Err(Error::CreateTap(IoError::last_os_error()));
@@ -172,8 +177,7 @@ impl Tap {
     pub fn set_offload(&self, flags: c_uint) -> Result<()> {
         // ioctl is safe. Called with a valid tap fd, and we check the return.
         #[allow(clippy::cast_lossless)]
-        let ret =
-            unsafe { ioctl_with_val(&self.tap_file, net_gen::TUNSETOFFLOAD(), flags as c_ulong) };
+        let ret = unsafe { ioctl_with_val(&self.tap_file, TUNSETOFFLOAD(), flags as c_ulong) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -208,7 +212,7 @@ impl Tap {
     /// Set the size of the vnet hdr.
     pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<()> {
         // ioctl is safe. Called with a valid tap fd, and we check the return.
-        let ret = unsafe { ioctl_with_ref(&self.tap_file, net_gen::TUNSETVNETHDRSZ(), &size) };
+        let ret = unsafe { ioctl_with_ref(&self.tap_file, TUNSETVNETHDRSZ(), &size) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
