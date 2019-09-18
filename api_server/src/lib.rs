@@ -146,7 +146,7 @@ impl ApiServer {
         // altogether is the desired behaviour.
         if let Err(e) = default_syscalls::set_seccomp_level(seccomp_level) {
             panic!(
-                "Failed to set the requested seccomp filters on the API thread: Error: {:?}",
+                "Failed to set the requested seccomp filters on the API thread: Error: {}",
                 e
             );
         }

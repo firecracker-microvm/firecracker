@@ -442,4 +442,52 @@ mod tests {
         let result = setup_mptable(&mem, cpus as u8).unwrap_err();
         assert_eq!(result, Error::TooManyCpus);
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::NotEnoughMemory),
+            "There was too little guest memory to store the entire MP table."
+        );
+        assert_eq!(
+            format!("{}", Error::AddressOverflow),
+            "The MP table has too little address space to be stored."
+        );
+        assert_eq!(
+            format!("{}", Error::Clear),
+            "Failure while zeroing out the memory for the MP table."
+        );
+        assert_eq!(
+            format!("{}", Error::TooManyCpus),
+            "Number of CPUs exceeds the maximum supported CPUs."
+        );
+        assert_eq!(
+            format!("{}", Error::WriteMpfIntel),
+            "Failure to write the MP floating pointer."
+        );
+        assert_eq!(
+            format!("{}", Error::WriteMpcCpu),
+            "Failure to write MP CPU entry."
+        );
+        assert_eq!(
+            format!("{}", Error::WriteMpcIoapic),
+            "Failure to write MP ioapic entry."
+        );
+        assert_eq!(
+            format!("{}", Error::WriteMpcBus),
+            "Failure to write MP bus entry."
+        );
+        assert_eq!(
+            format!("{}", Error::WriteMpcIntsrc),
+            "Failure to write MP interrupt source entry."
+        );
+        assert_eq!(
+            format!("{}", Error::WriteMpcLintsrc),
+            "Failure to write MP local interrupt source entry."
+        );
+        assert_eq!(
+            format!("{}", Error::WriteMpcTable),
+            "Failure to write MP table header."
+        );
+    }
 }

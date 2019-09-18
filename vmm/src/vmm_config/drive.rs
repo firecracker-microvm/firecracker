@@ -40,7 +40,7 @@ impl Display for DriveError {
             CannotOpenBlockDevice => {
                 write!(f, "Cannot open block device. Invalid permission/path.")
             }
-            InvalidBlockDeviceID => write!(f, "Invalid block device id."),
+            InvalidBlockDeviceID => write!(f, "Invalid block device ID."),
             InvalidBlockDevicePath => write!(f, "Invalid block device path."),
             BlockDevicePathAlreadyExists => write!(
                 f,

@@ -660,10 +660,10 @@ fn log_received_api_request(api_description: String) {
 fn describe(method: &Method, path: &str, body: &Option<String>) -> String {
     match body {
         Some(value) => format!(
-            "synchronous {:?} request on {:?} with body {:?}",
+            "synchronous {} request on {} with body {}.",
             method, path, value
         ),
-        None => format!("synchronous {:?} request on {:?}", method, path),
+        None => format!("synchronous {} request on {}.", method, path),
     }
 }
 
@@ -1458,14 +1458,14 @@ mod tests {
         let msj = describe(&Method::Get, &String::from("/foo/bar"), &Some(body.clone()));
         assert_eq!(
             msj,
-            "synchronous Get request on \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+            "synchronous GET request on /foo/bar with body { \"foo\": \"bar\" }."
         );
         let msj = describe(&Method::Put, &String::from("/foo/bar"), &Some(body));
         assert_eq!(
             msj,
-            "synchronous Put request on \"/foo/bar\" with body \"{ \\\"foo\\\": \\\"bar\\\" }\""
+            "synchronous PUT request on /foo/bar with body { \"foo\": \"bar\" }."
         );
         let msj = describe(&Method::Patch, &String::from("/foo/bar"), &None);
-        assert_eq!(msj, "synchronous Patch request on \"/foo/bar\"")
+        assert_eq!(msj, "synchronous PATCH request on /foo/bar.")
     }
 }

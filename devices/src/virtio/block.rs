@@ -1610,4 +1610,49 @@ mod tests {
             assert_eq!(h.disk_image_id, id);
         }
     }
+
+    #[test]
+    fn test_error_messsages() {
+        assert_eq!(
+            format!("{}", Error::UnexpectedWriteOnlyDescriptor),
+            "Received a write only descriptor that protocol says to read from."
+        );
+        assert_eq!(
+            format!("{}", Error::UnexpectedReadOnlyDescriptor),
+            "Received a read only descriptor that protocol says to write to."
+        );
+        assert_eq!(
+            format!("{}", Error::DescriptorChainTooShort),
+            "Received too few descriptors in a descriptor chain."
+        );
+        assert_eq!(
+            format!("{}", Error::DescriptorLengthTooSmall),
+            "Received a descriptor that was too short to use."
+        );
+        assert_eq!(
+            format!("{}", Error::GetFileMetadata),
+            "Getting a block's metadata failed."
+        );
+        assert_eq!(
+            format!("{}", Error::InvalidOffset),
+            "The requested operation would cause a seek beyond disk end."
+        );
+
+        assert_eq!(
+            format!("{}", ExecuteError::BadRequest(Error::InvalidOffset)),
+            format!("{}", Error::InvalidOffset)
+        );
+        assert_eq!(
+            format!("{}", ExecuteError::Flush(io::Error::from_raw_os_error(0))),
+            format!("{}", std::io::Error::from_raw_os_error(0))
+        );
+        assert_eq!(
+            format!("{}", ExecuteError::Seek(io::Error::from_raw_os_error(0))),
+            format!("{}", std::io::Error::from_raw_os_error(0))
+        );
+        assert_eq!(
+            format!("{}", ExecuteError::Unsupported(0)),
+            format!("Unsupported request: {}", 0)
+        );
+    }
 }

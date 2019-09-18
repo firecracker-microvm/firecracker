@@ -34,12 +34,16 @@ impl fmt::Display for Error {
             f,
             "{}",
             match *self {
-                Error::CommandLineCopy => "Failed to copy the command line string to guest memory",
-                Error::CommandLineOverflow => "Command line string overflows guest memory",
-                Error::InvalidAscii => "Command line string contains non-printable ASCII character",
-                Error::HasSpace => "Command line string contains a space",
-                Error::HasEquals => "Command line string contains an equals sign",
-                Error::TooLarge => "Command line inserting string would make command line too long",
+                Error::CommandLineCopy => "Failed to copy the command line string to guest memory.",
+                Error::CommandLineOverflow => "Command line string overflows guest memory.",
+                Error::InvalidAscii => {
+                    "Command line string contains non-printable ASCII character."
+                }
+                Error::HasSpace => "Command line string contains a space.",
+                Error::HasEquals => "Command line string contains an equals sign.",
+                Error::TooLarge => {
+                    "Command line inserting string would make command line too long."
+                }
             }
         )
     }
@@ -257,27 +261,27 @@ mod tests {
     fn display_errors() {
         assert_eq!(
             Error::CommandLineCopy.to_string().as_str(),
-            "Failed to copy the command line string to guest memory"
+            "Failed to copy the command line string to guest memory."
         );
         assert_eq!(
             Error::CommandLineOverflow.to_string().as_str(),
-            "Command line string overflows guest memory"
+            "Command line string overflows guest memory."
         );
         assert_eq!(
             Error::InvalidAscii.to_string().as_str(),
-            "Command line string contains non-printable ASCII character"
+            "Command line string contains non-printable ASCII character."
         );
         assert_eq!(
             Error::HasSpace.to_string().as_str(),
-            "Command line string contains a space"
+            "Command line string contains a space."
         );
         assert_eq!(
             Error::HasEquals.to_string().as_str(),
-            "Command line string contains an equals sign"
+            "Command line string contains an equals sign."
         );
         assert_eq!(
             Error::TooLarge.to_string().as_str(),
-            "Command line inserting string would make command line too long"
+            "Command line inserting string would make command line too long."
         );
     }
 }

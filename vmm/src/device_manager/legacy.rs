@@ -128,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn test_debug_error() {
+    fn test_error_messages() {
         assert_eq!(
             format!("{}", Error::BusError(devices::BusError::Overlap)),
             format!(

@@ -4,7 +4,6 @@
 use std::{fmt, io, result};
 
 use kvm_ioctls::{DeviceFd, VmFd};
-use std::fmt::Formatter;
 
 // Unfortunately bindgen omits defines that are based on other defines.
 // See arch/arm64/include/uapi/asm/kvm.h file from the linux kernel.
@@ -22,7 +21,7 @@ pub enum Error {
 type Result<T> = result::Result<T, Error>;
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::CreateGIC(err) => write!(f, "KVM ioctl for creating GIC failed: {}", err),
             Error::SetDeviceAttribute(err) => write!(

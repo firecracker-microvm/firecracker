@@ -9,9 +9,9 @@ use byteorder::{BigEndian, ByteOrder};
 use libc::{c_char, c_int, c_void};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, NulError};
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::ptr::null;
-use std::{io, result};
+use std::{fmt, io, result};
 
 use super::super::DeviceType;
 use super::get_fdt_addr;
@@ -85,6 +85,20 @@ pub enum Error {
 type Result<T> = result::Result<T, Error>;
 
 /// Creates the flattened device tree for this aarch64 microVM.
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::AppendFDTNode(err) => write!(f, "{}", err),
+            Error::AppendFDTProperty(err) => write!(f, "{}", err),
+            Error::CreateFDT(err) => write!(f, "{}", err),
+            Error::CstringFDTTransform(err) => write!(f, "{}", err),
+            Error::FinishFDTReserveMap(err) => write!(f, "{}", err),
+            Error::IncompleteFDTMemoryWrite => write!(f, "Incomplete FDT memory write."),
+            Error::WriteFDTToMemory(err) => write!(f, "{}", err),
+        }
+    }
+}
+
 pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemory,
     num_cpus: u32,
@@ -532,6 +546,7 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aarch64::fdt::Error::AppendFDTProperty;
     use aarch64::{arch_memory_regions, layout};
 
     const LEN: u64 = 4096;
@@ -639,5 +654,42 @@ mod tests {
         let original_fdt = device_tree::DeviceTree::load(&buf).unwrap();
         let generated_fdt = device_tree::DeviceTree::load(&dtb).unwrap();
         assert!(format!("{:?}", original_fdt) == format!("{:?}", generated_fdt));
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!(
+                "{}",
+                Error::AppendFDTProperty(io::Error::from_raw_os_error(0))
+            ),
+            format!("{}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::AppendFDTProperty(io::Error::from_raw_os_error(0))
+            ),
+            format!("{}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!("{}", Error::CreateFDT(io::Error::from_raw_os_error(0))),
+            format!("{}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::FinishFDTReserveMap(io::Error::from_raw_os_error(0))
+            ),
+            format!("{}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!("{}", Error::IncompleteFDTMemoryWrite),
+            "Incomplete FDT memory write."
+        );
     }
 }

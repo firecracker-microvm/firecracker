@@ -28,6 +28,7 @@ impl fmt::Display for Error {
     }
 }
 
+/// Type for returning public functions outcome.
 pub type Result<T> = result::Result<T, Error>;
 
 #[allow(non_upper_case_globals)]
@@ -142,5 +143,19 @@ mod tests {
         vcpu.vcpu_init(&kvi).unwrap();
 
         assert!(setup_regs(&vcpu, 0, 0x0, &mem).is_ok());
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetCoreRegister(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Failed to set core register: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
     }
 }

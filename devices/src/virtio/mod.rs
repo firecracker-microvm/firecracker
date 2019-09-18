@@ -59,8 +59,6 @@ impl fmt::Display for ActivateError {
         match self {
             ActivateError::EpollCtl(err) => write!(f, "{}", err),
             ActivateError::BadActivate => write!(f, "Device bad activate."),
-            #[cfg(feature = "vsock")]
-            ActivateError::BadVhostActivate(err) => write!(f, "{}", err),
         }
     }
 }
@@ -88,5 +86,26 @@ impl<T: Any> AsAny for T {
 
     fn as_mut_any(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::virtio::ActivateError;
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!(
+                "{}",
+                ActivateError::EpollCtl(std::io::Error::from_raw_os_error(0))
+            ),
+            format!("{}", std::io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!("{}", ActivateError::BadActivate),
+            "Device bad activate."
+        );
     }
 }

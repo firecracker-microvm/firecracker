@@ -205,11 +205,11 @@ def test_api_requests_logs(test_microvm_with_api):
     # We are not interested in the actual body. Just check that the log
     # message also has the string "body" in it.
     expected_log_strings.append(
-        "The API server received a synchronous Patch request "
-        "on \"/machine-config\" with body"
+        "The API server received a synchronous PATCH request "
+        "on /machine-config with body"
     )
 
-    # Check that a Put request on /machine-config is logged.
+    # Check that a PUT request on /machine-config is logged.
     response = microvm.machine_cfg.put(
         vcpu_count=4,
         ht_enabled=False,
@@ -217,17 +217,17 @@ def test_api_requests_logs(test_microvm_with_api):
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
     expected_log_strings.append(
-        "The API server received a synchronous Put request "
-        "on \"/machine-config\" with body"
+        "The API server received a synchronous PUT request "
+        "on /machine-config with body"
     )
 
-    # Check that a Get request on /machine-config is logged without the
+    # Check that a GET request on /machine-config is logged without the
     # body.
     response = microvm.machine_cfg.get()
     assert microvm.api_session.is_status_ok(response.status_code)
     expected_log_strings.append(
-        "The API server received a synchronous Get request "
-        "on \"/machine-config\"."
+        "The API server received a synchronous GET request "
+        "on /machine-config."
     )
 
     # Check that all requests on /mmds are logged without the body.
@@ -241,19 +241,19 @@ def test_api_requests_logs(test_microvm_with_api):
     response = microvm.mmds.put(json=dummy_json)
     assert microvm.api_session.is_status_no_content(response.status_code)
     expected_log_strings.append(
-        "The API server received a synchronous Put request on \"/mmds\"."
+        "The API server received a synchronous PUT request on /mmds."
     )
 
     response = microvm.mmds.patch(json=dummy_json)
     assert microvm.api_session.is_status_no_content(response.status_code)
     expected_log_strings.append(
-        "The API server received a synchronous Patch request on \"/mmds\"."
+        "The API server received a synchronous PATCH request on /mmds."
     )
 
     response = microvm.mmds.get()
     assert microvm.api_session.is_status_ok(response.status_code)
     expected_log_strings.append(
-        "The API server received a synchronous Get request on \"/mmds\"."
+        "The API server received a synchronous GET request on /mmds."
     )
 
     assert log_file_contains_strings(log_fifo, expected_log_strings)

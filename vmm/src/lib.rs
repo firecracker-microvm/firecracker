@@ -2910,10 +2910,9 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.check_health().is_err());
 
-        let dummy_addr = GuestAddress(0x1000);
         vmm.configure_kernel(KernelConfig {
             #[cfg(target_arch = "x86_64")]
-            cmdline_addr: dummy_addr,
+            cmdline_addr: GuestAddress(0x1000),
             cmdline: kernel_cmdline::Cmdline::new(10),
             kernel_file: tempfile::tempfile().unwrap(),
         });
@@ -3435,7 +3434,7 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         assert_eq!(
             vmm.load_kernel().unwrap_err().to_string(),
-            "Cannot load kernel due to invalid memory configuration or invalid kernel image. Failed to read magic number"
+            "Cannot load kernel due to invalid memory configuration or invalid kernel image: Failed to read magic number"
         );
 
         #[cfg(target_arch = "x86_64")]
@@ -3528,7 +3527,7 @@ mod tests {
 
         vmm.default_kernel_config(None);
         vmm.setup_interrupt_controller()
-            .expect("Failed to setup interrupt controller");
+            .unwrap_or_else(|err| panic!("Failed to setup interrupt controller: {}", err));
         assert!(vmm.attach_legacy_devices().is_ok());
         let kernel_config = vmm.kernel_config.as_mut();
 
@@ -3566,7 +3565,7 @@ mod tests {
 
         vmm.default_kernel_config(None);
         vmm.setup_interrupt_controller()
-            .expect("Failed to setup interrupt controller");
+            .unwrap_or_else(|err| panic!("Failed to setup interrupt controller: {}", err));
         {
             let kernel_config = vmm.kernel_config.as_mut().unwrap();
             kernel_config.cmdline.insert("console", "tty1").unwrap();
@@ -4121,36 +4120,50 @@ mod tests {
                     io::Error::from_raw_os_error(42)
                 ))
             ),
-            "Error creating legacy device: Failed to create EventFd: No message of desired type (os error 42)"
+            format!(
+                "Error creating legacy device: Failed to create EventFd: {}",
+                io::Error::from_raw_os_error(42)
+            )
         );
+
         assert_eq!(
             format!("{}", Error::EpollFd(io::Error::from_raw_os_error(42))),
-            "Epoll fd error: No message of desired type (os error 42)"
+            format!("Epoll fd error: {}", io::Error::from_raw_os_error(42))
         );
+
         assert_eq!(
             format!("{}", Error::EventFd(io::Error::from_raw_os_error(42))),
-            "Event fd error: No message of desired type (os error 42)"
+            format!("Event fd error: {}", io::Error::from_raw_os_error(42))
         );
+
         assert_eq!(
             format!("{}", Error::DeviceEventHandlerNotFound),
             "Device event handler not found. This might point to a guest device driver issue."
         );
+
         assert_eq!(
             format!("{}", Error::Kvm(io::Error::from_raw_os_error(42))),
-            "Cannot open /dev/kvm. Error: No message of desired type (os error 42)"
+            format!(
+                "Cannot open /dev/kvm. Error: {}",
+                io::Error::from_raw_os_error(42)
+            )
         );
+
         assert_eq!(
             format!("{}", Error::KvmApiVersion(42)),
             "Bad KVM API version: 42"
         );
+
         assert_eq!(
             format!("{}", Error::KvmCap(Cap::Hlt)),
             "Missing KVM capability: Hlt"
         );
+
         assert_eq!(
             format!("{}", Error::Poll(io::Error::from_raw_os_error(42))),
-            "Epoll wait failed: No message of desired type (os error 42)"
+            format!("Epoll wait failed: {}", io::Error::from_raw_os_error(42))
         );
+
         assert_eq!(
             format!("{}", Error::Serial(io::Error::from_raw_os_error(42))),
             format!(
@@ -4158,10 +4171,15 @@ mod tests {
                 io::Error::from_raw_os_error(42)
             )
         );
+
         assert_eq!(
             format!("{}", Error::TimerFd(io::Error::from_raw_os_error(42))),
-            "Error creating timer fd: No message of desired type (os error 42)"
+            format!(
+                "Error creating timer fd: {}",
+                io::Error::from_raw_os_error(42)
+            )
         );
+
         assert_eq!(
             format!("{}", Error::Vm(vstate::Error::HTNotInitialized)),
             "Error opening VM fd: Hyperthreading is not initialized."
@@ -4292,6 +4310,18 @@ mod tests {
             ),
             "The update operation is not allowed after boot."
         );
+
+        assert_eq!(
+            format!("{}", Error::DeviceEventHandlerInvalidDowncast),
+            "Device event handler couldn't be downcasted to expected type."
+        );
+    }
+
+    #[test]
+    fn test_error_kind_display() {
+        assert_eq!(format!("{}", ErrorKind::User), "User");
+
+        assert_eq!(format!("{}", ErrorKind::Internal), "Internal");
     }
 
     #[test]

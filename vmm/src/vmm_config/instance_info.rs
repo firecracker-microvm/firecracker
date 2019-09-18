@@ -176,3 +176,32 @@ impl Display for StartMicrovmError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vmm_config::instance_info::StartMicrovmError;
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!(
+                "{}",
+                StartMicrovmError::CreateRateLimiter(std::io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Cannot create RateLimiter: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", StartMicrovmError::CreateVsockDevice),
+            "Cannot create vsock device."
+        );
+
+        assert_eq!(
+            format!("{}", StartMicrovmError::DeviceManager),
+            "The device manager was not configured."
+        );
+    }
+}

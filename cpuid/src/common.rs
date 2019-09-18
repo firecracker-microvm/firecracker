@@ -143,4 +143,17 @@ pub mod tests {
             _ => false,
         });
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::InvalidParameters("Error message".to_string())),
+            "Error message".to_string()
+        );
+
+        assert_eq!(
+            format!("{}", Error::NotSupported),
+            "CpuId instruction is not supported on the current target arch."
+        );
+    }
 }

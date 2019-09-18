@@ -110,7 +110,7 @@ impl Tap {
     /// extern crate net_util;
     ///
     /// use self::net_util::Tap;
-    /// Tap::open_named("doc-test-tap").unwrap();
+    /// Tap::open_named("doc-test-tap").unwrap_or_else(|err| panic!("{}", err));
     /// ```
     pub fn open_named(if_name: &str) -> Result<Tap> {
         let terminated_if_name = build_terminated_if_name(if_name)?;
@@ -487,7 +487,7 @@ mod tests {
 
         // 15 characters - OK.
         let name = "a123456789abcde";
-        let tap = Tap::open_named(name).unwrap();
+        let tap = Tap::open_named(name).unwrap_or_else(|err| panic!("{}", err));
         assert_eq!(
             name,
             std::str::from_utf8(&tap.if_name[0..(IFACE_NAME_MAX_LEN - 1)]).unwrap()
@@ -500,12 +500,6 @@ mod tests {
             Tap::new().unwrap_or_else(|err| panic!("{}", err)),
             Tap::new().unwrap_or_else(|err| panic!("{}", err))
         );
-    }
-
-    #[test]
-    fn test_tap_create() {
-        let t = Tap::new().unwrap_or_else(|err| panic!("{}", err));
-        println!("created tap: {:?}", t);
     }
 
     #[test]
@@ -527,8 +521,6 @@ mod tests {
     fn test_set_options() {
         // This line will fail to provide an initialized FD if the test is not run as root.
         let tap = Tap::new().unwrap_or_else(|err| panic!("{}", err));
-        tap.set_vnet_hdr_size(16)
-            .unwrap_or_else(|err| panic!("{}", err));
         tap.set_vnet_hdr_size(16)
             .unwrap_or_else(|err| panic!("{}", err));
         tap.set_offload(0).unwrap_or_else(|err| panic!("{}", err));
@@ -577,6 +569,75 @@ mod tests {
         tap.set_netmask(SUBNET_MASK.parse().unwrap())
             .unwrap_or_else(|err| panic!("{}", err));
 
+        tap.enable().unwrap_or_else(|err| panic!("{}", err));
+
+        // Send a packet to the interface. We expect to be able to receive it on the associated fd.
+        pnet_send_packet(tap_name_to_string(&tap));
+
+        let mut buf = [0u8; 4096];
+
+        let mut found_packet_sz = None;
+
+        // In theory, this could actually loop forever if something keeps sending data through the
+        // tap interface, but it's highly unlikely.
+        while found_packet_sz.is_none() {
+            let result = tap.read(&mut buf);
+            assert!(result.is_ok());
+
+            let size = result.unwrap();
+
+            // We skip the first 10 bytes because the IFF_VNET_HDR flag is set when the interface
+            // is created, and the legacy header is 10 bytes long without a certain flag which
+            // is not set in Tap::new().
+            let eth_bytes = &buf[10..size];
+
+            let packet = EthernetPacket::new(eth_bytes).unwrap();
+            if packet.get_ethertype() != EtherTypes::Ipv4 {
+                // not an IPv4 packet
+                continue;
+            }
+
+            let ipv4_bytes = &eth_bytes[14..];
+            let packet = Ipv4Packet::new(ipv4_bytes).unwrap();
+
+            // Our packet should carry an UDP payload, and not contain IP options.
+            if packet.get_next_level_protocol() != IpNextHeaderProtocols::Udp
+                && packet.get_header_length() != 5
+            {
+                continue;
+            }
+
+            let udp_bytes = &ipv4_bytes[20..];
+
+            let udp_len = UdpPacket::new(udp_bytes).unwrap().get_length() as usize;
+
+            // Skip the header bytes.
+            let inner_string = str::from_utf8(&udp_bytes[8..udp_len]).unwrap();
+
+            if inner_string.eq(DATA_STRING) {
+                found_packet_sz = Some(size);
+                break;
+            }
+        }
+
+        assert!(found_packet_sz.is_some());
+    }
+
+    #[test]
+    fn test_write() {
+        // `fetch_add` adds to the current value, returning the previous value.
+        let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
+
+        let mut tap = Tap::new().unwrap_or_else(|err| panic!("{}", err));
+        let ip_addr = format!("{}{}", TAP_IP_PREFIX, next_ip)
+            .parse()
+            .unwrap_or_else(|err| panic!("{}", err));
+
+        tap.set_ip_addr(ip_addr)
+            .unwrap_or_else(|err| panic!("{}", err));
+
+        tap.set_netmask(SUBNET_MASK.parse().unwrap_or_else(|err| panic!("{}", err)))
+            .unwrap_or_else(|err| panic!("{}", err));
         tap.enable().unwrap_or_else(|err| panic!("{}", err));
 
         let (mac, _, mut rx) = pnet_get_mac_tx_rx(tap_name_to_string(&tap));

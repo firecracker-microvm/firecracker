@@ -32,13 +32,13 @@ struct BootParamsWrapper(boot_params);
 unsafe impl DataInit for BootParamsWrapper {}
 
 /// Errors thrown while configuring x86_64 system.
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub enum Error {
     /// Invalid e820 setup params.
     E820Configuration,
     /// Error writing MP table to memory.
     MpTableSetup(mptable::Error),
-    /// Error writing the zero page to guest memory.
+    /// The zero page extends past the end of guest_mem.
     ZeroPagePastRamEnd,
     /// Error writing the zero page of guest memory.
     ZeroPageSetup,
@@ -228,27 +228,30 @@ mod tests {
         let config_err = configure_system(&gm, GuestAddress(0), 0, 1);
         assert!(config_err.is_err());
         assert_eq!(
-            config_err.unwrap_err(),
-            super::Error::MpTableSetup(mptable::Error::NotEnoughMemory)
+            format!("{}", config_err.unwrap_err()),
+            format!(
+                "{}",
+                super::Error::MpTableSetup(mptable::Error::NotEnoughMemory)
+            )
         );
 
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = 128 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemory::new(&arch_mem_regions).unwrap_or_else(|err| panic!("{}", err));
-        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap_or_else(|err| panic!("{}", err));
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemory::new(&arch_mem_regions).unwrap_or_else(|err| panic!("{}", err));
-        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap_or_else(|err| panic!("{}", err));
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemory::new(&arch_mem_regions).unwrap_or_else(|err| panic!("{}", err));
-        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap_or_else(|err| panic!("{}", err));
     }
 
     #[test]
@@ -299,7 +302,6 @@ mod tests {
             format!("{}", Error::ZeroPageSetup),
             "Error writing the zero page to guest memory."
         );
-
         assert_eq!(
             format!("{}", Error::E820Configuration),
             "Invalid e820 setup params."

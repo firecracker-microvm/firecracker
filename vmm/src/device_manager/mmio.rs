@@ -480,7 +480,7 @@ mod tests {
                     )
                     .unwrap_err()
             ),
-            "No more IRQs are available.".to_string()
+            "No more IRQs are available."
         );
     }
 
@@ -524,7 +524,7 @@ mod tests {
         );
         assert_eq!(
             format!("{}", e),
-            "Unable to add device to kernel command line: Command line string contains an equals sign"
+            "Unable to add device to kernel command line: Command line string contains an equals sign."
         );
         assert_eq!(
             format!("{}", Error::UpdateFailed),
@@ -553,11 +553,30 @@ mod tests {
                 "{}",
                 Error::RegisterIoEvent(io::Error::from_raw_os_error(0))
             ),
-            "Failed to register IO event: No error information (os error 0)"
+            format!(
+                "Failed to register IO event: {}",
+                io::Error::from_raw_os_error(0)
+            )
         );
         assert_eq!(
             format!("{}", Error::RegisterIrqFd(io::Error::from_raw_os_error(0))),
-            "Failed to register irqfd: No error information (os error 0)"
+            format!(
+                "Failed to register irqfd: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::EventFd(io::Error::from_raw_os_error(0))),
+            format!(
+                "Failed to create or clone event descriptor: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::DeviceNotFound),
+            "The device couldn't be found."
         );
     }
 

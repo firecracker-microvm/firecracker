@@ -98,6 +98,7 @@ pub type Result<T> = result::Result<T, Error>;
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
+            #[cfg(target_arch = "x86_64")]
             Error::CpuId(err) => write!(f, "A call to cpuid instruction failed: {}", err),
             Error::GuestMemory(err) => write!(f, "Invalid guest memory configuration: {}", err),
             Error::HTNotInitialized => write!(f, "Hyperthreading is not initialized."),
@@ -627,9 +628,10 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     #[test]
     fn test_setup_irqchip() {
-        let kvm = KvmContext::new().unwrap();
+        let kvm = KvmContext::new().unwrap_or_else(|err| panic!("{}", err));
 
-        let mut vm = Vm::new(kvm.fd()).unwrap_or_else(|err| panic!("Cannot create new vm: {}"));
+        let mut vm =
+            Vm::new(kvm.fd()).unwrap_or_else(|err| panic!("Cannot create new vm: {}", err));
         let vcpu_count = 1;
         let _vcpu = Vcpu::new(
             1,
@@ -706,6 +708,78 @@ mod tests {
             Arc::new(Barrier::new(1)),
             seccomp::SECCOMP_LEVEL_ADVANCED + 10,
             EventFd::new().unwrap(),
+        );
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::VmFd(io::Error::from_raw_os_error(0))),
+            format!(
+                "Cannot open the VM file descriptor: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::VcpuFd(io::Error::from_raw_os_error(0))),
+            format!(
+                "Cannot open the VCPU file descriptor: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::VcpuRun(io::Error::from_raw_os_error(0))),
+            format!("Cannot run the VCPUs: {}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetSupportedCpusFailed(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "The call to KVM_SET_CPUID2 failed: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetUserMemoryRegion(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Cannot set the memory regions: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::Irq(io::Error::from_raw_os_error(0))),
+            format!(
+                "Cannot configure the IRQ: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::VcpuSpawn(io::Error::from_raw_os_error(0))),
+            format!(
+                "Cannot spawn a new vCPU thread: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::VcpuCountNotInitialized),
+            "vCPU count is not initialized."
+        );
+
+        assert_eq!(
+            format!("{}", Error::NotEnoughMemorySlots),
+            "The number of configured slots is bigger than the maximum reported by KVM."
         );
     }
 }
