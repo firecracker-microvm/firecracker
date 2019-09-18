@@ -185,23 +185,23 @@ fn main() {
         vmm_version: crate_version!().to_string(),
     }));
 
+    let request_event_fd = EventFd::new().unwrap();
+    let response_event_fd = EventFd::new().unwrap();
     let (to_vmm, from_api) = channel();
-    let api_event_fd = EventFd::new()
-        .map_err(Error::Eventfd)
-        .expect("'cannot create dummy Eventfd.");
+    let (to_api, from_vmm) = channel();
 
     // Api enabled.
     if !no_api {
         // MMDS only supported with API.
         let mmds_info = MMDS.clone();
-
-        let kick_vmm_efd = api_event_fd.try_clone().expect("cannot clone Eventfd.");
         let vmm_shared_info = api_shared_info.clone();
+        let to_vmm_event_fd = request_event_fd.try_clone().unwrap();
+        let from_vmm_event_fd = response_event_fd.try_clone().unwrap();
 
         thread::Builder::new()
             .name("fc_api".to_owned())
             .spawn(move || {
-                match ApiServer::new(mmds_info, vmm_shared_info, to_vmm, kick_vmm_efd)
+                match ApiServer::new(mmds_info, vmm_shared_info, to_vmm, from_vmm, to_vmm_event_fd, from_vmm_event_fd)
                     .expect("Cannot create API server")
                     .bind_and_run(bind_path, start_time_us, start_time_cpu_us, seccomp_level)
                 {
@@ -225,8 +225,10 @@ fn main() {
 
     vmm::start_vmm(
         api_shared_info,
-        api_event_fd,
+        request_event_fd,
+        response_event_fd,
         from_api,
+        to_api,
         seccomp_level,
         vmm_config_json,
     );

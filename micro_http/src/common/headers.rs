@@ -218,7 +218,7 @@ pub enum MediaType {
 
 impl Default for MediaType {
     fn default() -> Self {
-        MediaType::PlainText
+        MediaType::ApplicationJson
     }
 }
 

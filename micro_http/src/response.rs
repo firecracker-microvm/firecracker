@@ -31,7 +31,8 @@ pub enum StatusCode {
 }
 
 impl StatusCode {
-    fn raw(self) -> &'static [u8; 3] {
+    /// returns something
+    pub fn raw(self) -> &'static [u8; 3] {
         match self {
             StatusCode::Continue => b"100",
             StatusCode::OK => b"200",

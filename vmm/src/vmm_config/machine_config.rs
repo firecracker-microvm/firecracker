@@ -71,6 +71,23 @@ impl Default for VmConfig {
     }
 }
 
+impl VmConfig {
+    /// todo: doc
+    pub fn to_string(&self) -> String {
+        let vcpu_count = self.vcpu_count.unwrap_or(1);
+        let mem_size = self.mem_size_mib.unwrap_or(128);
+        let ht_enabled = self.ht_enabled.unwrap_or(false);
+        let cpu_template = self
+            .cpu_template
+            .map_or("Uninitialized".to_string(), |c| c.to_string());
+
+        format!(
+            "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?},  \"ht_enabled\": {:?},  \"cpu_template\": {:?} }}",
+            vcpu_count, mem_size, ht_enabled, cpu_template
+        )
+    }
+}
+
 fn validate_vcpu_num<'de, D>(d: D) -> std::result::Result<Option<u8>, D::Error>
 where
     D: de::Deserializer<'de>,
