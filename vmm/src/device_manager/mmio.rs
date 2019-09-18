@@ -403,9 +403,10 @@ mod tests {
         let (_to_vmm, from_api) = channel();
         Vmm::new(
             shared_info,
-            EventFd::new().expect("cannot create eventFD"),
+            &EventFd::new().expect("cannot create eventFD"),
             from_api,
             0,
+            kvm_ioctls::Kvm::new().expect("Cannot create KVM object"),
         )
         .expect("Cannot Create VMM")
     }

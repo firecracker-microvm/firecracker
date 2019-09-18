@@ -457,6 +457,17 @@ pub type OutcomeReceiver = oneshot::Receiver<VmmRequestOutcome>;
 
 type Result<T> = std::result::Result<T, Error>;
 
+/// Describes all possible reasons which may cause the event loop to return to the caller in
+/// the absence of errors.
+#[derive(Debug)]
+pub enum EventLoopExitReason {
+    /// A break statement interrupted the event loop during normal execution. This is the
+    /// default exit reason.
+    Break,
+    /// The control action file descriptor has data available for reading.
+    ControlAction,
+}
+
 /// Holds a micro-second resolution timestamp with both the real time and cpu time.
 #[derive(Clone, Default)]
 pub struct TimestampUs {
@@ -481,12 +492,10 @@ pub struct KvmContext {
 }
 
 impl KvmContext {
-    fn new() -> Result<Self> {
+    fn with_kvm(kvm: Kvm) -> Result<Self> {
         use Cap::*;
 
-        let kvm = Kvm::new().map_err(Error::Kvm)?;
-
-        // Check that KVM has correct version.
+        // Check that KVM has the correct version.
         if kvm.get_api_version() != KVM_API_VERSION as i32 {
             return Err(Error::KvmApiVersion(kvm.get_api_version()));
         }
@@ -622,7 +631,7 @@ impl EpollContext {
     /// Given a file descriptor `fd`, and an EpollDispatch token `token`,
     /// associate `token` with an `EPOLLIN` event for `fd`, through the
     /// `dispatch_table`.
-    fn add_event<T: AsRawFd>(&mut self, fd: &T, token: EpollDispatch) -> Result<()> {
+    fn add_event<T: AsRawFd + ?Sized>(&mut self, fd: &T, token: EpollDispatch) -> Result<()> {
         // The index in the dispatch where the new token will be added.
         let dispatch_index = self.dispatch_table.len() as u64;
 
@@ -771,7 +780,8 @@ pub struct VmmConfig {
     vsock_device: Option<VsockDeviceConfig>,
 }
 
-struct Vmm {
+/// Contains the state and associated methods required for the Firecracker VMM.
+pub struct Vmm {
     kvm: KvmContext,
 
     vm_config: VmConfig,
@@ -796,7 +806,6 @@ struct Vmm {
     epoll_context: EpollContext,
 
     // API resources.
-    api_event_fd: EventFd,
     from_api: Receiver<Box<VmmAction>>,
 
     write_metrics_event_fd: TimerFd,
@@ -806,17 +815,19 @@ struct Vmm {
 }
 
 impl Vmm {
-    fn new(
+    /// Creates a new VMM object.
+    pub fn new(
         api_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_event_fd: EventFd,
+        control_fd: &AsRawFd,
         from_api: Receiver<Box<VmmAction>>,
         seccomp_level: u32,
+        kvm: Kvm,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
         epoll_context
-            .add_event(&api_event_fd, EpollDispatch::VmmActionRequest)
-            .expect("Cannot add API eventfd to epoll.");
+            .add_event(control_fd, EpollDispatch::VmmActionRequest)
+            .expect("Cannot add API control_fd to epoll.");
 
         let write_metrics_event_fd =
             TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?;
@@ -834,7 +845,7 @@ impl Vmm {
             NetworkInterfaceConfigs::new(),
             None,
         );
-        let kvm = KvmContext::new()?;
+        let kvm = KvmContext::with_kvm(kvm)?;
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
         Ok(Vmm {
@@ -851,7 +862,6 @@ impl Vmm {
             pio_device_manager: PortIODeviceManager::new().map_err(Error::CreateLegacyDevice)?,
             device_configs,
             epoll_context,
-            api_event_fd,
             from_api,
             write_metrics_event_fd,
             seccomp_level,
@@ -1089,16 +1099,20 @@ impl Vmm {
     }
 
     fn init_guest_memory(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        let mem_size = self
-            .vm_config
-            .mem_size_mib
-            .ok_or(StartMicrovmError::GuestMemory(
-                memory_model::GuestMemoryError::MemoryNotInitialized,
-            ))?
-            << 20;
-        let arch_mem_regions = arch::arch_memory_regions(mem_size);
-        self.guest_memory =
-            Some(GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?);
+        if self.guest_memory().is_none() {
+            let mem_size = self
+                .vm_config
+                .mem_size_mib
+                .ok_or(StartMicrovmError::GuestMemory(
+                    memory_model::GuestMemoryError::MemoryNotInitialized,
+                ))?
+                << 20;
+            let arch_mem_regions = arch::arch_memory_regions(mem_size);
+            self.set_guest_memory(
+                GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?,
+            );
+        }
+
         self.vm
             .memory_init(
                 self.guest_memory
@@ -1436,7 +1450,18 @@ impl Vmm {
         Ok(())
     }
 
-    fn start_microvm(&mut self) -> std::result::Result<VmmData, VmmActionError> {
+    /// Set the guest memory based on a pre-constructed `GuestMemory` object.
+    pub fn set_guest_memory(&mut self, guest_memory: GuestMemory) {
+        self.guest_memory = Some(guest_memory);
+    }
+
+    /// Returns a reference to the inner `GuestMemory` object if present, or `None` otherwise.
+    pub fn guest_memory(&self) -> Option<&GuestMemory> {
+        self.guest_memory.as_ref()
+    }
+
+    /// Set up the initial microVM state and start the vCPU threads.
+    pub fn start_microvm(&mut self) -> std::result::Result<VmmData, VmmActionError> {
         info!("VMM received instance start command");
         if self.is_instance_initialized() {
             Err(StartMicrovmError::MicroVMAlreadyRunning)?;
@@ -1561,7 +1586,9 @@ impl Vmm {
         Ok(())
     }
 
-    fn run_control(&mut self) -> Result<()> {
+    /// Wait on VMM events and dispatch them to the appropriate handler. Returns to the caller
+    /// when a control action occurs.
+    fn run_event_loop(&mut self) -> Result<EventLoopExitReason> {
         // TODO: try handling of errors/failures without breaking this main loop.
         loop {
             let event = self.epoll_context.get_event()?;
@@ -1620,10 +1647,7 @@ impl Vmm {
                     }
                 }
                 Some(EpollDispatch::VmmActionRequest) => {
-                    self.api_event_fd.read().map_err(Error::EventFd)?;
-                    self.run_vmm_action().unwrap_or_else(|_| {
-                        warn!("got spurious notification from api thread");
-                    });
+                    return Ok(EventLoopExitReason::ControlAction);
                 }
                 Some(EpollDispatch::WriteMetrics) => {
                     self.write_metrics_event_fd.read();
@@ -1638,6 +1662,8 @@ impl Vmm {
                 }
             }
         }
+        // Currently, we never get to return with Ok(EventLoopExitReason::Break) because
+        // we just invoke stop() whenever that would happen.
     }
 
     // Count the number of pages dirtied since the last call to this function.
@@ -1654,13 +1680,13 @@ impl Vmm {
                     .unwrap_or(0 as usize)
             };
 
-        self.guest_memory
-            .as_ref()
+        self.guest_memory()
             .map(|ref mem| mem.map_and_fold(0, dirty_pages_in_region, std::ops::Add::add))
             .unwrap_or(0)
     }
 
-    fn configure_boot_source(
+    /// Set the guest boot source configuration.
+    pub fn configure_boot_source(
         &mut self,
         kernel_image_path: String,
         kernel_cmdline: Option<String>,
@@ -1694,7 +1720,8 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
-    fn set_vm_configuration(
+    /// Set the machine configuration of the microVM.
+    pub fn set_vm_configuration(
         &mut self,
         machine_config: VmConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
@@ -1739,7 +1766,8 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
-    fn insert_net_device(
+    /// Inserts a network device to be attached when the VM starts.
+    pub fn insert_net_device(
         &mut self,
         body: NetworkInterfaceConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
@@ -1817,7 +1845,8 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
-    fn set_vsock_device(
+    /// Sets a vsock device to be attached when the VM starts.
+    pub fn set_vsock_device(
         &mut self,
         config: VsockDeviceConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
@@ -1898,9 +1927,10 @@ impl Vmm {
         Err(VmmActionError::from(DriveError::InvalidBlockDeviceID))
     }
 
+    /// Inserts a block to be attached when the VM starts.
     // Only call this function as part of the API.
     // If the drive_id does not exist, a new Block Device Config is added to the list.
-    fn insert_block_device(
+    pub fn insert_block_device(
         &mut self,
         block_device_config: BlockDeviceConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
@@ -2087,6 +2117,11 @@ impl Vmm {
         }
         Ok(())
     }
+
+    /// Returns a reference to the inner KVM Vm object.
+    pub fn kvm_vm(&self) -> &Vm {
+        &self.vm
+    }
 }
 
 // Can't derive PartialEq directly because the sender members can't be compared.
@@ -2156,8 +2191,14 @@ pub fn start_vmm_thread(
         .name("fc_vmm".to_string())
         .spawn(move || {
             // If this fails, consider it fatal. Use expect().
-            let mut vmm = Vmm::new(api_shared_info, api_event_fd, from_api, seccomp_level)
-                .expect("Cannot create VMM");
+            let mut vmm = Vmm::new(
+                api_shared_info,
+                &api_event_fd,
+                from_api,
+                seccomp_level,
+                Kvm::new().expect("Error creating the Kvm object"),
+            )
+            .expect("Cannot create VMM");
 
             if let Some(json) = config_json {
                 if let Err(e) = vmm.configure_from_json(json) {
@@ -2177,16 +2218,39 @@ pub fn start_vmm_thread(
                 }
             }
 
-            match vmm.run_control() {
-                Ok(()) => {
-                    info!("Gracefully terminated VMM control loop");
-                    vmm.stop(i32::from(FC_EXIT_CODE_OK))
-                }
-                Err(e) => {
-                    error!("Abruptly exited VMM control loop: {:?}", e);
-                    vmm.stop(i32::from(FC_EXIT_CODE_GENERIC_ERROR));
-                }
-            }
+            // The loop continues to run as long as there is no error. Whenever run_event_loop
+            // returns due to a ControlAction, we handle it and invoke `continue`. Clippy thinks
+            // this never loops and complains about it, but Clippy is wrong.
+            #[allow(clippy::never_loop)]
+            let exit_code = loop {
+                // `break <expression>` causes the outer loop to break and return the result
+                // of evaluating <expression>, which in this case is the exit code.
+                break match vmm.run_event_loop() {
+                    Ok(exit_reason) => match exit_reason {
+                        EventLoopExitReason::Break => {
+                            info!("Gracefully terminated VMM control loop");
+                            FC_EXIT_CODE_OK
+                        }
+                        EventLoopExitReason::ControlAction => {
+                            if let Err(e) = api_event_fd.read() {
+                                error!("Error reading VMM API event_fd {:?}", e);
+                                FC_EXIT_CODE_GENERIC_ERROR
+                            } else {
+                                vmm.run_vmm_action().unwrap_or_else(|_| {
+                                    warn!("Got a spurious notification from api thread");
+                                });
+                                continue;
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        error!("Abruptly exited VMM control loop: {:?}", e);
+                        FC_EXIT_CODE_GENERIC_ERROR
+                    }
+                };
+            };
+
+            vmm.stop(i32::from(exit_code));
         })
         .expect("VMM thread spawn failed.")
 }
@@ -2284,6 +2348,13 @@ mod tests {
         }
     }
 
+    impl KvmContext {
+        pub fn new() -> Result<Self> {
+            let kvm = Kvm::new().map_err(Error::Kvm)?;
+            Self::with_kvm(kvm)
+        }
+    }
+
     struct DummyEpollHandler {
         evt: Option<DeviceEventT>,
     }
@@ -2353,9 +2424,10 @@ mod tests {
         let (_to_vmm, from_api) = channel();
         Vmm::new(
             shared_info,
-            EventFd::new().expect("cannot create eventFD"),
+            &EventFd::new().expect("Cannot create eventFD"),
             from_api,
             seccomp::SECCOMP_LEVEL_NONE,
+            Kvm::new().expect("Error creating Kvm object"),
         )
         .expect("Cannot Create VMM")
     }
@@ -2604,7 +2676,7 @@ mod tests {
             assert!(mmio_device
                 .device_mut()
                 .activate(
-                    vmm.guest_memory.as_ref().unwrap().clone(),
+                    vmm.guest_memory().unwrap().clone(),
                     EventFd::new().unwrap(),
                     Arc::new(AtomicUsize::new(0)),
                     vec![Queue::new(0), Queue::new(0)],
@@ -2843,7 +2915,7 @@ mod tests {
         // Test that creating a new block device returns the correct output.
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
@@ -2867,7 +2939,7 @@ mod tests {
         // Test that creating a new block device returns the correct output.
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
@@ -2895,7 +2967,7 @@ mod tests {
             .insert_block_device(non_root_block_device.clone())
             .is_ok());
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
@@ -2948,7 +3020,7 @@ mod tests {
     fn test_attach_net_devices() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
 
         vmm.default_kernel_config(None);
         vmm.setup_interrupt_controller()
@@ -3053,7 +3125,7 @@ mod tests {
             .is_ok());
 
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.init_mmio_device_manager()
@@ -3375,11 +3447,11 @@ mod tests {
     fn test_attach_legacy_devices_without_uart() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
 
-        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let guest_mem = vmm.guest_memory().unwrap().clone();
         let device_manager = MMIODeviceManager::new(
-            guest_mem.clone(),
+            guest_mem,
             &mut (arch::get_reserved_mem_addr() as u64),
             (arch::IRQ_BASE, arch::IRQ_MAX),
         );
@@ -3413,11 +3485,11 @@ mod tests {
     fn test_attach_legacy_devices_with_uart() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory.is_some());
+        assert!(vmm.guest_memory().is_some());
 
-        let guest_mem = vmm.guest_memory.clone().unwrap();
+        let guest_mem = vmm.guest_memory().unwrap().clone();
         let device_manager = MMIODeviceManager::new(
-            guest_mem.clone(),
+            guest_mem,
             &mut (arch::get_reserved_mem_addr() as u64),
             (arch::IRQ_BASE, arch::IRQ_MAX),
         );
@@ -4122,6 +4194,25 @@ mod tests {
                 VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot)
             ),
             "VsockConfig(User, UpdateNotAllowedPostBoot)"
+        );
+    }
+
+    #[test]
+    fn test_misc() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+
+        assert!(vmm.guest_memory().is_none());
+
+        let mem = GuestMemory::new(&[(GuestAddress(0x1000), 0x100)]).unwrap();
+        vmm.set_guest_memory(mem);
+
+        let mem_ref = vmm.guest_memory().unwrap();
+        assert_eq!(mem_ref.num_regions(), 1);
+        assert_eq!(mem_ref.end_addr(), GuestAddress(0x1100));
+
+        assert_eq!(
+            vmm.kvm_vm().get_fd().as_raw_fd(),
+            vmm.vm.get_fd().as_raw_fd()
         );
     }
 }
