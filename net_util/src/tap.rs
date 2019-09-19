@@ -455,6 +455,17 @@ mod tests {
     }
 
     #[test]
+    fn test_build_if_name() {
+        assert!(build_terminated_if_name("tap_build_if_n").is_ok());
+        assert!(build_terminated_if_name("tap_build_if_name").is_err());
+    }
+
+    #[test]
+    fn test_tap_partial_eq() {
+        assert_ne!(Tap::new().unwrap(), Tap::new().unwrap());
+    }
+
+    #[test]
     fn test_tap_configure() {
         // `fetch_add` adds to the current value, returning the previous value.
         let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
@@ -475,6 +486,13 @@ mod tests {
         let tap = Tap::new().unwrap();
         tap.set_vnet_hdr_size(16).unwrap();
         tap.set_offload(0).unwrap();
+
+        let faulty_tap = Tap {
+            tap_file: unsafe { File::from_raw_fd(-1) },
+            if_name: [0x01; 16],
+        };
+        assert!(faulty_tap.set_vnet_hdr_size(16).is_err());
+        assert!(faulty_tap.set_offload(0).is_err());
     }
 
     #[test]
