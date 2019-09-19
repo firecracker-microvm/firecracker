@@ -19,10 +19,12 @@ the Linux Kernel Virtual Machine (KVM) to create and run microVMs. Firecracker
 has a minimalist design. It excludes unnecessary devices and guest-facing
 functionality to reduce the memory footprint and attack surface area of each
 microVM. This improves security, decreases the startup time, and increases
-hardware utilization. Firecracker currently supports Intel, AMD (beta) and Arm
-(beta) CPUs. Firecracker can also be integrated in container runtimes. Checkout
-[Kata Containers with Firecracker.](https://github.com/kata-containers/documentation/wiki/Initial-release-of-Kata-Containers-with-Firecracker-support)
- 
+hardware utilization. Firecracker currently supports Intel, AMD (preview) and
+Arm (preview) CPUs. Firecracker has also been integrated in container runtimes,
+for example
+[Kata Containers](https://github.com/kata-containers/documentation/wiki/Initial-release-of-Kata-Containers-with-Firecracker-support)
+and [Weaveworks Ignite](https://github.com/weaveworks/ignite).
+
 Firecracker was developed at Amazon Web Services to accelerate the speed and
 efficiency of services like [AWS Lambda](https://aws.amazon.com/lambda/) and
 [AWS Fargate](https://aws.amazon.com/fargate/). Firecracker is open
@@ -34,7 +36,8 @@ To read more about Firecracker, check out
 ## Getting Started
 
 To get started with Firecracker, download the latest
-[release](https://github.com/firecracker-microvm/firecracker/releases) binaries or build it from source.
+[release](https://github.com/firecracker-microvm/firecracker/releases) binaries
+or build it from source.
 
 You can build Firecracker on any system that has Docker running (we use a
 development container) as follows:
@@ -46,8 +49,9 @@ tools/devtool build
 toolchain="$(uname -m)-unkown-linux-musl"
 ```
 
-The Firecracker binary will be placed at `build/cargo_target/${toolchain}/debug/firecracker`. 
-For more information on building, testing, and running Firecracker, go to the
+The Firecracker binary will be placed at
+`build/cargo_target/${toolchain}/debug/firecracker`. For more information on
+building, testing, and running Firecracker, go to the
 [quickstart guide](docs/getting-started.md).
 
 The overall security of Firecracker microVMs, including the ability to meet the
