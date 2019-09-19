@@ -1,27 +1,31 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt;
+
 use serde_json::Value;
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
-#[derive(Clone)]
 pub struct Mmds {
     data_store: Value,
     is_initialized: bool,
 }
 
+/// Errors thrown while accessing and configuring the MMDS data store.
 #[derive(Debug, PartialEq)]
 pub enum Error {
+    /// The MMDS resource does not exist.
     NotFound,
+    /// Failure while adding non-strings values to the MMDS data-store.
     UnsupportedValueType,
 }
 
-impl Error {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::NotFound => "The MMDS resource does not exist.".to_string(),
+            Error::NotFound => write!(f, "The MMDS resource does not exist."),
             Error::UnsupportedValueType => {
-                "Cannot add non-strings values to the MMDS data-store.".to_string()
+                write!(f, "Cannot add non-strings values to the MMDS data-store.")
             }
         }
     }
@@ -51,7 +55,7 @@ impl Mmds {
     /// This method validates the data from a PATCH or PUT request and returns
     /// an UnsupportedValueType error if the data contain any value type other than
     /// Strings, arrays and dictionaries.
-    pub fn check_data_valid(data: &Value) -> Result<(), Error> {
+    fn check_data_valid(data: &Value) -> Result<(), Error> {
         if let Some(map) = data.as_object() {
             for key in map.keys() {
                 Mmds::check_data_valid(&map[key])?;
@@ -66,6 +70,10 @@ impl Mmds {
         Ok(())
     }
 
+    /// Creates the data store.
+    /// # Arguments
+    ///
+    /// * `data` - data from which the data store is gonna get initialized.
     pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
         Mmds::check_data_valid(&data)?;
         self.data_store = data;
@@ -73,6 +81,10 @@ impl Mmds {
         Ok(())
     }
 
+    /// Patches the data store.
+    /// # Arguments
+    ///
+    /// * `patch_data` - data used to patch the store.
     pub fn patch_data(&mut self, patch_data: Value) -> Result<(), Error> {
         Mmds::check_data_valid(&patch_data)?;
         self.check_data_store_initialized()?;
@@ -80,6 +92,7 @@ impl Mmds {
         Ok(())
     }
 
+    /// Translate the data store to a string.
     pub fn get_data_str(&self) -> String {
         if self.data_store.is_null() {
             return String::from("{}");
@@ -94,7 +107,7 @@ impl Mmds {
     /// 2. For a (key, value) pair where the value is a simple type (bool, string, number),
     /// it will return the value.
     ///
-    /// When the path is not found, a NotFound error is returned.
+    /// When the path is not found, a `NotFound` error is returned.
     pub fn get_value(&self, path: String) -> Result<Vec<String>, Error> {
         // The pointer function splits the input by "/". With a trailing "/", pointer does not
         // know how to get the object.
@@ -156,6 +169,7 @@ mod tests {
             mmds.check_data_store_initialized().unwrap_err().to_string(),
             "The MMDS resource does not exist.".to_string(),
         );
+        assert_eq!(mmds.get_data_str(), String::from("{}"));
 
         let mut mmds_json = "{\"meta-data\":{\"iam\":\"dummy\"},\"user-data\":\"1522850095\"}";
 

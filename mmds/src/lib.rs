@@ -1,12 +1,17 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![deny(missing_docs)]
+//! Provides methods for populating and retrieving content from the data store attached to the the
+//! microVM instance metadata service (MMDS).
+
 #[macro_use]
 extern crate lazy_static;
 extern crate serde_json;
 
 extern crate micro_http;
 
+/// Implements the data store for this MMDS.
 pub mod data_store;
 
 use serde_json::{Map, Value};
@@ -16,15 +21,15 @@ use data_store::{Error as MmdsError, Mmds};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 
 lazy_static! {
-    // A static reference to a global Mmds instance. We currently use this for ease of access during
-    // prototyping. We'll consider something like passing Arc<Mutex<Mmds>> references to the
-    // appropriate threads in the future.
+    /// A static reference to a global Mmds instance. We currently use this for ease of access during
+    /// prototyping. We'll consider something like passing Arc<Mutex<Mmds>> references to the
+    /// appropriate threads in the future.
     pub static ref MMDS: Arc<Mutex<Mmds>> = Arc::new(Mutex::new(Mmds::default()));
 }
 
 /// Patch provided JSON document (given as `serde_json::Value`) in-place with JSON Merge Patch
 /// [RFC 7396](https://tools.ietf.org/html/rfc7396).
-pub fn json_patch(target: &mut Value, patch: &Value) {
+fn json_patch(target: &mut Value, patch: &Value) {
     if patch.is_object() {
         if !target.is_object() {
             // Replace target with a serde_json object so we can recursively copy patch values.
@@ -56,6 +61,7 @@ fn build_response(http_version: Version, status_code: StatusCode, body: Body) ->
     response
 }
 
+/// Parses a HTTP request and returns a HTTP response containing the requested MMDS data.
 pub fn parse_request(request_bytes: &[u8]) -> Response {
     let request = Request::try_from(request_bytes);
     match request {
