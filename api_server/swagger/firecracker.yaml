@@ -353,6 +353,31 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /vm-config:
+    put:
+      summary: Creates and starts a microvm.
+      description:
+        Configures and starts a microvm from one single json.
+      operationId: putVmConfig
+      parameters:
+        - name: body
+          in: body
+          description: Guest vm properties
+          required: true
+          schema:
+            $ref: "#/definitions/VmConfig"
+      responses:
+        204:
+          description: Vm created
+        400:
+          description: Vm cannot be created due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /vsock:
     put:
       summary: Creates/updates a vsock device.
@@ -639,6 +664,29 @@ definitions:
         format: int64
         description: The amount of milliseconds it takes for the bucket to refill.
         minimum: 0
+
+  VmConfig:
+    type: object
+    required:
+      - boot-source
+      - drives
+    properties:
+      boot-source:
+        $ref: "#/definitions/BootSource"
+      drives:
+        type: array
+        items:
+          $ref: "#/definitions/Drive"
+      network-interfaces:
+        type: array
+        items:
+          $ref: "#/definitions/NetworkInterface"
+      logger:
+        $ref: "#/definitions/Logger"
+      machine-config:
+        $ref: "#/definitions/MachineConfiguration"
+      vsock:
+        $ref: "#/definitions/Vsock"
 
   Vsock:
     type: object

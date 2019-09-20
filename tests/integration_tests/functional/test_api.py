@@ -12,6 +12,8 @@ import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
 import host_tools.network as net_tools
 
+from framework.resources import BootSource, Drive, Logger
+
 
 def test_api_happy_start(test_microvm_with_api):
     """Test a regular microvm API start sequence."""
@@ -759,5 +761,71 @@ def test_api_vsock(test_microvm_with_api):
         vsock_id='vsock3',
         guest_cid=18,
         uds_path='vsock.sock'
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+
+def test_ok_one_api_start(test_microvm_with_api):
+    """Test successful microvm start with a PUT /vm-config call."""
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    boot_source_json = BootSource.create_json(
+        boot_args='console=ttyS0 reboot=k panic=1 pci=off',
+        kernel_image_path=test_microvm.
+        create_jailed_resource(test_microvm.kernel_file))
+    rootfs_json = Drive.create_json(
+        drive_id='rootfs',
+        path_on_host=test_microvm.create_jailed_resource(
+            test_microvm.rootfs_file),
+        is_root_device=True,
+        is_read_only=False)
+
+    # Configure logging.
+    log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    log_fifo = log_tools.Fifo(log_fifo_path)
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+
+    logger_json = Logger.create_json(
+        log_fifo=test_microvm.create_jailed_resource(log_fifo.path),
+        metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo.path))
+
+    response = test_microvm.vm_config.put(
+        boot_source=boot_source_json,
+        block_devices=[rootfs_json],
+        logger=logger_json
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Check that microvm was successfully booted.
+    lines = log_fifo.sequential_reader(1)
+    assert lines[0].startswith('Running Firecracker')
+
+
+def test_bad_one_api_start(test_microvm_with_api):
+    """Test microvm start with invalid PUT /vm-config call."""
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    boot_source_json = BootSource.create_json(
+        boot_args='console=ttyS0 reboot=k panic=1 pci=off',
+        kernel_image_path=test_microvm.
+        create_jailed_resource(test_microvm.kernel_file))
+    rootfs_json = Drive.create_json(
+        drive_id='rootfs',
+        path_on_host=test_microvm.create_jailed_resource(
+            test_microvm.rootfs_file),
+        is_root_device=True,
+        is_read_only=False)
+
+    logger_json = Logger.create_json(
+        log_fifo="invalid_path",
+        metrics_fifo="other_invalid_path")
+
+    response = test_microvm.vm_config.put(
+        boot_source=boot_source_json,
+        block_devices=[rootfs_json],
+        logger=logger_json
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)

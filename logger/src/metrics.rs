@@ -143,6 +143,8 @@ pub struct PutRequestsMetrics {
     pub network_count: SharedMetric,
     /// Number of failures in creating a new network interface.
     pub network_fails: SharedMetric,
+    /// Number of failures in configuring the microVM.
+    pub vm_cfg_fails: SharedMetric,
 }
 
 /// Metrics specific to PATCH API Requests for counting user triggered actions and/or failures.

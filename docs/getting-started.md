@@ -265,6 +265,24 @@ You can find an example of configuration file at `tests/framework/vm_config.json
 After the machine is booted, you can still use the socket to send API requests
 for post-boot operations.
 
+#### Configuring the microVM by sending one API request
+
+If you don't want to send separate PUT requests for every resource, you could use 
+a PUT request on `/vm-config` for configuring and starting a microVM. The command 
+will look like this:
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i  \
+    -X PUT 'http://localhost/vm-config' \
+    -H 'Accept: application/json'            \
+    -H 'Content-Type: application/json'      \
+    -d 'JSON_BODY'
+```
+
+where `JSON_BODY` represents the JSON which will be used for the configuration of 
+the microVM. The content of this JSON should follow the same constraints as the one 
+from the configuration file mentioned in the previous section. 
+
 ## Building From Source
 
 The quickest way to build and test Firecracker is by using our development

@@ -232,6 +232,8 @@ pub enum VmmActionError {
     /// The action `set_vsock_device` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     VsockConfig(ErrorKind, VsockError),
+    /// The action `ConfigureVm` failed because of an intrinsic `VmmActionError`.
+    SingleApiConfig(Box<VmmActionError>),
 }
 
 // It's convenient to turn DriveErrors into VmmActionErrors directly.
@@ -364,6 +366,7 @@ impl VmmActionError {
             StartMicrovm(ref kind, _) => kind,
             SendCtrlAltDel(ref kind, _) => kind,
             VsockConfig(ref kind, _) => kind,
+            SingleApiConfig(ref action_error) => action_error.kind(),
         }
     }
 }
@@ -381,6 +384,10 @@ impl Display for VmmActionError {
             StartMicrovm(_, ref err) => err,
             SendCtrlAltDel(_, ref err) => err,
             VsockConfig(_, ref err) => err,
+            SingleApiConfig(ref err) => {
+                write!(f, "The configuration of VMM from one single JSON failed: ")?;
+                err
+            }
         };
 
         write!(f, "{}", error.to_string())
@@ -436,6 +443,9 @@ pub enum VmmAction {
     /// Update a network interface, after microVM start. Currently, the only updatable properties
     /// are the RX and TX rate limiters.
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig, OutcomeSender),
+    /// Configure a microVM using `VmmConfig` as input. This action is called when the user wants
+    /// to configure and start a machine with only one PUT request.
+    ConfigureVm(Box<VmmConfig>, OutcomeSender),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
@@ -764,20 +774,26 @@ struct KernelConfig {
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct VmmConfig {
+    /// Boot source configuration.
     #[serde(rename = "boot-source")]
-    boot_source: BootSourceConfig,
+    pub boot_source: BootSourceConfig,
+    /// Block devices attached to the vm.
     #[serde(rename = "drives")]
-    block_devices: Vec<BlockDeviceConfig>,
+    pub block_devices: Vec<BlockDeviceConfig>,
+    /// Network devices attached to the vm.
     #[serde(rename = "network-interfaces", default)]
-    net_devices: Vec<NetworkInterfaceConfig>,
+    pub net_devices: Vec<NetworkInterfaceConfig>,
+    /// Logger configuration.
     #[serde(rename = "logger")]
-    logger: Option<LoggerConfig>,
+    pub logger: Option<LoggerConfig>,
+    /// Machine configuration.
     #[serde(rename = "machine-config")]
-    machine_config: Option<VmConfig>,
+    pub machine_config: Option<VmConfig>,
+    /// Vsock device attached to the vm.
     #[serde(rename = "vsock")]
-    vsock_device: Option<VsockDeviceConfig>,
+    pub vsock_device: Option<VsockDeviceConfig>,
 }
 
 /// Contains the state and associated methods required for the Firecracker VMM.
@@ -2081,6 +2097,19 @@ impl Vmm {
             UpdateNetworkInterface(netif_update, sender) => {
                 Vmm::send_response(self.update_net_device(netif_update), sender);
             }
+            ConfigureVm(vmm_config, sender) => {
+                let outcome = match self
+                    .configure(*vmm_config)
+                    .map_err(|e| VmmActionError::SingleApiConfig(Box::new(e)))
+                {
+                    Err(e) => {
+                        error!("Fatal error: {}", e);
+                        Err(e)
+                    }
+                    _ => self.start_microvm(),
+                };
+                Vmm::send_response(outcome, sender);
+            }
         };
         Ok(())
     }
@@ -2100,16 +2129,7 @@ impl Vmm {
         );
     }
 
-    fn configure_from_json(
-        &mut self,
-        config_json: String,
-    ) -> std::result::Result<(), VmmActionError> {
-        let vmm_config = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
-            .unwrap_or_else(|e| {
-                error!("Invalid json: {}", e);
-                process::exit(i32::from(FC_EXIT_CODE_INVALID_JSON));
-            });
-
+    fn configure(&mut self, vmm_config: VmmConfig) -> std::result::Result<(), VmmActionError> {
         if let Some(logger) = vmm_config.logger {
             self.init_logger(logger)?;
         }
@@ -2178,6 +2198,9 @@ impl PartialEq for VmmAction {
             (&StartMicroVm(_), &StartMicroVm(_)) => true,
             (&SendCtrlAltDel(_), &SendCtrlAltDel(_)) => true,
             (&FlushMetrics(_), &FlushMetrics(_)) => true,
+            (&ConfigureVm(ref vm_cfg, _), &ConfigureVm(ref other_vm_cfg, _)) => {
+                vm_cfg == other_vm_cfg
+            }
             _ => false,
         }
     }
@@ -2213,7 +2236,11 @@ pub fn start_vmm(
     .expect("Cannot create VMM");
 
     if let Some(json) = config_json {
-        vmm.configure_from_json(json).unwrap_or_else(|err| {
+        let vmm_config = serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap_or_else(|e| {
+            error!("Invalid json: {}", e);
+            process::exit(i32::from(FC_EXIT_CODE_INVALID_JSON));
+        });
+        vmm.configure(vmm_config).unwrap_or_else(|err| {
             error!(
                 "Setting configuration for VMM from one single json failed: {}",
                 err
@@ -3562,7 +3589,7 @@ mod tests {
     }
 
     #[test]
-    fn test_configure_vmm_from_json() {
+    fn test_configure_vmm() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
 
         let kernel_file = NamedTempFile::new().unwrap();
@@ -3592,7 +3619,7 @@ mod tests {
             rootfs_file.path().to_str().unwrap()
         );
 
-        match vmm.configure_from_json(json) {
+        match vmm.configure(serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap()) {
             Err(VmmActionError::BootSource(
                 ErrorKind::User,
                 BootSourceConfigError::InvalidKernelPath,
@@ -3619,7 +3646,7 @@ mod tests {
             kernel_file.path().to_str().unwrap()
         );
 
-        match vmm.configure_from_json(json) {
+        match vmm.configure(serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap()) {
             Err(VmmActionError::DriveConfig(
                 ErrorKind::User,
                 DriveError::InvalidBlockDevicePath,
@@ -3652,7 +3679,7 @@ mod tests {
             rootfs_file.path().to_str().unwrap()
         );
 
-        match vmm.configure_from_json(json) {
+        match vmm.configure(serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap()) {
             Err(VmmActionError::MachineConfig(
                 ErrorKind::User,
                 VmConfigError::InvalidVcpuCount,
@@ -3685,7 +3712,7 @@ mod tests {
             rootfs_file.path().to_str().unwrap()
         );
 
-        match vmm.configure_from_json(json) {
+        match vmm.configure(serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap()) {
             Err(VmmActionError::MachineConfig(
                 ErrorKind::User,
                 VmConfigError::InvalidMemorySize,
@@ -3717,7 +3744,7 @@ mod tests {
             rootfs_file.path().to_str().unwrap()
         );
 
-        match vmm.configure_from_json(json) {
+        match vmm.configure(serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap()) {
             Err(VmmActionError::Logger(
                 ErrorKind::User,
                 LoggerConfigError::InitializationFailure { .. },
@@ -3755,7 +3782,7 @@ mod tests {
             rootfs_file.path().to_str().unwrap()
         );
 
-        match vmm.configure_from_json(json) {
+        match vmm.configure(serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap()) {
             Err(VmmActionError::NetworkConfig(
                 ErrorKind::User,
                 NetworkInterfaceError::HostDeviceNameInUse { .. },
@@ -3786,17 +3813,24 @@ mod tests {
                             "host_dev_name": "hostname8"
                         }}
                     ],
+                    "vsock": {{
+                        "vsock_id": "1",
+                        "guest_cid": 3,
+                        "uds_path": "./v.sock"
+                    }},
                      "machine-config": {{
-                            "vcpu_count": 2,
-                            "mem_size_mib": 1024,
-                            "ht_enabled": false
+                        "vcpu_count": 2,
+                        "mem_size_mib": 1024,
+                        "ht_enabled": false
                      }}
             }}"#,
             kernel_file.path().to_str().unwrap(),
             rootfs_file.path().to_str().unwrap()
         );
 
-        assert!(vmm.configure_from_json(json).is_ok());
+        assert!(vmm
+            .configure(serde_json::from_slice::<VmmConfig>(json.as_bytes()).unwrap())
+            .is_ok());
     }
 
     // Helper function to get ErrorKind of error.
@@ -4184,6 +4218,16 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
+                VmmActionError::DriveConfig(
+                    ErrorKind::User,
+                    DriveError::BlockDevicePathAlreadyExists
+                )
+            ),
+            "The block device path was already added to a different drive!"
+        );
+        assert_eq!(
+            format!(
+                "{}",
                 VmmActionError::Logger(
                     ErrorKind::User,
                     LoggerConfigError::FlushMetrics(String::from("Failed to flush metrics"))
@@ -4224,11 +4268,26 @@ mod tests {
             "Logger(User, InitializationFailure(\"foobar\"))"
         );
         assert_eq!(
+            VmmActionError::Logger(
+                ErrorKind::User,
+                LoggerConfigError::InitializationFailure(String::from("foobar"))
+            )
+            .kind(),
+            &ErrorKind::User
+        );
+        assert_eq!(
             format!(
                 "{:?}",
                 VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::InvalidMemorySize)
             ),
             "MachineConfig(User, InvalidMemorySize)"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::InvalidMemorySize)
+            ),
+            "The memory size (MiB) is invalid."
         );
         assert_eq!(
             format!(
@@ -4239,6 +4298,16 @@ mod tests {
                 )
             ),
             "NetworkConfig(User, DeviceIdNotFound)"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                VmmActionError::NetworkConfig(
+                    ErrorKind::User,
+                    NetworkInterfaceError::DeviceIdNotFound
+                )
+            ),
+            "Invalid interface ID - not found."
         );
         assert_eq!(
             format!(
@@ -4278,6 +4347,46 @@ mod tests {
                 VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot)
             ),
             "VsockConfig(User, UpdateNotAllowedPostBoot)"
+        );
+        assert_eq!(
+            VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot)
+                .kind(),
+            &ErrorKind::User
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot)
+            ),
+            "The update operation is not allowed after boot."
+        );
+        assert_eq!(
+            VmmActionError::SingleApiConfig(Box::new(VmmActionError::BootSource(
+                ErrorKind::User,
+                BootSourceConfigError::InvalidKernelPath,
+            )))
+            .kind(),
+            &ErrorKind::User
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::SingleApiConfig(Box::new(VmmActionError::BootSource(
+                    ErrorKind::User,
+                    BootSourceConfigError::InvalidKernelPath,
+                )))
+            ),
+            "SingleApiConfig(BootSource(User, InvalidKernelPath))"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                VmmActionError::SingleApiConfig(Box::new(VmmActionError::BootSource(
+                    ErrorKind::User,
+                    BootSourceConfigError::InvalidKernelPath,
+                )))
+            ),
+            "The configuration of VMM from one single JSON failed: The kernel file cannot be opened due to invalid kernel path or invalid permissions."
         );
     }
 

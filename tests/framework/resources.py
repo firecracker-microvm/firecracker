@@ -383,6 +383,57 @@ class Network:
         return datax
 
 
+class VmConfig:
+    """Facility for configuring a microVM."""
+
+    VM_CFG_RESOURCE = 'vm-config'
+
+    __vm_cfg_url = None
+    __api_session = None
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        type(self).__vm_cfg_url = api_url + self.VM_CFG_RESOURCE
+        type(self).__api_session = api_session
+
+    @classmethod
+    def put(cls, **args):
+        """Configure a new vm."""
+        datax = cls.create_json(**args)
+        return VmConfig.__api_session.put(
+            VmConfig.__vm_cfg_url,
+            json=datax
+        )
+
+    @staticmethod
+    def create_json(
+            boot_source=None,
+            block_devices=None,
+            net_devices=None,
+            logger=None,
+            machine_config=None,
+            vsock_device=None
+
+    ):
+        """Compose the json associated to this type of API request."""
+        datax = {}
+        if boot_source is not None:
+            datax['boot-source'] = boot_source
+        if block_devices is not None:
+            datax['drives'] = block_devices
+        if net_devices is not None:
+            datax['network-interfaces'] = net_devices
+        if logger is not None:
+            datax['logger'] = logger
+        if machine_config is not None:
+            datax['machine-config'] = machine_config
+        if vsock_device is not None:
+            datax['vsock'] = vsock_device
+        return datax
+
+
 class Vsock:
     """Facility for handling vsock configuration for a microvm."""
 

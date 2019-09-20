@@ -4,18 +4,21 @@
 
 ### Added
 
-- New command-line parameter for `firecracker`, named `--no-api`, which
-  will disable the API server thread. If set, the user won't be able to send
-  any API requests, neither before, nor after the vm has booted. It must be
-  paired with `--config-file` parameter. Also, when API server is disabled,
-  MMDS is no longer available now.
 - New command-line parameter for `firecracker`, named `--config-file`, which
   represents the path to a file that contains a JSON which can be used for
   configuring and starting a microVM without sending any API requests.
 - The jailer adheres to the "end of command options" convention, meaning
   all parameters specified after `--` are forwarded verbatim to Firecracker.
+- New command-line parameter for `firecracker`, named `--no-api`, which
+  will disable the API server thread. If set, the user won't be able to send
+  any API requests, neither before, nor after the vm has booted. It must be
+  paired with `--config-file` parameter. Also, when API server is disabled,
+  MMDS is no longer available now.
 - Added `KVM_PTP` support to the recommended guest kernel config.
 - Added entry in FAQ.md for Firecracker Guest timekeeping.
+- New API call, `PUT /vm-config`, which configures and starts a microVM.
+  The JSON from the body of this request should contain the desired configuration
+  for all of the microVM's resources.
 
 ### Changed
 

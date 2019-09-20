@@ -24,7 +24,7 @@ from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import Actions, BootSource, Drive, Logger, MMDS, \
-    MachineConfigure, Network, Vsock
+    MachineConfigure, Network, Vsock, VmConfig
 
 
 class Microvm:
@@ -96,6 +96,7 @@ class Microvm:
         self.network = None
         self.machine_cfg = None
         self.vsock = None
+        self.vm_config = None
 
         # Optional file that contains a json for configuring microvm from
         # command line parameter.
@@ -268,6 +269,7 @@ class Microvm:
         self.mmds = MMDS(self._api_socket, self._api_session)
         self.network = Network(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
+        self.vm_config = VmConfig(self._api_socket, self._api_session)
 
         jailer_param_list = self._jailer.construct_param_list(self.config_file,
                                                               self.no_api)
