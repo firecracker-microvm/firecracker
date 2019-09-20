@@ -575,6 +575,14 @@ impl hyper::server::Service for ApiServerHttpService {
                         )))
                     }
                     Sync(sync_req, outcome_receiver) => {
+                        // It only makes sense that we firstly log the incoming API request and
+                        // only after that we forward it to the VMM.
+                        let body_desc = match method_copy {
+                            Method::Get => None,
+                            _ => Some(String::from_utf8_lossy(&b.to_vec()).to_string()),
+                        };
+                        log_received_api_request(describe(&method_copy, &path, &body_desc));
+
                         if send_to_vmm(sync_req, &api_request_sender, &vmm_send_event).is_err() {
                             METRICS.api_server.sync_vmm_send_timeout_count.inc();
                             return Either::A(future::err(hyper::Error::Timeout));
@@ -582,18 +590,12 @@ impl hyper::server::Service for ApiServerHttpService {
 
                         // metric-logging related variables for being able to log response details
                         let path_copy = path.clone();
-                        let body_desc = match method_copy {
-                            Method::Get => None,
-                            _ => Some(String::from_utf8_lossy(&b.to_vec()).to_string()),
-                        };
 
                         // We need to clone the description of the request because these are moved
                         // in the below closure.
                         let path_copy_err = path_copy.clone();
                         let method_copy_err = method_copy.clone();
                         let body_desc_err = body_desc.clone();
-
-                        log_received_api_request(describe(&method_copy, &path, &body_desc));
 
                         // Sync requests don't receive a response until the outcome is returned.
                         // Once more, this just registers a closure to run when the result is
