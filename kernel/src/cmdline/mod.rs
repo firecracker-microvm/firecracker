@@ -50,7 +50,7 @@ pub type Result<T> = result::Result<T, Error>;
 
 fn valid_char(c: char) -> bool {
     match c {
-        ' '...'~' => true,
+        ' '..='~' => true,
         _ => false,
     }
 }
