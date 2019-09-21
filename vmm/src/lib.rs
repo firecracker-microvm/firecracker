@@ -372,7 +372,7 @@ impl Display for VmmActionError {
         use self::VmmActionError::*;
 
         let error = match *self {
-            BootSource(_, ref err) => err as &ToString,
+            BootSource(_, ref err) => err as &dyn ToString,
             DriveConfig(_, ref err) => err,
             Logger(_, ref err) => err,
             MachineConfig(_, ref err) => err,
@@ -538,12 +538,12 @@ enum EpollDispatch {
 }
 
 struct MaybeHandler {
-    handler: Option<Box<EpollHandler>>,
-    receiver: Receiver<Box<EpollHandler>>,
+    handler: Option<Box<dyn EpollHandler>>,
+    receiver: Receiver<Box<dyn EpollHandler>>,
 }
 
 impl MaybeHandler {
-    fn new(receiver: Receiver<Box<EpollHandler>>) -> Self {
+    fn new(receiver: Receiver<Box<dyn EpollHandler>>) -> Self {
         MaybeHandler {
             handler: None,
             receiver,
@@ -656,7 +656,7 @@ impl EpollContext {
     /// This device's handler will be added to the end of `device_handlers`.
     /// This returns the index of the first token, and a channel on which to
     /// send an epoll handler for the relevant device.
-    fn allocate_tokens_for_device(&mut self, count: usize) -> (u64, Sender<Box<EpollHandler>>) {
+    fn allocate_tokens_for_device(&mut self, count: usize) -> (u64, Sender<Box<dyn EpollHandler>>) {
         let dispatch_base = self.dispatch_table.len() as u64;
         let device_idx = self.device_handlers.len();
         let (sender, receiver) = channel();
@@ -692,7 +692,7 @@ impl EpollContext {
         T::new(dispatch_base, self.epoll_raw_fd, sender)
     }
 
-    fn get_device_handler_by_handler_id(&mut self, id: usize) -> Result<&mut EpollHandler> {
+    fn get_device_handler_by_handler_id(&mut self, id: usize) -> Result<&mut dyn EpollHandler> {
         let maybe = &mut self.device_handlers[id];
         match maybe.handler {
             Some(ref mut v) => Ok(v.as_mut()),
@@ -818,7 +818,7 @@ impl Vmm {
     /// Creates a new VMM object.
     pub fn new(
         api_shared_info: Arc<RwLock<InstanceInfo>>,
-        control_fd: &AsRawFd,
+        control_fd: &dyn AsRawFd,
         from_api: Receiver<Box<VmmAction>>,
         seccomp_level: u32,
         kvm: Kvm,
@@ -1167,7 +1167,7 @@ impl Vmm {
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn get_serial_device(&self) -> Option<Arc<Mutex<RawIOHandler>>> {
+    fn get_serial_device(&self) -> Option<Arc<Mutex<dyn RawIOHandler>>> {
         Some(self.pio_device_manager.stdio_serial.clone())
     }
 
