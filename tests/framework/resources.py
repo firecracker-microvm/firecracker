@@ -386,7 +386,7 @@ class Network:
 class Vsock:
     """Facility for handling vsock configuration for a microvm."""
 
-    VSOCK_CFG_RESOURCE = 'vsocks'
+    VSOCK_CFG_RESOURCE = 'vsock'
 
     __vsock_cfg_url = None
     __api_session = None
@@ -403,7 +403,7 @@ class Vsock:
         """Attach a new vsock device."""
         datax = cls.create_json(**args)
         return Vsock.__api_session.put(
-            "{}/{}".format(Vsock.__vsock_cfg_url, args['vsock_id']),
+            Vsock.__vsock_cfg_url,
             json=datax
         )
 
@@ -412,19 +412,21 @@ class Vsock:
         """Apply an update to some vsock device."""
         datax = cls.create_json(**args)
         return Vsock.__api_session.patch(
-            "{}/{}".format(Vsock.__vsock_cfg_url, args['vsock_id']),
+            Vsock.__vsock_cfg_url,
             json=datax
         )
 
     @staticmethod
     def create_json(
             vsock_id,
-            guest_cid
+            guest_cid,
+            uds_path
     ):
         """Create the json for the vsock specific API request."""
         datax = {
-            'id': vsock_id,
-            'guest_cid': guest_cid
+            'vsock_id': vsock_id,
+            'guest_cid': guest_cid,
+            'uds_path': uds_path
         }
 
         return datax

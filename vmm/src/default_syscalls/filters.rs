@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use seccomp::{
-    allow_syscall, allow_syscall_if, Error, SeccompAction, SeccompCmpOp::Eq,
-    SeccompCondition as Cond, SeccompFilter, SeccompRule,
+    allow_syscall, allow_syscall_if, Error, SeccompAction, SeccompCmpArgLen as ArgLen,
+    SeccompCmpOp::Eq, SeccompCondition as Cond, SeccompFilter, SeccompRule,
 };
 
 // Currently these variables are missing from rust libc:
@@ -36,14 +36,9 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall(libc::SYS_brk),
             allow_syscall(libc::SYS_clock_gettime),
             allow_syscall(libc::SYS_close),
+            allow_syscall(libc::SYS_connect),
             allow_syscall(libc::SYS_dup),
-            allow_syscall_if(
-                libc::SYS_epoll_ctl,
-                or![
-                    and![Cond::new(1, Eq, super::EPOLL_CTL_ADD)?],
-                    and![Cond::new(1, Eq, super::EPOLL_CTL_DEL)?],
-                ],
-            ),
+            allow_syscall(libc::SYS_epoll_ctl),
             allow_syscall(libc::SYS_epoll_pwait),
             #[cfg(all(target_env = "gnu", target_arch = "x86_64"))]
             allow_syscall(libc::SYS_epoll_wait),
@@ -52,8 +47,8 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall_if(
                 SYS_fcntl,
                 or![and![
-                    Cond::new(1, Eq, super::FCNTL_F_SETFD)?,
-                    Cond::new(2, Eq, super::FCNTL_FD_CLOEXEC)?,
+                    Cond::new(1, ArgLen::DWORD, Eq, super::FCNTL_F_SETFD)?,
+                    Cond::new(2, ArgLen::QWORD, Eq, super::FCNTL_FD_CLOEXEC)?,
                 ]],
             ),
             allow_syscall(SYS_fstat),
@@ -62,11 +57,21 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall_if(
                 libc::SYS_futex,
                 or![
-                    and![Cond::new(1, Eq, super::FUTEX_WAIT_PRIVATE)?],
-                    and![Cond::new(1, Eq, super::FUTEX_WAKE_PRIVATE)?],
-                    and![Cond::new(1, Eq, super::FUTEX_REQUEUE_PRIVATE)?],
+                    and![Cond::new(1, ArgLen::DWORD, Eq, super::FUTEX_WAIT_PRIVATE)?],
+                    and![Cond::new(1, ArgLen::DWORD, Eq, super::FUTEX_WAKE_PRIVATE)?],
+                    and![Cond::new(
+                        1,
+                        ArgLen::DWORD,
+                        Eq,
+                        super::FUTEX_REQUEUE_PRIVATE
+                    )?],
                     #[cfg(target_env = "gnu")]
-                    and![Cond::new(1, Eq, super::FUTEX_CMP_REQUEUE_PRIVATE)?],
+                    and![Cond::new(
+                        1,
+                        ArgLen::DWORD,
+                        Eq,
+                        super::FUTEX_CMP_REQUEUE_PRIVATE
+                    )?],
                 ],
             ),
             allow_syscall(libc::SYS_getrandom),
@@ -75,7 +80,12 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             #[cfg(target_env = "musl")]
             allow_syscall_if(
                 libc::SYS_madvise,
-                or![and![Cond::new(2, Eq, libc::MADV_DONTNEED as u64)?],],
+                or![and![Cond::new(
+                    2,
+                    ArgLen::DWORD,
+                    Eq,
+                    libc::MADV_DONTNEED as u64
+                )?],],
             ),
             allow_syscall(SYS_mmap),
             allow_syscall(libc::SYS_munmap),
@@ -86,10 +96,15 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall(libc::SYS_pipe),
             allow_syscall(libc::SYS_read),
             allow_syscall(libc::SYS_readv),
+            allow_syscall(libc::SYS_recvfrom),
             // SYS_rt_sigreturn is needed in case a fault does occur, so that the signal handler
             // can return. Otherwise we get stuck in a fault loop.
             allow_syscall(libc::SYS_rt_sigreturn),
             allow_syscall(libc::SYS_sigaltstack),
+            allow_syscall_if(
+                libc::SYS_socket,
+                or![and![Cond::new(0, ArgLen::DWORD, Eq, libc::AF_UNIX as u64)?],],
+            ),
             #[cfg(target_arch = "x86_64")]
             allow_syscall(libc::SYS_stat),
             allow_syscall(libc::SYS_timerfd_create),

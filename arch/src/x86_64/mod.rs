@@ -6,9 +6,12 @@
 // found in the THIRD-PARTY file.
 
 mod gdt;
+/// Contains logic for setting up Advanced Programmable Interrupt Controller (local version).
 pub mod interrupts;
+/// Layout for the x86_64 system.
 pub mod layout;
 mod mptable;
+/// Logic for configuring x86_64 registers.
 pub mod regs;
 
 use std::mem;
@@ -27,6 +30,7 @@ struct BootParamsWrapper(boot_params);
 // It is safe to initialize BootParamsWrap which is a wrapper over `boot_params` (a series of ints).
 unsafe impl DataInit for BootParamsWrapper {}
 
+/// Errors thrown while configuring x86_64 system.
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// Invalid e820 setup params.
@@ -37,12 +41,6 @@ pub enum Error {
     ZeroPagePastRamEnd,
     /// Error writing the zero page of guest memory.
     ZeroPageSetup,
-}
-
-impl From<Error> for super::Error {
-    fn from(e: Error) -> super::Error {
-        super::Error::X86_64Setup(e)
-    }
 }
 
 // Where BIOS/VGA magic would live on a real PC.
@@ -166,7 +164,7 @@ fn add_e820_entry(
     addr: u64,
     size: u64,
     mem_type: u32,
-) -> Result<(), Error> {
+) -> super::Result<()> {
     if params.e820_entries >= params.e820_map.len() as u8 {
         return Err(Error::E820Configuration);
     }
@@ -214,12 +212,11 @@ mod tests {
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let config_err = configure_system(&gm, GuestAddress(0), 0, 1);
         assert!(config_err.is_err());
-        match config_err.unwrap_err() {
-            super::super::Error::X86_64Setup(e) => assert_eq!(
-                e,
-                super::Error::MpTableSetup(mptable::Error::NotEnoughMemory)
-            ),
-        }
+        assert_eq!(
+            config_err.unwrap_err(),
+            super::Error::MpTableSetup(mptable::Error::NotEnoughMemory)
+        );
+
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = 128 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);

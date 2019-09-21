@@ -9,7 +9,6 @@
 extern crate byteorder;
 extern crate epoll;
 extern crate libc;
-extern crate time;
 
 extern crate dumbo;
 #[macro_use]
@@ -19,10 +18,6 @@ extern crate net_gen;
 extern crate net_util;
 extern crate rate_limiter;
 extern crate sys_util;
-#[cfg(feature = "vsock")]
-extern crate vhost_backend;
-#[cfg(feature = "vsock")]
-extern crate vhost_gen;
 extern crate virtio_gen;
 
 use rate_limiter::Error as RateLimiterError;
@@ -32,7 +27,7 @@ mod bus;
 pub mod legacy;
 pub mod virtio;
 
-pub use self::bus::{Bus, BusDevice, Error as BusError};
+pub use self::bus::{Bus, BusDevice, Error as BusError, RawIOHandler};
 use virtio::AsAny;
 
 pub type DeviceEventT = u16;

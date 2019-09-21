@@ -333,7 +333,7 @@ mod tests {
                 )
                 .unwrap();
 
-                let mut segment_len = TcpSegment::write_incomplete_segment::<[u8]>(
+                let segment_len = TcpSegment::write_incomplete_segment::<[u8]>(
                     packet.inner_mut().payload_mut(),
                     SEQ_NUMBER,
                     1234,

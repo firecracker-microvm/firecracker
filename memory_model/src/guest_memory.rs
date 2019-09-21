@@ -43,6 +43,7 @@ pub struct MemoryRegion {
 }
 
 impl MemoryRegion {
+    /// Returns the size of the memory region in bytes.
     pub fn size(&self) -> usize {
         self.mapping.size()
     }
@@ -133,7 +134,7 @@ impl GuestMemory {
         None
     }
 
-    /// Returns the size of the memory region in bytes.
+    /// Returns the size of the memory region.
     pub fn num_regions(&self) -> usize {
         self.regions.len()
     }
@@ -215,11 +216,7 @@ impl GuestMemory {
     ///     Ok(())
     /// # }
     /// ```
-    pub fn read_slice_at_addr(
-        &self,
-        mut buf: &mut [u8],
-        guest_addr: GuestAddress,
-    ) -> Result<usize> {
+    pub fn read_slice_at_addr(&self, buf: &mut [u8], guest_addr: GuestAddress) -> Result<usize> {
         self.do_in_region_partial(guest_addr, move |mapping, offset| {
             mapping
                 .read_slice(buf, offset)

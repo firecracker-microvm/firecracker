@@ -55,26 +55,37 @@ extern "C" {
     fn fdt_pack(fdt: *mut c_void) -> c_int;
 }
 
+/// Trait for devices to be added to the Flattened Device Tree.
 pub trait DeviceInfoForFDT {
+    /// Returns the address where this device will be loaded.
     fn addr(&self) -> u64;
+    /// Returns the associated interrupt for this device.
     fn irq(&self) -> u32;
+    /// Returns the amount of memory that needs to be reserved for this device.
     fn length(&self) -> u64;
 }
 
+/// Errors thrown while configuring the Flattened Device Tree for aarch64.
 #[derive(Debug)]
 pub enum Error {
+    /// Failed to append node to the FDT.
     AppendFDTNode(io::Error),
+    /// Failed to append a property to the FDT.
     AppendFDTProperty(io::Error),
+    /// Syscall for creating FDT failed.
     CreateFDT(io::Error),
+    /// Failed to obtain a C style string.
     CstringFDTTransform(NulError),
+    /// Failure in calling syscall for terminating this FDT.
     FinishFDTReserveMap(io::Error),
+    /// FDT was partially written to memory.
     IncompleteFDTMemoryWrite,
+    /// Failure in writing FDT in memory.
     WriteFDTToMemory(GuestMemoryError),
 }
+type Result<T> = result::Result<T, Error>;
 
-pub type Result<T> = result::Result<T, Error>;
-
-// Creates the flattened device tree for this VM.
+/// Creates the flattened device tree for this aarch64 microVM.
 pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemory,
     num_cpus: u32,
@@ -450,12 +461,13 @@ fn create_serial_node<T: DeviceInfoForFDT + Clone + Debug>(
     dev_info: T,
 ) -> Result<()> {
     let serial_reg_prop = generate_prop64(&[dev_info.addr(), dev_info.length()]);
-    let irq = generate_prop32(&[GIC_FDT_IRQ_TYPE_SPI, dev_info.irq(), IRQ_TYPE_LEVEL_HI]);
+    let irq = generate_prop32(&[GIC_FDT_IRQ_TYPE_SPI, dev_info.irq(), IRQ_TYPE_EDGE_RISING]);
 
     append_begin_node(fdt, &format!("uart@{:x}", dev_info.addr()))?;
     append_property_string(fdt, "compatible", "ns16550a")?;
     append_property(fdt, "reg", &serial_reg_prop)?;
-    append_property_u32(fdt, "clock-frequency", 3686400)?;
+    append_property_u32(fdt, "clocks", CLOCK_PHANDLE)?;
+    append_property_string(fdt, "clock-names", "apb_pclk")?;
     append_property(fdt, "interrupts", &irq)?;
     append_end_node(fdt)?;
 
@@ -558,7 +570,7 @@ mod tests {
 
         let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
             (
-                (DeviceType::Serial, "uart".to_string()),
+                (DeviceType::Serial, DeviceType::Serial.to_string()),
                 MMIODeviceInfo { addr: 0x00, irq: 1 },
             ),
             (

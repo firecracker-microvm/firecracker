@@ -11,6 +11,7 @@ const SZ_64K: u64 = 0x0001_0000;
 const KVM_VGIC_V3_DIST_SIZE: u64 = SZ_64K;
 const KVM_VGIC_V3_REDIST_SIZE: u64 = (2 * SZ_64K);
 
+/// Errors thrown while setting up the GIC.
 #[derive(Debug)]
 pub enum Error {
     /// Error while calling KVM ioctl for setting up the global interrupt controller.
@@ -18,8 +19,7 @@ pub enum Error {
     /// Error while setting device attributes for the GIC.
     SetDeviceAttribute(io::Error),
 }
-
-pub type Result<T> = result::Result<T, Error>;
+type Result<T> = result::Result<T, Error>;
 
 /// Create a GICv3 device.
 ///

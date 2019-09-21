@@ -19,9 +19,11 @@ the Linux Kernel Virtual Machine (KVM) to create and run microVMs. Firecracker
 has a minimalist design. It excludes unnecessary devices and guest-facing
 functionality to reduce the memory footprint and attack surface area of each
 microVM. This improves security, decreases the startup time, and increases
-hardware utilization. Firecracker currently supports Intel CPUs, with planned
-AMD and Arm support. Firecracker will also be integrated with popular container
-runtimes.
+hardware utilization. Firecracker currently supports Intel, AMD (preview) and
+Arm (preview) CPUs. Firecracker has also been integrated in container runtimes,
+for example
+[Kata Containers](https://github.com/kata-containers/documentation/wiki/Initial-release-of-Kata-Containers-with-Firecracker-support)
+and [Weaveworks Ignite](https://github.com/weaveworks/ignite).
 
 Firecracker was developed at Amazon Web Services to accelerate the speed and
 efficiency of services like [AWS Lambda](https://aws.amazon.com/lambda/) and
@@ -34,7 +36,8 @@ To read more about Firecracker, check out
 ## Getting Started
 
 To get started with Firecracker, download the latest
-[release](https://github.com/firecracker-microvm/firecracker/releases) binaries or build it from source.
+[release](https://github.com/firecracker-microvm/firecracker/releases) binaries
+or build it from source.
 
 You can build Firecracker on any system that has Docker running (we use a
 development container) as follows:
@@ -43,10 +46,12 @@ development container) as follows:
 git clone https://github.com/firecracker-microvm/firecracker
 cd firecracker
 tools/devtool build
+toolchain="$(uname -m)-unkown-linux-musl"
 ```
 
-The Firecracker binary will be placed at `build/debug/firecracker`. For more
-information on building, testing, and running Firecracker, go to the
+The Firecracker binary will be placed at
+`build/cargo_target/${toolchain}/debug/firecracker`. For more information on
+building, testing, and running Firecracker, go to the
 [quickstart guide](docs/getting-started.md).
 
 The overall security of Firecracker microVMs, including the ability to meet the
@@ -100,9 +105,7 @@ The **API endpoint** can be used to:
 - Configure the logging and metric system.
 - `[BETA]` Configure the data tree of the guest-facing metadata service. The
   service is only available to the guest if this resource is configured.
-- `[EXPERIMENTAL]` Add one or more [vsock sockets](docs/experimental-vsock.md)
-  to the microVM. Check the complete vsock API definition in
-  [firecracker-experimental.yaml](api_server/swagger/firecracker-experimental.yaml).
+- Add a [vsock socket](docs/vsock.md) to the microVM.
 - Start the microVM using a given kernel image, root file system, and boot
   arguments.
 - Stop the microVM.

@@ -127,6 +127,12 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                 StatusCode::BadRequest,
                 Body::new("Invalid request.".to_string()),
             ),
+            RequestError::InvalidHeader => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new("Invalid headers.".to_string()),
+            ),
+            RequestError::UnsupportedHeader => unreachable!(),
         },
     }
 }
@@ -163,7 +169,7 @@ mod tests {
         assert!(parse_request(request).status() == dummy_response.status());
 
         // Test unsupported HTTP version.
-        let request = b"GET http://169.254.169.255/ HTTP/2.0\r\n";
+        let request = b"GET http://169.254.169.255/ HTTP/2.0\r\n\r\n";
         let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
         expected_response.set_body(Body::new("Unsupported HTTP version.".to_string()));
         let actual_response = parse_request(request);
@@ -173,7 +179,7 @@ mod tests {
         assert!(expected_response.http_version() == actual_response.http_version());
 
         // Test invalid HTTP Method.
-        let request = b"PUT http://169.254.169.255/ HTTP/1.0\r\n";
+        let request = b"POST http://169.254.169.255/ HTTP/1.0\r\n\r\n";
         let mut expected_response = Response::new(Version::Http11, StatusCode::BadRequest);
         expected_response.set_body(Body::new("Unsupported HTTP method.".to_string()));
         let actual_response = parse_request(request);
@@ -183,7 +189,7 @@ mod tests {
         assert!(expected_response.http_version() == actual_response.http_version());
 
         // Test invalid (empty absolute path) URI.
-        let request = b"GET http:// HTTP/1.0\r\n";
+        let request = b"GET http:// HTTP/1.0\r\n\r\n";
         let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
         expected_response.set_body(Body::new("Invalid URI.".to_string()));
         let actual_response = parse_request(request);
@@ -192,8 +198,18 @@ mod tests {
         assert!(expected_response.body().unwrap() == actual_response.body().unwrap());
         assert!(expected_response.http_version() == actual_response.http_version());
 
+        // Test invalid HTTP format.
+        let request = b"GET / HTTP/1.1\r\n";
+        let mut expected_response = Response::new(Version::Http11, StatusCode::BadRequest);
+        expected_response.set_body(Body::new("Invalid request.".to_string()));
+        let actual_response = parse_request(request);
+
+        assert!(expected_response.status() == actual_response.status());
+        assert!(expected_response.body().unwrap() == actual_response.body().unwrap());
+        assert!(expected_response.http_version() == actual_response.http_version());
+
         // Test resource not found.
-        let request = b"GET http://169.254.169.254/invalid HTTP/1.0\r\n";
+        let request = b"GET http://169.254.169.254/invalid HTTP/1.0\r\n\r\n";
         let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
         expected_response.set_body(Body::new("Resource not found: /invalid.".to_string()));
         let actual_response = parse_request(request);
@@ -203,7 +219,7 @@ mod tests {
         assert!(expected_response.http_version() == actual_response.http_version());
 
         // Test Ok path.
-        let request = b"GET http://169.254.169.254/ HTTP/1.0\r\n";
+        let request = b"GET http://169.254.169.254/ HTTP/1.0\r\n\r\n";
         let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
         let body = "age\nname/\nphones/".to_string();
         expected_response.set_body(Body::new(body));
@@ -213,7 +229,7 @@ mod tests {
         assert!(expected_response.body().unwrap() == actual_response.body().unwrap());
         assert!(expected_response.http_version() == actual_response.http_version());
 
-        let request = b"GET /age HTTP/1.1\r\n";
+        let request = b"GET /age HTTP/1.1\r\n\r\n";
         let mut expected_response = Response::new(Version::Http11, StatusCode::OK);
         let body = "43".to_string();
         expected_response.set_body(Body::new(body));

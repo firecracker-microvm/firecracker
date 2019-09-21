@@ -136,7 +136,6 @@
 //! metric will get increased.
 //! Metrics are only logged to pipes. Logs can be flushed either to stdout/stderr or to a pipe.
 
-extern crate chrono;
 // workaround to macro_reexport
 #[macro_use]
 extern crate lazy_static;
@@ -146,7 +145,8 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate time;
+
+extern crate fc_util;
 
 pub mod error;
 pub mod metrics;
@@ -159,10 +159,10 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, RwLock};
 
-use chrono::Local;
 use serde_json::Value;
 
 use error::LoggerError;
+use fc_util::LocalTime;
 pub use log::Level::*;
 pub use log::*;
 use log::{set_logger, set_max_level, Log, Metadata, Record};
@@ -185,9 +185,6 @@ const INITIALIZING: usize = 2;
 const INITIALIZED: usize = 3;
 
 static STATE: AtomicUsize = AtomicUsize::new(0);
-
-// Time format
-const TIME_FMT: &str = "%Y-%m-%dT%H:%M:%S.%f";
 
 lazy_static! {
     static ref _LOGGER_INNER: Logger = Logger::new();
@@ -786,7 +783,7 @@ impl Log for Logger {
         if self.enabled(record.metadata()) {
             let msg = format!(
                 "{}{}{}{}",
-                Local::now().format(TIME_FMT),
+                LocalTime::now(),
                 self.create_prefix(&record),
                 MSG_SEPARATOR,
                 record.args()

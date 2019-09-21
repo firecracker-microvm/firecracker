@@ -430,8 +430,7 @@ mod tests {
         // again, for a relatively large number of iterations.
 
         let complete_request = b"GET http://169.254.169.255/asdfghjkl HTTP/1.1\r\n\r\n";
-        // For last request, we also try writing the newlines as "\n\n" instead of "\r\n\r\n".
-        let last_request = b"GET http://169.254.169.255/asdfghjkl HTTP/1.1\n\n123";
+        let last_request = b"GET http://169.254.169.255/asdfghjkl HTTP/1.1\r\n\r\n123";
 
         // Send one request for each byte in receive_buf, just to be sure.
         let max_iter = e.receive_buf.len();
@@ -464,7 +463,6 @@ mod tests {
                 assert_eq!(s.inner().ack_number(), remote_first_not_sent);
 
                 let response = from_utf8(s.inner().payload()).unwrap();
-
                 assert!(response.contains("404"));
 
                 endpoint_first_not_sent =

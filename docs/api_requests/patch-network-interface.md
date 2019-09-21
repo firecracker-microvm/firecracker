@@ -54,6 +54,7 @@ Accept: application/json
             "refill_time": 1000
         }
     }
+}
 ```
 
 The full specification of the data structures available for this call can be
@@ -88,4 +89,5 @@ Accept: application/json
             "refill_time": 0
         }
     }
+}
 ```

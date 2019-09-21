@@ -8,7 +8,6 @@
 /// Magic addresses externally used to lay out x86_64 VMs.
 
 /// Initial stack for the boot CPU.
-pub const BOOT_STACK_START: usize = 0x8000;
 pub const BOOT_STACK_POINTER: usize = 0x8ff0;
 
 /// Kernel command line start address.

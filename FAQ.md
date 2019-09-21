@@ -196,3 +196,9 @@ Possible mitigations are:
   kernel so as to use `vmalloc` instead of `kmalloc` for them.
 - Reduce memory pressure on the host.
 
+### How can I configure and start a microVM without sending API calls?
+
+Passing an optional command line parameter, `--config-file`, to the Firecracker 
+process allows this type of configuration. This parameter must be the path to a 
+file that contains the JSON specification that will be used to configure and start 
+the microVM. One example of such file can be found at `tests/framework/vm_config.json`. 

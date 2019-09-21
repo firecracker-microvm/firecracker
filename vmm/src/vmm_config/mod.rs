@@ -6,6 +6,8 @@ use std::io;
 
 /// Wrapper for configuring the microVM boot source.
 pub mod boot_source;
+/// Wrapper for device configurations.
+pub mod device_config;
 /// Wrapper for configuring the block devices.
 pub mod drive;
 /// Wrapper over the microVM general information attached to the microVM.
@@ -16,7 +18,6 @@ pub mod logger;
 pub mod machine_config;
 /// Wrapper for configuring the network devices attached to the microVM.
 pub mod net;
-#[cfg(feature = "vsock")]
 /// Wrapper for configuring the vsock devices attached to the microVM.
 pub mod vsock;
 

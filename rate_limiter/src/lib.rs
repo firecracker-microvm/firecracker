@@ -45,14 +45,14 @@
 //! needs to be called by the user on every event on the rate limiter's `AsRawFd` FD.
 //!
 
-extern crate time;
 extern crate timerfd;
 
+extern crate fc_util;
 #[macro_use]
 extern crate logger;
 
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{fmt, io};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
@@ -84,7 +84,7 @@ fn gcd(x: u64, y: u64) -> u64 {
 
 /// TokenBucket provides a lower level interface to rate limiting with a
 /// configurable capacity, refill-rate and initial burst.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TokenBucket {
     // Bucket defining traits.
     size: u64,
@@ -95,7 +95,7 @@ pub struct TokenBucket {
 
     // Internal state descriptors.
     budget: u64,
-    last_update: u64,
+    last_update: Instant,
 
     // Fields used for pre-processing optimizations.
     processed_capacity: u64,
@@ -134,7 +134,7 @@ impl TokenBucket {
             // Start off full.
             budget: size,
             // Last updated is now.
-            last_update: time::precise_time_ns(),
+            last_update: Instant::now(),
             processed_capacity,
             processed_refill_time,
         }
@@ -150,7 +150,7 @@ impl TokenBucket {
                 // We still have burst budget for *all* tokens requests.
                 if *otb >= tokens {
                     *otb -= tokens;
-                    self.last_update = time::precise_time_ns();
+                    self.last_update = Instant::now();
                     // No need to continue to the refill process, we still have burst budget to consume from.
                     return true;
                 } else {
@@ -162,9 +162,8 @@ impl TokenBucket {
             }
         }
         // Compute time passed since last refill/update.
-        let now = time::precise_time_ns();
-        let time_delta = now - self.last_update;
-        self.last_update = now;
+        let time_delta = self.last_update.elapsed().as_nanos() as u64;
+        self.last_update = Instant::now();
 
         // At each 'time_delta' nanoseconds the bucket should refill with:
         // refill_amount = (time_delta * size) / (complete_refill_time_ms * 1_000_000)
@@ -282,7 +281,9 @@ impl fmt::Debug for RateLimiter {
 }
 
 impl RateLimiter {
-    // description
+    /// This function creates a `TokenBucket` wrapped in an `Option` with a given total capacity,
+    /// one time burst, and complete refill time (in miliseconds). If the total capacity or the
+    /// complete refill time are zero, then `None` is returned.
     fn make_bucket(
         total_capacity: u64,
         one_time_burst: Option<u64>,
@@ -427,7 +428,7 @@ impl RateLimiter {
     }
 
     /// Updates the parameters of the token buckets associated with this RateLimiter.
-    // TODO: Pls note that, right now, the buckets become full after being updated.
+    // TODO: Please note that, right now, the buckets become full after being updated.
     pub fn update_buckets(&mut self, bytes: Option<TokenBucket>, ops: Option<TokenBucket>) {
         // TODO: We should reconcile the create and update paths, such that they use the same data
         // format. Currently, the TokenBucket config data is used for create, but the live
@@ -488,11 +489,11 @@ mod tests {
         // Resets the token bucket: budget set to max capacity and last-updated set to now.
         fn reset(&mut self) {
             self.budget = self.size;
-            self.last_update = time::precise_time_ns();
+            self.last_update = Instant::now();
         }
 
-        fn get_last_update(&self) -> u64 {
-            self.last_update
+        fn get_last_update(&self) -> &Instant {
+            &self.last_update
         }
 
         fn get_processed_capacity(&self) -> u64 {
@@ -515,12 +516,13 @@ mod tests {
 
     #[test]
     fn test_token_bucket_create() {
-        let before = time::precise_time_ns();
+        let before = Instant::now();
         let tb = TokenBucket::new(1000, None, 1000);
         assert_eq!(tb.capacity(), 1000);
         assert_eq!(tb.budget(), 1000);
-        assert!(tb.get_last_update() >= before);
-        assert!(tb.get_last_update() <= time::precise_time_ns());
+        assert!(*tb.get_last_update() >= before);
+        let after = Instant::now();
+        assert!(*tb.get_last_update() <= after);
         assert_eq!(tb.get_processed_capacity(), 1);
         assert_eq!(tb.get_processed_refill_time(), 1_000_000);
     }
@@ -569,12 +571,13 @@ mod tests {
         thread::sleep(Duration::from_millis(500));
         assert!(tb.reduce(500));
 
-        let before = time::precise_time_ns();
+        let before = Instant::now();
         tb.reset();
         assert_eq!(tb.capacity(), 1000);
         assert_eq!(tb.budget(), 1000);
-        assert!(tb.get_last_update() >= before);
-        assert!(tb.get_last_update() <= time::precise_time_ns());
+        assert!(*tb.get_last_update() >= before);
+        let after = Instant::now();
+        assert!(*tb.get_last_update() <= after);
     }
 
     #[test]

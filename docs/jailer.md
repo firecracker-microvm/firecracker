@@ -14,6 +14,7 @@ jailer --id <id> \
        [--netns <netns>]
        [--daemonize]
        [--seccomp-level <level>]
+       [--...extra arguments for Firecracker]
 ```
 
 - `id` is the unique VM identification string, which may contain alphanumeric
@@ -38,6 +39,14 @@ jailer --id <id> \
     Firecracker.
   - 2 (default): advanced filtering. This adds further checks on some of the
     parameters of the allowed syscalls.
+- The jailer adheres to the "end of command options" convention, meaning 
+  all parameters specified after `--` are forwarded to Firecracker. For 
+  example, this can be paired with the `--config-file` Firecracker argument to 
+  specify a configuration file when starting Firecracker via the jailer (the 
+  file path and the resources referenced within must be valid relative to a 
+  jailed Firecracker). Please note the jailer already passes the following 
+  parameters to the Firecracker process: `--api-sock`, `--seccomp-level` and 
+  `--id`.
 
 ## Jailer Operation
 
@@ -69,12 +78,9 @@ After starting, the Jailer goes through the following operations:
   point, and call `chroot` into the current directory.
 - Use `mknod` to create a `/dev/net/tun` equivalent inside the jail.
 - Use `mknod` to create a `/dev/kvm` equivalent inside the jail.
-- When compiled with `vsock` support, use `mknod` to create a
-  `/dev/vhost_vsock` equivalent inside the jail.
 - Use `chown` to change ownership of the `chroot_dir` (root path `/` as seen
-  by the jailed firecracker), `/dev/net/tun`, `/dev/kvm`, and if compiled with
-  `vsock` support `/dev/vhost_vsock`. The ownership is changed to the provided
-  `uid:gid`.
+  by the jailed firecracker), `/dev/net/tun`, `/dev/kvm`. The ownership is
+  changed to the provided `uid:gid`.
 - If `--netns <netns>` is present, attempt to join the specified network
   namespace.
 - If `--daemonize` is specified, call `setsid()` and redirect `STDIN`,
@@ -82,8 +88,9 @@ After starting, the Jailer goes through the following operations:
 - Drop privileges via setting the provided `uid` and `gid`.
 - Exec into `<exec_file_name> --id=<id> --api-sock=/api.socket
   --seccomp-level=<level> --start-time-us=<opaque>
-  --start-time-cpu-us=<opaque>`.
-  Where:
+  --start-time-cpu-us=<opaque>` (and also forward any extra arguments provided
+  to the jailer after `--`, as mentioned in the **Jailer Usage** section),
+  where:
   - `id`: (`string`) - The `id` argument provided to jailer.
   - `level`: (`number`) - the `--seccomp-level` argument provided to jailer.
   - `opaque`: (`number`) time calculated by the jailer that it spent doing
@@ -167,9 +174,8 @@ MNT_DETACH)`, deleting `old_root` with `rmdir`, and finally calling
 Create the special file `/dev/net/tun`, using `mknod(“/dev/net/tun”, S_IFCHR |
 S_IRUSR | S_IWUSR, makedev(10, 200))`, and then call `chown(“/dev/net/tun”,
 123, 100)`, so Firecracker can use it after dropping privileges. This is
-required to use multiple TAP interfaces when running jailed.
-Do the same for `/dev/kvm` and, when compiled with `vsock` support,
-`/dev/vhost_vsock`.
+required to use multiple TAP interfaces when running jailed. Do the same for
+`/dev/kvm`.
 
 Change ownership of `<chroot_dir>` to `uid:gid` so that Firecracker can create
 its API socket there.

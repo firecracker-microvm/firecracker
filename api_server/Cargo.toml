@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-chrono = ">=0.4"
 futures = { version = "=0.1.18", default-features = false}
 hyper = { version = "=0.11.16", default-features = false }
 serde = ">=1.0.27"
@@ -27,6 +26,3 @@ kernel = { path = "../kernel" }
 memory_model = { path = "../memory_model" }
 net_util = { path = "../net_util" }
 rate_limiter = { path = "../rate_limiter" }
-
-[features]
-vsock = ["vmm/vsock"]

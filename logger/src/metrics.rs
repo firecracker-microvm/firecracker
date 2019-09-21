@@ -26,7 +26,6 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use chrono;
 use serde::{Serialize, Serializer};
 
 /// Used for defining new types of metrics that can be either incremented with an unit
@@ -44,39 +43,10 @@ pub trait Metric {
     fn count(&self) -> usize;
 }
 
-/// Representation of a metric that is expected  to be incremented from a single thread, so it
-/// can use simple loads and stores with no additional synchronization necessities.
-// Loads are currently Relaxed everywhere, because we don't do anything besides
-// logging the retrieved value (their outcome os not used to modify some memory location in a
-// potentially inconsistent manner). There's no way currently to make sure a SimpleMetric is only
-// incremented by a single thread, this has to be enforced via judicious use (although, every
-// non-vCPU related metric is associated with a particular thread, so it shouldn't be that easy
-// to misuse SimpleMetric fields).
-#[derive(Default)]
-pub struct SimpleMetric(AtomicUsize);
-
-impl Metric for SimpleMetric {
-    fn add(&self, value: usize) {
-        let count = &self.0;
-        count.store(count.load(Ordering::Relaxed) + value, Ordering::Relaxed);
-    }
-
-    fn count(&self) -> usize {
-        self.0.load(Ordering::Relaxed)
-    }
-}
-
-impl Serialize for SimpleMetric {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // There's no serializer.serialize_usize().
-        serializer.serialize_u64(self.0.load(Ordering::Relaxed) as u64)
-    }
-}
-
 /// Representation of a metric that is expected to be incremented from more than one thread, so more
 /// synchronization is necessary.
 // It's currently used for vCPU metrics. An alternative here would be
-// to have one instance of every metric for each thread (like a per-thread SimpleMetric), and to
+// to have one instance of every metric for each thread, and to
 // aggregate them when logging. However this probably overkill unless we have a lot of vCPUs
 // incrementing metrics very often. Still, it's there if we ever need it :-s
 #[derive(Default)]
@@ -389,13 +359,23 @@ pub struct MemoryMetrics {
     pub dirty_pages: SharedMetric,
 }
 
+/// Metrics related to signals.
+#[derive(Default, Serialize)]
+pub struct SignalMetrics {
+    /// Number of times that SIGBUS was handled.
+    pub sigbus: SharedMetric,
+    /// Number of times that SIGSEGV was handled.
+    pub sigsegv: SharedMetric,
+}
+
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
 #[derive(Default)]
 struct SerializeToUtcTimestampMs;
 
 impl Serialize for SerializeToUtcTimestampMs {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_i64(chrono::Utc::now().timestamp_millis())
+        serializer
+            .serialize_i64(fc_util::get_time(fc_util::ClockType::Monotonic) as i64 / 1_000_000)
     }
 }
 
@@ -433,6 +413,8 @@ pub struct FirecrackerMetrics {
     pub uart: SerialDeviceMetrics,
     /// Memory usage metrics.
     pub memory: MemoryMetrics,
+    /// Metrics related to signals.
+    pub signals: SignalMetrics,
 }
 
 lazy_static! {
@@ -451,15 +433,7 @@ mod tests {
 
     #[test]
     fn test_metric() {
-        let m1 = SimpleMetric::default();
-
-        m1.inc();
-        m1.inc();
-        m1.add(5);
-        m1.inc();
-
-        assert_eq!(m1.count(), 8);
-
+        // Test SharedMetric.
         let m2 = Arc::new(SharedMetric::default());
 
         // We're going to create a number of threads that will attempt to increase this metric

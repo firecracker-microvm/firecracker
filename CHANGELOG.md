@@ -2,10 +2,44 @@
 
 ## [Unreleased]
 
+### Added
+
+- New command-line parameter for `firecracker`, named `--config-file`, which 
+  represents the path to a file that contains a JSON which can be used for 
+  configuring and starting a microVM without sending any API requests.
+- The jailer adheres to the "end of command options" convention, meaning 
+  all parameters specified after `--` are forwarded verbatim to Firecracker.
+
+### Changed
+
+- Vsock API call: `PUT /vsocks/{id}` changed to `PUT /vsock` and no longer 
+  appear to support multiple vsock devices. Any subsequent calls to this API endpoint
+  will override the previous vsock device configuration.
+
 ### Fixed
 
-- Corrected firecracker-experimental.yaml indentation issues that
-  prevented code generation
+- Fixed serial console on aarch64 (GitHub issue #1147).
+
+## [0.18.0]
+
+### Added
+
+- New device: virtio-vsock, backed by Unix domain sockets (GitHub issue #650).
+  See `docs/vsock.md`.
+
+### Fixed
+
+- Updated the documentation for integration tests.
+- Fixed high CPU usage before guest network interface is brought up (GitHub
+  issue #1049).
+- Fixed an issue that caused the wrong date (month) to appear in the log.
+- Fixed a bug that caused the seccomp filter to reject legit syscalls in some
+  rare cases (GitHub issue #1206).
+- Docs: updated the production host setup guide.
+- Docs: updated the rootfs and kernel creation guide.
+
+### Removed
+- Removed experimental support for vhost-based vsock devices.
 
 ## [0.17.0]
 
@@ -19,7 +53,8 @@
   the process upon intercepting the signal.
 - Added documentation for signal handling utilities.
 - Added [alpha] aarch64 support.
-- Added metrics for successful read and write operations of MMDS, Net and Block devices.
+- Added metrics for successful read and write operations of MMDS, Net and Block
+  devices.
 
 ### Changed
 
@@ -49,8 +84,8 @@
   in favor of individual classic command-line parameters.
 - When running with `jailer` the location of the API socket has changed to
   `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
-- `PUT` and `PATCH` requests on `/mmds` with data containing any value type other
-  than `String`, `Array`, `Object` will return status code 400.
+- `PUT` and `PATCH` requests on `/mmds` with data containing any value type
+  other than `String`, `Array`, `Object` will return status code 400.
 - Improved multiple error messages.
 - Removed all kernel modules from the recommended kernel config.
 
@@ -158,7 +193,8 @@
   called `memory.dirty_pages` is computed as the number of pages dirtied by the
   guest since the last time the metric was flushed.
 - Log messages on both graceful and forceful termination.
-- Availability of the list of dependencies for each commit inside the code base.
+- Availability of the list of dependencies for each commit inside the code
+  base.
 - Documentation on vsock experimental feature and host setup recommendations.
 
 ### Changed

@@ -1,11 +1,10 @@
 [package]
 name = "firecracker"
-version = "0.17.0"
+version = "0.18.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
 backtrace = {version = "0.3", features = ["libunwind", "libbacktrace", "std"], default-features = false}
-chrono = ">=0.4"
 clap = { version = ">=2.27.1", default-features = false}
 
 api_server = { path = "api_server" }
@@ -25,8 +24,5 @@ panic = "abort"
 [profile.release]
 lto = true
 panic = "abort"
-
-[features]
-vsock = ["api_server/vsock", "jailer/vsock"]
 
 [workspace]

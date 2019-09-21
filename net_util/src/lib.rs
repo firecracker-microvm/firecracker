@@ -14,6 +14,7 @@ extern crate libc;
 extern crate serde;
 
 extern crate net_gen;
+#[macro_use]
 extern crate sys_util;
 
 mod mac;

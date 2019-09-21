@@ -2,14 +2,15 @@
 name = "devices"
 version = "0.1.0"
 authors = ["The Chromium OS Authors"]
+edition = "2018"
 
 [dependencies]
 byteorder = ">=1.2.1"
 epoll = "=4.0.1"
 libc = ">=0.2.39"
-time = ">=0.1.39"
 
 dumbo = { path = "../dumbo" }
+fc_util = { path = "../fc_util" }
 logger = { path = "../logger" }
 memory_model = { path = "../memory_model" }
 net_util = { path = "../net_util" }
@@ -17,11 +18,6 @@ net_gen = { path = "../net_gen" }
 rate_limiter = { path = "../rate_limiter" }
 sys_util = { path = "../sys_util" }
 virtio_gen = { path = "../virtio_gen" }
-vhost_gen = { path = "../vhost_gen" , optional = true}
-vhost_backend = { path = "../vhost_backend", optional = true}
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
-
-[features]
-vsock = ["vhost_gen", "vhost_backend"]

@@ -5,7 +5,7 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
 libc = ">=0.2.39"
-time = ">=0.1.39"
 timerfd = "1.0"
 
+fc_util = { path = "../fc_util" }
 logger = { path = "../logger" }

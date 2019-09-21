@@ -182,7 +182,7 @@ In your **second shell** prompt:
           -H 'Content-Type: application/json'     \
           -d "{
                 \"kernel_image_path\": \"${kernel_path}\",
-                \"boot_args\": \"keep_bootcon console=tty1 reboot=k panic=1 pci=off\"
+                \"boot_args\": \"keep_bootcon console=ttyS0 reboot=k panic=1 pci=off\"
            }"
     else
         echo "Cannot run firecracker on $arch architecture!"
@@ -237,9 +237,33 @@ curl --unix-socket /tmp/firecracker.socket -i  \
     -H 'Content-Type: application/json'      \
     -d '{
         "vcpu_count": 2,
-        "mem_size_mib": 1024
+        "mem_size_mib": 1024,
+        "ht_enabled": false
     }'
 ```
+
+#### Configuring the microVM without sending API requests
+
+If you'd like to boot up a guest machine without using the API socket, you can do that 
+by passing the parameter `--config-file` to the Firecracker process. The command for 
+starting Firecracker with this option will look like this:
+
+```bash
+./firecracker --api-sock /tmp/firecracker.socket --config-file 
+<path_to_the_configuration_file>
+```    
+
+`path_to_the_configuration_file` should represent the path to a file that contains a 
+JSON which stores the entire configuration for all of the microVM's resources. The 
+JSON **must** contain the configuration for the guest kernel and rootfs, as these 
+are mandatory, but all of the other resources are optional, so it's your choice 
+if you want to configure them or not. Because using this configuration method will 
+also start the microVM, you need to specify all desired pre-boot configurable resources 
+in that JSON. The names of the resources are the ones from the `firecracker.yaml` file 
+and the names of their fields are the same that are used in API requests. 
+You can find an example of configuration file at `tests/framework/vm_config.json`. 
+After the machine is booted, you can still use the socket to send API requests
+for post-boot operations.
 
 ## Building From Source
 
@@ -271,12 +295,15 @@ git checkout tags/v0.10.1
 Within the Firecracker repository root directory:
 
 1. with the default musl target: ```tools/devtool build```
-1. using the gnu target: ```tools/devtool build -l gnu```
+2. using the gnu target: ```tools/devtool build -l gnu```
 
-This will build and place the two Firecracker binaries at
-`build/debug/firecracker` and `build/debug/jailer`. The default build profile
-is `debug`. If you want to build the release binaries (optimized and stripped
-of debug info), use the `--release` option:
+This will build and place the two Firecracker binaries at:
+- `build/cargo_target/${toolchain}/debug/firecracker` and
+- `build/cargo_target/${toolchain}/debug/jailer`. 
+
+The default build profile is `debug`. If you want to build 
+the release binaries (optimized and stripped of debug info), 
+use the `--release` option:
 
 ```bash
 tools/devtool build --release
