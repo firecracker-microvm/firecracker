@@ -609,7 +609,7 @@ impl EpollContext {
             // Find a better solution to this (and think about the state of the serial device
             // while we're at it). This also led to commenting out parts of the
             // enable_disable_stdin_test() unit test function.
-            warn!("Could not add stdin event to epoll. {:?}", e);
+            warn!("Could not add stdin event to epoll. {}", e);
         } else {
             self.dispatch_table[self.stdin_index as usize] = Some(EpollDispatch::Stdin);
         }
@@ -2910,6 +2910,22 @@ mod tests {
 
         let vmm = create_vmm_object(InstanceState::Running);
         assert_eq!(vmm.is_instance_initialized(), true);
+    }
+
+    #[test]
+    fn test_epoll_stdin_event() {
+        let mut epoll_context = EpollContext::new().unwrap();
+        epoll_context.enable_stdin_event();
+        assert_eq!(
+            epoll_context.dispatch_table[epoll_context.stdin_index as usize].unwrap(),
+            EpollDispatch::Stdin
+        );
+        // This should trigger a warn!. When logger will not be a global var we will be able to test
+        // it.
+        epoll_context.enable_stdin_event();
+
+        epoll_context.disable_stdin_event();
+        assert!(epoll_context.dispatch_table[epoll_context.stdin_index as usize].is_none());
     }
 
     #[test]
