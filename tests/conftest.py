@@ -116,6 +116,10 @@ If variable exists in `os.environ`, its value it will be used for the test
 session root and temporary directories.
 """
 
+ENV_KEEP_TEST_SESSION = 'KEEP_TEST_SESSION'
+""" Enviroment variable to override the deletion of the test session root
+directory at the end of the test."""
+
 DEFAULT_ROOT_TESTSESSION_PATH = '/tmp/firecracker_test_session/'
 """If ENV_TMPDIR_VAR is not set, this path will be used instead."""
 
@@ -178,13 +182,18 @@ def test_session_root_path():
     except KeyError:
         root_path = DEFAULT_ROOT_TESTSESSION_PATH
 
+    try:
+        delete_test_session = (len(os.environ[ENV_KEEP_TEST_SESSION]) == 0)
+    except KeyError:
+        delete_test_session = True
+
     if not os.path.exists(root_path):
         os.makedirs(root_path)
         created_test_session_root_path = True
 
     yield root_path
 
-    if created_test_session_root_path:
+    if delete_test_session and created_test_session_root_path:
         shutil.rmtree(root_path)
 
 
