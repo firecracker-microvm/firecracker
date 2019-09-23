@@ -59,7 +59,7 @@ use std::time::Duration;
 
 use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{Cap, Kvm};
-use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use timerfd::{SetTimeFlags, TimerFd, TimerState};
 
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
@@ -75,6 +75,7 @@ use devices::virtio::{BLOCK_EVENTS_COUNT, TYPE_BLOCK};
 use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
 use devices::RawIOHandler;
 use devices::{DeviceEventT, EpollHandler};
+use fc_util::timer_pool::{TimerFdPoolError, TimerPool};
 use fc_util::{get_time, ClockType};
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
@@ -160,7 +161,7 @@ pub enum Error {
     /// Write to the serial console failed.
     Serial(io::Error),
     /// Cannot create Timer file descriptor.
-    TimerFd(io::Error),
+    TimerFd(TimerFdPoolError),
     /// Cannot open the VM file descriptor.
     Vm(vstate::Error),
 }
@@ -188,7 +189,7 @@ impl std::fmt::Debug for Error {
             KvmCap(cap) => write!(f, "Missing KVM capability: {:?}", cap),
             Poll(e) => write!(f, "Epoll wait failed: {}", e.to_string()),
             Serial(e) => write!(f, "Error writing to the serial console: {:?}", e),
-            TimerFd(e) => write!(f, "Error creating timer fd: {}", e.to_string()),
+            TimerFd(e) => write!(f, "Error creating timer fd: {}", e),
             Vm(e) => write!(f, "Error opening VM fd: {:?}", e),
         }
     }
@@ -344,6 +345,7 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
                 _ => ErrorKind::Internal,
             },
             StdinHandle(_) => ErrorKind::Internal,
+            TimerFd(_) => ErrorKind::Internal,
         };
         VmmActionError::StartMicrovm(kind, e)
     }
@@ -829,8 +831,19 @@ impl Vmm {
             .add_event(control_fd, EpollDispatch::VmmActionRequest)
             .expect("Cannot add API control_fd to epoll.");
 
-        let write_metrics_event_fd =
-            TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?;
+        // Reserve 1 timer fd for metrics.
+        TimerPool
+            .lock()
+            .unwrap()
+            .reserve_monotonic(1)
+            .map_err(Error::TimerFd)?;
+
+        // Consume the timer fd previously reserved.
+        let write_metrics_event_fd = TimerPool
+            .lock()
+            .unwrap()
+            .get_monotonic()
+            .map_err(Error::TimerFd)?;
 
         epoll_context
             .add_event(
@@ -910,6 +923,13 @@ impl Vmm {
         // device manager has been initialized.
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
 
+        // Reserve 1 timers per block device.
+        TimerPool
+            .lock()
+            .unwrap()
+            .reserve_monotonic(self.device_configs.block.config_list.len() as u16)
+            .map_err(StartMicrovmError::TimerFd)?;
+
         for drive_config in self.device_configs.block.config_list.iter_mut() {
             // Add the block device from file.
             let block_file = OpenOptions::new()
@@ -977,6 +997,13 @@ impl Vmm {
         // `unwrap` is suitable for this context since this should be called only after the
         // device manager has been initialized.
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
+
+        // Reserve 2 timers per net device (RX+TX).
+        TimerPool
+            .lock()
+            .unwrap()
+            .reserve_monotonic(self.device_configs.network_interface.count() * 2)
+            .map_err(StartMicrovmError::TimerFd)?;
 
         for cfg in self.device_configs.network_interface.iter_mut() {
             let epoll_config = self.epoll_context.allocate_tokens_for_virtio_device(
@@ -4093,8 +4120,8 @@ mod tests {
             )
         );
         assert_eq!(
-            format!("{:?}", Error::TimerFd(io::Error::from_raw_os_error(42))),
-            "Error creating timer fd: No message of desired type (os error 42)"
+            format!("{:?}", Error::TimerFd(TimerFdPoolError::PoolEmpty)),
+            "Error creating timer fd: Timer fd pool is empty."
         );
         assert_eq!(
             format!("{:?}", Error::Vm(vstate::Error::HTNotInitialized)),

@@ -107,7 +107,6 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             ),
             #[cfg(target_arch = "x86_64")]
             allow_syscall(libc::SYS_stat),
-            allow_syscall(libc::SYS_timerfd_create),
             allow_syscall(libc::SYS_timerfd_settime),
             allow_syscall(libc::SYS_write),
             allow_syscall(libc::SYS_writev),

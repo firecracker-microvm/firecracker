@@ -104,6 +104,8 @@ pub enum StartMicrovmError {
     VcpuSpawn(std::io::Error),
     /// Cannot set mode for terminal.
     StdinHandle(std::io::Error),
+    /// Cannot create timer fd.
+    TimerFd(fc_util::timer_pool::TimerFdPoolError),
 }
 
 /// It's convenient to automatically convert `kernel::cmdline::Error`s
@@ -247,6 +249,7 @@ impl Display for StartMicrovmError {
                 write!(f, "Cannot spawn vCPU thread. {}", err_msg)
             }
             StdinHandle(ref err) => write!(f, "Failed to set mode for terminal: {}", err),
+            TimerFd(ref err) => write!(f, "Failed to acquire timer fd: {}", err),
         }
     }
 }

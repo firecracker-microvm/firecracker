@@ -656,6 +656,7 @@ mod tests {
     use self::tempfile::{tempfile, NamedTempFile};
     use super::*;
 
+    use fc_util::timer_pool::TimerPool;
     use libc;
     use std::fs::{metadata, OpenOptions};
     use std::sync::mpsc::Receiver;
@@ -705,7 +706,8 @@ mod tests {
 
             let f: File = tempfile().unwrap();
             f.set_len(0x1000).unwrap();
-
+            // Reserve 1 fd.
+            TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
             // Rate limiting is enabled but with a high operation rate (10 million ops/s).
             let rate_limiter = RateLimiter::new(0, None, 0, 100_000, None, 10).unwrap();
             DummyBlock {
@@ -730,6 +732,8 @@ mod tests {
     fn default_test_blockepollhandler<'a>(
         mem: &'a GuestMemory,
     ) -> (BlockEpollHandler, VirtQueue<'a>) {
+        // Reserve 1 fd.
+        TimerPool.lock().unwrap().reserve_monotonic(2).unwrap();
         let mut dummy = DummyBlock::new(false);
         let b = dummy.block();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1383,6 +1387,7 @@ mod tests {
 
         // test the bandwidth rate limiter
         {
+            TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
             // create bandwidth rate limiter that allows only 80 bytes/s with bucket size of 8 bytes
             let mut rl = RateLimiter::new(8, None, 100, 0, None, 0).unwrap();
             // use up the budget
@@ -1442,6 +1447,7 @@ mod tests {
 
         // test the ops/s rate limiter
         {
+            TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
             // create ops rate limiter that allows only 10 ops/s with bucket size of 1 ops
             let mut rl = RateLimiter::new(0, None, 0, 1, None, 100).unwrap();
             // use up the budget

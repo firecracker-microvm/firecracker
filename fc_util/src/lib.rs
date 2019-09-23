@@ -1,10 +1,13 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
 extern crate libc;
+extern crate timerfd;
+#[macro_use]
+extern crate lazy_static;
 
 use std::fmt;
 
+pub mod timer_pool;
 pub mod validators;
 
 /// Constant to convert seconds to nanoseconds.

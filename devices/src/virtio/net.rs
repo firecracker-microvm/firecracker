@@ -948,6 +948,7 @@ mod tests {
     use std::u32;
 
     use dumbo::pdu::{arp, ethernet};
+    use fc_util::timer_pool::TimerPool;
     use libc;
     use memory_model::GuestAddress;
     use rate_limiter::TokenBucket;
@@ -1011,6 +1012,8 @@ mod tests {
             let epoll_raw_fd = epoll::create(true).unwrap();
             let (sender, _receiver) = mpsc::channel();
             let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
+            // Reserve 2 fds.
+            TimerPool.lock().unwrap().reserve_monotonic(2).unwrap();
 
             DummyNet {
                 net: create_net(
@@ -1130,6 +1133,8 @@ mod tests {
         mem: &'_ GuestMemory,
         test_mutators: TestMutators,
     ) -> (NetEpollHandler, VirtQueue<'_>, VirtQueue<'_>) {
+        // Reserve 2 fd.
+        TimerPool.lock().unwrap().reserve_monotonic(2).unwrap();
         let mut dummy = DummyNet::new(None);
         let n = dummy.net();
 
@@ -1522,6 +1527,7 @@ mod tests {
     fn test_rx_rate_limited_event_handler() {
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
+        TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
         let rl = RateLimiter::new(0, None, 0, 0, None, 0).unwrap();
         h.set_rx_rate_limiter(rl);
         let r = h.handle_event(RX_RATE_LIMITER_EVENT, EPOLLIN);
@@ -1535,6 +1541,7 @@ mod tests {
     fn test_tx_rate_limited_event_handler() {
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
+        TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
         let rl = RateLimiter::new(0, None, 0, 0, None, 0).unwrap();
         h.set_tx_rate_limiter(rl);
         let r = h.handle_event(TX_RATE_LIMITER_EVENT, EPOLLIN);
@@ -1749,6 +1756,7 @@ mod tests {
 
         // Test RX bandwidth rate limiting
         {
+            TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
             // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
             let mut rl = RateLimiter::new(0x1000, None, 100, 0, None, 0).unwrap();
             // use up the budget
@@ -1811,6 +1819,7 @@ mod tests {
 
         // Test TX ops rate limiting
         {
+            TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
             // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
             let mut rl = RateLimiter::new(0, None, 0, 1, None, 100).unwrap();
             // use up the budget
@@ -1852,6 +1861,7 @@ mod tests {
 
         // Test RX ops rate limiting
         {
+            TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
             // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
             let mut rl = RateLimiter::new(0, None, 0, 1, None, 100).unwrap();
             // use up the budget
@@ -1915,6 +1925,8 @@ mod tests {
     fn test_patch_rate_limiters() {
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _, _) = default_test_netepollhandler(&mem, TestMutators::default());
+
+        TimerPool.lock().unwrap().reserve_monotonic(2).unwrap();
 
         h.set_rx_rate_limiter(RateLimiter::new(10, None, 10, 2, None, 2).unwrap());
         h.set_tx_rate_limiter(RateLimiter::new(10, None, 10, 2, None, 2).unwrap());

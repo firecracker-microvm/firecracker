@@ -51,10 +51,12 @@ extern crate fc_util;
 #[macro_use]
 extern crate logger;
 
+use fc_util::timer_pool::TimerPool;
+use std::io::ErrorKind;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 use std::{fmt, io};
-use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use timerfd::{SetTimeFlags, TimerFd, TimerState};
 
 #[derive(Debug)]
 /// Describes the errors that may occur while handling rate limiter events.
@@ -342,10 +344,12 @@ impl RateLimiter {
             ops_complete_refill_time_ms,
         );
 
-        // We'll need a timer_fd, even if our current config effectively disables rate limiting,
-        // because `Self::update_buckets()` might re-enable it later, and we might be
-        // seccomp-blocked from creating the timer_fd at that time.
-        let timer_fd = TimerFd::new_custom(ClockId::Monotonic, true, true)?;
+        // Acquire previously reserver timer.
+        let timer_fd = TimerPool
+            .lock()
+            .unwrap()
+            .get_monotonic()
+            .map_err(|_| io::Error::new(ErrorKind::NotFound, "Timer pool empty"))?;
 
         Ok(RateLimiter {
             bandwidth: bytes_token_bucket,
@@ -582,6 +586,8 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_default() {
+        // Reserve 1 fd.
+        TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
         let mut l = RateLimiter::default();
 
         // limiter should not be blocked
@@ -600,6 +606,8 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_new() {
+        // Reserve 1 fd.
+        TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
         let l = RateLimiter::new(1000, Some(1001), 1002, 1003, Some(1004), 1005).unwrap();
 
         let bw = l.bandwidth.unwrap();
@@ -617,6 +625,9 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_manual_replenish() {
+        // Reserve 1 fd.
+        TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
+
         // rate limiter with limit of 1000 bytes/s and 1000 ops/s
         let mut l = RateLimiter::new(1000, None, 1000, 1000, None, 1000).unwrap();
 
@@ -638,6 +649,9 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_bandwidth() {
+        // Reserve 1 fd.
+        TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
+
         // rate limiter with limit of 1000 bytes/s
         let mut l = RateLimiter::new(1000, None, 1000, 0, None, 0).unwrap();
 
@@ -671,6 +685,9 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_ops() {
+        // Reserve 1 fd.
+        TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
+
         // rate limiter with limit of 1000 ops/s
         let mut l = RateLimiter::new(0, None, 0, 1000, None, 1000).unwrap();
 
@@ -704,6 +721,9 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_full() {
+        // Reserve 1 fd.
+        TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
+
         // rate limiter with limit of 1000 bytes/s and 1000 ops/s
         let mut l = RateLimiter::new(1000, None, 1000, 1000, None, 1000).unwrap();
 
@@ -744,6 +764,8 @@ mod tests {
 
     #[test]
     fn test_update_buckets() {
+        // Reserve 1 fd.
+        TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
         let mut x = RateLimiter::new(1000, Some(2000), 1000, 10, Some(20), 1000).unwrap();
 
         let initial_bw = x.bandwidth.clone();
@@ -769,6 +791,8 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_debug() {
+        // Reserve 1 fd.
+        TimerPool.lock().unwrap().reserve_monotonic(1).unwrap();
         let l = RateLimiter::new(1, Some(2), 3, 4, Some(5), 6).unwrap();
         assert_eq!(
             format!("{:?}", l),

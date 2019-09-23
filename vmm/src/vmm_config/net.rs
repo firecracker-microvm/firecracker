@@ -154,6 +154,11 @@ impl NetworkInterfaceConfigs {
         self.if_list.iter_mut()
     }
 
+    /// Returns the number of interfaces in list.
+    pub fn count(&self) -> u16 {
+        self.if_list.len() as u16
+    }
+
     /// Inserts `netif_config` in the network interface configuration list.
     /// If an entry with the same id already exists, it will update the existing
     /// entry.
