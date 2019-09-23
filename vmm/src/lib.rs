@@ -4153,6 +4153,38 @@ mod tests {
         );
         assert_eq!(
             format!(
+                "{}",
+                VmmActionError::Logger(
+                    ErrorKind::User,
+                    LoggerConfigError::FlushMetrics(String::from("Failed to flush metrics"))
+                )
+            ),
+            "Failed to flush metrics"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::Logger(
+                    ErrorKind::User,
+                    LoggerConfigError::FlushMetrics(String::from("foobar"))
+                )
+            ),
+            "Logger(User, FlushMetrics(\"foobar\"))"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                VmmActionError::Logger(
+                    ErrorKind::User,
+                    LoggerConfigError::InitializationFailure(String::from(
+                        "Failed to initialize logger"
+                    ))
+                )
+            ),
+            "Failed to initialize logger"
+        );
+        assert_eq!(
+            format!(
                 "{:?}",
                 VmmActionError::Logger(
                     ErrorKind::User,

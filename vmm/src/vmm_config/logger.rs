@@ -136,21 +136,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new() {
+    fn test_log_writer() {
         let log_file_temp =
             NamedTempFile::new().expect("Failed to create temporary output logging file.");
         let good_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
         let res = LoggerWriter::new(&good_file);
         assert!(res.is_ok());
-    }
 
-    #[test]
-    fn test_write_trait() {
-        let log_file_temp =
-            NamedTempFile::new().expect("Failed to create temporary output logging file.");
-        let file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
-
-        let mut fw = LoggerWriter::new(&file).unwrap();
+        let mut fw = res.unwrap();
         let msg = String::from("some message");
         assert!(fw.write(&msg.as_bytes()).is_ok());
         assert!(fw.flush().is_ok());
