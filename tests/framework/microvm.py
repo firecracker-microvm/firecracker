@@ -13,6 +13,8 @@ destroy microvms.
 import os
 from queue import Queue
 import re
+import select
+import time
 from subprocess import run, PIPE
 
 from retry import retry
@@ -36,6 +38,8 @@ class Microvm:
     methods, `spawn()` and `kill()` can be used to start/end the microvm
     process.
     """
+
+    SCREEN_LOGFILE = "/tmp/screen.log"
 
     def __init__(
         self,
@@ -314,14 +318,15 @@ class Microvm:
         else:
             # Delete old screen log if any.
             try:
-                os.unlink('/tmp/screen.log')
+                os.unlink(self.SCREEN_LOGFILE)
             except OSError:
                 pass
-            # Log screen output to /tmp/screen.log.
+            # Log screen output to SCREEN_LOGFILE
             # This file will collect any output from 'screen'ed Firecracker.
-            start_cmd = 'screen -L -Logfile /tmp/screen.log '\
+            start_cmd = 'screen -L -Logfile {logfile} '\
                         '-dmS {session} {binary} {params}'
             start_cmd = start_cmd.format(
+                logfile=self.SCREEN_LOGFILE,
                 session=self._session_name,
                 binary=self._jailer_binary_path,
                 params=' '.join(jailer_param_list)
@@ -468,3 +473,63 @@ class Microvm:
         """
         response = self.actions.put(action_type='InstanceStart')
         assert self._api_session.is_status_no_content(response.status_code)
+
+
+class Serial:
+    """Class for serial console communication with a Microvm."""
+
+    RX_TIMEOUT_S = 5
+
+    def __init__(self, vm):
+        """Initialize a new Serial object."""
+        self._poller = None
+        self._vm = vm
+
+    def open(self):
+        """Open a serial connection."""
+        # Open the screen log file.
+        if self._poller is not None:
+            # serial already opened
+            return
+
+        screen_log_fd = os.open(Microvm.SCREEN_LOGFILE, os.O_RDONLY)
+        self._poller = select.poll()
+        self._poller.register(screen_log_fd,
+                              select.POLLIN | select.POLLHUP)
+
+    def tx(self, input_string, end='\n'):
+        # pylint: disable=invalid-name
+        # No need to have a snake_case naming style for a single word.
+        r"""Send a string terminated by an end token (defaulting to "\n")."""
+        self._vm.serial_input(input_string + end)
+
+    def rx_char(self):
+        """Read a single character."""
+        result = self._poller.poll(0.1)
+
+        for fd, flag in result:
+            if flag & select.POLLHUP:
+                assert False, "Oh! The console vanished before test completed."
+
+            if flag & select.POLLIN:
+                output_char = str(os.read(fd, 1),
+                                  encoding='utf-8',
+                                  errors='ignore')
+                return output_char
+
+        return ''
+
+    def rx(self, token="\n"):
+        # pylint: disable=invalid-name
+        # No need to have a snake_case naming style for a single word.
+        r"""Read a string delimited by an end token (defaults to "\n")."""
+        rx_str = ''
+        start = time.time()
+        while True:
+            rx_str += self.rx_char()
+            if rx_str.endswith(token):
+                break
+            if (time.time() - start) >= self.RX_TIMEOUT_S:
+                assert False
+
+        return rx_str
