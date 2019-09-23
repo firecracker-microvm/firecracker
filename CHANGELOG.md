@@ -19,6 +19,7 @@
 ### Fixed
 
 - Fixed serial console on aarch64 (GitHub issue #1147).
+- Upon panic, the terminal is now reset to canonical mode.
 
 ## [0.18.0]
 

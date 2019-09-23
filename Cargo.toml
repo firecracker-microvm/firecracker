@@ -13,6 +13,7 @@ jailer = { path = "jailer" }
 logger = { path = "logger" }
 mmds = { path = "mmds" }
 seccomp = { path = "seccomp" }
+sys_util = { path = "sys_util" }
 vmm = { path = "vmm" }
 
 [dev-dependencies]

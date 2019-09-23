@@ -12,13 +12,14 @@ extern crate jailer;
 extern crate logger;
 extern crate mmds;
 extern crate seccomp;
+extern crate sys_util;
 extern crate vmm;
 
 use backtrace::Backtrace;
 use clap::{App, Arg};
 
 use std::fs;
-use std::io::ErrorKind;
+use std::io;
 use std::panic;
 use std::path::PathBuf;
 use std::process;
@@ -29,6 +30,7 @@ use api_server::{ApiServer, Error};
 use fc_util::validators::validate_instance_id;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
+use sys_util::Terminal;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
 
@@ -44,6 +46,10 @@ fn main() {
         error!("Failed to register signal handlers: {}", e);
         process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
     }
+
+    // We need this so that we can reset terminal to canonical mode if panic occurs.
+    let stdin = io::stdin();
+
     // Start firecracker by setting up a panic hook, which will be called before
     // terminating as we're building with panic = "abort".
     // It's worth noting that the abort is caused by sending a SIG_ABORT signal to the process.
@@ -52,6 +58,13 @@ fn main() {
         // origin of the panic, including the payload passed to panic! and the source code location
         // from which the panic originated.
         error!("Firecracker {}", info);
+        if let Err(e) = stdin.lock().set_canon_mode() {
+            error!(
+                "Failure while trying to reset stdin to canonical mode: {}",
+                e
+            );
+        }
+
         METRICS.vmm.panic_count.inc();
         let bt = Backtrace::new();
         error!("{:?}", bt);
@@ -180,7 +193,9 @@ fn main() {
     match server.bind_and_run(bind_path, start_time_us, start_time_cpu_us, seccomp_level) {
         Ok(_) => (),
         Err(Error::Io(inner)) => match inner.kind() {
-            ErrorKind::AddrInUse => panic!("Failed to open the API socket: {:?}", Error::Io(inner)),
+            io::ErrorKind::AddrInUse => {
+                panic!("Failed to open the API socket: {:?}", Error::Io(inner))
+            }
             _ => panic!(
                 "Failed to communicate with the API socket: {:?}",
                 Error::Io(inner)
