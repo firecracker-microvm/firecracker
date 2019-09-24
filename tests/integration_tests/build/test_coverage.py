@@ -30,6 +30,12 @@ KCOV_COVERAGE_FILE = 'index.js'
 KCOV_COVERAGE_REGEX = r'"covered":"(\d+\.\d)"'
 """Regex for extracting coverage data from a kcov output file."""
 
+KCOV_COVERED_LINES_REGEX = r'"covered_lines":"(\d+)"'
+"""Regex for extracting number of total covered lines found by kcov."""
+
+KCOV_TOTAL_LINES_REGEX = r'"total_lines" : "(\d+)"'
+"""Regex for extracting number of total executable lines found by kcov."""
+
 
 @pytest.mark.timeout(400)
 @pytest.mark.skipif(
@@ -75,8 +81,13 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
 
     coverage_file = os.path.join(test_session_tmp_path, KCOV_COVERAGE_FILE)
     with open(coverage_file) as cov_output:
-        coverage = float(re.findall(KCOV_COVERAGE_REGEX, cov_output.read())[0])
-    print("Coverage is: " + str(coverage))
+        contents = cov_output.read()
+        coverage = float(re.findall(KCOV_COVERAGE_REGEX, contents)[0])
+        covered_lines = int(re.findall(KCOV_COVERED_LINES_REGEX, contents)[0])
+        total_lines = int(re.findall(KCOV_TOTAL_LINES_REGEX, contents)[0])
+    print("Number of executable lines: " + str(total_lines))
+    print("Number of covered lines: " + str(covered_lines))
+    print("Thus, coverage is: " + str(coverage))
 
     coverage_low_msg = (
         'Current code coverage ({}%) is below the target ({}%).'
