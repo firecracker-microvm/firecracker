@@ -23,19 +23,17 @@ TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
     "target",
     TARGETS
 )
+@pytest.mark.skipif(
+    platform.machine() == "x86_64",
+    reason="Unit tests are already tested by test_coverage.py on x86_64"
+)
 def test_unittests(test_session_root_path, target):
     """Run unit and doc tests for all supported targets."""
     extra_env = ''
-    extra_args = "--target {} ".format(target)
+    extra_args = "--target {} --exclude cpuid".format(target)
 
     if "musl" in target:
         extra_env += "TARGET_CC=musl-gcc"
-
-    if MACHINE == "x86_64":
-        extra_args += "--all-features "
-
-    if MACHINE == "aarch64":
-        extra_args += "--exclude cpuid "
 
     host.cargo_test(
         test_session_root_path,

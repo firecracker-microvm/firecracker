@@ -39,6 +39,7 @@ KCOV_COVERAGE_REGEX = r'"covered":"(\d+\.\d)"'
 def test_coverage(test_session_root_path, test_session_tmp_path):
     """Test line coverage with kcov.
 
+    This test also implicitly tests all our unit tests on x86.
     The result is extracted from the $KCOV_COVERAGE_FILE file created by kcov
     after a coverage run.
     """
