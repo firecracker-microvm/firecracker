@@ -428,11 +428,15 @@ pub struct EpollConfig {
     q_avail_token: u64,
     rate_limiter_token: u64,
     epoll_raw_fd: RawFd,
-    sender: mpsc::Sender<Box<EpollHandler>>,
+    sender: mpsc::Sender<Box<dyn EpollHandler>>,
 }
 
 impl EpollConfigConstructor for EpollConfig {
-    fn new(first_token: u64, epoll_raw_fd: RawFd, sender: mpsc::Sender<Box<EpollHandler>>) -> Self {
+    fn new(
+        first_token: u64,
+        epoll_raw_fd: RawFd,
+        sender: mpsc::Sender<Box<dyn EpollHandler>>,
+    ) -> Self {
         EpollConfig {
             q_avail_token: first_token + u64::from(QUEUE_AVAIL_EVENT),
             rate_limiter_token: first_token + u64::from(RATE_LIMITER_EVENT),

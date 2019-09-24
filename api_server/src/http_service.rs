@@ -476,7 +476,7 @@ impl hyper::server::Service for ApiServerHttpService {
     type Request = hyper::Request;
     type Response = hyper::Response;
     type Error = hyper::error::Error;
-    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+    type Future = Box<dyn Future<Item = Self::Response, Error = Self::Error>>;
 
     // This function returns a future that will resolve at some point to the response for
     // the HTTP request contained in req.
