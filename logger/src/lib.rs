@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(missing_docs)]
-//! Utility for sending log related messages and metrics to two different named pipes (FIFO) or
+//! Utility for sending log related messages and metrics to two different storing destinations or
 //! simply to stdout/stderr. The logging destination is specified upon the initialization of the
 //! logging system.
 //!
@@ -14,7 +14,7 @@
 //! The logger can be preinitialized any number of times before calling `LOGGER.init()`.
 //!
 //! 2) Calling `LOGGER.init()`. This will enable the logger to work in full mode.
-//! In this mode the logger can write both messages and metrics to pipes.
+//! In this mode the logger can write both messages and metrics to arbitrary buffers.
 //! The logger can be initialized only once. Any call to the `LOGGER.init()` following that will
 //! fail with an explicit error.
 //!
@@ -36,15 +36,13 @@
 //!     error!("this is an error");
 //! }
 //! ```
-//! ## Example for logging to FIFOs
+//! ## Example for logging to a `File`:
 //!
 //! ```
 //! extern crate libc;
 //! extern crate tempfile;
 //!
-//! use self::tempfile::NamedTempFile;
-//! use std::ops::Deref;
-//!
+//! use std::io::Cursor;
 //! use libc::c_char;
 //!
 //! #[macro_use]
@@ -52,28 +50,16 @@
 //! use logger::{AppInfo, LOGGER};
 //!
 //! fn main() {
-//!     let log_file_temp =
-//!            NamedTempFile::new().expect("Failed to create temporary output logging file.");
-//!     let metrics_file_temp =
-//!            NamedTempFile::new().expect("Failed to create temporary metrics logging file.");
-//!     let logs = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
-//!     let metrics = String::from(metrics_file_temp.path().to_path_buf().to_str().unwrap());
+//!     let mut logs = Cursor::new(vec![0; 15]);
+//!     let mut metrics = Cursor::new(vec![0; 15]);
 //!
-//!     unsafe {
-//!          libc::mkfifo(logs.as_bytes().as_ptr() as *const c_char, 0o644);
-//!      }
-//!     unsafe {
-//!          libc::mkfifo(metrics.as_bytes().as_ptr() as *const c_char, 0o644);
-//!     }
 //!     // Initialize the logger to log to a FIFO that was created beforehand.
-//!     assert!(LOGGER.deref().init(
+//!     assert!(LOGGER.init(
 //!                 &AppInfo::new("Firecracker", "1.0"),
-//!                 "MY-INSTANCE",
-//!                 logs,
-//!                 metrics,
-//!                 &vec![]
+//!                 Box::new(logs),
+//!                 Box::new(metrics),
 //!             ).is_ok());
-//!     // The following messages should appear in the `log_file_temp` file.
+//!     // The following messages should appear in the in-memory buffer `logs`.
 //!     warn!("this is a warning");
 //!     error!("this is an error");
 //! }
@@ -130,13 +116,10 @@
 //! the block device such as `activate_fails`, `cfg_fails`, etc.
 //!
 //! # Limitations
-//! In order to not block the instance if nobody is consuming the logs that are flushed to the two
-//! pipes, we are opening them with `O_NONBLOCK` flag. In this case, writing to a pipe will
-//! start failing when reaching 64K of unconsumed content. Simultaneously, the `missed_metrics_count`
-//! metric will get increased.
-//! Metrics are only logged to pipes. Logs can be flushed either to stdout/stderr or to a pipe.
+//! Metrics are only logged to buffers. Logs can be flushed either to stdout/stderr or to a
+//! byte-oriented sink (File, FIFO, Ring Buffer etc).
 
-// workaround to macro_reexport
+// Workaround to `macro_reexport`.
 #[macro_use]
 extern crate lazy_static;
 extern crate libc;
@@ -150,9 +133,9 @@ extern crate fc_util;
 
 pub mod error;
 pub mod metrics;
-mod writers;
 
 use std::error::Error;
+use std::io::Write;
 use std::ops::Deref;
 use std::result;
 use std::str::FromStr;
@@ -167,7 +150,6 @@ pub use log::Level::*;
 pub use log::*;
 use log::{set_logger, set_max_level, Log, Metadata, Record};
 pub use metrics::{Metric, METRICS};
-use writers::*;
 
 /// Type for returning functions outcome.
 ///
@@ -199,18 +181,8 @@ lazy_static! {
     };
 }
 
-// Output sources for the log subsystem.
-#[derive(PartialEq, Clone, Copy)]
-#[repr(usize)]
-enum Destination {
-    Stderr,
-    Stdout,
-    Pipe,
-}
-
 /// Enum representing logging options that can be activated from the API.
 ///
-#[derive(PartialEq)]
 #[repr(usize)]
 pub enum LogOption {
     /// Enable KVM dirty page tracking and a metric that counts dirty pages.
@@ -238,39 +210,13 @@ impl AppInfo {
     /// Creates a new instance of AppInfo.
     /// # Arguments
     ///
-    /// * `name` - App name.
-    /// * `version` - App version.
+    /// * `name` - Name of the application using this logger.
+    /// * `version` - Version of the application using this logger.
     pub fn new(name: &str, version: &str) -> AppInfo {
         AppInfo {
             name: name.to_string(),
             version: version.to_string(),
         }
-    }
-}
-
-// Each log level also has a code and a destination output associated with it.
-struct LevelInfo {
-    // Numeric representation of the chosen log level.
-    code: AtomicUsize,
-    // Numeric representation of the chosen log destination.
-    writer: AtomicUsize,
-}
-
-impl LevelInfo {
-    fn code(&self) -> usize {
-        self.code.load(Ordering::Relaxed)
-    }
-
-    fn set_code(&self, level: Level) {
-        self.code.store(level as usize, Ordering::Relaxed)
-    }
-
-    fn writer(&self) -> usize {
-        self.writer.load(Ordering::Relaxed)
-    }
-
-    fn set_writer(&self, destination: Destination) {
-        self.writer.store(destination as usize, Ordering::Relaxed)
     }
 }
 
@@ -282,34 +228,23 @@ pub struct Logger {
     show_level: AtomicBool,
     show_file_path: AtomicBool,
     show_line_numbers: AtomicBool,
-    level_info: LevelInfo,
-    // Used in case we want to send logs to a FIFO.
-    log_fifo: Mutex<Option<PipeLogWriter>>,
-    // Used in case we want to send metrics to a FIFO.
-    metrics_fifo: Mutex<Option<PipeLogWriter>>,
+    level: AtomicUsize,
+    // Human readable logs will be outputted here.
+    log_buf: Mutex<Option<Box<dyn Write + Send>>>,
+    // Metrics will get flushed here.
+    metrics_buf: Mutex<Option<Box<dyn Write + Send>>>,
     instance_id: RwLock<String>,
     flags: AtomicUsize,
 }
 
-// Auxiliary function to get the default destination for some code level.
-fn get_default_destination(level: Level) -> Destination {
-    match level {
-        Level::Error => Destination::Stderr,
-        Level::Warn => Destination::Stderr,
-        Level::Info => Destination::Stdout,
-        Level::Debug => Destination::Stdout,
-        Level::Trace => Destination::Stdout,
-    }
-}
-
-// Auxiliary function to flush a message to a PipeLogWriter.
+// Auxiliary function to flush a message to a entity implementing `Write` and `Send` traits.
 // This is used by the internal logger to either flush human-readable logs or metrics.
-fn log_to_fifo(mut msg: String, fifo_writer: &mut PipeLogWriter) -> Result<()> {
+fn write_to_destination(mut msg: String, buffer: &mut (dyn Write + Send)) -> Result<()> {
     msg = format!("{}\n", msg);
-    fifo_writer.write(&msg)?;
-    // No need to call flush here since the write will handle the flush on its own given that
-    // our messages always has a newline.
-    Ok(())
+    buffer
+        .write(&msg.as_bytes())
+        .map_err(LoggerError::LogWrite)?;
+    buffer.flush().map_err(LoggerError::LogFlush)
 }
 
 impl Logger {
@@ -321,16 +256,19 @@ impl Logger {
             show_level: AtomicBool::new(true),
             show_line_numbers: AtomicBool::new(true),
             show_file_path: AtomicBool::new(true),
-            level_info: LevelInfo {
+            level:
                 // DEFAULT_LEVEL is warn so the destination output is stderr.
-                code: AtomicUsize::new(DEFAULT_LEVEL as usize),
-                writer: AtomicUsize::new(Destination::Stderr as usize),
-            },
-            log_fifo: Mutex::new(None),
-            metrics_fifo: Mutex::new(None),
+                AtomicUsize::new(DEFAULT_LEVEL as usize),
+            log_buf: Mutex::new(None),
+            metrics_buf: Mutex::new(None),
             instance_id: RwLock::new(String::new()),
             flags: AtomicUsize::new(0),
         }
+    }
+
+    /// Returns the configured flags for the logger.
+    pub fn flags(&self) -> usize {
+        self.flags.load(Ordering::Relaxed)
     }
 
     fn show_level(&self) -> bool {
@@ -343,6 +281,22 @@ impl Logger {
 
     fn show_line_numbers(&self) -> bool {
         self.show_line_numbers.load(Ordering::Relaxed)
+    }
+
+    /// Configure flags for the logger.
+    pub fn set_flags(&self, options: &[Value]) -> Result<()> {
+        let mut flags = 0;
+        for option in options.iter() {
+            if let Value::String(s_opt) = option {
+                flags |= LogOption::from_str(s_opt.as_str())
+                    .map_err(|_| LoggerError::InvalidLogOption(s_opt.clone()))?
+                    as usize;
+            } else {
+                return Err(LoggerError::InvalidLogOption(format!("{:?}", option)));
+            }
+        }
+        self.flags.store(flags, Ordering::SeqCst);
+        Ok(())
     }
 
     /// Enables or disables including the level in the log message's tag portion.
@@ -413,12 +367,18 @@ impl Logger {
             .store(file_path && line_numbers, Ordering::Relaxed);
     }
 
+    /// Sets the ID for this logger session.
+    pub fn set_instance_id(&self, instance_id: String) {
+        let mut id_guard = match self.instance_id.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *id_guard = instance_id;
+    }
+
     /// Explicitly sets the log level for the Logger.
-    /// User needs to say the level code(error, warn...) and the output destination will be
-    /// updated if and only if the logger was not initialized to log to a FIFO.
     /// The default level is WARN. So, ERROR and WARN statements will be shown (i.e. all that is
     /// bigger than the level code).
-    /// If level is decreased at INFO, ERROR, WARN and INFO statements will be outputted, etc.
     ///
     /// # Arguments
     ///
@@ -441,20 +401,11 @@ impl Logger {
     /// ```
     /// The code above will more or less print:
     /// ```bash
-    /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:INFO:logger/src/lib.rs:353] An informational log
+    /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:INFO:logger/src/lib.rs:389] An informational log
     /// message
     /// ```
     pub fn set_level(&self, level: Level) {
-        self.level_info.set_code(level);
-        if self.level_info.writer() != Destination::Pipe as usize {
-            self.level_info.set_writer(get_default_destination(level));
-        }
-    }
-
-    /// Returns the configured flags for the logger.
-    ///
-    pub fn flags(&self) -> usize {
-        self.flags.load(Ordering::Relaxed)
+        self.level.store(level as usize, Ordering::Relaxed);
     }
 
     /// Creates the first portion (to the left of the separator)
@@ -463,15 +414,9 @@ impl Logger {
     fn create_prefix(&self, record: &Record) -> String {
         let mut res = String::from(" [");
 
-        {
-            // It's safe to unwrap here, because `instance_id` is only written to
-            // during log initialization, so there aren't any writers that could
-            // poison the lock.
-            let id_guard = self
-                .instance_id
-                .read()
-                .expect("Failed to read instance ID due to poisoned lock");
-            res.push_str(id_guard.as_ref());
+        match self.instance_id.read() {
+            Ok(guard) => res.push_str(guard.as_ref()),
+            Err(poisoned) => res.push_str(poisoned.into_inner().as_ref()),
         }
 
         if self.show_level() {
@@ -496,8 +441,8 @@ impl Logger {
         res
     }
 
-    fn log_fifo_guard(&self) -> MutexGuard<Option<PipeLogWriter>> {
-        match self.log_fifo.lock() {
+    fn log_buf_guard(&self) -> MutexGuard<Option<Box<dyn Write + Send>>> {
+        match self.log_buf.lock() {
             Ok(guard) => guard,
             // If a thread panics while holding this lock, the writer within should still be usable.
             // (we might get an incomplete log line or something like that).
@@ -505,28 +450,13 @@ impl Logger {
         }
     }
 
-    fn metrics_fifo_guard(&self) -> MutexGuard<Option<PipeLogWriter>> {
-        match self.metrics_fifo.lock() {
+    fn metrics_buf_guard(&self) -> MutexGuard<Option<Box<dyn Write + Send>>> {
+        match self.metrics_buf.lock() {
             Ok(guard) => guard,
             // If a thread panics while holding this lock, the writer within should still be usable.
             // (we might get an incomplete log line or something like that).
             Err(poisoned) => poisoned.into_inner(),
         }
-    }
-
-    fn set_flags(options: &[Value]) -> Result<()> {
-        let mut flags = 0;
-        for option in options.iter() {
-            if let Value::String(s_opt) = option {
-                flags |= LogOption::from_str(s_opt.as_str())
-                    .map_err(|_| LoggerError::InvalidLogOption(s_opt.clone()))?
-                    as usize;
-            } else {
-                return Err(LoggerError::InvalidLogOption(format!("{:?}", option)));
-            }
-        }
-        LOGGER.flags.store(flags, Ordering::SeqCst);
-        Ok(())
     }
 
     /// Try to change the state of the logger.
@@ -559,12 +489,12 @@ impl Logger {
     /// Performs the most basic steps in order to enable the logger to write to stdout or stderr
     /// even before calling LOGGER.init(). Calling this method is optional.
     /// This function can be called any number of times before the initialization.
-    /// Any calls made after the initialization will result in Err()
-    /// appropriately (read description of error's enum items).
+    /// Any calls made after the initialization will result in `Err()`.
     ///
     /// # Arguments
     ///
-    /// * `instance_id` - Unique string identifying this logger session. This id is temporary and will be overwritten upon initialization.
+    /// * `instance_id` - Unique string identifying this logger session.
+    ///                   This id is temporary and will be overwritten upon initialization.
     ///
     /// # Example
     ///
@@ -581,14 +511,7 @@ impl Logger {
         self.try_lock(PREINITIALIZING)?;
 
         if let Some(some_instance_id) = instance_id {
-            // Use a block in order to avoid poisoning the lock in case of an unrelated error.
-            {
-                let mut id_guard = self
-                    .instance_id
-                    .write()
-                    .expect("Failed to set instance ID due to poisoned lock");
-                *id_guard = some_instance_id.to_string();
-            }
+            self.set_instance_id(some_instance_id);
         }
 
         set_max_level(Level::Trace.to_level_filter());
@@ -599,99 +522,60 @@ impl Logger {
     }
 
     /// Initialize log system (once and only once).
-    /// Every call made after the first will have no effect besides return `Ok` or `Err`
-    /// appropriately (read description of error's enum items).
+    /// Every call made after the first will have no effect besides returning `Ok` or `Err`.
     ///
     /// # Arguments
     ///
     /// * `app_info` - Info about the app that uses the logger.
     /// * `instance_id` - Unique string identifying this logger session.
-    /// * `log_pipe` - Path to a FIFO used for logging plain text.
-    /// * `metrics_pipe` - Path to a FIFO used for logging JSON formatted metrics.
-    /// * `options` - Logger options
+    /// * `log_dest` - Buffer for plain text logs. Needs to implements `Write` and `Send`.
+    /// * `metrics_dest` - Buffer for JSON formatted metrics. Needs to implement `Write` and `Send`.
+    /// * `options` - Logger options.
     ///
     /// # Example
     ///
     /// ```
     /// extern crate logger;
     /// use logger::{AppInfo, LOGGER};
-    /// use std::ops::Deref;
+    ///
+    /// use std::io::Cursor;
     ///
     /// fn main() {
-    ///     LOGGER.deref().init(
+    /// let mut logs = Cursor::new(vec![0; 15]);
+    /// let mut metrics = Cursor::new(vec![0; 15]);
+    ///
+    ///     LOGGER.init(
     ///         &AppInfo::new("Firecracker", "1.0"),
-    ///         "MY-INSTANCE",
-    ///         "/tmp/log".to_string(),
-    ///         "/tmp/metrics".to_string(),
-    ///         &vec![]
+    ///         Box::new(logs),
+    ///         Box::new(metrics),
     ///     );
     /// }
     /// ```
     pub fn init(
         &self,
         app_info: &AppInfo,
-        instance_id: &str,
-        log_pipe: String,
-        metrics_pipe: String,
-        options: &[Value],
+        log_dest: Box<dyn Write + Send>,
+        metrics_dest: Box<dyn Write + Send>,
     ) -> Result<()> {
         self.try_lock(INITIALIZING)?;
-
-        // Use a block in order to avoid poisoning the lock in case of an unrelated error.
         {
-            let mut id_guard = self
-                .instance_id
-                .write()
-                .expect("Failed to set instance ID due to poisoned lock");
-            *id_guard = instance_id.to_string();
+            let mut g = self.log_buf_guard();
+            *g = Some(log_dest);
         }
 
-        match PipeLogWriter::new(&log_pipe) {
-            Ok(t) => {
-                // The mutex shouldn't be poisoned before init otherwise panic!.
-                let mut g = LOGGER.log_fifo_guard();
-                *g = Some(t);
-            }
-            Err(ref e) => {
-                STATE.store(UNINITIALIZED, Ordering::SeqCst);
-                return Err(LoggerError::NeverInitialized(format!(
-                    "Could not open logging fifo: {}",
-                    e
-                )));
-            }
-        };
+        {
+            let mut g = self.metrics_buf_guard();
 
-        match PipeLogWriter::new(&metrics_pipe) {
-            Ok(t) => {
-                // The mutex shouldn't be poisoned before init otherwise panic!.
-                let mut g = LOGGER.metrics_fifo_guard();
-                *g = Some(t);
-            }
-            Err(ref e) => {
-                STATE.store(UNINITIALIZED, Ordering::SeqCst);
-                return Err(LoggerError::NeverInitialized(format!(
-                    "Could not open metrics fifo: {}",
-                    e
-                )));
-            }
-        };
-
-        if let Err(e) = Logger::set_flags(options) {
-            STATE.store(UNINITIALIZED, Ordering::SeqCst);
-            return Err(LoggerError::NeverInitialized(format!(
-                "Could not set option flags: {}",
-                e
-            )));
+            *g = Some(metrics_dest);
         }
 
         set_max_level(Level::Trace.to_level_filter());
 
+        STATE.store(INITIALIZED, Ordering::SeqCst);
         self.log_helper(
             format!("Running {} v{}", app_info.name, app_info.version),
-            Some(Destination::Pipe),
+            Level::Info,
         );
-        LOGGER.level_info.set_writer(Destination::Pipe);
-        STATE.store(INITIALIZED, Ordering::SeqCst);
 
         Ok(())
     }
@@ -699,73 +583,52 @@ impl Logger {
     // In a future PR we'll update the way things are written to the selected destination to avoid
     // the creation and allocation of unnecessary intermediate Strings. The log_helper method takes
     // care of the common logic involved in both writing regular log messages, and dumping metrics.
-    fn log_helper(&self, msg: String, maybe_forced_destination: Option<Destination>) {
-        let destination = maybe_forced_destination
-            .map(|forced_destination| forced_destination as usize)
-            .unwrap_or_else(|| self.level_info.writer());
-
-        // We have the awkward IF's for now because we can't use just "<enum_variant> as usize
-        // on the left side of a match arm for some reason.
-        match destination {
-            x if x == Destination::Pipe as usize => {
-                // Unwrap is safe cause the Destination is a Pipe.
-                if log_to_fifo(
-                    msg,
-                    self.log_fifo_guard()
-                        .as_mut()
-                        .expect("Failed to write to fifo due to poisoned lock"),
-                )
-                .is_err()
-                {
+    fn log_helper(&self, msg: String, msg_level: Level) {
+        if STATE.load(Ordering::Relaxed) == INITIALIZED {
+            if let Some(guard) = self.log_buf_guard().as_mut() {
+                if write_to_destination(msg, guard).is_err() {
                     // No reason to log the error to stderr here, just increment the metric.
                     METRICS.logger.missed_log_count.inc();
                 }
+            } else {
+                panic!("Failed to write to the provided metrics destination due to poisoned lock");
             }
-            x if x == Destination::Stderr as usize => {
-                eprintln!("{}", msg);
-            }
-            x if x == Destination::Stdout as usize => {
-                println!("{}", msg);
-            }
-            // This is hit on major program logic error.
-            _ => panic!("Invalid logger.level_info.writer!"),
+        } else if msg_level <= Level::Warn {
+            eprintln!("{}", msg);
+        } else {
+            println!("{}", msg);
         }
     }
 
-    /// Flushes metrics to the FIFO provided as argument upon initialization of the logger.
-    ///
-    pub fn log_metrics(&self) -> Result<()> {
+    /// Flushes metrics to the destination provided as argument upon initialization of the logger.
+    /// Upon failure, an error is returned if logger is initialized and metrics could not be flushed.
+    /// Upon success, the function will return `True` (if logger was initialized and metrics were
+    /// successfully flushed to disk) or `False` (if logger was not yet initialized).
+    pub fn log_metrics(&self) -> Result<bool> {
         // Check that the logger is initialized.
         if STATE.load(Ordering::Relaxed) == INITIALIZED {
             match serde_json::to_string(METRICS.deref()) {
                 Ok(msg) => {
-                    // Check that the destination is indeed a FIFO.
-                    if self.level_info.writer() == Destination::Pipe as usize {
-                        log_to_fifo(
-                            msg,
-                            self.metrics_fifo_guard()
-                                .as_mut()
-                                .expect("Failed to write to fifo due to poisoned lock"),
-                        )
-                        .map_err(|e| {
-                            METRICS.logger.missed_metrics_count.inc();
-                            e
-                        })?;
+                    if let Some(guard) = self.metrics_buf_guard().as_mut() {
+                        write_to_destination(msg, guard)
+                            .map_err(|e| {
+                                METRICS.logger.missed_metrics_count.inc();
+                                e
+                            })
+                            .map(|()| true)?;
+                    } else {
+                        panic!("Failed to write to the provided metrics destination due to poisoned lock");
                     }
-                    // We are not logging metrics if the Destination is not a PIPE.
-                    Ok(())
                 }
                 Err(e) => {
                     METRICS.logger.metrics_fails.inc();
-                    Err(LoggerError::LogMetricFailure(e.description().to_string()))
+                    return Err(LoggerError::LogMetricFailure(e.description().to_string()));
                 }
             }
-        } else {
-            METRICS.logger.metrics_fails.inc();
-            Err(LoggerError::LogMetricFailure(
-                "Logger was not initialized.".to_string(),
-            ))
         }
+        // If the logger is not initialized, no error is thrown but we do let the user know that
+        // metrics were not flushed.
+        Ok(false)
     }
 }
 
@@ -776,7 +639,7 @@ impl Log for Logger {
     // configured level. If the configured level is "warning" but the line is logged through "info!"
     // marco then it will not get logged.
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() as usize <= self.level_info.code()
+        metadata.level() as usize <= self.level.load(Ordering::SeqCst)
     }
 
     fn log(&self, record: &Record) {
@@ -788,8 +651,7 @@ impl Log for Logger {
                 MSG_SEPARATOR,
                 record.args()
             );
-
-            self.log_helper(msg, None);
+            self.log_helper(msg, record.metadata().level());
         }
     }
 
@@ -838,8 +700,7 @@ mod tests {
     #[test]
     fn test_default_values() {
         let l = Logger::new();
-        assert_eq!(l.level_info.code(), log::Level::Warn as usize);
-        assert_eq!(l.level_info.writer(), Destination::Stderr as usize);
+        assert_eq!(l.level.load(Ordering::Relaxed), log::Level::Warn as usize);
         assert_eq!(l.show_line_numbers(), true);
         assert_eq!(l.show_level(), true);
         assert_eq!(l.flags.load(Ordering::Relaxed), 0);
@@ -849,15 +710,6 @@ mod tests {
     #[allow(clippy::cognitive_complexity)]
     fn test_init() {
         let app_info = AppInfo::new(TEST_APP_NAME, TEST_APP_VERSION);
-
-        let log_file_temp =
-            NamedTempFile::new().expect("Failed to create temporary output logging file.");
-        let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
-
-        let metrics_file_temp =
-            NamedTempFile::new().expect("Failed to create temporary metrics logging file.");
-        let metrics_file = String::from(metrics_file_temp.path().to_path_buf().to_str().unwrap());
-
         let l = LOGGER.deref();
 
         l.set_include_origin(false, true);
@@ -870,34 +722,23 @@ mod tests {
         assert_eq!(l.show_file_path(), true);
         assert_eq!(l.show_level(), true);
 
-        assert!(l.log_metrics().is_err());
+        // Trying to log metrics when logger is not initialized, should not throw error.
+        let res = l.log_metrics();
+        assert!(res.is_ok() && !res.unwrap());
 
-        // Assert that initialization with invalid options is not allowed.
-        assert_eq!(
-            format!(
-                "{:?}",
-                l.init(&app_info, TEST_INSTANCE_ID, log_file.clone(), metrics_file.clone(), &[Value::Bool(true)])
-                    .err()
-            ),
-            "Some(NeverInitialized(\"Could not set option flags: Invalid log option: Bool(true)\"))"
-        );
-        assert_eq!(
-            format!(
-                "{:?}",
-                l.init(
-                    &app_info,
-                    TEST_INSTANCE_ID,
-                    log_file.clone(),
-                    metrics_file.clone(),
-                    &[Value::String("foobar".to_string())]
-                )
-                .err()
-            ),
-            "Some(NeverInitialized(\"Could not set option flags: Invalid log option: foobar\"))"
-        );
+        l.set_instance_id(TEST_INSTANCE_ID.to_string());
+
+        // Test flag configuration.
+        assert!(l.set_flags(&[Value::Bool(true)]).is_err());
+        assert!(l.set_flags(&[Value::String("foobar".to_string())]).is_err());
+        assert_eq!(l.flags(), 0);
+        assert!(l
+            .set_flags(&[Value::String("LogDirtyPages".to_string())])
+            .is_ok());
 
         // Assert that metrics cannot be flushed to stdout/stderr.
-        assert!(l.log_metrics().is_err());
+        let res = l.log_metrics();
+        assert!(res.is_ok() && !res.unwrap());
 
         // Assert that preinitialization works any number of times.
         assert!(l.preinit(Some(TEST_INSTANCE_ID.to_string())).is_ok());
@@ -909,13 +750,17 @@ mod tests {
         error!("error");
 
         // Assert that initialization works only once.
+        let log_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary output logging file.");
+        let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
+        let metrics_file_temp =
+            NamedTempFile::new().expect("Failed to create temporary metrics logging file.");
+        l.set_instance_id(TEST_INSTANCE_ID.to_string());
         assert!(l
             .init(
                 &app_info,
-                TEST_INSTANCE_ID,
-                log_file.clone(),
-                metrics_file.clone(),
-                &[Value::String("LogDirtyPages".to_string())]
+                Box::new(log_file_temp),
+                Box::new(metrics_file_temp),
             )
             .is_ok());
 
@@ -925,10 +770,8 @@ mod tests {
         assert!(l
             .init(
                 &app_info,
-                TEST_INSTANCE_ID,
-                log_file.clone(),
-                metrics_file.clone(),
-                &[]
+                Box::new(NamedTempFile::new().unwrap()),
+                Box::new(NamedTempFile::new().unwrap()),
             )
             .is_err());
 
@@ -936,10 +779,8 @@ mod tests {
         warn!("warning");
         error!("error");
 
-        l.flush();
-
         // Here we also test that the last initialization had no effect given that the
-        // logging system can only be initialized with pipes once per program.
+        // logging system can only be initialized with byte-oriented sinks once per program.
         validate_logs(
             &log_file,
             &[
@@ -954,30 +795,6 @@ mod tests {
         assert!(l.log_metrics().is_ok());
 
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
-        let log_file_temp =
-            NamedTempFile::new().expect("Failed to create temporary output logging file.");
-        let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
-
-        // Exercise the case when there is an error in opening file.
-        STATE.store(UNINITIALIZED, Ordering::SeqCst);
-        assert!(l
-            .init(
-                &app_info,
-                TEST_INSTANCE_ID,
-                String::from(""),
-                metrics_file.clone(),
-                &[]
-            )
-            .is_err());
-
-        let res = l.init(
-            &app_info,
-            TEST_INSTANCE_ID,
-            log_file.clone(),
-            String::from(""),
-            &[],
-        );
-        assert!(res.is_err());
 
         l.set_include_level(true);
         l.set_include_origin(false, false);
@@ -998,32 +815,5 @@ mod tests {
         assert_eq!(l.show_level(), false);
         assert_eq!(l.show_file_path(), true);
         assert_eq!(l.show_line_numbers(), true);
-
-        STATE.store(INITIALIZED, Ordering::SeqCst);
-        let l = Logger::new();
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                l.init(
-                    &app_info,
-                    TEST_INSTANCE_ID,
-                    log_file.clone(),
-                    metrics_file.clone(),
-                    &[]
-                )
-                .err()
-            ),
-            "Some(AlreadyInitialized)"
-        );
-    }
-
-    #[test]
-    fn test_get_default_destination() {
-        assert!(get_default_destination(log::Level::Error) == Destination::Stderr);
-        assert!(get_default_destination(log::Level::Warn) == Destination::Stderr);
-        assert!(get_default_destination(log::Level::Info) == Destination::Stdout);
-        assert!(get_default_destination(log::Level::Debug) == Destination::Stdout);
-        assert!(get_default_destination(log::Level::Trace) == Destination::Stdout);
     }
 }

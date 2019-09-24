@@ -91,7 +91,7 @@ use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::device_config::DeviceConfigs;
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
 use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
-use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel};
+use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel, LoggerWriter};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
@@ -609,7 +609,7 @@ impl EpollContext {
             // Find a better solution to this (and think about the state of the serial device
             // while we're at it). This also led to commenting out parts of the
             // enable_disable_stdin_test() unit test function.
-            warn!("Could not add stdin event to epoll. {:?}", e);
+            warn!("Could not add stdin event to epoll. {}", e);
         } else {
             self.dispatch_table[self.stdin_index as usize] = Some(EpollDispatch::Stdin);
         }
@@ -1095,7 +1095,7 @@ impl Vmm {
         // The dirty pages are only available on x86_64.
         #[cfg(target_arch = "x86_64")]
         self.log_dirty_pages();
-        LOGGER.log_metrics()
+        LOGGER.log_metrics().map(|_| ())
     }
 
     fn init_guest_memory(&mut self) -> std::result::Result<(), StartMicrovmError> {
@@ -1957,11 +1957,10 @@ impl Vmm {
             ));
         }
 
-        let instance_id;
         let firecracker_version;
         {
             let guard = self.shared_info.read().unwrap();
-            instance_id = guard.id.clone();
+            LOGGER.set_instance_id(guard.id.clone());
             firecracker_version = guard.vmm_version.clone();
         }
 
@@ -1981,13 +1980,28 @@ impl Vmm {
         #[cfg(target_arch = "x86_64")]
         let options = api_logger.options.as_array().unwrap();
 
+        LOGGER.set_flags(options).map_err(|e| {
+            VmmActionError::Logger(
+                ErrorKind::User,
+                LoggerConfigError::InitializationFailure(e.to_string()),
+            )
+        })?;
+
         LOGGER
             .init(
                 &AppInfo::new("Firecracker", &firecracker_version),
-                &instance_id,
-                api_logger.log_fifo,
-                api_logger.metrics_fifo,
-                options,
+                Box::new(LoggerWriter::new(&api_logger.log_fifo).map_err(|e| {
+                    VmmActionError::Logger(
+                        ErrorKind::User,
+                        LoggerConfigError::InitializationFailure(e.to_string()),
+                    )
+                })?),
+                Box::new(LoggerWriter::new(&api_logger.metrics_fifo).map_err(|e| {
+                    VmmActionError::Logger(
+                        ErrorKind::User,
+                        LoggerConfigError::InitializationFailure(e.to_string()),
+                    )
+                })?),
             )
             .map(|_| VmmData::Empty)
             .map_err(|e| {
@@ -2899,6 +2913,22 @@ mod tests {
     }
 
     #[test]
+    fn test_epoll_stdin_event() {
+        let mut epoll_context = EpollContext::new().unwrap();
+        epoll_context.enable_stdin_event();
+        assert_eq!(
+            epoll_context.dispatch_table[epoll_context.stdin_index as usize].unwrap(),
+            EpollDispatch::Stdin
+        );
+        // This should trigger a warn!. When logger will not be a global var we will be able to test
+        // it.
+        epoll_context.enable_stdin_event();
+
+        epoll_context.disable_stdin_event();
+        assert!(epoll_context.dispatch_table[epoll_context.stdin_index as usize].is_none());
+    }
+
+    #[test]
     fn test_attach_block_devices() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         let block_file = NamedTempFile::new().unwrap();
@@ -3225,11 +3255,23 @@ mod tests {
         // Reset vmm state to test the other scenarios.
         vmm.set_instance_state(InstanceState::Uninitialized);
 
-        // Error case: initializing logger with invalid pipes returns error.
+        // Error case: initializing logger with invalid log pipe returns error.
         let desc = LoggerConfig {
             log_fifo: String::from("not_found_file_log"),
+            metrics_fifo: metrics_file.path().to_str().unwrap().to_string(),
+            level: LoggerLevel::Debug,
+            show_level: false,
+            show_log_origin: false,
+            #[cfg(target_arch = "x86_64")]
+            options: Value::Array(vec![]),
+        };
+        assert!(vmm.init_logger(desc).is_err());
+
+        // Error case: initializing logger with invalid metrics pipe returns error.
+        let desc = LoggerConfig {
+            log_fifo: log_file.path().to_str().unwrap().to_string(),
             metrics_fifo: String::from("not_found_file_metrics"),
-            level: LoggerLevel::Warning,
+            level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
             #[cfg(target_arch = "x86_64")]
@@ -3261,15 +3303,11 @@ mod tests {
             #[cfg(target_arch = "x86_64")]
             options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
         };
-        // Flushing metrics before initializing logger is erroneous.
-        let err = vmm.flush_metrics();
-        assert!(err.is_err());
-        assert_eq!(
-            format!("{:?}", err.unwrap_err()),
-            "Logger(Internal, FlushMetrics(\"Logger was not initialized.\"))"
-        );
+        // Flushing metrics before initializing logger is not erroneous.
+        assert!(vmm.flush_metrics().is_ok());
 
-        assert!(vmm.init_logger(desc).is_ok());
+        assert!(vmm.init_logger(desc.clone()).is_ok());
+        assert!(vmm.init_logger(desc).is_err());
 
         assert!(vmm.flush_metrics().is_ok());
 
@@ -4128,6 +4166,38 @@ mod tests {
                 )
             ),
             "DriveConfig(User, BlockDevicePathAlreadyExists)"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                VmmActionError::Logger(
+                    ErrorKind::User,
+                    LoggerConfigError::FlushMetrics(String::from("Failed to flush metrics"))
+                )
+            ),
+            "Failed to flush metrics"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::Logger(
+                    ErrorKind::User,
+                    LoggerConfigError::FlushMetrics(String::from("foobar"))
+                )
+            ),
+            "Logger(User, FlushMetrics(\"foobar\"))"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                VmmActionError::Logger(
+                    ErrorKind::User,
+                    LoggerConfigError::InitializationFailure(String::from(
+                        "Failed to initialize logger"
+                    ))
+                )
+            ),
+            "Failed to initialize logger"
         );
         assert_eq!(
             format!(
