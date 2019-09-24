@@ -10,15 +10,29 @@ use std::result::Result;
 use serde::de::{Deserialize, Deserializer, Error};
 use serde::ser::{Serialize, Serializer};
 
+/// The number of tuples (the ones separated by ":") contained in a MAC address.
 pub const MAC_ADDR_LEN: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+/// Representation of a MAC address.
 pub struct MacAddr {
     bytes: [u8; MAC_ADDR_LEN],
 }
 
 impl MacAddr {
-    // The error contains the str that failed to be parsed, for nicer error message generation.
+    /// Try to turn a `&str` into a `MacAddr` object. The method will return the `str` that failed
+    /// to be parsed.
+    /// # Arguments
+    ///
+    /// * `s` - reference that can be converted to &str.
+    /// # Example
+    ///
+    /// ```
+    /// extern crate net_util;
+    ///
+    /// use self::net_util::MacAddr;
+    /// MacAddr::parse_str("12:34:56:78:9a:BC").unwrap();
+    /// ```
     pub fn parse_str<S>(s: &S) -> Result<MacAddr, &str>
     where
         S: AsRef<str> + ?Sized,
@@ -40,7 +54,20 @@ impl MacAddr {
         Ok(MacAddr { bytes })
     }
 
-    // Does not check whether src.len() == MAC_ADDR_LEN.
+    /// Create a `MacAddr` from a slice.
+    /// Does not check whether `src.len()` == `MAC_ADDR_LEN`.
+    /// # Arguments
+    ///
+    /// * `src` - slice from which to copy MAC address content.
+    /// # Example
+    ///
+    /// ```
+    /// extern crate net_util;
+    ///
+    /// use self::net_util::MacAddr;
+    /// let mac = MacAddr::from_bytes_unchecked(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
+    /// println!("{}", mac.to_string());
+    /// ```
     #[inline]
     pub fn from_bytes_unchecked(src: &[u8]) -> MacAddr {
         // TODO: using something like std::mem::uninitialized could avoid the extra initialization,
@@ -51,7 +78,20 @@ impl MacAddr {
         MacAddr { bytes }
     }
 
-    // An error can only occur if the slice length is different from MAC_ADDR_LEN.
+    /// Create a `MacAddr` from a slice.
+    /// An error will occur if the slice length is different from `MAC_ADDR_LEN`.
+    /// # Arguments
+    ///
+    /// * `src` - slice from which to copy MAC address content.
+    /// # Example
+    ///
+    /// ```
+    /// extern crate net_util;
+    ///
+    /// use self::net_util::MacAddr;
+    /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
+    /// println!("{}", mac.to_string());
+    /// ```
     #[inline]
     pub fn from_bytes(src: &[u8]) -> Result<MacAddr, ()> {
         if src.len() != MAC_ADDR_LEN {
@@ -60,11 +100,22 @@ impl MacAddr {
         Ok(MacAddr::from_bytes_unchecked(src))
     }
 
+    /// Return the underlying content of this `MacAddr` in bytes.
+    /// # Example
+    ///
+    /// ```
+    /// extern crate net_util;
+    ///
+    /// use self::net_util::MacAddr;
+    /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
+    /// assert_eq!([0x01, 0x02, 0x03, 0x04, 0x05, 0x06], mac.get_bytes());
+    /// ```
     #[inline]
     pub fn get_bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Obtain the string representation.
     pub fn to_string(self) -> String {
         let b = &self.bytes;
         format!(
