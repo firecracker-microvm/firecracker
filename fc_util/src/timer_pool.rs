@@ -71,7 +71,7 @@ impl TimerFdPool {
 
 lazy_static! {
     /// The timer pool as a Singleton.
-    // This is not a global state object, it is a resource pool.
+    // This is not a global state object, it is a global resource pool.
     pub static ref TimerPool: Mutex<TimerFdPool> = Mutex::new(TimerFdPool {
         monotonic: Vec::new(),
     });
