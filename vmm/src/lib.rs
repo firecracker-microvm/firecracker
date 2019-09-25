@@ -1000,8 +1000,8 @@ impl Vmm {
                 .map_err(CreateRateLimiter)?;
 
             let vm_fd = self.vm.get_fd();
-            cfg.take_tap()
-                .ok_or(NetDeviceNotConfigured)
+            cfg.open_tap()
+                .map_err(|_| NetDeviceNotConfigured)
                 .and_then(|tap| {
                     let net_box = Box::new(
                         devices::virtio::Net::new_with_tap(
@@ -2555,7 +2555,6 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
-            tap: None,
         };
         assert!(vmm.insert_net_device(network_interface).is_ok());
 
@@ -2568,7 +2567,6 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
-            tap: None,
         };
         assert!(vmm.insert_net_device(network_interface).is_ok());
 
@@ -2580,7 +2578,6 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
-            tap: None,
         };
         assert!(vmm.insert_net_device(network_interface).is_err());
 
@@ -2593,7 +2590,6 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
-            tap: None,
         };
         assert!(vmm.insert_net_device(network_interface).is_err());
     }
@@ -2623,7 +2619,6 @@ mod tests {
             }),
             tx_rate_limiter: None,
             allow_mmds_requests: false,
-            tap: None,
         })
         .unwrap();
 
@@ -3066,7 +3061,6 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
-            tap: None,
         };
 
         assert!(vmm.insert_net_device(network_interface).is_ok());
@@ -3456,7 +3450,6 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
-            tap: None,
         };
 
         assert!(vmm.insert_net_device(network_interface).is_ok());
