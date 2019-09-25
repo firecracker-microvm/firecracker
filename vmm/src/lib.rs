@@ -2157,6 +2157,9 @@ impl PartialEq for VmmAction {
                 &InsertBlockDevice(ref block_device, _),
                 &InsertBlockDevice(ref other_other_block_device, _),
             ) => block_device == other_other_block_device,
+            (&SetVsockDevice(ref vsock_device, _), &SetVsockDevice(ref other_vsock_device, _)) => {
+                vsock_device == other_vsock_device
+            }
             (&ConfigureLogger(ref log, _), &ConfigureLogger(ref other_log, _)) => log == other_log,
             (
                 &SetVmConfiguration(ref vm_config, _),

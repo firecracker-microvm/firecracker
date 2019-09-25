@@ -1389,6 +1389,44 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_vsock_req() {
+        let valid_vsock_path = "/vsock";
+        let json = r#"{
+                "vsock_id": "foo",
+                "guest_cid": 3,
+                "uds_path": "v.sock"
+              }"#;
+
+        // Test for PUT request
+        let body: Chunk = Chunk::from(json);
+        let vsock_cfg = serde_json::from_slice::<VsockDeviceConfig>(&body).unwrap();
+
+        match parse_vsock_req(valid_vsock_path, Method::Put, &body) {
+            Ok(pr) => {
+                let (sender, receiver) = oneshot::channel();
+                assert!(pr.eq(&ParsedRequest::Sync(
+                    VmmAction::SetVsockDevice(vsock_cfg, sender),
+                    receiver,
+                )));
+            }
+            _ => assert!(false),
+        }
+
+        // Error case: invalid path.
+        let path = "/vsock/invalid_path";
+        assert!(
+            parse_vsock_req(path, Method::Put, &body)
+                == Err(Error::InvalidPathMethod(path, Method::Put))
+        );
+
+        // Serde Error: invalid VsockDeviceConfig body.
+        assert!(
+            parse_vsock_req(valid_vsock_path, Method::Put, &Chunk::from("foo"))
+                == Err(Error::SerdeJson(get_dummy_serde_error()))
+        );
+    }
+
+    #[test]
     fn test_parse_request() {
         let body: Chunk = Chunk::from("{ \"foo\": \"bar\" }");
 
