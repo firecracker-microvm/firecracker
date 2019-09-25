@@ -76,7 +76,6 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
-            tap: None,
         }
     }
 
@@ -120,7 +119,6 @@ mod tests {
             rx_rate_limiter: Some(RateLimiterConfig::default()),
             tx_rate_limiter: Some(RateLimiterConfig::default()),
             allow_mmds_requests: true,
-            tap: None,
         };
 
         // This is the json encoding of the netif variable.

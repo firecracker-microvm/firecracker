@@ -1250,7 +1250,6 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
-            tap: None,
         };
 
         match netif.into_parsed_request(Some(net_id), Method::Put) {
