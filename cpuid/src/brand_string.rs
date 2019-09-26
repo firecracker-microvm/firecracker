@@ -309,7 +309,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[allow(clippy::assertions_on_constants)]
     fn test_brand_string() {
         #[inline]
         fn pack_u32(src: &[u8]) -> u32 {
@@ -403,10 +402,7 @@ mod tests {
                 let host_regs = unsafe { host_cpuid(0x8000_0000) };
                 assert!(host_regs.eax < 0x8000_0004);
             }
-            _ => assert!(
-                false,
-                "This function should not return another type of error"
-            ),
+            _ => panic!("This function should not return another type of error"),
         }
 
         // Test BrandString::from_vendor_id()

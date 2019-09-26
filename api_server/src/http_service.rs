@@ -668,9 +668,6 @@ fn describe(method: &Method, path: &str, body: &Option<String>) -> String {
 }
 
 #[cfg(test)]
-// Allowing assertions on constants so we can check enum variants using
-// match instead of equals.
-#[allow(clippy::assertions_on_constants)]
 mod tests {
     extern crate net_util;
 
@@ -687,6 +684,20 @@ mod tests {
     use vmm::vmm_config::logger::LoggerLevel;
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm::VmmAction;
+
+    impl<'a> std::fmt::Debug for Error<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Error::Generic(code, name) => write!(f, "Generic({:?}, {})", code, name),
+                Error::EmptyID => write!(f, "EmptyID"),
+                Error::InvalidID => write!(f, "InvalidID"),
+                Error::InvalidPathMethod(path, method) => {
+                    write!(f, "InvalidPathMethod({}, {:?})", path, method)
+                }
+                Error::SerdeJson(err) => write!(f, "SerdeJson({:?})", err),
+            }
+        }
+    }
 
     impl<'a> PartialEq for Error<'a> {
         fn eq(&self, other: &Error<'a>) -> bool {
@@ -857,16 +868,14 @@ mod tests {
         let body: Chunk = Chunk::from(json);
         let path = "/foo";
 
-        match parse_actions_req(path, Method::Put, &body) {
-            Ok(pr) => {
-                let (sender, receiver) = oneshot::channel();
-                assert!(pr.eq(&ParsedRequest::Sync(
-                    VmmAction::StartMicroVm(sender),
-                    receiver
-                )));
-            }
-            _ => assert!(false),
-        }
+        let (sender, receiver) = oneshot::channel();
+
+        assert!(parse_actions_req(path, Method::Put, &body)
+            .unwrap()
+            .eq(&ParsedRequest::Sync(
+                Box::new(VmmAction::StartMicroVm(sender)),
+                receiver
+            )));
 
         // PUT BlockDeviceRescan
         let json = r#"{
@@ -875,16 +884,14 @@ mod tests {
               }"#;
         let body: Chunk = Chunk::from(json);
         let path = "/foo";
-        match parse_actions_req(path, Method::Put, &body) {
-            Ok(pr) => {
-                let (sender, receiver) = oneshot::channel();
-                assert!(pr.eq(&ParsedRequest::Sync(
-                    VmmAction::RescanBlockDevice("dummy_id".to_string(), sender),
-                    receiver
-                )));
-            }
-            _ => assert!(false),
-        }
+        let (sender, receiver) = oneshot::channel();
+
+        assert!(parse_actions_req(path, Method::Put, &body)
+            .unwrap()
+            .eq(&ParsedRequest::Sync(
+                Box::new(VmmAction::RescanBlockDevice("dummy_id".to_string(), sender)),
+                receiver
+            )));
 
         // Error cases
 
@@ -940,16 +947,14 @@ mod tests {
         // all of BootSourceBody's members are accessible. Rather than making them all public just
         // for the purpose of unit tests, it's preferable to trust the deserialization.
         let boot_source_cfg = serde_json::from_slice::<BootSourceConfig>(&body).unwrap();
-        match parse_boot_source_req(boot_source_path, Method::Put, &body) {
-            Ok(pr) => {
-                let (sender, receiver) = oneshot::channel();
-                assert!(pr.eq(&ParsedRequest::Sync(
-                    VmmAction::ConfigureBootSource(boot_source_cfg, sender),
-                    receiver,
-                )));
-            }
-            _ => assert!(false),
-        }
+        let (sender, receiver) = oneshot::channel();
+
+        assert!(parse_boot_source_req(boot_source_path, Method::Put, &body)
+            .unwrap()
+            .eq(&ParsedRequest::Sync(
+                Box::new(VmmAction::ConfigureBootSource(boot_source_cfg, sender)),
+                receiver,
+            )));
 
         // Error cases
         // Test case for invalid path.
@@ -995,13 +1000,10 @@ mod tests {
             rate_limiter: None,
         };
 
-        match drive_desc.into_parsed_request(Some(String::from("id_1")), Method::Put) {
-            Ok(pr) => match parse_drives_req(valid_drive_path, Method::Put, &body) {
-                Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
-                _ => assert!(false),
-            },
-            _ => assert!(false),
-        }
+        assert!(drive_desc
+            .into_parsed_request(Some(String::from("id_1")), Method::Put)
+            .unwrap()
+            .eq(&parse_drives_req(valid_drive_path, Method::Put, &body).unwrap()));
 
         // Error Cases
         // Test Case for invalid payload (id from path does not match the id from the body).
@@ -1045,13 +1047,10 @@ mod tests {
             fields: Value::Object(payload_map),
         };
 
-        match patch_payload.into_parsed_request(Some("id_1".to_string()), Method::Patch) {
-            Ok(pr) => match parse_drives_req(valid_drive_path, Method::Patch, &valid_body) {
-                Ok(pr_drive) => assert!(pr.eq(&pr_drive)),
-                _ => assert!(false),
-            },
-            _ => assert!(false),
-        }
+        assert!(patch_payload
+            .into_parsed_request(Some("id_1".to_string()), Method::Patch)
+            .unwrap()
+            .eq(&parse_drives_req(valid_drive_path, Method::Patch, &valid_body).unwrap()));
 
         // Test case where id from path is different.
         let expected_error = Err(Error::Generic(
@@ -1111,16 +1110,14 @@ mod tests {
         // PUT
         let logger_config =
             serde_json::from_slice::<LoggerConfig>(&logger_body).expect("deserialization failed");
-        match parse_logger_req(logger_path, Method::Put, &logger_body) {
-            Ok(pr) => {
-                let (sender, receiver) = oneshot::channel();
-                assert!(pr.eq(&ParsedRequest::Sync(
-                    VmmAction::ConfigureLogger(logger_config, sender),
-                    receiver,
-                )));
-            }
-            _ => assert!(false),
-        }
+
+        let (sender, receiver) = oneshot::channel();
+        assert!(parse_logger_req(logger_path, Method::Put, &logger_body)
+            .unwrap()
+            .eq(&ParsedRequest::Sync(
+                Box::new(VmmAction::ConfigureLogger(logger_config, sender)),
+                receiver,
+            )));
 
         // Error cases
         // Error Case: Serde Deserialization fails due to invalid payload.
@@ -1161,13 +1158,10 @@ mod tests {
             cpu_template: Some(CpuFeaturesTemplate::T2),
         };
 
-        match vm_config.into_parsed_request(None, Method::Put) {
-            Ok(parsed_req) => match parse_machine_config_req(&path, Method::Put, &body) {
-                Ok(other_parsed_req) => assert!(parsed_req.eq(&other_parsed_req)),
-                _ => assert!(false),
-            },
-            _ => assert!(false),
-        }
+        assert!(vm_config
+            .into_parsed_request(None, Method::Put)
+            .unwrap()
+            .eq(&parse_machine_config_req(&path, Method::Put, &body).unwrap()));
 
         // PATCH
         let vm_config = VmConfig {
@@ -1179,15 +1173,10 @@ mod tests {
         let body = r#"{
             "vcpu_count": 32
         }"#;
-        match vm_config.into_parsed_request(None, Method::Patch) {
-            Ok(parsed_req) => {
-                match parse_machine_config_req(&path, Method::Patch, &Chunk::from(body)) {
-                    Ok(other_parsed_req) => assert!(parsed_req.eq(&other_parsed_req)),
-                    _ => assert!(false),
-                }
-            }
-            _ => assert!(false),
-        }
+        assert!(vm_config
+            .into_parsed_request(None, Method::Patch)
+            .unwrap()
+            .eq(&parse_machine_config_req(&path, Method::Patch, &Chunk::from(body)).unwrap()));
 
         // Error cases
         // Error Case: Invalid payload (cannot deserialize the body into a VmConfig object).
@@ -1214,7 +1203,7 @@ mod tests {
         if let Err(Error::SerdeJson(e)) = parse_machine_config_req(path, Method::Put, &body) {
             assert!(e.is_data());
         } else {
-            assert!(false);
+            panic!();
         }
 
         // Error Case: PUT request with missing parameter
@@ -1252,13 +1241,10 @@ mod tests {
             allow_mmds_requests: false,
         };
 
-        match netif.into_parsed_request(Some(net_id), Method::Put) {
-            Ok(pr) => match parse_netif_req(&path, Method::Put, &body) {
-                Ok(pr_netif) => assert!(pr.eq(&pr_netif)),
-                _ => assert!(false),
-            },
-            _ => assert!(false),
-        }
+        assert!(netif
+            .into_parsed_request(Some(net_id), Method::Put)
+            .unwrap()
+            .eq(&parse_netif_req(&path, Method::Put, &body).unwrap()));
 
         // Error cases
         // Error Case: The id from the path does not match the id from the body.
@@ -1307,10 +1293,9 @@ mod tests {
         let nuc_pr = nuc
             .into_parsed_request(Some("1".to_string()), Method::Patch)
             .unwrap();
-        match parse_netif_req(&"/network-interfaces/1", Method::Patch, &body) {
-            Ok(pr) => assert!(nuc_pr.eq(&pr)),
-            _ => assert!(false),
-        };
+        assert!(
+            nuc_pr.eq(&parse_netif_req(&"/network-interfaces/1", Method::Patch, &body).unwrap())
+        );
 
         let json = r#"{
             "iface_id": "1",
@@ -1333,10 +1318,9 @@ mod tests {
         let body = Chunk::from(empty_json);
 
         // Test for GET request
-        match parse_mmds_request(path, Method::Get, &body) {
-            Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::GetMMDS)),
-            Err(_) => assert!(false),
-        };
+        assert!(parse_mmds_request(path, Method::Get, &body)
+            .unwrap()
+            .eq(&ParsedRequest::GetMMDS));
 
         let dummy_json = "{\
                 \"latest\": {\
@@ -1349,22 +1333,19 @@ mod tests {
 
         // Test for PUT request
         let body = Chunk::from(dummy_json);
-        match parse_mmds_request(path, Method::Put, &body) {
-            Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::PutMMDS(
+        assert!(parse_mmds_request(path, Method::Put, &body)
+            .unwrap()
+            .eq(&ParsedRequest::PutMMDS(
                 serde_json::from_slice(&body).unwrap()
-            ))),
-            Err(_) => assert!(false),
-        };
+            )));
 
         // Test for PATCH request
         let patch_json = "{\"user-data\": 15}";
         let body = Chunk::from(patch_json);
-        match parse_mmds_request(path, Method::Patch, &body) {
-            Ok(parsed_req) => assert!(parsed_req.eq(&ParsedRequest::PatchMMDS(
-                serde_json::from_slice(&body).unwrap()
-            ))),
-            Err(_) => assert!(false),
-        };
+
+        assert!(parse_mmds_request(path, Method::Patch, &body).unwrap().eq(
+            &ParsedRequest::PatchMMDS(serde_json::from_slice(&body).unwrap())
+        ));
 
         // Test for invalid json on PUT
         let invalid_json = "\"latest\": {}}";
@@ -1401,16 +1382,13 @@ mod tests {
         let body: Chunk = Chunk::from(json);
         let vsock_cfg = serde_json::from_slice::<VsockDeviceConfig>(&body).unwrap();
 
-        match parse_vsock_req(valid_vsock_path, Method::Put, &body) {
-            Ok(pr) => {
-                let (sender, receiver) = oneshot::channel();
-                assert!(pr.eq(&ParsedRequest::Sync(
-                    VmmAction::SetVsockDevice(vsock_cfg, sender),
-                    receiver,
-                )));
-            }
-            _ => assert!(false),
-        }
+        let (sender, receiver) = oneshot::channel();
+        assert!(parse_vsock_req(valid_vsock_path, Method::Put, &body)
+            .unwrap()
+            .eq(&ParsedRequest::Sync(
+                Box::new(VmmAction::SetVsockDevice(vsock_cfg, sender)),
+                receiver,
+            )));
 
         // Error case: invalid path.
         let path = "/vsock/invalid_path";
@@ -1449,10 +1427,9 @@ mod tests {
         }
 
         // Test empty request
-        match parse_request(Method::Get, "/", &body) {
-            Ok(pr) => assert!(pr.eq(&ParsedRequest::GetInstanceInfo)),
-            _ => assert!(false),
-        }
+        assert!(parse_request(Method::Get, "/", &body)
+            .unwrap()
+            .eq(&ParsedRequest::GetInstanceInfo));
         for method in &all_methods {
             if *method != Method::Get {
                 assert!(parse_request(method.clone(), "/", &body).is_err());
