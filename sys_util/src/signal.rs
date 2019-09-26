@@ -216,7 +216,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::empty_loop)]
     fn test_register_vcpu_handler() {
         // Error case: invalid vCPU signal.
         unsafe {
@@ -235,7 +234,7 @@ mod tests {
                 .expect("failed to register vcpu signal handler");
         }
 
-        let killable = thread::spawn(|| loop {});
+        let killable = thread::spawn(thread::park);
 
         let res = killable.kill(SIGRTMAX());
         assert!(res.is_err());
