@@ -4,6 +4,8 @@
 mod fdt;
 /// Module for the global interrupt controller configuration.
 pub mod gic;
+mod gicv2;
+mod gicv3;
 /// Layout for this aarch64 system.
 pub mod layout;
 /// Logic for configuring aarch64 registers.
@@ -14,6 +16,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fmt::Debug;
 
+use self::gic::GICDevice;
 use memory_model::{GuestAddress, GuestMemory};
 
 /// Errors thrown while configuring aarch64 system.
@@ -46,9 +49,16 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
     cmdline_cstring: &CStr,
     num_cpus: u8,
     device_info: Option<&HashMap<(DeviceType, String), T>>,
+    gic_device: &Box<dyn GICDevice>,
 ) -> super::Result<()> {
-    fdt::create_fdt(guest_mem, u32::from(num_cpus), cmdline_cstring, device_info)
-        .map_err(Error::SetupFDT)?;
+    fdt::create_fdt(
+        guest_mem,
+        u32::from(num_cpus),
+        cmdline_cstring,
+        device_info,
+        gic_device,
+    )
+    .map_err(Error::SetupFDT)?;
     Ok(())
 }
 

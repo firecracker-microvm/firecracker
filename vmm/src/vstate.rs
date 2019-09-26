@@ -11,6 +11,8 @@ use std::sync::{Arc, Barrier};
 
 use super::TimestampUs;
 use arch;
+#[cfg(target_arch = "aarch64")]
+use arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "x86_64")]
 use cpuid::{c3, filter_cpuid, t2, VmSpec};
 use default_syscalls;
@@ -157,7 +159,7 @@ pub struct Vm {
     // Arm specific fields.
     // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
     #[cfg(target_arch = "aarch64")]
-    irqchip_handle: Option<DeviceFd>,
+    irqchip_handle: Option<Box<dyn GICDevice>>,
 }
 
 impl Vm {
@@ -237,9 +239,16 @@ impl Vm {
     /// Creates the GIC (Global Interrupt Controller).
     #[cfg(target_arch = "aarch64")]
     pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<()> {
-        self.irqchip_handle =
-            Some(arch::aarch64::gic::create_gicv3(&self.fd, vcpu_count).map_err(Error::SetupGIC)?);
+        self.irqchip_handle = Some(
+            arch::aarch64::gic::create_gic(&self.fd, vcpu_count.into()).map_err(Error::SetupGIC)?,
+        );
         Ok(())
+    }
+
+    /// Gets a reference to the irqchip of the VM
+    #[cfg(target_arch = "aarch64")]
+    pub fn get_irqchip(&self) -> &Box<dyn GICDevice> {
+        &self.irqchip_handle.as_ref().unwrap()
     }
 
     /// Gets a reference to the guest memory owned by this VM.
