@@ -148,8 +148,7 @@ impl Tap {
     /// Set the offload flags for the tap interface.
     pub fn set_offload(&self, flags: c_uint) -> Result<()> {
         // ioctl is safe. Called with a valid tap fd, and we check the return.
-        #[allow(clippy::cast_lossless)]
-        let ret = unsafe { ioctl_with_val(&self.tap_file, TUNSETOFFLOAD(), flags as c_ulong) };
+        let ret = unsafe { ioctl_with_val(&self.tap_file, TUNSETOFFLOAD(), c_ulong::from(flags)) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -171,9 +170,8 @@ impl Tap {
         }
 
         // ioctl is safe. Called with a valid sock fd, and we check the return.
-        #[allow(clippy::cast_lossless)]
         let ret =
-            unsafe { ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFFLAGS as c_ulong, &ifreq) };
+            unsafe { ioctl_with_ref(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS), &ifreq) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
         }
@@ -296,9 +294,9 @@ mod tests {
             }
 
             // ioctl is safe. Called with a valid sock fd, and we check the return.
-            #[allow(clippy::cast_lossless)]
-            let ret =
-                unsafe { ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFADDR as c_ulong, &ifreq) };
+            let ret = unsafe {
+                ioctl_with_ref(&sock, c_ulong::from(net_gen::sockios::SIOCSIFADDR), &ifreq)
+            };
             if ret < 0 {
                 return Err(Error::IoctlError(IoError::last_os_error()));
             }
@@ -320,9 +318,12 @@ mod tests {
             }
 
             // ioctl is safe. Called with a valid sock fd, and we check the return.
-            #[allow(clippy::cast_lossless)]
             let ret = unsafe {
-                ioctl_with_ref(&sock, net_gen::sockios::SIOCSIFNETMASK as c_ulong, &ifreq)
+                ioctl_with_ref(
+                    &sock,
+                    c_ulong::from(net_gen::sockios::SIOCSIFNETMASK),
+                    &ifreq,
+                )
             };
             if ret < 0 {
                 return Err(Error::IoctlError(IoError::last_os_error()));

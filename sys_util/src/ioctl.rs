@@ -15,12 +15,13 @@ use std::os::unix::io::AsRawFd;
 macro_rules! ioctl_ioc_nr {
     ($name:ident, $dir:expr, $ty:expr, $nr:expr, $size:expr) => {
         #[allow(non_snake_case)]
-        #[allow(clippy::cast_lossless)]
         pub fn $name() -> ::std::os::raw::c_ulong {
-            (($dir << $crate::ioctl::_IOC_DIRSHIFT)
-                | ($ty << $crate::ioctl::_IOC_TYPESHIFT)
-                | ($nr << $crate::ioctl::_IOC_NRSHIFT)
-                | ($size << $crate::ioctl::_IOC_SIZESHIFT)) as ::std::os::raw::c_ulong
+            ::std::os::raw::c_ulong::from(
+                ($dir << $crate::ioctl::_IOC_DIRSHIFT)
+                    | ($ty << $crate::ioctl::_IOC_TYPESHIFT)
+                    | ($nr << $crate::ioctl::_IOC_NRSHIFT)
+                    | ($size << $crate::ioctl::_IOC_SIZESHIFT),
+            )
         }
     };
 }
