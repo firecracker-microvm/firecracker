@@ -39,7 +39,7 @@ impl IntoParsedRequest for VmConfig {
         let (sender, receiver) = oneshot::channel();
         match method {
             Method::Get => Ok(ParsedRequest::Sync(
-                VmmAction::GetVmConfiguration(sender),
+                Box::new(VmmAction::GetVmConfiguration(sender)),
                 receiver,
             )),
             Method::Patch => {
@@ -51,7 +51,7 @@ impl IntoParsedRequest for VmConfig {
                     return Err(String::from("Empty PATCH request."));
                 }
                 Ok(ParsedRequest::Sync(
-                    VmmAction::SetVmConfiguration(self, sender),
+                    Box::new(VmmAction::SetVmConfiguration(self, sender)),
                     receiver,
                 ))
             }
@@ -63,7 +63,7 @@ impl IntoParsedRequest for VmConfig {
                     return Err(String::from("Missing mandatory fields."));
                 }
                 Ok(ParsedRequest::Sync(
-                    VmmAction::SetVmConfiguration(self, sender),
+                    Box::new(VmmAction::SetVmConfiguration(self, sender)),
                     receiver,
                 ))
             }
@@ -90,7 +90,7 @@ mod tests {
             .clone()
             .into_parsed_request(None, Method::Put)
             .eq(&Ok(ParsedRequest::Sync(
-                VmmAction::SetVmConfiguration(body, sender),
+                Box::new(VmmAction::SetVmConfiguration(body, sender)),
                 receiver
             ))));
 

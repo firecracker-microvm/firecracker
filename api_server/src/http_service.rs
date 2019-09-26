@@ -583,7 +583,7 @@ impl hyper::server::Service for ApiServerHttpService {
                         };
                         log_received_api_request(describe(&method_copy, &path, &body_desc));
 
-                        if send_to_vmm(sync_req, &api_request_sender, &vmm_send_event).is_err() {
+                        if send_to_vmm(*sync_req, &api_request_sender, &vmm_send_event).is_err() {
                             METRICS.api_server.sync_vmm_send_timeout_count.inc();
                             return Either::A(future::err(hyper::Error::Timeout));
                         }

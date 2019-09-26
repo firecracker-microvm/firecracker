@@ -25,7 +25,7 @@ impl IntoParsedRequest for NetworkInterfaceConfig {
 
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            VmmAction::InsertNetworkDevice(self, sender),
+            Box::new(VmmAction::InsertNetworkDevice(self, sender)),
             receiver,
         ))
     }
@@ -46,7 +46,7 @@ impl IntoParsedRequest for NetworkInterfaceUpdateConfig {
 
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            VmmAction::UpdateNetworkInterface(self, sender),
+            Box::new(VmmAction::UpdateNetworkInterface(self, sender)),
             receiver,
         ))
     }
@@ -105,7 +105,7 @@ mod tests {
         assert!(netif
             .into_parsed_request(Some(String::from("foo")), Method::Put)
             .eq(&Ok(ParsedRequest::Sync(
-                VmmAction::InsertNetworkDevice(netif_clone, sender),
+                Box::new(VmmAction::InsertNetworkDevice(netif_clone, sender)),
                 receiver
             ))));
     }

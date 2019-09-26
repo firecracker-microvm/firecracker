@@ -18,7 +18,7 @@ impl IntoParsedRequest for BootSourceConfig {
     ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            VmmAction::ConfigureBootSource(self, sender),
+            Box::new(VmmAction::ConfigureBootSource(self, sender)),
             receiver,
         ))
     }
@@ -42,7 +42,7 @@ mod tests {
         assert!(body
             .into_parsed_request(None, Method::Put)
             .eq(&Ok(ParsedRequest::Sync(
-                VmmAction::ConfigureBootSource(same_body, sender),
+                Box::new(VmmAction::ConfigureBootSource(same_body, sender)),
                 receiver
             ))))
     }

@@ -18,7 +18,7 @@ impl IntoParsedRequest for LoggerConfig {
     ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            VmmAction::ConfigureLogger(self, sender),
+            Box::new(VmmAction::ConfigureLogger(self, sender)),
             receiver,
         ))
     }
@@ -50,7 +50,7 @@ mod tests {
             .clone()
             .into_parsed_request(None, Method::Put)
             .eq(&Ok(ParsedRequest::Sync(
-                VmmAction::ConfigureLogger(desc, sender),
+                Box::new(VmmAction::ConfigureLogger(desc, sender)),
                 receiver
             ))));
     }

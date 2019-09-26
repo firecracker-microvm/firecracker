@@ -18,7 +18,7 @@ impl IntoParsedRequest for VsockDeviceConfig {
     ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            VmmAction::SetVsockDevice(self, sender),
+            Box::new(VmmAction::SetVsockDevice(self, sender)),
             receiver,
         ))
     }
