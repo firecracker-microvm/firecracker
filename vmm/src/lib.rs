@@ -1040,6 +1040,7 @@ impl Vmm {
                     .map_err(LoadCommandline)?,
                 vcpu_count,
                 self.get_mmio_device_info(),
+                self.vm.get_irqchip(),
             )
             .map_err(ConfigureSystem)?;
         }
@@ -2824,6 +2825,10 @@ mod tests {
 
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.vm.get_memory().is_some());
+
+        // We need this so that configure_system finds a properly setup GIC device
+        #[cfg(target_arch = "aarch64")]
+        assert!(vmm.vm.setup_irqchip(1).is_ok());
 
         assert!(vmm.configure_system().is_ok());
         vmm.stdin_handle.lock().set_canon_mode().unwrap();

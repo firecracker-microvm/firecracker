@@ -14,7 +14,7 @@ use std::{io, result};
 
 use super::super::DeviceType;
 use super::get_fdt_addr;
-use super::gic::{get_dist_addr, get_dist_size, get_redists_addr, get_redists_size};
+use super::gic::GICDevice;
 use super::layout::FDT_MAX_SIZE;
 use aarch64::fdt::Error::CstringFDTTransform;
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
@@ -26,8 +26,6 @@ const CLOCK_PHANDLE: u32 = 2;
 // Read the documentation specified when appending the root node to the FDT.
 const ADDRESS_CELLS: u32 = 0x2;
 const SIZE_CELLS: u32 = 0x2;
-// Taken from qemu.
-const ARCH_GIC_MAINT_IRQ: u32 = 9;
 
 // As per kvm tool and
 // https://www.kernel.org/doc/Documentation/devicetree/bindings/interrupt-controller/arm%2Cgic.txt
@@ -90,6 +88,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     num_cpus: u32,
     cmdline: &CStr,
     device_info: Option<&HashMap<(DeviceType, String), T>>,
+    gic_device: &Box<dyn GICDevice>,
 ) -> Result<(Vec<u8>)> {
     // Alocate stuff necessary for the holding the blob.
     let mut fdt = vec![0; FDT_MAX_SIZE];
@@ -113,7 +112,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     create_cpu_nodes(&mut fdt, num_cpus)?;
     create_memory_node(&mut fdt, guest_mem)?;
     create_chosen_node(&mut fdt, cmdline)?;
-    create_gic_node(&mut fdt, u64::from(num_cpus))?;
+    create_gic_node(&mut fdt, gic_device)?;
     create_timer_node(&mut fdt)?;
     create_clock_node(&mut fdt)?;
     create_psci_node(&mut fdt)?;
@@ -350,18 +349,11 @@ fn create_chosen_node(fdt: &mut Vec<u8>, cmdline: &CStr) -> Result<()> {
     Ok(())
 }
 
-fn create_gic_node(fdt: &mut Vec<u8>, vcpu_count: u64) -> Result<()> {
-    // Look at https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/interrupt-controller/arm%2Cgic-v3.yaml
-    // for understanding this.
-    let gic_reg_prop = generate_prop64(&[
-        get_dist_addr(),
-        get_dist_size(),
-        get_redists_addr(vcpu_count),
-        get_redists_size(vcpu_count),
-    ]);
+fn create_gic_node(fdt: &mut Vec<u8>, gic_device: &Box<dyn GICDevice>) -> Result<()> {
+    let gic_reg_prop = generate_prop64(gic_device.device_properties());
 
     append_begin_node(fdt, "intc")?;
-    append_property_string(fdt, "compatible", "arm,gic-v3")?;
+    append_property_string(fdt, "compatible", gic_device.fdt_compatibility())?;
     append_property_null(fdt, "interrupt-controller")?;
     // "interrupt-cells" field specifies the number of cells needed to encode an
     // interrupt source. The type shall be a <u32> and the value shall be 3 if no PPI affinity description
@@ -372,7 +364,11 @@ fn create_gic_node(fdt: &mut Vec<u8>, vcpu_count: u64) -> Result<()> {
     append_property_u32(fdt, "#address-cells", 2)?;
     append_property_u32(fdt, "#size-cells", 2)?;
     append_property_null(fdt, "ranges")?;
-    let gic_intr = [GIC_FDT_IRQ_TYPE_PPI, ARCH_GIC_MAINT_IRQ, IRQ_TYPE_LEVEL_HI];
+    let gic_intr = [
+        GIC_FDT_IRQ_TYPE_PPI,
+        gic_device.fdt_maint_irq(),
+        IRQ_TYPE_LEVEL_HI,
+    ];
     let gic_intr_prop = generate_prop32(&gic_intr);
 
     append_property(fdt, "interrupts", &gic_intr_prop)?;
@@ -516,7 +512,9 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aarch64::gic::create_gic;
     use aarch64::{arch_memory_regions, layout};
+    use kvm_ioctls::Kvm;
 
     const LEN: u64 = 4096;
 
@@ -574,11 +572,15 @@ mod tests {
         .iter()
         .cloned()
         .collect();
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let gic = create_gic(&vm, 1).unwrap();
         assert!(create_fdt(
             &mem,
             1,
             &CString::new("console=tty0").unwrap(),
             Some(&dev_info),
+            &gic,
         )
         .is_ok())
     }
@@ -587,11 +589,15 @@ mod tests {
     fn test_create_fdt() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
         let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let gic = create_gic(&vm, 1).unwrap();
         let mut dtb = create_fdt(
             &mem,
             1,
             &CString::new("console=tty0").unwrap(),
             None::<&std::collections::HashMap<(DeviceType, std::string::String), MMIODeviceInfo>>,
+            &gic,
         )
         .unwrap();
 
