@@ -2267,6 +2267,16 @@ pub fn start_vmm(
 
 #[cfg(test)]
 mod tests {
+    macro_rules! assert_match {
+        ($x:expr, $y:pat) => {{
+            if let $y = $x {
+                ()
+            } else {
+                panic!()
+            }
+        }};
+    }
+
     extern crate tempfile;
 
     use super::*;
@@ -3118,9 +3128,6 @@ mod tests {
     }
 
     #[test]
-    // Allow assertions on constants is necessary because we cannot implement
-    // PartialEq on VmmActionError.
-    #[allow(clippy::assertions_on_constants)]
     fn test_block_device_rescan() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config(None);
@@ -3187,48 +3194,57 @@ mod tests {
         // Test rescan block device with invalid path.
         let prev_path = non_root_block_device.path_on_host().clone();
         vmm.update_block_device_path(&scratch_id, PathBuf::from("foo"));
-        match vmm.rescan_block_device(&scratch_id) {
+        assert_match!(
+            vmm.rescan_block_device(&scratch_id),
             Err(VmmActionError::DriveConfig(
                 ErrorKind::User,
                 DriveError::BlockDeviceUpdateFailed,
-            )) => (),
-            _ => assert!(false),
-        }
+            ))
+        );
         vmm.update_block_device_path(&scratch_id, prev_path);
 
         // Test rescan_block_device with invalid ID.
-        match vmm.rescan_block_device(&"foo".to_string()) {
-            Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
-            }
-            _ => assert!(false),
-        }
+        assert_match!(
+            vmm.rescan_block_device(&"foo".to_string()),
+            Err(VmmActionError::DriveConfig(
+                ErrorKind::User,
+                DriveError::InvalidBlockDeviceID
+            ))
+        );
+
         vmm.change_id(&scratch_id, "scratch");
-        match vmm.rescan_block_device(&scratch_id) {
-            Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
-            }
-            _ => assert!(false),
-        }
+        assert_match!(
+            vmm.rescan_block_device(&scratch_id),
+            Err(VmmActionError::DriveConfig(
+                ErrorKind::User,
+                DriveError::InvalidBlockDeviceID
+            ))
+        );
 
         // Test rescan_block_device with invalid device address.
         vmm.remove_device_info(TYPE_BLOCK, &scratch_id);
-        match vmm.rescan_block_device(&scratch_id) {
-            Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::InvalidBlockDeviceID)) => {
-            }
-            _ => assert!(false),
-        }
+
+        assert_match!(
+            vmm.rescan_block_device(&scratch_id),
+            Err(VmmActionError::DriveConfig(
+                ErrorKind::User,
+                DriveError::InvalidBlockDeviceID
+            ))
+        );
 
         // Test rescan not allowed.
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm
             .insert_block_device(non_root_block_device.clone())
             .is_ok());
-        match vmm.rescan_block_device(&scratch_id) {
+
+        assert_match!(
+            vmm.rescan_block_device(&scratch_id),
             Err(VmmActionError::DriveConfig(
                 ErrorKind::User,
                 DriveError::OperationNotAllowedPreBoot,
-            )) => (),
-            _ => assert!(false),
-        }
+            ))
+        );
     }
 
     #[test]

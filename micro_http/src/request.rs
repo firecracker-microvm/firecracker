@@ -316,9 +316,6 @@ mod tests {
     }
 
     #[test]
-    // Allow assertions on constants so we can have asserts on the values returned
-    // when result is Ok.
-    #[allow(clippy::assertions_on_constants)]
     fn test_into_request_line() {
         let expected_request_line = RequestLine {
             http_version: Version::Http10,
@@ -327,10 +324,10 @@ mod tests {
         };
 
         let request_line = b"GET http://localhost/home HTTP/1.0";
-        match RequestLine::try_from(request_line) {
-            Ok(request) => assert_eq!(request, expected_request_line),
-            Err(_) => assert!(false),
-        };
+        assert_eq!(
+            RequestLine::try_from(request_line).unwrap(),
+            expected_request_line
+        );
 
         let expected_request_line = RequestLine {
             http_version: Version::Http11,
@@ -340,17 +337,17 @@ mod tests {
 
         // Happy case with request line ending in CRLF.
         let request_line = b"GET http://localhost/home HTTP/1.1";
-        match RequestLine::try_from(request_line) {
-            Ok(request) => assert_eq!(request, expected_request_line),
-            Err(_) => assert!(false),
-        };
+        assert_eq!(
+            RequestLine::try_from(request_line).unwrap(),
+            expected_request_line
+        );
 
         // Happy case with request line ending in LF instead of CRLF.
         let request_line = b"GET http://localhost/home HTTP/1.1";
-        match RequestLine::try_from(request_line) {
-            Ok(request) => assert_eq!(request, expected_request_line),
-            Err(_) => assert!(false),
-        };
+        assert_eq!(
+            RequestLine::try_from(request_line).unwrap(),
+            expected_request_line
+        );
 
         // Test for invalid method.
         let request_line = b"POST http://localhost/home HTTP/1.0";

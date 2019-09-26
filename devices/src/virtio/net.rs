@@ -917,10 +917,6 @@ impl VirtioDevice for Net {
 }
 
 #[cfg(test)]
-// Allow assertions on constants is necessary because we cannot implement
-// PartialEq on ActivateError as we have references to std::io::Error which
-// don't implement the trait.
-#[allow(clippy::assertions_on_constants)]
 mod tests {
     use std::net::Ipv4Addr;
     use std::sync::mpsc::Receiver;
