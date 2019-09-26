@@ -95,7 +95,11 @@ impl IntoParsedRequest for PatchDrivePayload {
 
                 let (sender, receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    VmmAction::UpdateBlockDevicePath(drive_id, path_on_host, sender),
+                    Box::new(VmmAction::UpdateBlockDevicePath(
+                        drive_id,
+                        path_on_host,
+                        sender,
+                    )),
                     receiver,
                 ))
             }
@@ -119,7 +123,7 @@ impl IntoParsedRequest for BlockDeviceConfig {
         let (sender, receiver) = oneshot::channel();
         match method {
             Method::Put => Ok(ParsedRequest::Sync(
-                VmmAction::InsertBlockDevice(self, sender),
+                Box::new(VmmAction::InsertBlockDevice(self, sender)),
                 receiver,
             )),
             _ => Err(String::from("Invalid method.")),
@@ -237,7 +241,11 @@ mod tests {
             .clone()
             .into_parsed_request(Some("foo".to_string()), Method::Patch)
             .eq(&Ok(ParsedRequest::Sync(
-                VmmAction::UpdateBlockDevicePath("foo".to_string(), "dummy".to_string(), sender),
+                Box::new(VmmAction::UpdateBlockDevicePath(
+                    "foo".to_string(),
+                    "dummy".to_string(),
+                    sender
+                )),
                 receiver
             ))));
 
@@ -282,7 +290,7 @@ mod tests {
         assert!(desc
             .into_parsed_request(Some(String::from("foo")), Method::Put)
             .eq(&Ok(ParsedRequest::Sync(
-                VmmAction::InsertBlockDevice(same_desc, sender),
+                Box::new(VmmAction::InsertBlockDevice(same_desc, sender)),
                 receiver
             ))));
     }

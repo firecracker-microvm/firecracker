@@ -389,7 +389,6 @@ impl Display for VmmActionError {
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
 #[derive(Debug)]
-#[allow(clippy::large_enum_variant)]
 pub enum VmmAction {
     /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
     /// action can only be called before the microVM has booted. The response is sent using the
