@@ -323,47 +323,49 @@ mod tests {
 
     use clap_app;
 
-    #[allow(clippy::too_many_arguments)]
-    fn make_args<'a>(
-        node: &str,
-        id: &str,
-        exec_file: &str,
-        uid: &str,
-        gid: &str,
-        chroot_base: &str,
-        netns: Option<&str>,
+    #[derive(Clone)]
+    struct ArgVals<'a> {
+        node: &'a str,
+        id: &'a str,
+        exec_file: &'a str,
+        uid: &'a str,
+        gid: &'a str,
+        chroot_base: &'a str,
+        netns: Option<&'a str>,
         daemonize: bool,
-        extra_args: Vec<&str>,
-    ) -> ArgMatches<'a> {
+        extra_args: Vec<&'a str>,
+    }
+
+    fn make_args<'a>(arg_vals: &ArgVals) -> ArgMatches<'a> {
         let app = clap_app();
 
         let mut arg_vec = vec![
             "jailer",
             "--node",
-            node,
+            arg_vals.node,
             "--id",
-            id,
+            arg_vals.id,
             "--exec-file",
-            exec_file,
+            arg_vals.exec_file,
             "--uid",
-            uid,
+            arg_vals.uid,
             "--gid",
-            gid,
+            arg_vals.gid,
             "--chroot-base-dir",
-            chroot_base,
+            arg_vals.chroot_base,
         ];
 
-        if let Some(s) = netns {
+        if let Some(s) = arg_vals.netns {
             arg_vec.push("--netns");
             arg_vec.push(s);
         }
 
-        if daemonize {
+        if arg_vals.daemonize {
             arg_vec.push("--daemonize");
         }
 
         arg_vec.push("--");
-        for extra_arg in extra_args {
+        for extra_arg in &arg_vals.extra_args {
             arg_vec.push(extra_arg);
         }
 
@@ -378,26 +380,23 @@ mod tests {
         let uid = "1001";
         let gid = "1002";
         let chroot_base = "/";
-        let netns = "zzzns";
+        let netns = Some("zzzns");
         let extra_args = vec!["--config-file", "config_file_path"];
+        let good_arg_vals = ArgVals {
+            node,
+            id,
+            exec_file,
+            uid,
+            gid,
+            chroot_base,
+            netns,
+            daemonize: true,
+            extra_args,
+        };
 
         // This should be fine.
-        let good_env = Env::new(
-            make_args(
-                node,
-                id,
-                exec_file,
-                uid,
-                gid,
-                chroot_base,
-                Some(netns),
-                true,
-                extra_args,
-            ),
-            0,
-            0,
-        )
-        .expect("This new environment should be created successfully.");
+        let good_env = Env::new(make_args(&good_arg_vals), 0, 0)
+            .expect("This new environment should be created successfully.");
 
         let mut chroot_dir = PathBuf::from(chroot_base);
         chroot_dir.push(Path::new(exec_file).file_name().unwrap());
@@ -408,120 +407,58 @@ mod tests {
         assert_eq!(format!("{}", good_env.gid()), gid);
         assert_eq!(format!("{}", good_env.uid()), uid);
 
-        assert_eq!(good_env.netns, Some(netns.to_string()));
+        assert_eq!(good_env.netns, netns.map(ToString::to_string));
         assert!(good_env.daemonize);
         assert_eq!(
             good_env.extra_args,
             vec!["--config-file".to_string(), "config_file_path".to_string()]
         );
 
-        let another_good_env = Env::new(
-            make_args(
-                node,
-                id,
-                exec_file,
-                uid,
-                gid,
-                chroot_base,
-                None,
-                false,
-                vec![],
-            ),
-            0,
-            0,
-        )
-        .expect("This another new environment should be created successfully.");
+        let another_good_arg_vals = ArgVals {
+            netns: None,
+            daemonize: false,
+            extra_args: vec![],
+            ..good_arg_vals
+        };
+
+        let another_good_env = Env::new(make_args(&another_good_arg_vals), 0, 0)
+            .expect("This another new environment should be created successfully.");
         assert!(!another_good_env.daemonize);
 
-        // Not fine - invalid node.
-        assert!(Env::new(
-            make_args(
-                "zzz",
-                id,
-                exec_file,
-                uid,
-                gid,
-                chroot_base,
-                None,
-                true,
-                vec![],
-            ),
-            0,
-            0,
-        )
-        .is_err());
+        let base_invalid_arg_vals = ArgVals {
+            daemonize: true,
+            ..another_good_arg_vals.clone()
+        };
 
-        // Not fine - invalid id.
-        assert!(Env::new(
-            make_args(
-                node,
-                "/ad./sa12",
-                exec_file,
-                uid,
-                gid,
-                chroot_base,
-                None,
-                true,
-                vec![],
-            ),
-            0,
-            0
-        )
-        .is_err());
+        let invalid_node_arg_vals = ArgVals {
+            node: "zzz",
+            ..base_invalid_arg_vals.clone()
+        };
+        assert!(Env::new(make_args(&invalid_node_arg_vals), 0, 0,).is_err());
 
-        // Not fine - inexistent (hopefully) exec_file.
-        assert!(Env::new(
-            make_args(
-                node,
-                id,
-                "/this!/file!/should!/not!/exist!/",
-                uid,
-                gid,
-                chroot_base,
-                None,
-                true,
-                vec![],
-            ),
-            0,
-            0
-        )
-        .is_err());
+        let invalid_id_arg_vals = ArgVals {
+            id: "/ad./sa12",
+            ..base_invalid_arg_vals.clone()
+        };
+        assert!(Env::new(make_args(&invalid_id_arg_vals), 0, 0).is_err());
 
-        // Not fine - invalid uid.
-        assert!(Env::new(
-            make_args(
-                node,
-                id,
-                exec_file,
-                "zzz",
-                gid,
-                chroot_base,
-                None,
-                true,
-                vec![],
-            ),
-            0,
-            0
-        )
-        .is_err());
+        let inexistent_exec_file_arg_vals = ArgVals {
+            exec_file: "/this!/file!/should!/not!/exist!/",
+            ..base_invalid_arg_vals.clone()
+        };
+        assert!(Env::new(make_args(&inexistent_exec_file_arg_vals), 0, 0).is_err());
 
-        // Not fine - invalid gid.
-        assert!(Env::new(
-            make_args(
-                node,
-                id,
-                exec_file,
-                uid,
-                "zzz",
-                chroot_base,
-                None,
-                true,
-                vec![],
-            ),
-            0,
-            0
-        )
-        .is_err());
+        let invalid_uid_arg_vals = ArgVals {
+            uid: "zzz",
+            ..base_invalid_arg_vals.clone()
+        };
+        assert!(Env::new(make_args(&invalid_uid_arg_vals), 0, 0).is_err());
+
+        let invalid_gid_arg_vals = ArgVals {
+            gid: "zzz",
+            ..base_invalid_arg_vals.clone()
+        };
+        assert!(Env::new(make_args(&invalid_gid_arg_vals), 0, 0).is_err());
 
         // The chroot-base-dir param is not validated by Env::new, but rather in run, when we
         // actually attempt to create the folder structure (the same goes for netns).
