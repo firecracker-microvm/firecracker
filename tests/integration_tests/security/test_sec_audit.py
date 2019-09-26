@@ -23,10 +23,9 @@ def test_cargo_audit():
             '../../../Cargo.lock')
     )
     process = run(
-        'cargo audit -f {}'.format(cargo_lock_path),
+        'cargo audit -q -f {}'.format(cargo_lock_path),
         shell=True,
         check=True,
         stdout=PIPE
     )
-    assert "Success No vulnerable packages found" \
-           in process.stdout.decode('utf-8')
+    assert process.returncode == 0
