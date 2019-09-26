@@ -90,7 +90,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[allow(clippy::zero_ptr)]
     fn bindgen_test_layout_elf64_phdr() {
         assert_eq!(
             ::std::mem::size_of::<elf64_phdr>(),
@@ -103,7 +102,7 @@ mod tests {
             concat!("Alignment of ", stringify!(elf64_phdr))
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_phdr)).p_type as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_phdr)).p_type as *const _ as usize },
             0usize,
             concat!(
                 "Alignment of field: ",
@@ -113,7 +112,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_phdr)).p_flags as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_phdr)).p_flags as *const _ as usize },
             4usize,
             concat!(
                 "Alignment of field: ",
@@ -123,7 +122,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_phdr)).p_offset as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_phdr)).p_offset as *const _ as usize },
             8usize,
             concat!(
                 "Alignment of field: ",
@@ -133,7 +132,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_phdr)).p_vaddr as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_phdr)).p_vaddr as *const _ as usize },
             16usize,
             concat!(
                 "Alignment of field: ",
@@ -143,7 +142,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_phdr)).p_paddr as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_phdr)).p_paddr as *const _ as usize },
             24usize,
             concat!(
                 "Alignment of field: ",
@@ -153,7 +152,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_phdr)).p_filesz as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_phdr)).p_filesz as *const _ as usize },
             32usize,
             concat!(
                 "Alignment of field: ",
@@ -163,7 +162,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_phdr)).p_memsz as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_phdr)).p_memsz as *const _ as usize },
             40usize,
             concat!(
                 "Alignment of field: ",
@@ -173,7 +172,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_phdr)).p_align as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_phdr)).p_align as *const _ as usize },
             48usize,
             concat!(
                 "Alignment of field: ",
@@ -185,7 +184,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::zero_ptr)]
     fn bindgen_test_layout_elf64_hdr() {
         assert_eq!(
             ::std::mem::size_of::<elf64_hdr>(),
@@ -198,7 +196,7 @@ mod tests {
             concat!("Alignment of ", stringify!(elf64_hdr))
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_ident as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_ident as *const _ as usize },
             0usize,
             concat!(
                 "Alignment of field: ",
@@ -208,7 +206,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_type as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_type as *const _ as usize },
             16usize,
             concat!(
                 "Alignment of field: ",
@@ -218,7 +216,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_machine as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_machine as *const _ as usize },
             18usize,
             concat!(
                 "Alignment of field: ",
@@ -228,7 +226,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_version as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_version as *const _ as usize },
             20usize,
             concat!(
                 "Alignment of field: ",
@@ -238,7 +236,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_entry as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_entry as *const _ as usize },
             24usize,
             concat!(
                 "Alignment of field: ",
@@ -248,7 +246,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_phoff as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_phoff as *const _ as usize },
             32usize,
             concat!(
                 "Alignment of field: ",
@@ -258,7 +256,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_shoff as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_shoff as *const _ as usize },
             40usize,
             concat!(
                 "Alignment of field: ",
@@ -268,7 +266,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_flags as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_flags as *const _ as usize },
             48usize,
             concat!(
                 "Alignment of field: ",
@@ -278,7 +276,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_ehsize as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_ehsize as *const _ as usize },
             52usize,
             concat!(
                 "Alignment of field: ",
@@ -288,7 +286,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_phentsize as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_phentsize as *const _ as usize },
             54usize,
             concat!(
                 "Alignment of field: ",
@@ -298,7 +296,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_phnum as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_phnum as *const _ as usize },
             56usize,
             concat!(
                 "Alignment of field: ",
@@ -308,7 +306,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_shentsize as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_shentsize as *const _ as usize },
             58usize,
             concat!(
                 "Alignment of field: ",
@@ -318,7 +316,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_shnum as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_shnum as *const _ as usize },
             60usize,
             concat!(
                 "Alignment of field: ",
@@ -328,7 +326,7 @@ mod tests {
             )
         );
         assert_eq!(
-            unsafe { &(*(0 as *const elf64_hdr)).e_shstrndx as *const _ as usize },
+            unsafe { &(*(std::ptr::null() as *const elf64_hdr)).e_shstrndx as *const _ as usize },
             62usize,
             concat!(
                 "Alignment of field: ",
