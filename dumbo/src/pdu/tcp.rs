@@ -64,7 +64,6 @@ bitflags! {
         /// SYN flag.
         const SYN = 1 << 1;
         /// FIN flag.
-        #[allow(clippy::identity_op)]
         const FIN = 1;
     }
 }
@@ -662,7 +661,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::len_zero)]
     fn test_constructors() {
         let mut a = [1u8; 1460];
         let b = [2u8; 1000];
@@ -726,7 +724,7 @@ mod tests {
 
             // Payload was smaller than mss_left after options.
             assert_eq!(p.len(), header_len + b.len());
-            assert_eq!(p.is_empty(), p.len() == 0);
+            assert_eq!(p.is_empty(), p.is_empty());
 
             p.len()
             // Mutable borrow of a goes out of scope.

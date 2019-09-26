@@ -58,14 +58,13 @@ const CMD_WRITE_OUTP: u8 = 0xD1; // Write output port
 const CMD_RESET_CPU: u8 = 0xFE; // Reset CPU
 
 /// i8042 status register bits
-const SB_OUT_DATA_AVAIL: u8 = 1; // Data available at port 0x60
-const SB_I8042_CMD_DATA: u8 = 1 << 3; // i8042 expecting command parameter at port 0x60
-const SB_KBD_ENABLED: u8 = 1 << 4; // 1 = kbd enabled, 0 = kbd locked
+const SB_OUT_DATA_AVAIL: u8 = 0x0001; // Data available at port 0x60
+const SB_I8042_CMD_DATA: u8 = 0x0008; // i8042 expecting command parameter at port 0x60
+const SB_KBD_ENABLED: u8 = 0x0010; // 1 = kbd enabled, 0 = kbd locked
 
 /// i8042 control register bits
-#[allow(clippy::identity_op)]
-const CB_KBD_INT: u8 = 1 << 0; // kbd interrupt enabled
-const CB_POST_OK: u8 = 1 << 2; // POST ok (should always be 1)
+const CB_KBD_INT: u8 = 0x0001; // kbd interrupt enabled
+const CB_POST_OK: u8 = 0x0004; // POST ok (should always be 1)
 
 /// Key scan codes
 const KEY_CTRL: u16 = 0x0014;

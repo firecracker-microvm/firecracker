@@ -277,7 +277,6 @@ mod tests {
         false
     }
 
-    #[allow(clippy::unit_cmp)]
     #[test]
     fn test_main() {
         const FIRECRACKER_INIT_TIMEOUT_MILLIS: u64 = 150;
@@ -325,16 +324,21 @@ mod tests {
         fs::remove_file(DEFAULT_API_SOCK_PATH).expect("failure in removing socket file");
 
         // Look for the expected backtrace inside the log
-        assert!(
-            validate_backtrace(
-                log_file.as_str(),
-                &[
-                    // Lines containing these words should have appeared in the log, in this order
-                    ("ERROR", "main.rs", "Firecracker panicked at"),
-                    ("ERROR", "main.rs", "stack backtrace:"),
-                    ("0:", "0x", "firecracker::main::"),
-                ],
-            ) || println!("Could not validate backtrace!\n {:?}", Backtrace::new()) != ()
+        let backtrace_check_result = validate_backtrace(
+            log_file.as_str(),
+            &[
+                // Lines containing these words should have appeared in the log, in this order
+                ("ERROR", "main.rs", "Firecracker panicked at"),
+                ("ERROR", "main.rs", "stack backtrace:"),
+                ("0:", "0x", "firecracker::main::"),
+            ],
         );
+
+        // Since here we have bound `stderr` to a file as a result of initializing the logger,
+        // we need to output debugging info on test failure to `stdout` instead.
+        if !backtrace_check_result {
+            println!("Could not validate backtrace!\n {:?}", Backtrace::new());
+            panic!();
+        }
     }
 }

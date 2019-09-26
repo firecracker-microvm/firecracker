@@ -109,13 +109,13 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::eq_op)]
     fn cmp() {
-        let a = GuestAddress(0x300);
-        let b = GuestAddress(0x301);
-        assert!(a < b);
-        assert!(b > a);
-        assert!(!(a < a));
+        for i in 1..10 {
+            for j in 1..10 {
+                assert_eq!(i < j, GuestAddress(i) < GuestAddress(j));
+                assert_eq!(i > j, GuestAddress(i) > GuestAddress(j));
+            }
+        }
     }
 
     #[test]
