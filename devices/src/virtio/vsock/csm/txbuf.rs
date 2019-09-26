@@ -61,7 +61,6 @@ impl TxBuf {
         // argument would always get evaluated (which implies a heap allocation), even though
         // it would later be discarded (when `self.data.is_some()`). Apparently, clippy fails
         // to see this, and insists on issuing some warning.
-        #[allow(clippy::redundant_closure)]
         let data = self.data.get_or_insert_with(||
                 // Using uninitialized memory here is quite safe, since we never read from any
                 // area of the buffer before writing to it. First we push, then we flush only

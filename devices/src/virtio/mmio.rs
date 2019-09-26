@@ -480,11 +480,8 @@ mod tests {
             &[16, 32]
         }
 
-        #[allow(clippy::needless_range_loop)]
         fn read_config(&self, offset: u64, data: &mut [u8]) {
-            for i in 0..data.len() {
-                data[i] = self.config_bytes[offset as usize + i];
-            }
+            data.copy_from_slice(&self.config_bytes[offset as usize..]);
         }
 
         fn write_config(&mut self, offset: u64, data: &[u8]) {

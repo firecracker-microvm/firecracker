@@ -703,10 +703,7 @@ mod tests {
         }
     }
 
-    #[allow(clippy::needless_lifetimes)]
-    fn default_test_blockepollhandler<'a>(
-        mem: &'a GuestMemory,
-    ) -> (BlockEpollHandler, VirtQueue<'a>) {
+    fn default_test_blockepollhandler(mem: &GuestMemory) -> (BlockEpollHandler, VirtQueue) {
         let mut dummy = DummyBlock::new(false);
         let b = dummy.block();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
