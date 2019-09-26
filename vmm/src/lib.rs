@@ -2229,35 +2229,29 @@ pub fn start_vmm(
         info!("Successfully started microvm that was configured from one single json");
     }
 
-    // The loop continues to run as long as there is no error. Whenever run_event_loop
-    // returns due to a ControlAction, we handle it and invoke `continue`. Clippy thinks
-    // this never loops and complains about it, but Clippy is wrong.
-    #[allow(clippy::never_loop)]
     let exit_code = loop {
-        // `break <expression>` causes the outer loop to break and return the result
-        // of evaluating <expression>, which in this case is the exit code.
-        break match vmm.run_event_loop() {
+        match vmm.run_event_loop() {
+            Err(e) => {
+                error!("Abruptly exited VMM control loop: {:?}", e);
+                break FC_EXIT_CODE_GENERIC_ERROR;
+            }
             Ok(exit_reason) => match exit_reason {
                 EventLoopExitReason::Break => {
                     info!("Gracefully terminated VMM control loop");
-                    FC_EXIT_CODE_OK
+                    break FC_EXIT_CODE_OK;
                 }
                 EventLoopExitReason::ControlAction => {
                     if let Err(e) = api_event_fd.read() {
                         error!("Error reading VMM API event_fd {:?}", e);
-                        FC_EXIT_CODE_GENERIC_ERROR
+                        break FC_EXIT_CODE_GENERIC_ERROR;
                     } else {
+                        // In this case, we run the loop again.
                         vmm.run_vmm_action().unwrap_or_else(|_| {
                             warn!("Got a spurious notification from api thread");
                         });
-                        continue;
                     }
                 }
             },
-            Err(e) => {
-                error!("Abruptly exited VMM control loop: {:?}", e);
-                FC_EXIT_CODE_GENERIC_ERROR
-            }
         };
     };
 
