@@ -16,6 +16,10 @@ use libc;
 use net_gen;
 use sys_util::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 
+// As defined in the Linux UAPI:
+// https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
+const IFACE_NAME_MAX_LEN: usize = 16;
+
 /// List of errors the tap implementation can throw.
 #[derive(Debug)]
 pub enum Error {
@@ -46,7 +50,7 @@ ioctl_iow_nr!(TUNSETVNETHDRSZ, TUNTAP, 216, ::std::os::raw::c_int);
 #[derive(Debug)]
 pub struct Tap {
     tap_file: File,
-    if_name: [u8; 16usize],
+    if_name: [u8; IFACE_NAME_MAX_LEN],
 }
 
 impl PartialEq for Tap {
@@ -68,18 +72,16 @@ fn create_socket() -> Result<UdpSocket> {
 
 // Returns a byte vector representing the contents of a null terminated C string which
 // contains if_name.
-fn build_terminated_if_name(if_name: &str) -> Result<Vec<u8>> {
+fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN]> {
     // Convert the string slice to bytes, and shadow the variable,
     // since we no longer need the &str version.
     let if_name = if_name.as_bytes();
 
-    // TODO: the 16usize limit of the if_name member from struct Tap is pretty arbitrary.
-    // We leave it as is for now, but this should be refactored at some point.
-    if if_name.len() > 15 {
+    if if_name.len() >= IFACE_NAME_MAX_LEN {
         return Err(Error::InvalidIfname);
     }
 
-    let mut terminated_if_name = vec![b'\0'; if_name.len() + 1];
+    let mut terminated_if_name = [b'\0'; IFACE_NAME_MAX_LEN];
     terminated_if_name[..if_name.len()].copy_from_slice(if_name);
 
     Ok(terminated_if_name)
@@ -122,9 +124,8 @@ impl Tap {
         let mut ifreq: net_gen::ifreq = Default::default();
         unsafe {
             let ifrn_name = ifreq.ifr_ifrn.ifrn_name.as_mut();
+            ifrn_name.copy_from_slice(terminated_if_name.as_ref());
             let ifru_flags = ifreq.ifr_ifru.ifru_flags.as_mut();
-            let name_slice = &mut ifrn_name[..terminated_if_name.len()];
-            name_slice.copy_from_slice(terminated_if_name.as_slice());
             *ifru_flags =
                 (net_gen::IFF_TAP | net_gen::IFF_NO_PI | net_gen::IFF_VNET_HDR) as c_short;
         }
@@ -455,9 +456,29 @@ mod tests {
     }
 
     #[test]
-    fn test_build_if_name() {
-        assert!(build_terminated_if_name("tap_build_if_n").is_ok());
-        assert!(build_terminated_if_name("tap_build_if_name").is_err());
+    fn test_tap_name() {
+        // Sanity check that the assumed max iface name length is correct.
+        assert_eq!(
+            IFACE_NAME_MAX_LEN,
+            net_gen::ifreq__bindgen_ty_1::default()
+                .bindgen_union_field
+                .len()
+        );
+
+        // 16 characters - too long.
+        let name = "a123456789abcdef";
+        match Tap::open_named(name) {
+            Err(Error::InvalidIfname) => (),
+            _ => panic!("Expected Error::InvalidIfname"),
+        };
+
+        // 15 characters - OK.
+        let name = "a123456789abcde";
+        let tap = Tap::open_named(name).unwrap();
+        assert_eq!(
+            name,
+            std::str::from_utf8(&tap.if_name[0..(IFACE_NAME_MAX_LEN - 1)]).unwrap()
+        );
     }
 
     #[test]
