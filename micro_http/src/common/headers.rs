@@ -102,8 +102,8 @@ impl Headers {
                         Header::ContentLength => {
                             let try_numeric: Result<i32, std::num::ParseIntError> =
                                 std::str::FromStr::from_str(entry[1].trim());
-                            if try_numeric.is_ok() {
-                                self.content_length = try_numeric.unwrap();
+                            if let Ok(content_length) = try_numeric {
+                                self.content_length = content_length;
                                 Ok(())
                             } else {
                                 Err(RequestError::InvalidHeader)
