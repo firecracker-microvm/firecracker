@@ -35,6 +35,7 @@ use vmm::default_syscalls::get_seccomp_filter;
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
 
 // The reason we place default API socket under /run is that API socket is a
 // runtime file.
@@ -125,6 +126,30 @@ fn main() {
                 .takes_value(false)
                 .requires("config-file")
                 .help("Optional parameter which allows starting and using a microVM without an active API socket.")
+        )
+        .arg(
+            Argument::new("log-path")
+                .takes_value(true)
+                .help("Path to a fifo or a file used for configuring the logger on startup.")
+        )
+        .arg(
+            Argument::new("level")
+                .takes_value(true)
+                .requires("log-path")
+                .default_value("Warning")
+                .help("Set the logger level.")
+        )
+        .arg(
+            Argument::new("show-level")
+                .takes_value(false)
+                .requires("log-path")
+                .help("Whether or not to output the level in the logs.")
+        )
+        .arg(
+            Argument::new("show-log-origin")
+                .takes_value(false)
+                .requires("log-path")
+                .help("Whether or not to include the file path and line number of the log's origin.")
         );
 
     let arguments = match arg_parser.parse_from_cmdline() {
@@ -160,6 +185,26 @@ fn main() {
     let instance_id = arguments.value_as_string("id").unwrap();
     validate_instance_id(instance_id.as_str()).expect("Invalid instance ID");
 
+    LOGGER.set_instance_id(instance_id.clone());
+
+    if let Some(log) = arguments.value_as_string("log-path") {
+        // It's safe to unwrap here because the field's been provided with a default value.
+        let level = arguments.value_as_string("level").unwrap();
+        let logger_level = LoggerLevel::from_string(level).unwrap_or_else(|err| {
+            panic!("Invalid value for logger level: {}. Possible values: [Error, Warning, Info, Debug]", err);
+        });
+        let show_level = arguments.value_as_bool("show-level").unwrap_or(false);
+        let show_log_origin = arguments.value_as_bool("show-log-origin").unwrap_or(false);
+
+        let logger_config = LoggerConfig::new(
+            PathBuf::from(log),
+            logger_level,
+            show_level,
+            show_log_origin,
+        );
+        init_logger(logger_config, FIRECRACKER_VERSION).expect("Could not initialize logger.");
+    }
+
     // It's safe to unwrap here because the field's been provided with a default value.
     let seccomp_level = arguments.value_as_string("seccomp-level").unwrap();
     let seccomp_filter = get_seccomp_filter(
@@ -177,8 +222,6 @@ fn main() {
         .map(|x| x.expect("Unable to open or read from the configuration file"));
 
     let api_enabled = !arguments.value_as_bool("no-api").unwrap_or(false);
-
-    LOGGER.set_instance_id(instance_id.clone());
 
     if api_enabled {
         let bind_path = arguments

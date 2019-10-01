@@ -27,6 +27,22 @@ pub enum LoggerLevel {
     Debug,
 }
 
+impl LoggerLevel {
+    /// Converts from a logger level value of type String to the corresponding LoggerLevel variant
+    /// or returns an error if the parsing failed.
+    pub fn from_string(level: String) -> std::result::Result<Self, LoggerConfigError> {
+        match level.as_str() {
+            "Error" => Ok(LoggerLevel::Error),
+            "Warning" => Ok(LoggerLevel::Warning),
+            "Info" => Ok(LoggerLevel::Info),
+            "Debug" => Ok(LoggerLevel::Debug),
+            invalid_value => Err(LoggerConfigError::InitializationFailure(
+                invalid_value.to_string(),
+            )),
+        }
+    }
+}
+
 impl Default for LoggerLevel {
     fn default() -> LoggerLevel {
         LoggerLevel::Warning
@@ -59,6 +75,23 @@ pub struct LoggerConfig {
     /// When enabled, the logger will append the origin of the log entry.
     #[serde(default)]
     pub show_log_origin: bool,
+}
+
+impl LoggerConfig {
+    /// Creates a new LoggerConfig.
+    pub fn new(
+        log_path: PathBuf,
+        level: LoggerLevel,
+        show_level: bool,
+        show_log_origin: bool,
+    ) -> LoggerConfig {
+        LoggerConfig {
+            log_path,
+            level,
+            show_level,
+            show_log_origin,
+        }
+    }
 }
 
 /// Errors associated with actions on the `LoggerConfig`.
@@ -100,9 +133,7 @@ pub fn init_logger(
 
 #[cfg(test)]
 mod tests {
-
-    use std::io::BufRead;
-    use std::io::BufReader;
+    use std::io::{BufRead, BufReader};
 
     use super::*;
     use utils::tempfile::TempFile;
@@ -173,6 +204,44 @@ mod tests {
                 ))
             ),
             "Failed to initialize logger"
+        );
+    }
+
+    #[test]
+    fn test_new_logger_config() {
+        let logger_config =
+            LoggerConfig::new(PathBuf::from("log"), LoggerLevel::Debug, false, true);
+        assert_eq!(logger_config.log_path, PathBuf::from("log"));
+        assert_eq!(logger_config.level, LoggerLevel::Debug);
+        assert_eq!(logger_config.show_level, false);
+        assert_eq!(logger_config.show_log_origin, true);
+    }
+
+    #[test]
+    fn test_parse_level() {
+        // Check `from_string()` behaviour for different scenarios.
+        assert_eq!(
+            format!(
+                "{}",
+                LoggerLevel::from_string("random_value".to_string()).unwrap_err()
+            ),
+            "random_value"
+        );
+        assert_eq!(
+            LoggerLevel::from_string("Error".to_string()).unwrap(),
+            LoggerLevel::Error
+        );
+        assert_eq!(
+            LoggerLevel::from_string("Warning".to_string()).unwrap(),
+            LoggerLevel::Warning
+        );
+        assert_eq!(
+            LoggerLevel::from_string("Info".to_string()).unwrap(),
+            LoggerLevel::Info
+        );
+        assert_eq!(
+            LoggerLevel::from_string("Debug".to_string()).unwrap(),
+            LoggerLevel::Debug
         );
     }
 }

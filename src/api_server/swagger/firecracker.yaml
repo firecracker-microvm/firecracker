@@ -564,7 +564,7 @@ definitions:
     properties:
       metrics_path:
         type: string
-        description: Path to the named pipe or file where the JSON-formatted metrics will be flushed.
+        description: Path to the named pipe or file where the JSON-formatted metrics are flushed.
 
   NetworkInterface:
     type: object

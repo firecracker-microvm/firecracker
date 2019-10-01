@@ -8,6 +8,10 @@
   system.
 - Added `app_name` field in InstanceInfo struct for storing the
   application name.
+- New command-line parameters for `firecracker`, named `--log-path`,
+  `--level`, `--show-level` and `--show-log-origin` that can be used
+  for configuring the Logger when starting the process. When using
+  this method for configuration, only `--log-path` is mandatory.
 
 ### Fixed
 - Added `--version` flag to both Firecracker and Jailer.
