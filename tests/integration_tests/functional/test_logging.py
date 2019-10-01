@@ -245,6 +245,22 @@ def test_api_requests_logs(test_microvm_with_api):
     assert log_file_contains_strings(log_fifo, expected_log_strings)
 
 
+def test_cmd_line_logger(test_microvm_with_api):
+    """Test logger configuration with fifo parameter."""
+    microvm = test_microvm_with_api
+
+    log_fifo_path = os.path.join(microvm.path, 'log_fifo')
+    log_fifo = log_tools.Fifo(log_fifo_path)
+    microvm.create_jailed_resource(log_fifo.path, create_jail=True)
+
+    microvm.jailer.extra_args = {'log-path': 'log_fifo'}
+    microvm.spawn()
+
+    # Check that the logger was indeed configured.
+    lines = log_fifo.sequential_reader(1)
+    assert lines[0].startswith('Running Firecracker')
+
+
 # pylint: disable=W0102
 def _test_log_config(
         microvm,
