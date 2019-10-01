@@ -256,6 +256,21 @@ def test_api_requests_logs(test_microvm_with_api):
         "The API server received a synchronous Get request on \"/mmds\"."
     )
 
+    # Check that the fault message return by the client is also logged in the
+    # FIFO.
+    response = microvm.boot.put(
+        kernel_image_path="inexistent_path"
+    )
+    assert microvm.api_session.is_status_bad_request(response.status_code)
+    fault_message = "The kernel file cannot be opened due to invalid kernel" \
+                    " path or invalid permissions."
+    assert fault_message in response.text
+    expected_log_strings.append("Received Error on synchronous Put request "
+                                "on \"/boot-source\" with body \"{{\\\"kernel_"
+                                "image_path\\\": \\\"inexistent_path\\\"}}\". "
+                                "Status code: 400 Bad Request. "
+                                "Message: {}".format(fault_message))
+
     assert log_file_contains_strings(log_fifo, expected_log_strings)
 
 

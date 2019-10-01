@@ -617,9 +617,13 @@ impl hyper::server::Service for ApiServerHttpService {
                                             description, status_code
                                         );
                                     } else {
+                                        // It is safe to `unwrap_err` because result was checked
+                                        // against not being ok.
                                         error!(
-                                            "Received Error on {}. Status code: {}.",
-                                            description, status_code
+                                            "Received Error on {}. Status code: {}. Message: {}",
+                                            description,
+                                            status_code,
+                                            result.unwrap_err()
                                         );
                                     }
                                     response
