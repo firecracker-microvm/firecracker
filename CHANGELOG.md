@@ -28,6 +28,7 @@
 - Fixed serial console on aarch64 (GitHub issue #1147).
 - Upon panic, the terminal is now reset to canonical mode.
 - Explicit error upon failure of vsock device creation.
+- The failure message returned by an API call is flushed in the log FIFOs.
 
 ## [0.18.0]
 
