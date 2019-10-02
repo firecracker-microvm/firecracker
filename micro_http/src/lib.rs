@@ -74,12 +74,14 @@ mod common;
 mod connection;
 mod request;
 mod response;
+mod server;
 use common::ascii;
 use common::headers;
 
-pub use connection::HttpConnection;
+pub use connection::{HttpConnection, ConnectionError};
 pub use request::{Request, RequestError};
 pub use response::{Response, StatusCode};
+pub use server::{HttpServer, ServerError, ServerRequest, ServerResponse};
 
 pub use common::headers::Headers;
 pub use common::{Body, Method, Version};
