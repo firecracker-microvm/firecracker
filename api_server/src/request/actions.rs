@@ -8,7 +8,7 @@ use hyper::Method;
 use serde_json::Value;
 
 use request::{IntoParsedRequest, ParsedRequest};
-use vmm::VmmAction;
+use vmm::{VmmAction, VmmRequest};
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed
@@ -74,28 +74,28 @@ impl IntoParsedRequest for ActionBody {
                 let block_device_id = self.payload.unwrap().as_str().unwrap().to_string();
                 let (sync_sender, sync_receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    Box::new(VmmAction::RescanBlockDevice(block_device_id, sync_sender)),
+                    VmmRequest::new(VmmAction::RescanBlockDevice(block_device_id), sync_sender),
                     sync_receiver,
                 ))
             }
             ActionType::FlushMetrics => {
                 let (sync_sender, sync_receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    Box::new(VmmAction::FlushMetrics(sync_sender)),
+                    VmmRequest::new(VmmAction::FlushMetrics, sync_sender),
                     sync_receiver,
                 ))
             }
             ActionType::InstanceStart => {
                 let (sync_sender, sync_receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    Box::new(VmmAction::StartMicroVm(sync_sender)),
+                    VmmRequest::new(VmmAction::StartMicroVm, sync_sender),
                     sync_receiver,
                 ))
             }
             ActionType::SendCtrlAltDel => {
                 let (sync_sender, sync_receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    Box::new(VmmAction::SendCtrlAltDel(sync_sender)),
+                    VmmRequest::new(VmmAction::SendCtrlAltDel, sync_sender),
                     sync_receiver,
                 ))
             }
@@ -181,7 +181,7 @@ mod tests {
               }"#;
             let (sender, receiver) = oneshot::channel();
             let req = ParsedRequest::Sync(
-                Box::new(VmmAction::RescanBlockDevice("dummy_id".to_string(), sender)),
+                VmmRequest::new(VmmAction::RescanBlockDevice("dummy_id".to_string()), sender),
                 receiver,
             );
 
@@ -201,7 +201,7 @@ mod tests {
 
             let (sender, receiver) = oneshot::channel();
             let req: ParsedRequest =
-                ParsedRequest::Sync(Box::new(VmmAction::StartMicroVm(sender)), receiver);
+                ParsedRequest::Sync(VmmRequest::new(VmmAction::StartMicroVm, sender), receiver);
             let result: Result<ActionBody, serde_json::Error> = serde_json::from_str(json);
             assert!(result.is_ok());
             assert!(result
@@ -218,7 +218,7 @@ mod tests {
 
             let (sender, receiver) = oneshot::channel();
             let req: ParsedRequest =
-                ParsedRequest::Sync(Box::new(VmmAction::SendCtrlAltDel(sender)), receiver);
+                ParsedRequest::Sync(VmmRequest::new(VmmAction::SendCtrlAltDel, sender), receiver);
             let result: Result<ActionBody, serde_json::Error> = serde_json::from_str(json);
             assert!(result.is_ok());
             assert!(result
@@ -235,7 +235,7 @@ mod tests {
 
             let (sender, receiver) = oneshot::channel();
             let req: ParsedRequest =
-                ParsedRequest::Sync(Box::new(VmmAction::FlushMetrics(sender)), receiver);
+                ParsedRequest::Sync(VmmRequest::new(VmmAction::FlushMetrics, sender), receiver);
             let result: Result<ActionBody, serde_json::Error> = serde_json::from_str(json);
             assert!(result.is_ok());
             assert!(result

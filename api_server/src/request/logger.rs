@@ -8,7 +8,7 @@ use hyper::Method;
 
 use request::{IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::logger::LoggerConfig;
-use vmm::VmmAction;
+use vmm::{VmmAction, VmmRequest};
 
 impl IntoParsedRequest for LoggerConfig {
     fn into_parsed_request(
@@ -18,7 +18,7 @@ impl IntoParsedRequest for LoggerConfig {
     ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            Box::new(VmmAction::ConfigureLogger(self, sender)),
+            VmmRequest::new(VmmAction::ConfigureLogger(self), sender),
             receiver,
         ))
     }
@@ -50,7 +50,7 @@ mod tests {
             .clone()
             .into_parsed_request(None, Method::Put)
             .eq(&Ok(ParsedRequest::Sync(
-                Box::new(VmmAction::ConfigureLogger(desc, sender)),
+                VmmRequest::new(VmmAction::ConfigureLogger(desc), sender),
                 receiver
             ))));
     }

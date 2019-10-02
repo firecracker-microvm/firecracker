@@ -135,8 +135,6 @@ pub const FC_EXIT_CODE_BAD_CONFIGURATION: u8 = 152;
 /// input, but can result from bad configuration of the host (for example if Firecracker doesn't
 /// have permissions to open the KVM fd).
 pub enum Error {
-    /// Cannot receive message from the API.
-    ApiChannel,
     /// Legacy devices work with Event file descriptors and the creation can fail because
     /// of resource exhaustion.
     CreateLegacyDevice(device_manager::legacy::Error),
@@ -171,7 +169,6 @@ impl std::fmt::Debug for Error {
         use self::Error::*;
 
         match self {
-            ApiChannel => write!(f, "ApiChannel: error receiving data from the API server"),
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
             EpollFd(e) => write!(f, "Epoll fd error: {}", e.to_string()),
             EventFd(e) => write!(f, "Event fd error: {}", e.to_string()),
@@ -388,54 +385,48 @@ impl Display for VmmActionError {
 }
 
 /// This enum represents the public interface of the VMM. Each action contains various
-/// bits of information (ids, paths, etc.), together with an OutcomeSender, which is always present.
+/// bits of information (ids, paths, etc.).
 #[derive(Debug)]
 pub enum VmmAction {
     /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
-    /// action can only be called before the microVM has booted. The response is sent using the
-    /// `OutcomeSender`.
-    ConfigureBootSource(BootSourceConfig, OutcomeSender),
+    /// action can only be called before the microVM has booted.
+    ConfigureBootSource(BootSourceConfig),
     /// Configure the logger using as input the `LoggerConfig`. This action can only be called
-    /// before the microVM has booted. The response is sent using the `OutcomeSender`.
-    ConfigureLogger(LoggerConfig, OutcomeSender),
-    /// Get the configuration of the microVM. The action response is sent using the `OutcomeSender`.
-    GetVmConfiguration(OutcomeSender),
+    /// before the microVM has booted.
+    ConfigureLogger(LoggerConfig),
+    /// Get the configuration of the microVM.
+    GetVmConfiguration,
     /// Flush the metrics. This action can only be called after the logger has been configured.
-    /// The response is sent using the `OutcomeSender`.
-    FlushMetrics(OutcomeSender),
+    FlushMetrics,
     /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
-    /// input. This action can only be called before the microVM has booted. The response
-    /// is sent using the `OutcomeSender`.
-    InsertBlockDevice(BlockDeviceConfig, OutcomeSender),
+    /// input. This action can only be called before the microVM has booted.
+    InsertBlockDevice(BlockDeviceConfig),
     /// Add a new network interface config or update one that already exists using the
     /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
-    /// booted. The response is sent using the `OutcomeSender`.
-    InsertNetworkDevice(NetworkInterfaceConfig, OutcomeSender),
+    /// booted.
+    InsertNetworkDevice(NetworkInterfaceConfig),
     /// Set the vsock device or update the one that already exists using the
     /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
-    /// booted. The response is sent using the `OutcomeSender`.
-    SetVsockDevice(VsockDeviceConfig, OutcomeSender),
+    /// booted.
+    SetVsockDevice(VsockDeviceConfig),
     /// Update the size of an existing block device specified by an ID. The ID is the first data
     /// associated with this enum variant. This action can only be called after the microVM is
-    /// started. The response is sent using the `OutcomeSender`.
-    RescanBlockDevice(String, OutcomeSender),
+    /// started.
+    RescanBlockDevice(String),
     /// Set the microVM configuration (memory & vcpu) using `VmConfig` as input. This
-    /// action can only be called before the microVM has booted. The action
-    /// response is sent using the `OutcomeSender`.
-    SetVmConfiguration(VmConfig, OutcomeSender),
+    /// action can only be called before the microVM has booted.
+    SetVmConfiguration(VmConfig),
     /// Launch the microVM. This action can only be called before the microVM has booted.
-    /// The response is sent using the `OutcomeSender`.
-    StartMicroVm(OutcomeSender),
+    StartMicroVm,
     /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
     /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
-    SendCtrlAltDel(OutcomeSender),
+    SendCtrlAltDel,
     /// Update the path of an existing block device. The data associated with this variant
-    /// represents the `drive_id` and the `path_on_host`. The response is sent using
-    /// the `OutcomeSender`.
-    UpdateBlockDevicePath(String, String, OutcomeSender),
+    /// represents the `drive_id` and the `path_on_host`.
+    UpdateBlockDevicePath(String, String),
     /// Update a network interface, after microVM start. Currently, the only updatable properties
     /// are the RX and TX rate limiters.
-    UpdateNetworkInterface(NetworkInterfaceUpdateConfig, OutcomeSender),
+    UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
@@ -450,10 +441,32 @@ pub enum VmmData {
 
 /// Data type used to communicate between the API and the VMM.
 pub type VmmRequestOutcome = std::result::Result<VmmData, VmmActionError>;
-/// One shot channel used to send a request.
-pub type OutcomeSender = oneshot::Sender<VmmRequestOutcome>;
+/// One shot channel used to send a response.
+pub type ResponseSender = oneshot::Sender<VmmRequestOutcome>;
 /// One shot channel used to receive a response.
-pub type OutcomeReceiver = oneshot::Receiver<VmmRequestOutcome>;
+pub type ResponseReceiver = oneshot::Receiver<VmmRequestOutcome>;
+
+/// Wrapper over requested action to be done by the VMM and sender where the response will go.
+/// This is wrapped in a struct to allow custom PartialEq.
+/// This new object type will move to ApiServer in the next commits.
+pub struct VmmRequest {
+    inner: Box<(VmmAction, ResponseSender)>,
+}
+
+impl VmmRequest {
+    /// Create a VmmRequest from given VmmAction and ResponseSender.
+    pub fn new(action: VmmAction, response_sender: ResponseSender) -> VmmRequest {
+        VmmRequest {
+            inner: Box::new((action, response_sender)),
+        }
+    }
+}
+
+impl PartialEq for VmmRequest {
+    fn eq(&self, other: &VmmRequest) -> bool {
+        self.inner.0 == other.inner.0
+    }
+}
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -806,7 +819,7 @@ pub struct Vmm {
     epoll_context: EpollContext,
 
     // API resources.
-    from_api: Receiver<Box<VmmAction>>,
+    from_api: Receiver<VmmRequest>,
 
     write_metrics_event_fd: TimerFd,
 
@@ -819,7 +832,7 @@ impl Vmm {
     pub fn new(
         api_shared_info: Arc<RwLock<InstanceInfo>>,
         control_fd: &dyn AsRawFd,
-        from_api: Receiver<Box<VmmAction>>,
+        from_api: Receiver<VmmRequest>,
         seccomp_level: u32,
         kvm: Kvm,
     ) -> Result<Self> {
@@ -2012,77 +2025,31 @@ impl Vmm {
             })
     }
 
-    fn send_response(outcome: VmmRequestOutcome, sender: OutcomeSender) {
-        sender
-            .send(outcome)
-            .map_err(|_| ())
-            .expect("one-shot channel closed");
-    }
-
-    fn run_vmm_action(&mut self) -> Result<()> {
+    fn run_vmm_action(&mut self, vmm_action: VmmAction) -> VmmRequestOutcome {
         use VmmAction::*;
 
-        let request = match self.from_api.try_recv() {
-            Ok(t) => *t,
-            Err(TryRecvError::Empty) => {
-                return Err(Error::ApiChannel)?;
+        match vmm_action {
+            ConfigureBootSource(boot_source_body) => self.configure_boot_source(
+                boot_source_body.kernel_image_path,
+                boot_source_body.boot_args,
+            ),
+            ConfigureLogger(logger_description) => self.init_logger(logger_description),
+            FlushMetrics => self.flush_metrics(),
+            GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
+            InsertBlockDevice(block_device_config) => self.insert_block_device(block_device_config),
+            InsertNetworkDevice(netif_body) => self.insert_net_device(netif_body),
+            SetVsockDevice(vsock_cfg) => self.set_vsock_device(vsock_cfg),
+            RescanBlockDevice(drive_id) => self.rescan_block_device(&drive_id),
+            StartMicroVm => self.start_microvm(),
+            SendCtrlAltDel => self.send_ctrl_alt_del(),
+            SetVmConfiguration(machine_config_body) => {
+                self.set_vm_configuration(machine_config_body)
             }
-            Err(TryRecvError::Disconnected) => {
-                panic!("The channel's sending half was disconnected. Cannot receive data.");
+            UpdateBlockDevicePath(drive_id, path_on_host) => {
+                self.set_block_device_path(drive_id, path_on_host)
             }
-        };
-
-        match request {
-            ConfigureBootSource(boot_source_body, sender) => {
-                Vmm::send_response(
-                    self.configure_boot_source(
-                        boot_source_body.kernel_image_path,
-                        boot_source_body.boot_args,
-                    ),
-                    sender,
-                );
-            }
-            ConfigureLogger(logger_description, sender) => {
-                Vmm::send_response(self.init_logger(logger_description), sender);
-            }
-            FlushMetrics(sender) => {
-                Vmm::send_response(self.flush_metrics(), sender);
-            }
-            GetVmConfiguration(sender) => {
-                Vmm::send_response(
-                    Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
-                    sender,
-                );
-            }
-            InsertBlockDevice(block_device_config, sender) => {
-                Vmm::send_response(self.insert_block_device(block_device_config), sender);
-            }
-            InsertNetworkDevice(netif_body, sender) => {
-                Vmm::send_response(self.insert_net_device(netif_body), sender);
-            }
-            SetVsockDevice(vsock_cfg, sender) => {
-                Vmm::send_response(self.set_vsock_device(vsock_cfg), sender);
-            }
-            RescanBlockDevice(drive_id, sender) => {
-                Vmm::send_response(self.rescan_block_device(&drive_id), sender);
-            }
-            StartMicroVm(sender) => {
-                Vmm::send_response(self.start_microvm(), sender);
-            }
-            SendCtrlAltDel(sender) => {
-                Vmm::send_response(self.send_ctrl_alt_del(), sender);
-            }
-            SetVmConfiguration(machine_config_body, sender) => {
-                Vmm::send_response(self.set_vm_configuration(machine_config_body), sender);
-            }
-            UpdateBlockDevicePath(drive_id, path_on_host, sender) => {
-                Vmm::send_response(self.set_block_device_path(drive_id, path_on_host), sender);
-            }
-            UpdateNetworkInterface(netif_update, sender) => {
-                Vmm::send_response(self.update_net_device(netif_update), sender);
-            }
-        };
-        Ok(())
+            UpdateNetworkInterface(netif_update) => self.update_net_device(netif_update),
+        }
     }
 
     fn log_boot_time(t0_ts: &TimestampUs) {
@@ -2146,38 +2113,34 @@ impl PartialEq for VmmAction {
         use VmmAction::*;
         match (self, other) {
             (
-                &UpdateBlockDevicePath(ref drive_id, ref path_on_host, _),
-                &UpdateBlockDevicePath(ref other_drive_id, ref other_path_on_host, _),
+                &UpdateBlockDevicePath(ref drive_id, ref path_on_host),
+                &UpdateBlockDevicePath(ref other_drive_id, ref other_path_on_host),
             ) => drive_id == other_drive_id && path_on_host == other_path_on_host,
             (
-                &ConfigureBootSource(ref boot_source, _),
-                &ConfigureBootSource(ref other_boot_source, _),
+                &ConfigureBootSource(ref boot_source),
+                &ConfigureBootSource(ref other_boot_source),
             ) => boot_source == other_boot_source,
             (
-                &InsertBlockDevice(ref block_device, _),
-                &InsertBlockDevice(ref other_other_block_device, _),
+                &InsertBlockDevice(ref block_device),
+                &InsertBlockDevice(ref other_other_block_device),
             ) => block_device == other_other_block_device,
-            (&SetVsockDevice(ref vsock_device, _), &SetVsockDevice(ref other_vsock_device, _)) => {
+            (&SetVsockDevice(ref vsock_device), &SetVsockDevice(ref other_vsock_device)) => {
                 vsock_device == other_vsock_device
             }
-            (&ConfigureLogger(ref log, _), &ConfigureLogger(ref other_log, _)) => log == other_log,
-            (
-                &SetVmConfiguration(ref vm_config, _),
-                &SetVmConfiguration(ref other_vm_config, _),
-            ) => vm_config == other_vm_config,
-            (&InsertNetworkDevice(ref net_dev, _), &InsertNetworkDevice(ref other_net_dev, _)) => {
+            (&ConfigureLogger(ref log), &ConfigureLogger(ref other_log)) => log == other_log,
+            (&SetVmConfiguration(ref vm_config), &SetVmConfiguration(ref other_vm_config)) => {
+                vm_config == other_vm_config
+            }
+            (&InsertNetworkDevice(ref net_dev), &InsertNetworkDevice(ref other_net_dev)) => {
                 net_dev == other_net_dev
             }
-            (
-                &UpdateNetworkInterface(ref net_dev, _),
-                &UpdateNetworkInterface(ref other_net_dev, _),
-            ) => net_dev == other_net_dev,
-            (&RescanBlockDevice(ref req, _), &RescanBlockDevice(ref other_req, _)) => {
-                req == other_req
+            (&UpdateNetworkInterface(ref net_dev), &UpdateNetworkInterface(ref other_net_dev)) => {
+                net_dev == other_net_dev
             }
-            (&StartMicroVm(_), &StartMicroVm(_)) => true,
-            (&SendCtrlAltDel(_), &SendCtrlAltDel(_)) => true,
-            (&FlushMetrics(_), &FlushMetrics(_)) => true,
+            (&RescanBlockDevice(ref req), &RescanBlockDevice(ref other_req)) => req == other_req,
+            (&StartMicroVm, &StartMicroVm) => true,
+            (&SendCtrlAltDel, &SendCtrlAltDel) => true,
+            (&FlushMetrics, &FlushMetrics) => true,
             _ => false,
         }
     }
@@ -2198,7 +2161,7 @@ impl PartialEq for VmmAction {
 pub fn start_vmm(
     api_shared_info: Arc<RwLock<InstanceInfo>>,
     api_event_fd: EventFd,
-    from_api: Receiver<Box<VmmAction>>,
+    from_api: Receiver<VmmRequest>,
     seccomp_level: u32,
     config_json: Option<String>,
 ) {
@@ -2246,10 +2209,24 @@ pub fn start_vmm(
                         error!("Error reading VMM API event_fd {:?}", e);
                         break FC_EXIT_CODE_GENERIC_ERROR;
                     } else {
-                        // In this case, we run the loop again.
-                        vmm.run_vmm_action().unwrap_or_else(|_| {
-                            warn!("Got a spurious notification from api thread");
-                        });
+                        match vmm.from_api.try_recv() {
+                            Ok(vmm_request) => {
+                                let VmmRequest { inner } = vmm_request;
+                                let t = *inner;
+                                let (action_request, sender) = (t.0, t.1);
+                                // Run the requested action and send back the result.
+                                sender
+                                    .send(vmm.run_vmm_action(action_request))
+                                    .map_err(|_| ())
+                                    .expect("one-shot channel closed");
+                            }
+                            Err(TryRecvError::Empty) => {
+                                warn!("Got a spurious notification from api thread");
+                            }
+                            Err(TryRecvError::Disconnected) => {
+                                panic!("The channel's sending half was disconnected. Cannot receive data.");
+                            }
+                        };
                     }
                 }
             },
@@ -4087,10 +4064,6 @@ mod tests {
     fn test_error_messages() {
         // Enum `Error`
 
-        assert_eq!(
-            format!("{:?}", Error::ApiChannel),
-            "ApiChannel: error receiving data from the API server"
-        );
         assert_eq!(
             format!(
                 "{:?}",

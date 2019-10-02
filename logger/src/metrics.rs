@@ -98,7 +98,7 @@ pub struct ApiServerMetrics {
     /// Measures the cpu's startup time in microseconds.
     pub process_startup_time_cpu_us: SharedMetric,
     /// Number of failures on API requests triggered by internal errors.
-    pub sync_outcome_fails: SharedMetric,
+    pub sync_response_fails: SharedMetric,
     /// Number of timeouts during communication with the VMM.
     pub sync_vmm_send_timeout_count: SharedMetric,
 }

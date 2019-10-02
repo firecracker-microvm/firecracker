@@ -8,7 +8,7 @@ use hyper::Method;
 
 use request::{IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::boot_source::BootSourceConfig;
-use vmm::VmmAction;
+use vmm::{VmmAction, VmmRequest};
 
 impl IntoParsedRequest for BootSourceConfig {
     fn into_parsed_request(
@@ -18,7 +18,7 @@ impl IntoParsedRequest for BootSourceConfig {
     ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            Box::new(VmmAction::ConfigureBootSource(self, sender)),
+            VmmRequest::new(VmmAction::ConfigureBootSource(self), sender),
             receiver,
         ))
     }
@@ -42,7 +42,7 @@ mod tests {
         assert!(body
             .into_parsed_request(None, Method::Put)
             .eq(&Ok(ParsedRequest::Sync(
-                Box::new(VmmAction::ConfigureBootSource(same_body, sender)),
+                VmmRequest::new(VmmAction::ConfigureBootSource(same_body), sender),
                 receiver
             ))))
     }

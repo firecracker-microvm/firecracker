@@ -9,7 +9,7 @@ use hyper::{Method, Response, StatusCode};
 use http_service::json_response;
 use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::machine_config::VmConfig;
-use vmm::VmmAction;
+use vmm::{VmmAction, VmmRequest};
 
 impl GenerateHyperResponse for VmConfig {
     fn generate_response(&self) -> Response {
@@ -39,7 +39,7 @@ impl IntoParsedRequest for VmConfig {
         let (sender, receiver) = oneshot::channel();
         match method {
             Method::Get => Ok(ParsedRequest::Sync(
-                Box::new(VmmAction::GetVmConfiguration(sender)),
+                VmmRequest::new(VmmAction::GetVmConfiguration, sender),
                 receiver,
             )),
             Method::Patch => {
@@ -51,7 +51,7 @@ impl IntoParsedRequest for VmConfig {
                     return Err(String::from("Empty PATCH request."));
                 }
                 Ok(ParsedRequest::Sync(
-                    Box::new(VmmAction::SetVmConfiguration(self, sender)),
+                    VmmRequest::new(VmmAction::SetVmConfiguration(self), sender),
                     receiver,
                 ))
             }
@@ -63,7 +63,7 @@ impl IntoParsedRequest for VmConfig {
                     return Err(String::from("Missing mandatory fields."));
                 }
                 Ok(ParsedRequest::Sync(
-                    Box::new(VmmAction::SetVmConfiguration(self, sender)),
+                    VmmRequest::new(VmmAction::SetVmConfiguration(self), sender),
                     receiver,
                 ))
             }
@@ -90,7 +90,7 @@ mod tests {
             .clone()
             .into_parsed_request(None, Method::Put)
             .eq(&Ok(ParsedRequest::Sync(
-                Box::new(VmmAction::SetVmConfiguration(body, sender)),
+                VmmRequest::new(VmmAction::SetVmConfiguration(body), sender),
                 receiver
             ))));
 
