@@ -116,7 +116,7 @@ impl Headers {
                         Header::ContentType => {
                             match MediaType::try_from(entry[1].trim().as_bytes()) {
                                 Ok(_) => Ok(()),
-                                Err(_) => Err(RequestError::InvalidHeader),
+                                Err(_) => Err(RequestError::UnsupportedHeader),
                             }
                         }
                         Header::TransferEncoding => match entry[1].trim() {
@@ -223,7 +223,7 @@ pub enum MediaType {
 
 impl Default for MediaType {
     fn default() -> Self {
-        MediaType::PlainText
+        MediaType::ApplicationJson
     }
 }
 
@@ -234,7 +234,7 @@ impl MediaType {
         }
         let utf8_slice =
             String::from_utf8(bytes.to_vec()).map_err(|_| RequestError::InvalidRequest)?;
-        match utf8_slice.as_str() {
+        match utf8_slice.as_str().trim() {
             "text/plain" => Ok(MediaType::PlainText),
             "application/json" => Ok(MediaType::ApplicationJson),
             _ => Err(RequestError::InvalidRequest),
@@ -341,12 +341,12 @@ mod tests {
             RequestError::InvalidHeader
         );
 
-        // Invalid media type.
+        // Unsupported media type.
         assert_eq!(
             header
                 .parse_header_line(b"Content-Type: application/json-patch")
                 .unwrap_err(),
-            RequestError::InvalidHeader
+            RequestError::UnsupportedHeader
         );
 
         // Invalid input format.
