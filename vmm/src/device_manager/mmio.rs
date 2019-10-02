@@ -334,7 +334,6 @@ mod tests {
     use kernel_cmdline;
     use memory_model::{GuestAddress, GuestMemory};
     use std::sync::atomic::AtomicUsize;
-    use std::sync::mpsc::channel;
     use std::sync::{Arc, RwLock};
     use sys_util::EventFd;
     const QUEUE_SIZES: &[u16] = &[64];
@@ -413,13 +412,10 @@ mod tests {
             vmm_version: "1.0".to_string(),
         }));
 
-        let (_to_vmm, from_api) = channel();
         Vmm::new(
             shared_info,
             &EventFd::new().expect("cannot create eventFD"),
-            from_api,
             0,
-            kvm_ioctls::Kvm::new().expect("Cannot create KVM object"),
         )
         .expect("Cannot Create VMM")
     }

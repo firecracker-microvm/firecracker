@@ -15,8 +15,9 @@ use std::result;
 use hyper;
 use hyper::{Method, StatusCode};
 
+use super::{ResponseReceiver, VmmRequest};
 use http_service::{empty_response, json_fault_message, json_response};
-use vmm::{ErrorKind, ResponseReceiver, VmmActionError, VmmData, VmmRequest};
+use vmm::{ErrorKind, VmmActionError, VmmData};
 
 pub enum ParsedRequest {
     GetInstanceInfo,
@@ -107,7 +108,15 @@ mod tests {
                     &ParsedRequest::Sync(ref sync_req, _),
                     &ParsedRequest::Sync(ref other_sync_req, _),
                 ) => sync_req == other_sync_req,
-                _ => self == other,
+                (&ParsedRequest::GetInstanceInfo, &ParsedRequest::GetInstanceInfo) => true,
+                (&ParsedRequest::GetMMDS, &ParsedRequest::GetMMDS) => true,
+                (&ParsedRequest::PutMMDS(ref val), &ParsedRequest::PutMMDS(ref other_val)) => {
+                    val == other_val
+                }
+                (&ParsedRequest::PatchMMDS(ref val), &ParsedRequest::PatchMMDS(ref other_val)) => {
+                    val == other_val
+                }
+                _ => false,
             }
         }
     }

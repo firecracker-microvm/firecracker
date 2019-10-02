@@ -26,6 +26,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::{fmt, io};
 
+use futures::sync::oneshot;
 use futures::{Future, Stream};
 use hyper::server::Http;
 use tokio_core::reactor::Core;
@@ -37,7 +38,38 @@ use mmds::data_store::Mmds;
 use sys_util::EventFd;
 use vmm::default_syscalls;
 use vmm::vmm_config::instance_info::InstanceInfo;
-use vmm::VmmRequest;
+use vmm::VmmAction;
+
+/// One shot channel used by VMM to send a response.
+pub type ResponseSender = oneshot::Sender<vmm::VmmRequestOutcome>;
+/// One shot channel used to receive a response from the VMM.
+pub type ResponseReceiver = oneshot::Receiver<vmm::VmmRequestOutcome>;
+
+/// Wrapper over requested action to be done by the VMM and sender where the response will go.
+/// This is wrapped in a struct to allow custom PartialEq.
+pub struct VmmRequest {
+    inner: Box<(VmmAction, ResponseSender)>,
+}
+
+impl VmmRequest {
+    /// Create a VmmRequest from given VmmAction and ResponseSender.
+    pub fn new(action: VmmAction, response_sender: ResponseSender) -> VmmRequest {
+        VmmRequest {
+            inner: Box::new((action, response_sender)),
+        }
+    }
+
+    pub fn unpack(self) -> (VmmAction, ResponseSender) {
+        let inner_box = *self.inner;
+        (inner_box.0, inner_box.1)
+    }
+}
+
+impl PartialEq for VmmRequest {
+    fn eq(&self, other: &VmmRequest) -> bool {
+        self.inner.0 == other.inner.0
+    }
+}
 
 pub enum Error {
     Io(io::Error),

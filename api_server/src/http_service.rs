@@ -13,6 +13,7 @@ use futures::{Future, Stream};
 use hyper::{self, Chunk, Headers, Method, StatusCode};
 use serde_json;
 
+use super::VmmRequest;
 use logger::{Metric, METRICS};
 use mmds::data_store::{self, Mmds};
 use request::actions::ActionBody;
@@ -26,7 +27,6 @@ use vmm::vmm_config::logger::LoggerConfig;
 use vmm::vmm_config::machine_config::VmConfig;
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 use vmm::vmm_config::vsock::VsockDeviceConfig;
-use vmm::VmmRequest;
 
 fn build_response_base<B: Into<hyper::Body>>(
     status: StatusCode,

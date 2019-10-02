@@ -7,8 +7,9 @@ use futures::sync::oneshot;
 use hyper::Method;
 use serde_json::{Map, Value};
 
+use super::VmmRequest;
 use vmm::vmm_config::drive::BlockDeviceConfig;
-use vmm::{VmmAction, VmmRequest};
+use vmm::VmmAction;
 
 use request::{IntoParsedRequest, ParsedRequest};
 

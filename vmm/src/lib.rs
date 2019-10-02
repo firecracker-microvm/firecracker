@@ -43,7 +43,6 @@ pub mod signal_handler;
 pub mod vmm_config;
 mod vstate;
 
-use futures::sync::oneshot;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs::{metadata, File, OpenOptions};
@@ -52,7 +51,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::process;
 use std::result;
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Barrier, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
@@ -439,34 +438,8 @@ pub enum VmmData {
     MachineConfiguration(VmConfig),
 }
 
-/// Data type used to communicate between the API and the VMM.
+/// Shorthand result type for external VMM commands.
 pub type VmmRequestOutcome = std::result::Result<VmmData, VmmActionError>;
-/// One shot channel used to send a response.
-pub type ResponseSender = oneshot::Sender<VmmRequestOutcome>;
-/// One shot channel used to receive a response.
-pub type ResponseReceiver = oneshot::Receiver<VmmRequestOutcome>;
-
-/// Wrapper over requested action to be done by the VMM and sender where the response will go.
-/// This is wrapped in a struct to allow custom PartialEq.
-/// This new object type will move to ApiServer in the next commits.
-pub struct VmmRequest {
-    inner: Box<(VmmAction, ResponseSender)>,
-}
-
-impl VmmRequest {
-    /// Create a VmmRequest from given VmmAction and ResponseSender.
-    pub fn new(action: VmmAction, response_sender: ResponseSender) -> VmmRequest {
-        VmmRequest {
-            inner: Box::new((action, response_sender)),
-        }
-    }
-}
-
-impl PartialEq for VmmRequest {
-    fn eq(&self, other: &VmmRequest) -> bool {
-        self.inner.0 == other.inner.0
-    }
-}
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -818,9 +791,6 @@ pub struct Vmm {
 
     epoll_context: EpollContext,
 
-    // API resources.
-    from_api: Receiver<VmmRequest>,
-
     write_metrics_event_fd: TimerFd,
 
     // The level of seccomp filtering used. Seccomp filters are loaded before executing guest code.
@@ -830,17 +800,16 @@ pub struct Vmm {
 impl Vmm {
     /// Creates a new VMM object.
     pub fn new(
-        api_shared_info: Arc<RwLock<InstanceInfo>>,
+        shared_info: Arc<RwLock<InstanceInfo>>,
         control_fd: &dyn AsRawFd,
-        from_api: Receiver<VmmRequest>,
         seccomp_level: u32,
-        kvm: Kvm,
     ) -> Result<Self> {
+        let kvm = Kvm::new().expect("Error creating the Kvm object");
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
         epoll_context
             .add_event(control_fd, EpollDispatch::VmmActionRequest)
-            .expect("Cannot add API control_fd to epoll.");
+            .expect("Cannot add vmm control_fd to epoll.");
 
         let write_metrics_event_fd =
             TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?;
@@ -864,7 +833,7 @@ impl Vmm {
         Ok(Vmm {
             kvm,
             vm_config: VmConfig::default(),
-            shared_info: api_shared_info,
+            shared_info,
             stdin_handle: io::stdin(),
             guest_memory: None,
             kernel_config: None,
@@ -875,7 +844,6 @@ impl Vmm {
             pio_device_manager: PortIODeviceManager::new().map_err(Error::CreateLegacyDevice)?,
             device_configs,
             epoll_context,
-            from_api,
             write_metrics_event_fd,
             seccomp_level,
         })
@@ -1558,7 +1526,7 @@ impl Vmm {
     }
 
     /// Waits for all vCPUs to exit and terminates the Firecracker process.
-    fn stop(&mut self, exit_code: i32) {
+    pub fn stop(&mut self, exit_code: i32) {
         info!("Vmm is stopping.");
 
         if let Err(e) = self.stdin_handle.lock().set_canon_mode() {
@@ -1601,7 +1569,7 @@ impl Vmm {
 
     /// Wait on VMM events and dispatch them to the appropriate handler. Returns to the caller
     /// when a control action occurs.
-    fn run_event_loop(&mut self) -> Result<EventLoopExitReason> {
+    pub fn run_event_loop(&mut self) -> Result<EventLoopExitReason> {
         // TODO: try handling of errors/failures without breaking this main loop.
         loop {
             let event = self.epoll_context.get_event()?;
@@ -1941,7 +1909,7 @@ impl Vmm {
     }
 
     /// Inserts a block to be attached when the VM starts.
-    // Only call this function as part of the API.
+    // Only call this function as part of user configuration.
     // If the drive_id does not exist, a new Block Device Config is added to the list.
     pub fn insert_block_device(
         &mut self,
@@ -1959,7 +1927,7 @@ impl Vmm {
 
     fn init_logger(
         &self,
-        api_logger: LoggerConfig,
+        logger_cfg: LoggerConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
         if self.is_instance_initialized() {
             return Err(VmmActionError::Logger(
@@ -1977,21 +1945,21 @@ impl Vmm {
             firecracker_version = guard.vmm_version.clone();
         }
 
-        LOGGER.set_level(match api_logger.level {
+        LOGGER.set_level(match logger_cfg.level {
             LoggerLevel::Error => Level::Error,
             LoggerLevel::Warning => Level::Warn,
             LoggerLevel::Info => Level::Info,
             LoggerLevel::Debug => Level::Debug,
         });
 
-        LOGGER.set_include_origin(api_logger.show_log_origin, api_logger.show_log_origin);
-        LOGGER.set_include_level(api_logger.show_level);
+        LOGGER.set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin);
+        LOGGER.set_include_level(logger_cfg.show_level);
 
         #[cfg(target_arch = "aarch64")]
         let options: &Vec<Value> = &vec![];
 
         #[cfg(target_arch = "x86_64")]
-        let options = api_logger.options.as_array().unwrap();
+        let options = logger_cfg.options.as_array().unwrap();
 
         LOGGER.set_flags(options).map_err(|e| {
             VmmActionError::Logger(
@@ -2003,13 +1971,13 @@ impl Vmm {
         LOGGER
             .init(
                 &AppInfo::new("Firecracker", &firecracker_version),
-                Box::new(LoggerWriter::new(&api_logger.log_fifo).map_err(|e| {
+                Box::new(LoggerWriter::new(&logger_cfg.log_fifo).map_err(|e| {
                     VmmActionError::Logger(
                         ErrorKind::User,
                         LoggerConfigError::InitializationFailure(e.to_string()),
                     )
                 })?),
-                Box::new(LoggerWriter::new(&api_logger.metrics_fifo).map_err(|e| {
+                Box::new(LoggerWriter::new(&logger_cfg.metrics_fifo).map_err(|e| {
                     VmmActionError::Logger(
                         ErrorKind::User,
                         LoggerConfigError::InitializationFailure(e.to_string()),
@@ -2025,7 +1993,8 @@ impl Vmm {
             })
     }
 
-    fn run_vmm_action(&mut self, vmm_action: VmmAction) -> VmmRequestOutcome {
+    /// Runs the received `vmm_action` in the context of this vmm.
+    pub fn run_vmm_action(&mut self, vmm_action: VmmAction) -> VmmRequestOutcome {
         use VmmAction::*;
 
         match vmm_action {
@@ -2067,7 +2036,8 @@ impl Vmm {
         );
     }
 
-    fn configure_from_json(
+    /// Configures Vmm resources as described by the `config_json` param.
+    pub fn configure_from_json(
         &mut self,
         config_json: String,
     ) -> std::result::Result<(), VmmActionError> {
@@ -2144,96 +2114,6 @@ impl PartialEq for VmmAction {
             _ => false,
         }
     }
-}
-
-/// Creates and starts a vmm.
-///
-/// # Arguments
-///
-/// * `api_shared_info` - A parameter for storing information on the VMM (e.g the current state).
-/// * `api_event_fd` - An event fd used for receiving API associated events.
-/// * `from_api` - The receiver end point of the communication channel.
-/// * `seccomp_level` - The level of seccomp filtering used. Filters are loaded before executing
-///                     guest code. Can be one of 0 (seccomp disabled), 1 (filter by syscall
-///                     number) or 2 (filter by syscall number and argument values).
-/// * `config_json` - Optional parameter that can be used to configure the guest machine without
-///                   using the API socket.
-pub fn start_vmm(
-    api_shared_info: Arc<RwLock<InstanceInfo>>,
-    api_event_fd: EventFd,
-    from_api: Receiver<VmmRequest>,
-    seccomp_level: u32,
-    config_json: Option<String>,
-) {
-    // If this fails, consider it fatal. Use expect().
-    let mut vmm = Vmm::new(
-        api_shared_info,
-        &api_event_fd,
-        from_api,
-        seccomp_level,
-        Kvm::new().expect("Error creating the Kvm object"),
-    )
-    .expect("Cannot create VMM");
-
-    if let Some(json) = config_json {
-        vmm.configure_from_json(json).unwrap_or_else(|err| {
-            error!(
-                "Setting configuration for VMM from one single json failed: {}",
-                err
-            );
-            process::exit(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
-        });
-        vmm.start_microvm().unwrap_or_else(|err| {
-            error!(
-                "Starting microvm that was configured from one single json failed: {}",
-                err
-            );
-            process::exit(i32::from(FC_EXIT_CODE_UNEXPECTED_ERROR));
-        });
-        info!("Successfully started microvm that was configured from one single json");
-    }
-
-    let exit_code = loop {
-        match vmm.run_event_loop() {
-            Err(e) => {
-                error!("Abruptly exited VMM control loop: {:?}", e);
-                break FC_EXIT_CODE_GENERIC_ERROR;
-            }
-            Ok(exit_reason) => match exit_reason {
-                EventLoopExitReason::Break => {
-                    info!("Gracefully terminated VMM control loop");
-                    break FC_EXIT_CODE_OK;
-                }
-                EventLoopExitReason::ControlAction => {
-                    if let Err(e) = api_event_fd.read() {
-                        error!("Error reading VMM API event_fd {:?}", e);
-                        break FC_EXIT_CODE_GENERIC_ERROR;
-                    } else {
-                        match vmm.from_api.try_recv() {
-                            Ok(vmm_request) => {
-                                let VmmRequest { inner } = vmm_request;
-                                let t = *inner;
-                                let (action_request, sender) = (t.0, t.1);
-                                // Run the requested action and send back the result.
-                                sender
-                                    .send(vmm.run_vmm_action(action_request))
-                                    .map_err(|_| ())
-                                    .expect("one-shot channel closed");
-                            }
-                            Err(TryRecvError::Empty) => {
-                                warn!("Got a spurious notification from api thread");
-                            }
-                            Err(TryRecvError::Disconnected) => {
-                                panic!("The channel's sending half was disconnected. Cannot receive data.");
-                            }
-                        };
-                    }
-                }
-            },
-        };
-    };
-
-    vmm.stop(i32::from(exit_code));
 }
 
 #[cfg(test)]
@@ -2419,13 +2299,10 @@ mod tests {
             vmm_version: "1.0".to_string(),
         }));
 
-        let (_to_vmm, from_api) = channel();
         Vmm::new(
             shared_info,
             &EventFd::new().expect("Cannot create eventFD"),
-            from_api,
             seccomp::SECCOMP_LEVEL_NONE,
-            Kvm::new().expect("Error creating Kvm object"),
         )
         .expect("Cannot Create VMM")
     }
@@ -3213,7 +3090,7 @@ mod tests {
     }
 
     #[test]
-    fn test_init_logger_from_api() {
+    fn test_init_logger() {
         // Error case: update after instance is running
         let log_file = NamedTempFile::new().unwrap();
         let metrics_file = NamedTempFile::new().unwrap();

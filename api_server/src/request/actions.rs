@@ -7,8 +7,9 @@ use futures::sync::oneshot;
 use hyper::Method;
 use serde_json::Value;
 
+use super::VmmRequest;
 use request::{IntoParsedRequest, ParsedRequest};
-use vmm::{VmmAction, VmmRequest};
+use vmm::VmmAction;
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed
