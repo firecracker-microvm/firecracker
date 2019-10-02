@@ -26,7 +26,7 @@ use vmm::vmm_config::logger::LoggerConfig;
 use vmm::vmm_config::machine_config::VmConfig;
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 use vmm::vmm_config::vsock::VsockDeviceConfig;
-use vmm::VmmAction;
+use vmm::VmmRequest;
 
 fn build_response_base<B: Into<hyper::Body>>(
     status: StatusCode,
@@ -382,7 +382,7 @@ fn parse_vsock_req<'a>(path: &'a str, method: Method, body: &Chunk) -> Result<'a
 
 // This turns an incoming HTTP request into a ParsedRequest, which is an item containing both the
 // message to be passed to the VMM, and associated entities, such as channels which allow the
-// reception of the outcome back from the VMM.
+// reception of the response back from the VMM.
 // TODO: finish implementing/parsing all possible requests.
 fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, ParsedRequest> {
     // Commenting this out for now.
@@ -433,11 +433,11 @@ fn parse_request<'a>(method: Method, path: &'a str, body: &Chunk) -> Result<'a, 
 // A helper function which is always used when a message is placed into the communication channel
 // with the VMM (so we don't forget to write to the EventFd).
 fn send_to_vmm(
-    req: VmmAction,
-    sender: &mpsc::Sender<Box<VmmAction>>,
+    req: VmmRequest,
+    sender: &mpsc::Sender<VmmRequest>,
     send_event: &EventFd,
 ) -> result::Result<(), ()> {
-    sender.send(Box::new(req)).map_err(|_| ())?;
+    sender.send(req).map_err(|_| ())?;
     send_event.write(1).map_err(|_| ())
 }
 
@@ -451,7 +451,7 @@ pub struct ApiServerHttpService {
     // This allows sending messages to the VMM thread. It makes sense to use a Rc for the sender
     // (instead of cloning) because everything happens on a single thread, so there's no risk of
     // having races (if that was even a problem to begin with).
-    api_request_sender: Rc<mpsc::Sender<Box<VmmAction>>>,
+    api_request_sender: Rc<mpsc::Sender<VmmRequest>>,
     // We write to this EventFd to let the VMM know about new messages.
     vmm_send_event: Rc<EventFd>,
 }
@@ -460,7 +460,7 @@ impl ApiServerHttpService {
     pub fn new(
         mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_request_sender: Rc<mpsc::Sender<Box<VmmAction>>>,
+        api_request_sender: Rc<mpsc::Sender<VmmRequest>>,
         vmm_send_event: Rc<EventFd>,
     ) -> Self {
         ApiServerHttpService {
@@ -574,7 +574,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                 .get_data_str(),
                         )))
                     }
-                    Sync(sync_req, outcome_receiver) => {
+                    Sync(vmm_req, response_receiver) => {
                         // It only makes sense that we firstly log the incoming API request and
                         // only after that we forward it to the VMM.
                         let body_desc = match method_copy {
@@ -583,7 +583,7 @@ impl hyper::server::Service for ApiServerHttpService {
                         };
                         log_received_api_request(describe(&method_copy, &path, &body_desc));
 
-                        if send_to_vmm(*sync_req, &api_request_sender, &vmm_send_event).is_err() {
+                        if send_to_vmm(vmm_req, &api_request_sender, &vmm_send_event).is_err() {
                             METRICS.api_server.sync_vmm_send_timeout_count.inc();
                             return Either::A(future::err(hyper::Error::Timeout));
                         }
@@ -597,11 +597,11 @@ impl hyper::server::Service for ApiServerHttpService {
                         let method_copy_err = method_copy.clone();
                         let body_desc_err = body_desc.clone();
 
-                        // Sync requests don't receive a response until the outcome is returned.
+                        // Sync requests don't receive a response until the response is returned.
                         // Once more, this just registers a closure to run when the result is
                         // available.
                         Either::B(
-                            outcome_receiver
+                            response_receiver
                                 .map(move |result| {
                                     let description =
                                         describe(&method_copy, &path_copy, &body_desc);
@@ -633,7 +633,7 @@ impl hyper::server::Service for ApiServerHttpService {
                                         "Timeout on {}",
                                         describe(&method_copy_err, &path_copy_err, &body_desc_err)
                                     );
-                                    METRICS.api_server.sync_outcome_fails.inc();
+                                    METRICS.api_server.sync_response_fails.inc();
                                     hyper::Error::Timeout
                                 }),
                         )
@@ -877,7 +877,7 @@ mod tests {
         assert!(parse_actions_req(path, Method::Put, &body)
             .unwrap()
             .eq(&ParsedRequest::Sync(
-                Box::new(VmmAction::StartMicroVm(sender)),
+                VmmRequest::new(VmmAction::StartMicroVm, sender),
                 receiver
             )));
 
@@ -893,7 +893,7 @@ mod tests {
         assert!(parse_actions_req(path, Method::Put, &body)
             .unwrap()
             .eq(&ParsedRequest::Sync(
-                Box::new(VmmAction::RescanBlockDevice("dummy_id".to_string(), sender)),
+                VmmRequest::new(VmmAction::RescanBlockDevice("dummy_id".to_string()), sender),
                 receiver
             )));
 
@@ -956,7 +956,7 @@ mod tests {
         assert!(parse_boot_source_req(boot_source_path, Method::Put, &body)
             .unwrap()
             .eq(&ParsedRequest::Sync(
-                Box::new(VmmAction::ConfigureBootSource(boot_source_cfg, sender)),
+                VmmRequest::new(VmmAction::ConfigureBootSource(boot_source_cfg), sender),
                 receiver,
             )));
 
@@ -1119,7 +1119,7 @@ mod tests {
         assert!(parse_logger_req(logger_path, Method::Put, &logger_body)
             .unwrap()
             .eq(&ParsedRequest::Sync(
-                Box::new(VmmAction::ConfigureLogger(logger_config, sender)),
+                VmmRequest::new(VmmAction::ConfigureLogger(logger_config), sender),
                 receiver,
             )));
 
@@ -1390,7 +1390,7 @@ mod tests {
         assert!(parse_vsock_req(valid_vsock_path, Method::Put, &body)
             .unwrap()
             .eq(&ParsedRequest::Sync(
-                Box::new(VmmAction::SetVsockDevice(vsock_cfg, sender)),
+                VmmRequest::new(VmmAction::SetVsockDevice(vsock_cfg), sender),
                 receiver,
             )));
 

@@ -37,7 +37,7 @@ use mmds::data_store::Mmds;
 use sys_util::EventFd;
 use vmm::default_syscalls;
 use vmm::vmm_config::instance_info::InstanceInfo;
-use vmm::VmmAction;
+use vmm::VmmRequest;
 
 pub enum Error {
     Io(io::Error),
@@ -70,7 +70,7 @@ pub struct ApiServer {
     // VMM instance info directly accessible from the API thread.
     vmm_shared_info: Arc<RwLock<InstanceInfo>>,
     // Sender which allows passing messages to the VMM.
-    api_request_sender: Rc<mpsc::Sender<Box<VmmAction>>>,
+    api_request_sender: Rc<mpsc::Sender<VmmRequest>>,
     efd: Rc<EventFd>,
 }
 
@@ -78,7 +78,7 @@ impl ApiServer {
     pub fn new(
         mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_request_sender: mpsc::Sender<Box<VmmAction>>,
+        api_request_sender: mpsc::Sender<VmmRequest>,
         kick_vmm_efd: EventFd,
     ) -> Result<Self> {
         Ok(ApiServer {

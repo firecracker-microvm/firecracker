@@ -8,7 +8,7 @@ use hyper::Method;
 
 use request::{IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
-use vmm::VmmAction;
+use vmm::{VmmAction, VmmRequest};
 
 impl IntoParsedRequest for NetworkInterfaceConfig {
     fn into_parsed_request(
@@ -25,7 +25,7 @@ impl IntoParsedRequest for NetworkInterfaceConfig {
 
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            Box::new(VmmAction::InsertNetworkDevice(self, sender)),
+            VmmRequest::new(VmmAction::InsertNetworkDevice(self), sender),
             receiver,
         ))
     }
@@ -46,7 +46,7 @@ impl IntoParsedRequest for NetworkInterfaceUpdateConfig {
 
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            Box::new(VmmAction::UpdateNetworkInterface(self, sender)),
+            VmmRequest::new(VmmAction::UpdateNetworkInterface(self), sender),
             receiver,
         ))
     }
@@ -105,7 +105,7 @@ mod tests {
         assert!(netif
             .into_parsed_request(Some(String::from("foo")), Method::Put)
             .eq(&Ok(ParsedRequest::Sync(
-                Box::new(VmmAction::InsertNetworkDevice(netif_clone, sender)),
+                VmmRequest::new(VmmAction::InsertNetworkDevice(netif_clone), sender),
                 receiver
             ))));
     }

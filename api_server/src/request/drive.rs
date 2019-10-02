@@ -8,7 +8,7 @@ use hyper::Method;
 use serde_json::{Map, Value};
 
 use vmm::vmm_config::drive::BlockDeviceConfig;
-use vmm::VmmAction;
+use vmm::{VmmAction, VmmRequest};
 
 use request::{IntoParsedRequest, ParsedRequest};
 
@@ -95,11 +95,10 @@ impl IntoParsedRequest for PatchDrivePayload {
 
                 let (sender, receiver) = oneshot::channel();
                 Ok(ParsedRequest::Sync(
-                    Box::new(VmmAction::UpdateBlockDevicePath(
-                        drive_id,
-                        path_on_host,
+                    VmmRequest::new(
+                        VmmAction::UpdateBlockDevicePath(drive_id, path_on_host),
                         sender,
-                    )),
+                    ),
                     receiver,
                 ))
             }
@@ -123,7 +122,7 @@ impl IntoParsedRequest for BlockDeviceConfig {
         let (sender, receiver) = oneshot::channel();
         match method {
             Method::Put => Ok(ParsedRequest::Sync(
-                Box::new(VmmAction::InsertBlockDevice(self, sender)),
+                VmmRequest::new(VmmAction::InsertBlockDevice(self), sender),
                 receiver,
             )),
             _ => Err(String::from("Invalid method.")),
@@ -241,11 +240,10 @@ mod tests {
             .clone()
             .into_parsed_request(Some("foo".to_string()), Method::Patch)
             .eq(&Ok(ParsedRequest::Sync(
-                Box::new(VmmAction::UpdateBlockDevicePath(
-                    "foo".to_string(),
-                    "dummy".to_string(),
+                VmmRequest::new(
+                    VmmAction::UpdateBlockDevicePath("foo".to_string(), "dummy".to_string()),
                     sender
-                )),
+                ),
                 receiver
             ))));
 
@@ -290,7 +288,7 @@ mod tests {
         assert!(desc
             .into_parsed_request(Some(String::from("foo")), Method::Put)
             .eq(&Ok(ParsedRequest::Sync(
-                Box::new(VmmAction::InsertBlockDevice(same_desc, sender)),
+                VmmRequest::new(VmmAction::InsertBlockDevice(same_desc), sender),
                 receiver
             ))));
     }

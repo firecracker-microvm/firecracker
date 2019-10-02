@@ -8,7 +8,7 @@ use hyper::Method;
 
 use request::{IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::vsock::VsockDeviceConfig;
-use vmm::VmmAction;
+use vmm::{VmmAction, VmmRequest};
 
 impl IntoParsedRequest for VsockDeviceConfig {
     fn into_parsed_request(
@@ -18,7 +18,7 @@ impl IntoParsedRequest for VsockDeviceConfig {
     ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            Box::new(VmmAction::SetVsockDevice(self, sender)),
+            VmmRequest::new(VmmAction::SetVsockDevice(self), sender),
             receiver,
         ))
     }
