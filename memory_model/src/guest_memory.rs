@@ -126,7 +126,7 @@ impl GuestMemory {
     pub fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
         if let Some(addr) = base.checked_add(offset) {
             for region in self.regions.iter() {
-                if addr >= region.guest_base && addr < region_end(region) {
+                if addr >= region.guest_base && addr <= region_end(region) {
                     return Some(addr);
                 }
             }
