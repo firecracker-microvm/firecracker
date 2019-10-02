@@ -9,6 +9,6 @@ pub mod machine_configuration;
 pub mod net;
 pub mod vsock;
 pub use micro_http::{
-    Body, HttpServer, Method, Request, RequestError, Response, StatusCode, Token, Version,
+    Body, HttpServer, Method, Request, RequestError, Response, StatusCode, Version,
 };
 use parsed_request::ParsedRequest;

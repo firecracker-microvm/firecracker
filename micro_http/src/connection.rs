@@ -307,12 +307,13 @@ impl<T: Read + Write> HttpConnection<T> {
         }
 
         let mut response_fully_written = false;
+        let mut connection_closed = false;
 
         if let Some(response_buffer_vec) = self.response_buffer.as_mut() {
             let bytes_to_be_written = response_buffer_vec.len();
             match self.stream.write(response_buffer_vec.as_slice()) {
-                Ok(0) => {
-                    return Err(ConnectionError::ConnectionClosed);
+                Ok(0) | Err(_) => {
+                    connection_closed = true;
                 }
                 Ok(bytes_written) => {
                     if bytes_written != bytes_to_be_written {
@@ -321,17 +322,24 @@ impl<T: Read + Write> HttpConnection<T> {
                         response_fully_written = true;
                     }
                 }
-                Err(io_error) => {
-                    return Err(ConnectionError::StreamError(io_error));
-                }
             }
         }
 
-        if response_fully_written {
+        if connection_closed {
+            self.clear_write_buffer();
+            Err(ConnectionError::ConnectionClosed)
+        } else if response_fully_written {
             self.response_buffer.take();
+            Ok(())
+        } else {
+            Ok(())
         }
+    }
 
-        Ok(())
+    fn clear_write_buffer(&mut self) {
+        let response_queue_len = self.response_queue.len();
+        self.response_queue.drain(0..response_queue_len);
+        self.response_buffer.take();
     }
 
     /// Send a response back to the source of a request.

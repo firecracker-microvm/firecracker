@@ -85,12 +85,12 @@ impl ResponseHeaders {
         buf.write_all(b"Connection: keep-alive")?;
         buf.write_all(&[CR, LF])?;
 
-        buf.write_all(Header::ContentType.raw())?;
-        buf.write_all(&[COLON, SP])?;
-        buf.write_all(self.content_type.as_str().as_bytes())?;
-        buf.write_all(&[CR, LF])?;
-
         if self.content_length != 0 {
+            buf.write_all(Header::ContentType.raw())?;
+            buf.write_all(&[COLON, SP])?;
+            buf.write_all(self.content_type.as_str().as_bytes())?;
+            buf.write_all(&[CR, LF])?;
+
             buf.write_all(Header::ContentLength.raw())?;
             buf.write_all(&[COLON, SP])?;
             buf.write_all(self.content_length.to_string().as_bytes())?;
@@ -139,7 +139,16 @@ impl Response {
     /// - `MediaType`: this is set to "text/plain".
     pub fn set_body(&mut self, body: Body) {
         self.headers.set_content_length(body.len() as i32);
+        self.headers.set_content_type(MediaType::PlainText);
         self.body = Some(body);
+    }
+
+    /// Updates the content type of the `Response`.
+    ///
+    /// This function has side effects because it also updates the headers:
+    /// - `MediaType`: this is set to "text/plain".
+    pub fn set_content_type(&mut self, content_type: MediaType) {
+        self.headers.set_content_type(content_type);
     }
 
     fn write_body<T: Write>(&self, mut buf: T) -> Result<(), WriteError> {
@@ -197,6 +206,7 @@ mod tests {
         let mut response = Response::new(Version::Http10, StatusCode::OK);
         let body = "This is a test";
         response.set_body(Body::new(body));
+        response.set_content_type(MediaType::PlainText);
 
         assert!(response.status() == StatusCode::OK);
         assert_eq!(response.body().unwrap(), Body::new(body));

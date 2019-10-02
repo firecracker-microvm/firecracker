@@ -25,9 +25,13 @@ pub enum ParsedRequest {
 }
 
 impl ParsedRequest {
-    pub fn try_from_request(request: Request, _token: u64) -> Result<ParsedRequest, Error> {
+    pub fn try_from_request(request: &Request) -> Result<ParsedRequest, Error> {
         let request_uri = request.uri().get_abs_path().to_string();
-        match (request.method(), request_uri.as_str(), request.body) {
+        match (
+            request.method(),
+            request_uri.as_str(),
+            request.body.as_ref(),
+        ) {
             (Method::Get, "/", None) => {
                 log_received_api_request(describe(Method::Get, "/", None));
                 METRICS.get_api_requests.instance_info_count.inc();
@@ -67,7 +71,7 @@ impl ParsedRequest {
                 )))
             }
             (Method::Put, "/machine-config", maybe_body) => {
-                log_received_api_request(describe(Method::Put, "/machine-config", maybe_body.as_ref()));
+                log_received_api_request(describe(Method::Put, "/machine-config", maybe_body));
                 METRICS.put_api_requests.machine_cfg_count.inc();
                 match maybe_body {
                     Some(body) => {
@@ -118,7 +122,7 @@ impl ParsedRequest {
                 ))
             }
             (Method::Put, uri, maybe_body) => {
-                log_received_api_request(describe(Method::Put, uri, maybe_body.as_ref()));
+                log_received_api_request(describe(Method::Put, uri, maybe_body));
                 let path_tokens: Vec<&str> = uri[1..].split_terminator('/').collect();
                 match path_tokens[0] {
                     "drives" => {
@@ -202,7 +206,7 @@ impl ParsedRequest {
                 }
             }
             (Method::Patch, "/machine-config", maybe_body) => {
-                log_received_api_request(describe(Method::Patch, "/machine-config", maybe_body.as_ref()));
+                log_received_api_request(describe(Method::Patch, "/machine-config", maybe_body));
                 METRICS.patch_api_requests.machine_cfg_count.inc();
                 match maybe_body {
                     Some(body) => {
@@ -238,7 +242,7 @@ impl ParsedRequest {
                 ))
             }
             (Method::Patch, uri, maybe_body) => {
-                log_received_api_request(describe(Method::Patch, uri, maybe_body.as_ref()));
+                log_received_api_request(describe(Method::Patch, uri, maybe_body));
                 let path_tokens: Vec<&str> = uri[1..].split_terminator('/').collect();
                 match path_tokens[0] {
                     "drives" => {
@@ -317,7 +321,7 @@ impl ParsedRequest {
                 }
             }
             (method, unknown_uri, maybe_body) => {
-                log_received_api_request(describe(method, unknown_uri, maybe_body.as_ref()));
+                log_received_api_request(describe(method, unknown_uri, maybe_body));
                 Err(Error::InvalidPathMethod(unknown_uri.to_string(), method))
             }
         }
@@ -362,7 +366,11 @@ fn describe(method: Method, path: &str, body: Option<&Body>) -> String {
     match body {
         Some(value) => format!(
             "synchronous {:?} request on {:?} with body {:?}",
-            method, path, std::str::from_utf8(value.body.as_slice()).unwrap_or("inconvertible to UTF-8").to_string()
+            method,
+            path,
+            std::str::from_utf8(value.body.as_slice())
+                .unwrap_or("inconvertible to UTF-8")
+                .to_string()
         ),
         None => format!("synchronous {:?} request on {:?}", method, path),
     }

@@ -414,11 +414,15 @@ mod tests {
         }));
 
         let (_to_vmm, from_api) = channel();
+        let (to_api, _from_vmm) = channel();
+        let control_fd = EventFd::new().expect("cannot create eventFD");
         Vmm::new(
             shared_info,
-            EventFd::new().expect("cannot create eventFD"),
+            &control_fd,
             from_api,
+            to_api,
             0,
+            kvm_ioctls::Kvm::new().expect("Cannot create KVM object"),
         )
         .expect("Cannot Create VMM")
     }

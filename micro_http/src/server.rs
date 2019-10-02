@@ -24,36 +24,47 @@ const MAX_CONNECTIONS: usize = 10;
 type Result<T> = std::result::Result<T, ServerError>;
 
 /// Wrapper over `Request` which adds an identification token.
-pub struct RequestWithID {
+pub struct ServerRequest {
     /// Inner request.
     pub request: Request,
     /// Identification token.
     id: u64,
 }
 
-impl RequestWithID {
+impl ServerRequest {
     /// Creates a new `RequestWithID` object from an existing `Request`,
     /// adding an identification token.
     pub fn new(request: Request, id: u64) -> Self {
-        RequestWithID { request, id }
+        ServerRequest { request, id }
     }
 
-    /// Transforms a `RequestWithID` object into a `ResponseWithID`
-    /// retaining the identification token.
-    pub fn into_response_with_id(self, response: Response) -> ResponseWithID {
-        ResponseWithID {
-            response,
-            id: self.id,
-        }
+    /// Returns a reference to the inner request.
+    pub fn inner(&self) -> &Request {
+        &self.request
+    }
+
+    /// Docs needed.
+    pub fn process<F>(&self, callable: F) -> ServerResponse
+    where
+        F: Fn(&Request) -> Response,
+    {
+        let http_response = callable(self.inner());
+        ServerResponse::new(http_response, self.id)
     }
 }
 
 /// Wrapper over `Response` which adds an identification token.
-pub struct ResponseWithID {
+pub struct ServerResponse {
     /// Inner response.
-    pub response: Response,
+    response: Response,
     /// Identification token.
     id: u64,
+}
+
+impl ServerResponse {
+    fn new(response: Response, id: u64) -> ServerResponse {
+        ServerResponse { response, id }
+    }
 }
 
 /// Describes the state of the connection as far as data exchange
@@ -107,14 +118,17 @@ impl<T: Read + Write> ClientConnection<T> {
             Err(ConnectionError::ParseError(inner)) => {
                 // An error occurred while parsing the read bytes.
                 // Check if there are any valid parsed requests in the queue.
-                while let Some(request) = self.connection.pop_parsed_request() {
-                    // Add all valid requests to `parsed_requests`.
-                    parsed_requests.push(request);
-                }
+                while let Some(_discarded_request) = self.connection.pop_parsed_request() {}
 
                 // Send an error response for the request that gave us the error.
                 let mut error_response = Response::new(Version::Http11, StatusCode::BadRequest);
-                error_response.set_body(Body::new(inner.to_string()));
+                error_response.set_body(Body::new(
+                    format!(
+                        "{}\nAll previous unanswered requests will be dropped.",
+                        inner.to_string()
+                    )
+                    .to_string(),
+                ));
                 self.connection.enqueue_response(error_response);
             }
             Err(ConnectionError::InvalidWrite) => {
@@ -161,7 +175,9 @@ impl<T: Read + Write> ClientConnection<T> {
     }
 
     fn enqueue_response(&mut self, response: Response) {
-        self.connection.enqueue_response(response);
+        if self.state != ClientConnectionState::Closed {
+            self.connection.enqueue_response(response);
+        }
         self.in_flight_response_count -= 1;
     }
 
@@ -184,6 +200,37 @@ impl<T: Read + Write> ClientConnection<T> {
 /// and it can be added to another one using the `EPOLLIN` flag. Whenever
 /// there is a notification on that fd, `handle_notifications` should be
 /// called once.
+///
+/// # Example
+///
+/// ## Starting and running the server
+///
+/// ```
+/// use micro_http::{HttpServer, Response, StatusCode};
+///
+/// let path_to_socket = "/tmp/example.sock";
+/// std::fs::remove_file(path_to_socket).unwrap_or_default();
+///
+/// // Start the server.
+/// let mut server = HttpServer::new(path_to_socket).unwrap();
+/// server.start_server().unwrap();
+///
+/// // Connect a client to the server so it doesn't block in our example.
+/// let mut socket = std::os::unix::net::UnixStream::connect(path_to_socket).unwrap();
+///
+/// // Server loop processing requests.
+/// loop {
+///     for request in server.incoming().unwrap() {
+///         let response = request.process(|request| {
+///             // Your code here.
+///             Response::new(request.http_version(), StatusCode::NoContent)
+///         });
+///         server.respond(response);
+///     }
+///     // Break this example loop.
+///     break;
+/// }
+/// ```
 pub struct HttpServer {
     /// Socket on which we listen for new connections.
     socket: UnixListener,
@@ -225,8 +272,8 @@ impl HttpServer {
     ///
     /// Returns a collection of complete and valid requests to be processed by the user
     /// of the server. Once processed, responses should be sent using `enqueue_responses()`.
-    pub fn handle_notifications(&mut self) -> Result<Vec<RequestWithID>> {
-        let mut parsed_requests: Vec<RequestWithID> = vec![];
+    pub fn incoming(&mut self) -> Result<Vec<ServerRequest>> {
+        let mut parsed_requests: Vec<ServerRequest> = vec![];
         let mut events = vec![epoll::Event::new(epoll::Events::empty(), 0); MAX_CONNECTIONS];
 
         // This is a wrapper over the syscall `epoll_wait` and it will block the
@@ -276,7 +323,7 @@ impl HttpServer {
                         &mut client_connection
                             .read()?
                             .into_iter()
-                            .map(|request| RequestWithID::new(request, fd as u64))
+                            .map(|request| ServerRequest::new(request, fd as u64))
                             .collect(),
                     );
                     // If the connection was incoming before we read and we now have to write
@@ -311,7 +358,7 @@ impl HttpServer {
     }
 
     /// Enqueues the provided responses in the outgoing connection.
-    pub fn enqueue_responses(&mut self, responses: Vec<ResponseWithID>) -> Result<()> {
+    pub fn enqueue_responses(&mut self, responses: Vec<ServerResponse>) -> Result<()> {
         for response in responses {
             if let Some(client_connection) = self.connections.get_mut(&(response.id as i32)) {
                 // If the connection was incoming before we enqueue the response, we change its
@@ -324,6 +371,20 @@ impl HttpServer {
             }
         }
 
+        Ok(())
+    }
+
+    /// Docs needed.
+    pub fn respond(&mut self, response: ServerResponse) -> Result<()> {
+        if let Some(client_connection) = self.connections.get_mut(&(response.id as i32)) {
+            // If the connection was incoming before we enqueue the response, we change its
+            // `epoll` event set to notify us when the stream is ready for writing.
+            if let ClientConnectionState::AwaitingIncoming = client_connection.state {
+                client_connection.state = ClientConnectionState::AwaitingOutgoing;
+                Self::epoll_mod(self.epoll_fd, response.id as RawFd, epoll::Events::EPOLLOUT)?;
+            }
+            client_connection.enqueue_response(response.response);
+        }
         Ok(())
     }
 
@@ -402,7 +463,7 @@ mod tests {
 
         // Test one incoming connection.
         let mut socket = UnixStream::connect(path_to_socket).unwrap();
-        server.handle_notifications().unwrap();
+        server.incoming().unwrap();
 
         socket
             .write_all(
@@ -412,17 +473,18 @@ mod tests {
             )
             .unwrap();
 
-        let mut req_vec = server.handle_notifications().unwrap();
-        let request_with_id = req_vec.remove(0);
-
-        let mut response = Response::new(Version::Http11, StatusCode::OK);
-        let response_body = b"response body";
-        response.set_body(Body::new(response_body.to_vec()));
+        let mut req_vec = server.incoming().unwrap();
+        let server_request = req_vec.remove(0);
 
         server
-            .enqueue_responses(vec![request_with_id.into_response_with_id(response)])
+            .respond(server_request.process(|_request| {
+                let mut response = Response::new(Version::Http11, StatusCode::OK);
+                let response_body = b"response body";
+                response.set_body(Body::new(response_body.to_vec()));
+                response
+            }))
             .unwrap();
-        server.handle_notifications().unwrap();
+        server.incoming().unwrap();
 
         let mut buf: [u8; 1024] = [0; 1024];
         assert!(socket.read(&mut buf[..]).unwrap() > 0);
@@ -439,7 +501,7 @@ mod tests {
 
         // Test two concurrent connections.
         let mut first_socket = UnixStream::connect(path_to_socket).unwrap();
-        server.handle_notifications().unwrap();
+        server.incoming().unwrap();
 
         first_socket
             .write_all(
@@ -450,15 +512,16 @@ mod tests {
             .unwrap();
         let mut second_socket = UnixStream::connect(path_to_socket).unwrap();
 
-        let mut req_vec = server.handle_notifications().unwrap();
-        let request_with_id = req_vec.remove(0);
-
-        let mut response = Response::new(Version::Http11, StatusCode::OK);
-        let response_body = b"response body";
-        response.set_body(Body::new(response_body.to_vec()));
+        let mut req_vec = server.incoming().unwrap();
+        let server_request = req_vec.remove(0);
 
         server
-            .enqueue_responses(vec![request_with_id.into_response_with_id(response)])
+            .respond(server_request.process(|_request| {
+                let mut response = Response::new(Version::Http11, StatusCode::OK);
+                let response_body = b"response body";
+                response.set_body(Body::new(response_body.to_vec()));
+                response
+            }))
             .unwrap();
         second_socket
             .write_all(
@@ -468,11 +531,11 @@ mod tests {
             )
             .unwrap();
 
-        let mut req_vec = server.handle_notifications().unwrap();
-        let second_request_with_id = req_vec.remove(0);
+        let mut req_vec = server.incoming().unwrap();
+        let second_server_request = req_vec.remove(0);
 
         assert_eq!(
-            second_request_with_id.request,
+            second_server_request.request,
             Request::try_from(
                 b"GET /machine-config HTTP/1.1\r\n\
             Content-Length: 20\r\n\
@@ -485,18 +548,20 @@ mod tests {
         assert!(first_socket.read(&mut buf[..]).unwrap() > 0);
         first_socket.shutdown(std::net::Shutdown::Both).unwrap();
 
-        let mut response = Response::new(Version::Http11, StatusCode::OK);
-        let response_body = b"response second body";
-        response.set_body(Body::new(response_body.to_vec()));
         server
-            .enqueue_responses(vec![second_request_with_id.into_response_with_id(response)])
+            .respond(second_server_request.process(|_request| {
+                let mut response = Response::new(Version::Http11, StatusCode::OK);
+                let response_body = b"response second body";
+                response.set_body(Body::new(response_body.to_vec()));
+                response
+            }))
             .unwrap();
 
-        assert!(server.handle_notifications().unwrap().is_empty());
+        assert!(server.incoming().unwrap().is_empty());
         let mut buf: [u8; 1024] = [0; 1024];
         assert!(second_socket.read(&mut buf[..]).unwrap() > 0);
         second_socket.shutdown(std::net::Shutdown::Both).unwrap();
-        assert!(server.handle_notifications().unwrap().is_empty());
+        assert!(server.incoming().unwrap().is_empty());
         fs::remove_file(path_to_socket).unwrap();
     }
 
@@ -510,7 +575,7 @@ mod tests {
 
         // Test one incoming connection with `Expect: 100-continue`.
         let mut socket = UnixStream::connect(path_to_socket).unwrap();
-        server.handle_notifications().unwrap();
+        server.incoming().unwrap();
 
         socket
             .write_all(
@@ -521,31 +586,33 @@ mod tests {
             .unwrap();
         // `wait` on server to receive what the client set on the socket.
         // This will set the stream direction to `Outgoing`, as we need to send a `100 CONTINUE` response.
-        let req_vec = server.handle_notifications().unwrap();
+        let req_vec = server.incoming().unwrap();
         assert!(req_vec.is_empty());
         // Another `wait`, this time to send the response.
         // Will be called because of an `EPOLLOUT` notification.
-        let req_vec = server.handle_notifications().unwrap();
+        let req_vec = server.incoming().unwrap();
         assert!(req_vec.is_empty());
         let mut buf: [u8; 1024] = [0; 1024];
         assert!(socket.read(&mut buf[..]).unwrap() > 0);
 
         socket.write_all(b"whatever body").unwrap();
-        let mut req_vec = server.handle_notifications().unwrap();
-        let request_with_id = req_vec.remove(0);
-
-        let mut response = Response::new(Version::Http11, StatusCode::OK);
-        let response_body = b"response body";
-        response.set_body(Body::new(response_body.to_vec()));
+        let mut req_vec = server.incoming().unwrap();
+        let server_request = req_vec.remove(0);
 
         server
-            .enqueue_responses(vec![request_with_id.into_response_with_id(response)])
+            .respond(server_request.process(|_request| {
+                let mut response = Response::new(Version::Http11, StatusCode::OK);
+                let response_body = b"response body";
+                response.set_body(Body::new(response_body.to_vec()));
+                response
+            }))
             .unwrap();
-        server.handle_notifications().unwrap();
+
+        let req_vec = server.incoming().unwrap();
+        assert!(req_vec.is_empty());
 
         let mut buf: [u8; 1024] = [0; 1024];
         assert!(socket.read(&mut buf[..]).unwrap() > 0);
-
         fs::remove_file(path_to_socket).unwrap();
     }
 
@@ -560,11 +627,11 @@ mod tests {
         let mut sockets: Vec<UnixStream> = Vec::with_capacity(11);
         for _ in 0..MAX_CONNECTIONS {
             sockets.push(UnixStream::connect(path_to_socket).unwrap());
-            server.handle_notifications().unwrap();
+            server.incoming().unwrap();
         }
 
         sockets.push(UnixStream::connect(path_to_socket).unwrap());
-        server.handle_notifications().unwrap();
+        server.incoming().unwrap();
         let mut buf: [u8; 95] = [0; 95];
         sockets[MAX_CONNECTIONS].read_exact(&mut buf).unwrap();
         assert_eq!(&buf[..], SERVER_FULL_ERROR_MESSAGE);
@@ -583,7 +650,7 @@ mod tests {
         // Test one incoming connection.
         let mut socket = UnixStream::connect(path_to_socket).unwrap();
         socket.set_nonblocking(true).unwrap();
-        server.handle_notifications().unwrap();
+        server.incoming().unwrap();
 
         socket
             .write_all(
@@ -593,15 +660,16 @@ mod tests {
             )
             .unwrap();
 
-        assert!(server.handle_notifications().unwrap().is_empty());
-        server.handle_notifications().unwrap();
-        let mut buf: [u8; 127] = [0; 127];
+        assert!(server.incoming().unwrap().is_empty());
+        server.incoming().unwrap();
+        let mut buf: [u8; 177] = [0; 177];
         assert!(socket.read(&mut buf[..]).unwrap() > 0);
         let error_message = b"HTTP/1.1 400 \r\n\
                               Server: Firecracker API\r\n\
                               Connection: keep-alive\r\n\
                               Content-Type: text/plain\r\n\
-                              Content-Length: 15\r\n\r\nInvalid header.";
+                              Content-Length: 65\r\n\r\nInvalid header.\n\
+                              All previous unanswered requests will be dropped.";
         assert_eq!(&buf[..], &error_message[..]);
 
         fs::remove_file(path_to_socket).unwrap();
@@ -619,7 +687,7 @@ mod tests {
         // before the user had a chance to send the response to the
         // first one.
         let mut first_socket = UnixStream::connect(path_to_socket).unwrap();
-        server.handle_notifications().unwrap();
+        server.incoming().unwrap();
 
         first_socket
             .write_all(
@@ -629,24 +697,25 @@ mod tests {
             )
             .unwrap();
 
-        let mut req_vec = server.handle_notifications().unwrap();
-        let request_with_id = req_vec.remove(0);
-
-        let mut response = Response::new(Version::Http11, StatusCode::OK);
-        let response_body = b"response body";
-        response.set_body(Body::new(response_body.to_vec()));
+        let mut req_vec = server.incoming().unwrap();
+        let server_request = req_vec.remove(0);
 
         first_socket.shutdown(std::net::Shutdown::Both).unwrap();
-        assert!(server.handle_notifications().unwrap().is_empty());
+        assert!(server.incoming().unwrap().is_empty());
         let mut second_socket = UnixStream::connect(path_to_socket).unwrap();
         second_socket.set_nonblocking(true).unwrap();
-        assert!(server.handle_notifications().unwrap().is_empty());
+        assert!(server.incoming().unwrap().is_empty());
 
         server
-            .enqueue_responses(vec![request_with_id.into_response_with_id(response)])
+            .enqueue_responses(vec![server_request.process(|_request| {
+                let mut response = Response::new(Version::Http11, StatusCode::OK);
+                let response_body = b"response body";
+                response.set_body(Body::new(response_body.to_vec()));
+                response
+            })])
             .unwrap();
-        assert!(server.handle_notifications().unwrap().is_empty());
-        assert_eq!(server.connections.len(), 2);
+        assert!(server.incoming().unwrap().is_empty());
+        assert_eq!(server.connections.len(), 1);
         let mut buf: [u8; 1024] = [0; 1024];
         assert!(second_socket.read(&mut buf[..]).is_err());
 
@@ -658,11 +727,11 @@ mod tests {
             )
             .unwrap();
 
-        let mut req_vec = server.handle_notifications().unwrap();
-        let second_request_with_id = req_vec.remove(0);
+        let mut req_vec = server.incoming().unwrap();
+        let second_server_request = req_vec.remove(0);
 
         assert_eq!(
-            second_request_with_id.request,
+            second_server_request.request,
             Request::try_from(
                 b"GET /machine-config HTTP/1.1\r\n\
             Content-Length: 20\r\n\
@@ -671,18 +740,20 @@ mod tests {
             .unwrap()
         );
 
-        let mut response = Response::new(Version::Http11, StatusCode::OK);
-        let response_body = b"response second body";
-        response.set_body(Body::new(response_body.to_vec()));
         server
-            .enqueue_responses(vec![second_request_with_id.into_response_with_id(response)])
+            .respond(second_server_request.process(|_request| {
+                let mut response = Response::new(Version::Http11, StatusCode::OK);
+                let response_body = b"response second body";
+                response.set_body(Body::new(response_body.to_vec()));
+                response
+            }))
             .unwrap();
 
-        assert!(server.handle_notifications().unwrap().is_empty());
+        assert!(server.incoming().unwrap().is_empty());
         let mut buf: [u8; 1024] = [0; 1024];
         assert!(second_socket.read(&mut buf[..]).unwrap() > 0);
         second_socket.shutdown(std::net::Shutdown::Both).unwrap();
-        assert!(server.handle_notifications().is_ok());
+        assert!(server.incoming().is_ok());
         fs::remove_file(path_to_socket).unwrap();
     }
 }
