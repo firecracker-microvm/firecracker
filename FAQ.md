@@ -136,6 +136,38 @@ single interface. Multiple interfaces can be set up in Firecracker using the
 API, but guest IP configuration at boot time through boot arguments can only be
 done for a single interface.
 
+### My guest wall-clock is drifting, how can I fix it?
+
+The canonical solution is to use NTP in your guests.
+
+However, if you want to run Firecracker at scale, we suggest using a PTP emulated
+device as the guest's NTP time source so as to minimize network traffic and
+resource overhead. With this solution the guests will constantly update time
+to stay in sync with host wall-clock. They do so using cheap para-virtualized
+calls into kvm ptp instead of actual network NTP traffic.
+
+To be able to do this you need to have a guest kernel compiled with `KVM_PTP`
+support:
+```
+CONFIG_PTP_1588_CLOCK=y
+CONFIG_PTP_1588_CLOCK_KVM=y
+```
+Our [recommended guest kernel config](resources/microvm-kernel-config) already
+has these included.
+
+Now `/dev/ptp0` should be available in the guest. Next you need to configure
+`/dev/ptp0` as a NTP time source.
+
+For example when using `chrony`:
+
+1. Add `refclock PHC /dev/ptp0 poll 3 dpoll -2 offset 0` to the chrony conf
+file (`/etc/chrony/chrony.conf`)
+2. Restart the `chrony` daemon.
+
+You can see more info about the `refclock` parameters
+[here](https://chrony.tuxfamily.org/doc/3.4/chrony.conf.html#refclock).
+Adjust them according to your needs.
+
 ### Each Firecracker opens 20+ file descriptors. Is this an issue?  
 
 The relatively high FD usage is expected and correct. Firecracker heavily

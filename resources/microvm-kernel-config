@@ -1460,11 +1460,12 @@ CONFIG_VIRTIO_CONSOLE=y
 #
 # PTP clock support
 #
-# CONFIG_PTP_1588_CLOCK is not set
+CONFIG_PTP_1588_CLOCK=y
 
 #
 # Enable PHYLIB and NETWORK_PHY_TIMESTAMPING to see the additional clocks.
 #
+CONFIG_PTP_1588_CLOCK_KVM=y
 # CONFIG_GPIOLIB is not set
 # CONFIG_W1 is not set
 # CONFIG_POWER_AVS is not set

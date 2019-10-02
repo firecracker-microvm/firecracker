@@ -14,6 +14,8 @@
   configuring and starting a microVM without sending any API requests.
 - The jailer adheres to the "end of command options" convention, meaning
   all parameters specified after `--` are forwarded verbatim to Firecracker.
+- Added `KVM_PTP` support to the recommended guest kernel config.
+- Added entry in FAQ.md for Firecracker Guest timekeeping.
 
 ### Changed
 
