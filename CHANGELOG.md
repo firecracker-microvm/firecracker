@@ -4,20 +4,20 @@
 
 ### Added
 
-- New command-line parameter for `firecracker`, named `--no-api`, which 
-  will disable the API server thread. If set, the user won't be able to send 
-  any API requests, neither before, nor after the vm has booted. It must be 
-  paired with `--config-file` parameter. Also, when API server is disabled, 
+- New command-line parameter for `firecracker`, named `--no-api`, which
+  will disable the API server thread. If set, the user won't be able to send
+  any API requests, neither before, nor after the vm has booted. It must be
+  paired with `--config-file` parameter. Also, when API server is disabled,
   MMDS is no longer available now.
-- New command-line parameter for `firecracker`, named `--config-file`, which 
-  represents the path to a file that contains a JSON which can be used for 
+- New command-line parameter for `firecracker`, named `--config-file`, which
+  represents the path to a file that contains a JSON which can be used for
   configuring and starting a microVM without sending any API requests.
-- The jailer adheres to the "end of command options" convention, meaning 
+- The jailer adheres to the "end of command options" convention, meaning
   all parameters specified after `--` are forwarded verbatim to Firecracker.
 
 ### Changed
 
-- Vsock API call: `PUT /vsocks/{id}` changed to `PUT /vsock` and no longer 
+- Vsock API call: `PUT /vsocks/{id}` changed to `PUT /vsock` and no longer
   appear to support multiple vsock devices. Any subsequent calls to this API endpoint
   will override the previous vsock device configuration.
 
@@ -25,6 +25,7 @@
 
 - Fixed serial console on aarch64 (GitHub issue #1147).
 - Upon panic, the terminal is now reset to canonical mode.
+- Explicit error upon failure of vsock device creation.
 
 ## [0.18.0]
 
@@ -50,6 +51,7 @@
 - Docs: updated the rootfs and kernel creation guide.
 
 ### Removed
+
 - Removed experimental support for vhost-based vsock devices.
 
 ## [0.17.0]
@@ -125,6 +127,7 @@
 ## [0.15.0]
 
 ### Added
+
 - New API action: SendCtrlAltDel, used to initiate a graceful shutdown,
   if the guest has driver support for i8042 and AT Keyboard. See
   [the docs](docs/api_requests/actions.md#sendctrlaltdel) for details.
@@ -142,6 +145,7 @@
   i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd`.
 
 ### Fixed
+
 - virtio-blk: VIRTIO_BLK_T_FLUSH now working as expected.
 - Vsock devices can be attached when starting Firecracker using the jailer.
 - Vsock devices work properly when seccomp filtering is enabled.
