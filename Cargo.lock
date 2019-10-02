@@ -406,6 +406,9 @@ dependencies = [
 [[package]]
 name = "micro_http"
 version = "0.1.0"
+dependencies = [
+ "epoll 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "mime"

@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::{Display, Error, Formatter};
+
 pub mod headers;
 
 pub mod ascii {
@@ -28,6 +30,19 @@ pub enum RequestError {
     InvalidRequest,
 }
 
+impl Display for RequestError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            RequestError::InvalidHttpMethod(inner) => write!(f, "Invalid HTTP Method: {}", inner),
+            RequestError::InvalidUri(inner) => write!(f, "Invalid URI: {}", inner),
+            RequestError::InvalidHttpVersion(inner) => write!(f, "Invalid HTTP Version: {}", inner),
+            RequestError::UnsupportedHeader => write!(f, "Unsupported header."),
+            RequestError::InvalidHeader => write!(f, "Invalid header."),
+            RequestError::InvalidRequest => write!(f, "Invalid request."),
+        }
+    }
+}
+
 /// Errors associated with a HTTP Connection.
 #[derive(Debug)]
 pub enum ConnectionError {
@@ -39,6 +54,38 @@ pub enum ConnectionError {
     ConnectionClosed,
     /// Attempted to write on a stream when there was nothing to write.
     InvalidWrite,
+}
+
+impl Display for ConnectionError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            ConnectionError::ParseError(inner) => write!(f, "Parsing error: {}", inner),
+            ConnectionError::StreamError(inner) => write!(f, "Stream error: {}", inner),
+            ConnectionError::ConnectionClosed => write!(f, "Connection closed."),
+            ConnectionError::InvalidWrite => write!(f, "Invalid write attempt."),
+        }
+    }
+}
+
+/// Errors pertaining to `HttpServer`.
+#[derive(Debug)]
+pub enum ServerError {
+    /// Epoll operations failed.
+    IOError(std::io::Error),
+    /// Error from one of the connections.
+    ConnectionError(ConnectionError),
+    /// Server maximum capacity has been reached.
+    ServerFull,
+}
+
+impl Display for ServerError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            ServerError::IOError(inner) => write!(f, "IO error: {}", inner),
+            ServerError::ConnectionError(inner) => write!(f, "Connection error: {}", inner),
+            ServerError::ServerFull => write!(f, "Server is full."),
+        }
+    }
 }
 
 /// The Body associated with an HTTP Request or Response.
