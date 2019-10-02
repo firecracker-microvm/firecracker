@@ -6,9 +6,10 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::Method;
 
+use super::VmmRequest;
 use request::{IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::logger::LoggerConfig;
-use vmm::{VmmAction, VmmRequest};
+use vmm::VmmAction;
 
 impl IntoParsedRequest for LoggerConfig {
     fn into_parsed_request(

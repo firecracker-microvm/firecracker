@@ -23,17 +23,18 @@ use std::io;
 use std::panic;
 use std::path::PathBuf;
 use std::process;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use api_server::{ApiServer, Error};
+use api_server::{ApiServer, Error, VmmRequest};
 use fc_util::validators::validate_instance_id;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
 use sys_util::{EventFd, Terminal};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
+use vmm::{EventLoopExitReason, Vmm};
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
@@ -188,7 +189,7 @@ fn main() {
     let (to_vmm, from_api) = channel();
     let api_event_fd = EventFd::new()
         .map_err(Error::Eventfd)
-        .expect("'cannot create dummy Eventfd.");
+        .expect("Cannot create API Eventfd.");
 
     // Api enabled.
     if !no_api {
@@ -223,13 +224,95 @@ fn main() {
             .expect("API thread spawn failed.");
     }
 
-    vmm::start_vmm(
+    start_vmm(
         api_shared_info,
         api_event_fd,
         from_api,
         seccomp_level,
         vmm_config_json,
     );
+}
+
+/// Creates and starts a vmm.
+///
+/// # Arguments
+///
+/// * `api_shared_info` - A parameter for storing information on the VMM (e.g the current state).
+/// * `api_event_fd` - An event fd used for receiving API associated events.
+/// * `from_api` - The receiver end point of the communication channel.
+/// * `seccomp_level` - The level of seccomp filtering used. Filters are loaded before executing
+///                     guest code. Can be one of 0 (seccomp disabled), 1 (filter by syscall
+///                     number) or 2 (filter by syscall number and argument values).
+/// * `config_json` - Optional parameter that can be used to configure the guest machine without
+///                   using the API socket.
+pub fn start_vmm(
+    api_shared_info: Arc<RwLock<InstanceInfo>>,
+    api_event_fd: EventFd,
+    from_api: Receiver<VmmRequest>,
+    seccomp_level: u32,
+    config_json: Option<String>,
+) {
+    // If this fails, consider it fatal. Use expect().
+    let mut vmm =
+        Vmm::new(api_shared_info, &api_event_fd, seccomp_level).expect("Cannot create VMM");
+
+    if let Some(json) = config_json {
+        vmm.configure_from_json(json).unwrap_or_else(|err| {
+            error!(
+                "Setting configuration for VMM from one single json failed: {}",
+                err
+            );
+            process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
+        });
+        vmm.start_microvm().unwrap_or_else(|err| {
+            error!(
+                "Starting microvm that was configured from one single json failed: {}",
+                err
+            );
+            process::exit(i32::from(vmm::FC_EXIT_CODE_UNEXPECTED_ERROR));
+        });
+        info!("Successfully started microvm that was configured from one single json");
+    }
+
+    let exit_code = loop {
+        match vmm.run_event_loop() {
+            Err(e) => {
+                error!("Abruptly exited VMM control loop: {:?}", e);
+                break vmm::FC_EXIT_CODE_GENERIC_ERROR;
+            }
+            Ok(exit_reason) => match exit_reason {
+                EventLoopExitReason::Break => {
+                    info!("Gracefully terminated VMM control loop");
+                    break vmm::FC_EXIT_CODE_OK;
+                }
+                EventLoopExitReason::ControlAction => {
+                    if let Err(e) = api_event_fd.read() {
+                        error!("Error reading VMM API event_fd {:?}", e);
+                        break vmm::FC_EXIT_CODE_GENERIC_ERROR;
+                    } else {
+                        match from_api.try_recv() {
+                            Ok(vmm_request) => {
+                                let (action_request, sender) = vmm_request.unpack();
+                                // Run the requested action and send back the result.
+                                sender
+                                    .send(vmm.run_vmm_action(action_request))
+                                    .map_err(|_| ())
+                                    .expect("one-shot channel closed");
+                            }
+                            Err(TryRecvError::Empty) => {
+                                warn!("Got a spurious notification from api thread");
+                            }
+                            Err(TryRecvError::Disconnected) => {
+                                panic!("The channel's sending half was disconnected. Cannot receive data.");
+                            }
+                        };
+                    }
+                }
+            },
+        };
+    };
+
+    vmm.stop(i32::from(exit_code));
 }
 
 #[cfg(test)]
