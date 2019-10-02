@@ -311,9 +311,9 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
 
         let kind = match e {
             // User errors.
-            CreateBlockDevice(_)
+            CreateVsockBackend(_)
+            | CreateBlockDevice(_)
             | CreateNetDevice(_)
-            | CreateVsockDevice
             | KernelCmdline(_)
             | KernelLoader(_)
             | MicroVMAlreadyRunning
@@ -325,6 +325,7 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             ConfigureSystem(_)
             | ConfigureVm(_)
             | CreateRateLimiter(_)
+            | CreateVsockDevice(_)
             | DeviceManager
             | EventFd
             | GuestMemory(_)
@@ -1043,7 +1044,7 @@ impl Vmm {
                 u64::from(cfg.guest_cid),
                 cfg.uds_path.clone(),
             )
-            .map_err(|_| StartMicrovmError::CreateVsockDevice)?;
+            .map_err(StartMicrovmError::CreateVsockBackend)?;
 
             let epoll_config = self.epoll_context.allocate_tokens_for_virtio_device(
                 TYPE_VSOCK,
@@ -1052,7 +1053,7 @@ impl Vmm {
             );
             let vsock_box = Box::new(
                 devices::virtio::Vsock::new(u64::from(cfg.guest_cid), epoll_config, backend)
-                    .or(Err(StartMicrovmError::CreateVsockDevice))?,
+                    .map_err(StartMicrovmError::CreateVsockDevice)?,
             );
             device_manager
                 .register_virtio_device(
@@ -3953,8 +3954,16 @@ mod tests {
             ErrorKind::Internal
         );
         assert_eq!(
-            error_kind(StartMicrovmError::CreateVsockDevice),
+            error_kind(StartMicrovmError::CreateVsockBackend(
+                devices::virtio::vsock::VsockUnixBackendError::InvalidPortRequest
+            )),
             ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::CreateVsockDevice(
+                devices::virtio::vsock::VsockError::NoData
+            )),
+            ErrorKind::Internal
         );
         assert_eq!(
             error_kind(StartMicrovmError::DeviceManager),
