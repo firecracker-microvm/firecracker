@@ -16,6 +16,8 @@ pub enum Header {
     Expect,
     /// Header `Transfer-Encoding`.
     TransferEncoding,
+    /// Header `Server`.
+    Server,
 }
 
 impl Header {
@@ -25,6 +27,7 @@ impl Header {
             Header::ContentType => b"Content-Type",
             Header::Expect => b"Expect",
             Header::TransferEncoding => b"Transfer-Encoding",
+            Header::Server => b"Server",
         }
     }
 
@@ -35,6 +38,7 @@ impl Header {
                 "Content-Type" => Ok(Header::ContentType),
                 "Expect" => Ok(Header::Expect),
                 "Transfer-Encoding" => Ok(Header::TransferEncoding),
+                "Server" => Ok(Header::Server),
                 _ => Err(RequestError::InvalidHeader),
             }
         } else {
@@ -130,6 +134,7 @@ impl Headers {
                             }
                             _ => Err(RequestError::InvalidHeader),
                         },
+                        Header::Server => Ok(()),
                     }
                 } else {
                     Err(RequestError::UnsupportedHeader)
