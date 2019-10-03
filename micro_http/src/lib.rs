@@ -82,4 +82,4 @@ pub use request::{Request, RequestError};
 pub use response::{Response, StatusCode};
 
 pub use common::headers::Headers;
-pub use common::{Body, Version};
+pub use common::{Body, Method, Version};
