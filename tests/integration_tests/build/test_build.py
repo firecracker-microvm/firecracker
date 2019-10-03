@@ -12,42 +12,29 @@ import host_tools.cargo_build as host  # pylint:disable=import-error
 
 MACHINE = platform.machine()
 FEATURES = [""]
-BUILD_TYPES = ["debug", "release"]
-
 TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
            "{}-unknown-linux-musl".format(MACHINE)]
 
 
 @pytest.mark.parametrize(
-    "features, build_type, target",
-    itertools.product(FEATURES, BUILD_TYPES, TARGETS)
+    "features, target",
+    itertools.product(FEATURES, TARGETS)
 )
-@pytest.mark.timeout(400)
-def test_build(test_session_root_path, features, build_type, target):
+@pytest.mark.timeout(500)
+def test_build(test_session_root_path, features, target):
     """
     Test different builds.
 
     This will generate build tests using the cartesian product of all
-    features, build types (release/debug) and build targets (musl/gnu).
+    features and build targets (musl/gnu).
     """
     extra_env = ''
-    extra_args = "--target {} ".format(target)
-
-    if build_type == "release":
-        extra_args += "--release "
+    extra_args = "--target {} --release ".format(target)
 
     if "musl" in target:
         extra_env += "TARGET_CC=musl-gcc"
 
-    # The relative path of the binaries is computed using the build_type
-    # (either release or debug) and if any features are provided also using
-    # the features names.
-    # For example, a default release build with no features will end up in
-    # the relative directory "release".
-    rel_path = os.path.join(
-        host.CARGO_BUILD_REL_PATH,
-        build_type
-    )
+    rel_path = host.CARGO_RELEASE_REL_PATH
     if features:
         rel_path += "-{}".format(features)
         extra_args += "--features {} ".format(features)

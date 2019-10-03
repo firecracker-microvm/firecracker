@@ -31,6 +31,11 @@ def test_unittests(test_session_root_path, target):
     if "musl" in target:
         extra_env += "TARGET_CC=musl-gcc"
 
+        if MACHINE == "x86_64":
+            pytest.skip("On x86_64 with musl target unit tests"
+                        " are already run as part of testing"
+                        " code-coverage.")
+
     if MACHINE == "x86_64":
         extra_args += "--all-features "
 
