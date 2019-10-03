@@ -1,13 +1,17 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
-use std::result;
-
 use serde_json::{Map, Value};
 
+use logger::{Metric, METRICS};
+use request::Body;
+use request::Error;
+use request::StatusCode;
 use vmm::VmmAction;
 
+use request::checked_id;
 use request::ParsedRequest;
+use vmm::vmm_config::drive::BlockDeviceConfig;
 
 #[derive(Clone)]
 pub struct PatchDrivePayload {
@@ -38,24 +42,30 @@ impl PatchDrivePayload {
     }
 
     /// Validates that only path_on_host and drive_id are present in the payload.
-    fn validate(&self) -> result::Result<(), String> {
+    fn validate(&self) -> Result<(), Error> {
         match self.fields.as_object() {
             Some(fields_map) => {
                 // Check that field `drive_id` exists and its type is String.
-                PatchDrivePayload::check_field_is_string(fields_map, "drive_id")?;
+                PatchDrivePayload::check_field_is_string(fields_map, "drive_id")
+                    .map_err(|e| Error::Generic(StatusCode::BadRequest, e))?;
                 // Check that field `drive_id` exists and its type is String.
-                PatchDrivePayload::check_field_is_string(fields_map, "path_on_host")?;
+                PatchDrivePayload::check_field_is_string(fields_map, "path_on_host")
+                    .map_err(|e| Error::Generic(StatusCode::BadRequest, e))?;
 
                 // Check that there are no other fields in the object.
                 if fields_map.len() > 2 {
-                    return Err(
+                    return Err(Error::Generic(
+                        StatusCode::BadRequest,
                         "Invalid PATCH payload. Only updates on path_on_host are allowed."
                             .to_string(),
-                    );
+                    ));
                 }
                 Ok(())
             }
-            _ => Err("Invalid json.".to_string()),
+            _ => Err(Error::Generic(
+                StatusCode::BadRequest,
+                "Invalid json.".to_string(),
+            )),
         }
     }
 
@@ -69,15 +79,75 @@ impl PatchDrivePayload {
             .unwrap()
             .to_string()
     }
+}
 
-    pub fn into_parsed_request(self, id_from_path: String) -> Result<ParsedRequest, String> {
-        self.validate()?;
-        let drive_id: String = self.get_string_field_unchecked("drive_id");
-        let path_on_host: String = self.get_string_field_unchecked("path_on_host");
+pub fn parse_put_drive(
+    maybe_body: Option<&Body>,
+    id_from_path: Option<&&str>,
+) -> Result<ParsedRequest, Error> {
+    METRICS.put_api_requests.drive_count.inc();
+    let id = match id_from_path {
+        Some(&id) => checked_id(id)?,
+        None => {
+            return Err(Error::EmptyID);
+        }
+    };
 
-        if id_from_path != drive_id {
-            return Err(String::from(
-                "The id from the path does not match the id from the body!",
+    if let Some(body) = maybe_body {
+        let device_cfg = serde_json::from_slice::<BlockDeviceConfig>(body.raw()).map_err(|e| {
+            METRICS.put_api_requests.drive_fails.inc();
+            Error::SerdeJson(e)
+        })?;
+
+        if id != device_cfg.drive_id {
+            METRICS.put_api_requests.drive_fails.inc();
+            Err(Error::Generic(
+                StatusCode::BadRequest,
+                "The id from the path does not match the id from the body!".to_string(),
+            ))
+        } else {
+            Ok(ParsedRequest::Sync(VmmAction::InsertBlockDevice(
+                device_cfg,
+            )))
+        }
+    } else {
+        Err(Error::Generic(
+            StatusCode::BadRequest,
+            "Empty PUT request.".to_string(),
+        ))
+    }
+}
+
+pub fn parse_patch_drive(
+    maybe_body: Option<&Body>,
+    id_from_path: Option<&&str>,
+) -> Result<ParsedRequest, Error> {
+    METRICS.patch_api_requests.drive_count.inc();
+    let id = match id_from_path {
+        Some(&id) => checked_id(id)?,
+        None => {
+            return Err(Error::EmptyID);
+        }
+    };
+
+    if let Some(body) = maybe_body {
+        METRICS.patch_api_requests.drive_count.inc();
+        let patch_drive_payload = PatchDrivePayload {
+            fields: serde_json::from_slice(body.raw()).map_err(|e| {
+                METRICS.patch_api_requests.drive_fails.inc();
+                Error::SerdeJson(e)
+            })?,
+        };
+
+        patch_drive_payload.validate()?;
+        let drive_id: String = patch_drive_payload.get_string_field_unchecked("drive_id");
+        let path_on_host: String = patch_drive_payload.get_string_field_unchecked("path_on_host");
+
+        if id != drive_id.as_str() {
+            METRICS.patch_api_requests.drive_fails.inc();
+            return Err(Error::Generic(
+                StatusCode::BadRequest,
+                String::from("The id from the path does not match the id from the body!"),
             ));
         }
 
@@ -85,20 +155,10 @@ impl PatchDrivePayload {
             drive_id,
             path_on_host,
         )))
+    } else {
+        Err(Error::Generic(
+            StatusCode::BadRequest,
+            "Empty PUT request.".to_string(),
+        ))
     }
 }
-
-/*impl BlockDeviceConfig {
-    pub fn into_parsed_request(
-        self,
-        id_from_path: String,
-    ) -> result::Result<ParsedRequest, String> {
-        let id_from_path = id_from_path.unwrap_or_default();
-        if id_from_path != self.drive_id {
-            return Err(String::from(
-                "The id from the path does not match the id from the body!",
-            ));
-        }
-        Ok(ParsedRequest::Sync(VmmAction::InsertBlockDevice(self)))
-    }
-}*/

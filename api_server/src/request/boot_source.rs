@@ -1,14 +1,20 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/*use std::result;
+use logger::{Metric, METRICS};
+use request::Body;
+use request::Error;
+use vmm::VmmAction;
 
 use request::ParsedRequest;
 use vmm::vmm_config::boot_source::BootSourceConfig;
-use vmm::VmmAction;
 
-impl BootSourceConfig {
-    pub fn into_parsed_request(self) -> result::Result<ParsedRequest, String> {
-        Ok(ParsedRequest::Sync(VmmAction::ConfigureBootSource(self)))
-    }
-}*/
+pub fn parse_put_boot_source(body: &Body) -> Result<ParsedRequest, Error> {
+    METRICS.put_api_requests.boot_source_count.inc();
+    Ok(ParsedRequest::Sync(VmmAction::ConfigureBootSource(
+        serde_json::from_slice::<BootSourceConfig>(body.raw()).map_err(|e| {
+            METRICS.put_api_requests.boot_source_fails.inc();
+            Error::SerdeJson(e)
+        })?,
+    )))
+}

@@ -3,7 +3,11 @@
 
 use serde_json::Value;
 
+use logger::{Metric, METRICS};
+use parsed_request::Error;
+use request::Body;
 use request::ParsedRequest;
+use request::StatusCode;
 use vmm::VmmAction;
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
@@ -27,29 +31,33 @@ pub struct ActionBody {
     payload: Option<Value>,
 }
 
-fn validate_payload(action_body: &ActionBody) -> Result<(), String> {
+fn validate_payload(action_body: &ActionBody) -> Result<(), Error> {
     match action_body.action_type {
         ActionType::BlockDeviceRescan => {
             match action_body.payload {
                 Some(ref payload) => {
                     // Expecting to have drive_id as a String in the payload.
                     if !payload.is_string() {
-                        return Err(
+                        return Err(Error::Generic(
+                            StatusCode::BadRequest,
                             "Invalid payload type. Expected a string representing the drive_id"
                                 .to_string(),
-                        );
+                        ));
                     }
                     Ok(())
                 }
-                None => Err("Payload is required for block device rescan.".to_string()),
+                None => Err(Error::Generic(
+                    StatusCode::BadRequest,
+                    "Payload is required for block device rescan.".to_string(),
+                )),
             }
         }
         ActionType::FlushMetrics | ActionType::InstanceStart | ActionType::SendCtrlAltDel => {
             // Neither FlushMetrics nor InstanceStart should have a payload.
             if action_body.payload.is_some() {
-                return Err(format!(
-                    "{:?} does not support a payload.",
-                    action_body.action_type
+                return Err(Error::Generic(
+                    StatusCode::BadRequest,
+                    format!("{:?} does not support a payload.", action_body.action_type),
                 ));
             }
             Ok(())
@@ -57,20 +65,24 @@ fn validate_payload(action_body: &ActionBody) -> Result<(), String> {
     }
 }
 
-impl ActionBody {
-    pub fn into_parsed_request(self) -> Result<ParsedRequest, String> {
-        validate_payload(&self)?;
-        match self.action_type {
-            ActionType::BlockDeviceRescan => {
-                // Safe to unwrap because we validated the payload in the validate_payload func.
-                let block_device_id = self.payload.unwrap().as_str().unwrap().to_string();
-                Ok(ParsedRequest::Sync(VmmAction::RescanBlockDevice(
-                    block_device_id,
-                )))
-            }
-            ActionType::FlushMetrics => Ok(ParsedRequest::Sync(VmmAction::FlushMetrics)),
-            ActionType::InstanceStart => Ok(ParsedRequest::Sync(VmmAction::StartMicroVm)),
-            ActionType::SendCtrlAltDel => Ok(ParsedRequest::Sync(VmmAction::SendCtrlAltDel)),
+pub fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
+    METRICS.put_api_requests.actions_count.inc();
+    let action_body = serde_json::from_slice::<ActionBody>(body.raw()).map_err(|e| {
+        METRICS.put_api_requests.actions_fails.inc();
+        Error::SerdeJson(e)
+    })?;
+
+    validate_payload(&action_body)?;
+    match action_body.action_type {
+        ActionType::BlockDeviceRescan => {
+            // Safe to unwrap because we validated the payload in the validate_payload func.
+            let block_device_id = action_body.payload.unwrap().as_str().unwrap().to_string();
+            Ok(ParsedRequest::Sync(VmmAction::RescanBlockDevice(
+                block_device_id,
+            )))
         }
+        ActionType::FlushMetrics => Ok(ParsedRequest::Sync(VmmAction::FlushMetrics)),
+        ActionType::InstanceStart => Ok(ParsedRequest::Sync(VmmAction::StartMicroVm)),
+        ActionType::SendCtrlAltDel => Ok(ParsedRequest::Sync(VmmAction::SendCtrlAltDel)),
     }
 }

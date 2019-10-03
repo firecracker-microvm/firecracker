@@ -1,39 +1,15 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-/*
-use std::result;
 
-use vmm::vmm_config::vsock::VsockDeviceConfig;
+use request::Body;
+use request::Error;
 use vmm::VmmAction;
 
-impl IntoParsedRequest for VsockDeviceConfig {
-    fn into_parsed_request(
-        self,
-        _: Option<String>,
-        _: Method,
-    ) -> result::Result<ParsedRequest, String> {
-        let (sender, receiver) = oneshot::channel();
-        Ok(ParsedRequest::Sync(
-            VmmAction::SetVsockDevice(self, sender),
-            receiver,
-        ))
-    }
+use request::ParsedRequest;
+use vmm::vmm_config::vsock::VsockDeviceConfig;
+
+pub fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {
+    Ok(ParsedRequest::Sync(VmmAction::SetVsockDevice(
+        serde_json::from_slice::<VsockDeviceConfig>(body.raw()).map_err(Error::SerdeJson)?,
+    )))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_vsock_into_parsed_request() {
-        let vsock = VsockDeviceConfig {
-            vsock_id: String::from("foo"),
-            guest_cid: 42,
-            uds_path: "vsock.sock".to_string(),
-        };
-        assert!(vsock
-            .clone()
-            .into_parsed_request(Some(String::from("foo")), Method::Put)
-            .is_ok());
-    }
-}*/

@@ -133,7 +133,7 @@ impl ApiServer {
                 Ok(request_vec) => {
                     for server_request in request_vec {
                         server
-                            .respond(server_request.process(|request| self.request_triage(request)))
+                            .respond(server_request.process(|request| self.handle_request(request)))
                             .or_else(|e| {
                                 error!("API Server encountered an error on response: {}", e);
                                 Ok(())
@@ -147,77 +147,88 @@ impl ApiServer {
         }
     }
 
-    fn request_triage(&self, request: &Request) -> Response {
+    fn handle_request(&self, request: &Request) -> Response {
         match ParsedRequest::try_from_request(request) {
-            Ok(ParsedRequest::Sync(vmm_action)) => {
-                self.to_vmm_fd.write(1).unwrap();
-                self.api_request_sender.send(Box::new(vmm_action)).unwrap();
-                let vmm_outcome = *(self.vmm_response_receiver.recv().unwrap());
-                ParsedRequest::convert_to_response(vmm_outcome)
-            }
-            Ok(ParsedRequest::GetInstanceInfo) => {
-                let shared_info_lock = self.vmm_shared_info.clone();
-                METRICS.get_api_requests.instance_info_count.inc();
-                // unwrap() to crash if the other thread poisoned this lock
-                let shared_info = shared_info_lock
-                    .read()
-                    .expect("Failed to read shared_info due to poisoned lock");
-                // Serialize it to a JSON string.
-                let body_result = serde_json::to_string(&(*shared_info));
-                match body_result {
-                    Ok(body) => ApiServer::json_response(StatusCode::OK, body),
-                    Err(e) => {
-                        // This is an api server metrics as the shared info is obtained internally.
-                        METRICS.get_api_requests.instance_info_fails.inc();
-                        ApiServer::json_response(
-                            StatusCode::BadRequest,
-                            ApiServer::json_fault_message(e.to_string()),
-                        )
-                    }
-                }
-            }
-            Ok(ParsedRequest::GetMMDS) => ApiServer::json_response(
-                StatusCode::OK,
-                self.mmds_info
-                    .lock()
-                    .expect("Failed to acquire lock on MMDS info")
-                    .get_data_str(),
-            ),
-            Ok(ParsedRequest::PatchMMDS(value)) => {
-                let mmds_response = self
-                    .mmds_info
-                    .lock()
-                    .expect("Failed to acquire lock on MMDS info")
-                    .patch_data(value);
-                match mmds_response {
-                    Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
-                    Err(e) => match e {
-                        data_store::Error::NotFound => ApiServer::json_response(
-                            StatusCode::NotFound,
-                            ApiServer::json_fault_message(e.to_string()),
-                        ),
-                        data_store::Error::UnsupportedValueType => ApiServer::json_response(
-                            StatusCode::BadRequest,
-                            ApiServer::json_fault_message(e.to_string()),
-                        ),
-                    },
-                }
-            }
-            Ok(ParsedRequest::PutMMDS(value)) => {
-                let mmds_response = self
-                    .mmds_info
-                    .lock()
-                    .expect("Failed to acquire lock on MMDS info")
-                    .put_data(value);
-                match mmds_response {
-                    Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
-                    Err(e) => ApiServer::json_response(
-                        StatusCode::BadRequest,
-                        ApiServer::json_fault_message(e.to_string()),
-                    ),
-                }
-            }
+            Ok(ParsedRequest::Sync(vmm_action)) => self.server_vmm_action_request(vmm_action),
+            Ok(ParsedRequest::GetInstanceInfo) => self.get_instance_info(),
+            Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
+            Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
+            Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
             Err(e) => e.into(),
+        }
+    }
+
+    fn server_vmm_action_request(&self, vmm_action: VmmAction) -> Response {
+        self.api_request_sender.send(Box::new(vmm_action)).unwrap();
+        self.to_vmm_fd.write(1).unwrap();
+        let vmm_outcome = *(self.vmm_response_receiver.recv().unwrap());
+        ParsedRequest::convert_to_response(vmm_outcome)
+    }
+
+    fn get_instance_info(&self) -> Response {
+        let shared_info_lock = self.vmm_shared_info.clone();
+        // unwrap() to crash if the other thread poisoned this lock
+        let shared_info = shared_info_lock
+            .read()
+            .expect("Failed to read shared_info due to poisoned lock");
+        // Serialize it to a JSON string.
+        let body_result = serde_json::to_string(&(*shared_info));
+        match body_result {
+            Ok(body) => ApiServer::json_response(StatusCode::OK, body),
+            Err(e) => {
+                // This is an api server metrics as the shared info is obtained internally.
+                METRICS.get_api_requests.instance_info_fails.inc();
+                ApiServer::json_response(
+                    StatusCode::BadRequest,
+                    ApiServer::json_fault_message(e.to_string()),
+                )
+            }
+        }
+    }
+
+    fn get_mmds(&self) -> Response {
+        ApiServer::json_response(
+            StatusCode::OK,
+            self.mmds_info
+                .lock()
+                .expect("Failed to acquire lock on MMDS info")
+                .get_data_str(),
+        )
+    }
+
+    fn patch_mmds(&self, value: serde_json::Value) -> Response {
+        let mmds_response = self
+            .mmds_info
+            .lock()
+            .expect("Failed to acquire lock on MMDS info")
+            .patch_data(value);
+        match mmds_response {
+            Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
+            Err(e) => match e {
+                data_store::Error::NotFound => ApiServer::json_response(
+                    StatusCode::NotFound,
+                    ApiServer::json_fault_message(e.to_string()),
+                ),
+                data_store::Error::UnsupportedValueType => ApiServer::json_response(
+                    StatusCode::BadRequest,
+                    ApiServer::json_fault_message(e.to_string()),
+                ),
+            },
+        }
+    }
+
+    fn put_mmds(&self, value: serde_json::Value) -> Response {
+        let mmds_response = self
+            .mmds_info
+            .lock()
+            .expect("Failed to acquire lock on MMDS info")
+            .put_data(value);
+        match mmds_response {
+            Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
+            Err(e) => ApiServer::json_response(
+                StatusCode::BadRequest,
+                ApiServer::json_fault_message(e.to_string()),
+            ),
         }
     }
 
