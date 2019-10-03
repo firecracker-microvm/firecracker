@@ -63,8 +63,8 @@ def get_firecracker_binaries(root_path, features=''):
     Returns the location of the firecracker related binaries eventually after
     building them in case they do not exist at the specified root_path.
     """
-    extra_args = '--release --target {} >/dev/null 2>&1'
-    extra_args = extra_args.format(DEFAULT_BUILD_TARGET)
+    extra_args = \
+        '--release --target {} >/dev/null 2>&1'.format(DEFAULT_BUILD_TARGET)
     extra_env = 'TARGET_CC=musl-gcc'
 
     if features == '':
