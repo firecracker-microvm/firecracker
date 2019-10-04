@@ -10,7 +10,6 @@
 //! machine (microVM).
 #![deny(missing_docs)]
 extern crate epoll;
-extern crate futures;
 extern crate kvm_bindings;
 extern crate kvm_ioctls;
 extern crate libc;

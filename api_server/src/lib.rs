@@ -1,40 +1,35 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-extern crate futures;
-extern crate hyper;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate tokio_core;
-extern crate tokio_uds;
 
+extern crate epoll;
 extern crate fc_util;
 #[macro_use]
 extern crate logger;
+extern crate micro_http;
 extern crate mmds;
 extern crate sys_util;
 extern crate vmm;
 
-mod http_service;
-pub mod request;
+mod parsed_request;
+mod request;
 
 use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::{fmt, io};
 
-use futures::sync::oneshot;
-use futures::{Future, Stream};
-use hyper::server::Http;
-use tokio_core::reactor::Core;
-use tokio_uds::UnixListener;
-
-use http_service::ApiServerHttpService;
 use logger::{Metric, METRICS};
+pub use micro_http::{
+    Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
+    ServerResponse, StatusCode, Version,
+};
+use mmds::data_store;
 use mmds::data_store::Mmds;
+use parsed_request::ParsedRequest;
 use sys_util::EventFd;
 use vmm::default_syscalls;
 use vmm::vmm_config::boot_source::BootSourceConfig;
@@ -102,37 +97,6 @@ pub enum VmmData {
     MachineConfiguration(VmConfig),
 }
 
-/// One shot channel used by VMM to send a response.
-pub type ResponseSender = oneshot::Sender<std::result::Result<VmmData, VmmActionError>>;
-/// One shot channel used to receive a response from the VMM.
-pub type ResponseReceiver = oneshot::Receiver<std::result::Result<VmmData, VmmActionError>>;
-
-/// Wrapper over requested action to be done by the VMM and sender where the response will go.
-/// This is wrapped in a struct to allow custom PartialEq.
-pub struct VmmRequest {
-    inner: Box<(VmmAction, ResponseSender)>,
-}
-
-impl VmmRequest {
-    /// Create a VmmRequest from given VmmAction and ResponseSender.
-    pub fn new(action: VmmAction, response_sender: ResponseSender) -> VmmRequest {
-        VmmRequest {
-            inner: Box::new((action, response_sender)),
-        }
-    }
-
-    pub fn unpack(self) -> (VmmAction, ResponseSender) {
-        let inner_box = *self.inner;
-        (inner_box.0, inner_box.1)
-    }
-}
-
-impl PartialEq for VmmRequest {
-    fn eq(&self, other: &VmmRequest) -> bool {
-        self.inner.0 == other.inner.0
-    }
-}
-
 pub enum Error {
     Io(io::Error),
     Eventfd(io::Error),
@@ -158,14 +122,21 @@ impl fmt::Debug for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+pub type VmmRequest = Box<VmmAction>;
+pub type VmmResponse = Box<std::result::Result<VmmData, VmmActionError>>;
+
 pub struct ApiServer {
-    // MMDS info directly accessible from the API thread.
+    /// MMDS info directly accessible from the API thread.
     mmds_info: Arc<Mutex<Mmds>>,
-    // VMM instance info directly accessible from the API thread.
+    /// VMM instance info directly accessible from the API thread.
     vmm_shared_info: Arc<RwLock<InstanceInfo>>,
-    // Sender which allows passing messages to the VMM.
-    api_request_sender: Rc<mpsc::Sender<VmmRequest>>,
-    efd: Rc<EventFd>,
+    /// Sender which allows passing messages to the VMM.
+    api_request_sender: mpsc::Sender<VmmRequest>,
+    /// Receiver which collects messages from the VMM.
+    vmm_response_receiver: mpsc::Receiver<VmmResponse>,
+    /// FD on which we notify the VMM that we have sent at least one
+    /// `VmmRequest`.
+    to_vmm_fd: EventFd,
 }
 
 impl ApiServer {
@@ -173,28 +144,26 @@ impl ApiServer {
         mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
         api_request_sender: mpsc::Sender<VmmRequest>,
-        kick_vmm_efd: EventFd,
+        vmm_response_receiver: mpsc::Receiver<VmmResponse>,
+        to_vmm_fd: EventFd,
     ) -> Result<Self> {
         Ok(ApiServer {
             mmds_info,
             vmm_shared_info,
-            api_request_sender: Rc::new(api_request_sender),
-            efd: Rc::new(kick_vmm_efd),
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
         })
     }
 
-    // TODO: does tokio_uds also support abstract domain sockets?
     pub fn bind_and_run(
-        &self,
+        &mut self,
         path: PathBuf,
         start_time_us: Option<u64>,
         start_time_cpu_us: Option<u64>,
         seccomp_level: u32,
     ) -> Result<()> {
-        let mut core = Core::new().map_err(Error::Io)?;
-        let handle = Rc::new(core.handle());
-
-        let listener = UnixListener::bind(path, &handle).map_err(Error::Io)?;
+        let mut server = HttpServer::new(path).unwrap();
 
         if let Some(start_time) = start_time_us {
             let delta_us =
@@ -214,27 +183,6 @@ impl ApiServer {
                 .add(delta_us as usize);
         }
 
-        let http: Http<hyper::Chunk> = Http::new();
-
-        let f = listener
-            .incoming()
-            .for_each(|(stream, _)| {
-                // For the sake of clarity: when we use self.efd.clone(), the intent is to
-                // clone the wrapping Rc, not the EventFd itself.
-                let service = ApiServerHttpService::new(
-                    self.mmds_info.clone(),
-                    self.vmm_shared_info.clone(),
-                    self.api_request_sender.clone(),
-                    self.efd.clone(),
-                );
-                let connection = http.serve_connection(stream, service);
-                // todo: is spawn() any better/worse than execute()?
-                // We have to adjust the future item and error, to fit spawn()'s definition.
-                handle.spawn(connection.map(|_| ()).map_err(|_| ()));
-                Ok(())
-            })
-            .map_err(Error::Io);
-
         // Load seccomp filters on the API thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
@@ -245,11 +193,128 @@ impl ApiServer {
             );
         }
 
-        // This runs forever, unless an error is returned somewhere within f (but nothing happens
-        // for errors which might arise inside the connections we spawn from f, unless we explicitly
-        // do something in their future chain). When this returns, ongoing connections will be
-        // interrupted, and other futures will not complete, as the event loop stops working.
-        core.run(f)
+        server.start_server().unwrap();
+        loop {
+            match server.requests() {
+                Ok(request_vec) => {
+                    for server_request in request_vec {
+                        server
+                            .respond(
+                                // Use `self.handle_request()` as the processing callback.
+                                server_request.process(|request| self.handle_request(request)),
+                            )
+                            .or_else(|e| {
+                                error!("API Server encountered an error on response: {}", e);
+                                Ok(())
+                            })?;
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        "API Server error on retrieving incoming request. Error: {}",
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    fn handle_request(&self, request: &Request) -> Response {
+        match ParsedRequest::try_from_request(request) {
+            Ok(ParsedRequest::GetInstanceInfo) => self.get_instance_info(),
+            Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
+            Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
+            Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
+            // Vmm actions to follow here.
+            Err(e) => e.into(),
+        }
+    }
+
+    fn get_instance_info(&self) -> Response {
+        let shared_info_lock = self.vmm_shared_info.clone();
+        // unwrap() to crash if the other thread poisoned this lock
+        let shared_info = shared_info_lock
+            .read()
+            .expect("Failed to read shared_info due to poisoned lock");
+        // Serialize it to a JSON string.
+        let body_result = serde_json::to_string(&(*shared_info));
+        match body_result {
+            Ok(body) => ApiServer::json_response(StatusCode::OK, body),
+            Err(e) => {
+                // This is an api server metrics as the shared info is obtained internally.
+                METRICS.get_api_requests.instance_info_fails.inc();
+                ApiServer::json_response(
+                    StatusCode::BadRequest,
+                    ApiServer::json_fault_message(e.to_string()),
+                )
+            }
+        }
+    }
+
+    fn get_mmds(&self) -> Response {
+        ApiServer::json_response(
+            StatusCode::OK,
+            self.mmds_info
+                .lock()
+                .expect("Failed to acquire lock on MMDS info")
+                .get_data_str(),
+        )
+    }
+
+    fn patch_mmds(&self, value: serde_json::Value) -> Response {
+        let mmds_response = self
+            .mmds_info
+            .lock()
+            .expect("Failed to acquire lock on MMDS info")
+            .patch_data(value);
+        match mmds_response {
+            Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
+            Err(e) => match e {
+                data_store::Error::NotFound => ApiServer::json_response(
+                    StatusCode::NotFound,
+                    ApiServer::json_fault_message(e.to_string()),
+                ),
+                data_store::Error::UnsupportedValueType => ApiServer::json_response(
+                    StatusCode::BadRequest,
+                    ApiServer::json_fault_message(e.to_string()),
+                ),
+            },
+        }
+    }
+
+    fn put_mmds(&self, value: serde_json::Value) -> Response {
+        let mmds_response = self
+            .mmds_info
+            .lock()
+            .expect("Failed to acquire lock on MMDS info")
+            .put_data(value);
+        match mmds_response {
+            Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
+            Err(e) => ApiServer::json_response(
+                StatusCode::BadRequest,
+                ApiServer::json_fault_message(e.to_string()),
+            ),
+        }
+    }
+
+    // An HTTP response which also includes a body.
+    pub fn json_response<T: Into<String>>(status: StatusCode, body: T) -> Response {
+        let mut response = Response::new(Version::Http11, status);
+        response.set_body(Body::new(body.into()));
+        response
+    }
+
+    // Builds a string that looks like (where $ stands for substitution):
+    //  {
+    //    "$k": "$v"
+    //  }
+    // Mainly used for building fault message response json bodies.
+    fn basic_json_body<K: AsRef<str>, V: AsRef<str>>(k: K, v: V) -> String {
+        format!("{{\n  \"{}\": \"{}\"\n}}", k.as_ref(), v.as_ref())
+    }
+
+    fn json_fault_message<T: AsRef<str>>(msg: T) -> String {
+        ApiServer::basic_json_body("fault_message", msg)
     }
 }
 
