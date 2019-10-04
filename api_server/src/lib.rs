@@ -221,13 +221,20 @@ impl ApiServer {
 
     fn handle_request(&self, request: &Request) -> Response {
         match ParsedRequest::try_from_request(request) {
+            Ok(ParsedRequest::Sync(vmm_action)) => self.server_vmm_action_request(vmm_action),
             Ok(ParsedRequest::GetInstanceInfo) => self.get_instance_info(),
             Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
             Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
             Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
-            // Vmm actions to follow here.
             Err(e) => e.into(),
         }
+    }
+
+    fn server_vmm_action_request(&self, vmm_action: VmmAction) -> Response {
+        self.api_request_sender.send(Box::new(vmm_action)).unwrap();
+        self.to_vmm_fd.write(1).unwrap();
+        let vmm_outcome = *(self.vmm_response_receiver.recv().unwrap());
+        ParsedRequest::convert_to_response(vmm_outcome)
     }
 
     fn get_instance_info(&self) -> Response {

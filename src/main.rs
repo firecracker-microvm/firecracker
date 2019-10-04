@@ -27,7 +27,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use api_server::{ApiServer, Error, VmmAction, VmmRequest, VmmResponse};
+use api_server::{ApiServer, Error, VmmRequest, VmmResponse};
 use fc_util::validators::validate_instance_id;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
