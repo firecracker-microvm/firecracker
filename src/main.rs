@@ -23,11 +23,11 @@ use std::io;
 use std::panic;
 use std::path::PathBuf;
 use std::process;
-use std::sync::mpsc::{channel, Receiver, TryRecvError};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use api_server::{ApiServer, Error};
+use api_server::{ApiServer, Error, VmmAction, VmmRequest, VmmResponse};
 use fc_util::validators::validate_instance_id;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
@@ -186,26 +186,36 @@ fn main() {
         vmm_version: crate_version!().to_string(),
     }));
 
-    let (to_vmm, from_api) = channel();
-    let api_event_fd = EventFd::new()
+    let request_event_fd = EventFd::new()
         .map_err(Error::Eventfd)
         .expect("Cannot create API Eventfd.");
+    let (to_vmm, from_api) = channel();
+    let (to_api, from_vmm) = channel();
 
     // Api enabled.
     if !no_api {
         // MMDS only supported with API.
         let mmds_info = MMDS.clone();
-
-        let kick_vmm_efd = api_event_fd.try_clone().expect("cannot clone Eventfd.");
         let vmm_shared_info = api_shared_info.clone();
+        let to_vmm_event_fd = request_event_fd.try_clone().unwrap();
 
         thread::Builder::new()
             .name("fc_api".to_owned())
             .spawn(move || {
-                match ApiServer::new(mmds_info, vmm_shared_info, to_vmm, kick_vmm_efd)
-                    .expect("Cannot create API server")
-                    .bind_and_run(bind_path, start_time_us, start_time_cpu_us, seccomp_level)
-                {
+                match ApiServer::new(
+                    mmds_info,
+                    vmm_shared_info,
+                    to_vmm,
+                    from_vmm,
+                    to_vmm_event_fd,
+                )
+                .expect("Cannot create API server")
+                .bind_and_run(
+                    bind_path,
+                    start_time_us,
+                    start_time_cpu_us,
+                    seccomp_level,
+                ) {
                     Ok(_) => (),
                     Err(Error::Io(inner)) => match inner.kind() {
                         io::ErrorKind::AddrInUse => {
@@ -226,8 +236,9 @@ fn main() {
 
     start_vmm(
         api_shared_info,
-        api_event_fd,
+        request_event_fd,
         from_api,
+        to_api,
         seccomp_level,
         vmm_config_json,
     );
@@ -248,7 +259,8 @@ fn main() {
 fn start_vmm(
     api_shared_info: Arc<RwLock<InstanceInfo>>,
     api_event_fd: EventFd,
-    from_api: Receiver<api_server::VmmRequest>,
+    from_api: Receiver<VmmRequest>,
+    to_api: Sender<VmmResponse>,
     seccomp_level: u32,
     config_json: Option<String>,
 ) {
@@ -286,7 +298,9 @@ fn start_vmm(
                     break vmm::FC_EXIT_CODE_OK;
                 }
                 EventLoopExitReason::ControlAction => {
-                    if let Err(exit_code) = vmm_control_event(&mut vmm, &api_event_fd, &from_api) {
+                    if let Err(exit_code) =
+                        vmm_control_event(&mut vmm, &api_event_fd, &from_api, &to_api)
+                    {
                         break exit_code;
                     }
                 }
@@ -303,7 +317,8 @@ fn start_vmm(
 fn vmm_control_event(
     vmm: &mut Vmm,
     api_event_fd: &EventFd,
-    from_api: &Receiver<api_server::VmmRequest>,
+    from_api: &Receiver<VmmRequest>,
+    to_api: &Sender<VmmResponse>,
 ) -> Result<(), u8> {
     api_event_fd.read().map_err(|e| {
         error!("VMM: Failed to read the API event_fd: {}", e);
@@ -313,7 +328,7 @@ fn vmm_control_event(
     match from_api.try_recv() {
         Ok(vmm_request) => {
             use api_server::VmmAction::*;
-            let (action_request, sender) = vmm_request.unpack();
+            let action_request = *vmm_request;
             let response = match action_request {
                 ConfigureBootSource(boot_source_body) => vmm
                     .configure_boot_source(boot_source_body)
@@ -351,8 +366,8 @@ fn vmm_control_event(
                     .map(|_| api_server::VmmData::Empty),
             };
             // Run the requested action and send back the result.
-            sender
-                .send(response)
+            to_api
+                .send(Box::new(response))
                 .map_err(|_| ())
                 .expect("one-shot channel closed");
         }
