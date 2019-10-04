@@ -2904,12 +2904,6 @@ mod tests {
         let vmm = create_vmm_object(InstanceState::Starting);
         assert_eq!(vmm.is_instance_initialized(), true);
 
-        let vmm = create_vmm_object(InstanceState::Halting);
-        assert_eq!(vmm.is_instance_initialized(), true);
-
-        let vmm = create_vmm_object(InstanceState::Halted);
-        assert_eq!(vmm.is_instance_initialized(), true);
-
         let vmm = create_vmm_object(InstanceState::Running);
         assert_eq!(vmm.is_instance_initialized(), true);
     }
