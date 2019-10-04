@@ -78,7 +78,7 @@ mod server;
 use common::ascii;
 use common::headers;
 
-pub use connection::{HttpConnection, ConnectionError};
+pub use connection::{ConnectionError, HttpConnection};
 pub use request::{Request, RequestError};
 pub use response::{Response, StatusCode};
 pub use server::{HttpServer, ServerError, ServerRequest, ServerResponse};
