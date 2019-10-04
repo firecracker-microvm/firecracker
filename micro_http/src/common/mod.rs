@@ -280,4 +280,77 @@ mod tests {
         // Test for raw
         assert_eq!(body.raw(), b"This is a body.");
     }
+
+    #[test]
+    fn test_display_request_error() {
+        assert_eq!(
+            format!("{}", RequestError::InvalidHttpMethod("test")),
+            "Invalid HTTP Method: test"
+        );
+        assert_eq!(
+            format!("{}", RequestError::InvalidUri("test")),
+            "Invalid URI: test"
+        );
+        assert_eq!(
+            format!("{}", RequestError::InvalidHttpVersion("test")),
+            "Invalid HTTP Version: test"
+        );
+        assert_eq!(
+            format!("{}", RequestError::InvalidHeader),
+            "Invalid header."
+        );
+        assert_eq!(
+            format!("{}", RequestError::UnsupportedHeader),
+            "Unsupported header."
+        );
+        assert_eq!(
+            format!("{}", RequestError::InvalidRequest),
+            "Invalid request."
+        );
+    }
+
+    #[test]
+    fn test_display_connection_error() {
+        assert_eq!(
+            format!(
+                "{}",
+                ConnectionError::ParseError(RequestError::InvalidRequest)
+            ),
+            "Parsing error: Invalid request."
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                ConnectionError::StreamError(std::io::Error::from_raw_os_error(11))
+            ),
+            "Stream error: Resource temporarily unavailable (os error 11)"
+        );
+        assert_eq!(
+            format!("{}", ConnectionError::ConnectionClosed),
+            "Connection closed."
+        );
+        assert_eq!(
+            format!("{}", ConnectionError::InvalidWrite),
+            "Invalid write attempt."
+        );
+    }
+
+    #[test]
+    fn test_display_server_error() {
+        assert_eq!(
+            format!(
+                "{}",
+                ServerError::ConnectionError(ConnectionError::ConnectionClosed)
+            ),
+            "Connection error: Connection closed."
+        );
+        assert_eq!(format!("{}", ServerError::ServerFull), "Server is full.");
+        assert_eq!(
+            format!(
+                "{}",
+                ServerError::IOError(std::io::Error::from_raw_os_error(11))
+            ),
+            "IO error: Resource temporarily unavailable (os error 11)"
+        );
+    }
 }
