@@ -5,8 +5,9 @@ use serde_json::Value;
 
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use request::instance_info::parse_get_instance_info;
+use request::logger::parse_put_logger;
 use request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
-use ApiServer;
+use {ApiServer, VmmAction, VmmData};
 
 #[allow(clippy::large_enum_variant)]
 pub enum ParsedRequest {
@@ -14,6 +15,7 @@ pub enum ParsedRequest {
     GetMMDS,
     PatchMMDS(Value),
     PutMMDS(Value),
+    Sync(VmmAction),
 }
 
 impl ParsedRequest {
@@ -29,10 +31,38 @@ impl ParsedRequest {
         match (request.method(), path_tokens[0], request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
+            (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body),
             (Method::Patch, "mmds", Some(body)) => parse_patch_mmds(body),
             (method, unknown_uri, _) => {
                 Err(Error::InvalidPathMethod(unknown_uri.to_string(), method))
+            }
+        }
+    }
+
+    pub fn convert_to_response(
+        request_outcome: std::result::Result<VmmData, vmm::VmmActionError>,
+    ) -> Response {
+        match request_outcome {
+            Ok(vmm_data) => match vmm_data {
+                VmmData::Empty => {
+                    info!("The request was executed successfully. Status code: 204 No Content.");
+                    Response::new(Version::Http11, StatusCode::NoContent)
+                }
+                VmmData::MachineConfiguration(vm_config) => {
+                    // Will come in later commit.
+                    unimplemented!();
+                    Response::new(Version::Http11, StatusCode::OK);
+                }
+            },
+            Err(vmm_action_error) => {
+                error!(
+                    "Received Error. Status code: 400 Bad Request. Message: {}",
+                    vmm_action_error
+                );
+                let mut response = Response::new(Version::Http11, StatusCode::BadRequest);
+                response.set_body(Body::new(vmm_action_error.to_string()));
+                response
             }
         }
     }
