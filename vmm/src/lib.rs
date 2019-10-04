@@ -234,7 +234,11 @@ impl EpollContext {
     /// Given a file descriptor `fd`, and an EpollDispatch token `token`,
     /// associate `token` with an `EPOLLIN` event for `fd`, through the
     /// `dispatch_table`.
-    fn add_event<T: AsRawFd + ?Sized>(&mut self, fd: &T, token: EpollDispatch) -> Result<()> {
+    fn add_epollin_event<T: AsRawFd + ?Sized>(
+        &mut self,
+        fd: &T,
+        token: EpollDispatch,
+    ) -> Result<()> {
         // The index in the dispatch where the new token will be added.
         let dispatch_index = self.dispatch_table.len() as u64;
 
@@ -418,14 +422,14 @@ impl Vmm {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
         epoll_context
-            .add_event(control_fd, EpollDispatch::VmmActionRequest)
+            .add_epollin_event(control_fd, EpollDispatch::VmmActionRequest)
             .expect("Cannot add vmm control_fd to epoll.");
 
         let write_metrics_event_fd =
             TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?;
 
         epoll_context
-            .add_event(
+            .add_epollin_event(
                 // non-blocking & close on exec
                 &write_metrics_event_fd,
                 EpollDispatch::WriteMetrics,
@@ -1058,7 +1062,7 @@ impl Vmm {
                 .map_err(|_| EventFd)?;
 
             self.epoll_context
-                .add_event(&exit_poll_evt_fd, EpollDispatch::Exit)
+                .add_epollin_event(&exit_poll_evt_fd, EpollDispatch::Exit)
                 .map_err(|_| RegisterEvent)?;
 
             self.exit_evt = Some(exit_poll_evt_fd);
@@ -2212,12 +2216,12 @@ mod tests {
     }
 
     #[test]
-    fn add_event_test() {
+    fn add_epollin_event_test() {
         let mut ep = EpollContext::new().unwrap();
         let evfd = EventFd::new().unwrap();
 
         // adding new event should work
-        assert!(ep.add_event(&evfd, EpollDispatch::Exit).is_ok());
+        assert!(ep.add_epollin_event(&evfd, EpollDispatch::Exit).is_ok());
     }
 
     #[test]
@@ -2226,7 +2230,7 @@ mod tests {
         let evfd = EventFd::new().unwrap();
 
         // adding new event should work
-        assert!(ep.add_event(&evfd, EpollDispatch::Exit).is_ok());
+        assert!(ep.add_epollin_event(&evfd, EpollDispatch::Exit).is_ok());
 
         let evpoll_events_len = 10;
         let mut events = vec![epoll::Event::new(epoll::Events::empty(), 0); evpoll_events_len];
