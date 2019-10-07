@@ -676,6 +676,7 @@ mod tests {
     extern crate net_util;
 
     use self::net_util::MacAddr;
+    use super::super::VmmAction;
     use super::*;
 
     use serde_json::{Map, Value};
@@ -687,7 +688,6 @@ mod tests {
     use hyper::Body;
     use vmm::vmm_config::logger::LoggerLevel;
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
-    use vmm::VmmAction;
 
     impl<'a> std::fmt::Debug for Error<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

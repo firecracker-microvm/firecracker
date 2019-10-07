@@ -383,51 +383,6 @@ impl Display for VmmActionError {
     }
 }
 
-/// This enum represents the public interface of the VMM. Each action contains various
-/// bits of information (ids, paths, etc.).
-#[derive(Debug)]
-pub enum VmmAction {
-    /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
-    /// action can only be called before the microVM has booted.
-    ConfigureBootSource(BootSourceConfig),
-    /// Configure the logger using as input the `LoggerConfig`. This action can only be called
-    /// before the microVM has booted.
-    ConfigureLogger(LoggerConfig),
-    /// Get the configuration of the microVM.
-    GetVmConfiguration,
-    /// Flush the metrics. This action can only be called after the logger has been configured.
-    FlushMetrics,
-    /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
-    /// input. This action can only be called before the microVM has booted.
-    InsertBlockDevice(BlockDeviceConfig),
-    /// Add a new network interface config or update one that already exists using the
-    /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
-    /// booted.
-    InsertNetworkDevice(NetworkInterfaceConfig),
-    /// Set the vsock device or update the one that already exists using the
-    /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
-    /// booted.
-    SetVsockDevice(VsockDeviceConfig),
-    /// Update the size of an existing block device specified by an ID. The ID is the first data
-    /// associated with this enum variant. This action can only be called after the microVM is
-    /// started.
-    RescanBlockDevice(String),
-    /// Set the microVM configuration (memory & vcpu) using `VmConfig` as input. This
-    /// action can only be called before the microVM has booted.
-    SetVmConfiguration(VmConfig),
-    /// Launch the microVM. This action can only be called before the microVM has booted.
-    StartMicroVm,
-    /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
-    /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
-    SendCtrlAltDel,
-    /// Update the path of an existing block device. The data associated with this variant
-    /// represents the `drive_id` and the `path_on_host`.
-    UpdateBlockDevicePath(String, String),
-    /// Update a network interface, after microVM start. Currently, the only updatable properties
-    /// are the RX and TX rate limiters.
-    UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
-}
-
 /// The enum represents the response sent by the VMM in case of success. The response is either
 /// empty, when no data needs to be sent, or an internal VMM structure.
 #[derive(Debug)]
@@ -849,6 +804,11 @@ impl Vmm {
         })
     }
 
+    /// Returns the VmConfig of this Vmm.
+    pub fn vm_config(&self) -> &VmConfig {
+        &self.vm_config
+    }
+
     fn update_drive_handler(
         &mut self,
         drive_id: &str,
@@ -1054,7 +1014,8 @@ impl Vmm {
         self.kernel_config = Some(kernel_config);
     }
 
-    fn flush_metrics(&mut self) -> std::result::Result<VmmData, VmmActionError> {
+    /// Force writes metrics.
+    pub fn flush_metrics(&mut self) -> std::result::Result<VmmData, VmmActionError> {
         self.write_metrics().map(|_| VmmData::Empty).map_err(|e| {
             let (kind, error_contents) = match e {
                 LoggerError::NeverInitialized(s) => (ErrorKind::User, s),
@@ -1515,7 +1476,8 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
-    fn send_ctrl_alt_del(&mut self) -> std::result::Result<VmmData, VmmActionError> {
+    /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
+    pub fn send_ctrl_alt_del(&mut self) -> std::result::Result<VmmData, VmmActionError> {
         self.pio_device_manager
             .i8042
             .lock()
@@ -1762,7 +1724,8 @@ impl Vmm {
             .map_err(|e| VmmActionError::NetworkConfig(ErrorKind::User, e))
     }
 
-    fn update_net_device(
+    /// Updates configuration for an emulated net device as described in `new_cfg`.
+    pub fn update_net_device(
         &mut self,
         new_cfg: NetworkInterfaceUpdateConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
@@ -1842,7 +1805,8 @@ impl Vmm {
         }
     }
 
-    fn set_block_device_path(
+    /// Updates the path of the host file backing the emulated block device with id `drive_id`.
+    pub fn set_block_device_path(
         &mut self,
         drive_id: String,
         path_on_host: String,
@@ -1874,7 +1838,8 @@ impl Vmm {
         Ok(VmmData::Empty)
     }
 
-    fn rescan_block_device(
+    /// Triggers a rescan of the host file backing the emulated block device with id `drive_id`.
+    pub fn rescan_block_device(
         &mut self,
         drive_id: &str,
     ) -> std::result::Result<VmmData, VmmActionError> {
@@ -1925,7 +1890,8 @@ impl Vmm {
             .map_err(VmmActionError::from)
     }
 
-    fn init_logger(
+    /// Configures the logger as described in `logger_cfg`.
+    pub fn init_logger(
         &self,
         logger_cfg: LoggerConfig,
     ) -> std::result::Result<VmmData, VmmActionError> {
@@ -1993,34 +1959,6 @@ impl Vmm {
             })
     }
 
-    /// Runs the received `vmm_action` in the context of this vmm.
-    pub fn run_vmm_action(&mut self, vmm_action: VmmAction) -> VmmRequestOutcome {
-        use VmmAction::*;
-
-        match vmm_action {
-            ConfigureBootSource(boot_source_body) => self.configure_boot_source(
-                boot_source_body.kernel_image_path,
-                boot_source_body.boot_args,
-            ),
-            ConfigureLogger(logger_description) => self.init_logger(logger_description),
-            FlushMetrics => self.flush_metrics(),
-            GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
-            InsertBlockDevice(block_device_config) => self.insert_block_device(block_device_config),
-            InsertNetworkDevice(netif_body) => self.insert_net_device(netif_body),
-            SetVsockDevice(vsock_cfg) => self.set_vsock_device(vsock_cfg),
-            RescanBlockDevice(drive_id) => self.rescan_block_device(&drive_id),
-            StartMicroVm => self.start_microvm(),
-            SendCtrlAltDel => self.send_ctrl_alt_del(),
-            SetVmConfiguration(machine_config_body) => {
-                self.set_vm_configuration(machine_config_body)
-            }
-            UpdateBlockDevicePath(drive_id, path_on_host) => {
-                self.set_block_device_path(drive_id, path_on_host)
-            }
-            UpdateNetworkInterface(netif_update) => self.update_net_device(netif_update),
-        }
-    }
-
     fn log_boot_time(t0_ts: &TimestampUs) {
         let now_cpu_us = get_time(ClockType::ProcessCpu) / 1000;
         let now_us = get_time_us();
@@ -2072,47 +2010,6 @@ impl Vmm {
     /// Returns a reference to the inner KVM Vm object.
     pub fn kvm_vm(&self) -> &Vm {
         &self.vm
-    }
-}
-
-// Can't derive PartialEq directly because the sender members can't be compared.
-// This implementation is only used in tests, but cannot be moved to mod tests,
-// because it is used in tests outside of the vmm crate (api_server).
-impl PartialEq for VmmAction {
-    fn eq(&self, other: &VmmAction) -> bool {
-        use VmmAction::*;
-        match (self, other) {
-            (
-                &UpdateBlockDevicePath(ref drive_id, ref path_on_host),
-                &UpdateBlockDevicePath(ref other_drive_id, ref other_path_on_host),
-            ) => drive_id == other_drive_id && path_on_host == other_path_on_host,
-            (
-                &ConfigureBootSource(ref boot_source),
-                &ConfigureBootSource(ref other_boot_source),
-            ) => boot_source == other_boot_source,
-            (
-                &InsertBlockDevice(ref block_device),
-                &InsertBlockDevice(ref other_other_block_device),
-            ) => block_device == other_other_block_device,
-            (&SetVsockDevice(ref vsock_device), &SetVsockDevice(ref other_vsock_device)) => {
-                vsock_device == other_vsock_device
-            }
-            (&ConfigureLogger(ref log), &ConfigureLogger(ref other_log)) => log == other_log,
-            (&SetVmConfiguration(ref vm_config), &SetVmConfiguration(ref other_vm_config)) => {
-                vm_config == other_vm_config
-            }
-            (&InsertNetworkDevice(ref net_dev), &InsertNetworkDevice(ref other_net_dev)) => {
-                net_dev == other_net_dev
-            }
-            (&UpdateNetworkInterface(ref net_dev), &UpdateNetworkInterface(ref other_net_dev)) => {
-                net_dev == other_net_dev
-            }
-            (&RescanBlockDevice(ref req), &RescanBlockDevice(ref other_req)) => req == other_req,
-            (&StartMicroVm, &StartMicroVm) => true,
-            (&SendCtrlAltDel, &SendCtrlAltDel) => true,
-            (&FlushMetrics, &FlushMetrics) => true,
-            _ => false,
-        }
     }
 }
 

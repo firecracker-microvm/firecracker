@@ -6,10 +6,9 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::Method;
 
-use super::VmmRequest;
+use super::{VmmAction, VmmRequest};
 use request::{IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
-use vmm::VmmAction;
 
 impl IntoParsedRequest for NetworkInterfaceConfig {
     fn into_parsed_request(

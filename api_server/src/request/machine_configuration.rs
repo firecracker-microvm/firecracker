@@ -6,11 +6,10 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::{Method, Response, StatusCode};
 
-use super::VmmRequest;
+use super::{VmmAction, VmmRequest};
 use http_service::json_response;
 use request::{GenerateHyperResponse, IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::machine_config::VmConfig;
-use vmm::VmmAction;
 
 impl GenerateHyperResponse for VmConfig {
     fn generate_response(&self) -> Response {

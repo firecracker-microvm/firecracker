@@ -6,10 +6,9 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::Method;
 
-use super::VmmRequest;
+use super::{VmmAction, VmmRequest};
 use request::{IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::boot_source::BootSourceConfig;
-use vmm::VmmAction;
 
 impl IntoParsedRequest for BootSourceConfig {
     fn into_parsed_request(
