@@ -10,6 +10,7 @@ use request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
 use request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
+use request::net::{parse_patch_net, parse_put_net};
 use request::vsock::parse_put_vsock;
 use {ApiServer, VmmAction, VmmData};
 
@@ -39,9 +40,15 @@ impl ParsedRequest {
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "machine-config", maybe_body) => parse_put_machine_config(maybe_body),
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body),
+            (Method::Put, "network-interfaces", maybe_body) => {
+                parse_put_net(maybe_body, path_tokens.get(1))
+            }
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
             (Method::Patch, "machine-config", maybe_body) => parse_patch_machine_config(maybe_body),
             (Method::Patch, "mmds", Some(body)) => parse_patch_mmds(body),
+            (Method::Patch, "network-interfaces", maybe_body) => {
+                parse_patch_net(maybe_body, path_tokens.get(1))
+            }
             (method, unknown_uri, _) => {
                 Err(Error::InvalidPathMethod(unknown_uri.to_string(), method))
             }
@@ -151,4 +158,19 @@ impl Into<Response> for Error {
             ),
         }
     }
+}
+
+// This function is supposed to do id validation for requests.
+pub fn checked_id(id: &str) -> Result<&str, Error> {
+    // todo: are there any checks we want to do on id's?
+    // not allow them to be empty strings maybe?
+    // check: ensure string is not empty
+    if id.is_empty() {
+        return Err(Error::EmptyID);
+    }
+    // check: ensure string is alphanumeric
+    if !id.chars().all(|c| c == '_' || c.is_alphanumeric()) {
+        return Err(Error::InvalidID);
+    }
+    Ok(id)
 }
