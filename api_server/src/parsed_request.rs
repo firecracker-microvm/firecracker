@@ -4,6 +4,7 @@
 use serde_json::Value;
 
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
+use request::boot_source::parse_put_boot_source;
 use request::drive::{parse_patch_drive, parse_put_drive};
 use request::instance_info::parse_get_instance_info;
 use request::logger::parse_put_logger;
@@ -38,6 +39,7 @@ impl ParsedRequest {
             (Method::Get, "", None) => parse_get_instance_info(),
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
+            (Method::Put, "boot-source", Some(body)) => parse_put_boot_source(body),
             (Method::Put, "drives", maybe_body) => parse_put_drive(maybe_body, path_tokens.get(1)),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "machine-config", maybe_body) => parse_put_machine_config(maybe_body),
