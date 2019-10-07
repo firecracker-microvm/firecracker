@@ -4,6 +4,7 @@
 use serde_json::Value;
 
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
+use request::drive::{parse_patch_drive, parse_put_drive};
 use request::instance_info::parse_get_instance_info;
 use request::logger::parse_put_logger;
 use request::machine_configuration::{
@@ -37,6 +38,7 @@ impl ParsedRequest {
             (Method::Get, "", None) => parse_get_instance_info(),
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
+            (Method::Put, "drives", maybe_body) => parse_put_drive(maybe_body, path_tokens.get(1)),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "machine-config", maybe_body) => parse_put_machine_config(maybe_body),
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body),
@@ -44,6 +46,9 @@ impl ParsedRequest {
                 parse_put_net(maybe_body, path_tokens.get(1))
             }
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
+            (Method::Patch, "drives", maybe_body) => {
+                parse_patch_drive(maybe_body, path_tokens.get(1))
+            }
             (Method::Patch, "machine-config", maybe_body) => parse_patch_machine_config(maybe_body),
             (Method::Patch, "mmds", Some(body)) => parse_patch_mmds(body),
             (Method::Patch, "network-interfaces", maybe_body) => {
