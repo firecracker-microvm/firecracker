@@ -1,6 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod drive;
 pub mod instance_info;
 pub mod logger;
 pub mod machine_configuration;
