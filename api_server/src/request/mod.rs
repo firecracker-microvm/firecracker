@@ -15,9 +15,9 @@ use std::result;
 use hyper;
 use hyper::{Method, StatusCode};
 
-use super::{ResponseReceiver, VmmAction, VmmRequest};
+use super::{ResponseReceiver, VmmAction, VmmData, VmmRequest};
 use http_service::{empty_response, json_fault_message, json_response};
-use vmm::{ErrorKind, VmmActionError, VmmData};
+use vmm::{ErrorKind, VmmActionError};
 
 pub enum ParsedRequest {
     GetInstanceInfo,

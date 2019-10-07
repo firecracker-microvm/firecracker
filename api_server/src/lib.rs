@@ -44,6 +44,7 @@ use vmm::vmm_config::logger::LoggerConfig;
 use vmm::vmm_config::machine_config::VmConfig;
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 use vmm::vmm_config::vsock::VsockDeviceConfig;
+use vmm::VmmActionError;
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -90,10 +91,20 @@ pub enum VmmAction {
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
 }
 
+/// The enum represents the response sent by the VMM in case of success. The response is either
+/// empty, when no data needs to be sent, or an internal VMM structure.
+#[derive(Debug)]
+pub enum VmmData {
+    /// No data is sent on the channel.
+    Empty,
+    /// The microVM configuration represented by `VmConfig`.
+    MachineConfiguration(VmConfig),
+}
+
 /// One shot channel used by VMM to send a response.
-pub type ResponseSender = oneshot::Sender<vmm::VmmRequestOutcome>;
+pub type ResponseSender = oneshot::Sender<std::result::Result<VmmData, VmmActionError>>;
 /// One shot channel used to receive a response from the VMM.
-pub type ResponseReceiver = oneshot::Receiver<vmm::VmmRequestOutcome>;
+pub type ResponseReceiver = oneshot::Receiver<std::result::Result<VmmData, VmmActionError>>;
 
 /// Wrapper over requested action to be done by the VMM and sender where the response will go.
 /// This is wrapped in a struct to allow custom PartialEq.

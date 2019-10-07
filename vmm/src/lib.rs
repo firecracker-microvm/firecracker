@@ -383,18 +383,8 @@ impl Display for VmmActionError {
     }
 }
 
-/// The enum represents the response sent by the VMM in case of success. The response is either
-/// empty, when no data needs to be sent, or an internal VMM structure.
-#[derive(Debug)]
-pub enum VmmData {
-    /// No data is sent on the channel.
-    Empty,
-    /// The microVM configuration represented by `VmConfig`.
-    MachineConfiguration(VmConfig),
-}
-
 /// Shorthand result type for external VMM commands.
-pub type VmmRequestOutcome = std::result::Result<VmmData, VmmActionError>;
+pub type UserResult = std::result::Result<(), VmmActionError>;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -1015,8 +1005,8 @@ impl Vmm {
     }
 
     /// Force writes metrics.
-    pub fn flush_metrics(&mut self) -> std::result::Result<VmmData, VmmActionError> {
-        self.write_metrics().map(|_| VmmData::Empty).map_err(|e| {
+    pub fn flush_metrics(&mut self) -> UserResult {
+        self.write_metrics().map_err(|e| {
             let (kind, error_contents) = match e {
                 LoggerError::NeverInitialized(s) => (ErrorKind::User, s),
                 _ => (ErrorKind::Internal, e.to_string()),
@@ -1403,7 +1393,7 @@ impl Vmm {
     }
 
     /// Set up the initial microVM state and start the vCPU threads.
-    pub fn start_microvm(&mut self) -> std::result::Result<VmmData, VmmActionError> {
+    pub fn start_microvm(&mut self) -> UserResult {
         info!("VMM received instance start command");
         if self.is_instance_initialized() {
             Err(StartMicrovmError::MicroVMAlreadyRunning)?;
@@ -1473,18 +1463,17 @@ impl Vmm {
             METRICS.logger.missed_metrics_count.inc();
         }
 
-        Ok(VmmData::Empty)
+        Ok(())
     }
 
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
-    pub fn send_ctrl_alt_del(&mut self) -> std::result::Result<VmmData, VmmActionError> {
+    pub fn send_ctrl_alt_del(&mut self) -> UserResult {
         self.pio_device_manager
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")
             .trigger_ctrl_alt_del()
-            .map_err(|e| VmmActionError::SendCtrlAltDel(ErrorKind::Internal, e))?;
-        Ok(VmmData::Empty)
+            .map_err(|e| VmmActionError::SendCtrlAltDel(ErrorKind::Internal, e))
     }
 
     /// Waits for all vCPUs to exit and terminates the Firecracker process.
@@ -1633,7 +1622,7 @@ impl Vmm {
         &mut self,
         kernel_image_path: String,
         kernel_cmdline: Option<String>,
-    ) -> std::result::Result<VmmData, VmmActionError> {
+    ) -> UserResult {
         use BootSourceConfigError::{
             InvalidKernelCommandLine, InvalidKernelPath, UpdateNotAllowedPostBoot,
         };
@@ -1660,14 +1649,11 @@ impl Vmm {
         };
         self.configure_kernel(kernel_config);
 
-        Ok(VmmData::Empty)
+        Ok(())
     }
 
     /// Set the machine configuration of the microVM.
-    pub fn set_vm_configuration(
-        &mut self,
-        machine_config: VmConfig,
-    ) -> std::result::Result<VmmData, VmmActionError> {
+    pub fn set_vm_configuration(&mut self, machine_config: VmConfig) -> UserResult {
         if self.is_instance_initialized() {
             Err(VmConfigError::UpdateNotAllowedPostBoot)?;
         }
@@ -1706,29 +1692,22 @@ impl Vmm {
             self.vm_config.cpu_template = machine_config.cpu_template;
         }
 
-        Ok(VmmData::Empty)
+        Ok(())
     }
 
     /// Inserts a network device to be attached when the VM starts.
-    pub fn insert_net_device(
-        &mut self,
-        body: NetworkInterfaceConfig,
-    ) -> std::result::Result<VmmData, VmmActionError> {
+    pub fn insert_net_device(&mut self, body: NetworkInterfaceConfig) -> UserResult {
         if self.is_instance_initialized() {
             Err(NetworkInterfaceError::UpdateNotAllowedPostBoot)?;
         }
         self.device_configs
             .network_interface
             .insert(body)
-            .map(|_| VmmData::Empty)
             .map_err(|e| VmmActionError::NetworkConfig(ErrorKind::User, e))
     }
 
     /// Updates configuration for an emulated net device as described in `new_cfg`.
-    pub fn update_net_device(
-        &mut self,
-        new_cfg: NetworkInterfaceUpdateConfig,
-    ) -> std::result::Result<VmmData, VmmActionError> {
+    pub fn update_net_device(&mut self, new_cfg: NetworkInterfaceUpdateConfig) -> UserResult {
         if !self.is_instance_initialized() {
             // VM not started yet, so we only need to update the device configs, not the actual
             // live device.
@@ -1786,14 +1765,11 @@ impl Vmm {
             );
         }
 
-        Ok(VmmData::Empty)
+        Ok(())
     }
 
     /// Sets a vsock device to be attached when the VM starts.
-    pub fn set_vsock_device(
-        &mut self,
-        config: VsockDeviceConfig,
-    ) -> std::result::Result<VmmData, VmmActionError> {
+    pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> UserResult {
         if self.is_instance_initialized() {
             Err(VmmActionError::VsockConfig(
                 ErrorKind::User,
@@ -1801,16 +1777,12 @@ impl Vmm {
             ))
         } else {
             self.device_configs.vsock = Some(config);
-            Ok(VmmData::Empty)
+            Ok(())
         }
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
-    pub fn set_block_device_path(
-        &mut self,
-        drive_id: String,
-        path_on_host: String,
-    ) -> std::result::Result<VmmData, VmmActionError> {
+    pub fn set_block_device_path(&mut self, drive_id: String, path_on_host: String) -> UserResult {
         // Get the block device configuration specified by drive_id.
         let block_device_index = self
             .device_configs
@@ -1835,14 +1807,11 @@ impl Vmm {
             self.update_drive_handler(&drive_id, disk_file)?;
             self.rescan_block_device(&drive_id)?;
         }
-        Ok(VmmData::Empty)
+        Ok(())
     }
 
     /// Triggers a rescan of the host file backing the emulated block device with id `drive_id`.
-    pub fn rescan_block_device(
-        &mut self,
-        drive_id: &str,
-    ) -> std::result::Result<VmmData, VmmActionError> {
+    pub fn rescan_block_device(&mut self, drive_id: &str) -> UserResult {
         // Rescan can only happen after the guest is booted.
         if !self.is_instance_initialized() {
             Err(DriveError::OperationNotAllowedPreBoot)?;
@@ -1866,7 +1835,6 @@ impl Vmm {
                 }
                 return device_manager
                     .update_drive(drive_id, new_size)
-                    .map(|_| VmmData::Empty)
                     .map_err(|_| VmmActionError::from(DriveError::BlockDeviceUpdateFailed));
             }
         }
@@ -1876,25 +1844,18 @@ impl Vmm {
     /// Inserts a block to be attached when the VM starts.
     // Only call this function as part of user configuration.
     // If the drive_id does not exist, a new Block Device Config is added to the list.
-    pub fn insert_block_device(
-        &mut self,
-        block_device_config: BlockDeviceConfig,
-    ) -> std::result::Result<VmmData, VmmActionError> {
+    pub fn insert_block_device(&mut self, block_device_config: BlockDeviceConfig) -> UserResult {
         if self.is_instance_initialized() {
             Err(DriveError::UpdateNotAllowedPostBoot)?;
         }
         self.device_configs
             .block
             .insert(block_device_config)
-            .map(|_| VmmData::Empty)
             .map_err(VmmActionError::from)
     }
 
     /// Configures the logger as described in `logger_cfg`.
-    pub fn init_logger(
-        &self,
-        logger_cfg: LoggerConfig,
-    ) -> std::result::Result<VmmData, VmmActionError> {
+    pub fn init_logger(&self, logger_cfg: LoggerConfig) -> UserResult {
         if self.is_instance_initialized() {
             return Err(VmmActionError::Logger(
                 ErrorKind::User,
@@ -1950,7 +1911,6 @@ impl Vmm {
                     )
                 })?),
             )
-            .map(|_| VmmData::Empty)
             .map_err(|e| {
                 VmmActionError::Logger(
                     ErrorKind::User,

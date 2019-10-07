@@ -315,30 +315,42 @@ fn vmm_control_event(
             use api_server::VmmAction::*;
             let (action_request, sender) = vmm_request.unpack();
             let response = match action_request {
-                ConfigureBootSource(boot_source_body) => vmm.configure_boot_source(
-                    boot_source_body.kernel_image_path,
-                    boot_source_body.boot_args,
-                ),
-                ConfigureLogger(logger_description) => vmm.init_logger(logger_description),
-                FlushMetrics => vmm.flush_metrics(),
-                GetVmConfiguration => {
-                    Ok(vmm::VmmData::MachineConfiguration(vmm.vm_config().clone()))
-                }
-                InsertBlockDevice(block_device_config) => {
-                    vmm.insert_block_device(block_device_config)
-                }
-                InsertNetworkDevice(netif_body) => vmm.insert_net_device(netif_body),
-                SetVsockDevice(vsock_cfg) => vmm.set_vsock_device(vsock_cfg),
-                RescanBlockDevice(drive_id) => vmm.rescan_block_device(&drive_id),
-                StartMicroVm => vmm.start_microvm(),
-                SendCtrlAltDel => vmm.send_ctrl_alt_del(),
-                SetVmConfiguration(machine_config_body) => {
-                    vmm.set_vm_configuration(machine_config_body)
-                }
-                UpdateBlockDevicePath(drive_id, path_on_host) => {
-                    vmm.set_block_device_path(drive_id, path_on_host)
-                }
-                UpdateNetworkInterface(netif_update) => vmm.update_net_device(netif_update),
+                ConfigureBootSource(boot_source_body) => vmm
+                    .configure_boot_source(
+                        boot_source_body.kernel_image_path,
+                        boot_source_body.boot_args,
+                    )
+                    .map(|_| api_server::VmmData::Empty),
+                ConfigureLogger(logger_description) => vmm
+                    .init_logger(logger_description)
+                    .map(|_| api_server::VmmData::Empty),
+                FlushMetrics => vmm.flush_metrics().map(|_| api_server::VmmData::Empty),
+                GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
+                    vmm.vm_config().clone(),
+                )),
+                InsertBlockDevice(block_device_config) => vmm
+                    .insert_block_device(block_device_config)
+                    .map(|_| api_server::VmmData::Empty),
+                InsertNetworkDevice(netif_body) => vmm
+                    .insert_net_device(netif_body)
+                    .map(|_| api_server::VmmData::Empty),
+                SetVsockDevice(vsock_cfg) => vmm
+                    .set_vsock_device(vsock_cfg)
+                    .map(|_| api_server::VmmData::Empty),
+                RescanBlockDevice(drive_id) => vmm
+                    .rescan_block_device(&drive_id)
+                    .map(|_| api_server::VmmData::Empty),
+                StartMicroVm => vmm.start_microvm().map(|_| api_server::VmmData::Empty),
+                SendCtrlAltDel => vmm.send_ctrl_alt_del().map(|_| api_server::VmmData::Empty),
+                SetVmConfiguration(machine_config_body) => vmm
+                    .set_vm_configuration(machine_config_body)
+                    .map(|_| api_server::VmmData::Empty),
+                UpdateBlockDevicePath(drive_id, path_on_host) => vmm
+                    .set_block_device_path(drive_id, path_on_host)
+                    .map(|_| api_server::VmmData::Empty),
+                UpdateNetworkInterface(netif_update) => vmm
+                    .update_net_device(netif_update)
+                    .map(|_| api_server::VmmData::Empty),
             };
             // Run the requested action and send back the result.
             sender
