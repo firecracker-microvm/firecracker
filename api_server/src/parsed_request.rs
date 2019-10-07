@@ -10,6 +10,7 @@ use request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
 use request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
+use request::vsock::parse_put_vsock;
 use {ApiServer, VmmAction, VmmData};
 
 #[allow(clippy::large_enum_variant)]
@@ -38,6 +39,7 @@ impl ParsedRequest {
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "machine-config", maybe_body) => parse_put_machine_config(maybe_body),
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body),
+            (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
             (Method::Patch, "machine-config", maybe_body) => parse_patch_machine_config(maybe_body),
             (Method::Patch, "mmds", Some(body)) => parse_patch_mmds(body),
             (method, unknown_uri, _) => {
