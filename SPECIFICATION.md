@@ -21,12 +21,21 @@ enough RAM, etc.), customers can rely on the following:
    [Open API specification](api_server/swagger/firecracker.yaml). API failures
    are logged in the Firecracker log.
 1. **Overhead:** For a Firecracker virtual machine manager running a microVM
-   with `2 CPUs and 256 MiB of RAM`, and a guest OS with the Firecracker-tuned
+   with `1 CPUs and 128 MiB of RAM`, and a guest OS with the Firecracker-tuned
    kernel:
-   - Firecracker's virtual machine manager threads always have a memory
-     overhead `<= 5 MiB`;
+   - Firecracker's virtual machine manager threads have a memory overhead
+     `<= 5 MiB`. The memory overhead is dependent on the **workload** (e.g. a
+     workload with multiple [vsock](docs/vsock.md) connections might generate a
+     memory overhead > 5MiB) and on the VMM **configuration** (the overhead
+     does not include the memory used by the [MMDS](docs/mmds.md) data store).
+     The overhead is tested as part of the Firecracker CI using a
+     [memory cop](tests/host_tools/memory.py).
    - It takes `<= 125 ms` to go from receiving the Firecracker InstanceStart
      API call to the start of the Linux guest user-space `/sbin/init` process.
+     The boot time is measured using a VM with the serial console disabled
+     and a minimal kernel and root file system. For more details check the
+     [boot time](tests/integration_tests/performance/test_boottime.py)
+     integration tests.
    - The compute-only guest CPU performance is `> 95%` of the equivalent
      bare-metal performance. _`[integration test pending]`_
 1. **IO Performance:** With a host CPU core dedicated to the Firecracker device
