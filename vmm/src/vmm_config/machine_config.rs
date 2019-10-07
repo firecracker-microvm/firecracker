@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use serde::{de, Deserialize};
-use std::fmt::{Display, Formatter, Result};
+use std::fmt;
 
 /// Firecracker aims to support small scale workloads only, so limit the maximum
 /// vCPUs supported.
@@ -20,8 +20,8 @@ pub enum VmConfigError {
     UpdateNotAllowedPostBoot,
 }
 
-impl Display for VmConfigError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+impl fmt::Display for VmConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::VmConfigError::*;
         match *self {
             InvalidVcpuCount => write!(
@@ -71,6 +71,20 @@ impl Default for VmConfig {
     }
 }
 
+impl fmt::Display for VmConfig {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let vcpu_count = self.vcpu_count.unwrap_or(1);
+        let mem_size = self.mem_size_mib.unwrap_or(128);
+        let ht_enabled = self.ht_enabled.unwrap_or(false);
+        let cpu_template = self
+            .cpu_template
+            .map_or("Uninitialized".to_string(), |c| c.to_string());
+
+        write!(f, "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?},  \"ht_enabled\": {:?},  \"cpu_template\": {:?} }}",
+               vcpu_count, mem_size, ht_enabled, cpu_template)
+    }
+}
+
 fn validate_vcpu_num<'de, D>(d: D) -> std::result::Result<Option<u8>, D::Error>
 where
     D: de::Deserializer<'de>,
@@ -97,8 +111,8 @@ pub enum CpuFeaturesTemplate {
     T2,
 }
 
-impl Display for CpuFeaturesTemplate {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+impl fmt::Display for CpuFeaturesTemplate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             CpuFeaturesTemplate::C3 => write!(f, "C3"),
             CpuFeaturesTemplate::T2 => write!(f, "T2"),

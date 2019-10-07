@@ -6,6 +6,9 @@ use serde_json::Value;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use request::instance_info::parse_get_instance_info;
 use request::logger::parse_put_logger;
+use request::machine_configuration::{
+    parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
+};
 use request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use {ApiServer, VmmAction, VmmData};
 
@@ -30,9 +33,12 @@ impl ParsedRequest {
 
         match (request.method(), path_tokens[0], request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
+            (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
+            (Method::Put, "machine-config", maybe_body) => parse_put_machine_config(maybe_body),
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body),
+            (Method::Patch, "machine-config", maybe_body) => parse_patch_machine_config(maybe_body),
             (Method::Patch, "mmds", Some(body)) => parse_patch_mmds(body),
             (method, unknown_uri, _) => {
                 Err(Error::InvalidPathMethod(unknown_uri.to_string(), method))
@@ -50,9 +56,10 @@ impl ParsedRequest {
                     Response::new(Version::Http11, StatusCode::NoContent)
                 }
                 VmmData::MachineConfiguration(vm_config) => {
-                    // Will come in later commit.
-                    unimplemented!();
-                    Response::new(Version::Http11, StatusCode::OK);
+                    info!("The request was executed successfully. Status code: 200 OK.");
+                    let mut response = Response::new(Version::Http11, StatusCode::OK);
+                    response.set_body(Body::new(vm_config.to_string()));
+                    response
                 }
             },
             Err(vmm_action_error) => {
