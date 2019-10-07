@@ -6,10 +6,9 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::Method;
 
-use super::VmmRequest;
+use super::{VmmAction, VmmRequest};
 use request::{IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::vsock::VsockDeviceConfig;
-use vmm::VmmAction;
 
 impl IntoParsedRequest for VsockDeviceConfig {
     fn into_parsed_request(
