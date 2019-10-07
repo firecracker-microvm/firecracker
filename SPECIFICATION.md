@@ -6,8 +6,8 @@ specifications are enforced by integration tests (that run for each PR and
 master branch merge).
 
 On an I3.metal instance¹, with hyperthreading disabled and given host system
-resources are available (e.g., there are enough free CPU cycles, there is enough
-RAM, etc.), customers can rely on the following:
+resources are available (e.g., there are enough free CPU cycles, there is
+enough RAM, etc.), customers can rely on the following:
 
 1. **Stability:** The Firecracker virtual machine manager starts (up to API
    socket availability) within `8 CPU ms`² and never crashes/halts/terminates
@@ -17,15 +17,16 @@ RAM, etc.), customers can rely on the following:
 1. **Failure Information:** When failures occur due to external circumstances,
    they are logged³ by the Firecracker process.
 1. **API Stability:** The API socket is always available and the API conforms
-   to the in-tree [Open API specification](api_server/swagger/firecracker.yaml). API
-   failures are logged in the Firecracker log.
+   to the in-tree
+   [Open API specification](api_server/swagger/firecracker.yaml). API failures
+   are logged in the Firecracker log.
 1. **Overhead:** For a Firecracker virtual machine manager running a microVM
    with `2 CPUs and 256 MiB of RAM`, and a guest OS with the Firecracker-tuned
    kernel:
    - Firecracker's virtual machine manager threads always have a memory
      overhead `<= 5 MiB`;
-   - It takes `<= 125 ms` to go from receiving the Firecracker InstanceStart API
-     call to the start of the Linux guest user-space `/sbin/init` process.
+   - It takes `<= 125 ms` to go from receiving the Firecracker InstanceStart
+     API call to the start of the Linux guest user-space `/sbin/init` process.
    - The compute-only guest CPU performance is `> 95%` of the equivalent
      bare-metal performance. _`[integration test pending]`_
 1. **IO Performance:** With a host CPU core dedicated to the Firecracker device
@@ -39,7 +40,8 @@ RAM, etc.), customers can rely on the following:
    pipes are full will be lost. Any such events will be signaled through the
    `lost-logs` and `lost-metrics` counters.
 
-¹ I3.metal instances: [https://aws.amazon.com/ec2/instance-types/i3/](https://aws.amazon.com/ec2/instance-types/i3/)
+¹ I3.metal instances:
+[https://aws.amazon.com/ec2/instance-types/i3/](https://aws.amazon.com/ec2/instance-types/i3/)
 
 ² CPU ms are actual ms of a user space thread's on-CPU runtime; useful for
   getting consistent measurements for some performance metrics.
