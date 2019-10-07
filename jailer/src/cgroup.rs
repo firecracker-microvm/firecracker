@@ -158,9 +158,9 @@ impl Cgroup {
             }
         }
 
-        let keys_len = found_controllers.keys().len();
+        let found_controllers_len = found_controllers.len();
 
-        if keys_len < CONTROLLERS.len() {
+        if found_controllers_len < CONTROLLERS.len() {
             // We return an error about the first one we didn't find.
             for controller in CONTROLLERS.iter() {
                 if !found_controllers.contains_key(controller) {
@@ -173,10 +173,10 @@ impl Cgroup {
         }
 
         // This is just a sanity check.
-        assert_eq!(keys_len, CONTROLLERS.len());
+        assert_eq!(found_controllers_len, CONTROLLERS.len());
 
         // We now both create the cgroup subfolders, and fill the tasks_files vector.
-        let mut tasks_files = Vec::with_capacity(keys_len);
+        let mut tasks_files = Vec::with_capacity(found_controllers_len);
 
         for (controller, mut path_buf) in found_controllers.drain() {
             path_buf.push(exec_file_name);
