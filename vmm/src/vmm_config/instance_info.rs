@@ -14,7 +14,6 @@ use vstate;
 /// The microvm state. When Firecracker starts, the instance state is Uninitialized.
 /// Once start_microvm method is called, the state goes from Uninitialized to Starting.
 /// The state is changed to Running before ending the start_microvm method.
-/// Halting and Halted are currently unsupported.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum InstanceState {
     /// Microvm is not initialized.
@@ -23,10 +22,6 @@ pub enum InstanceState {
     Starting,
     /// Microvm is running.
     Running,
-    /// Microvm received a halt instruction.
-    Halting,
-    /// Microvm is halted.
-    Halted,
 }
 
 /// The strongly typed that contains general information about the microVM.
