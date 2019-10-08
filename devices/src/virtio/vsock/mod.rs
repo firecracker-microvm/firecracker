@@ -282,7 +282,7 @@ mod tests {
         pub device: Vsock<TestBackend>,
 
         // This needs to live here, so that sending the handler, at device activation, works.
-        _handler_receiver: mpsc::Receiver<Box<EpollHandler>>,
+        _handler_receiver: mpsc::Receiver<Box<dyn EpollHandler>>,
     }
 
     impl TestContext {

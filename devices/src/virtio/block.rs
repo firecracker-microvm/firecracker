@@ -670,7 +670,7 @@ mod tests {
     struct DummyBlock {
         block: Block,
         epoll_raw_fd: i32,
-        _receiver: Receiver<Box<EpollHandler>>,
+        _receiver: Receiver<Box<dyn EpollHandler>>,
     }
 
     impl DummyBlock {
