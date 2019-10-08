@@ -71,3 +71,67 @@ pub fn parse_patch_machine_config(maybe_body: Option<&Body>) -> Result<ParsedReq
         )),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
+
+    #[test]
+    fn test_parse_get_machine_config_request() {
+        assert!(parse_get_machine_config().is_ok());
+    }
+
+    #[test]
+    fn test_parse_put_machine_config_request() {
+        assert!(parse_put_machine_config(None).is_err());
+        assert!(parse_put_machine_config(Some(&Body::new("invalid_payload"))).is_err());
+
+        let config_clone = VmConfig {
+            vcpu_count: Some(8),
+            mem_size_mib: Some(1024),
+            ht_enabled: Some(true),
+            cpu_template: Some(CpuFeaturesTemplate::T2),
+        };
+        let body = r#"{
+                "vcpu_count": 8,
+                "mem_size_mib": 1024,
+                "ht_enabled": true,
+                "cpu_template": "T2"
+              }"#;
+        match parse_put_machine_config(Some(&Body::new(body))) {
+            Ok(ParsedRequest::Sync(VmmAction::SetVmConfiguration(config))) => {
+                assert_eq!(config, config_clone)
+            }
+            _ => panic!("Test failed."),
+        }
+
+        let body = r#"{
+                "vcpu_count": 8,
+                "mem_size_mib": 1024
+              }"#;
+        assert!(parse_put_machine_config(Some(&Body::new(body))).is_err());
+    }
+
+    #[test]
+    fn test_parse_patch_machine_config_request() {
+        assert!(parse_patch_machine_config(None).is_err());
+        assert!(parse_patch_machine_config(Some(&Body::new("invalid_payload"))).is_err());
+
+        let body = r#"{}"#;
+        assert!(parse_patch_machine_config(Some(&Body::new(body))).is_err());
+
+        let body = r#"{
+                "vcpu_count": 8,
+                "mem_size_mib": 1024
+              }"#;
+        assert!(parse_patch_machine_config(Some(&Body::new(body))).is_ok());
+        let body = r#"{
+                "vcpu_count": 8,
+                "mem_size_mib": 1024,
+                "ht_enabled": false
+              }"#;
+        assert!(parse_patch_machine_config(Some(&Body::new(body))).is_ok());
+    }
+}

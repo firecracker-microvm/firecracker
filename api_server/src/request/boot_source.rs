@@ -15,3 +15,27 @@ pub fn parse_put_boot_source(body: &Body) -> Result<ParsedRequest, Error> {
         })?,
     )))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_boot_request() {
+        assert!(parse_put_boot_source(&Body::new("invalid_payload")).is_err());
+
+        let body = r#"{
+                "kernel_image_path": "/foo/bar",
+                "boot_args": "foobar"
+              }"#;
+        let same_body = BootSourceConfig {
+            kernel_image_path: String::from("/foo/bar"),
+            boot_args: Some(String::from("foobar")),
+        };
+        let result = parse_put_boot_source(&Body::new(body));
+        assert!(result.is_ok());
+        let parsed_req = result.unwrap_or_else(|_e| panic!("Failed test."));
+
+        assert!(parsed_req == ParsedRequest::Sync(VmmAction::ConfigureBootSource(same_body)));
+    }
+}

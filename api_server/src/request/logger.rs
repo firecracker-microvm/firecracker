@@ -15,3 +15,67 @@ pub fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
         })?,
     )))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(target_arch = "x86_64")]
+    use serde_json::Value;
+    use vmm::vmm_config::logger::LoggerLevel;
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_parse_logger_request_x64() {
+        let body = r#"{
+                "log_fifo": "log",
+                "metrics_fifo": "metrics",
+                "level": "Warning",
+                "show_level": false,
+                "show_log_origin": false,
+                "options": []
+              }"#;
+
+        let desc_clone = LoggerConfig {
+            log_fifo: String::from("log"),
+            metrics_fifo: String::from("metrics"),
+            level: LoggerLevel::Warning,
+            show_level: false,
+            show_log_origin: false,
+            #[cfg(target_arch = "x86_64")]
+            options: Value::Array(vec![]),
+        };
+        match parse_put_logger(&Body::new(body)) {
+            Ok(ParsedRequest::Sync(VmmAction::ConfigureLogger(desc))) => {
+                assert_eq!(desc, desc_clone)
+            }
+            _ => panic!("Test failed."),
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "x86_64"))]
+    fn test_parse_logger_request() {
+        let body = r#"{
+                "log_fifo": "log",
+                "metrics_fifo": "metrics",
+                "level": "Warning",
+                "show_level": false,
+                "show_log_origin": false
+              }"#;
+
+        let desc_clone = LoggerConfig {
+            log_fifo: String::from("log"),
+            metrics_fifo: String::from("metrics"),
+            level: LoggerLevel::Warning,
+            show_level: false,
+            show_log_origin: false,
+        };
+        match parse_put_logger(&Body::new(body)) {
+            Ok(ParsedRequest::Sync(VmmAction::ConfigureLogger(desc))) => {
+                assert_eq!(desc, desc_clone)
+            }
+            _ => panic!("Test failed."),
+        }
+    }
+}

@@ -10,3 +10,25 @@ pub fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {
         serde_json::from_slice::<VsockDeviceConfig>(body.raw()).map_err(Error::SerdeJson)?,
     )))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_vsock_request() {
+        let body = r#"{
+                "vsock_id": "foo",
+                "guest_cid": 42,
+                "uds_path": "vsock.sock"
+              }"#;
+        assert!(parse_put_vsock(&Body::new(body)).is_ok());
+
+        let body = r#"{
+                "vsock_id": "foo",
+                "guest_cid": 42,
+                "invalid_field": false
+              }"#;
+        assert!(parse_put_vsock(&Body::new(body)).is_err());
+    }
+}
