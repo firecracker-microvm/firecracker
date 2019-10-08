@@ -35,8 +35,13 @@ impl ParsedRequest {
             request.body.as_ref(),
         ));
         let path_tokens: Vec<&str> = request_uri[1..].split_terminator('/').collect();
+        let path = if path_tokens.is_empty() {
+            ""
+        } else {
+            path_tokens[0]
+        };
 
-        match (request.method(), path_tokens[0], request.body.as_ref()) {
+        match (request.method(), path, request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
@@ -123,6 +128,7 @@ fn describe(method: Method, path: &str, body: Option<&Body>) -> String {
     }
 }
 
+#[derive(Debug)]
 pub enum Error {
     // A generic error, with a given status code and message to be turned into a fault message.
     Generic(StatusCode, String),
@@ -182,4 +188,520 @@ pub fn checked_id(id: &str) -> Result<&str, Error> {
         return Err(Error::InvalidID);
     }
     Ok(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    use std::str::FromStr;
+
+    use micro_http::HttpConnection;
+    use vmm::vmm_config::machine_config::VmConfig;
+    use vmm::{StartMicrovmError, VmmActionError};
+
+    impl PartialEq for ParsedRequest {
+        fn eq(&self, other: &ParsedRequest) -> bool {
+            match (self, other) {
+                (&ParsedRequest::Sync(ref sync_req), &ParsedRequest::Sync(ref other_sync_req)) => {
+                    sync_req == other_sync_req
+                }
+                (&ParsedRequest::GetInstanceInfo, &ParsedRequest::GetInstanceInfo) => true,
+                (&ParsedRequest::GetMMDS, &ParsedRequest::GetMMDS) => true,
+                (&ParsedRequest::PutMMDS(ref val), &ParsedRequest::PutMMDS(ref other_val)) => {
+                    val == other_val
+                }
+                (&ParsedRequest::PatchMMDS(ref val), &ParsedRequest::PatchMMDS(ref other_val)) => {
+                    val == other_val
+                }
+                _ => false,
+            }
+        }
+    }
+
+    #[test]
+    fn test_checked_id() {
+        assert!(checked_id("dummy").is_ok());
+        assert!(checked_id("dummy_1").is_ok());
+        match checked_id("") {
+            Err(Error::EmptyID) => {}
+            _ => panic!("Test failed."),
+        }
+        match checked_id("dummy!!") {
+            Err(Error::InvalidID) => {}
+            _ => panic!("Test failed."),
+        }
+    }
+
+    #[test]
+    fn test_error_into_response() {
+        // Generic error.
+        let mut buf: [u8; 150] = [0; 150];
+        let response: Response =
+            Error::Generic(StatusCode::BadRequest, "message".to_string()).into();
+        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let expected_response = format!(
+            "HTTP/1.1 400 \r\n\
+             Server: Firecracker API\r\n\
+             Connection: keep-alive\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: 32\r\n\r\n\
+             {}",
+            ApiServer::basic_json_body("fault_message", "message")
+        );
+        assert_eq!(&buf[..], expected_response.as_bytes());
+
+        // Empty ID error.
+        let mut buf: [u8; 166] = [0; 166];
+        let response: Response = Error::EmptyID.into();
+        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let expected_response = format!(
+            "HTTP/1.1 400 \r\n\
+             Server: Firecracker API\r\n\
+             Connection: keep-alive\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: 48\r\n\r\n\
+             {}",
+            ApiServer::basic_json_body("fault_message", "The ID cannot be empty.")
+        );
+        assert_eq!(&buf[..], expected_response.as_bytes());
+
+        // Invalid ID error.
+        let mut buf: [u8; 217] = [0; 217];
+        let response: Response = Error::InvalidID.into();
+        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let expected_response = format!(
+            "HTTP/1.1 400 \r\n\
+             Server: Firecracker API\r\n\
+             Connection: keep-alive\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: 99\r\n\r\n\
+             {}",
+            ApiServer::basic_json_body(
+                "fault_message",
+                "API Resource IDs can only contain alphanumeric characters and underscores."
+            )
+        );
+        assert_eq!(&buf[..], expected_response.as_bytes());
+
+        // Invalid path or method error.
+        let mut buf: [u8; 187] = [0; 187];
+        let response: Response = Error::InvalidPathMethod("path".to_string(), Method::Get).into();
+        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let expected_response = format!(
+            "HTTP/1.1 400 \r\n\
+             Server: Firecracker API\r\n\
+             Connection: keep-alive\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: 69\r\n\r\n\
+             {}",
+            ApiServer::basic_json_body(
+                "fault_message",
+                format!(
+                    "Invalid request method and/or path: {} {}",
+                    std::str::from_utf8(Method::Get.raw()).unwrap(),
+                    "path"
+                )
+            )
+        );
+        assert_eq!(&buf[..], expected_response.as_bytes());
+
+        // Serde error.
+        let mut buf: [u8; 187] = [0; 187];
+        let serde_error = serde_json::Value::from_str("").unwrap_err();
+        let response: Response = Error::SerdeJson(serde_error).into();
+        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let expected_response = format!(
+            "HTTP/1.1 400 \r\n\
+             Server: Firecracker API\r\n\
+             Connection: keep-alive\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: 69\r\n\r\n\
+             {}",
+            ApiServer::basic_json_body(
+                "fault_message",
+                "EOF while parsing a value at line 1 column 0"
+            )
+        );
+        assert_eq!(&buf[..], expected_response.as_bytes());
+    }
+
+    #[test]
+    fn test_describe() {
+        assert_eq!(
+            describe(Method::Get, "path", None),
+            "synchronous Get request on \"path\""
+        );
+        assert_eq!(
+            describe(Method::Put, "/mmds", None),
+            "synchronous Put request on \"/mmds\""
+        );
+        assert_eq!(
+            describe(Method::Put, "path", Some(&Body::new("body"))),
+            "synchronous Put request on \"path\" with body \"body\""
+        );
+    }
+
+    #[test]
+    fn test_convert_to_response() {
+        // Empty Vmm data.
+        let mut buf: [u8; 66] = [0; 66];
+        let response = ParsedRequest::convert_to_response(Ok(VmmData::Empty));
+        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let expected_response = "HTTP/1.1 204 \r\n\
+                                 Server: Firecracker API\r\n\
+                                 Connection: keep-alive\r\n\r\n"
+            .to_string();
+        assert_eq!(&buf[..], expected_response.as_bytes());
+
+        // With Vmm data.
+        let mut buf: [u8; 214] = [0; 214];
+        let response = ParsedRequest::convert_to_response(Ok(VmmData::MachineConfiguration(
+            VmConfig::default(),
+        )));
+        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let expected_response = format!(
+            "HTTP/1.1 200 \r\n\
+             Server: Firecracker API\r\n\
+             Connection: keep-alive\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: 96\r\n\r\n{}",
+            VmConfig::default().to_string()
+        );
+        assert_eq!(&buf[..], expected_response.as_bytes());
+
+        // Error.
+        let mut buf: [u8; 160] = [0; 160];
+        let response = ParsedRequest::convert_to_response(Err(VmmActionError::from(
+            StartMicrovmError::EventFd,
+        )));
+        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let expected_response = format!(
+            "HTTP/1.1 400 \r\n\
+             Server: Firecracker API\r\n\
+             Connection: keep-alive\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: 42\r\n\r\n{}",
+            VmmActionError::from(StartMicrovmError::EventFd).to_string()
+        );
+        assert_eq!(&buf[..], expected_response.as_bytes());
+    }
+
+    #[test]
+    fn test_try_from_get_info() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender.write_all(b"GET / HTTP/1.1\r\n\r\n").unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_get_machine_config() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(b"GET /machine-config HTTP/1.1\r\n\r\n")
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_get_mmds() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender.write_all(b"GET /mmds HTTP/1.1\r\n\r\n").unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_actions() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PUT /actions HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 59\r\n\r\n{ \
+                \"action_type\": \"BlockDeviceRescan\", \
+                \"payload\": \"string\" \
+                }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_boot() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PUT /boot-source HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 56\r\n\r\n{ \
+                \"kernel_image_path\": \"string\", \
+                \"boot_args\": \"string\" \
+                }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_drives() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PUT /drives/string HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 266\r\n\r\n{ \
+                \"drive_id\": \"string\", \
+                \"path_on_host\": \"string\", \
+                \"is_root_device\": true, \
+                \"partuuid\": \"string\", \
+                \"is_read_only\": true, \
+                \"rate_limiter\": { \
+                    \"bandwidth\": { \
+                        \"size\": 0, \
+                        \"one_time_burst\": 0, \
+                        \"refill_time\": 0 \
+                    }, \
+                    \"ops\": { \
+                        \"size\": 0, \
+                        \"one_time_burst\": 0, \
+                        \"refill_time\": 0 \
+                    } \
+                } \
+            }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_logger() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+
+        #[cfg(target_arch = "x86_64")]
+        let req_as_bytes = b"PUT /logger HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 142\r\n\r\n{ \
+                \"log_fifo\": \"string\", \
+                \"metrics_fifo\": \"string\", \
+                \"level\": \"Warning\", \
+                \"show_level\": false, \
+                \"show_log_origin\": false, \
+                \"options\": [ \
+                    \"string\" \
+                ] \
+            }";
+        // `options` field in logger config is only available on x86_64.
+        #[cfg(not(target_arch = "x86_64"))]
+        let req_as_bytes = b"PUT /logger HTTP/1.1\r\n\
+            Content-Type: application/json\r\n\
+            Content-Length: 117\r\n\r\n{ \
+            \"log_fifo\": \"string\", \
+            \"metrics_fifo\": \"string\", \
+            \"level\": \"Warning\", \
+            \"show_level\": false, \
+            \"show_log_origin\": false \
+        }";
+
+        sender.write_all(req_as_bytes).unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_machine_config() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PUT /machine-config HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 80\r\n\r\n{ \
+                \"vcpu_count\": 0, \
+                \"mem_size_mib\": 0, \
+                \"ht_enabled\": true, \
+                \"cpu_template\": \"C3\" \
+            }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_mmds() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PUT /mmds HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 2\r\n\r\n{}",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_netif() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PUT /network-interfaces/string HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 416\r\n\r\n{ \
+                \"iface_id\": \"string\", \
+                \"guest_mac\": \"12:34:56:78:9a:BC\", \
+                \"host_dev_name\": \"string\", \
+                \"allow_mmds_requests\": true, \
+                \"rx_rate_limiter\": { \
+                    \"bandwidth\": { \
+                        \"size\": 0, \
+                        \"one_time_burst\": 0, \
+                        \"refill_time\": 0 \
+                    }, \
+                    \"ops\": { \
+                        \"size\": 0, \
+                        \"one_time_burst\": 0, \
+                        \"refill_time\": 0 \
+                    } \
+                }, \
+                \"tx_rate_limiter\": { \
+                    \"bandwidth\": { \
+                        \"size\": 0, \
+                        \"one_time_burst\": 0, \
+                        \"refill_time\": 0 \
+                    }, \
+                    \"ops\": { \
+                        \"size\": 0, \
+                        \"one_time_burst\": 0, \
+                        \"refill_time\": 0 \
+                    } \
+                } \
+            }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_vsock() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PUT /vsock HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 62\r\n\r\n{ \
+                \"vsock_id\": \"string\", \
+                \"guest_cid\": 0, \
+                \"uds_path\": \"string\" \
+            }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_patch_drives() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PATCH /drives/string HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 50\r\n\r\n{ \
+                \"drive_id\": \"string\", \
+                \"path_on_host\": \"string\" \
+            }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_patch_machine_config() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PATCH /machine-config HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 80\r\n\r\n{ \
+                \"vcpu_count\": 0, \
+                \"mem_size_mib\": 0, \
+                \"ht_enabled\": true, \
+                \"cpu_template\": \"C3\" \
+            }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_patch_mmds() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PATCH /mmds HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 2\r\n\r\n{}",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_patch_netif() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PATCH /network-interfaces/string HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 24\r\n\r\n{ \
+                \"iface_id\": \"string\" \
+            }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
 }

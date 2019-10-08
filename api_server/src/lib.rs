@@ -221,7 +221,7 @@ impl ApiServer {
 
     fn handle_request(&self, request: &Request) -> Response {
         match ParsedRequest::try_from_request(request) {
-            Ok(ParsedRequest::Sync(vmm_action)) => self.server_vmm_action_request(vmm_action),
+            Ok(ParsedRequest::Sync(vmm_action)) => self.serve_vmm_action_request(vmm_action),
             Ok(ParsedRequest::GetInstanceInfo) => self.get_instance_info(),
             Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
             Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
@@ -230,7 +230,7 @@ impl ApiServer {
         }
     }
 
-    fn server_vmm_action_request(&self, vmm_action: VmmAction) -> Response {
+    fn serve_vmm_action_request(&self, vmm_action: VmmAction) -> Response {
         self.api_request_sender.send(Box::new(vmm_action)).unwrap();
         self.to_vmm_fd.write(1).unwrap();
         let vmm_outcome = *(self.vmm_response_receiver.recv().unwrap());
@@ -304,7 +304,7 @@ impl ApiServer {
         }
     }
 
-    // An HTTP response which also includes a body.
+    /// An HTTP response which also includes a body.
     pub fn json_response<T: Into<String>>(status: StatusCode, body: T) -> Response {
         let mut response = Response::new(Version::Http11, status);
         response.set_body(Body::new(body.into()));
@@ -328,6 +328,17 @@ impl ApiServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+    use std::sync::mpsc::channel;
+    use std::{fs, thread};
+
+    use micro_http::HttpConnection;
+    use mmds::MMDS;
+    use std::time::Duration;
+    use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
+    use vmm::{ErrorKind, StartMicrovmError, VmmActionError};
 
     #[test]
     fn test_error_messages() {
@@ -355,5 +366,334 @@ mod tests {
             format!("{:?}", e),
             format!("EventFd error: {}", io::Error::from_raw_os_error(0))
         );
+    }
+
+    #[test]
+    fn test_serve_vmm_action_request() {
+        let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state: InstanceState::Uninitialized,
+            id: "test_serve_action_req".to_string(),
+            vmm_version: "version 0.1.0".to_string(),
+        }));
+
+        let to_vmm_fd = EventFd::new().unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let api_server = ApiServer::new(
+            mmds_info,
+            vmm_shared_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        )
+        .unwrap();
+
+        to_api
+            .send(Box::new(Err(VmmActionError::StartMicrovm(
+                ErrorKind::User,
+                StartMicrovmError::EventFd,
+            ))))
+            .unwrap();
+        let response = api_server.serve_vmm_action_request(VmmAction::StartMicroVm);
+        assert_eq!(response.status(), StatusCode::BadRequest);
+    }
+
+    #[test]
+    fn test_get_instance_info() {
+        let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state: InstanceState::Uninitialized,
+            id: "test_get_instance_info".to_string(),
+            vmm_version: "version 0.1.0".to_string(),
+        }));
+
+        let to_vmm_fd = EventFd::new().unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let api_server = ApiServer::new(
+            mmds_info,
+            vmm_shared_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        )
+        .unwrap();
+
+        let response = api_server.get_instance_info();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_get_mmds() {
+        let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state: InstanceState::Uninitialized,
+            id: "test_get_mmds".to_string(),
+            vmm_version: "version 0.1.0".to_string(),
+        }));
+
+        let to_vmm_fd = EventFd::new().unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let api_server = ApiServer::new(
+            mmds_info,
+            vmm_shared_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        )
+        .unwrap();
+
+        let response = api_server.get_mmds();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_put_mmds() {
+        let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state: InstanceState::Uninitialized,
+            id: "test_put_mmds".to_string(),
+            vmm_version: "version 0.1.0".to_string(),
+        }));
+
+        let to_vmm_fd = EventFd::new().unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let api_server = ApiServer::new(
+            mmds_info,
+            vmm_shared_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        )
+        .unwrap();
+
+        let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
+        assert_eq!(response.status(), StatusCode::NoContent);
+
+        let response = api_server.put_mmds(serde_json::Value::Bool(true));
+        assert_eq!(response.status(), StatusCode::BadRequest);
+    }
+
+    #[test]
+    fn test_patch_mmds() {
+        let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state: InstanceState::Uninitialized,
+            id: "test_patch_mmds".to_string(),
+            vmm_version: "version 0.1.0".to_string(),
+        }));
+
+        let to_vmm_fd = EventFd::new().unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let api_server = ApiServer::new(
+            mmds_info,
+            vmm_shared_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        )
+        .unwrap();
+
+        let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
+        assert_eq!(response.status(), StatusCode::NoContent);
+
+        let response = api_server.patch_mmds(serde_json::Value::String("string".to_string()));
+        assert_eq!(response.status(), StatusCode::NoContent);
+
+        let response = api_server.patch_mmds(serde_json::Value::Bool(true));
+        assert_eq!(response.status(), StatusCode::BadRequest);
+    }
+
+    #[test]
+    fn test_handle_request() {
+        let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state: InstanceState::Uninitialized,
+            id: "test_handle_request".to_string(),
+            vmm_version: "version 0.1.0".to_string(),
+        }));
+
+        let to_vmm_fd = EventFd::new().unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let api_server = ApiServer::new(
+            mmds_info,
+            vmm_shared_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        )
+        .unwrap();
+        to_api
+            .send(Box::new(Err(VmmActionError::StartMicrovm(
+                ErrorKind::User,
+                StartMicrovmError::EventFd,
+            ))))
+            .unwrap();
+
+        // Test an Actions request.
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PUT /actions HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 49\r\n\r\n{ \
+                \"action_type\": \"Invalid\", \
+                \"payload\": \"string\" \
+                }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        let response = api_server.handle_request(&req);
+        assert_eq!(response.status(), StatusCode::BadRequest);
+
+        // Test a Get Info request.
+        sender.write_all(b"GET / HTTP/1.1\r\n\r\n").unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        let response = api_server.handle_request(&req);
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Test a Get Mmds request.
+        sender.write_all(b"GET /mmds HTTP/1.1\r\n\r\n").unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        let response = api_server.handle_request(&req);
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Test a Put Mmds request.
+        sender
+            .write_all(
+                b"PUT /mmds HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 2\r\n\r\n{}",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        let response = api_server.handle_request(&req);
+        assert_eq!(response.status(), StatusCode::NoContent);
+
+        // Test a Patch Mmds request.
+        sender
+            .write_all(
+                b"PATCH /mmds HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 2\r\n\r\n{}",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        let response = api_server.handle_request(&req);
+        assert_eq!(response.status(), StatusCode::NoContent);
+
+        // Test erroneous request.
+        sender
+            .write_all(
+                b"GET /mmds HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 2\r\n\r\n{}",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        let response = api_server.handle_request(&req);
+        assert_eq!(response.status(), StatusCode::BadRequest);
+    }
+
+    #[test]
+    fn test_bind_and_run() {
+        let path_to_socket = "/tmp/api_server_test_socket.sock";
+        fs::remove_file(path_to_socket).unwrap_or_default();
+        let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state: InstanceState::Uninitialized,
+            id: "test_handle_request".to_string(),
+            vmm_version: "version 0.1.0".to_string(),
+        }));
+
+        let to_vmm_fd = EventFd::new().unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        thread::Builder::new()
+            .name("fc_api_test".to_owned())
+            .spawn(move || {
+                ApiServer::new(
+                    mmds_info,
+                    vmm_shared_info,
+                    api_request_sender,
+                    vmm_response_receiver,
+                    to_vmm_fd,
+                )
+                .expect("Cannot create API server")
+                .bind_and_run(
+                    PathBuf::from(path_to_socket.to_string()),
+                    Some(1),
+                    Some(1),
+                    0,
+                )
+                .unwrap();
+            })
+            .unwrap();
+
+        // Wait for the server to set itself up.
+        thread::sleep(Duration::new(0, 10_000_000));
+        let mut sock = UnixStream::connect(PathBuf::from(path_to_socket.to_string())).unwrap();
+
+        // Send a GET instance-info request.
+        assert!(sock.write_all(b"GET / HTTP/1.1\r\n\r\n").is_ok());
+        let mut buf: [u8; 100] = [0; 100];
+        assert!(sock.read(&mut buf[..]).unwrap() > 0);
+
+        // Send an erroneous request.
+        assert!(sock.write_all(b"OPTIONS / HTTP/1.1\r\n\r\n").is_ok());
+        let mut buf: [u8; 100] = [0; 100];
+        assert!(sock.read(&mut buf[..]).unwrap() > 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_seccomp() {
+        let path_to_socket = "/tmp/api_server_test_socket2.sock";
+        fs::remove_file(path_to_socket).unwrap_or_default();
+        let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
+            state: InstanceState::Uninitialized,
+            id: "test_handle_request".to_string(),
+            vmm_version: "version 0.1.0".to_string(),
+        }));
+
+        let to_vmm_fd = EventFd::new().unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        ApiServer::new(
+            mmds_info,
+            vmm_shared_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        )
+        .expect("Cannot create API server")
+        .bind_and_run(
+            PathBuf::from(path_to_socket.to_string()),
+            Some(1),
+            Some(1),
+            89,
+        )
+        .unwrap();
     }
 }
