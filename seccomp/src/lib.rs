@@ -950,7 +950,6 @@ impl SeccompFilter {
                 filter: bpf_filter.as_ptr(),
             };
             let bpf_prog_ptr = &bpf_prog as *const sock_fprog;
-
             {
                 let rc = libc::prctl(
                     libc::PR_SET_SECCOMP,
@@ -1152,12 +1151,13 @@ mod tests {
     const KVM_GET_PIT2_MSB: u64 = 0x0000_ae9f;
     const KVM_GET_PIT2_LSB: u64 = 0x8070_0000;
 
-    const EXTRA_SYSCALLS: [i64; 5] = [
+    const EXTRA_SYSCALLS: [i64; 6] = [
         libc::SYS_rt_sigprocmask,
         libc::SYS_sigaltstack,
         libc::SYS_munmap,
         libc::SYS_exit,
         libc::SYS_rt_sigreturn,
+        libc::SYS_futex,
     ];
 
     fn validate_seccomp_filter(
