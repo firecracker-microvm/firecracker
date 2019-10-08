@@ -980,7 +980,7 @@ mod tests {
     struct DummyNet {
         net: Net,
         epoll_raw_fd: i32,
-        _receiver: Receiver<Box<EpollHandler>>,
+        _receiver: Receiver<Box<dyn EpollHandler>>,
     }
 
     impl DummyNet {
