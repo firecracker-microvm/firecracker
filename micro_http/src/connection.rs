@@ -71,6 +71,11 @@ impl<T: Read + Write> HttpConnection<T> {
     /// Tries to read new bytes from the stream and automatically update the request.
     /// Meant to be used only with non-blocking streams and an `EPOLL` structure.
     /// Should be called whenever an `EPOLLIN` event is signaled.
+    ///
+    /// # Errors
+    /// `StreamError` is returned when an IO operation fails.
+    /// `ConnectionClosed` is returned when a client prematurely closes the connection.
+    /// `ParseError` is returned when a parsing operation fails.
     pub fn try_read(&mut self) -> Result<(), ConnectionError> {
         // Read some bytes from the stream, which will be appended to what is already
         // present in the buffer from a previous call of `try_read`. There are already
@@ -293,6 +298,12 @@ impl<T: Read + Write> HttpConnection<T> {
     /// Tries to write the first available response to the provided stream.
     /// Meant to be used only with non-blocking streams and an `EPOLL` structure.
     /// Should be called whenever an `EPOLLOUT` event is signaled.
+    ///
+    /// # Errors
+    /// `StreamError` is returned when an IO operation fails.
+    /// `ConnectionClosed` is returned when trying to write on a closed connection.
+    /// `InvalidWrite` is returned when trying to write on a connection with an
+    /// empty outgoing buffer.
     pub fn try_write(&mut self) -> Result<(), ConnectionError> {
         if self.response_buffer.is_none() {
             if let Some(response) = self.response_queue.pop_front() {
@@ -357,9 +368,15 @@ impl<T: Read + Write> HttpConnection<T> {
         self.read_cursor = end_cursor - line_start_index;
     }
 
-    /// Returns the first parsed request in the queue.
+    /// Returns the first parsed request in the queue or `None` if the queue
+    /// is empty.
     pub fn pop_parsed_request(&mut self) -> Option<Request> {
         self.parsed_requests.pop_front()
+    }
+
+    /// Returns `true` if there are bytes waiting to be written into the stream.
+    pub fn pending_write(&self) -> bool {
+        self.response_buffer.is_some() || !self.response_queue.is_empty()
     }
 }
 
