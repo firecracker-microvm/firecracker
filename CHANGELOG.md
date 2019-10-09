@@ -22,6 +22,7 @@
 - Vsock API call: `PUT /vsocks/{id}` changed to `PUT /vsock` and no longer
   appear to support multiple vsock devices. Any subsequent calls to this API endpoint
   will override the previous vsock device configuration.
+- Removed unused 'Halting' and 'Halted' instance states.
 
 ### Fixed
 

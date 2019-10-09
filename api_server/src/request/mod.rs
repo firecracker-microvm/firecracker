@@ -15,15 +15,16 @@ use std::result;
 use hyper;
 use hyper::{Method, StatusCode};
 
+use super::{ResponseReceiver, VmmAction, VmmData, VmmRequest};
 use http_service::{empty_response, json_fault_message, json_response};
-use vmm::{ErrorKind, OutcomeReceiver, VmmAction, VmmActionError, VmmData};
+use vmm::{ErrorKind, VmmActionError};
 
 pub enum ParsedRequest {
     GetInstanceInfo,
     GetMMDS,
     PatchMMDS(Value),
     PutMMDS(Value),
-    Sync(Box<VmmAction>, OutcomeReceiver),
+    Sync(VmmRequest, ResponseReceiver),
 }
 
 pub trait IntoParsedRequest {
@@ -74,27 +75,6 @@ impl GenerateHyperResponse for VmmActionError {
 }
 
 #[cfg(test)]
-impl PartialEq for ParsedRequest {
-    fn eq(&self, other: &ParsedRequest) -> bool {
-        match (self, other) {
-            (
-                &ParsedRequest::Sync(ref sync_req, _),
-                &ParsedRequest::Sync(ref other_sync_req, _),
-            ) => sync_req == other_sync_req,
-            (&ParsedRequest::GetInstanceInfo, &ParsedRequest::GetInstanceInfo) => true,
-            (&ParsedRequest::GetMMDS, &ParsedRequest::GetMMDS) => true,
-            (&ParsedRequest::PutMMDS(ref val), &ParsedRequest::PutMMDS(ref other_val)) => {
-                val == other_val
-            }
-            (&ParsedRequest::PatchMMDS(ref val), &ParsedRequest::PatchMMDS(ref other_val)) => {
-                val == other_val
-            }
-            _ => false,
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
     extern crate arch;
     extern crate devices;
@@ -120,6 +100,26 @@ mod tests {
     use hyper::{Body, Response};
     use serde_json;
     use std;
+
+    impl PartialEq for ParsedRequest {
+        fn eq(&self, other: &ParsedRequest) -> bool {
+            match (self, other) {
+                (
+                    &ParsedRequest::Sync(ref sync_req, _),
+                    &ParsedRequest::Sync(ref other_sync_req, _),
+                ) => sync_req == other_sync_req,
+                (&ParsedRequest::GetInstanceInfo, &ParsedRequest::GetInstanceInfo) => true,
+                (&ParsedRequest::GetMMDS, &ParsedRequest::GetMMDS) => true,
+                (&ParsedRequest::PutMMDS(ref val), &ParsedRequest::PutMMDS(ref other_val)) => {
+                    val == other_val
+                }
+                (&ParsedRequest::PatchMMDS(ref val), &ParsedRequest::PatchMMDS(ref other_val)) => {
+                    val == other_val
+                }
+                _ => false,
+            }
+        }
+    }
 
     fn get_body(
         response: Response<Body>,

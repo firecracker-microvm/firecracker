@@ -6,9 +6,9 @@ use std::result;
 use futures::sync::oneshot;
 use hyper::Method;
 
+use super::{VmmAction, VmmRequest};
 use request::{IntoParsedRequest, ParsedRequest};
 use vmm::vmm_config::vsock::VsockDeviceConfig;
-use vmm::VmmAction;
 
 impl IntoParsedRequest for VsockDeviceConfig {
     fn into_parsed_request(
@@ -18,7 +18,7 @@ impl IntoParsedRequest for VsockDeviceConfig {
     ) -> result::Result<ParsedRequest, String> {
         let (sender, receiver) = oneshot::channel();
         Ok(ParsedRequest::Sync(
-            Box::new(VmmAction::SetVsockDevice(self, sender)),
+            VmmRequest::new(VmmAction::SetVsockDevice(self), sender),
             receiver,
         ))
     }

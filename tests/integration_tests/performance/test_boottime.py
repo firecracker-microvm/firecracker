@@ -1,6 +1,11 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Tests that ensure the boot time to init process is within spec."""
+"""Tests that ensure the boot time to init process is within spec.
+
+The boot time tests use the minimal kernel image and root file system found in
+the S3 bucket at https://s3.amazonaws.com/spec.ccfc.min/img/minimal.
+For boot time testing the serial console is not enabled.
+"""
 
 import os
 import re
