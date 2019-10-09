@@ -32,7 +32,7 @@ pub struct ServerRequest {
 }
 
 impl ServerRequest {
-    /// Creates a new `RequestWithID` object from an existing `Request`,
+    /// Creates a new `ServerRequest` object from an existing `Request`,
     /// adding an identification token.
     pub fn new(request: Request, id: u64) -> Self {
         ServerRequest { request, id }
