@@ -265,9 +265,7 @@ def test_api_requests_logs(test_microvm_with_api):
     fault_message = "The kernel file cannot be opened: No such file or " \
                     "directory (os error 2)"
     assert fault_message in response.text
-    expected_log_strings.append("Received Error on synchronous Put request "
-                                "on \"/boot-source\" with body \"{{\\\"kernel_"
-                                "image_path\\\": \\\"inexistent_path\\\"}}\". "
+    expected_log_strings.append("Received Error. "
                                 "Status code: 400 Bad Request. "
                                 "Message: {}".format(fault_message))
 
