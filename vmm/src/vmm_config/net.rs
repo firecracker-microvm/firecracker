@@ -2,12 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter, Result};
+use std::net::Ipv4Addr;
 use std::result;
+use std::str::FromStr;
 
 use super::super::Error as VmmInternalError;
 use super::RateLimiterConfig;
 use devices;
 use net_util::{MacAddr, Tap, TapError};
+
+const DEFAULT_MMDS_IP: &str = "169.254.169.254";
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -24,23 +28,32 @@ pub struct NetworkInterfaceConfig {
     pub rx_rate_limiter: Option<RateLimiterConfig>,
     /// Rate Limiter for transmitted packages.
     pub tx_rate_limiter: Option<RateLimiterConfig>,
-    #[serde(default = "default_allow_mmds_requests")]
     /// If this field is set, the device model will reply to HTTP GET
     /// requests sent to the MMDS address via this interface. In this case,
-    /// both ARP requests for `169.254.169.254` and TCP segments heading to the
+    /// both ARP requests for `mmds_ip` and TCP segments heading to the
     /// same address are intercepted by the device model, and do not reach
     /// the associated TAP device.
+    #[serde(default = "NetworkInterfaceConfig::default_allow_mmds_requests")]
     pub allow_mmds_requests: bool,
-}
-
-// Serde does not allow specifying a default value for a field
-// that is not required. The workaround is to specify a function
-// that returns the value.
-fn default_allow_mmds_requests() -> bool {
-    false
+    /// The IP address used by the guest to contact the MMDS.
+    #[serde(default = "NetworkInterfaceConfig::default_mmds_ip")]
+    pub mmds_ip: String,
 }
 
 impl NetworkInterfaceConfig {
+    /// Default value for `Self::allow_mmds_requests`.
+    // Serde does not allow specifying a default value for a field
+    // that is not required. The workaround is to specify a function
+    // that returns the value.
+    fn default_allow_mmds_requests() -> bool {
+        false
+    }
+
+    /// Default value for the MMDS IP address.
+    pub fn default_mmds_ip() -> String {
+        String::from(DEFAULT_MMDS_IP)
+    }
+
     /// Returns the tap device that `host_dev_name` refers to.
     pub fn open_tap(&self) -> result::Result<Tap, NetworkInterfaceError> {
         Tap::open_named(self.host_dev_name.as_str()).map_err(NetworkInterfaceError::OpenTap)
@@ -55,6 +68,13 @@ impl NetworkInterfaceConfig {
     /// Checks whether the interface is supposed to respond to MMDS requests.
     pub fn allow_mmds_requests(&self) -> bool {
         self.allow_mmds_requests
+    }
+
+    /// Get the MMDS IP addr, as a `std::net::Ipv4Addr`.
+    pub fn mmds_ipv4_addr(&self) -> Ipv4Addr {
+        // We're using `unwrap()` here, because this should only be called after the config
+        // struct has been validated.
+        Ipv4Addr::from_str(self.mmds_ip.as_str()).unwrap()
     }
 }
 
@@ -90,6 +110,8 @@ pub enum NetworkInterfaceError {
     RateLimiterUpdateFailed(devices::Error),
     /// The update is not allowed after booting the microvm.
     UpdateNotAllowedPostBoot,
+    /// Invalid MMDS IP address.
+    InvalidMmdsIp,
 }
 
 impl Display for NetworkInterfaceError {
@@ -127,6 +149,7 @@ impl Display for NetworkInterfaceError {
             UpdateNotAllowedPostBoot => {
                 write!(f, "The update operation is not allowed after boot.",)
             }
+            InvalidMmdsIp => write!(f, "Invalid MMDS IP address."),
         }
     }
 }
@@ -244,7 +267,14 @@ impl NetworkInterfaceConfigs {
         }
 
         // Check that the tap refered to in `new_config` can be opened.
-        new_config.open_tap().map(|_| ())
+        new_config.open_tap().map(|_| ())?;
+
+        // Validate the MMDS IP address.
+        //
+        Ipv4Addr::from_str(new_config.mmds_ip.as_str())
+            .map_err(|_| NetworkInterfaceError::InvalidMmdsIp)?;
+
+        Ok(())
     }
 
     fn create(
@@ -274,6 +304,7 @@ mod tests {
             rx_rate_limiter: Some(RateLimiterConfig::default()),
             tx_rate_limiter: Some(RateLimiterConfig::default()),
             allow_mmds_requests: false,
+            mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
         }
     }
 
@@ -286,6 +317,7 @@ mod tests {
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
                 allow_mmds_requests: self.allow_mmds_requests,
+                mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
             }
         }
     }

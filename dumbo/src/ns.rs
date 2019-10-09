@@ -21,7 +21,6 @@ use tcp::handler::{self, RecvEvent, TcpIPv4Handler, WriteEvent};
 use tcp::NextSegmentStatus;
 
 const DEFAULT_MAC_ADDR: &str = "06:01:23:45:67:01";
-const DEFAULT_IPV4_ADDR: [u8; 4] = [169, 254, 169, 254];
 const DEFAULT_TCP_PORT: u16 = 80;
 const DEFAULT_MAX_CONNECTIONS: usize = 30;
 const DEFAULT_MAX_PENDING_RESETS: usize = 100;
@@ -86,10 +85,9 @@ impl MmdsNetworkStack {
         }
     }
 
-    pub fn new_with_defaults() -> Self {
+    pub fn new_with_ipv4_addr(ipv4_addr: Ipv4Addr) -> Self {
         // The unwrap is safe if parse_str() is implemented properly.
         let mac_addr = MacAddr::parse_str(DEFAULT_MAC_ADDR).unwrap();
-        let ipv4_addr = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
 
         // The unwrap()s are safe because the given literals are greater than 0.
         Self::new(
@@ -363,9 +361,10 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_ns() {
-        let mut ns = MmdsNetworkStack::new_with_defaults();
+        const IPV4_ADDR: [u8; 4] = [169, 254, 169, 254];
+
+        let mut ns = MmdsNetworkStack::new_with_ipv4_addr(Ipv4Addr::from(IPV4_ADDR));
         assert_eq!(ns.mac_addr, MacAddr::parse_str(DEFAULT_MAC_ADDR).unwrap());
-        assert_eq!(ns.ipv4_addr, Ipv4Addr::from(DEFAULT_IPV4_ADDR));
 
         let mut buf = [0u8; 2000];
         let mut bad_buf = [0u8; 1];

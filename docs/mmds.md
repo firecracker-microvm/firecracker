@@ -2,13 +2,17 @@
 
 The Firecracker microVM Metadata Service (MMDS) is a mutable data store which
 implements a simplified data path, made possible by the unique setting found in
-Firecracker. The MMDS consists of three major logical components: the backend,
-the data store, and the minimalist HTTP/TCP/IPv4 stack (named *Dumbo*). They
-all exist within the Firecracker process, and outside the KVM boundary; the
-first is a part of the API server, the data store is a global entity for a
-single microVM, and the last is a part of the device model.
-When the API server is disabled by passing `--no-api` parameter to Firecracker, 
-MMDS is no longer available. 
+Firecracker. Software running inside the microVM can query the MMDS via HTTP
+GET requests directed at a special IPv4 address. By default, this address is
+169.254.169.254, but its value can be specified as part of the microVM network
+interface configuration. The MMDS consists of three major logical components:
+the backend, the data store, and the minimalist HTTP/TCP/IPv4 stack (named
+*Dumbo*). They all exist within the Firecracker process, and outside the KVM
+boundary; the first is a part of the API server, the data store is a global
+entity for a single microVM, and the last is a part of the device model.
+
+*Note*: When the API server is disabled by passing `--no-api` parameter to
+Firecracker, MMDS is no longer available. 
 
 ## The MMDS backend
 

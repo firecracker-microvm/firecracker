@@ -16,6 +16,8 @@
   all parameters specified after `--` are forwarded verbatim to Firecracker.
 - Added `KVM_PTP` support to the recommended guest kernel config.
 - Added entry in FAQ.md for Firecracker Guest timekeeping.
+- The MMDS IP address is now configurable via the optional `mmds_ip` field,
+  available through `PUT /network-interfaces/`.
 
 ### Changed
 

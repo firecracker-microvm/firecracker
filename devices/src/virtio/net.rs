@@ -12,6 +12,7 @@ use std::cmp;
 use std::io::Read;
 use std::io::{self, Write};
 use std::mem;
+use std::net::Ipv4Addr;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -679,6 +680,7 @@ pub struct Net {
     rx_rate_limiter: Option<RateLimiter>,
     tx_rate_limiter: Option<RateLimiter>,
     allow_mmds_requests: bool,
+    mmds_ipv4_addr: Ipv4Addr,
 }
 
 impl Net {
@@ -690,6 +692,7 @@ impl Net {
         rx_rate_limiter: Option<RateLimiter>,
         tx_rate_limiter: Option<RateLimiter>,
         allow_mmds_requests: bool,
+        mmds_ipv4_addr: Ipv4Addr,
     ) -> Result<Self> {
         // Set offload flags to match the virtio features below.
         tap.set_offload(
@@ -731,6 +734,7 @@ impl Net {
             rx_rate_limiter,
             tx_rate_limiter,
             allow_mmds_requests,
+            mmds_ipv4_addr,
         })
     }
 
@@ -817,7 +821,7 @@ impl VirtioDevice for Net {
             let rx_queue_evt = queue_evts.remove(0);
             let tx_queue_evt = queue_evts.remove(0);
             let mmds_ns = if self.allow_mmds_requests {
-                Some(MmdsNetworkStack::new_with_defaults())
+                Some(MmdsNetworkStack::new_with_ipv4_addr(self.mmds_ipv4_addr))
             } else {
                 None
             };
@@ -933,6 +937,7 @@ mod tests {
     use crate::virtio::queue::tests::*;
 
     const EPOLLIN: epoll::Events = epoll::Events::EPOLLIN;
+    const TEST_MMDS_IP: [u8; 4] = [10, 2, 3, 4];
 
     static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
 
@@ -962,6 +967,7 @@ mod tests {
             rx_rate_limiter,
             tx_rate_limiter,
             allow_mmds_requests,
+            Ipv4Addr::from([1, 2, 3, 4]),
         )
     }
 
@@ -1132,7 +1138,9 @@ mod tests {
                 interrupt_status,
                 interrupt_evt,
                 acked_features: n.acked_features,
-                mmds_ns: Some(MmdsNetworkStack::new_with_defaults()),
+                mmds_ns: Some(MmdsNetworkStack::new_with_ipv4_addr(Ipv4Addr::from(
+                    TEST_MMDS_IP,
+                ))),
                 test_mutators,
                 guest_mac: None,
                 epoll_fd,
@@ -1303,7 +1311,7 @@ mod tests {
         let sha = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
         let spa = Ipv4Addr::new(10, 1, 2, 3);
         let tha = MacAddr::parse_str("22:22:22:22:22:22").unwrap();
-        let tpa = Ipv4Addr::new(169, 254, 169, 254);
+        let tpa = Ipv4Addr::from(TEST_MMDS_IP);
 
         let packet_len;
         {

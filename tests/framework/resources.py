@@ -362,6 +362,7 @@ class Network:
             host_dev_name=None,
             guest_mac=None,
             allow_mmds_requests=None,
+            mmds_ip=None,
             rx_rate_limiter=None,
             tx_rate_limiter=None
     ):
@@ -376,6 +377,8 @@ class Network:
             datax['guest_mac'] = guest_mac
         if allow_mmds_requests is not None:
             datax['allow_mmds_requests'] = allow_mmds_requests
+        if mmds_ip is not None:
+            datax['mmds_ip'] = mmds_ip
         if tx_rate_limiter is not None:
             datax['tx_rate_limiter'] = tx_rate_limiter
         if rx_rate_limiter is not None:

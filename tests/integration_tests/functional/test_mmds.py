@@ -182,3 +182,39 @@ def test_mmds_dummy(test_microvm_with_ssh):
     response = test_microvm.mmds.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == dummy_json
+
+
+def test_mmds_custom_ip(test_microvm_with_ssh, network_config):
+    """Test using a custom IP address from the MMDS."""
+    custom_ip = "10.1.2.3"
+
+    vm = test_microvm_with_ssh
+    vm.spawn()
+
+    vm.basic_config(vcpu_count=1)
+    _tap = vm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True,
+        mmds_ip=custom_ip
+    )
+
+    mmds_data = {'test-key': 'test-value'}
+    resp = vm.mmds.put(json=mmds_data)
+    assert vm.api_session.is_status_no_content(resp.status_code)
+
+    response = vm.mmds.get()
+    assert vm.api_session.is_status_ok(response.status_code)
+    assert response.json() == mmds_data
+
+    vm.start()
+
+    conn = net_tools.SSHConnection(vm.ssh_config)
+
+    cmd = "ip route add {} dev eth0".format(custom_ip)
+    ecode, _, _ = conn.execute_command(cmd)
+    assert ecode == 0
+
+    cmd = "curl -s http://{}/test-key".format(custom_ip)
+    _, out, err = conn.execute_command(cmd)
+    _assert_out(out, err, "test-value")

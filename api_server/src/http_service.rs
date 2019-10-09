@@ -1244,6 +1244,7 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
         };
 
         assert!(netif

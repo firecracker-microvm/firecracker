@@ -285,7 +285,8 @@ impl std::convert::From<NetworkInterfaceError> for VmmActionError {
             GuestMacAddressInUse(_)
             | HostDeviceNameInUse(_)
             | DeviceIdNotFound
-            | UpdateNotAllowedPostBoot => ErrorKind::User,
+            | UpdateNotAllowedPostBoot
+            | InvalidMmdsIp => ErrorKind::User,
             // Internal errors.
             EpollHandlerNotFound(_) | RateLimiterUpdateFailed(_) => ErrorKind::Internal,
             OpenTap(ref te) => match te {
@@ -942,6 +943,7 @@ impl Vmm {
                             rx_rate_limiter,
                             tx_rate_limiter,
                             allow_mmds_requests,
+                            cfg.mmds_ipv4_addr(),
                         )
                         .map_err(CreateNetDevice)?,
                     );
@@ -2272,6 +2274,7 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
         };
         assert!(vmm.insert_net_device(network_interface).is_ok());
 
@@ -2284,6 +2287,7 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
         };
         assert!(vmm.insert_net_device(network_interface).is_ok());
 
@@ -2295,6 +2299,7 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
         };
         assert!(vmm.insert_net_device(network_interface).is_err());
 
@@ -2307,6 +2312,7 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
         };
         assert!(vmm.insert_net_device(network_interface).is_err());
     }
@@ -2336,6 +2342,7 @@ mod tests {
             }),
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
         })
         .unwrap();
 
@@ -2772,6 +2779,7 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
         };
 
         assert!(vmm.insert_net_device(network_interface).is_ok());
@@ -3167,6 +3175,7 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
         };
 
         assert!(vmm.insert_net_device(network_interface).is_ok());

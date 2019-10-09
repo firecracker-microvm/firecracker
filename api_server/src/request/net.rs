@@ -76,6 +76,7 @@ mod tests {
             rx_rate_limiter: None,
             tx_rate_limiter: None,
             allow_mmds_requests: false,
+            mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
         }
     }
 
@@ -119,6 +120,7 @@ mod tests {
             rx_rate_limiter: Some(RateLimiterConfig::default()),
             tx_rate_limiter: Some(RateLimiterConfig::default()),
             allow_mmds_requests: true,
+            mmds_ip: NetworkInterfaceConfig::default_mmds_ip(),
         };
 
         // This is the json encoding of the netif variable.

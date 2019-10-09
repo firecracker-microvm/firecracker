@@ -417,8 +417,9 @@ class Microvm:
             network_config,
             iface_id,
             allow_mmds_requests=False,
+            mmds_ip=None,
             tx_rate_limiter=None,
-            rx_rate_limiter=None
+            rx_rate_limiter=None,
     ):
         """Create a host tap device and a guest network interface.
 
@@ -430,6 +431,7 @@ class Microvm:
         :param allow_mmds_requests: specifies whether requests sent from
         the guest on this interface towards the MMDS address are
         intercepted and processed by the device model.
+        :param mmds_ip: the IP address at which the guest can reach the MMDS
         :param tx_rate_limiter: limit the tx rate
         :param rx_rate_limiter: limit the rx rate
         :return: an instance of the tap which needs to be kept around until
@@ -453,6 +455,7 @@ class Microvm:
             host_dev_name=tapname,
             guest_mac=guest_mac,
             allow_mmds_requests=allow_mmds_requests,
+            mmds_ip=mmds_ip,
             tx_rate_limiter=tx_rate_limiter,
             rx_rate_limiter=rx_rate_limiter
         )
