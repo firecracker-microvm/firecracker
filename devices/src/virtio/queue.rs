@@ -9,30 +9,13 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use memory_model::{DataInit, GuestAddress, GuestMemory};
+use crate::virtio::base::virtq_avail::VirtqAvailPtr;
+use crate::virtio::base::virtq_desc::VirtqDescPtr;
+use crate::virtio::base::virtq_used::VirtqUsedPtr;
+use memory_model::{GuestAddress, GuestMemory};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
-
-// GuestMemory::read_obj_from_addr() will be used to fetch the descriptor,
-// which has an explicit constraint that the entire descriptor doesn't
-// cross the page boundary. Otherwise the descriptor may be splitted into
-// two mmap regions which causes failure of GuestMemory::read_obj_from_addr().
-//
-// The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
-// which fulfills the explicit constraint of GuestMemory::read_obj_from_addr().
-
-/// A virtio descriptor constraints with C representive.
-#[repr(C)]
-#[derive(Default, Clone, Copy)]
-struct Descriptor {
-    addr: u64,
-    len: u32,
-    flags: u16,
-    next: u16,
-}
-
-unsafe impl DataInit for Descriptor {}
 
 /// A virtio descriptor chain.
 pub struct DescriptorChain<'a> {
@@ -71,21 +54,10 @@ impl<'a> DescriptorChain<'a> {
             return None;
         }
 
-        let desc_head = match mem.checked_offset(desc_table, (index as usize) * 16) {
-            Some(a) => a,
-            None => return None,
-        };
-        mem.checked_offset(desc_head, 16)?;
+        let virtq_desc_ring = VirtqDescPtr::new(desc_table, mem, queue_size).ok()?;
+        let desc = &virtq_desc_ring[index];
 
         // These reads can't fail unless Guest memory is hopelessly broken.
-        let desc = match mem.read_obj_from_addr::<Descriptor>(desc_head) {
-            Ok(ret) => ret,
-            Err(_) => {
-                // TODO log address
-                error!("Failed to read from memory");
-                return None;
-            }
-        };
         let chain = DescriptorChain {
             mem,
             desc_table,
@@ -265,42 +237,13 @@ impl Queue {
 
     /// Pop the first available descriptor chain from the avail ring.
     pub fn pop<'a, 'b>(&'a mut self, mem: &'b GuestMemory) -> Option<DescriptorChain<'b>> {
-        if self.len(mem) == 0 {
+        let virtq_avail_ring = VirtqAvailPtr::new(self.avail_ring, mem, self.actual_size()).ok()?;
+
+        if virtq_avail_ring.as_ref().idx == self.next_avail.0 {
             return None;
         }
 
-        // We'll need to find the first available descriptor, that we haven't yet popped.
-        // In a naive notation, that would be:
-        // `descriptor_table[avail_ring[next_avail]]`.
-        //
-        // First, we compute the byte-offset (into `self.avail_ring`) of the index of the next available
-        // descriptor. `self.avail_ring` stores the address of a `struct virtq_avail`, as defined by
-        // the VirtIO spec:
-        //
-        // ```C
-        // struct virtq_avail {
-        //   le16 flags;
-        //   le16 idx;
-        //   le16 ring[QUEUE_SIZE];
-        //   le16 used_event
-        // }
-        // ```
-        //
-        // We use `self.next_avail` to store the position, in `ring`, of the next available
-        // descriptor index, with a twist: we always only increment `self.next_avail`, so the
-        // actual position will be `self.next_avail % self.actual_size()`.
-        // We are now looking for the offset of `ring[self.next_avail % self.actual_size()]`.
-        // `ring` starts after `flags` and `idx` (4 bytes into `struct virtq_avail`), and holds
-        // 2-byte items, so the offset will be:
-        let index_offset = 4 + 2 * (self.next_avail.0 % self.actual_size());
-
-        // `self.is_valid()` already performed all the bound checks on the descriptor table
-        // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
-        // offsets.
-        let desc_index: u16 = mem
-            .read_obj_from_addr(self.avail_ring.unchecked_add(usize::from(index_offset)))
-            .unwrap();
-
+        let desc_index = virtq_avail_ring[self.next_avail.0];
         DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
             |dc| {
                 self.next_avail += Wrapping(1);
@@ -325,23 +268,15 @@ impl Queue {
             return;
         }
 
-        let used_ring = self.used_ring;
-        let next_used = (self.next_used.0 % self.actual_size()) as usize;
-        let used_elem = used_ring.unchecked_add(4 + next_used * 8);
-
-        // These writes can't fail as we are guaranteed to be within the descriptor ring.
-        mem.write_obj_at_addr(u32::from(desc_index), used_elem)
-            .unwrap();
-        mem.write_obj_at_addr(len as u32, used_elem.unchecked_add(4))
-            .unwrap();
+        let mut virtq_used_ring =
+            VirtqUsedPtr::new(self.used_ring, mem, self.actual_size()).unwrap();
+        let used_elem = &mut virtq_used_ring[self.next_used.0];
+        used_elem.id = u32::from(desc_index);
+        used_elem.len = len;
 
         self.next_used += Wrapping(1);
-
-        // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
-
-        mem.write_obj_at_addr(self.next_used.0 as u16, used_ring.unchecked_add(2))
-            .unwrap();
+        virtq_used_ring.as_mut().idx = self.next_used.0 as u16;
     }
 
     /// Goes back one position in the available descriptor chain offered by the driver.

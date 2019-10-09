@@ -12,6 +12,7 @@ use std::io::Error as IOError;
 use std::os::unix::io::RawFd;
 use std::sync::mpsc;
 
+mod base;
 pub mod block;
 mod mmio;
 pub mod net;
