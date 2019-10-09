@@ -84,5 +84,5 @@ pub use request::{Request, RequestError};
 pub use response::{Response, StatusCode};
 pub use server::{HttpServer, ServerError, ServerRequest, ServerResponse};
 
-pub use common::headers::Headers;
+pub use common::headers::{Headers, MediaType};
 pub use common::{Body, Method, Version};
