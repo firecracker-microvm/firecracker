@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt;
 use std::result::Result;
 
 use serde::de::{Deserialize, Deserializer, Error};
@@ -17,6 +18,17 @@ pub const MAC_ADDR_LEN: usize = 6;
 /// Representation of a MAC address.
 pub struct MacAddr {
     bytes: [u8; MAC_ADDR_LEN],
+}
+
+impl fmt::Display for MacAddr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let b = &self.bytes;
+        write!(
+            f,
+            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            b[0], b[1], b[2], b[3], b[4], b[5]
+        )
+    }
 }
 
 impl MacAddr {
@@ -113,15 +125,6 @@ impl MacAddr {
     #[inline]
     pub fn get_bytes(&self) -> &[u8] {
         &self.bytes
-    }
-
-    /// Obtain the string representation.
-    pub fn to_string(self) -> String {
-        let b = &self.bytes;
-        format!(
-            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            b[0], b[1], b[2], b[3], b[4], b[5]
-        )
     }
 }
 

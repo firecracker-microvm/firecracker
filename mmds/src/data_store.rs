@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt;
+
 use serde_json::Value;
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
@@ -16,12 +18,12 @@ pub enum Error {
     UnsupportedValueType,
 }
 
-impl Error {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::NotFound => "The MMDS resource does not exist.".to_string(),
+            Error::NotFound => write!(f, "The MMDS resource does not exist."),
             Error::UnsupportedValueType => {
-                "Cannot add non-strings values to the MMDS data-store.".to_string()
+                write!(f, "Cannot add non-strings values to the MMDS data-store.")
             }
         }
     }
