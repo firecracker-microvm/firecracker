@@ -460,13 +460,16 @@ def _run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
 
 def _start_local_iperf(netns_cmd_prefix):
     """Start iperf in server mode after killing any leftover iperf daemon."""
+    # pylint: disable=subprocess-run-check
     iperf_cmd = 'pkill {}\n'.format(IPERF_BINARY)
 
+    # Don't check the result of this command because it can fail if no iperf
+    # is running.
     run(iperf_cmd, shell=True)
 
     iperf_cmd = '{} {} -sD -f KBytes\n'.format(netns_cmd_prefix, IPERF_BINARY)
 
-    run(iperf_cmd, shell=True)
+    run(iperf_cmd, shell=True, check=True)
 
     # Wait for the iperf daemon to start.
     time.sleep(2)
@@ -474,7 +477,7 @@ def _start_local_iperf(netns_cmd_prefix):
 
 def _run_local_iperf(iperf_cmd):
     """Execute a client related iperf command locally."""
-    process = run(iperf_cmd, shell=True, stdout=PIPE)
+    process = run(iperf_cmd, shell=True, stdout=PIPE, check=True)
     return process.stdout.decode('utf-8')
 
 
@@ -505,6 +508,7 @@ def _process_iperf_output(iperf_out):
                 ' '
             )[0].strip()
             break
-        elif found_line > 0:
+        if found_line > 0:
+            # Skip the first 3 lines after the first line containing `------`
             found_line += 1
     return float(iperf_out_time), float(iperf_out_bw)

@@ -76,6 +76,7 @@ class SSHConnection:
     def _exec(self, cmd):
         """Private function that handles the ssh client invocation."""
         def _exec_raw(_cmd):
+            # pylint: disable=subprocess-run-check
             cp = run([
                 "ssh",
                 "-q",
@@ -337,6 +338,7 @@ class Tap:
 
     def __del__(self):
         """Destructor doing tap interface clean up."""
+        # pylint: disable=subprocess-run-check
         _ = run(
             'ip netns exec {} ip link set {} down'.format(
                 self.netns,
