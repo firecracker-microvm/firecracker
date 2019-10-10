@@ -2036,10 +2036,9 @@ mod tests {
         fn default_kernel_config(&mut self, cust_kernel_path: Option<PathBuf>) {
             let kernel_temp_file =
                 NamedTempFile::new().expect("Failed to create temporary kernel file.");
-            let kernel_path = if cust_kernel_path.is_some() {
-                cust_kernel_path.unwrap()
-            } else {
-                kernel_temp_file.path().to_path_buf()
+            let kernel_path = match cust_kernel_path {
+                Some(kernel_path) => kernel_path,
+                None => kernel_temp_file.path().to_path_buf(),
             };
             let kernel_file = File::open(kernel_path).expect("Cannot open kernel file");
             let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
