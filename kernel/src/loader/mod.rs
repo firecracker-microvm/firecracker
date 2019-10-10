@@ -248,7 +248,7 @@ pub fn load_cmdline(
         .checked_add(raw_cmdline.len())
         .ok_or(CmdlineError::CommandLineOverflow)?; // Extra for null termination.
     if end > guest_mem.end_addr() {
-        return Err(CmdlineError::CommandLineOverflow)?;
+        return Err(CmdlineError::CommandLineOverflow);
     }
 
     guest_mem

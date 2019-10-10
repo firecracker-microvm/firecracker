@@ -441,7 +441,7 @@ impl KvmContext {
         // Check that all desired capabilities aer supported.
         for capability in capabilities.iter() {
             if !kvm.check_extension(*capability) {
-                Err(Error::KvmCap(*capability))?;
+                return Err(Error::KvmCap(*capability));
             }
         }
 
@@ -1396,7 +1396,7 @@ impl Vmm {
     pub fn start_microvm(&mut self) -> UserResult {
         info!("VMM received instance start command");
         if self.is_instance_initialized() {
-            Err(StartMicrovmError::MicroVMAlreadyRunning)?;
+            return Err(StartMicrovmError::MicroVMAlreadyRunning.into());
         }
 
         let request_ts = TimestampUs {
@@ -1630,7 +1630,7 @@ impl Vmm {
         use VmmActionError::BootSource;
 
         if self.is_instance_initialized() {
-            Err(BootSource(User, UpdateNotAllowedPostBoot))?;
+            return Err(BootSource(User, UpdateNotAllowedPostBoot));
         }
 
         let kernel_file =
@@ -1655,15 +1655,15 @@ impl Vmm {
     /// Set the machine configuration of the microVM.
     pub fn set_vm_configuration(&mut self, machine_config: VmConfig) -> UserResult {
         if self.is_instance_initialized() {
-            Err(VmConfigError::UpdateNotAllowedPostBoot)?;
+            return Err(VmConfigError::UpdateNotAllowedPostBoot.into());
         }
 
         if machine_config.vcpu_count == Some(0) {
-            Err(VmConfigError::InvalidVcpuCount)?;
+            return Err(VmConfigError::InvalidVcpuCount.into());
         }
 
         if machine_config.mem_size_mib == Some(0) {
-            Err(VmConfigError::InvalidMemorySize)?;
+            return Err(VmConfigError::InvalidMemorySize.into());
         }
 
         let ht_enabled = machine_config
@@ -1677,7 +1677,7 @@ impl Vmm {
         // If hyperthreading is enabled or is to be enabled in this call
         // only allow vcpu count to be 1 or even.
         if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
-            Err(VmConfigError::InvalidVcpuCount)?;
+            return Err(VmConfigError::InvalidVcpuCount.into());
         }
 
         // Update all the fields that have a new value.
@@ -1698,7 +1698,7 @@ impl Vmm {
     /// Inserts a network device to be attached when the VM starts.
     pub fn insert_net_device(&mut self, body: NetworkInterfaceConfig) -> UserResult {
         if self.is_instance_initialized() {
-            Err(NetworkInterfaceError::UpdateNotAllowedPostBoot)?;
+            return Err(NetworkInterfaceError::UpdateNotAllowedPostBoot.into());
         }
         self.device_configs
             .network_interface
@@ -1814,7 +1814,7 @@ impl Vmm {
     pub fn rescan_block_device(&mut self, drive_id: &str) -> UserResult {
         // Rescan can only happen after the guest is booted.
         if !self.is_instance_initialized() {
-            Err(DriveError::OperationNotAllowedPreBoot)?;
+            return Err(DriveError::OperationNotAllowedPreBoot.into());
         }
 
         // Safe to unwrap() because mmio_device_manager is initialized in init_devices(), which is
@@ -1846,7 +1846,7 @@ impl Vmm {
     // If the drive_id does not exist, a new Block Device Config is added to the list.
     pub fn insert_block_device(&mut self, block_device_config: BlockDeviceConfig) -> UserResult {
         if self.is_instance_initialized() {
-            Err(DriveError::UpdateNotAllowedPostBoot)?;
+            return Err(DriveError::UpdateNotAllowedPostBoot.into());
         }
         self.device_configs
             .block
