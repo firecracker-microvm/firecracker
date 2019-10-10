@@ -1,7 +1,7 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Wrapper over an http session with timed requests."""
-
+# pylint: disable=unused-import
 import requests_unixsocket
 
 from framework import decorators

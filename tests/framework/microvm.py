@@ -124,6 +124,7 @@ class Microvm:
 
     def kill(self):
         """All clean up associated with this microVM should go here."""
+        # pylint: disable=subprocess-run-check
         if self._jailer.daemonize:
             if self.jailer_clone_pid:
                 run('kill -9 {}'.format(self.jailer_clone_pid), shell=True)
@@ -253,6 +254,7 @@ class Microvm:
 
     def spawn(self):
         """Start a microVM as a daemon or in a screen session."""
+        # pylint: disable=subprocess-run-check
         self._jailer.setup()
         self._api_socket = self._jailer.api_socket_path()
         self._api_session = Session()

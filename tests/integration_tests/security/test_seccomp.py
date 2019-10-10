@@ -10,6 +10,7 @@ from subprocess import run, PIPE
 def test_seccomp_ls(bin_seccomp_paths):
     """Assert that the seccomp filters deny a blacklisted syscall."""
     # pylint: disable=redefined-outer-name
+    # pylint: disable=subprocess-run-check
     # The fixture pattern causes a pylint false positive for that rule.
 
     # Path to the `ls` binary, which attempts to execute the blacklisted
@@ -34,6 +35,7 @@ def test_advanced_seccomp_harmless(bin_seccomp_paths):
     Test that the advanced demo jailer allows the harmless demo binary.
     """
     # pylint: disable=redefined-outer-name
+    # pylint: disable=subprocess-run-check
     # The fixture pattern causes a pylint false positive for that rule.
 
     demo_advanced_jailer = bin_seccomp_paths['demo_advanced_jailer']
@@ -55,6 +57,7 @@ def test_advanced_seccomp_malicious(bin_seccomp_paths):
     Test that the basic demo jailer denies the malicious demo binary.
     """
     # pylint: disable=redefined-outer-name
+    # pylint: disable=subprocess-run-check
     # The fixture pattern causes a pylint false positive for that rule.
 
     demo_advanced_jailer = bin_seccomp_paths['demo_advanced_jailer']

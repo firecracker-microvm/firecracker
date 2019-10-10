@@ -165,6 +165,7 @@ class JailerContext:
 
     def cleanup(self):
         """Clean up this jailer context."""
+        # pylint: disable=subprocess-run-check
         shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
         if self.netns:
@@ -218,6 +219,7 @@ class JailerContext:
         disappears. The retry function that calls this code makes
         sure we do not timeout.
         """
+        # pylint: disable=subprocess-run-check
         tasks_file = '/sys/fs/cgroup/{}/{}/{}/tasks'.format(
             controller,
             FC_BINARY_NAME,

@@ -55,9 +55,7 @@ def _check_guest_cmd_output(test_microvm, guest_cmd, expected_header,
             if expected_header not in (None, ''):
                 if line.strip() == expected_header:
                     expected_header = None
-                    continue
-                else:
-                    continue
+                continue
 
             # See if any key matches.
             # We Use a try-catch block here since line.split() may fail.
