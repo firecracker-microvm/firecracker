@@ -611,20 +611,21 @@ impl hyper::server::Service for ApiServerHttpService {
                                     // logged at its point of origin and not log it again.
                                     let response = result.generate_response();
                                     let status_code = response.status();
-                                    if result.is_ok() {
-                                        info!(
-                                            "The {} was executed successfully. Status code: {}.",
-                                            description, status_code
-                                        );
-                                    } else {
-                                        // It is safe to `unwrap_err` because result was checked
-                                        // against not being ok.
-                                        error!(
-                                            "Received Error on {}. Status code: {}. Message: {}",
-                                            description,
-                                            status_code,
-                                            result.unwrap_err()
-                                        );
+                                    match result {
+                                        Ok(_) => {
+                                            info!(
+                                                "The {} was executed successfully. Status code: {}.",
+                                                description, status_code
+                                            );
+                                        }
+                                        Err(e) => {
+                                            error!(
+                                                "Received Error on {}. Status code: {}. Message: {}",
+                                                description,
+                                                status_code,
+                                                e
+                                            );
+                                        }
                                     }
                                     response
                                 })

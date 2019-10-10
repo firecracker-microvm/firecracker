@@ -534,11 +534,10 @@ mod tests {
         let mut count: usize = 0;
         loop {
             let (o, _) = write_next(h, buf.as_mut())?;
-            if o.is_some() {
+            if let Some(packet) = o {
                 count += 1;
-                let p = o.unwrap();
-                assert_eq!(p.source_address(), h.local_addr);
-                assert_eq!(p.destination_address(), remote_addr);
+                assert_eq!(packet.source_address(), h.local_addr);
+                assert_eq!(packet.destination_address(), remote_addr);
             } else {
                 break;
             }
