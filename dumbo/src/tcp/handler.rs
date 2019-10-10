@@ -241,12 +241,12 @@ impl TcpIPv4Handler {
                         self.enqueue_rst_config(evict_tuple, rst_config);
                         self.remove_connection(evict_tuple);
                         self.add_connection(tuple, endpoint);
-                        return Ok(RecvEvent::NewConnectionReplacing);
+                        Ok(RecvEvent::NewConnectionReplacing)
                     } else {
                         // No room to accept the new connection. Try to enqueue a RST, and forget
                         // about it.
                         self.enqueue_rst(tuple, &segment);
-                        return Ok(RecvEvent::NewConnectionDropped);
+                        Ok(RecvEvent::NewConnectionDropped)
                     }
                 } else {
                     self.add_connection(tuple, endpoint);

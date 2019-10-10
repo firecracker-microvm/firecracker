@@ -386,7 +386,6 @@ impl BusDevice for MmioDevice {
                                 "ack virtio features in invalid state 0x{:x}",
                                 self.driver_status
                             );
-                            return;
                         }
                     }
                     0x24 => self.acked_features_select = v,
@@ -408,7 +407,6 @@ impl BusDevice for MmioDevice {
                     0xa4 => self.update_queue_field(|q| hi(&mut q.used_ring, v)),
                     _ => {
                         warn!("unknown virtio mmio register write: 0x{:x}", offset);
-                        return;
                     }
                 }
             }
@@ -417,7 +415,6 @@ impl BusDevice for MmioDevice {
                     self.device.write_config(offset - 0x100, data)
                 } else {
                     warn!("can not write to device config data area before driver is ready");
-                    return;
                 }
             }
             _ => {
@@ -426,7 +423,6 @@ impl BusDevice for MmioDevice {
                     offset,
                     data.len()
                 );
-                return;
             }
         }
     }
