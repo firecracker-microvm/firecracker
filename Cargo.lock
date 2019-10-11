@@ -40,11 +40,11 @@ dependencies = [
  "arch_gen 0.1.0",
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "device_tree 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "fc_util 0.1.0",
  "kvm-bindings 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "kvm-ioctls 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.62 (registry+https://github.com/rust-lang/crates.io-index)",
  "memory_model 0.1.0",
- "rand 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
