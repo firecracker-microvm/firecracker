@@ -13,7 +13,7 @@
 
 use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 
-use fc_util::timestamp_cycles;
+use fc_util::time::timestamp_cycles;
 use logger::{Metric, METRICS};
 use mmds::parse_request;
 use pdu::bytes::NetworkBytes;

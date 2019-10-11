@@ -8,8 +8,8 @@ extern crate jailer;
 fn main() {
     if let Err(error) = jailer::run(
         jailer::clap_app().get_matches(),
-        fc_util::get_time(fc_util::ClockType::Monotonic) / 1000,
-        fc_util::get_time(fc_util::ClockType::ProcessCpu) / 1000,
+        fc_util::time::get_time(fc_util::time::ClockType::Monotonic) / 1000,
+        fc_util::time::get_time(fc_util::time::ClockType::ProcessCpu) / 1000,
     ) {
         panic!("Jailer error: {}", error);
     }

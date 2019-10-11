@@ -145,7 +145,7 @@ use std::sync::{Mutex, MutexGuard, RwLock};
 use serde_json::Value;
 
 use error::LoggerError;
-use fc_util::LocalTime;
+use fc_util::time::LocalTime;
 pub use log::Level::*;
 pub use log::*;
 use log::{set_logger, set_max_level, Log, Metadata, Record};

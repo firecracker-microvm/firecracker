@@ -8,7 +8,7 @@
 
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
-use fc_util::timestamp_cycles;
+use fc_util::rand::xor_rng_u32;
 use pdu::bytes::NetworkBytes;
 use pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
 use pdu::Incomplete;
@@ -110,16 +110,6 @@ pub enum WriteNextError {
     PayloadMissingSeq,
     /// An error occurred during the actual write to the buffer.
     TcpSegment(TcpSegmentError),
-}
-
-// This generates pseudo random u32 numbers based on the current timestamp. Only works for x86_64,
-// but can find something else if we ever need to support different architectures.
-fn xor_rng_u32() -> u32 {
-    let mut t: u32 = timestamp_cycles() as u32;
-    // Taken from https://en.wikipedia.org/wiki/Xorshift
-    t ^= t << 13;
-    t ^= t >> 17;
-    t ^ (t << 5)
 }
 
 /// Contains the state information and implements the logic for a minimalist TCP connection.
@@ -1783,12 +1773,5 @@ pub(crate) mod tests {
         // At this point, the connection should be done, because we both sent and received a FIN,
         // and we don't wait for our FIN to be ACKed.
         assert!(c.is_done());
-    }
-
-    #[test]
-    fn test_xor_rng_u32() {
-        for _ in 0..1000 {
-            assert_ne!(xor_rng_u32(), xor_rng_u32());
-        }
     }
 }
