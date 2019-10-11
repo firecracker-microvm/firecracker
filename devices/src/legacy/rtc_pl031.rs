@@ -77,7 +77,7 @@ impl RTC {
         RTC {
             // This is used only for duration measuring purposes.
             previous_now: Instant::now(),
-            tick_offset: fc_util::get_time(fc_util::ClockType::Real) as i64,
+            tick_offset: fc_util::time::get_time(fc_util::time::ClockType::Real) as i64,
             match_value: 0,
             load: 0,
             imsc: 0,
@@ -93,7 +93,7 @@ impl RTC {
     fn get_time(&self) -> u32 {
         let ts = (self.tick_offset as i128)
             + (Instant::now().duration_since(self.previous_now).as_nanos() as i128);
-        (ts / fc_util::NANOS_PER_SECOND as i128) as u32
+        (ts / fc_util::time::NANOS_PER_SECOND as i128) as u32
     }
 
     fn handle_write(&mut self, offset: u64, val: u32) -> Result<()> {
@@ -112,7 +112,7 @@ impl RTC {
                 self.previous_now = Instant::now();
                 // If the unwrap fails, then the internal value of the clock has been corrupted and
                 // we want to terminate the execution of the process.
-                self.tick_offset = fc_util::seconds_to_nanoseconds(i64::from(val)).unwrap();
+                self.tick_offset = fc_util::time::seconds_to_nanoseconds(i64::from(val)).unwrap();
             }
             RTCIMSC => {
                 self.imsc = val & 1;
@@ -207,8 +207,8 @@ mod tests {
         assert_eq!(v, 123);
 
         // Read and write to the LR register.
-        let v = fc_util::get_time(fc_util::ClockType::Real);
-        LittleEndian::write_u32(&mut data, (v / fc_util::NANOS_PER_SECOND) as u32);
+        let v = fc_util::time::get_time(fc_util::time::ClockType::Real);
+        LittleEndian::write_u32(&mut data, (v / fc_util::time::NANOS_PER_SECOND) as u32);
         let tick_offset_before = rtc.tick_offset;
         let previous_now_before = rtc.previous_now;
         rtc.write(RTCLR, &mut data);
@@ -217,7 +217,7 @@ mod tests {
 
         rtc.read(RTCLR, &mut data);
         let v_read = LittleEndian::read_u32(&data);
-        assert_eq!((v / fc_util::NANOS_PER_SECOND) as u32, v_read);
+        assert_eq!((v / fc_util::time::NANOS_PER_SECOND) as u32, v_read);
 
         // Read and write to IMSC register.
         // Test with non zero value.

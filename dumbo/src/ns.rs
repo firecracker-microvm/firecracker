@@ -9,7 +9,7 @@ use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 use std::result::Result;
 
-use fc_util::timestamp_cycles;
+use fc_util::time::timestamp_cycles;
 use logger::{Metric, METRICS};
 use net_util::MacAddr;
 use pdu::arp::{test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
