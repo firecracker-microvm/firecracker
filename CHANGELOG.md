@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.19.0]
 
 ### Added
 
@@ -20,8 +20,8 @@
 ### Changed
 
 - Vsock API call: `PUT /vsocks/{id}` changed to `PUT /vsock` and no longer
-  appear to support multiple vsock devices. Any subsequent calls to this API endpoint
-  will override the previous vsock device configuration.
+  appear to support multiple vsock devices. Any subsequent calls to this API
+  endpoint will override the previous vsock device configuration.
 - Removed unused 'Halting' and 'Halted' instance states.
 
 ### Fixed
@@ -30,6 +30,12 @@
 - Upon panic, the terminal is now reset to canonical mode.
 - Explicit error upon failure of vsock device creation.
 - The failure message returned by an API call is flushed in the log FIFOs.
+- Insert virtio devices in the FDT in order of their addresses sorted from
+  low to high.
+- Enforce the maximum length of the network interface name to be 16 chars as
+  specified in the Linux Kernel.
+- Changed the vsock property `id` to `vsock_id` so that the API client can be
+  successfully generated from the swagger definition.
 
 ## [0.18.0]
 
