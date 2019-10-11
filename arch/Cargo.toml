@@ -13,5 +13,5 @@ arch_gen = { path = "../arch_gen" }
 memory_model = { path = "../memory_model" }
 
 [dev-dependencies]
-rand = ">=0.5.5"
+fc_util = { path = "../fc_util" }
 device_tree = ">=1.1.0"

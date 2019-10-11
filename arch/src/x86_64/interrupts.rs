@@ -84,9 +84,8 @@ pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    extern crate rand;
-    use self::rand::Rng;
-
+    extern crate fc_util;
+    use self::fc_util::rand::xor_rng_u32;
     use super::*;
     use kvm_ioctls::Kvm;
 
@@ -111,8 +110,7 @@ mod tests {
 
     #[test]
     fn test_apic_delivery_mode() {
-        let mut rng = rand::thread_rng();
-        let mut v: Vec<u32> = (0..20).map(|_| rng.gen::<u32>()).collect();
+        let mut v: Vec<u32> = (0..20).map(|_| xor_rng_u32()).collect();
 
         v.iter_mut()
             .for_each(|x| *x = set_apic_delivery_mode(*x, 2));
