@@ -46,7 +46,7 @@ development container) as follows:
 git clone https://github.com/firecracker-microvm/firecracker
 cd firecracker
 tools/devtool build
-toolchain="$(uname -m)-unkown-linux-musl"
+toolchain="$(uname -m)-unknown-linux-musl"
 ```
 
 The Firecracker binary will be placed at
