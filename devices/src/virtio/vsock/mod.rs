@@ -24,6 +24,7 @@ use memory_model::GuestMemoryError;
 use super::super::EpollHandler;
 use super::EpollConfigConstructor;
 use packet::VsockPacket;
+use std::fmt;
 
 mod defs {
     use crate::DeviceEventT;
@@ -123,6 +124,42 @@ pub enum VsockError {
     UnwritableDescriptor,
 }
 type Result<T> = std::result::Result<T, VsockError>;
+
+impl fmt::Display for VsockError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            VsockError::BufDescTooSmall => write!(
+                f,
+                "The vsock data/buffer virtio descriptor length is smaller than expected."
+            ),
+            VsockError::BufDescMissing => write!(
+                f,
+                "The vsock data/buffer virtio descriptor is expected, but missing."
+            ),
+            VsockError::GuestMemory(_) => write!(f, "Vsock guest memory failure."),
+            VsockError::GuestMemoryBounds => {
+                write!(f, "Bounds check failed on guest memory pointer.")
+            }
+            VsockError::HdrDescTooSmall(_) => {
+                write!(f, "The vsock header descriptor length is too small.")
+            }
+            VsockError::InvalidPktLen(_) => write!(f, "The vsock packet length is invalid."),
+            VsockError::NoData => {
+                write!(f, "A data fetch was attempted when no data was available.")
+            }
+            VsockError::PktBufMissing => write!(
+                f,
+                "A data buffer was expected for the provided packet, but it is missing."
+            ),
+            VsockError::UnreadableDescriptor => {
+                write!(f, "Encountered an unexpected write-only virtio descriptor.")
+            }
+            VsockError::UnwritableDescriptor => {
+                write!(f, "Encountered an unexpected read-only virtio descriptor.")
+            }
+        }
+    }
+}
 
 pub struct EpollConfig {
     rxq_token: u64,
@@ -372,5 +409,54 @@ mod tests {
                 .handle_event(defs::RXQ_EVENT, epoll::Events::EPOLLIN)
                 .unwrap();
         }
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", VsockError::BufDescTooSmall),
+            "The vsock data/buffer virtio descriptor length is smaller than expected."
+        );
+        assert_eq!(
+            format!("{}", VsockError::BufDescMissing),
+            "The vsock data/buffer virtio descriptor is expected, but missing."
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                VsockError::GuestMemory(GuestMemoryError::MemoryNotInitialized)
+            ),
+            "Vsock guest memory failure."
+        );
+        assert_eq!(
+            format!("{}", VsockError::GuestMemoryBounds),
+            "Bounds check failed on guest memory pointer."
+        );
+        assert_eq!(
+            format!("{}", VsockError::HdrDescTooSmall(10)),
+            "The vsock header descriptor length is too small."
+        );
+
+        assert_eq!(
+            format!("{}", VsockError::InvalidPktLen(10)),
+            "The vsock packet length is invalid."
+        );
+        assert_eq!(
+            format!("{}", VsockError::NoData),
+            "A data fetch was attempted when no data was available."
+        );
+        assert_eq!(
+            format!("{}", VsockError::PktBufMissing),
+            "A data buffer was expected for the provided packet, but it is missing."
+        );
+        assert_eq!(
+            format!("{}", VsockError::UnreadableDescriptor),
+            "Encountered an unexpected write-only virtio descriptor."
+        );
+
+        assert_eq!(
+            format!("{}", VsockError::UnwritableDescriptor),
+            "Encountered an unexpected read-only virtio descriptor."
+        );
     }
 }

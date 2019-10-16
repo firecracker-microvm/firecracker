@@ -13,6 +13,7 @@ mod muxer_killq;
 mod muxer_rxq;
 
 pub use muxer::VsockMuxer as VsockUnixBackend;
+use std::fmt;
 
 mod defs {
     /// Maximum number of established connections that we can handle.
@@ -24,7 +25,6 @@ mod defs {
     /// Size of the muxer connection kill queue.
     pub const MUXER_KILLQ_SIZE: usize = 128;
 }
-
 #[derive(Debug)]
 pub enum Error {
     /// Error registering a new epoll-listening FD.
@@ -45,5 +45,100 @@ pub enum Error {
     TooManyConnections,
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::EpollAdd(err) => {
+                write!(f, "Error registering a new epoll-listening FD: {}", err)
+            }
+            Error::EpollFdCreate(err) => write!(f, "Error creating an epoll FD: {}", err),
+            Error::InvalidPortRequest => {
+                write!(f, "The host made an invalid vsock port connection request.")
+            }
+            Error::UnixAccept(err) => write!(
+                f,
+                "Error accepting a new connection from the host-side Unix socket: {}",
+                err
+            ),
+            Error::UnixBind(err) => {
+                write!(f, "Error binding to the host-side Unix socket: {}", err)
+            }
+            Error::UnixConnect(err) => {
+                write!(f, "Error connecting to a host-side Unix socket: {}", err)
+            }
+            Error::UnixRead(err) => write!(f, "Error reading from host-side Unix socket: {}", err),
+            Error::TooManyConnections => write!(f, "Muxer connection limit reached."),
+        }
+    }
+}
+
 type Result<T> = std::result::Result<T, Error>;
 type MuxerConnection = super::csm::VsockConnection<std::os::unix::net::UnixStream>;
+
+#[cfg(test)]
+mod tests {
+    use crate::virtio::vsock::unix::Error;
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::EpollAdd(std::io::Error::from_raw_os_error(0))),
+            format!(
+                "Error registering a new epoll-listening FD: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::EpollFdCreate(std::io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Error creating an epoll FD: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::InvalidPortRequest),
+            "The host made an invalid vsock port connection request."
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::UnixAccept(std::io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Error accepting a new connection from the host-side Unix socket: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::UnixBind(std::io::Error::from_raw_os_error(0))),
+            format!(
+                "Error binding to the host-side Unix socket: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::UnixConnect(std::io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Error connecting to a host-side Unix socket: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::UnixRead(std::io::Error::from_raw_os_error(0))),
+            format!(
+                "Error reading from host-side Unix socket: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::TooManyConnections),
+            "Muxer connection limit reached."
+        );
+    }
+}
