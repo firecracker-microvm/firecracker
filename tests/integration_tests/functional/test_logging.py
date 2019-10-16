@@ -262,8 +262,8 @@ def test_api_requests_logs(test_microvm_with_api):
         kernel_image_path="inexistent_path"
     )
     assert microvm.api_session.is_status_bad_request(response.status_code)
-    fault_message = "The kernel file cannot be opened due to invalid kernel" \
-                    " path or invalid permissions."
+    fault_message = "The kernel file cannot be opened: No such file or " \
+                    "directory (os error 2)"
     assert fault_message in response.text
     expected_log_strings.append("Received Error on synchronous Put request "
                                 "on \"/boot-source\" with body \"{{\\\"kernel_"

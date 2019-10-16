@@ -169,12 +169,16 @@ mod tests {
 
         // Tests Error Cases
         // Tests for BootSource Errors.
-        let vmm_resp =
-            VmmActionError::BootSource(ErrorKind::User, BootSourceConfigError::InvalidKernelPath);
+        let vmm_resp = VmmActionError::BootSource(
+            ErrorKind::User,
+            BootSourceConfigError::InvalidKernelPath(std::io::Error::from_raw_os_error(2)),
+        );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::BootSource(
             ErrorKind::User,
-            BootSourceConfigError::InvalidKernelCommandLine,
+            BootSourceConfigError::InvalidKernelCommandLine(
+                kernel::cmdline::Error::HasSpace.to_string(),
+            ),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::BootSource(
