@@ -9,7 +9,7 @@
 
 use std::io::{Read, Write};
 use std::sync::Arc;
-use std::{mem, result};
+use std::{fmt, mem, result};
 
 use guest_address::GuestAddress;
 use mmap::{self, MemoryMapping};
@@ -34,6 +34,29 @@ pub enum Error {
     NoMemoryRegions,
 }
 type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::InvalidGuestAddress(_) => {
+                write!(f, "Guest address was not found in mapped memory.")
+            }
+            Error::InvalidGuestAddressRange(_, _) => {
+                write!(f, "Guest Address range was not found in mapped memory.")
+            }
+            Error::MemoryAccess(_, err) => write!(f, "Failed memory access: {}", err),
+            Error::MemoryMappingFailed(err) => {
+                write!(f, "Failure in creating memory mapping: {}", err)
+            }
+            Error::MemoryNotInitialized => write!(f, "Failure in initializing guest memory."),
+            Error::MemoryRegionOverlap => write!(f, "Two of the memory regions are overlapping."),
+            Error::NoMemoryRegions => write!(
+                f,
+                "No memory regions were provided for initializing the guest memory."
+            ),
+        }
+    }
+}
 
 /// Tracks a mapping of anonymous memory in the current process and the corresponding base address
 /// in the guest's memory space.
