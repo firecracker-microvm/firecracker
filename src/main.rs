@@ -306,7 +306,7 @@ fn vmm_control_event(
     from_api: &Receiver<api_server::VmmRequest>,
 ) -> Result<(), u8> {
     api_event_fd.read().map_err(|e| {
-        error!("Error reading VMM API event_fd {:?}", e);
+        error!("VMM: Failed to read the API event_fd: {}", e);
         vmm::FC_EXIT_CODE_GENERIC_ERROR
     })?;
 
