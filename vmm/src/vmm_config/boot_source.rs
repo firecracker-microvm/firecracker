@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter, Result};
+use std::io;
 
 /// Strongly typed data structure used to configure the boot source of the
 /// microvm.
@@ -20,9 +21,9 @@ pub struct BootSourceConfig {
 #[derive(Debug)]
 pub enum BootSourceConfigError {
     /// The kernel file cannot be opened.
-    InvalidKernelPath,
+    InvalidKernelPath(io::Error),
     /// The kernel command line is invalid.
-    InvalidKernelCommandLine,
+    InvalidKernelCommandLine(String),
     /// The boot source cannot be update post boot.
     UpdateNotAllowedPostBoot,
 }
@@ -31,12 +32,10 @@ impl Display for BootSourceConfigError {
     fn fmt(&self, f: &mut Formatter) -> Result {
         use self::BootSourceConfigError::*;
         match *self {
-            InvalidKernelPath => write!(
-                f,
-                "The kernel file cannot be opened due to invalid kernel path or \
-                 invalid permissions.",
-            ),
-            InvalidKernelCommandLine => write!(f, "The kernel command line is invalid!"),
+            InvalidKernelPath(ref e) => write!(f, "The kernel file cannot be opened: {}", e),
+            InvalidKernelCommandLine(ref e) => {
+                write!(f, "The kernel command line is invalid: {}", e.as_str())
+            }
             UpdateNotAllowedPostBoot => {
                 write!(f, "The update operation is not allowed after boot.")
             }

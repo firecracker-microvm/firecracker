@@ -1630,7 +1630,7 @@ impl Vmm {
         }
 
         let kernel_file = File::open(boot_source_cfg.kernel_image_path)
-            .map_err(|_| BootSource(User, InvalidKernelPath))?;
+            .map_err(|e| BootSource(User, InvalidKernelPath(e)))?;
 
         let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
         cmdline
@@ -1639,7 +1639,7 @@ impl Vmm {
                     .boot_args
                     .unwrap_or_else(|| String::from(DEFAULT_KERNEL_CMDLINE)),
             )
-            .map_err(|_| BootSource(User, InvalidKernelCommandLine))?;
+            .map_err(|e| BootSource(User, InvalidKernelCommandLine(e.to_string())))?;
 
         let kernel_config = KernelConfig {
             kernel_file,
@@ -3313,7 +3313,7 @@ mod tests {
         match vmm.configure_from_json(json) {
             Err(VmmActionError::BootSource(
                 ErrorKind::User,
-                BootSourceConfigError::InvalidKernelPath,
+                BootSourceConfigError::InvalidKernelPath(_),
             )) => (),
             _ => unreachable!(),
         }
@@ -3880,10 +3880,12 @@ mod tests {
                 "{:?}",
                 VmmActionError::BootSource(
                     ErrorKind::User,
-                    BootSourceConfigError::InvalidKernelCommandLine
+                    BootSourceConfigError::InvalidKernelCommandLine(
+                        kernel::cmdline::Error::HasSpace.to_string()
+                    )
                 )
             ),
-            "BootSource(User, InvalidKernelCommandLine)"
+            "BootSource(User, InvalidKernelCommandLine(\"Command line string contains a space\"))"
         );
         assert_eq!(
             format!(
