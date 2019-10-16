@@ -11,6 +11,7 @@ use kvm_ioctls::CpuId;
 use brand_string::BrandString;
 use brand_string::Reg as BsReg;
 use common::get_vendor_id;
+use std::fmt;
 
 /// Structure containing the specifications of the VM
 ///
@@ -59,6 +60,18 @@ pub enum Error {
     SizeLimitExceeded,
     /// A call to an internal helper method failed
     InternalError(super::common::Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::VcpuCountOverflow => {
+                write!(f, "The maximum number of CPUID entries was exceeded.")
+            }
+            Error::SizeLimitExceeded => write!(f, "The max size has been exceeded."),
+            Error::InternalError(err) => write!(f, "{}", err),
+        }
+    }
 }
 
 pub type EntryTransformerFn =
