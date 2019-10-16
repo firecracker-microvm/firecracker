@@ -1618,11 +1618,7 @@ impl Vmm {
     }
 
     /// Set the guest boot source configuration.
-    pub fn configure_boot_source(
-        &mut self,
-        kernel_image_path: String,
-        kernel_cmdline: Option<String>,
-    ) -> UserResult {
+    pub fn configure_boot_source(&mut self, boot_source_cfg: BootSourceConfig) -> UserResult {
         use BootSourceConfigError::{
             InvalidKernelCommandLine, InvalidKernelPath, UpdateNotAllowedPostBoot,
         };
@@ -1633,12 +1629,16 @@ impl Vmm {
             return Err(BootSource(User, UpdateNotAllowedPostBoot));
         }
 
-        let kernel_file =
-            File::open(kernel_image_path).map_err(|_| BootSource(User, InvalidKernelPath))?;
+        let kernel_file = File::open(boot_source_cfg.kernel_image_path)
+            .map_err(|_| BootSource(User, InvalidKernelPath))?;
 
         let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
         cmdline
-            .insert_str(kernel_cmdline.unwrap_or_else(|| String::from(DEFAULT_KERNEL_CMDLINE)))
+            .insert_str(
+                boot_source_cfg
+                    .boot_args
+                    .unwrap_or_else(|| String::from(DEFAULT_KERNEL_CMDLINE)),
+            )
             .map_err(|_| BootSource(User, InvalidKernelCommandLine))?;
 
         let kernel_config = KernelConfig {
@@ -1948,10 +1948,7 @@ impl Vmm {
         if let Some(logger) = vmm_config.logger {
             self.init_logger(logger)?;
         }
-        self.configure_boot_source(
-            vmm_config.boot_source.kernel_image_path,
-            vmm_config.boot_source.boot_args,
-        )?;
+        self.configure_boot_source(vmm_config.boot_source)?;
         for drive_config in vmm_config.block_devices.into_iter() {
             self.insert_block_device(drive_config)?;
         }
@@ -2801,7 +2798,10 @@ mod tests {
 
         // Test invalid kernel path.
         assert!(vmm
-            .configure_boot_source(String::from("dummy-path"), None)
+            .configure_boot_source(BootSourceConfig {
+                kernel_image_path: String::from("dummy-path"),
+                boot_args: None
+            })
             .is_err());
 
         // Test valid kernel path and invalid cmdline.
@@ -2809,19 +2809,33 @@ mod tests {
         let kernel_path = String::from(kernel_file.path().to_path_buf().to_str().unwrap());
         let invalid_cmdline = String::from_utf8(vec![b'X'; arch::CMDLINE_MAX_SIZE + 1]).unwrap();
         assert!(vmm
-            .configure_boot_source(kernel_path.clone(), Some(invalid_cmdline))
+            .configure_boot_source(BootSourceConfig {
+                kernel_image_path: kernel_path.clone(),
+                boot_args: Some(invalid_cmdline)
+            })
             .is_err());
 
         // Test valid configuration.
-        assert!(vmm.configure_boot_source(kernel_path.clone(), None).is_ok());
         assert!(vmm
-            .configure_boot_source(kernel_path.clone(), Some(String::from("reboot=k")))
+            .configure_boot_source(BootSourceConfig {
+                kernel_image_path: kernel_path.clone(),
+                boot_args: None
+            })
+            .is_ok());
+        assert!(vmm
+            .configure_boot_source(BootSourceConfig {
+                kernel_image_path: kernel_path.clone(),
+                boot_args: Some(String::from("reboot=k"))
+            })
             .is_ok());
 
         // Test valid configuration after boot (should fail).
         vmm.set_instance_state(InstanceState::Running);
         assert!(vmm
-            .configure_boot_source(kernel_path.clone(), None)
+            .configure_boot_source(BootSourceConfig {
+                kernel_image_path: kernel_path.clone(),
+                boot_args: None
+            })
             .is_err());
     }
 
