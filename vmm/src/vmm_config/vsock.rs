@@ -28,7 +28,7 @@ impl Display for VsockError {
         use self::VsockError::*;
         match *self {
             UpdateNotAllowedPostBoot => {
-                write!(f, "The update operation is not allowed after boot.",)
+                write!(f, "The update operation is not allowed after boot.")
             }
         }
     }

@@ -29,7 +29,7 @@ impl fmt::Display for VmConfigError {
                 "The vCPU number is invalid! The vCPU number can only \
                  be 1 or an even number when hyperthreading is enabled.",
             ),
-            InvalidMemorySize => write!(f, "The memory size (MiB) is invalid.",),
+            InvalidMemorySize => write!(f, "The memory size (MiB) is invalid."),
             UpdateNotAllowedPostBoot => {
                 write!(f, "The update operation is not allowed after boot.")
             }

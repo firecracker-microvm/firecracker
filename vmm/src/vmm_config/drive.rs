@@ -44,7 +44,7 @@ impl Display for DriveError {
                 InvalidBlockDeviceID => "Invalid block device ID!",
                 InvalidBlockDevicePath => "Invalid block device path!",
                 BlockDevicePathAlreadyExists => {
-                    "The block device path was already added to a different drive!"
+                    "The block device path was already added to a different drive."
                 }
                 EpollHandlerNotFound => "Error retrieving device epoll handler!",
                 BlockDeviceUpdateFailed => "The update operation failed!",

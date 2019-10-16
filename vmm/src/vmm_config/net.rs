@@ -102,7 +102,7 @@ impl Display for NetworkInterfaceError {
                 format!("The guest MAC address {} is already in use.", mac_addr)
             ),
             EpollHandlerNotFound(ref e) => {
-                write!(f, "Error retrieving device epoll handler: {:?}", e)
+                write!(f, "Error retrieving device epoll handler: {}", e)
             }
             HostDeviceNameInUse(ref host_dev_name) => write!(
                 f,
@@ -113,15 +113,7 @@ impl Display for NetworkInterfaceError {
             OpenTap(ref e) => {
                 // We are propagating the Tap Error. This error can contain
                 // imbricated quotes which would result in an invalid json.
-                let mut tap_err = format!("{:?}", e);
-                tap_err = tap_err.replace("\"", "");
-
-                write!(
-                    f,
-                    "{}{}",
-                    "Cannot open TAP device. Invalid name/permissions. ".to_string(),
-                    tap_err
-                )
+                write!(f, "Cannot open TAP device. Invalid name/permissions: {}", e)
             }
             RateLimiterUpdateFailed(ref e) => write!(f, "Unable to update rate limiter: {:?}", e),
             UpdateNotAllowedPostBoot => {

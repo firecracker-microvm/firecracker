@@ -5,9 +5,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::io;
 use std::result;
 use std::sync::{Arc, Barrier};
+use std::{fmt, io};
 
 use super::TimestampUs;
 use arch;
@@ -142,6 +142,77 @@ impl KvmContext {
     /// Get the maximum number of memory slots reported by this KVM context.
     fn max_memslots(&self) -> usize {
         self.max_memslots
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            #[cfg(target_arch = "x86_64")]
+            Error::CpuId(err) => write!(f, "A call to cpuid instruction failed: {}", err),
+            Error::GuestMemory(err) => write!(f, "Invalid guest memory configuration: {}", err),
+            Error::HTNotInitialized => write!(f, "Hyperthreading is not initialized."),
+            Error::VcpuCountNotInitialized => write!(f, "vCPU count is not initialized."),
+            Error::KvmApiVersion(kvm_version) => write!(f, "The host kernel reports an invalid KVM API version: {}", kvm_version),
+            Error::KvmCap(kvm_cap) => write!(f, "Can not initialize the KVM context due to missing capabilities: {:?}", kvm_cap),
+            Error::VmFd(err) => write!(f, "Cannot open the VM file descriptor: {}", err),
+            Error::VcpuFd(err) => write!(f, "Cannot open the VCPU file descriptor: {}", err),
+            Error::VmSetup(err) => write!(f, "Cannot configure the microvm: {}", err),
+            Error::VcpuRun(err) => write!(f, "Cannot run the VCPUs: {}", err),
+            Error::SetSupportedCpusFailed(err) => {
+                write!(f, "The call to KVM_SET_CPUID2 failed: {}", err)
+            }
+            Error::NotEnoughMemorySlots => write!(
+                f,
+                "The number of configured slots is bigger than the maximum reported by KVM."
+            ),
+            #[cfg(target_arch = "x86_64")]
+            Error::LocalIntConfiguration(err) => {
+                write!(f, "Bad local interruption configuration: {}", err)
+            }
+            Error::SetUserMemoryRegion(err) => write!(f, "Cannot set the memory regions: {}", err),
+            #[cfg(target_arch = "x86_64")]
+            Error::MSRSConfiguration(err) => {
+                write!(f, "Error configuring the MSR registers: {}", err)
+            }
+            #[cfg(target_arch = "x86_64")]
+            Error::REGSConfiguration(err) => write!(
+                f,
+                "Error configuring the general purpose registers: {}",
+                err
+            ),
+            #[cfg(target_arch = "aarch64")]
+            Error::REGSConfiguration(err) => write!(
+                f,
+                "Error configuring the general purpose aarch64 registers: {}",
+                err
+            ),
+            #[cfg(target_arch = "x86_64")]
+            Error::SREGSConfiguration(err) => {
+                write!(f, "Error configuring the special registers: {}", err)
+            }
+            #[cfg(target_arch = "x86_64")]
+            Error::FPUConfiguration(err) => write!(
+                f,
+                "Error configuring the floating point related registers: {}",
+                err
+            ),
+            Error::Irq(err) => write!(f, "Cannot configure the IRQ: {}", err),
+            Error::VcpuSpawn(err) => write!(f, "Cannot spawn a new vCPU thread: {}", err),
+            Error::VcpuUnhandledKvmExit => write!(f, "Unexpected KVM_RUN exit reason"),
+            #[cfg(target_arch = "aarch64")]
+            Error::SetupGIC(err) => write!(
+                f,
+                "Error setting up the global interrupt controller: {}",
+                err
+            ),
+            #[cfg(target_arch = "aarch64")]
+            Error::VcpuArmPreferredTarget(err) => {
+                write!(f, "Error getting the vCPU preferred target on arm: {}", err)
+            }
+            #[cfg(target_arch = "aarch64")]
+            Error::VcpuArmInit(err) => write!(f, "Error doing vCPU init on arm: {}", err),
+        }
     }
 }
 

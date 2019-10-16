@@ -2785,7 +2785,7 @@ mod tests {
 
         assert_eq!(
             vmm.load_kernel().unwrap_err().to_string(),
-            "Invalid Memory Configuration: MemoryNotInitialized"
+            "Invalid memory configuration: Failure in initializing guest memory."
         );
 
         assert!(vmm.init_guest_memory().is_ok());
@@ -2794,13 +2794,13 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         assert_eq!(
             vmm.load_kernel().unwrap_err().to_string(),
-            "Cannot load kernel due to invalid memory configuration or invalid kernel image. Failed to read magic number"
+            "Cannot load kernel due to invalid memory configuration or invalid kernel image: Failed to read magic number"
         );
 
         #[cfg(target_arch = "x86_64")]
         assert_eq!(
             vmm.load_kernel().unwrap_err().to_string(),
-            "Cannot load kernel due to invalid memory configuration or invalid kernel image. Failed to read ELF header"
+            "Cannot load kernel due to invalid memory configuration or invalid kernel image: Failed to read ELF header"
         );
 
         vmm.default_kernel_config(Some(good_kernel_file()));
@@ -2819,7 +2819,7 @@ mod tests {
 
         assert_eq!(
             vmm.configure_system().unwrap_err().to_string(),
-            "Invalid Memory Configuration: MemoryNotInitialized"
+            "Invalid memory configuration: Failure in initializing guest memory."
         );
 
         assert!(vmm.init_guest_memory().is_ok());

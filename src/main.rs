@@ -265,8 +265,8 @@ fn start_vmm(
     config_json: Option<String>,
 ) {
     // If this fails, consider it fatal. Use expect().
-    let mut vmm =
-        Vmm::new(api_shared_info, &api_event_fd, seccomp_level).expect("Cannot create VMM");
+    let mut vmm = Vmm::new(api_shared_info, &api_event_fd, seccomp_level)
+        .unwrap_or_else(|err| panic!("Cannot create VMM: {}", err));
 
     if let Some(json) = config_json {
         vmm.configure_from_json(json).unwrap_or_else(|err| {
@@ -289,7 +289,7 @@ fn start_vmm(
     let exit_code = loop {
         match vmm.run_event_loop() {
             Err(e) => {
-                error!("Abruptly exited VMM control loop: {:?}", e);
+                error!("Abruptly exited VMM control loop: {}", e);
                 break vmm::FC_EXIT_CODE_GENERIC_ERROR;
             }
             Ok(exit_reason) => match exit_reason {
