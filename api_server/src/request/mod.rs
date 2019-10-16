@@ -100,6 +100,7 @@ mod tests {
     use hyper::{Body, Response};
     use serde_json;
     use std;
+    use vmm::vmm_config::vsock::VsockError;
 
     impl PartialEq for ParsedRequest {
         fn eq(&self, other: &ParsedRequest) -> bool {
@@ -385,6 +386,11 @@ mod tests {
             ErrorKind::User,
             StartMicrovmError::KernelLoader(kernel::loader::Error::SeekProgramHeader),
         );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+
+        // Tests for VsockConfig Errors.
+        let vmm_resp =
+            VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot);
         check_error_response(vmm_resp, StatusCode::BadRequest);
     }
 }
