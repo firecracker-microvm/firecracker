@@ -316,10 +316,7 @@ fn vmm_control_event(
             let (action_request, sender) = vmm_request.unpack();
             let response = match action_request {
                 ConfigureBootSource(boot_source_body) => vmm
-                    .configure_boot_source(
-                        boot_source_body.kernel_image_path,
-                        boot_source_body.boot_args,
-                    )
+                    .configure_boot_source(boot_source_body)
                     .map(|_| api_server::VmmData::Empty),
                 ConfigureLogger(logger_description) => vmm
                     .init_logger(logger_description)
