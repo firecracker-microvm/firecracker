@@ -5,10 +5,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::io;
 use std::mem;
 use std::result;
 use std::slice;
+use std::{fmt, io};
 
 use libc::c_char;
 
@@ -74,6 +74,31 @@ pub enum Error {
 }
 
 pub type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::NotEnoughMemory => write!(
+                f,
+                "There was too little guest memory to store the entire MP table."
+            ),
+            Error::AddressOverflow => {
+                write!(f, "The MP table has too little address space to be stored.")
+            }
+            Error::Clear => write!(f, "Failure while zeroing out the memory for the MP table."),
+            Error::TooManyCpus => write!(f, "Number of CPUs exceeds the maximum supported CPUs."),
+            Error::WriteMpfIntel => write!(f, "Failure to write the MP floating pointer."),
+            Error::WriteMpcCpu => write!(f, "Failure to write MP CPU entry."),
+            Error::WriteMpcIoapic => write!(f, "Failure to write MP ioapic entry."),
+            Error::WriteMpcBus => write!(f, "Failure to write MP bus entry."),
+            Error::WriteMpcIntsrc => write!(f, "Failure to write MP interrupt source entry."),
+            Error::WriteMpcLintsrc => {
+                write!(f, "Failure to write MP local interrupt source entry.")
+            }
+            Error::WriteMpcTable => write!(f, "Failure to write MP table header."),
+        }
+    }
+}
 
 // With APIC/xAPIC, there are only 255 APIC IDs available. And IOAPIC occupies
 // one APIC ID, so only 254 CPUs at maximum may be supported. Actually it's

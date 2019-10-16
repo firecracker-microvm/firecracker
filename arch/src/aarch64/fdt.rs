@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString, NulError};
 use std::fmt::Debug;
 use std::ptr::null;
-use std::{io, result};
+use std::{fmt, io, result};
 
 use super::super::DeviceType;
 use super::get_fdt_addr;
@@ -84,6 +84,20 @@ pub enum Error {
     WriteFDTToMemory(GuestMemoryError),
 }
 type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::AppendFDTNode(err) => write!(f, "{}", err),
+            Error::AppendFDTProperty(err) => write!(f, "{}", err),
+            Error::CreateFDT(err) => write!(f, "{}", err),
+            Error::CstringFDTTransform(err) => write!(f, "{}", err),
+            Error::FinishFDTReserveMap(err) => write!(f, "{}", err),
+            Error::IncompleteFDTMemoryWrite => write!(f, "Incomplete FDT memory write."),
+            Error::WriteFDTToMemory(err) => write!(f, "{}", err),
+        }
+    }
+}
 
 /// Creates the flattened device tree for this aarch64 microVM.
 pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(

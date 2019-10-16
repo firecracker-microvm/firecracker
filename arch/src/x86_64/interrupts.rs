@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::io::{self, Cursor};
-use std::result;
+use std::{fmt, result};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
@@ -22,6 +22,15 @@ pub enum Error {
     SetLapic(io::Error),
 }
 type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::GetLapic(err) => write!(f, "Get Lapic failed: {}", err),
+            Error::SetLapic(err) => write!(f, "Set Lapic failed: {}", err),
+        }
+    }
+}
 
 // Defines poached from apicdef.h kernel header.
 const APIC_LVT0: usize = 0x350;

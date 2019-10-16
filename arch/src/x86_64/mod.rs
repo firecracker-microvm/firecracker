@@ -14,7 +14,7 @@ mod mptable;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 
-use std::mem;
+use std::{fmt, mem};
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
 use memory_model::{DataInit, GuestAddress, GuestMemory};
@@ -39,8 +39,21 @@ pub enum Error {
     MpTableSetup(mptable::Error),
     /// The zero page extends past the end of guest_mem.
     ZeroPagePastRamEnd,
-    /// Error writing the zero page of guest memory.
+    /// Error writing the zero page to guest memory.
     ZeroPageSetup,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::E820Configuration => write!(f, "Invalid e820 setup params."),
+            Error::MpTableSetup(err) => write!(f, "Error writing MP table to memory: {}", err),
+            Error::ZeroPagePastRamEnd => {
+                write!(f, "The zero page extends past the end of guest memory.")
+            }
+            Error::ZeroPageSetup => write!(f, "Error writing the zero page to guest memory."),
+        }
+    }
 }
 
 // Where BIOS/VGA magic would live on a real PC.

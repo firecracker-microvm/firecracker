@@ -1,7 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{io, result};
+use std::{fmt, io, result};
 
 use kvm_ioctls::{DeviceFd, VmFd};
 
@@ -20,6 +20,19 @@ pub enum Error {
     SetDeviceAttribute(io::Error),
 }
 type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::CreateGIC(err) => write!(f, "KVM ioctl for creating GIC failed: {}", err),
+            Error::SetDeviceAttribute(err) => write!(
+                f,
+                "KVM ioctl for setting device attributes for GIC failed: {}",
+                err
+            ),
+        }
+    }
+}
 
 /// Create a GICv3 device.
 ///

@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{io, mem, result};
+use std::{fmt, io, mem, result};
 
 use kvm_ioctls::VcpuFd;
 
@@ -20,6 +20,14 @@ pub enum Error {
     SetCoreRegister(io::Error),
 }
 type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::SetCoreRegister(err) => write!(f, "Failed to set core register: {}", err),
+        }
+    }
+}
 
 #[allow(non_upper_case_globals)]
 // PSR (Processor State Register) bits.

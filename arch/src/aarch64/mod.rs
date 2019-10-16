@@ -23,7 +23,16 @@ pub enum Error {
     SetupFDT(fdt::Error),
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::SetupFDT(err) => write!(f, "FDT setup failed: {}", err),
+        }
+    }
+}
+
 pub use self::fdt::DeviceInfoForFDT;
+use std::fmt;
 use DeviceType;
 
 /// Returns a Vec of the valid memory addresses for aarch64.
