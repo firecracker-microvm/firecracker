@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use epoll;
-use std::cmp;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
@@ -15,6 +14,7 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::{cmp, fmt};
 
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
@@ -62,6 +62,36 @@ enum Error {
     InvalidOffset,
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::GuestMemory(err) => write!(f, "Received bad memory address from guest: {}", err),
+            Error::CheckedOffset(_, _) => {
+                write!(f, "Received offsets that would overflow the usize.")
+            }
+            Error::UnexpectedWriteOnlyDescriptor => write!(
+                f,
+                "Received a write only descriptor that protocol says to read from."
+            ),
+            Error::UnexpectedReadOnlyDescriptor => write!(
+                f,
+                "Received a read only descriptor that protocol says to write to."
+            ),
+            Error::DescriptorChainTooShort => {
+                write!(f, "Received too few descriptors in a descriptor chain.")
+            }
+            Error::DescriptorLengthTooSmall => {
+                write!(f, "Received a descriptor that was too short to use.")
+            }
+            Error::GetFileMetadata => write!(f, "Getting a block's metadata failed."),
+            Error::InvalidOffset => write!(
+                f,
+                "The requested operation would cause a seek beyond disk end."
+            ),
+        }
+    }
+}
+
 #[derive(Debug)]
 enum ExecuteError {
     BadRequest(Error),
@@ -70,6 +100,19 @@ enum ExecuteError {
     Seek(io::Error),
     Write(GuestMemoryError),
     Unsupported(u32),
+}
+
+impl fmt::Display for ExecuteError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ExecuteError::BadRequest(err) => write!(f, "Block bad request: {}", err),
+            ExecuteError::Flush(err) => write!(f, "Block flush request failed: {}", err),
+            ExecuteError::Read(err) => write!(f, "Block read request failed: {}", err),
+            ExecuteError::Seek(err) => write!(f, "Block seek request failed: {}", err),
+            ExecuteError::Write(err) => write!(f, "Block write request failed: {}", err),
+            ExecuteError::Unsupported(t) => write!(f, "Unsupported request: {}", t),
+        }
+    }
 }
 
 impl ExecuteError {
@@ -1511,5 +1554,96 @@ mod tests {
             assert_eq!(h.disk_image.metadata().unwrap().st_ino(), mdata.st_ino());
             assert_eq!(h.disk_image_id, id);
         }
+    }
+
+    #[test]
+    fn test_error_messsages() {
+        assert_eq!(
+            format!(
+                "{}",
+                Error::GuestMemory(GuestMemoryError::MemoryNotInitialized)
+            ),
+            format!(
+                "Received bad memory address from guest: {}",
+                GuestMemoryError::MemoryNotInitialized
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::CheckedOffset(GuestAddress(0x0000), 10)),
+            "Received offsets that would overflow the usize."
+        );
+
+        assert_eq!(
+            format!("{}", Error::UnexpectedWriteOnlyDescriptor),
+            "Received a write only descriptor that protocol says to read from."
+        );
+        assert_eq!(
+            format!("{}", Error::UnexpectedReadOnlyDescriptor),
+            "Received a read only descriptor that protocol says to write to."
+        );
+        assert_eq!(
+            format!("{}", Error::DescriptorChainTooShort),
+            "Received too few descriptors in a descriptor chain."
+        );
+        assert_eq!(
+            format!("{}", Error::DescriptorLengthTooSmall),
+            "Received a descriptor that was too short to use."
+        );
+        assert_eq!(
+            format!("{}", Error::GetFileMetadata),
+            "Getting a block's metadata failed."
+        );
+        assert_eq!(
+            format!("{}", Error::InvalidOffset),
+            "The requested operation would cause a seek beyond disk end."
+        );
+
+        assert_eq!(
+            format!("{}", ExecuteError::BadRequest(Error::InvalidOffset)),
+            format!("Block bad request: {}", Error::InvalidOffset)
+        );
+        assert_eq!(
+            format!("{}", ExecuteError::Flush(io::Error::from_raw_os_error(0))),
+            format!(
+                "Block flush request failed: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                ExecuteError::Read(GuestMemoryError::MemoryNotInitialized)
+            ),
+            format!(
+                "Block read request failed: {}",
+                GuestMemoryError::MemoryNotInitialized
+            )
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                ExecuteError::Write(GuestMemoryError::MemoryNotInitialized)
+            ),
+            format!(
+                "Block write request failed: {}",
+                GuestMemoryError::MemoryNotInitialized
+            )
+        );
+
+        assert_eq!(
+            format!("{}", ExecuteError::Seek(io::Error::from_raw_os_error(0))),
+            format!(
+                "Block seek request failed: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", ExecuteError::Unsupported(0)),
+            format!("Unsupported request: {}", 0)
+        );
     }
 }
