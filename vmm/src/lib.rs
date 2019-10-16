@@ -690,8 +690,6 @@ impl Drop for EpollContext {
 struct KernelConfig {
     cmdline: kernel_cmdline::Cmdline,
     kernel_file: File,
-    #[cfg(target_arch = "x86_64")]
-    cmdline_addr: GuestAddress,
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
@@ -1298,7 +1296,7 @@ impl Vmm {
         #[cfg(target_arch = "x86_64")]
         kernel_loader::load_cmdline(
             vm_memory,
-            kernel_config.cmdline_addr,
+            GuestAddress(arch::x86_64::layout::CMDLINE_START),
             &kernel_config
                 .cmdline
                 .as_cstring()
@@ -1325,7 +1323,7 @@ impl Vmm {
         #[cfg(target_arch = "x86_64")]
         arch::x86_64::configure_system(
             vm_memory,
-            kernel_config.cmdline_addr,
+            GuestAddress(arch::x86_64::layout::CMDLINE_START),
             kernel_config.cmdline.len() + 1,
             vcpu_count,
         )
@@ -1644,8 +1642,6 @@ impl Vmm {
         let kernel_config = KernelConfig {
             kernel_file,
             cmdline,
-            #[cfg(target_arch = "x86_64")]
-            cmdline_addr: GuestAddress(arch::x86_64::layout::CMDLINE_START),
         };
         self.configure_kernel(kernel_config);
 
@@ -2043,8 +2039,6 @@ mod tests {
             let kernel_cfg = KernelConfig {
                 cmdline,
                 kernel_file,
-                #[cfg(target_arch = "x86_64")]
-                cmdline_addr: GuestAddress(arch::x86_64::layout::CMDLINE_START),
             };
             self.configure_kernel(kernel_cfg);
         }
@@ -2593,10 +2587,7 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.check_health().is_err());
 
-        let dummy_addr = GuestAddress(0x1000);
         vmm.configure_kernel(KernelConfig {
-            #[cfg(target_arch = "x86_64")]
-            cmdline_addr: dummy_addr,
             cmdline: kernel_cmdline::Cmdline::new(10),
             kernel_file: tempfile::tempfile().unwrap(),
         });
