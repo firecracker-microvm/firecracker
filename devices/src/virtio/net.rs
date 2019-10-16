@@ -7,7 +7,6 @@
 
 use epoll;
 use libc::EAGAIN;
-use std::cmp;
 #[cfg(not(test))]
 use std::io::Read;
 use std::io::{self, Write};
@@ -18,6 +17,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::vec::Vec;
+use std::{cmp, fmt};
 
 use dumbo::{ns::MmdsNetworkStack, pdu::ethernet::EthernetFrame};
 use logger::{Metric, METRICS};
@@ -68,6 +68,19 @@ pub enum Error {
 }
 
 pub type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::TapOpen(err) => write!(f, "Open tap device failed: {}", err),
+            Error::TapSetOffload(err) => {
+                write!(f, "Setting tap interface offload flags failed: {}", err)
+            }
+            Error::TapSetVnetHdrSize(err) => write!(f, "Setting vnet header size failed: {}", err),
+            Error::TapEnable(err) => write!(f, "Enabling tap interface failed: {}", err),
+        }
+    }
+}
 
 struct TxVirtio {
     queue_evt: EventFd,

@@ -14,6 +14,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use libc;
 
 use net_gen;
+use std::fmt;
 use sys_util::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 
 // As defined in the Linux UAPI:
@@ -36,6 +37,18 @@ pub enum Error {
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::CreateSocket(err) => write!(f, "Failed to create a socket: {}", err),
+            Error::CreateTap(err) => write!(f, "Unable to create tap interface: {}", err),
+            Error::InvalidIfname => write!(f, "Invalid interface name."),
+            Error::IoctlError(err) => write!(f, "{}", err),
+            Error::OpenTun(err) => write!(f, "Couldn't open /dev/net/tun: {}", err),
+        }
+    }
+}
 
 const TUNTAP: ::std::os::raw::c_uint = 84;
 ioctl_iow_nr!(TUNSETIFF, TUNTAP, 202, ::std::os::raw::c_int);
