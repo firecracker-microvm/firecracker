@@ -74,7 +74,7 @@ use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
 use devices::RawIOHandler;
 use devices::{DeviceEventT, EpollHandler};
 use error::{Error, Result, UserResult};
-use fc_util::time::{get_time, ClockType};
+use fc_util::time::TimestampUs;
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
@@ -131,21 +131,6 @@ pub enum EventLoopExitReason {
     Break,
     /// The control action file descriptor has data available for reading.
     ControlAction,
-}
-
-/// Holds a micro-second resolution timestamp with both the real time and cpu time.
-#[derive(Clone, Default)]
-pub struct TimestampUs {
-    /// Real time in microseconds.
-    pub time_us: u64,
-    /// Cpu time in microseconds.
-    pub cputime_us: u64,
-}
-
-#[inline]
-/// Gets the wallclock timestamp as microseconds.
-fn get_time_us() -> u64 {
-    (get_time(ClockType::Monotonic) / 1000)
 }
 
 /// Describes a KVM context that gets attached to the micro vm instance.
@@ -1126,10 +1111,7 @@ impl Vmm {
             return Err(StartMicrovmError::MicroVMAlreadyRunning.into());
         }
 
-        let request_ts = TimestampUs {
-            time_us: get_time_us(),
-            cputime_us: get_time(ClockType::ProcessCpu) / 1000,
-        };
+        let request_ts = TimestampUs::default();
 
         self.check_health()?;
         // Use expect() to crash if the other thread poisoned this lock.
@@ -1645,11 +1627,10 @@ impl Vmm {
     }
 
     fn log_boot_time(t0_ts: &TimestampUs) {
-        let now_cpu_us = get_time(ClockType::ProcessCpu) / 1000;
-        let now_us = get_time_us();
+        let now_tm_us = TimestampUs::default();
 
-        let boot_time_us = now_us - t0_ts.time_us;
-        let boot_time_cpu_us = now_cpu_us - t0_ts.cputime_us;
+        let boot_time_us = now_tm_us.time_us - t0_ts.time_us;
+        let boot_time_cpu_us = now_tm_us.cputime_us - t0_ts.cputime_us;
         info!(
             "Guest-boot-time = {:>6} us {} ms, {:>6} CPU us {} CPU ms",
             boot_time_us,
