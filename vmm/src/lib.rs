@@ -86,7 +86,9 @@ use net_util::TapError;
 #[cfg(target_arch = "aarch64")]
 use serde_json::Value;
 use sys_util::{EventFd, Terminal};
-use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
+use vmm_config::boot_source::{
+    BootSourceConfig, BootSourceConfigError, KernelConfig, DEFAULT_KERNEL_CMDLINE,
+};
 use vmm_config::device_config::DeviceConfigs;
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
 use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
@@ -99,18 +101,6 @@ use vmm_config::net::{
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 use vstate::{Vcpu, Vm};
 
-/// Default guest kernel command line:
-/// - `reboot=k` shut down the guest on reboot, instead of well... rebooting;
-/// - `panic=1` on panic, reboot after 1 second;
-/// - `pci=off` do not scan for PCI devices (save boot time);
-/// - `nomodules` disable loadable kernel module support;
-/// - `8250.nr_uarts=0` disable 8250 serial interface;
-/// - `i8042.noaux` do not probe the i8042 controller for an attached mouse (save boot time);
-/// - `i8042.nomux` do not probe i8042 for a multiplexing controller (save boot time);
-/// - `i8042.nopnp` do not use ACPIPnP to discover KBD/AUX controllers (save boot time);
-/// - `i8042.dumbkbd` do not attempt to control kbd state via the i8042 (save boot time).
-const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0 \
-                                      i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd";
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
 /// Success exit code.
@@ -687,11 +677,6 @@ impl Drop for EpollContext {
     }
 }
 
-struct KernelConfig {
-    cmdline: kernel_cmdline::Cmdline,
-    kernel_file: File,
-}
-
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
 #[derive(Deserialize)]
 pub struct VmmConfig {
@@ -998,7 +983,7 @@ impl Vmm {
         Ok(())
     }
 
-    fn configure_kernel(&mut self, kernel_config: KernelConfig) {
+    fn set_kernel_config(&mut self, kernel_config: KernelConfig) {
         self.kernel_config = Some(kernel_config);
     }
 
@@ -1643,7 +1628,7 @@ impl Vmm {
             kernel_file,
             cmdline,
         };
-        self.configure_kernel(kernel_config);
+        self.set_kernel_config(kernel_config);
 
         Ok(())
     }
@@ -2040,7 +2025,7 @@ mod tests {
                 cmdline,
                 kernel_file,
             };
-            self.configure_kernel(kernel_cfg);
+            self.set_kernel_config(kernel_cfg);
         }
 
         fn set_instance_state(&mut self, instance_state: InstanceState) {
@@ -2587,7 +2572,7 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.check_health().is_err());
 
-        vmm.configure_kernel(KernelConfig {
+        vmm.set_kernel_config(KernelConfig {
             cmdline: kernel_cmdline::Cmdline::new(10),
             kernel_file: tempfile::tempfile().unwrap(),
         });
