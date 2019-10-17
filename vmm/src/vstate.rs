@@ -115,24 +115,25 @@ impl Vm {
     pub fn new(kvm: &Kvm) -> Result<Self> {
         //create fd for interacting with kvm-vm specific functions
         let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
+
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        let cpuid = kvm
+        let supported_cpuid = kvm
             .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
             .map_err(Error::VmFd)?;
         Ok(Vm {
             fd: vm_fd,
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            supported_cpuid: cpuid,
+            supported_cpuid,
             guest_mem: None,
             #[cfg(target_arch = "aarch64")]
             irqchip_handle: None,
         })
     }
 
-    /// Returns a clone of the supported `CpuId` for this Vm.
+    /// Returns a ref to the supported `CpuId` for this Vm.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_supported_cpuid(&self) -> CpuId {
-        self.supported_cpuid.clone()
+    pub fn supported_cpuid(&self) -> &CpuId {
+        &self.supported_cpuid
     }
 
     /// Initializes the guest memory.
@@ -230,7 +231,7 @@ impl Vcpu {
         // Initially the cpuid per vCPU is the one supported by this VM.
         Ok(Vcpu {
             #[cfg(target_arch = "x86_64")]
-            cpuid: vm.get_supported_cpuid(),
+            cpuid: vm.supported_cpuid().clone(),
             fd: kvm_vcpu,
             id,
             io_bus,
@@ -504,7 +505,8 @@ mod tests {
             .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
             .expect("Cannot get supported cpuid");
         assert_eq!(
-            vm.get_supported_cpuid().mut_entries_slice(),
+            // Unfortunately need to clone() to get mut reference.
+            vm.supported_cpuid().clone().mut_entries_slice(),
             cpuid.mut_entries_slice()
         );
     }
