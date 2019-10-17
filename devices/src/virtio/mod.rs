@@ -25,6 +25,8 @@ pub use self::queue::*;
 pub use self::vsock::*;
 
 use super::EpollHandler;
+use polly::event_manager::WrappedHandler;
+use polly::pollable::PollableOp;
 
 /// When the driver initializes the device, it lets the device know about the
 /// completed stages using the Device Status Field.
@@ -63,7 +65,7 @@ pub enum ActivateError {
     BadActivate,
 }
 
-pub type ActivateResult = std::result::Result<(), ActivateError>;
+pub type ActivateResult = std::result::Result<Option<Vec<PollableOp>>, ActivateError>;
 
 pub trait EpollConfigConstructor {
     fn new(

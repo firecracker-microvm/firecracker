@@ -24,6 +24,8 @@ use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use net_gen;
 use net_util::{Tap, TapError};
+use polly::event_manager;
+use polly::pollable;
 use rate_limiter::{RateLimiter, TokenBucket, TokenType};
 use sys_util::EventFd;
 use virtio_gen::virtio_net::*;
@@ -681,6 +683,12 @@ pub struct Net {
     allow_mmds_requests: bool,
 }
 
+impl event_manager::EventHandler for Net {
+    fn init(&self) -> Option<Vec<pollable::PollableOp>> {
+        None
+    }
+}
+
 impl Net {
     /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
@@ -909,7 +917,7 @@ impl VirtioDevice for Net {
                 .map_err(ActivateError::EpollCtl)?;
             }
 
-            return Ok(());
+            return Ok(None);
         }
         METRICS.net.activate_fails.inc();
         Err(ActivateError::BadActivate)

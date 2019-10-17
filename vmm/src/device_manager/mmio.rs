@@ -19,6 +19,9 @@ use devices::{BusDevice, RawIOHandler};
 use kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
 use memory_model::GuestMemory;
+use polly::event_manager;
+use polly::pollable;
+use std::sync::mpsc;
 
 /// Errors for MMIO device manager.
 #[derive(Debug)]
@@ -109,16 +112,23 @@ impl MMIODeviceManager {
     pub fn register_virtio_device(
         &mut self,
         vm: &VmFd,
-        device: Box<dyn devices::virtio::VirtioDevice>,
+        device: Arc<Mutex<dyn devices::virtio::VirtioDevice>>,
+        device_handler: Arc<Mutex<dyn event_manager::EventHandler>>,
         cmdline: &mut kernel_cmdline::Cmdline,
         type_id: u32,
         device_id: &str,
+        api_channel: event_manager::ApiChannel,
     ) -> Result<u64> {
         if self.irq > self.last_irq {
             return Err(Error::IrqsExhausted);
         }
-        let mmio_device = devices::virtio::MmioDevice::new(self.guest_mem.clone(), device)
-            .map_err(Error::CreateMmioDevice)?;
+        let mmio_device = devices::virtio::MmioDevice::new(
+            self.guest_mem.clone(),
+            device,
+            device_handler,
+            api_channel,
+        )
+        .map_err(Error::CreateMmioDevice)?;
         for (i, queue_evt) in mmio_device.queue_evts().iter().enumerate() {
             let io_addr = IoEventAddress::Mmio(
                 self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET),

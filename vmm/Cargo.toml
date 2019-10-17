@@ -25,6 +25,7 @@ net_util = { path = "../net_util"}
 rate_limiter = { path = "../rate_limiter" }
 seccomp = { path = "../seccomp" }
 sys_util = { path = "../sys_util" }
+polly = { path = "../polly" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }

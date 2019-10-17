@@ -11,11 +11,11 @@ use std::convert::From;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use logger::{Metric, METRICS};
 use memory_model::{DataInit, GuestAddress, GuestMemory, GuestMemoryError};
@@ -23,9 +23,12 @@ use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
 use virtio_gen::virtio_blk::*;
 
+use polly::event_manager::*;
+use polly::pollable::*;
+
 use super::{
-    ActivateError, ActivateResult, DescriptorChain, EpollConfigConstructor, Queue, VirtioDevice,
-    TYPE_BLOCK, VIRTIO_MMIO_INT_VRING,
+    ActivateError, ActivateResult, DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK,
+    VIRTIO_MMIO_INT_VRING,
 };
 use crate::{DeviceEventT, EpollHandler, Error as DeviceError};
 
@@ -300,27 +303,81 @@ impl Request {
     }
 }
 
-/// Handler that drives the execution of the Block devices
-pub struct BlockEpollHandler {
-    queues: Vec<Queue>,
-    mem: GuestMemory,
+/// Virtio device for exposing block level read/write operations on a host file.
+pub struct Block {
     disk_image: File,
     disk_nsectors: u64,
-    interrupt_status: Arc<AtomicUsize>,
-    interrupt_evt: EventFd,
-    queue_evt: EventFd,
+    avail_features: u64,
+    acked_features: u64,
+    config_space: Vec<u8>,
     rate_limiter: RateLimiter,
+    queues: Option<Vec<Queue>>,
+    mem: Option<GuestMemory>,
+    interrupt_status: Option<Arc<AtomicUsize>>,
+    interrupt_evt: Option<EventFd>,
+    queue_evt: Option<EventFd>,
     disk_image_id: Vec<u8>,
 }
 
-impl BlockEpollHandler {
-    fn process_queue(&mut self, queue_index: usize) -> bool {
-        let queue = &mut self.queues[queue_index];
-        let mut used_any = false;
+pub fn build_config_space(disk_size: u64) -> Vec<u8> {
+    // We only support disk size, which uses the first two words of the configuration space.
+    // If the image is not a multiple of the sector size, the tail bits are not exposed.
+    // The config space is little endian.
+    let mut config = Vec::with_capacity(CONFIG_SPACE_SIZE);
+    let num_sectors = disk_size >> SECTOR_SHIFT;
+    for i in 0..8 {
+        config.push((num_sectors >> (8 * i)) as u8);
+    }
+    config
+}
 
-        while let Some(head) = queue.pop(&self.mem) {
+impl Block {
+    /// Create a new virtio block device that operates on the given file.
+    ///
+    /// The given file must be seekable and sizable.
+    pub fn new(
+        mut disk_image: File,
+        is_disk_read_only: bool,
+        rate_limiter: RateLimiter,
+    ) -> io::Result<Block> {
+        let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
+        if disk_size % SECTOR_SIZE != 0 {
+            warn!(
+                "Disk size {} is not a multiple of sector size {}; \
+                 the remainder will not be visible to the guest.",
+                disk_size, SECTOR_SIZE
+            );
+        }
+
+        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
+
+        if is_disk_read_only {
+            avail_features |= 1u64 << VIRTIO_BLK_F_RO;
+        };
+
+        Ok(Block {
+            disk_image_id: build_disk_image_id(&disk_image),
+            disk_image: disk_image,
+            disk_nsectors: disk_size / SECTOR_SIZE,
+            avail_features,
+            acked_features: 0u64,
+            config_space: build_config_space(disk_size),
+            rate_limiter,
+            interrupt_status: None,
+            interrupt_evt: None,
+            queue_evt: None,
+            queues: None,
+            mem: None,
+        })
+    }
+
+    fn process_queue(&mut self, queue_index: usize) -> bool {
+        let queues = &mut self.queues.as_mut().unwrap();
+        let queue = &mut queues[queue_index];
+        let mut used_any = false;
+        while let Some(head) = queue.pop(self.mem.as_ref().unwrap()) {
             let len;
-            match Request::parse(&head, &self.mem) {
+            match Request::parse(&head, &self.mem.as_ref().unwrap()) {
                 Ok(request) => {
                     // If limiter.consume() fails it means there is no more TokenType::Ops
                     // budget and rate limiting is in effect.
@@ -351,7 +408,7 @@ impl BlockEpollHandler {
                     let status = match request.execute(
                         &mut self.disk_image,
                         self.disk_nsectors,
-                        &self.mem,
+                        &self.mem.as_ref().unwrap(),
                         &self.disk_image_id,
                     ) {
                         Ok(l) => {
@@ -368,6 +425,8 @@ impl BlockEpollHandler {
                     // We use unwrap because the request parsing process already checked that the
                     // status_addr was valid.
                     self.mem
+                        .as_ref()
+                        .unwrap()
                         .write_obj_at_addr(status, request.status_addr)
                         .unwrap();
                 }
@@ -377,7 +436,7 @@ impl BlockEpollHandler {
                     len = 0;
                 }
             }
-            queue.add_used(&self.mem, head.index, len);
+            queue.add_used(&self.mem.as_ref().unwrap(), head.index, len);
             used_any = true;
         }
 
@@ -386,12 +445,17 @@ impl BlockEpollHandler {
 
     fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
         self.interrupt_status
+            .as_ref()
+            .unwrap()
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
-        self.interrupt_evt.write(1).map_err(|e| {
+
+        self.interrupt_evt.as_ref().unwrap().write(1).map_err(|e| {
             error!("Failed to signal used queue: {:?}", e);
+            println!("Failed to signal used queue: {:?}", e);
             METRICS.block.event_fails.inc();
             DeviceError::FailedSignalingUsedQueue(e)
-        })
+        });
+        Ok(())
     }
 
     /// Update the backing file for the Block device
@@ -408,126 +472,36 @@ impl BlockEpollHandler {
     }
 }
 
-impl EpollHandler for BlockEpollHandler {
-    fn handle_event(
-        &mut self,
-        device_event: DeviceEventT,
-        _evset: epoll::Events,
-    ) -> result::Result<(), DeviceError> {
-        match device_event {
-            QUEUE_AVAIL_EVENT => {
-                METRICS.block.queue_event_count.inc();
-                if let Err(e) = self.queue_evt.read() {
-                    error!("Failed to get queue event: {:?}", e);
-                    METRICS.block.event_fails.inc();
-                    Err(DeviceError::FailedReadingQueue {
-                        event_type: "queue event",
-                        underlying: e,
-                    })
-                } else if !self.rate_limiter.is_blocked() && self.process_queue(0) {
-                    self.signal_used_queue()
-                } else {
-                    // While limiter is blocked, don't process any more requests.
-                    Ok(())
-                }
+impl EventHandler for Block {
+    fn handle_read(&mut self, source: Pollable) -> Option<Vec<PollableOp>> {
+        let queue_fd = self.queue_evt.as_ref().unwrap().as_raw_fd();
+        let rate_limiter_fd = self.rate_limiter.as_raw_fd();
+        if source.as_raw_fd() == queue_fd {
+            METRICS.block.queue_event_count.inc();
+            if let Err(e) = self.queue_evt.as_ref().unwrap().read() {
+                error!("Failed to get queue event: {:?}", e);
+                METRICS.block.event_fails.inc();
+            // Err(DeviceError::FailedReadingQueue {
+            //     event_type: "queue event",
+            //     underlying: e,
+            // })
+            } else if !self.rate_limiter.is_blocked() && self.process_queue(0) {
+                self.signal_used_queue();
             }
-            RATE_LIMITER_EVENT => {
-                METRICS.block.rate_limiter_event_count.inc();
-                // Upon rate limiter event, call the rate limiter handler
-                // and restart processing the queue.
-                if self.rate_limiter.event_handler().is_ok() && self.process_queue(0) {
-                    self.signal_used_queue()
-                } else {
-                    Ok(())
-                }
+        } else if source.as_raw_fd() == rate_limiter_fd {
+            METRICS.block.rate_limiter_event_count.inc();
+            // Upon rate limiter event, call the rate limiter handler
+            // and restart processing the queue.
+            if self.rate_limiter.event_handler().is_ok() && self.process_queue(0) {
+                self.signal_used_queue();
             }
-            unknown => Err(DeviceError::UnknownEvent {
-                device: "block",
-                event: unknown,
-            }),
-        }
-    }
-}
-
-pub struct EpollConfig {
-    q_avail_token: u64,
-    rate_limiter_token: u64,
-    epoll_raw_fd: RawFd,
-    sender: mpsc::Sender<Box<dyn EpollHandler>>,
-}
-
-impl EpollConfigConstructor for EpollConfig {
-    fn new(
-        first_token: u64,
-        epoll_raw_fd: RawFd,
-        sender: mpsc::Sender<Box<dyn EpollHandler>>,
-    ) -> Self {
-        EpollConfig {
-            q_avail_token: first_token + u64::from(QUEUE_AVAIL_EVENT),
-            rate_limiter_token: first_token + u64::from(RATE_LIMITER_EVENT),
-            epoll_raw_fd,
-            sender,
-        }
-    }
-}
-
-/// Virtio device for exposing block level read/write operations on a host file.
-pub struct Block {
-    disk_image: Option<File>,
-    disk_nsectors: u64,
-    avail_features: u64,
-    acked_features: u64,
-    config_space: Vec<u8>,
-    epoll_config: EpollConfig,
-    rate_limiter: Option<RateLimiter>,
-}
-
-pub fn build_config_space(disk_size: u64) -> Vec<u8> {
-    // We only support disk size, which uses the first two words of the configuration space.
-    // If the image is not a multiple of the sector size, the tail bits are not exposed.
-    // The config space is little endian.
-    let mut config = Vec::with_capacity(CONFIG_SPACE_SIZE);
-    let num_sectors = disk_size >> SECTOR_SHIFT;
-    for i in 0..8 {
-        config.push((num_sectors >> (8 * i)) as u8);
-    }
-    config
-}
-
-impl Block {
-    /// Create a new virtio block device that operates on the given file.
-    ///
-    /// The given file must be seekable and sizable.
-    pub fn new(
-        mut disk_image: File,
-        is_disk_read_only: bool,
-        epoll_config: EpollConfig,
-        rate_limiter: Option<RateLimiter>,
-    ) -> io::Result<Block> {
-        let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
-        if disk_size % SECTOR_SIZE != 0 {
-            warn!(
-                "Disk size {} is not a multiple of sector size {}; \
-                 the remainder will not be visible to the guest.",
-                disk_size, SECTOR_SIZE
-            );
         }
 
-        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
+        None
+    }
 
-        if is_disk_read_only {
-            avail_features |= 1u64 << VIRTIO_BLK_F_RO;
-        };
-
-        Ok(Block {
-            disk_image: Some(disk_image),
-            disk_nsectors: disk_size / SECTOR_SIZE,
-            avail_features,
-            acked_features: 0u64,
-            config_space: build_config_space(disk_size),
-            epoll_config,
-            rate_limiter,
-        })
+    fn init(&self) -> Option<Vec<PollableOp>> {
+        None
     }
 }
 
@@ -595,60 +569,25 @@ impl VirtioDevice for Block {
             METRICS.block.activate_fails.inc();
             return Err(ActivateError::BadActivate);
         }
+        let queue_evt = queue_evts.remove(0);
+        let queue_evt_raw_fd = queue_evt.as_raw_fd();
 
-        if let Some(disk_image) = self.disk_image.take() {
-            let queue_evt = queue_evts.remove(0);
-            let queue_evt_raw_fd = queue_evt.as_raw_fd();
+        self.mem = Some(mem);
+        self.queues = Some(queues);
+        self.queue_evt = Some(queue_evt);
+        self.interrupt_status = Some(status);
+        self.interrupt_evt = Some(interrupt_evt);
 
-            let disk_image_id = build_disk_image_id(&disk_image);
-            let handler = BlockEpollHandler {
-                queues,
-                mem,
-                disk_image,
-                disk_nsectors: self.disk_nsectors,
-                interrupt_status: status,
-                interrupt_evt,
-                queue_evt,
-                rate_limiter: self.rate_limiter.take().unwrap_or_default(),
-                disk_image_id,
-            };
-            let rate_limiter_rawfd = handler.rate_limiter.as_raw_fd();
+        let ops = vec![
+            PollableOpBuilder::new(unsafe { Pollable::from_raw_fd(queue_evt_raw_fd) })
+                .readable()
+                .register(),
+            PollableOpBuilder::new(Pollable::from(&self.rate_limiter))
+                .readable()
+                .register(),
+        ];
 
-            // The channel should be open at this point.
-            self.epoll_config
-                .sender
-                .send(Box::new(handler))
-                .expect("Failed to send through the channel");
-
-            //TODO: barrier needed here by any chance?
-            epoll::ctl(
-                self.epoll_config.epoll_raw_fd,
-                epoll::ControlOptions::EPOLL_CTL_ADD,
-                queue_evt_raw_fd,
-                epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.q_avail_token),
-            )
-            .map_err(|e| {
-                METRICS.block.activate_fails.inc();
-                ActivateError::EpollCtl(e)
-            })?;
-
-            if rate_limiter_rawfd != -1 {
-                epoll::ctl(
-                    self.epoll_config.epoll_raw_fd,
-                    epoll::ControlOptions::EPOLL_CTL_ADD,
-                    rate_limiter_rawfd,
-                    epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.rate_limiter_token),
-                )
-                .map_err(|e| {
-                    METRICS.block.activate_fails.inc();
-                    ActivateError::EpollCtl(e)
-                })?;
-            }
-
-            return Ok(());
-        }
-        METRICS.block.activate_fails.inc();
-        Err(ActivateError::BadActivate)
+        return Ok(Some(ops));
     }
 }
 

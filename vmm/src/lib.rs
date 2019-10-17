@@ -30,6 +30,7 @@ extern crate logger;
 extern crate dumbo;
 extern crate memory_model;
 extern crate net_util;
+extern crate polly;
 extern crate rate_limiter;
 extern crate seccomp;
 extern crate sys_util;
@@ -83,6 +84,7 @@ use logger::LogOption;
 use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use net_util::TapError;
+use polly::event_manager::{EventHandler, EventManager};
 #[cfg(target_arch = "aarch64")]
 use serde_json::Value;
 use sys_util::{EventFd, Terminal};
@@ -137,6 +139,8 @@ pub enum EventLoopExitReason {
 enum EpollDispatch {
     Exit,
     Stdin,
+    PollyEvent,
+    PollyChannel,
     DeviceHandler(usize, DeviceEventT),
     VmmActionRequest,
     WriteMetrics,
@@ -243,7 +247,11 @@ impl EpollContext {
     ) -> Result<()> {
         // The index in the dispatch where the new token will be added.
         let dispatch_index = self.dispatch_table.len() as u64;
-
+        println!(
+            "Adding dispatch index {:?} - {}",
+            dispatch_index,
+            fd.as_raw_fd()
+        );
         // Add a new epoll event on `fd`, associated with index
         // `dispatch_index`.
         epoll::ctl(
@@ -411,6 +419,7 @@ pub struct Vmm {
 
     // The level of seccomp filtering used. Seccomp filters are loaded before executing guest code.
     seccomp_level: u32,
+    event_manager: EventManager,
 }
 
 impl Vmm {
@@ -446,6 +455,16 @@ impl Vmm {
         let kvm = KvmContext::new().map_err(Error::KvmContext)?;
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
+        let event_manager = EventManager::new().unwrap();
+        epoll_context
+            .add_epollin_event(&event_manager, EpollDispatch::PollyEvent)
+            .expect("Cannot add Polly to epoll.");
+        epoll_context
+            .add_epollin_event(
+                &event_manager.get_api_channel(),
+                EpollDispatch::PollyChannel,
+            )
+            .expect("Cannot add Polly to epoll.");
         Ok(Vmm {
             kvm,
             vm_config: VmConfig::default(),
@@ -462,6 +481,7 @@ impl Vmm {
             epoll_context,
             write_metrics_event_fd,
             seccomp_level,
+            event_manager: event_manager,
         })
     }
 
@@ -475,14 +495,15 @@ impl Vmm {
         drive_id: &str,
         disk_image: File,
     ) -> result::Result<(), DriveError> {
-        let handler = self
-            .epoll_context
-            .get_device_handler_by_device_id::<virtio::BlockEpollHandler>(TYPE_BLOCK, drive_id)
-            .map_err(|_| DriveError::EpollHandlerNotFound)?;
+        // let handler = self
+        //     .epoll_context
+        //     .get_device_handler_by_device_id::<virtio::BlockEpollHandler>(TYPE_BLOCK, drive_id)
+        //     .map_err(|_| DriveError::EpollHandlerNotFound)?;
 
-        handler
-            .update_disk_image(disk_image)
-            .map_err(|_| DriveError::BlockDeviceUpdateFailed)
+        // handler
+        //     .update_disk_image(disk_image)
+        //     .map_err(|_| DriveError::BlockDeviceUpdateFailed)
+        Ok(())
     }
 
     // Attaches all block devices from the BlockDevicesConfig.
@@ -536,33 +557,29 @@ impl Vmm {
                 kernel_config.cmdline.insert_str(flags)?;
             }
 
-            let epoll_config = epoll_context.allocate_tokens_for_virtio_device(
-                TYPE_BLOCK,
-                &drive_config.drive_id,
-                BLOCK_EVENTS_COUNT,
-            );
             let rate_limiter = drive_config
                 .rate_limiter
                 .map(vmm_config::RateLimiterConfig::into_rate_limiter)
                 .transpose()
                 .map_err(CreateRateLimiter)?;
 
-            let block_box = Box::new(
+            let block = Arc::new(Mutex::new(
                 devices::virtio::Block::new(
                     block_file,
                     drive_config.is_read_only,
-                    epoll_config,
-                    rate_limiter,
+                    rate_limiter.unwrap_or_default(),
                 )
                 .map_err(CreateBlockDevice)?,
-            );
+            ));
             device_manager
                 .register_virtio_device(
                     self.vm.fd(),
-                    block_box,
+                    block.clone(),
+                    block.clone(),
                     &mut kernel_config.cmdline,
                     TYPE_BLOCK,
                     &drive_config.drive_id,
+                    self.event_manager.get_api_channel(),
                 )
                 .map_err(RegisterBlockDevice)?;
         }
@@ -602,10 +619,11 @@ impl Vmm {
                 .map_err(CreateRateLimiter)?;
 
             let vm_fd = self.vm.fd();
+            let channel = self.event_manager.get_api_channel();
             cfg.open_tap()
                 .map_err(|_| NetDeviceNotConfigured)
                 .and_then(|tap| {
-                    let net_box = Box::new(
+                    let net_box = Arc::new(Mutex::new(
                         devices::virtio::Net::new_with_tap(
                             tap,
                             cfg.guest_mac(),
@@ -615,15 +633,17 @@ impl Vmm {
                             allow_mmds_requests,
                         )
                         .map_err(CreateNetDevice)?,
-                    );
+                    ));
 
                     device_manager
                         .register_virtio_device(
                             vm_fd,
-                            net_box,
+                            net_box.clone(),
+                            net_box.clone(),
                             &mut kernel_config.cmdline,
                             TYPE_NET,
                             &cfg.iface_id,
+                            channel,
                         )
                         .map_err(RegisterNetDevice)
                 })?;
@@ -653,17 +673,20 @@ impl Vmm {
                 &cfg.vsock_id,
                 VSOCK_EVENTS_COUNT,
             );
-            let vsock_box = Box::new(
+            let vsock_box = Arc::new(Mutex::new(
                 devices::virtio::Vsock::new(u64::from(cfg.guest_cid), epoll_config, backend)
                     .map_err(StartMicrovmError::CreateVsockDevice)?,
-            );
+            ));
+
             device_manager
                 .register_virtio_device(
                     self.vm.fd(),
-                    vsock_box,
+                    vsock_box.clone(),
+                    vsock_box.clone(),
                     &mut kernel_config.cmdline,
                     TYPE_VSOCK,
                     &cfg.vsock_id,
+                    self.event_manager.get_api_channel(),
                 )
                 .map_err(StartMicrovmError::RegisterVsockDevice)?;
         }
@@ -1220,6 +1243,12 @@ impl Vmm {
             };
 
             match self.epoll_context.dispatch_table[event.data as usize] {
+                Some(EpollDispatch::PollyEvent) => {
+                    self.event_manager.run_timeout(1).unwrap();
+                }
+                Some(EpollDispatch::PollyChannel) => {
+                    self.event_manager.run_timeout(1).unwrap();
+                }
                 Some(EpollDispatch::Exit) => {
                     match self.exit_evt {
                         Some(ref ev) => {

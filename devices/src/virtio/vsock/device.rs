@@ -36,7 +36,8 @@ use super::super::{ActivateError, ActivateResult, Queue as VirtQueue, VirtioDevi
 use super::epoll_handler::VsockEpollHandler;
 use super::VsockBackend;
 use super::{defs, defs::uapi, EpollConfig};
-
+use polly::event_manager;
+use polly::pollable;
 /// The virtio features supported by our vsock device:
 /// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
 /// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
@@ -50,6 +51,15 @@ pub struct Vsock<B: VsockBackend> {
     avail_features: u64,
     acked_features: u64,
     epoll_config: EpollConfig,
+}
+
+impl<B> event_manager::EventHandler for Vsock<B>
+where
+    B: VsockBackend + 'static,
+{
+    fn init(&self) -> Option<Vec<pollable::PollableOp>> {
+        None
+    }
 }
 
 impl<B> Vsock<B>
@@ -198,7 +208,7 @@ where
         )
         .map_err(ActivateError::EpollCtl)?;
 
-        Ok(())
+        Ok(None)
     }
 }
 

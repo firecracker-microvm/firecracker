@@ -134,6 +134,7 @@ dependencies = [
  "memory_model 0.1.0",
  "net_gen 0.1.0",
  "net_util 0.1.0",
+ "polly 0.0.1",
  "rate_limiter 0.1.0",
  "sys_util 0.1.0",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -243,6 +244,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "libc"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "libc"
 version = "0.2.64"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
@@ -310,6 +316,16 @@ dependencies = [
  "net_gen 0.1.0",
  "serde 1.0.101 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.41 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sys_util 0.1.0",
+]
+
+[[package]]
+name = "polly"
+version = "0.0.1"
+dependencies = [
+ "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "epoll 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "sys_util 0.1.0",
 ]
 
@@ -545,6 +561,7 @@ dependencies = [
  "memory_model 0.1.0",
  "mmds 0.1.0",
  "net_util 0.1.0",
+ "polly 0.0.1",
  "rate_limiter 0.1.0",
  "seccomp 0.1.0",
  "serde 1.0.101 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -604,6 +621,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum kvm-bindings 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "c223e8703d2eb76d990c5f58e29c85b0f6f50e24b823babde927948e7c71fc03"
 "checksum kvm-ioctls 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "43e647ed90b0f5214eb938601fc2e7aad2fc624fde62f13c0c2e672407b8ce7b"
 "checksum lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
+"checksum libc 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)" = "e32a70cf75e5846d53a673923498228bbec6a8624708a9ea5645f075d6276122"
 "checksum libc 0.2.64 (registry+https://github.com/rust-lang/crates.io-index)" = "74dfca3d9957906e8d1e6a0b641dc9a59848e793f1da2165889fd4f62d10d79c"
 "checksum log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)" = "14b6052be84e6b71ab17edffc2eeabf5c2c3ae1fdb464aae35ac50c67a44e1f7"
 "checksum memchr 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "88579771288728879b57485cc7d6b07d648c9f0141eb955f8ab7f9d45394468e"

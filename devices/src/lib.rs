@@ -16,6 +16,7 @@ extern crate logger;
 extern crate memory_model;
 extern crate net_gen;
 extern crate net_util;
+extern crate polly;
 extern crate rate_limiter;
 extern crate sys_util;
 extern crate virtio_gen;

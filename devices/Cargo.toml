@@ -18,6 +18,7 @@ net_gen = { path = "../net_gen" }
 rate_limiter = { path = "../rate_limiter" }
 sys_util = { path = "../sys_util" }
 virtio_gen = { path = "../virtio_gen" }
+polly = { path = "../polly" }
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
