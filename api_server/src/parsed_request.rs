@@ -45,24 +45,25 @@ impl ParsedRequest {
             (Method::Get, "", None) => parse_get_instance_info(),
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
+            (Method::Get, _, Some(_)) => method_to_error(Method::Get),
             (Method::Put, "actions", Some(body)) => parse_put_actions(body),
             (Method::Put, "boot-source", Some(body)) => parse_put_boot_source(body),
-            (Method::Put, "drives", maybe_body) => parse_put_drive(maybe_body, path_tokens.get(1)),
+            (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.get(1)),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
-            (Method::Put, "machine-config", maybe_body) => parse_put_machine_config(maybe_body),
+            (Method::Put, "machine-config", Some(body)) => parse_put_machine_config(body),
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body),
-            (Method::Put, "network-interfaces", maybe_body) => {
-                parse_put_net(maybe_body, path_tokens.get(1))
+            (Method::Put, "network-interfaces", Some(body)) => {
+                parse_put_net(body, path_tokens.get(1))
             }
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
-            (Method::Patch, "drives", maybe_body) => {
-                parse_patch_drive(maybe_body, path_tokens.get(1))
-            }
-            (Method::Patch, "machine-config", maybe_body) => parse_patch_machine_config(maybe_body),
+            (Method::Put, _, None) => method_to_error(Method::Put),
+            (Method::Patch, "drives", Some(body)) => parse_patch_drive(body, path_tokens.get(1)),
+            (Method::Patch, "machine-config", Some(body)) => parse_patch_machine_config(body),
             (Method::Patch, "mmds", Some(body)) => parse_patch_mmds(body),
-            (Method::Patch, "network-interfaces", maybe_body) => {
-                parse_patch_net(maybe_body, path_tokens.get(1))
+            (Method::Patch, "network-interfaces", Some(body)) => {
+                parse_patch_net(body, path_tokens.get(1))
             }
+            (Method::Patch, _, None) => method_to_error(Method::Patch),
             (method, unknown_uri, _) => {
                 Err(Error::InvalidPathMethod(unknown_uri.to_string(), method))
             }
@@ -125,6 +126,24 @@ fn describe(method: Method, path: &str, body: Option<&Body>) -> String {
                 .unwrap_or("inconvertible to UTF-8")
                 .to_string()
         ),
+    }
+}
+
+/// Generates a `GenericError` for each request method.
+pub fn method_to_error(method: Method) -> Result<ParsedRequest, Error> {
+    match method {
+        Method::Get => Err(Error::Generic(
+            StatusCode::BadRequest,
+            "GET request cannot have a body.".to_string(),
+        )),
+        Method::Put => Err(Error::Generic(
+            StatusCode::BadRequest,
+            "Empty PUT request.".to_string(),
+        )),
+        Method::Patch => Err(Error::Generic(
+            StatusCode::BadRequest,
+            "Empty PATCH request.".to_string(),
+        )),
     }
 }
 
@@ -233,6 +252,73 @@ mod tests {
             Err(Error::InvalidID) => {}
             _ => panic!("Test failed."),
         }
+    }
+
+    #[test]
+    fn test_invalid_get() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"GET /mmds HTTP/1.1\r\n\
+                Content-Type: text/plain\r\n\
+                Content-Length: 4\r\n\r\nbody",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        match ParsedRequest::try_from_request(&req) {
+            Err(Error::Generic(StatusCode::BadRequest, err_msg)) => {
+                if err_msg != "GET request cannot have a body." {
+                    panic!("GET request with body.");
+                }
+            }
+            _ => panic!("GET request with body."),
+        };
+    }
+
+    #[test]
+    fn test_invalid_put() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PUT /mmds HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\r\n",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        match ParsedRequest::try_from_request(&req) {
+            Err(Error::Generic(StatusCode::BadRequest, err_msg)) => {
+                if err_msg != "Empty PUT request." {
+                    panic!("Empty PUT request.");
+                }
+            }
+            _ => panic!("Empty PUT request."),
+        };
+    }
+
+    #[test]
+    fn test_invalid_patch() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PATCH /mmds HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\r\n",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        match ParsedRequest::try_from_request(&req) {
+            Err(Error::Generic(StatusCode::BadRequest, err_msg)) => {
+                if err_msg != "Empty PATCH request." {
+                    panic!("Empty PATCH request.");
+                }
+            }
+            _ => panic!("Empty PATCH request."),
+        };
     }
 
     #[test]
