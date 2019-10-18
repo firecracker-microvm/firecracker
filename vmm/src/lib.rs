@@ -913,15 +913,37 @@ impl Vmm {
             .vcpu_count
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
 
+        let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
+            memory_model::GuestMemoryError::MemoryNotInitialized,
+        ))?;
+
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
 
-        for cpu_id in 0..vcpu_count {
+        for cpu_index in 0..vcpu_count {
             let io_bus = self.pio_device_manager.io_bus.clone();
-            let mut vcpu = Vcpu::new(cpu_id, &self.vm, io_bus, request_ts.clone())
+            let mut vcpu;
+            #[cfg(target_arch = "x86_64")]
+            {
+                vcpu = Vcpu::new_x86_64(
+                    cpu_index,
+                    self.vm.fd(),
+                    self.vm.supported_cpuid().clone(),
+                    io_bus,
+                    request_ts.clone(),
+                )
                 .map_err(StartMicrovmError::Vcpu)?;
 
-            vcpu.configure(&self.vm_config, entry_addr, &self.vm)
-                .map_err(StartMicrovmError::VcpuConfigure)?;
+                vcpu.configure_x86_64(&self.vm_config, vm_memory, entry_addr)
+                    .map_err(StartMicrovmError::VcpuConfigure)?;
+            }
+            #[cfg(target_arch = "aarch64")]
+            {
+                vcpu = Vcpu::new_aarch64(cpu_index, self.vm.fd(), io_bus, request_ts.clone())
+                    .map_err(StartMicrovmError::Vcpu)?;
+
+                vcpu.configure_aarch64(self.vm.fd(), vm_memory, entry_addr)
+                    .map_err(StartMicrovmError::VcpuConfigure)?;
+            }
 
             vcpus.push(vcpu);
         }
