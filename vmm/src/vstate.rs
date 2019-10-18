@@ -199,7 +199,7 @@ impl fmt::Display for Error {
             ),
             Error::Irq(err) => write!(f, "Cannot configure the IRQ: {}", err),
             Error::VcpuSpawn(err) => write!(f, "Cannot spawn a new vCPU thread: {}", err),
-            Error::VcpuUnhandledKvmExit => write!(f, "Unexpected KVM_RUN exit reason"),
+            Error::VcpuUnhandledKvmExit => write!(f, "Unexpected KVM_RUN exit reason."),
             #[cfg(target_arch = "aarch64")]
             Error::SetupGIC(err) => write!(
                 f,
@@ -794,5 +794,92 @@ mod tests {
 
         assert_eq!(m1.dev(), m2.dev());
         assert_eq!(m1.ino(), m2.ino());
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::VmFd(io::Error::from_raw_os_error(0))),
+            format!(
+                "Cannot open the VM file descriptor: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::VcpuFd(io::Error::from_raw_os_error(0))),
+            format!(
+                "Cannot open the VCPU file descriptor: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::VcpuRun(io::Error::from_raw_os_error(0))),
+            format!("Cannot run the VCPUs: {}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetSupportedCpusFailed(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "The call to KVM_SET_CPUID2 failed: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetUserMemoryRegion(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Cannot set the memory regions: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::Irq(io::Error::from_raw_os_error(0))),
+            format!(
+                "Cannot configure the IRQ: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::VcpuSpawn(io::Error::from_raw_os_error(0))),
+            format!(
+                "Cannot spawn a new vCPU thread: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::VcpuCountNotInitialized),
+            "vCPU count is not initialized."
+        );
+
+        assert_eq!(
+            format!("{}", Error::NotEnoughMemorySlots),
+            "The number of configured slots is bigger than the maximum reported by KVM."
+        );
+        assert_eq!(
+            format!("{}", Error::HTNotInitialized),
+            "Hyperthreading is not initialized."
+        );
+        assert_eq!(
+            format!("{}", Error::VmSetup(io::Error::from_raw_os_error(0))),
+            format!(
+                "Cannot configure the microvm: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::VcpuUnhandledKvmExit),
+            "Unexpected KVM_RUN exit reason."
+        );
     }
 }
