@@ -434,7 +434,7 @@ mod tests {
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         assert!(device_manager
-            .register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, 0, "dummy")
+            .register_virtio_device(vmm.vm.fd(), dummy_box, &mut cmdline, 0, "dummy")
             .is_ok());
     }
 
@@ -453,13 +453,7 @@ mod tests {
 
         for _i in arch::IRQ_BASE..=arch::IRQ_MAX {
             device_manager
-                .register_virtio_device(
-                    vmm.vm.get_fd(),
-                    dummy_box.clone(),
-                    &mut cmdline,
-                    0,
-                    "dummy1",
-                )
+                .register_virtio_device(vmm.vm.fd(), dummy_box.clone(), &mut cmdline, 0, "dummy1")
                 .unwrap();
         }
         assert_eq!(
@@ -467,7 +461,7 @@ mod tests {
                 "{}",
                 device_manager
                     .register_virtio_device(
-                        vmm.vm.get_fd(),
+                        vmm.vm.fd(),
                         dummy_box.clone(),
                         &mut cmdline,
                         0,
@@ -578,7 +572,7 @@ mod tests {
         let vmm = create_vmm_object();
 
         if device_manager
-            .register_virtio_device(vmm.vm.get_fd(), dummy_box, &mut cmdline, TYPE_BLOCK, "foo")
+            .register_virtio_device(vmm.vm.fd(), dummy_box, &mut cmdline, TYPE_BLOCK, "foo")
             .is_ok()
         {
             assert!(device_manager.update_drive("foo", 1_048_576).is_ok());
@@ -602,7 +596,7 @@ mod tests {
         let type_id = 0;
         let id = String::from("foo");
         if let Ok(addr) = device_manager.register_virtio_device(
-            vmm.vm.get_fd(),
+            vmm.vm.fd(),
             dummy_box,
             &mut cmdline,
             type_id,
