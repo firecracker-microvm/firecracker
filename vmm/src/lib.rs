@@ -599,7 +599,7 @@ impl Vmm {
             );
             device_manager
                 .register_virtio_device(
-                    self.vm.get_fd(),
+                    self.vm.fd(),
                     block_box,
                     &mut kernel_config.cmdline,
                     TYPE_BLOCK,
@@ -642,7 +642,7 @@ impl Vmm {
                 .transpose()
                 .map_err(CreateRateLimiter)?;
 
-            let vm_fd = self.vm.get_fd();
+            let vm_fd = self.vm.fd();
             cfg.open_tap()
                 .map_err(|_| NetDeviceNotConfigured)
                 .and_then(|tap| {
@@ -700,7 +700,7 @@ impl Vmm {
             );
             device_manager
                 .register_virtio_device(
-                    self.vm.get_fd(),
+                    self.vm.fd(),
                     vsock_box,
                     &mut kernel_config.cmdline,
                     TYPE_VSOCK,
@@ -860,7 +860,7 @@ impl Vmm {
         macro_rules! register_irqfd_evt {
             ($evt: ident, $index: expr) => {{
                 self.vm
-                    .get_fd()
+                    .fd()
                     .register_irqfd(self.pio_device_manager.$evt.as_raw_fd(), $index)
                     .map_err(|e| {
                         StartMicrovmError::LegacyIOBus(device_manager::legacy::Error::EventFd(e))
@@ -888,12 +888,12 @@ impl Vmm {
 
         if kernel_config.cmdline.as_str().contains("console=") {
             device_manager
-                .register_mmio_serial(self.vm.get_fd(), &mut kernel_config.cmdline)
+                .register_mmio_serial(self.vm.fd(), &mut kernel_config.cmdline)
                 .map_err(RegisterMMIODevice)?;
         }
 
         device_manager
-            .register_mmio_rtc(self.vm.get_fd())
+            .register_mmio_rtc(self.vm.fd())
             .map_err(RegisterMMIODevice)?;
 
         Ok(())
@@ -1315,7 +1315,7 @@ impl Vmm {
         let dirty_pages_in_region =
             |(slot, memory_region): (usize, &memory_model::MemoryRegion)| {
                 self.vm
-                    .get_fd()
+                    .fd()
                     .get_dirty_log(slot as u32, memory_region.size())
                     .map(|v| v.iter().map(|page| page.count_ones() as usize).sum())
                     .unwrap_or(0 as usize)
@@ -2585,7 +2585,7 @@ mod tests {
             // Use a dummy command line as it is not used in this test.
             let _addr = device_manager
                 .register_virtio_device(
-                    vmm.vm.get_fd(),
+                    vmm.vm.fd(),
                     dummy_box,
                     &mut kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE),
                     TYPE_BLOCK,
@@ -3231,9 +3231,6 @@ mod tests {
         assert_eq!(mem_ref.num_regions(), 1);
         assert_eq!(mem_ref.end_addr(), GuestAddress(0x1100));
 
-        assert_eq!(
-            vmm.kvm_vm().get_fd().as_raw_fd(),
-            vmm.vm.get_fd().as_raw_fd()
-        );
+        assert_eq!(vmm.kvm_vm().fd().as_raw_fd(), vmm.vm.fd().as_raw_fd());
     }
 }

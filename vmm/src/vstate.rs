@@ -202,7 +202,7 @@ impl Vm {
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
     ///
-    pub fn get_fd(&self) -> &VmFd {
+    pub fn fd(&self) -> &VmFd {
         &self.fd
     }
 }
