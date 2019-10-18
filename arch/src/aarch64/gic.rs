@@ -146,4 +146,25 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         assert!(create_gicv3(&vm, 1).is_ok());
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::CreateGIC(io::Error::from_raw_os_error(0))),
+            format!(
+                "KVM ioctl for creating GIC failed: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetDeviceAttribute(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "KVM ioctl for setting device attributes for GIC failed: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+    }
 }

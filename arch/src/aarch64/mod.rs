@@ -119,4 +119,12 @@ mod tests {
         let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), 0x1000 + layout::DRAM_MEM_START);
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::SetupFDT(fdt::Error::IncompleteFDTMemoryWrite)),
+            format!("FDT setup failed: {}", fdt::Error::IncompleteFDTMemoryWrite)
+        );
+    }
 }

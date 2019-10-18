@@ -141,4 +141,18 @@ mod tests {
 
         assert!(setup_regs(&vcpu, 0, 0x0, &mem).is_ok());
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetCoreRegister(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Failed to set core register: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+    }
 }

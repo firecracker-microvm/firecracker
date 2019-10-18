@@ -162,4 +162,17 @@ mod tests {
         // irqchip created beforehand.
         assert!(set_lint(&vcpu).is_err());
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::GetLapic(io::Error::from_raw_os_error(0))),
+            format!("Get Lapic failed: {}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!("{}", Error::SetLapic(io::Error::from_raw_os_error(0))),
+            format!("Set Lapic failed: {}", io::Error::from_raw_os_error(0))
+        );
+    }
 }

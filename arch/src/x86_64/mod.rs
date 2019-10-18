@@ -288,4 +288,29 @@ mod tests {
         )
         .is_err());
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::ZeroPageSetup),
+            "Error writing the zero page to guest memory."
+        );
+        assert_eq!(
+            format!("{}", Error::E820Configuration),
+            "Invalid e820 setup params."
+        );
+
+        assert_eq!(
+            format!("{}", Error::ZeroPagePastRamEnd),
+            "The zero page extends past the end of guest memory."
+        );
+
+        assert_eq!(
+            format!("{}", Error::MpTableSetup(mptable::Error::NotEnoughMemory)),
+            format!(
+                "Error writing MP table to memory: {}",
+                mptable::Error::NotEnoughMemory
+            )
+        );
+    }
 }

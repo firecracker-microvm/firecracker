@@ -478,4 +478,87 @@ mod tests {
         validate_segments_and_sregs(&gm, &sregs);
         validate_page_tables(&gm, &sregs);
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!(
+                "{}",
+                Error::GetStatusRegisters(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Failed to get SREGs for this CPU: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetBaseRegisters(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Failed to set base registers for this CPU: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetFPURegisters(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Failed to configure the FPU: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetModelSpecificRegisters(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Setting up MSRs failed: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SetStatusRegisters(io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Failed to set SREGs for this CPU: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!("{}", Error::WriteGDT),
+            "Writing the GDT to RAM failed.".to_string()
+        );
+
+        assert_eq!(
+            format!("{}", Error::WriteIDT),
+            "Writing the IDT to RAM failed.".to_string()
+        );
+
+        assert_eq!(
+            format!("{}", Error::WritePDPTEAddress),
+            "Writing PDPTE to RAM failed.".to_string()
+        );
+
+        assert_eq!(
+            format!("{}", Error::WritePDEAddress),
+            "Writing PDE to RAM failed.".to_string()
+        );
+
+        assert_eq!(
+            format!("{}", Error::WritePML4Address),
+            "Writing PML4 to RAM failed.".to_string()
+        );
+    }
 }

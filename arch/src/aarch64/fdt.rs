@@ -641,4 +641,38 @@ mod tests {
         let generated_fdt = device_tree::DeviceTree::load(&dtb).unwrap();
         assert!(format!("{:?}", original_fdt) == format!("{:?}", generated_fdt));
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::AppendFDTNode(io::Error::from_raw_os_error(0))),
+            format!("{}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::AppendFDTProperty(io::Error::from_raw_os_error(0))
+            ),
+            format!("{}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!("{}", Error::CreateFDT(io::Error::from_raw_os_error(0))),
+            format!("{}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::FinishFDTReserveMap(io::Error::from_raw_os_error(0))
+            ),
+            format!("{}", io::Error::from_raw_os_error(0))
+        );
+
+        assert_eq!(
+            format!("{}", Error::IncompleteFDTMemoryWrite),
+            "Incomplete FDT memory write."
+        );
+    }
 }
