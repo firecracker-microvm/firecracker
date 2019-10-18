@@ -665,4 +665,45 @@ mod tests {
             3
         );
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::InvalidGuestAddress(GuestAddress(0))),
+            "Guest address was not found in mapped memory."
+        );
+        assert_eq!(
+            format!("{}", Error::InvalidGuestAddressRange(GuestAddress(0), 0)),
+            "Guest Address range was not found in mapped memory."
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::MemoryAccess(GuestAddress(0), mmap::Error::InvalidAddress)
+            ),
+            format!("Failed memory access: {}", mmap::Error::InvalidAddress)
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::MemoryMappingFailed(mmap::Error::InvalidAddress)
+            ),
+            format!(
+                "Failure in creating memory mapping: {}",
+                mmap::Error::InvalidAddress
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::MemoryNotInitialized),
+            "Failure in initializing guest memory."
+        );
+        assert_eq!(
+            format!("{}", Error::MemoryRegionOverlap),
+            "Two of the memory regions are overlapping."
+        );
+        assert_eq!(
+            format!("{}", Error::NoMemoryRegions),
+            "No memory regions were provided for initializing the guest memory."
+        );
+    }
 }

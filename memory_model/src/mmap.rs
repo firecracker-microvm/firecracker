@@ -45,8 +45,8 @@ impl fmt::Display for Error {
             ),
             Error::ReadFromSource(err) => write!(f, "Couldn't read from the given source: {}", err),
             Error::SystemCallFailed(err) => write!(f, "{}", err),
-            Error::WriteToMemory(err) => write!(f, "{}", err),
-            Error::ReadFromMemory(err) => write!(f, "{}", err),
+            Error::WriteToMemory(err) => write!(f, "Writing to memory failed: {}", err),
+            Error::ReadFromMemory(err) => write!(f, "Reading from memory failed: {}", err),
         }
     }
 }
@@ -424,5 +424,46 @@ mod tests {
             mem_map.write_from_memory(2, &mut sink, mem::size_of::<u32>())
         );
         assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
+    }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::InvalidAddress),
+            "Requested memory out of range."
+        );
+        assert_eq!(
+            format!("{}", Error::InvalidRange(0, 0)),
+            "Requested memory range spans past the end of the region."
+        );
+        assert_eq!(
+            format!("{}", Error::ReadFromSource(io::Error::from_raw_os_error(0))),
+            format!(
+                "Couldn't read from the given source: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::SystemCallFailed(io::Error::from_raw_os_error(0))
+            ),
+            format!("{}", io::Error::from_raw_os_error(0))
+        );
+        assert_eq!(
+            format!("{}", Error::WriteToMemory(io::Error::from_raw_os_error(0))),
+            format!(
+                "Writing to memory failed: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::ReadFromMemory(io::Error::from_raw_os_error(0))),
+            format!(
+                "Reading from memory failed: {}",
+                io::Error::from_raw_os_error(0)
+            )
+        );
     }
 }
