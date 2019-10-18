@@ -156,4 +156,23 @@ mod test {
             }
         }
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::VcpuCountOverflow),
+            "The maximum number of CPUID entries was exceeded."
+        );
+        assert_eq!(
+            format!("{}", Error::SizeLimitExceeded),
+            "The max size has been exceeded."
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::InternalError(super::super::common::Error::NotSupported)
+            ),
+            format!("{}", super::super::common::Error::NotSupported)
+        );
+    }
 }
