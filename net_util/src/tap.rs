@@ -680,4 +680,43 @@ mod tests {
 
         assert!(found_test_packet);
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!(
+                "{}",
+                Error::CreateSocket(std::io::Error::from_raw_os_error(0))
+            ),
+            format!(
+                "Failed to create a socket: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::CreateTap(std::io::Error::from_raw_os_error(0))),
+            format!(
+                "Unable to create tap interface: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::InvalidIfname),
+            "Invalid interface name."
+        );
+        assert_eq!(
+            format!("{}", Error::OpenTun(std::io::Error::from_raw_os_error(0))),
+            format!(
+                "Couldn't open /dev/net/tun: {}",
+                std::io::Error::from_raw_os_error(0)
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::IoctlError(std::io::Error::from_raw_os_error(0))
+            ),
+            format!("{}", std::io::Error::from_raw_os_error(0))
+        );
+    }
 }

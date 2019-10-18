@@ -1932,4 +1932,30 @@ mod tests {
         compare_buckets(h.get_tx_rate_limiter().bandwidth().unwrap(), &tx_bytes);
         compare_buckets(h.get_tx_rate_limiter().ops().unwrap(), &tx_ops);
     }
+
+    #[test]
+    fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::TapOpen(TapError::InvalidIfname)),
+            format!("Open tap device failed: {}", TapError::InvalidIfname)
+        );
+        assert_eq!(
+            format!("{}", Error::TapSetOffload(TapError::InvalidIfname)),
+            format!(
+                "Setting tap interface offload flags failed: {}",
+                TapError::InvalidIfname
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::TapSetVnetHdrSize(TapError::InvalidIfname)),
+            format!(
+                "Setting vnet header size failed: {}",
+                TapError::InvalidIfname
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::TapEnable(TapError::InvalidIfname)),
+            format!("Enabling tap interface failed: {}", TapError::InvalidIfname)
+        );
+    }
 }
