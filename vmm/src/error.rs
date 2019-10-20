@@ -20,6 +20,7 @@ use devices::legacy::I8042DeviceError;
 pub enum Error {
     /// Legacy devices work with Event file descriptors and the creation can fail because
     /// of resource exhaustion.
+    #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::Error),
     /// An operation on the epoll instance failed due to resource exhaustion or bad configuration.
     EpollFd(io::Error),
@@ -52,6 +53,7 @@ impl std::fmt::Debug for Error {
         use self::Error::*;
 
         match self {
+            #[cfg(target_arch = "x86_64")]
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
             EpollFd(e) => write!(f, "Epoll fd error: {}", e.to_string()),
             EventFd(e) => write!(f, "Event fd error: {}", e.to_string()),
@@ -209,7 +211,6 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             | DeviceManager
             | EventFd
             | GuestMemory(_)
-            | LegacyIOBus(_)
             | RegisterBlockDevice(_)
             | RegisterEvent
             | RegisterMMIODevice(_)
@@ -219,6 +220,8 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             | Vcpu(_)
             | VcpuConfigure(_)
             | VcpuSpawn(_) => ErrorKind::Internal,
+            #[cfg(target_arch = "x86_64")]
+            LegacyIOBus(_) => ErrorKind::Internal,
             // The only user `LoadCommandline` error is `CommandLineOverflow`.
             LoadCommandline(ref cle) => match cle {
                 kernel::cmdline::Error::CommandLineOverflow => ErrorKind::User,
@@ -470,6 +473,7 @@ mod tests {
             )),
             ErrorKind::User
         );
+        #[cfg(target_arch = "x86_64")]
         assert_eq!(
             error_kind(StartMicrovmError::LegacyIOBus(
                 device_manager::legacy::Error::EventFd(io::Error::from_raw_os_error(0))
@@ -577,6 +581,7 @@ mod tests {
     fn test_error_messages() {
         // Enum `Error`
 
+        #[cfg(target_arch = "x86_64")]
         assert_eq!(
             format!(
                 "{:?}",

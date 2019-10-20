@@ -82,6 +82,7 @@ pub enum VmmAction {
     StartMicroVm,
     /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
     /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
+    #[cfg(target_arch = "x86_64")]
     SendCtrlAltDel,
     /// Update the path of an existing block device. The data associated with this variant
     /// represents the `drive_id` and the `path_on_host`.

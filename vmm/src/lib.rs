@@ -62,6 +62,7 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
+#[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 #[cfg(target_arch = "aarch64")]
 use device_manager::mmio::MMIODeviceInfo;
@@ -441,6 +442,7 @@ pub struct Vmm {
 
     // Guest VM devices.
     mmio_device_manager: Option<MMIODeviceManager>,
+    #[cfg(target_arch = "x86_64")]
     pio_device_manager: PortIODeviceManager,
 
     // Device configurations.
@@ -498,6 +500,7 @@ impl Vmm {
             exit_evt: None,
             vm,
             mmio_device_manager: None,
+            #[cfg(target_arch = "x86_64")]
             pio_device_manager: PortIODeviceManager::new().map_err(Error::CreateLegacyDevice)?,
             device_configs,
             epoll_context,
@@ -920,7 +923,6 @@ impl Vmm {
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
 
         for cpu_index in 0..vcpu_count {
-            let io_bus = self.pio_device_manager.io_bus.clone();
             let mut vcpu;
             #[cfg(target_arch = "x86_64")]
             {
@@ -928,7 +930,7 @@ impl Vmm {
                     cpu_index,
                     self.vm.fd(),
                     self.vm.supported_cpuid().clone(),
-                    io_bus,
+                    self.pio_device_manager.io_bus.clone(),
                     request_ts.clone(),
                 )
                 .map_err(StartMicrovmError::Vcpu)?;
@@ -938,7 +940,7 @@ impl Vmm {
             }
             #[cfg(target_arch = "aarch64")]
             {
-                vcpu = Vcpu::new_aarch64(cpu_index, self.vm.fd(), io_bus, request_ts.clone())
+                vcpu = Vcpu::new_aarch64(cpu_index, self.vm.fd(), request_ts.clone())
                     .map_err(StartMicrovmError::Vcpu)?;
 
                 vcpu.configure_aarch64(self.vm.fd(), vm_memory, entry_addr)
@@ -971,7 +973,9 @@ impl Vmm {
         for cpu_id in (0..vcpu_count).rev() {
             let vcpu_thread_barrier = vcpus_thread_barrier.clone();
 
+            // On x86_64 we support i8042. Get a clone of its reset event.
             // If the lock is poisoned, it's OK to panic.
+            #[cfg(target_arch = "x86_64")]
             let vcpu_exit_evt = self
                 .pio_device_manager
                 .i8042
@@ -979,6 +983,11 @@ impl Vmm {
                 .expect("Failed to start VCPUs due to poisoned i8042 lock")
                 .get_reset_evt_clone()
                 .map_err(|_| StartMicrovmError::EventFd)?;
+
+            // On aarch64 we don't support i8042. Use a dummy event nobody touches until
+            // we get i8042 support.
+            #[cfg(target_arch = "aarch64")]
+            let vcpu_exit_evt = EventFd::new().map_err(|_| StartMicrovmError::EventFd)?;
 
             // `unwrap` is safe since we are asserting that the `vcpu_count` is equal to the number
             // of items of `vcpus` vector.
@@ -1084,22 +1093,24 @@ impl Vmm {
     }
 
     fn register_events(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        use StartMicrovmError::*;
+        #[cfg(target_arch = "x86_64")]
+        {
+            use StartMicrovmError::*;
+            // If the lock is poisoned, it's OK to panic.
+            let exit_poll_evt_fd = self
+                .pio_device_manager
+                .i8042
+                .lock()
+                .expect("Failed to register events on the event fd due to poisoned lock")
+                .get_reset_evt_clone()
+                .map_err(|_| EventFd)?;
 
-        // If the lock is poisoned, it's OK to panic.
-        let exit_poll_evt_fd = self
-            .pio_device_manager
-            .i8042
-            .lock()
-            .expect("Failed to register events on the event fd due to poisoned lock")
-            .get_reset_evt_clone()
-            .map_err(|_| EventFd)?;
+            self.epoll_context
+                .add_event(&exit_poll_evt_fd, EpollDispatch::Exit)
+                .map_err(|_| RegisterEvent)?;
 
-        self.epoll_context
-            .add_event(&exit_poll_evt_fd, EpollDispatch::Exit)
-            .map_err(|_| RegisterEvent)?;
-
-        self.exit_evt = Some(exit_poll_evt_fd);
+            self.exit_evt = Some(exit_poll_evt_fd);
+        }
 
         self.epoll_context.enable_stdin_event();
 
@@ -1198,6 +1209,7 @@ impl Vmm {
     }
 
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
+    #[cfg(target_arch = "x86_64")]
     pub fn send_ctrl_alt_del(&mut self) -> UserResult {
         self.pio_device_manager
             .i8042

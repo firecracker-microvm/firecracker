@@ -338,6 +338,7 @@ fn vmm_control_event(
                     .rescan_block_device(&drive_id)
                     .map(|_| api_server::VmmData::Empty),
                 StartMicroVm => vmm.start_microvm().map(|_| api_server::VmmData::Empty),
+                #[cfg(target_arch = "x86_64")]
                 SendCtrlAltDel => vmm.send_ctrl_alt_del().map(|_| api_server::VmmData::Empty),
                 SetVmConfiguration(machine_config_body) => vmm
                     .set_vm_configuration(machine_config_body)
