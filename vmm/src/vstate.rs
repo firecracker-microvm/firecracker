@@ -213,6 +213,7 @@ pub struct Vcpu {
     cpuid: CpuId,
     fd: VcpuFd,
     id: u8,
+    #[cfg(target_arch = "x86_64")]
     io_bus: devices::Bus,
     mmio_bus: Option<devices::Bus>,
     create_ts: TimestampUs,
@@ -255,21 +256,14 @@ impl Vcpu {
     ///
     /// * `id` - Represents the CPU number between [0, max vcpus).
     /// * `vm_fd` - The kvm `VmFd` for the virtual machine this vcpu will get attached to.
-    /// * `io_bus` - The io-bus used to access port-io devices.
     /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
-    #[cfg(not(target_arch = "x86_64"))]
-    pub fn new_aarch64(
-        id: u8,
-        vm_fd: &VmFd,
-        io_bus: devices::Bus,
-        create_ts: TimestampUs,
-    ) -> Result<Self> {
+    #[cfg(target_arch = "aarch64")]
+    pub fn new_aarch64(id: u8, vm_fd: &VmFd, create_ts: TimestampUs) -> Result<Self> {
         let kvm_vcpu = vm_fd.create_vcpu(id).map_err(Error::VcpuFd)?;
 
         Ok(Vcpu {
             fd: kvm_vcpu,
             id,
-            io_bus,
             mmio_bus: None,
             create_ts,
         })
@@ -377,13 +371,14 @@ impl Vcpu {
     fn run_emulation(&mut self) -> Result<()> {
         match self.fd.run() {
             Ok(run) => match run {
+                #[cfg(target_arch = "x86_64")]
                 VcpuExit::IoIn(addr, data) => {
                     self.io_bus.read(u64::from(addr), data);
                     METRICS.vcpu.exit_io_in.inc();
                     Ok(())
                 }
+                #[cfg(target_arch = "x86_64")]
                 VcpuExit::IoOut(addr, data) => {
-                    #[cfg(target_arch = "x86_64")]
                     self.check_boot_complete_signal(u64::from(addr), data);
 
                     self.io_bus.write(u64::from(addr), data);
@@ -511,13 +506,7 @@ mod tests {
         }
         #[cfg(target_arch = "aarch64")]
         {
-            vcpu = Vcpu::new_aarch64(
-                1,
-                vm.fd(),
-                devices::Bus::new(),
-                super::super::TimestampUs::default(),
-            )
-            .unwrap();
+            vcpu = Vcpu::new_aarch64(1, vm.fd(), super::super::TimestampUs::default()).unwrap();
             vm.setup_irqchip(1).expect("Cannot setup irqchip");
         }
 
@@ -596,13 +585,7 @@ mod tests {
 
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         let vcpu_count = 1;
-        let _vcpu = Vcpu::new_aarch64(
-            1,
-            vm.fd(),
-            devices::Bus::new(),
-            super::super::TimestampUs::default(),
-        )
-        .unwrap();
+        let _vcpu = Vcpu::new_aarch64(1, vm.fd(), super::super::TimestampUs::default()).unwrap();
 
         vm.setup_irqchip(vcpu_count).expect("Cannot setup irqchip");
         // Trying to setup two irqchips will result in EEXIST error.
@@ -645,13 +628,7 @@ mod tests {
         let vm_mem = vm.get_memory().unwrap();
 
         // Try it for when vcpu id is 0.
-        let mut vcpu = Vcpu::new_aarch64(
-            0,
-            vm.fd(),
-            devices::Bus::new(),
-            super::super::TimestampUs::default(),
-        )
-        .unwrap();
+        let mut vcpu = Vcpu::new_aarch64(0, vm.fd(), super::super::TimestampUs::default()).unwrap();
 
         let vm_config = VmConfig::default();
         assert!(vcpu
@@ -659,13 +636,7 @@ mod tests {
             .is_ok());
 
         // Try it for when vcpu id is NOT 0.
-        let mut vcpu = Vcpu::new_aarch64(
-            1,
-            vm.fd(),
-            devices::Bus::new(),
-            super::super::TimestampUs::default(),
-        )
-        .unwrap();
+        let mut vcpu = Vcpu::new_aarch64(1, vm.fd(), super::super::TimestampUs::default()).unwrap();
 
         assert!(vcpu
             .configure_aarch64(vm.fd(), vm_mem, GuestAddress(0))

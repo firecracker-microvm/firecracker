@@ -68,6 +68,7 @@ pub enum StartMicrovmError {
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
     KernelLoader(kernel_loader::Error),
     /// Cannot add devices to the Legacy I/O Bus.
+    #[cfg(target_arch = "x86_64")]
     LegacyIOBus(device_manager::legacy::Error),
     /// Cannot load command line string.
     LoadCommandline(kernel::cmdline::Error),
@@ -163,6 +164,7 @@ impl Display for StartMicrovmError {
                     err_msg
                 )
             }
+            #[cfg(target_arch = "x86_64")]
             LegacyIOBus(ref err) => {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
