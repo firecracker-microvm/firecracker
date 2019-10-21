@@ -176,6 +176,7 @@ impl Display for StartMicrovmError {
                  image: {}",
                 err
             ),
+            #[cfg(target_arch = "x86_64")]
             LegacyIOBus(ref err) => write!(f, "Cannot add devices to the legacy I/O Bus: {}", err),
             LoadCommandline(ref err) => write!(f, "Cannot load command line string: {}", err),
             MicroVMAlreadyRunning => write!(f, "Microvm already running."),
@@ -746,8 +747,11 @@ mod tests {
             "Device event handler couldn't be downcasted to expected type."
         );
         assert_eq!(
-            format!("{:?}", Error::KvmContext(vstate::Error::KvmApiVersion(1))),
-            format!("Failed to validate KVM support: {}", vstate::Error::KvmApiVersion(1))
+            format!("{}", Error::KvmContext(vstate::Error::KvmApiVersion(1))),
+            format!(
+                "Failed to validate KVM support: {}",
+                vstate::Error::KvmApiVersion(1)
+            )
         );
         assert_eq!(
             format!("{}", Error::Poll(io::Error::from_raw_os_error(42))),

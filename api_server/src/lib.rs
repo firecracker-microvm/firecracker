@@ -97,6 +97,7 @@ pub enum VmmData {
     MachineConfiguration(VmConfig),
 }
 
+#[derive(Debug)]
 pub enum Error {
     Io(io::Error),
     Eventfd(io::Error),

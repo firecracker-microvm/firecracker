@@ -153,8 +153,16 @@ impl fmt::Display for Error {
             Error::GuestMemory(err) => write!(f, "Invalid guest memory configuration: {}", err),
             Error::HTNotInitialized => write!(f, "Hyperthreading is not initialized."),
             Error::VcpuCountNotInitialized => write!(f, "vCPU count is not initialized."),
-            Error::KvmApiVersion(kvm_version) => write!(f, "The host kernel reports an invalid KVM API version: {}", kvm_version),
-            Error::KvmCap(kvm_cap) => write!(f, "Can not initialize the KVM context due to missing capabilities: {:?}", kvm_cap),
+            Error::KvmApiVersion(kvm_version) => write!(
+                f,
+                "The host kernel reports an invalid KVM API version: {}",
+                kvm_version
+            ),
+            Error::KvmCap(kvm_cap) => write!(
+                f,
+                "Can not initialize the KVM context due to missing capabilities: {:?}",
+                kvm_cap
+            ),
             Error::VmFd(err) => write!(f, "Cannot open the VM file descriptor: {}", err),
             Error::VcpuFd(err) => write!(f, "Cannot open the VCPU file descriptor: {}", err),
             Error::VmSetup(err) => write!(f, "Cannot configure the microvm: {}", err),
