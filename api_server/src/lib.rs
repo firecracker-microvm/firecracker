@@ -105,17 +105,8 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::Io(ref err) => write!(f, "IO error: {}", err),
-            Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
-        }
-    }
-}
-
-impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Io(ref err) => write!(f, "IO error: {}", err),
-            Error::Eventfd(ref err) => write!(f, "EventFd error: {}", err),
+            Error::Io(ref err) => write!(f, "{}", err),
+            Error::Eventfd(ref err) => write!(f, "{}", err),
         }
     }
 }
@@ -188,7 +179,7 @@ impl ApiServer {
         // altogether is the desired behaviour.
         if let Err(e) = default_syscalls::set_seccomp_level(seccomp_level) {
             panic!(
-                "Failed to set the requested seccomp filters on the API thread: Error: {:?}",
+                "Failed to set the requested seccomp filters on the API thread: {}",
                 e
             );
         }
@@ -345,26 +336,12 @@ mod tests {
         let e = Error::Io(io::Error::from_raw_os_error(0));
         assert_eq!(
             format!("{}", e),
-            format!("IO error: {}", io::Error::from_raw_os_error(0))
+            format!("{}", io::Error::from_raw_os_error(0))
         );
         let e = Error::Eventfd(io::Error::from_raw_os_error(0));
         assert_eq!(
             format!("{}", e),
-            format!("EventFd error: {}", io::Error::from_raw_os_error(0))
-        );
-    }
-
-    #[test]
-    fn test_error_debug() {
-        let e = Error::Io(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{:?}", e),
-            format!("IO error: {}", io::Error::from_raw_os_error(0))
-        );
-        let e = Error::Eventfd(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{:?}", e),
-            format!("EventFd error: {}", io::Error::from_raw_os_error(0))
+            format!("{}", io::Error::from_raw_os_error(0))
         );
     }
 
@@ -638,7 +615,7 @@ mod tests {
                     vmm_response_receiver,
                     to_vmm_fd,
                 )
-                .expect("Cannot create API server")
+                .expect("Cannot create API server.")
                 .bind_and_run(
                     PathBuf::from(path_to_socket.to_string()),
                     Some(1),
@@ -687,7 +664,7 @@ mod tests {
             vmm_response_receiver,
             to_vmm_fd,
         )
-        .expect("Cannot create API server")
+        .expect("Cannot create API server.")
         .bind_and_run(
             PathBuf::from(path_to_socket.to_string()),
             Some(1),

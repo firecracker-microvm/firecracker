@@ -188,7 +188,7 @@ fn main() {
 
     let request_event_fd = EventFd::new()
         .map_err(Error::Eventfd)
-        .expect("Cannot create API Eventfd.");
+        .unwrap_or_else(|err| panic!("Cannot create API Eventfd: {}", err));
     let (to_vmm, from_api) = channel();
     let (to_api, from_vmm) = channel();
 
@@ -209,7 +209,7 @@ fn main() {
                     from_vmm,
                     to_vmm_event_fd,
                 )
-                .expect("Cannot create API server")
+                .unwrap_or_else(|err| panic!("Cannot create API server: {}", err))
                 .bind_and_run(
                     bind_path,
                     start_time_us,
@@ -219,15 +219,15 @@ fn main() {
                     Ok(_) => (),
                     Err(Error::Io(inner)) => match inner.kind() {
                         io::ErrorKind::AddrInUse => {
-                            panic!("Failed to open the API socket: {:?}", Error::Io(inner))
+                            panic!("Failed to open the API socket: {}", Error::Io(inner))
                         }
                         _ => panic!(
-                            "Failed to communicate with the API socket: {:?}",
+                            "Failed to communicate with the API socket: {}",
                             Error::Io(inner)
                         ),
                     },
                     Err(eventfd_err @ Error::Eventfd(_)) => {
-                        panic!("Failed to open the API socket: {:?}", eventfd_err)
+                        panic!("Failed to open the API socket: {}", eventfd_err)
                     }
                 }
             })
