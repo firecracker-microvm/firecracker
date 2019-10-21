@@ -6,26 +6,6 @@ use seccomp::{
     SeccompCmpOp::Eq, SeccompCondition as Cond, SeccompFilter, SeccompRule,
 };
 
-// Currently these variables are missing from rust libc:
-// https://github.com/rust-lang/libc/blob/master/src/unix/notbsd/linux/musl/b64/aarch64.rs
-// even though they are defined in musl libc:
-// https://git.musl-libc.org/cgit/musl/tree/arch/aarch64/bits/syscall.h.in.
-// Submitted issue in rust-lang: https://github.com/rust-lang/libc/issues/1348.
-#[allow(non_upper_case_globals)]
-#[cfg(target_arch = "aarch64")]
-mod libc_patch {
-    pub const SYS_fcntl: ::std::os::raw::c_long = 25;
-    pub const SYS_lseek: ::std::os::raw::c_long = 62;
-    pub const SYS_newfstatat: ::std::os::raw::c_long = 79;
-    pub const SYS_fstat: ::std::os::raw::c_long = 80;
-    pub const SYS_mmap: ::std::os::raw::c_long = 222;
-}
-
-#[cfg(target_arch = "aarch64")]
-use self::libc_patch::{SYS_fcntl, SYS_fstat, SYS_lseek, SYS_mmap, SYS_newfstatat};
-#[cfg(target_arch = "x86_64")]
-use libc::{SYS_fcntl, SYS_fstat, SYS_lseek, SYS_mmap};
-
 /// The default filter containing the white listed syscall rules required by `Firecracker` to
 /// function.
 ///
@@ -45,15 +25,15 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall(libc::SYS_exit),
             allow_syscall(libc::SYS_exit_group),
             allow_syscall_if(
-                SYS_fcntl,
+                libc::SYS_fcntl,
                 or![and![
                     Cond::new(1, ArgLen::DWORD, Eq, super::FCNTL_F_SETFD)?,
                     Cond::new(2, ArgLen::QWORD, Eq, super::FCNTL_FD_CLOEXEC)?,
                 ]],
             ),
-            allow_syscall(SYS_fstat),
+            allow_syscall(libc::SYS_fstat),
             #[cfg(target_arch = "aarch64")]
-            allow_syscall(SYS_newfstatat),
+            allow_syscall(libc::SYS_newfstatat),
             allow_syscall_if(
                 libc::SYS_futex,
                 or![
@@ -76,7 +56,7 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             ),
             allow_syscall(libc::SYS_getrandom),
             allow_syscall_if(libc::SYS_ioctl, super::create_ioctl_seccomp_rule()?),
-            allow_syscall(SYS_lseek),
+            allow_syscall(libc::SYS_lseek),
             #[cfg(target_env = "musl")]
             allow_syscall_if(
                 libc::SYS_madvise,
@@ -87,7 +67,7 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     libc::MADV_DONTNEED as u64
                 )?],],
             ),
-            allow_syscall(SYS_mmap),
+            allow_syscall(libc::SYS_mmap),
             allow_syscall(libc::SYS_munmap),
             #[cfg(target_arch = "x86_64")]
             allow_syscall(libc::SYS_open),
