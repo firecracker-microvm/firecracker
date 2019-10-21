@@ -23,19 +23,15 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::CloneCpuResetEvt(io_err) => write!(
-                f,
-                "Could not clone CPU reset eventfd: {}.",
-                io_err.to_string()
-            ),
+            Error::CloneCpuResetEvt(io_err) => {
+                write!(f, "Could not clone CPU reset eventfd: {}", io_err)
+            }
             Error::KbdInterruptDisabled => {
                 write!(f, "Keyboard interrupt disabled by guest driver.",)
             }
-            Error::KbdInterruptFailure(io_err) => write!(
-                f,
-                "Could not trigger keyboard interrupt: {}.",
-                io_err.to_string()
-            ),
+            Error::KbdInterruptFailure(io_err) => {
+                write!(f, "Could not trigger keyboard interrupt: {}", io_err)
+            }
             Error::InternalBufferFull => write!(f, "i8042 internal buffer full."),
         }
     }
