@@ -92,7 +92,7 @@ use vmm_config::boot_source::{
 };
 use vmm_config::device_config::DeviceConfigs;
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
-use vmm_config::instance_info::{InstanceInfo, InstanceState, StartMicrovmError};
+use vmm_config::instance_info::{InstanceInfo, InstanceState};
 use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel, LoggerWriter};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::net::{
@@ -102,7 +102,7 @@ use vmm_config::net::{
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 use vstate::{Vcpu, Vm};
 
-pub use error::{ErrorKind, VmmActionError};
+pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
 
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
