@@ -33,6 +33,5 @@ def test_empty_jailer_id(test_microvm_with_ssh):
         # we can set an empty ID.
         assert False
     except Exception as err:
-        expected_err = "Jailer error: Invalid instance ID: invalid len (0);" \
-                       "  the length must be between 1 and 64"
+        expected_err = "Invalid instance ID: invalid input"
         assert expected_err in str(err)
