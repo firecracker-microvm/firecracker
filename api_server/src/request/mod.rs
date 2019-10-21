@@ -89,9 +89,9 @@ mod tests {
 
     use std::io;
 
+    use vmm::error::StartMicrovmError;
     use vmm::vmm_config::boot_source::BootSourceConfigError;
     use vmm::vmm_config::drive::DriveError;
-    use vmm::vmm_config::instance_info::StartMicrovmError;
     use vmm::vmm_config::logger::LoggerConfigError;
     use vmm::vmm_config::machine_config::{VmConfig, VmConfigError};
     use vmm::vmm_config::net::NetworkInterfaceError;
