@@ -8,13 +8,13 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use clap::ArgMatches;
 use libc;
 
 use cgroup::Cgroup;
 use chroot::chroot;
+use utils::arg_parser::Error::MissingValue;
 use utils::syscall::SyscallReturnCode;
-use utils::validators;
+use utils::{arg_parser, validators};
 use {Error, Result};
 
 const STDIN_FILENO: libc::c_int = 0;
@@ -34,12 +34,6 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
         .map_err(Error::Dup2)
 }
 
-// Extracts an argument's value or returns a specific error if the argument is missing.
-fn get_value<'a>(args: &'a ArgMatches, arg_name: &'static str) -> Result<&'a str> {
-    args.value_of(arg_name)
-        .ok_or_else(|| Error::MissingArgument(&arg_name))
-}
-
 pub struct Env {
     id: String,
     numa_node: u32,
@@ -55,30 +49,41 @@ pub struct Env {
 }
 
 impl Env {
-    pub fn new(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Result<Self> {
+    pub fn new(
+        arguments: &arg_parser::Arguments,
+        start_time_us: u64,
+        start_time_cpu_us: u64,
+    ) -> Result<Self> {
         // All arguments are either mandatory, or have default values, so the unwraps
         // should not fail.
-        let id = get_value(&args, "id")?;
+        let id = arguments
+            .value_as_string("id")
+            .ok_or_else(|| Error::ArgumentParsing(MissingValue("id".to_string())))?;
 
-        validators::validate_instance_id(id).map_err(Error::InvalidInstanceId)?;
+        validators::validate_instance_id(&id.as_str()).map_err(Error::InvalidInstanceId)?;
 
-        let numa_node_str = get_value(&args, "numa_node")?;
+        let numa_node_str = arguments
+            .value_as_string("node")
+            .ok_or_else(|| Error::ArgumentParsing(MissingValue("node".to_string())))?;
         let numa_node = numa_node_str
             .parse::<u32>()
-            .map_err(|_| Error::NumaNode(String::from(numa_node_str)))?;
+            .map_err(|_| Error::NumaNode(numa_node_str))?;
 
-        let exec_file = get_value(&args, "exec_file")?;
-        let exec_file_path = canonicalize(exec_file)
-            .map_err(|e| Error::Canonicalize(PathBuf::from(exec_file), e))?;
+        let exec_file = arguments
+            .value_as_string("exec-file")
+            .ok_or_else(|| Error::ArgumentParsing(MissingValue("exec-file".to_string())))?;
+        let exec_file_path = canonicalize(&exec_file)
+            .map_err(|e| Error::Canonicalize(PathBuf::from(&exec_file), e))?;
 
         if !exec_file_path.is_file() {
             return Err(Error::NotAFile(exec_file_path));
         }
 
-        let chroot_base = get_value(&args, "chroot_base")?;
-
-        let mut chroot_dir = canonicalize(chroot_base)
-            .map_err(|e| Error::Canonicalize(PathBuf::from(chroot_base), e))?;
+        let chroot_base = arguments
+            .value_as_string("chroot-base-dir")
+            .ok_or_else(|| Error::ArgumentParsing(MissingValue("chroot-base-dir".to_string())))?;
+        let mut chroot_dir = canonicalize(&chroot_base)
+            .map_err(|e| Error::Canonicalize(PathBuf::from(&chroot_base), e))?;
 
         if !chroot_dir.is_dir() {
             return Err(Error::NotADirectory(chroot_dir));
@@ -89,35 +94,25 @@ impl Env {
                 .file_name()
                 .ok_or_else(|| Error::FileName(exec_file_path.clone()))?,
         );
-        chroot_dir.push(id);
+        chroot_dir.push(&id);
         chroot_dir.push("root");
 
-        let uid_str = get_value(&args, "uid")?;
-        let uid = uid_str
-            .parse::<u32>()
-            .map_err(|_| Error::Uid(String::from(uid_str)))?;
+        let uid_str = arguments
+            .value_as_string("uid")
+            .ok_or_else(|| Error::ArgumentParsing(MissingValue("uid".to_string())))?;
+        let uid = uid_str.parse::<u32>().map_err(|_| Error::Uid(uid_str))?;
 
-        let gid_str = get_value(&args, "gid")?;
-        let gid = gid_str
-            .parse::<u32>()
-            .map_err(|_| Error::Gid(String::from(gid_str)))?;
+        let gid_str = arguments
+            .value_as_string("gid")
+            .ok_or_else(|| Error::ArgumentParsing(MissingValue("gid".to_string())))?;
+        let gid = gid_str.parse::<u32>().map_err(|_| Error::Gid(gid_str))?;
 
-        let netns = match args.value_of("netns") {
-            Some(s) => Some(String::from(s)),
-            None => None,
-        };
+        let netns = arguments.value_as_string("netns");
 
-        let daemonize = args.is_present("daemonize");
-
-        let extra_args = args
-            .values_of("extra-args")
-            .into_iter()
-            .flatten()
-            .map(String::from)
-            .collect();
+        let daemonize = arguments.value_as_bool("daemonize").unwrap_or(false);
 
         Ok(Env {
-            id: id.to_string(),
+            id,
             numa_node,
             chroot_dir,
             exec_file_path,
@@ -127,7 +122,7 @@ impl Env {
             daemonize,
             start_time_us,
             start_time_cpu_us,
-            extra_args,
+            extra_args: arguments.extra_args(),
         })
     }
 
@@ -296,10 +291,11 @@ impl Env {
 
         Err(Error::Exec(
             Command::new(chroot_exec_file)
-                .arg(format!("--id={}", self.id))
-                .arg(format!("--start-time-us={}", self.start_time_us))
-                .arg(format!("--start-time-cpu-us={}", self.start_time_cpu_us))
-                .arg(format!("--api-sock=/{}", socket_file_name))
+                .args(&["--id", &self.id])
+                .args(&["--start-time-us", &self.start_time_us.to_string()])
+                .args(&["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
+                .arg("--api-sock")
+                .arg(format!("/{}", socket_file_name))
                 .stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
@@ -314,8 +310,7 @@ impl Env {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use clap_app;
+    use build_app;
 
     #[derive(Clone)]
     struct ArgVals<'a> {
@@ -327,14 +322,11 @@ mod tests {
         chroot_base: &'a str,
         netns: Option<&'a str>,
         daemonize: bool,
-        extra_args: Vec<&'a str>,
     }
 
-    fn make_args<'a>(arg_vals: &ArgVals) -> ArgMatches<'a> {
-        let app = clap_app();
-
+    fn make_args(arg_vals: &ArgVals) -> Vec<String> {
         let mut arg_vec = vec![
-            "jailer",
+            "--binary-name",
             "--node",
             arg_vals.node,
             "--id",
@@ -347,23 +339,21 @@ mod tests {
             arg_vals.gid,
             "--chroot-base-dir",
             arg_vals.chroot_base,
-        ];
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<String>>();
 
         if let Some(s) = arg_vals.netns {
-            arg_vec.push("--netns");
-            arg_vec.push(s);
+            arg_vec.push("--netns".to_string());
+            arg_vec.push(s.to_string());
         }
 
         if arg_vals.daemonize {
-            arg_vec.push("--daemonize");
+            arg_vec.push("--daemonize".to_string());
         }
 
-        arg_vec.push("--");
-        for extra_arg in &arg_vals.extra_args {
-            arg_vec.push(extra_arg);
-        }
-
-        app.get_matches_from_safe(arg_vec).unwrap()
+        arg_vec
     }
 
     #[test]
@@ -375,7 +365,7 @@ mod tests {
         let gid = "1002";
         let chroot_base = "/";
         let netns = Some("zzzns");
-        let extra_args = vec!["--config-file", "config_file_path"];
+
         let good_arg_vals = ArgVals {
             node,
             id,
@@ -385,12 +375,14 @@ mod tests {
             chroot_base,
             netns,
             daemonize: true,
-            extra_args,
         };
 
+        let app = build_app();
+        let mut args = app.arguments().clone();
+        args.parse(&make_args(&good_arg_vals)).unwrap();
         // This should be fine.
-        let good_env = Env::new(make_args(&good_arg_vals), 0, 0)
-            .expect("This new environment should be created successfully.");
+        let good_env =
+            Env::new(&args, 0, 0).expect("This new environment should be created successfully.");
 
         let mut chroot_dir = PathBuf::from(chroot_base);
         chroot_dir.push(Path::new(exec_file).file_name().unwrap());
@@ -401,21 +393,19 @@ mod tests {
         assert_eq!(format!("{}", good_env.gid()), gid);
         assert_eq!(format!("{}", good_env.uid()), uid);
 
-        assert_eq!(good_env.netns, netns.map(ToString::to_string));
+        assert_eq!(good_env.netns, netns.map(String::from));
         assert!(good_env.daemonize);
-        assert_eq!(
-            good_env.extra_args,
-            vec!["--config-file".to_string(), "config_file_path".to_string()]
-        );
 
         let another_good_arg_vals = ArgVals {
             netns: None,
             daemonize: false,
-            extra_args: vec![],
             ..good_arg_vals
         };
 
-        let another_good_env = Env::new(make_args(&another_good_arg_vals), 0, 0)
+        let app = build_app();
+        args = app.arguments().clone();
+        args.parse(&make_args(&another_good_arg_vals)).unwrap();
+        let another_good_env = Env::new(&args, 0, 0)
             .expect("This another new environment should be created successfully.");
         assert!(!another_good_env.daemonize);
 
@@ -428,31 +418,52 @@ mod tests {
             node: "zzz",
             ..base_invalid_arg_vals.clone()
         };
-        assert!(Env::new(make_args(&invalid_node_arg_vals), 0, 0,).is_err());
+
+        let app = build_app();
+        args = app.arguments().clone();
+        args.parse(&make_args(&invalid_node_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
 
         let invalid_id_arg_vals = ArgVals {
             id: "/ad./sa12",
             ..base_invalid_arg_vals.clone()
         };
-        assert!(Env::new(make_args(&invalid_id_arg_vals), 0, 0).is_err());
+
+        let app = build_app();
+        args = app.arguments().clone();
+        args.parse(&make_args(&invalid_id_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
 
         let inexistent_exec_file_arg_vals = ArgVals {
             exec_file: "/this!/file!/should!/not!/exist!/",
             ..base_invalid_arg_vals.clone()
         };
-        assert!(Env::new(make_args(&inexistent_exec_file_arg_vals), 0, 0).is_err());
+
+        let app = build_app();
+        args = app.arguments().clone();
+        args.parse(&make_args(&inexistent_exec_file_arg_vals))
+            .unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
 
         let invalid_uid_arg_vals = ArgVals {
             uid: "zzz",
             ..base_invalid_arg_vals.clone()
         };
-        assert!(Env::new(make_args(&invalid_uid_arg_vals), 0, 0).is_err());
+
+        let app = build_app();
+        args = app.arguments().clone();
+        args.parse(&make_args(&invalid_uid_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
 
         let invalid_gid_arg_vals = ArgVals {
             gid: "zzz",
             ..base_invalid_arg_vals.clone()
         };
-        assert!(Env::new(make_args(&invalid_gid_arg_vals), 0, 0).is_err());
+
+        let app = build_app();
+        args = app.arguments().clone();
+        args.parse(&make_args(&invalid_gid_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
 
         // The chroot-base-dir param is not validated by Env::new, but rather in run, when we
         // actually attempt to create the folder structure (the same goes for netns).
