@@ -1,8 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#[macro_use(crate_version, crate_authors)]
-extern crate clap;
 extern crate libc;
 extern crate regex;
 
@@ -17,17 +15,19 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process;
 use std::result;
 
-use clap::{App, AppSettings, Arg};
-
 use env::Env;
+use utils::arg_parser::{App, ArgInfo, Error as ParsingError};
 use utils::validators;
 
 const SOCKET_FILE_NAME: &str = "api.socket";
+const JAILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug)]
 pub enum Error {
+    ArgumentParsing(ParsingError),
     Canonicalize(PathBuf, io::Error),
     CgroupInheritFromParent(PathBuf, String),
     CgroupLineNotFound(String, String),
@@ -47,7 +47,6 @@ pub enum Error {
     GetOldFdFlags(io::Error),
     Gid(String),
     InvalidInstanceId(validators::Error),
-    MissingArgument(&'static str),
     MissingParent(PathBuf),
     MkdirOldRoot(io::Error),
     MknodDev(io::Error, &'static str),
@@ -79,6 +78,7 @@ impl fmt::Display for Error {
         use self::Error::*;
 
         match *self {
+            ArgumentParsing(ref err) => write!(f, "Failed to parse arguments: {}", err),
             Canonicalize(ref path, ref io_err) => write!(
                 f,
                 "{}",
@@ -138,7 +138,6 @@ impl fmt::Display for Error {
             GetOldFdFlags(ref err) => write!(f, "Failed to get flags from fd: {}", err),
             Gid(ref gid) => write!(f, "Invalid gid: {}", gid),
             InvalidInstanceId(ref err) => write!(f, "Invalid instance ID: {}", err),
-            MissingArgument(ref arg) => write!(f, "Missing argument: {}", arg),
             MissingParent(ref path) => write!(
                 f,
                 "{}",
@@ -217,81 +216,62 @@ impl fmt::Display for Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
-pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
-    // Initially, the uid and gid params had default values, but it turns out that it's quite
-    // easy to shoot yourself in the foot by not setting proper permissions when preparing the
-    // contents of the jail, so I think their values should be provided explicitly.
-    App::new("jailer")
-        .version(crate_version!())
-        .author(crate_authors!())
-        .about("Jail a microVM.")
-        .setting(AppSettings::TrailingVarArg)
+/// Create an App object which contains info about the application and populate it with the expected
+/// arguments and their characteristics.
+pub fn build_app() -> App<'static> {
+    App::new()
+        .name("Jailer")
+        .version(JAILER_VERSION)
+        .header("Jail a microVM.")
         .arg(
-            Arg::with_name("id")
-                .long("id")
-                .help("Jail ID")
+            ArgInfo::new("id")
                 .required(true)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("exec_file")
-                .long("exec-file")
-                .help("File path to exec into.")
-                .required(true)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("numa_node")
-                .long("node")
-                .help("NUMA node to assign this microVM to.")
-                .required(true)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("uid")
-                .long("uid")
-                .help("The user identifier the jailer switches to after exec.")
-                .required(true)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("gid")
-                .long("gid")
-                .help("The group identifier the jailer switches to after exec.")
-                .required(true)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("chroot_base")
-                .long("chroot-base-dir")
-                .help("The base folder where chroot jails are located.")
-                .required(false)
-                .default_value("/srv/jailer")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("netns")
-                .long("netns")
-                .help("Path to the network namespace this microVM should join.")
-                .required(false)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("daemonize")
-                .long("daemonize")
-                .help(
-                    "Daemonize the jailer before exec, by invoking setsid(), and redirecting \
-                     the standard I/O file descriptors to /dev/null.",
-                )
-                .required(false)
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("extra-args")
-                .help("Arguments that will be passed verbatim to the exec file.")
-                .required(false)
                 .takes_value(true)
-                .multiple(true),
+                .help("Jail ID"),
+        )
+        .arg(
+            ArgInfo::new("exec-file")
+                .required(true)
+                .takes_value(true)
+                .help("File path to exec into."),
+        )
+        .arg(
+            ArgInfo::new("node")
+                .required(true)
+                .takes_value(true)
+                .help("NUMA node to assign this microVM to."),
+        )
+        .arg(
+            ArgInfo::new("uid")
+                .required(true)
+                .takes_value(true)
+                .help("The user identifier the jailer switches to after exec."),
+        )
+        .arg(
+            ArgInfo::new("gid")
+                .required(true)
+                .takes_value(true)
+                .help("The group identifier the jailer switches to after exec."),
+        )
+        .arg(
+            ArgInfo::new("chroot-base-dir")
+                .takes_value(true)
+                .default_value("/srv/jailer")
+                .help("The base folder where chroot jails are located."),
+        )
+        .arg(
+            ArgInfo::new("netns")
+                .takes_value(true)
+                .help("Path to the network namespace this microVM should join."),
+        )
+        .arg(ArgInfo::new("daemonize").takes_value(false).help(
+            "Daemonize the jailer before exec, by invoking setsid(), and redirecting \
+             the standard I/O file descriptors to /dev/null.",
+        ))
+        .arg(
+            ArgInfo::new("extra-args")
+                .takes_value(true)
+                .help("Arguments that will be passed verbatim to the exec file."),
         )
 }
 
@@ -332,8 +312,29 @@ fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
 fn main() {
     sanitize_process();
 
+    let mut app = build_app();
+
+    match app.parse_cmdline_args() {
+        Err(err) => {
+            println!(
+                "Arguments parsing error: {} \n\n\
+                 For more information try --help.",
+                err
+            );
+            process::exit(1);
+        }
+        _ => {
+            if let Some(help) = app.arguments().value_as_bool("help") {
+                if help {
+                    println!("{}", app.format_help());
+                    process::exit(0);
+                }
+            }
+        }
+    }
+
     Env::new(
-        clap_app().get_matches(),
+        app.arguments(),
         utils::time::get_time(utils::time::ClockType::Monotonic) / 1000,
         utils::time::get_time(utils::time::ClockType::ProcessCpu) / 1000,
     )
@@ -350,6 +351,8 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::os::unix::io::AsRawFd;
+
+    use utils::arg_parser;
 
     #[test]
     fn test_sanitize_process() {
@@ -384,9 +387,14 @@ mod tests {
         let proc_mounts = "/proc/mounts";
         let controller = "sysfs";
         let id = "foobar";
+        let err_args_parse = arg_parser::Error::UnexpectedArgument("foo".to_string());
         let err_regex = regex::Error::Syntax(id.to_string());
         let err2_str = "No such file or directory (os error 2)";
 
+        assert_eq!(
+            format!("{}", Error::ArgumentParsing(err_args_parse)),
+            "Failed to parse arguments: Found argument 'foo' which wasn't expected, or isn't valid in this context."
+        );
         assert_eq!(
             format!(
                 "{}",
@@ -499,10 +507,6 @@ mod tests {
                 Error::InvalidInstanceId(validators::Error::InvalidChar('a', 1))
             ),
             "Invalid instance ID: invalid char (a) at position 1",
-        );
-        assert_eq!(
-            format!("{}", Error::MissingArgument(id)),
-            "Missing argument: foobar",
         );
         assert_eq!(
             format!("{}", Error::MissingParent(file_path.clone())),

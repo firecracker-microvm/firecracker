@@ -11,6 +11,7 @@
 - Removed redundant `--seccomp-level` jailer parameter since it can be
   simply forwarded to the Firecracker executable using "end of command
   options" convention.
+- Decreased release binary size by ~15%.
 
 ## [0.20.0]
 
