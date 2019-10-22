@@ -306,7 +306,7 @@ fn vmm_control_event(
     from_api: &Receiver<api_server::VmmRequest>,
 ) -> Result<(), u8> {
     api_event_fd.read().map_err(|e| {
-        error!("Error reading VMM API event_fd {:?}", e);
+        error!("VMM: Failed to read the API event_fd: {}", e);
         vmm::FC_EXIT_CODE_GENERIC_ERROR
     })?;
 
@@ -316,10 +316,7 @@ fn vmm_control_event(
             let (action_request, sender) = vmm_request.unpack();
             let response = match action_request {
                 ConfigureBootSource(boot_source_body) => vmm
-                    .configure_boot_source(
-                        boot_source_body.kernel_image_path,
-                        boot_source_body.boot_args,
-                    )
+                    .configure_boot_source(boot_source_body)
                     .map(|_| api_server::VmmData::Empty),
                 ConfigureLogger(logger_description) => vmm
                     .init_logger(logger_description)
@@ -341,6 +338,7 @@ fn vmm_control_event(
                     .rescan_block_device(&drive_id)
                     .map(|_| api_server::VmmData::Empty),
                 StartMicroVm => vmm.start_microvm().map(|_| api_server::VmmData::Empty),
+                #[cfg(target_arch = "x86_64")]
                 SendCtrlAltDel => vmm.send_ctrl_alt_del().map(|_| api_server::VmmData::Empty),
                 SetVmConfiguration(machine_config_body) => vmm
                     .set_vm_configuration(machine_config_body)

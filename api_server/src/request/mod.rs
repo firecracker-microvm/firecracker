@@ -89,9 +89,9 @@ mod tests {
 
     use std::io;
 
+    use vmm::error::StartMicrovmError;
     use vmm::vmm_config::boot_source::BootSourceConfigError;
     use vmm::vmm_config::drive::DriveError;
-    use vmm::vmm_config::instance_info::StartMicrovmError;
     use vmm::vmm_config::logger::LoggerConfigError;
     use vmm::vmm_config::machine_config::{VmConfig, VmConfigError};
     use vmm::vmm_config::net::NetworkInterfaceError;
@@ -100,6 +100,7 @@ mod tests {
     use hyper::{Body, Response};
     use serde_json;
     use std;
+    use vmm::vmm_config::vsock::VsockError;
 
     impl PartialEq for ParsedRequest {
         fn eq(&self, other: &ParsedRequest) -> bool {
@@ -169,12 +170,16 @@ mod tests {
 
         // Tests Error Cases
         // Tests for BootSource Errors.
-        let vmm_resp =
-            VmmActionError::BootSource(ErrorKind::User, BootSourceConfigError::InvalidKernelPath);
+        let vmm_resp = VmmActionError::BootSource(
+            ErrorKind::User,
+            BootSourceConfigError::InvalidKernelPath(std::io::Error::from_raw_os_error(2)),
+        );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::BootSource(
             ErrorKind::User,
-            BootSourceConfigError::InvalidKernelCommandLine,
+            BootSourceConfigError::InvalidKernelCommandLine(
+                kernel::cmdline::Error::HasSpace.to_string(),
+            ),
         );
         check_error_response(vmm_resp, StatusCode::BadRequest);
         let vmm_resp = VmmActionError::BootSource(
@@ -381,6 +386,11 @@ mod tests {
             ErrorKind::User,
             StartMicrovmError::KernelLoader(kernel::loader::Error::SeekProgramHeader),
         );
+        check_error_response(vmm_resp, StatusCode::BadRequest);
+
+        // Tests for VsockConfig Errors.
+        let vmm_resp =
+            VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot);
         check_error_response(vmm_resp, StatusCode::BadRequest);
     }
 }

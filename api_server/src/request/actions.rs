@@ -93,11 +93,18 @@ impl IntoParsedRequest for ActionBody {
                 ))
             }
             ActionType::SendCtrlAltDel => {
-                let (sync_sender, sync_receiver) = oneshot::channel();
-                Ok(ParsedRequest::Sync(
-                    VmmRequest::new(VmmAction::SendCtrlAltDel, sync_sender),
-                    sync_receiver,
-                ))
+                // SendCtrlAltDel not supported on aarch64.
+                #[cfg(target_arch = "aarch64")]
+                return Err("SendCtrlAltDel does not supported on aarch64.".to_string());
+
+                #[cfg(target_arch = "x86_64")]
+                {
+                    let (sync_sender, sync_receiver) = oneshot::channel();
+                    Ok(ParsedRequest::Sync(
+                        VmmRequest::new(VmmAction::SendCtrlAltDel, sync_sender),
+                        sync_receiver,
+                    ))
+                }
             }
         }
     }
@@ -211,6 +218,7 @@ mod tests {
                 .eq(&req));
         }
 
+        #[cfg(target_arch = "x86_64")]
         {
             let json = r#"{
                 "action_type": "SendCtrlAltDel"
