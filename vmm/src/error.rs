@@ -33,11 +33,7 @@ pub enum Error {
     DeviceEventHandlerInvalidDowncast,
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
     /// permission to open the file descriptor.
-    Kvm(io::Error),
-    /// The host kernel reports an invalid KVM API version.
-    KvmApiVersion(i32),
-    /// Cannot initialize the KVM context due to missing capabilities.
-    KvmCap(kvm_ioctls::Cap),
+    KvmContext(vstate::Error),
     /// Epoll wait failed.
     Poll(io::Error),
     /// Write to the serial console failed.
@@ -66,9 +62,7 @@ impl std::fmt::Debug for Error {
                 f,
                 "Device event handler couldn't be downcasted to expected type."
             ),
-            Kvm(os_err) => write!(f, "Cannot open /dev/kvm. Error: {}", os_err.to_string()),
-            KvmApiVersion(ver) => write!(f, "Bad KVM API version: {}", ver),
-            KvmCap(cap) => write!(f, "Missing KVM capability: {:?}", cap),
+            KvmContext(e) => write!(f, "Failed to validate KVM support: {:?}", e),
             Poll(e) => write!(f, "Epoll wait failed: {}", e.to_string()),
             Serial(e) => write!(f, "Error writing to the serial console: {:?}", e),
             TimerFd(e) => write!(f, "Error creating timer fd: {}", e.to_string()),
@@ -500,7 +494,6 @@ mod tests {
     use super::*;
 
     use kernel;
-    use kvm_ioctls;
     use net_util;
 
     // Helper function to get ErrorKind of error.
@@ -830,16 +823,8 @@ mod tests {
             "Device event handler couldn't be downcasted to expected type."
         );
         assert_eq!(
-            format!("{:?}", Error::Kvm(io::Error::from_raw_os_error(42))),
-            "Cannot open /dev/kvm. Error: No message of desired type (os error 42)"
-        );
-        assert_eq!(
-            format!("{:?}", Error::KvmApiVersion(42)),
-            "Bad KVM API version: 42"
-        );
-        assert_eq!(
-            format!("{:?}", Error::KvmCap(kvm_ioctls::Cap::Hlt)),
-            "Missing KVM capability: Hlt"
+            format!("{:?}", Error::KvmContext(vstate::Error::KvmApiVersion(1))),
+            "Failed to validate KVM support: KvmApiVersion(1)"
         );
         assert_eq!(
             format!("{:?}", Error::Poll(io::Error::from_raw_os_error(42))),
