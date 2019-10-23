@@ -400,9 +400,9 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
-                                 Content-Length: 26\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
+                                 Content-Length: 26\r\n\
                                  Transfer-Encoding: chunked\r\n\r\n",
             )
             .unwrap();
@@ -429,8 +429,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n",
             )
             .unwrap();
@@ -464,8 +464,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n",
             )
             .unwrap();
@@ -497,8 +497,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n",
             )
             .unwrap();
@@ -527,9 +527,9 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
-                                 Transfer-Encoding: chunked\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
+                                 Transfer-Encoding: chunked\r\n\
                                  Content-Length: 1400\r\n\r\n",
             )
             .unwrap();
@@ -600,8 +600,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n\r\n",
             )
             .unwrap();
@@ -690,8 +690,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Transfer-Encoding: chunked\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Transfer-Encoding: chunked\r\n\
                                  Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody",
             )
             .unwrap();
@@ -728,8 +728,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Transfer-Encoding: chunked\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Transfer-Encoding: chunked\r\n\
                                  Content-Len",
             )
             .unwrap();
