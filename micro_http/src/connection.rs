@@ -80,7 +80,11 @@ impl<T: Read + Write> HttpConnection<T> {
         // Read some bytes from the stream, which will be appended to what is already
         // present in the buffer from a previous call of `try_read`. There are already
         // `read_cursor` bytes present in the buffer.
-        let end_cursor = self.read_bytes()?;
+        let end_cursor = self.read_bytes().map_err(|e| {
+            // In case of error, drop all pending requests.
+            self.parsed_requests.clear();
+            e
+        })?;
 
         let mut line_start_index = 0;
         loop {
