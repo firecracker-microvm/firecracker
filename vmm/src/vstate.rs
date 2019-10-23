@@ -255,7 +255,7 @@ impl Vm {
     ///
     /// Note that `GuestMemory` does not include any device memory that may have been added after
     /// this VM was constructed.
-    pub fn get_memory(&self) -> Option<&GuestMemory> {
+    pub fn memory(&self) -> Option<&GuestMemory> {
         self.guest_mem.as_ref()
     }
 
@@ -665,7 +665,7 @@ mod tests {
         let (vm, mut vcpu) = setup_vcpu();
 
         let vm_config = VmConfig::default();
-        let vm_mem = vm.get_memory().unwrap();
+        let vm_mem = vm.memory().unwrap();
         assert!(vcpu
             .configure_x86_64(&vm_config, vm_mem, GuestAddress(0))
             .is_ok());
@@ -692,7 +692,7 @@ mod tests {
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
         assert!(vm.memory_init(gm, &kvm).is_ok());
-        let vm_mem = vm.get_memory().unwrap();
+        let vm_mem = vm.memory().unwrap();
 
         // Try it for when vcpu id is 0.
         let mut vcpu = Vcpu::new_aarch64(0, vm.fd(), super::super::TimestampUs::default()).unwrap();
