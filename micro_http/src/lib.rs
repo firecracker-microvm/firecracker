@@ -5,7 +5,7 @@
 //! and [HTTP/1.1](https://www.ietf.org/rfc/rfc2616.txt) protocols.
 //!
 //! HTTP/1.1 has a mandatory header **Host**, but as this crate is only used
-//! for parsing MMDS requests, this header (if present) is ignored.
+//! for parsing API requests, this header (if present) is ignored.
 //!
 //! This HTTP implementation is stateless thus it does not support chunking or
 //! compression.
@@ -70,6 +70,45 @@
 //! let mut response_buf: [u8; 126] = [0; 126];
 //! assert!(response.write_all(&mut response_buf.as_mut()).is_ok());
 //! ```
+//!
+//! `HttpConnection` can be used for automatic data exchange and parsing when
+//! handling a client, but it only supports one stream.
+//!
+//! For handling multiple clients use `HttpServer`, which multiplexes `HttpConnection`s
+//! and offers an easy to use interface. The server can run in either blocking or
+//! non-blocking mode. Non-blocking is achieved by using `epoll` to make sure
+//! `requests` will never block when called.
+//!
+//! ## Example for using the server
+//!
+//! ```
+//! extern crate micro_http;
+//! use micro_http::{HttpServer, Response, StatusCode};
+//!
+//! let path_to_socket = "/tmp/example.sock";
+//! std::fs::remove_file(path_to_socket).unwrap_or_default();
+//!
+//! // Start the server.
+//! let mut server = HttpServer::new(path_to_socket).unwrap();
+//! server.start_server().unwrap();
+//!
+//! // Connect a client to the server so it doesn't block in our example.
+//! let mut socket = std::os::unix::net::UnixStream::connect(path_to_socket).unwrap();
+//!
+//! // Server loop processing requests.
+//! loop {
+//!     for request in server.requests().unwrap() {
+//!         let response = request.process(|request| {
+//!             // Your code here.
+//!             Response::new(request.http_version(), StatusCode::NoContent)
+//!         });
+//!         server.respond(response);
+//!     }
+//!     // Break this example loop.
+//!     break;
+//! }
+//! ```
+//!
 
 mod common;
 mod connection;
