@@ -1,0 +1,7 @@
+[package]
+name = "fuse_gen"
+version = "0.1.0"
+authors = ["Zhang Miaolei <zmlcc@outlook.com>"]
+
+[dependencies]
+memory_model = { path = "../memory_model" }

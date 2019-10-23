@@ -30,3 +30,6 @@ cpuid = { path = "../cpuid" }
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
+
+[features]
+vtfs = ["devices/vtfs"]

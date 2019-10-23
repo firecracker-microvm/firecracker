@@ -133,6 +133,7 @@ dependencies = [
  "dumbo 0.1.0",
  "epoll 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "fc_util 0.1.0",
+ "fuse_gen 0.1.0",
  "libc 0.2.64 (registry+https://github.com/rust-lang/crates.io-index)",
  "logger 0.1.0",
  "memory_model 0.1.0",
@@ -187,6 +188,13 @@ dependencies = [
  "sys_util 0.1.0",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "vmm 0.1.0",
+]
+
+[[package]]
+name = "fuse_gen"
+version = "0.1.0"
+dependencies = [
+ "memory_model 0.1.0",
 ]
 
 [[package]]

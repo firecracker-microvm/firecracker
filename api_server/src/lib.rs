@@ -39,6 +39,9 @@ use vmm::vmm_config::logger::LoggerConfig;
 use vmm::vmm_config::machine_config::VmConfig;
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 use vmm::vmm_config::vsock::VsockDeviceConfig;
+#[cfg(feature = "vtfs")]
+use vmm::vmm_config::vtfs::VtfsDeviceConfig;
+
 use vmm::VmmActionError;
 
 /// This enum represents the public interface of the VMM. Each action contains various
@@ -66,6 +69,9 @@ pub enum VmmAction {
     /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
     /// booted.
     SetVsockDevice(VsockDeviceConfig),
+    #[cfg(feature = "vtfs")]
+    /// Add a vtfs device config
+    InsertVtfsDevice(VtfsDeviceConfig),
     /// Update the size of an existing block device specified by an ID. The ID is the first data
     /// associated with this enum variant. This action can only be called after the microVM is
     /// started.

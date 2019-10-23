@@ -13,6 +13,8 @@ extern crate libc;
 extern crate dumbo;
 #[macro_use]
 extern crate logger;
+#[cfg(feature = "vtfs")]
+extern crate fuse_gen;
 extern crate memory_model;
 extern crate net_gen;
 extern crate net_util;

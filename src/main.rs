@@ -349,6 +349,10 @@ fn vmm_control_event(
                 SetVsockDevice(vsock_cfg) => vmm
                     .set_vsock_device(vsock_cfg)
                     .map(|_| api_server::VmmData::Empty),
+                #[cfg(feature = "vtfs")]
+                InsertVtfsDevice(vtfs_cfg) => vmm.
+                    insert_vtfs_device(vtfs_cfg)
+                    .map(|_| api_server::VmmData::Empty),
                 RescanBlockDevice(drive_id) => vmm
                     .rescan_block_device(&drive_id)
                     .map(|_| api_server::VmmData::Empty),

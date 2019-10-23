@@ -15,6 +15,8 @@ use request::machine_configuration::{
 use request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use request::net::{parse_patch_net, parse_put_net};
 use request::vsock::parse_put_vsock;
+#[cfg(feature = "vtfs")]
+use request::vtfs::parse_put_vtfs;
 use {ApiServer, VmmAction, VmmData};
 
 #[allow(clippy::large_enum_variant)]
@@ -56,6 +58,8 @@ impl ParsedRequest {
                 parse_put_net(body, path_tokens.get(1))
             }
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
+            #[cfg(feature = "vtfs")]
+            (Method::Put, "vtfs", Some(body)) => parse_put_vtfs(body, path_tokens.get(1)),
             (Method::Put, _, None) => method_to_error(Method::Put),
             (Method::Patch, "drives", Some(body)) => parse_patch_drive(body, path_tokens.get(1)),
             (Method::Patch, "machine-config", Some(body)) => parse_patch_machine_config(body),

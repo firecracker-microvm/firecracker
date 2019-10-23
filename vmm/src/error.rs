@@ -11,6 +11,9 @@ use super::{
     vmm_config::logger::LoggerConfigError, vmm_config::machine_config::VmConfigError,
     vmm_config::net::NetworkInterfaceError, vmm_config::vsock::VsockError, vstate,
 };
+#[cfg(feature = "vtfs")]
+use super::vmm_config::vtfs::VtfsError;
+
 use devices::legacy::I8042DeviceError;
 use kernel::loader as kernel_loader;
 use memory_model::GuestMemoryError;
@@ -93,6 +96,9 @@ pub enum StartMicrovmError {
     CreateVsockBackend(devices::virtio::vsock::VsockUnixBackendError),
     /// Failed to create the vsock device.
     CreateVsockDevice(devices::virtio::vsock::VsockError),
+    #[cfg(feature = "vtfs")]
+    /// Unable to Create Vtfs Deivce
+    CreateVtfsDevice(std::io::Error),
     /// The device manager was not configured.
     DeviceManager,
     /// Cannot read from an Event file descriptor.
@@ -116,6 +122,9 @@ pub enum StartMicrovmError {
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file.
     OpenBlockDevice(std::io::Error),
+    #[cfg(feature = "vtfs")]
+    /// Cannot find fs path in host
+    FindVirtFSPath(std::io::Error),
     /// Cannot initialize a MMIO Block Device or add a device to the MMIO Bus.
     RegisterBlockDevice(device_manager::mmio::Error),
     /// Cannot add event to Epoll.
@@ -126,6 +135,9 @@ pub enum StartMicrovmError {
     RegisterNetDevice(device_manager::mmio::Error),
     /// Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus.
     RegisterVsockDevice(device_manager::mmio::Error),
+    #[cfg(feature = "vtfs")]
+    /// Cannot initialize a MMIO Vtfs Device or add a device to the MMIO Bus.
+    RegisterVirtFSDevice(device_manager::mmio::Error),
     /// Cannot build seccomp filters.
     SeccompFilters(seccomp::Error),
     /// Cannot create a new vCPU file descriptor.
@@ -175,6 +187,8 @@ impl Display for StartMicrovmError {
                 write!(f, "Cannot create backend for vsock device: {:?}", err)
             }
             CreateVsockDevice(ref err) => write!(f, "Cannot create vsock device: {:?}", err),
+            #[cfg(feature = "vtfs")]
+            CreateVtfsDevice(ref err) => write!(f, "Unable to create vtfs device. Err: {}", err),
             CreateNetDevice(ref err) => {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
@@ -223,6 +237,13 @@ impl Display for StartMicrovmError {
 
                 write!(f, "Cannot open the block device backing file. {}", err_msg)
             }
+            #[cfg(feature = "vtfs")]
+            FindVirtFSPath(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot find virtio-fs backing folder. {}", err_msg)
+            }
             RegisterBlockDevice(ref err) => {
                 let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
@@ -256,6 +277,17 @@ impl Display for StartMicrovmError {
                 write!(
                     f,
                     "Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus. {}",
+                    err_msg
+                )
+            }
+            #[cfg(feature = "vtfs")]
+            RegisterVirtFSDevice(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(
+                    f,
+                    "Cannot initialize a MMIO Virtio FS Device or add a device to the MMIO Bus. {}",
                     err_msg
                 )
             }
@@ -327,6 +359,10 @@ pub enum VmmActionError {
     /// The action `set_vsock_device` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     VsockConfig(ErrorKind, VsockError),
+    #[cfg(feature = "vtfs")]
+    /// The action `insert_vtfs_device` failed either because of bad user input (`ErrorKind::User`)
+    /// or an internal error (`ErrorKind::Internal`).
+    VtfsConfig(ErrorKind, VtfsError),
 }
 
 // It's convenient to turn DriveErrors into VmmActionErrors directly.
@@ -416,6 +452,10 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             | NetDeviceNotConfigured
             | OpenBlockDevice(_)
             | VcpusNotConfigured => ErrorKind::User,
+            #[cfg(feature = "vtfs")]
+            StartMicrovmError::CreateVtfsDevice(_) => ErrorKind::User,
+            #[cfg(feature = "vtfs")]
+            StartMicrovmError::FindVirtFSPath(_) => ErrorKind::User,
             // Internal errors.
             ConfigureSystem(_)
             | ConfigureVm(_)
@@ -433,6 +473,8 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             | Vcpu(_)
             | VcpuConfigure(_)
             | VcpuSpawn(_) => ErrorKind::Internal,
+            #[cfg(feature = "vtfs")]
+            StartMicrovmError::RegisterVirtFSDevice(_) => ErrorKind::Internal,
             #[cfg(target_arch = "x86_64")]
             LegacyIOBus(_) => ErrorKind::Internal,
             // The only user `LoadCommandline` error is `CommandLineOverflow`.
@@ -443,6 +485,21 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             StdinHandle(_) => ErrorKind::Internal,
         };
         VmmActionError::StartMicrovm(kind, e)
+    }
+}
+
+#[cfg(feature = "vtfs")]
+// It's convenient to turn NetworkInterfaceErrors into VmmActionErrors directly.
+impl std::convert::From<VtfsError> for VmmActionError {
+    fn from(e: VtfsError) -> Self {
+        use VtfsError::*;
+
+        let kind = match e {
+            // User errors.
+            UpdateNotAllowedPostBoot => ErrorKind::User,
+        };
+
+        VmmActionError::VtfsConfig(kind, e)
     }
 }
 
@@ -460,6 +517,8 @@ impl VmmActionError {
             StartMicrovm(ref kind, _) => kind,
             SendCtrlAltDel(ref kind, _) => kind,
             VsockConfig(ref kind, _) => kind,
+            #[cfg(feature = "vtfs")]
+            VtfsConfig(ref kind, _) => kind,
         }
     }
 }
@@ -477,6 +536,8 @@ impl Display for VmmActionError {
             StartMicrovm(_, ref err) => err,
             SendCtrlAltDel(_, ref err) => err,
             VsockConfig(_, ref err) => err,
+            #[cfg(feature = "vtfs")]
+            VtfsConfig(_, ref err) => err,
         };
 
         write!(f, "{}", error.to_string())

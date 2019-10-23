@@ -17,12 +17,16 @@ mod mmio;
 pub mod net;
 mod queue;
 pub mod vsock;
+#[cfg(feature = "vtfs")]
+pub mod vtfs;
 
 pub use self::block::*;
 pub use self::mmio::*;
 pub use self::net::*;
 pub use self::queue::*;
 pub use self::vsock::*;
+#[cfg(feature = "vtfs")]
+pub use self::vtfs::*;
 
 use super::EpollHandler;
 

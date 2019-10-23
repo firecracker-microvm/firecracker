@@ -10,6 +10,9 @@ pub mod machine_configuration;
 pub mod mmds;
 pub mod net;
 pub mod vsock;
+#[cfg(feature = "vtfs")]
+pub mod vtfs;
+
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, StatusCode, Version,
 };

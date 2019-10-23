@@ -26,4 +26,7 @@ panic = "abort"
 lto = true
 panic = "abort"
 
+[features]
+vtfs = ["api_server/vtfs"]
+
 [workspace]

@@ -66,6 +66,8 @@ use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio;
 use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
+#[cfg(feature = "vtfs")]
+use devices::virtio::vtfs::{TYPE_FS, VTFS_EVENTS_COUNT};
 use devices::virtio::EpollConfigConstructor;
 use devices::virtio::{BLOCK_EVENTS_COUNT, TYPE_BLOCK};
 use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
@@ -98,6 +100,8 @@ use vmm_config::net::{
 };
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 use vstate::{KvmContext, Vcpu, Vm};
+#[cfg(feature = "vtfs")]
+use vmm_config::vtfs::{VtfsDeviceConfig, VtfsDeviceConfigs, VtfsError};
 
 pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
 
@@ -378,6 +382,9 @@ pub struct VmmConfig {
     machine_config: Option<VmConfig>,
     #[serde(rename = "vsock")]
     vsock_device: Option<VsockDeviceConfig>,
+    #[cfg(feature = "vtfs")]
+    #[serde(rename = "vtfs")]
+    vtfs_device: Option<VtfsDeviceConfig>,
 }
 
 /// Contains the state and associated methods required for the Firecracker VMM.
@@ -436,10 +443,19 @@ impl Vmm {
             )
             .expect("Cannot add write metrics TimerFd to epoll.");
 
+        #[cfg(not(feature = "vtfs"))]
         let device_configs = DeviceConfigs::new(
             BlockDeviceConfigs::new(),
             NetworkInterfaceConfigs::new(),
             None,
+        );
+
+        #[cfg(feature = "vtfs")]
+        let device_configs = DeviceConfigs::new(
+            BlockDeviceConfigs::new(),
+            NetworkInterfaceConfigs::new(),
+            None,
+            VtfsDeviceConfigs::new(),
         );
 
         let kvm = KvmContext::new().map_err(Error::KvmContext)?;
@@ -671,6 +687,47 @@ impl Vmm {
         Ok(())
     }
 
+    #[cfg(feature = "vtfs")]
+    fn attach_vtfs_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
+        let kernel_config = self
+            .kernel_config
+            .as_mut()
+            .ok_or(StartMicrovmError::MissingKernelConfig)?;
+
+        let epoll_context = &mut self.epoll_context;
+        // `unwrap` is suitable for this context since this should be called only after the
+        // device manager has been initialized.
+        let device_manager = self.mmio_device_manager.as_mut().unwrap();
+
+        for cfg in self.device_configs.vtfs.configs.iter() {
+            let epoll_config = epoll_context.allocate_tokens_for_virtio_device(
+                TYPE_FS,
+                &cfg.drive_id,
+                VTFS_EVENTS_COUNT,
+            );
+
+            let fs_path = cfg
+                .path_on_host
+                .canonicalize()
+                .map_err(StartMicrovmError::FindVirtFSPath)?;
+
+            let vtfs_box = Box::new(
+                devices::virtio::Vtfs::new(&cfg.drive_id, fs_path, epoll_config)
+                    .map_err(StartMicrovmError::CreateVtfsDevice)?,
+            );
+            device_manager
+                .register_virtio_device(
+                    self.vm.fd(),
+                    vtfs_box,
+                    &mut kernel_config.cmdline,
+                    TYPE_FS,
+                    &cfg.drive_id,
+                )
+                .map_err(StartMicrovmError::RegisterVirtFSDevice)?;
+        }
+        Ok(())
+    }
+
     fn set_kernel_config(&mut self, kernel_config: KernelConfig) {
         self.kernel_config = Some(kernel_config);
     }
@@ -765,6 +822,8 @@ impl Vmm {
         self.attach_block_devices()?;
         self.attach_net_devices()?;
         self.attach_vsock_devices()?;
+        #[cfg(feature = "vtfs")]
+        self.attach_vtfs_devices()?;
 
         Ok(())
     }
@@ -1478,6 +1537,18 @@ impl Vmm {
         }
     }
 
+    /// Inserts a vtfs device to be attached when the VM starts.
+    #[cfg(feature = "vtfs")]
+    pub fn insert_vtfs_device(&mut self, body: VtfsDeviceConfig) -> UserResult {
+        if self.is_instance_initialized() {
+            return Err(VtfsError::UpdateNotAllowedPostBoot.into());
+        }
+        self.device_configs
+            .vtfs
+            .insert(body)
+            .map_err(|e| VmmActionError::VtfsConfig(ErrorKind::User, e))
+    }
+
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     pub fn set_block_device_path(&mut self, drive_id: String, path_on_host: String) -> UserResult {
         // Get the block device configuration specified by drive_id.
@@ -1656,6 +1727,12 @@ impl Vmm {
         }
         if let Some(vsock_config) = vmm_config.vsock_device {
             self.set_vsock_device(vsock_config)?;
+        }
+        #[cfg(feature = "vtfs")]
+        {
+            if let Some(vtfs_config) = vmm_config.vtfs_device {
+                self.insert_vtfs_device(vtfs_config)?;
+            }
         }
         Ok(())
     }
