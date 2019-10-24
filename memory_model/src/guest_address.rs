@@ -15,6 +15,12 @@ use std::ops::{BitAnd, BitOr};
 pub struct GuestAddress(pub usize);
 
 impl GuestAddress {
+    /// Returns the address as a usize offset from 0x0.
+    /// Use this when a raw number is needed to pass to the kernel.
+    pub fn raw_value(self) -> usize {
+        self.0
+    }
+
     /// Returns the offset from this address to the given base address.
     ///
     /// # Examples
@@ -23,16 +29,10 @@ impl GuestAddress {
     /// # use memory_model::GuestAddress;
     ///   let base = GuestAddress(0x100);
     ///   let addr = GuestAddress(0x150);
-    ///   assert_eq!(addr.offset_from(base), 0x50usize);
+    ///   assert_eq!(addr.unchecked_offset_from(base), 0x50usize);
     /// ```
-    pub fn offset_from(self, base: GuestAddress) -> usize {
+    pub fn unchecked_offset_from(self, base: GuestAddress) -> usize {
         self.0 - base.0
-    }
-
-    /// Returns the address as a usize offset from 0x0.
-    /// Use this when a raw number is needed to pass to the kernel.
-    pub fn raw_value(self) -> usize {
-        self.0
     }
 
     /// Returns the result of the add or None if there is overflow.
@@ -131,7 +131,7 @@ mod tests {
         let a = GuestAddress(0x50);
         let b = GuestAddress(0x60);
         assert_eq!(Some(GuestAddress(0xb0)), a.checked_add(0x60));
-        assert_eq!(0x10, b.offset_from(a));
+        assert_eq!(0x10, b.unchecked_offset_from(a));
     }
 
     #[test]
