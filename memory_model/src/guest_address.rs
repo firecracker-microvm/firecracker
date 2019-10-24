@@ -50,11 +50,6 @@ impl GuestAddress {
     pub fn checked_sub(self, other: usize) -> Option<GuestAddress> {
         self.0.checked_sub(other).map(GuestAddress)
     }
-
-    /// Returns the bitwise and of the address with the given mask.
-    pub fn mask(self, mask: u64) -> GuestAddress {
-        GuestAddress(self.0 & mask as usize)
-    }
 }
 
 impl BitAnd<u64> for GuestAddress {
@@ -116,14 +111,6 @@ mod tests {
                 assert_eq!(i > j, GuestAddress(i) > GuestAddress(j));
             }
         }
-    }
-
-    #[test]
-    fn mask() {
-        let a = GuestAddress(0x5050);
-        assert_eq!(GuestAddress(0x5000), a & 0xff00u64);
-        assert_eq!(GuestAddress(0x5000), a.mask(0xff00u64));
-        assert_eq!(GuestAddress(0x5055), a | 0x0005u64);
     }
 
     #[test]
