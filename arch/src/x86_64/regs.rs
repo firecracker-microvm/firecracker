@@ -12,7 +12,7 @@ use kvm_ioctls::VcpuFd;
 
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 use arch_gen::x86::msr_index;
-use memory_model::{GuestAddress, GuestMemory};
+use memory_model::{Address, GuestAddress, GuestMemory};
 
 // Initial pagetables.
 const PML4_START: usize = 0x9000;

@@ -1,4 +1,7 @@
-// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Portions Copyright (C) 2019 Alibaba Cloud Computing. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
 // Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
@@ -8,62 +11,120 @@
 //! Represents an address in the guest's memory space.
 
 use std::cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd};
-use std::ops::{BitAnd, BitOr};
+use std::ops::{Add, BitAnd, BitOr, Sub};
+
+/// Simple helper trait used to store a raw address value.
+pub trait AddressValue {
+    /// Type of the address raw value.
+    type V: Copy
+        + PartialEq
+        + Eq
+        + PartialOrd
+        + Ord
+        + Add<Output = Self::V>
+        + Sub<Output = Self::V>
+        + BitAnd<Output = Self::V>
+        + BitOr<Output = Self::V>;
+}
+
+/// Trait to represent an address within an address space.
+///
+/// To simplify the design and implementation, assume the same raw data type (AddressValue::V)
+/// could be used to store address, size and offset for the address space. Thus the Address trait
+/// could be used to manage address, size and offset. On the other hand, type aliases may be
+/// defined to improve code readability.
+///
+/// One design rule is applied to the Address trait that operators (+, -, &, | etc) are not
+/// supported and it forces clients to explicitly invoke corresponding methods. But there are
+/// always exceptions:
+///     Address (BitAnd|BitOr) AddressValue are supported.
+pub trait Address:
+    AddressValue
+    + Sized
+    + Default
+    + Copy
+    + Eq
+    + PartialEq
+    + Ord
+    + PartialOrd
+    + BitAnd<<Self as AddressValue>::V, Output = Self>
+    + BitOr<<Self as AddressValue>::V, Output = Self>
+{
+    /// Get the raw value of the address.
+    fn raw_value(&self) -> Self::V;
+
+    /// Returns the bitwise and of the address with the given mask.
+    fn mask(&self, mask: Self::V) -> Self::V {
+        self.raw_value() & mask
+    }
+
+    /// Returns the offset from this address to the given base address.
+    /// Only use this when `base` is guaranteed not to overflow.
+    fn unchecked_offset_from(&self, base: Self) -> Self::V {
+        self.raw_value() - base.raw_value()
+    }
+
+    /// Returns the result of the add or None if there is overflow.
+    fn checked_add(&self, other: Self::V) -> Option<Self>;
+
+    /// Returns the result of the base address + the size.
+    /// Only use this when `offset` is guaranteed not to overflow.
+    fn unchecked_add(&self, offset: Self::V) -> Self;
+
+    /// Returns the result of the subtraction or None if there is underflow.
+    fn checked_sub(&self, other: Self::V) -> Option<Self>;
+}
 
 /// Represents an Address in the guest's memory.
 #[derive(Clone, Copy, Debug)]
 pub struct GuestAddress(pub usize);
 
-impl GuestAddress {
-    /// Returns the address as a usize offset from 0x0.
+impl AddressValue for GuestAddress {
+    type V = usize;
+}
+
+impl Address for GuestAddress {
+    /// Returns the address as a `Self::V` offset from 0x0.
     /// Use this when a raw number is needed to pass to the kernel.
-    pub fn raw_value(self) -> usize {
+    fn raw_value(&self) -> Self::V {
         self.0
     }
 
-    /// Returns the offset from this address to the given base address.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use memory_model::GuestAddress;
-    ///   let base = GuestAddress(0x100);
-    ///   let addr = GuestAddress(0x150);
-    ///   assert_eq!(addr.unchecked_offset_from(base), 0x50usize);
-    /// ```
-    pub fn unchecked_offset_from(self, base: GuestAddress) -> usize {
-        self.0 - base.0
-    }
-
     /// Returns the result of the add or None if there is overflow.
-    pub fn checked_add(self, other: usize) -> Option<GuestAddress> {
+    fn checked_add(&self, other: Self::V) -> Option<GuestAddress> {
         self.0.checked_add(other).map(GuestAddress)
     }
 
     /// Returns the result of the base address + the size.
     /// Only use this when `offset` is guaranteed not to overflow.
-    pub fn unchecked_add(self, offset: usize) -> GuestAddress {
+    fn unchecked_add(&self, offset: Self::V) -> GuestAddress {
         GuestAddress(self.0 + offset)
     }
 
     /// Returns the result of the subtraction of None if there is underflow.
-    pub fn checked_sub(self, other: usize) -> Option<GuestAddress> {
+    fn checked_sub(&self, other: Self::V) -> Option<GuestAddress> {
         self.0.checked_sub(other).map(GuestAddress)
     }
 }
 
-impl BitAnd<usize> for GuestAddress {
+impl Default for GuestAddress {
+    fn default() -> GuestAddress {
+        GuestAddress(0)
+    }
+}
+
+impl BitAnd<<GuestAddress as AddressValue>::V> for GuestAddress {
     type Output = GuestAddress;
 
-    fn bitand(self, other: usize) -> GuestAddress {
+    fn bitand(self, other: <GuestAddress as AddressValue>::V) -> GuestAddress {
         GuestAddress(self.0 & other)
     }
 }
 
-impl BitOr<usize> for GuestAddress {
+impl BitOr<<GuestAddress as AddressValue>::V> for GuestAddress {
     type Output = GuestAddress;
 
-    fn bitor(self, other: usize) -> GuestAddress {
+    fn bitor(self, other: <GuestAddress as AddressValue>::V) -> GuestAddress {
         GuestAddress(self.0 | other)
     }
 }
