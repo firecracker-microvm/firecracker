@@ -2858,6 +2858,8 @@ mod tests {
     #[test]
     fn test_attach_legacy_devices() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.setup_interrupt_controller()
+            .expect("Failed to setup interrupt controller");
 
         assert!(vmm.attach_legacy_devices().is_ok());
         assert!(vmm.pio_device_manager.io_bus.get_device(0x3f8).is_some());
