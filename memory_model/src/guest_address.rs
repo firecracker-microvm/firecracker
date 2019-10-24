@@ -52,19 +52,19 @@ impl GuestAddress {
     }
 }
 
-impl BitAnd<u64> for GuestAddress {
+impl BitAnd<usize> for GuestAddress {
     type Output = GuestAddress;
 
-    fn bitand(self, other: u64) -> GuestAddress {
-        GuestAddress(self.0 & other as usize)
+    fn bitand(self, other: usize) -> GuestAddress {
+        GuestAddress(self.0 & other)
     }
 }
 
-impl BitOr<u64> for GuestAddress {
+impl BitOr<usize> for GuestAddress {
     type Output = GuestAddress;
 
-    fn bitor(self, other: u64) -> GuestAddress {
-        GuestAddress(self.0 | other as usize)
+    fn bitor(self, other: usize) -> GuestAddress {
+        GuestAddress(self.0 | other)
     }
 }
 
