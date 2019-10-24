@@ -437,7 +437,7 @@ impl GuestMemory {
     {
         for region in self.regions.iter() {
             if guest_addr >= region.guest_base && guest_addr < region_end(region) {
-                let offset = guest_addr.offset_from(region.guest_base);
+                let offset = guest_addr.unchecked_offset_from(region.guest_base);
                 if size <= region.mapping.size() - offset {
                     return cb(&region.mapping, offset);
                 }
@@ -454,7 +454,10 @@ impl GuestMemory {
     {
         for region in self.regions.iter() {
             if guest_addr >= region.guest_base && guest_addr < region_end(region) {
-                return cb(&region.mapping, guest_addr.offset_from(region.guest_base));
+                return cb(
+                    &region.mapping,
+                    guest_addr.unchecked_offset_from(region.guest_base),
+                );
             }
         }
         Err(Error::InvalidGuestAddress(guest_addr))
