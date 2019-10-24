@@ -14,7 +14,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
 use super::cmdline::Error as CmdlineError;
-use memory_model::{GuestAddress, GuestMemory};
+use memory_model::{Address, GuestAddress, GuestMemory};
 use sys_util;
 
 #[allow(non_camel_case_types)]

@@ -11,7 +11,7 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 use std::{mem, result};
 
-use guest_address::GuestAddress;
+use guest_address::{Address, GuestAddress};
 use mmap::{self, MemoryMapping};
 use DataInit;
 
@@ -97,7 +97,7 @@ impl GuestMemory {
     /// # Examples
     ///
     /// ```
-    /// # use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
+    /// # use memory_model::{Address, GuestAddress, GuestMemory, MemoryMapping};
     /// # fn test_end_addr() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
@@ -293,7 +293,7 @@ impl GuestMemory {
     /// * Read bytes from /dev/urandom
     ///
     /// ```
-    /// # use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
+    /// # use memory_model::{Address, GuestAddress, GuestMemory, MemoryMapping};
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # fn test_read_random() -> Result<u32, ()> {

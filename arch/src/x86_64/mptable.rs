@@ -13,7 +13,7 @@ use std::slice;
 use libc::c_char;
 
 use arch_gen::x86::mpspec;
-use memory_model::{DataInit, GuestAddress, GuestMemory};
+use memory_model::{Address, DataInit, GuestAddress, GuestMemory};
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `DataInit`) where:

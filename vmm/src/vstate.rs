@@ -21,7 +21,7 @@ use kvm_bindings::{kvm_pit_config, KVM_PIT_SPEAKER_DUMMY};
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{LogOption, Metric, LOGGER, METRICS};
-use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
+use memory_model::{Address, GuestAddress, GuestMemory, GuestMemoryError};
 use sys_util::EventFd;
 #[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::CpuFeaturesTemplate;

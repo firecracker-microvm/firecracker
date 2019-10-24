@@ -634,6 +634,7 @@ mod tests {
     use super::*;
 
     use libc;
+    use memory_model::Address;
     use std::fs::{metadata, OpenOptions};
     use std::sync::mpsc::Receiver;
     use std::thread;
