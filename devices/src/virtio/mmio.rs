@@ -363,11 +363,11 @@ impl BusDevice for MmioDevice {
 
     fn write(&mut self, offset: u64, data: &[u8]) {
         fn hi(v: &mut GuestAddress, x: u32) {
-            *v = (*v & 0xffff_ffff) | (u64::from(x) << 32)
+            *v = (*v & 0xffff_ffff) | (u64::from(x) << 32) as usize
         }
 
         fn lo(v: &mut GuestAddress, x: u32) {
-            *v = (*v & !0xffff_ffff) | u64::from(x)
+            *v = (*v & !0xffff_ffff) | u64::from(x) as usize
         }
 
         match offset {
