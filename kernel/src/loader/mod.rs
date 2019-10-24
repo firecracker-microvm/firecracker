@@ -133,7 +133,7 @@ where
             .map_err(|_| Error::SeekKernelStart)?;
 
         let mem_offset = GuestAddress(phdr.p_paddr as usize);
-        if mem_offset.offset() < start_address {
+        if mem_offset.raw_value() < start_address {
             return Err(Error::InvalidProgramHeaderAddress);
         }
 

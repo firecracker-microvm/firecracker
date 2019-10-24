@@ -157,7 +157,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
         mpf_intel.0.signature = SMP_MAGIC_IDENT;
         mpf_intel.0.length = 1;
         mpf_intel.0.specification = 4;
-        mpf_intel.0.physptr = (base_mp.offset() + size) as u32;
+        mpf_intel.0.physptr = (base_mp.raw_value() + size) as u32;
         mpf_intel.0.checksum = mpf_intel_compute_checksum(&mpf_intel.0);
         mem.write_obj_at_addr(mpf_intel, base_mp)
             .map_err(|_| Error::WriteMpfIntel)?;

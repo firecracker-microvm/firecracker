@@ -31,7 +31,7 @@ impl GuestAddress {
 
     /// Returns the address as a usize offset from 0x0.
     /// Use this when a raw number is needed to pass to the kernel.
-    pub fn offset(self) -> usize {
+    pub fn raw_value(self) -> usize {
         self.0
     }
 
@@ -101,7 +101,7 @@ mod tests {
         let a = GuestAddress(0x300);
         let b = GuestAddress(0x300);
         let c = GuestAddress(0x301);
-        assert_eq!(a, GuestAddress(a.offset()));
+        assert_eq!(a, GuestAddress(a.raw_value()));
         assert_eq!(a, b);
         assert_eq!(b, a);
         assert_ne!(a, c);
