@@ -205,7 +205,7 @@ impl Vm {
 
                 let memory_region = kvm_userspace_memory_region {
                     slot: index as u32,
-                    guest_phys_addr: guest_addr.offset() as u64,
+                    guest_phys_addr: guest_addr.raw_value() as u64,
                     memory_size: size as u64,
                     userspace_addr: host_addr as u64,
                     flags,
@@ -219,7 +219,7 @@ impl Vm {
 
         #[cfg(target_arch = "x86_64")]
         self.fd
-            .set_tss_address(GuestAddress(arch::x86_64::layout::KVM_TSS_ADDRESS).offset())
+            .set_tss_address(GuestAddress(arch::x86_64::layout::KVM_TSS_ADDRESS).raw_value())
             .map_err(Error::VmSetup)?;
 
         Ok(())
@@ -387,7 +387,7 @@ impl Vcpu {
             .map_err(Error::SetSupportedCpusFailed)?;
 
         arch::x86_64::regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
-        arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.offset() as u64)
+        arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)
             .map_err(Error::REGSConfiguration)?;
         arch::x86_64::regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
         arch::x86_64::regs::setup_sregs(guest_mem, &self.fd).map_err(Error::SREGSConfiguration)?;
@@ -423,7 +423,7 @@ impl Vcpu {
         }
 
         self.fd.vcpu_init(&kvi).map_err(Error::VcpuArmInit)?;
-        arch::aarch64::regs::setup_regs(&self.fd, self.id, kernel_load_addr.offset(), guest_mem)
+        arch::aarch64::regs::setup_regs(&self.fd, self.id, kernel_load_addr.raw_value(), guest_mem)
             .map_err(Error::REGSConfiguration)?;
 
         self.mpidr = arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::REGSConfiguration)?;

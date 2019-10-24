@@ -215,7 +215,7 @@ impl Queue {
         {
             error!(
                 "virtio queue descriptor table goes out of bounds: start:0x{:08x} size:0x{:08x}",
-                desc_table.offset(),
+                desc_table.raw_value(),
                 desc_table_size
             );
             false
@@ -225,7 +225,7 @@ impl Queue {
         {
             error!(
                 "virtio queue available ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
-                avail_ring.offset(),
+                avail_ring.raw_value(),
                 avail_ring_size
             );
             false
@@ -235,17 +235,17 @@ impl Queue {
         {
             error!(
                 "virtio queue used ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
-                used_ring.offset(),
+                used_ring.raw_value(),
                 used_ring_size
             );
             false
-        } else if desc_table.offset() & 0xf != 0 {
+        } else if desc_table.raw_value() & 0xf != 0 {
             error!("virtio queue descriptor table breaks alignment contraints");
             false
-        } else if avail_ring.offset() & 0x1 != 0 {
+        } else if avail_ring.raw_value() & 0x1 != 0 {
             error!("virtio queue available ring breaks alignment contraints");
             false
-        } else if used_ring.offset() & 0x3 != 0 {
+        } else if used_ring.raw_value() & 0x3 != 0 {
             error!("virtio queue used ring breaks alignment contraints");
             false
         } else {

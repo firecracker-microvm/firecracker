@@ -64,7 +64,7 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     // case2: guest memory extends beyond the gap
     } else {
         // push memory before the gap
-        regions.push((GuestAddress(0), memory_gap_start.offset()));
+        regions.push((GuestAddress(0), memory_gap_start.raw_value()));
         regions.push((
             memory_gap_end,
             requested_memory_size.offset_from(memory_gap_start),
@@ -115,7 +115,7 @@ pub fn configure_system(
     params.0.hdr.type_of_loader = KERNEL_LOADER_OTHER;
     params.0.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
     params.0.hdr.header = KERNEL_HDR_MAGIC;
-    params.0.hdr.cmd_line_ptr = cmdline_addr.offset() as u32;
+    params.0.hdr.cmd_line_ptr = cmdline_addr.raw_value() as u32;
     params.0.hdr.cmdline_size = cmdline_size as u32;
     params.0.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
 
@@ -125,21 +125,21 @@ pub fn configure_system(
     if mem_end < end_32bit_gap_start {
         add_e820_entry(
             &mut params.0,
-            himem_start.offset() as u64,
+            himem_start.raw_value() as u64,
             mem_end.offset_from(himem_start) as u64,
             E820_RAM,
         )?;
     } else {
         add_e820_entry(
             &mut params.0,
-            himem_start.offset() as u64,
+            himem_start.raw_value() as u64,
             end_32bit_gap_start.offset_from(himem_start) as u64,
             E820_RAM,
         )?;
         if mem_end > first_addr_past_32bits {
             add_e820_entry(
                 &mut params.0,
-                first_addr_past_32bits.offset() as u64,
+                first_addr_past_32bits.raw_value() as u64,
                 mem_end.offset_from(first_addr_past_32bits) as u64,
                 E820_RAM,
             )?;

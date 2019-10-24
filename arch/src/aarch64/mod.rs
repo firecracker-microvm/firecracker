@@ -81,7 +81,7 @@ fn get_fdt_addr(mem: &GuestMemory) -> usize {
 
     if let Some(offset) = mem.end_addr().checked_sub(layout::FDT_MAX_SIZE) {
         if mem.address_in_range(offset) {
-            return offset.offset();
+            return offset.raw_value();
         }
     }
     layout::DRAM_MEM_START
