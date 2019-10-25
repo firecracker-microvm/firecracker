@@ -132,10 +132,14 @@ pub enum StartMicrovmError {
     Vcpu(vstate::Error),
     /// vCPU configuration failed.
     VcpuConfigure(vstate::Error),
+    /// Cannot send event to vCPU.
+    VcpuEvent(vstate::Error),
+    /// Cannot create a vCPU handle.
+    VcpuHandle(vstate::Error),
+    /// vCPU resume failed.
+    VcpuResume,
     /// vCPUs were not configured.
     VcpusNotConfigured,
-    /// Cannot spawn a new vCPU thread.
-    VcpuSpawn(std::io::Error),
     /// Cannot set mode for terminal.
     StdinHandle(utils::errno::Error),
 }
@@ -278,12 +282,14 @@ impl Display for StartMicrovmError {
                 write!(f, "vCPU configuration failed. {}", err_msg)
             }
             VcpusNotConfigured => write!(f, "vCPUs were not configured."),
-            VcpuSpawn(ref err) => {
+            VcpuEvent(ref err) => write!(f, "Cannot send event to vCPU. {:?}", err),
+            VcpuHandle(ref err) => {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
 
-                write!(f, "Cannot spawn vCPU thread. {}", err_msg)
+                write!(f, "Cannot create a vCPU handle. {}", err_msg)
             }
+            VcpuResume => write!(f, "vCPUs resume failed."),
             StdinHandle(ref err) => write!(f, "Failed to set mode for terminal: {}", err),
         }
     }
@@ -432,7 +438,9 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             | SeccompFilters(_)
             | Vcpu(_)
             | VcpuConfigure(_)
-            | VcpuSpawn(_) => ErrorKind::Internal,
+            | VcpuEvent(_)
+            | VcpuHandle(_)
+            | VcpuResume => ErrorKind::Internal,
             #[cfg(target_arch = "x86_64")]
             LegacyIOBus(_) => ErrorKind::Internal,
             // The only user `LoadCommandline` error is `CommandLineOverflow`.
@@ -770,14 +778,18 @@ mod tests {
             ErrorKind::Internal
         );
         assert_eq!(
-            error_kind(StartMicrovmError::VcpusNotConfigured),
-            ErrorKind::User
+            error_kind(StartMicrovmError::VcpuHandle(
+                vstate::Error::VcpuCountNotInitialized
+            )),
+            ErrorKind::Internal
         );
         assert_eq!(
-            error_kind(StartMicrovmError::VcpuSpawn(io::Error::from_raw_os_error(
-                0
-            ))),
+            error_kind(StartMicrovmError::VcpuResume),
             ErrorKind::Internal
+        );
+        assert_eq!(
+            error_kind(StartMicrovmError::VcpusNotConfigured),
+            ErrorKind::User
         );
 
         let errno_err_res: utils::errno::Result<utils::errno::Error> = utils::errno::errno_result();
