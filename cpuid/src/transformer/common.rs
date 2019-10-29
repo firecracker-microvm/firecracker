@@ -6,7 +6,8 @@ use bit_helper::BitHelper;
 use common::get_cpuid;
 
 use kvm_bindings::kvm_cpuid_entry2;
-use kvm_ioctls::{CpuId, MAX_KVM_CPUID_ENTRIES};
+use kvm_ioctls::CpuId;
+use transformer::Error::FamError;
 
 // constants for setting the fields of kvm_cpuid2 structures
 // CPUID bits in ebx, ecx, and edx.
@@ -104,12 +105,7 @@ pub fn use_host_cpuid_function(
     use_count: bool,
 ) -> Result<(), Error> {
     // copy all the CpuId entries, except for the ones with the provided function
-    let mut entries: Vec<kvm_cpuid_entry2> = Vec::new();
-    for entry in cpuid.as_slice().iter() {
-        if entry.function != function {
-            entries.push(*entry);
-        }
-    }
+    cpuid.retain(|entry| entry.function != function);
 
     // add all the host leaves with the provided function
     let mut count: u32 = 0;
@@ -117,26 +113,22 @@ pub fn use_host_cpuid_function(
         if count > 0 && !use_count {
             break;
         }
-        // check if there's enough space to add a new entry to the cpuid
-        if entries.len() == MAX_KVM_CPUID_ENTRIES {
-            return Err(Error::SizeLimitExceeded);
-        }
 
-        entries.push(kvm_cpuid_entry2 {
-            function,
-            index: count,
-            flags: 0,
-            eax: entry.eax,
-            ebx: entry.ebx,
-            ecx: entry.ecx,
-            edx: entry.edx,
-            padding: [0, 0, 0],
-        });
+        cpuid
+            .push(kvm_cpuid_entry2 {
+                function,
+                index: count,
+                flags: 0,
+                eax: entry.eax,
+                ebx: entry.ebx,
+                ecx: entry.ecx,
+                edx: entry.edx,
+                padding: [0, 0, 0],
+            })
+            .map_err(FamError)?;
+
         count += 1;
     }
-
-    let cpuid2 = CpuId::from_entries(&entries);
-    *cpuid = cpuid2;
 
     Ok(())
 }
@@ -304,9 +296,9 @@ mod test {
     fn test_use_host_cpuid_function_err() {
         let topoext_fn = get_topoext_fn();
         // check that it returns Err when there are too many entriesentry.function == topoext_fn
-        let mut cpuid = CpuId::new(MAX_KVM_CPUID_ENTRIES);
+        let mut cpuid = CpuId::new(kvm_ioctls::MAX_KVM_CPUID_ENTRIES);
         match use_host_cpuid_function(&mut cpuid, topoext_fn, true) {
-            Err(Error::SizeLimitExceeded) => {}
+            Err(Error::FamError(vmm_sys_util::fam::Error::SizeLimitExceeded)) => {}
             _ => panic!("Wrong behavior"),
         }
     }

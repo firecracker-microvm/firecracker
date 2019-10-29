@@ -53,12 +53,12 @@ impl VmSpec {
 /// Errors associated with processing the CPUID leaves.
 #[derive(Debug, Clone)]
 pub enum Error {
-    /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
-    VcpuCountOverflow,
-    /// The max size has been exceeded
-    SizeLimitExceeded,
+    /// A FamStructWrapper operation has failed
+    FamError(vmm_sys_util::fam::Error),
     /// A call to an internal helper method failed
     InternalError(super::common::Error),
+    /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
+    VcpuCountOverflow,
 }
 
 pub type EntryTransformerFn =
