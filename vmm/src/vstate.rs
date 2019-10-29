@@ -578,15 +578,11 @@ mod tests {
     fn test_get_supported_cpuid() {
         let kvm = KvmContext::new().unwrap();
         let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-        let mut cpuid = kvm
+        let cpuid = kvm
             .kvm
             .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
             .expect("Cannot get supported cpuid");
-        assert_eq!(
-            // Unfortunately need to clone() to get mut reference.
-            vm.supported_cpuid().clone().mut_entries_slice(),
-            cpuid.mut_entries_slice()
-        );
+        assert_eq!(vm.supported_cpuid().as_slice(), cpuid.as_slice());
     }
 
     #[test]

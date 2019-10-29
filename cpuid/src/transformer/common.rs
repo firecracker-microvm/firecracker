@@ -105,7 +105,7 @@ pub fn use_host_cpuid_function(
 ) -> Result<(), Error> {
     // copy all the CpuId entries, except for the ones with the provided function
     let mut entries: Vec<kvm_cpuid_entry2> = Vec::new();
-    for entry in cpuid.mut_entries_slice().iter() {
+    for entry in cpuid.as_slice().iter() {
         if entry.function != function {
             entries.push(*entry);
         }
@@ -268,9 +268,9 @@ mod test {
 
         // check that it behaves correctly for TOPOEXT function
         let mut cpuid = CpuId::new(1);
-        cpuid.mut_entries_slice()[0].function = topoext_fn;
+        cpuid.as_mut_slice()[0].function = topoext_fn;
         assert!(use_host_cpuid_function(&mut cpuid, topoext_fn, true).is_ok());
-        let entries = cpuid.mut_entries_slice();
+        let entries = cpuid.as_mut_slice();
         assert!(entries.len() > 1);
         for (count, entry) in entries.iter_mut().enumerate() {
             assert!(entry.function == topoext_fn);
@@ -288,9 +288,9 @@ mod test {
 
         // check that it behaves correctly for TOPOEXT function
         let mut cpuid = CpuId::new(1);
-        cpuid.mut_entries_slice()[0].function = feature_info_fn;
+        cpuid.as_mut_slice()[0].function = feature_info_fn;
         assert!(use_host_cpuid_function(&mut cpuid, feature_info_fn, false).is_ok());
-        let entries = cpuid.mut_entries_slice();
+        let entries = cpuid.as_mut_slice();
         assert!(entries.len() == 1);
         let entry = entries[0];
 

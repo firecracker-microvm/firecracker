@@ -6,7 +6,7 @@ authors = ["The Chromium OS Authors"]
 [dependencies]
 byteorder = "=1.2.1"
 kvm-bindings = "0.1"
-kvm-ioctls = "0.2"
+kvm-ioctls = "0.3"
 libc = ">=0.2.39"
 
 arch_gen = { path = "../arch_gen" }
