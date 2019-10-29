@@ -30,6 +30,8 @@ pub enum Error {
     SetFPURegisters(io::Error),
     /// Setting up MSRs failed.
     SetModelSpecificRegisters(io::Error),
+    /// Failed to set all MSRs.
+    SetModelSpecificRegistersCount,
     /// Failed to set SREGs for this CPU.
     SetStatusRegisters(io::Error),
     /// Writing the GDT to RAM failed.
@@ -87,6 +89,14 @@ pub fn setup_msrs(vcpu: &VcpuFd) -> Result<()> {
 
     vcpu.set_msrs(msrs)
         .map_err(Error::SetModelSpecificRegisters)
+        .and_then(|msrs_written| {
+            if msrs_written != msrs.nmsrs as i32 {
+                Err(Error::SetModelSpecificRegistersCount)
+            } else {
+                Ok(msrs_written)
+            }
+        })?;
+    Ok(())
 }
 
 /// Configure base registers for a given CPU.
