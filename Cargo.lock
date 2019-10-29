@@ -118,6 +118,7 @@ version = "0.1.0"
 dependencies = [
  "kvm-bindings 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "kvm-ioctls 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vmm-sys-util 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

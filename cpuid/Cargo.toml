@@ -6,3 +6,4 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 [dependencies]
 kvm-bindings = "0.1"
 kvm-ioctls = "0.3"
+vmm-sys-util = "0.2.0"

@@ -10,6 +10,7 @@
 
 extern crate kvm_bindings;
 extern crate kvm_ioctls;
+extern crate vmm_sys_util;
 
 use kvm_ioctls::CpuId;
 
