@@ -35,7 +35,6 @@ name = "arch"
 version = "0.1.0"
 dependencies = [
  "arch_gen 0.1.0",
- "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "device_tree 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fc_util 0.1.0",
  "kvm-bindings 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
