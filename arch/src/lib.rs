@@ -4,7 +4,6 @@
 #![deny(missing_docs)]
 //! Implements platform specific functionality.
 //! Supported platforms: x86_64 and aarch64.
-extern crate byteorder;
 extern crate kvm_bindings;
 extern crate kvm_ioctls;
 extern crate libc;
