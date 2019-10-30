@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use byteorder::{BigEndian, ByteOrder};
 use libc::{c_char, c_int, c_void};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, NulError};
@@ -279,15 +278,11 @@ fn append_property(fdt: &mut Vec<u8>, name: &str, val: &[u8]) -> Result<()> {
 
 // Auxiliary functions for writing u32/u64 numbers in big endian order.
 fn to_be32(input: u32) -> [u8; 4] {
-    let mut buf = [0; 4];
-    BigEndian::write_u32(&mut buf, input);
-    buf
+    u32::to_be_bytes(input)
 }
 
 fn to_be64(input: u64) -> [u8; 8] {
-    let mut buf = [0; 8];
-    BigEndian::write_u64(&mut buf, input);
-    buf
+    u64::to_be_bytes(input)
 }
 
 // Helper functions for generating a properly formatted byte vector using 32-bit/64-bit cells.
