@@ -5,10 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::io::{self, Cursor};
-use std::result;
-
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::{io, result};
 
 use kvm_bindings::kvm_lapic_state;
 use kvm_ioctls::VcpuFd;
@@ -30,29 +27,25 @@ const APIC_MODE_NMI: u32 = 0x4;
 const APIC_MODE_EXTINT: u32 = 0x7;
 
 fn get_klapic_reg(klapic: &kvm_lapic_state, reg_offset: usize) -> u32 {
-    let sliceu8 = unsafe {
-        // This array is only accessed as parts of a u32 word, so interpret it as a u8 array.
-        // Cursors are only readable on arrays of u8, not i8(c_char).
-        &*(&klapic.regs[reg_offset..] as *const [i8] as *const [u8])
-    };
-    let mut reader = Cursor::new(sliceu8);
-    // Following call can't fail if the offsets defined above are correct.
-    reader
-        .read_u32::<LittleEndian>()
-        .expect("Failed to read klapic register")
+    let range = reg_offset..reg_offset + 4;
+    let reg = klapic.regs.get(range).expect("get_klapic_reg range");
+
+    let mut reg_bytes = [0u8; 4];
+    for (byte, read) in reg_bytes.iter_mut().zip(reg.iter().cloned()) {
+        *byte = read as u8;
+    }
+
+    u32::from_le_bytes(reg_bytes)
 }
 
 fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u32) {
-    let sliceu8 = unsafe {
-        // This array is only accessed as parts of a u32 word, so interpret it as a u8 array.
-        // Cursors are only readable on arrays of u8, not i8(c_char).
-        &mut *(&mut klapic.regs[reg_offset..] as *mut [i8] as *mut [u8])
-    };
-    let mut writer = Cursor::new(sliceu8);
-    // Following call can't fail if the offsets defined above are correct.
-    writer
-        .write_u32::<LittleEndian>(value)
-        .expect("Failed to write klapic register")
+    let range = reg_offset..reg_offset + 4;
+    let reg = klapic.regs.get_mut(range).expect("set_klapic_reg range");
+
+    let value = u32::to_le_bytes(value);
+    for (byte, read) in reg.iter_mut().zip(value.iter().cloned()) {
+        *byte = read as i8;
+    }
 }
 
 fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
