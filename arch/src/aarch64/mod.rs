@@ -43,17 +43,18 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 ///
 /// * `guest_mem` - The memory to be used by the guest.
 /// * `cmdline_cstring` - The kernel commandline.
-/// * `num_cpus` - Number of virtual CPUs of the system.
+/// * `vcpu_mpidr` - Array of MPIDR register values per vcpu.
+/// * `device_info` - A hashmap containing the attached devices for building FDT device nodes.
 pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemory,
     cmdline_cstring: &CStr,
-    num_cpus: u8,
+    vcpu_mpidr: Vec<u64>,
     device_info: Option<&HashMap<(DeviceType, String), T>>,
     gic_device: &Box<dyn GICDevice>,
 ) -> super::Result<()> {
     fdt::create_fdt(
         guest_mem,
-        u32::from(num_cpus),
+        vcpu_mpidr,
         cmdline_cstring,
         device_info,
         gic_device,

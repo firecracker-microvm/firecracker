@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed #1283 - Can't start a VM in AARCH64 with vcpus number more than 16.
+
 ## [0.19.0]
 
 ### Added
