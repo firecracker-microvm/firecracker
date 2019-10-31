@@ -48,6 +48,7 @@ class Microvm:
         bin_cloner_path=None,
         config_file=None,
         no_api=False,
+        metadata=None,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # Unique identifier for this machine.
@@ -103,6 +104,8 @@ class Microvm:
 
         # Parameter set when user wants to disable API thread.
         self.no_api = no_api
+
+        self.metadata = metadata
 
         # The ssh config dictionary is populated with information about how
         # to connect to a microVM that has ssh capability. The path of the
@@ -272,7 +275,7 @@ class Microvm:
         self.vsock = Vsock(self._api_socket, self._api_session)
 
         jailer_param_list = self._jailer.construct_param_list(self.config_file,
-                                                              self.no_api)
+                                                              self.no_api, self.metadata)
 
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell. Going

@@ -4,6 +4,8 @@
 extern crate backtrace;
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
+extern crate serde_json;
+
 extern crate api_server;
 extern crate libc;
 extern crate utils;
@@ -138,6 +140,13 @@ fn main() {
                 .required(false)
                 .requires("config-file")
         )
+        .arg(
+            Arg::with_name("metadata")
+                .long("metadata")
+                .help("Path to a file that contains the microVM configuration in JSON format.")
+                .takes_value(true)
+                .required(false),
+        )
         .get_matches();
 
     let bind_path = cmd_arguments
@@ -170,6 +179,22 @@ fn main() {
         .value_of("config-file")
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
+
+    if cmd_arguments.is_present("metadata") {
+        let metadata_json = cmd_arguments
+            .value_of("metadata")
+            .map(fs::read_to_string)
+            .map(|x| x.expect("Unable to open or read from the metadata file"));
+        if let Some(data) = metadata_json {
+            MMDS.lock()
+                .expect("Failed to acquire lock on MMDS info")
+                .put_data(
+                    serde_json::from_slice(data.as_bytes())
+                        .expect("MMDS Error: metadata provided is not a valid JSON"),
+                )
+                .expect("Data store initialization from file failed.");
+        }
+    }
 
     let no_api = cmd_arguments.is_present("no-api");
 

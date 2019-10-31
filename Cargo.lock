@@ -180,6 +180,7 @@ dependencies = [
  "logger",
  "mmds",
  "seccomp",
+ "serde_json",
  "tempfile",
  "utils",
  "vmm",

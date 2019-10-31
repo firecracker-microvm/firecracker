@@ -7,6 +7,7 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 backtrace = {version = ">=0.3.35", features = ["libunwind", "libbacktrace", "std"], default-features = false}
 clap = { version = ">=2.27.1", default-features = false}
 libc = ">=0.2.39"
+serde_json = ">=1.0.9"
 
 api_server = { path = "../api_server" }
 utils = { path = "../utils" }

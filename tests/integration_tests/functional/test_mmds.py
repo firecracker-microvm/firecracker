@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that verify MMDS related functionality."""
 
+import os
+
 import host_tools.network as net_tools
 
 
@@ -18,15 +20,29 @@ def _assert_out_multiple(stdout, stderr, lines):
     assert sorted(out.split('\n')) == sorted(lines)
 
 
+def _metadata_json(test_microvm, metadata_file):
+    metadata_path =\
+        os.path.join(test_microvm.path, os.path.basename(metadata_file))
+    with open(metadata_file) as f1:
+        with open(metadata_path, "w") as f2:
+            for line in f1:
+                f2.write(line)
+    test_microvm.create_jailed_resource(metadata_path, create_jail=True)
+    test_microvm.metadata = os.path.basename(metadata_file)
+
+
 def test_mmds(test_microvm_with_ssh, network_config):
     """Test the API and guest facing features of the Micro MetaData Service."""
     test_microvm = test_microvm_with_ssh
+    _metadata_json(test_microvm, 'framework/metadata.json')
     test_microvm.spawn()
 
-    # The MMDS is empty at this point.
+    # The MMDS stores the `framework/metadata.json` file at this point.
     response = test_microvm.mmds.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == {}
+    assert response.json() == {
+        'command-line': 'json'
+    }
 
     # PUT only allows full updates.
     # The json used in MMDS is based on the one from the Instance Meta-data
