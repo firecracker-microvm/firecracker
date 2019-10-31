@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::{Display, Error, Formatter};
+
 pub mod headers;
 
 pub mod ascii {
@@ -28,6 +30,19 @@ pub enum RequestError {
     InvalidRequest,
 }
 
+impl Display for RequestError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            RequestError::InvalidHttpMethod(inner) => write!(f, "Invalid HTTP Method: {}", inner),
+            RequestError::InvalidUri(inner) => write!(f, "Invalid URI: {}", inner),
+            RequestError::InvalidHttpVersion(inner) => write!(f, "Invalid HTTP Version: {}", inner),
+            RequestError::UnsupportedHeader => write!(f, "Unsupported header."),
+            RequestError::InvalidHeader => write!(f, "Invalid header."),
+            RequestError::InvalidRequest => write!(f, "Invalid request."),
+        }
+    }
+}
+
 /// Errors associated with a HTTP Connection.
 #[derive(Debug)]
 pub enum ConnectionError {
@@ -39,6 +54,38 @@ pub enum ConnectionError {
     ConnectionClosed,
     /// Attempted to write on a stream when there was nothing to write.
     InvalidWrite,
+}
+
+impl Display for ConnectionError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            ConnectionError::ParseError(inner) => write!(f, "Parsing error: {}", inner),
+            ConnectionError::StreamError(inner) => write!(f, "Stream error: {}", inner),
+            ConnectionError::ConnectionClosed => write!(f, "Connection closed."),
+            ConnectionError::InvalidWrite => write!(f, "Invalid write attempt."),
+        }
+    }
+}
+
+/// Errors pertaining to `HttpServer`.
+#[derive(Debug)]
+pub enum ServerError {
+    /// Epoll operations failed.
+    IOError(std::io::Error),
+    /// Error from one of the connections.
+    ConnectionError(ConnectionError),
+    /// Server maximum capacity has been reached.
+    ServerFull,
+}
+
+impl Display for ServerError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            ServerError::IOError(inner) => write!(f, "IO error: {}", inner),
+            ServerError::ConnectionError(inner) => write!(f, "Connection error: {}", inner),
+            ServerError::ServerFull => write!(f, "Server is full."),
+        }
+    }
 }
 
 /// The Body associated with an HTTP Request or Response.
@@ -232,5 +279,78 @@ mod tests {
         assert_eq!(body.len(), 15);
         // Test for raw
         assert_eq!(body.raw(), b"This is a body.");
+    }
+
+    #[test]
+    fn test_display_request_error() {
+        assert_eq!(
+            format!("{}", RequestError::InvalidHttpMethod("test")),
+            "Invalid HTTP Method: test"
+        );
+        assert_eq!(
+            format!("{}", RequestError::InvalidUri("test")),
+            "Invalid URI: test"
+        );
+        assert_eq!(
+            format!("{}", RequestError::InvalidHttpVersion("test")),
+            "Invalid HTTP Version: test"
+        );
+        assert_eq!(
+            format!("{}", RequestError::InvalidHeader),
+            "Invalid header."
+        );
+        assert_eq!(
+            format!("{}", RequestError::UnsupportedHeader),
+            "Unsupported header."
+        );
+        assert_eq!(
+            format!("{}", RequestError::InvalidRequest),
+            "Invalid request."
+        );
+    }
+
+    #[test]
+    fn test_display_connection_error() {
+        assert_eq!(
+            format!(
+                "{}",
+                ConnectionError::ParseError(RequestError::InvalidRequest)
+            ),
+            "Parsing error: Invalid request."
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                ConnectionError::StreamError(std::io::Error::from_raw_os_error(11))
+            ),
+            "Stream error: Resource temporarily unavailable (os error 11)"
+        );
+        assert_eq!(
+            format!("{}", ConnectionError::ConnectionClosed),
+            "Connection closed."
+        );
+        assert_eq!(
+            format!("{}", ConnectionError::InvalidWrite),
+            "Invalid write attempt."
+        );
+    }
+
+    #[test]
+    fn test_display_server_error() {
+        assert_eq!(
+            format!(
+                "{}",
+                ServerError::ConnectionError(ConnectionError::ConnectionClosed)
+            ),
+            "Connection error: Connection closed."
+        );
+        assert_eq!(format!("{}", ServerError::ServerFull), "Server is full.");
+        assert_eq!(
+            format!(
+                "{}",
+                ServerError::IOError(std::io::Error::from_raw_os_error(11))
+            ),
+            "IO error: Resource temporarily unavailable (os error 11)"
+        );
     }
 }

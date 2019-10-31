@@ -396,7 +396,7 @@ mod tests {
             body: None,
             headers: Headers::default(),
         };
-        let request_bytes = b"GET http://localhost/home HTTP/1.0\r\n \
+        let request_bytes = b"GET http://localhost/home HTTP/1.0\r\n\
                                      Last-Modified: Tue, 15 Nov 1994 12:45:26 GMT\r\n\r\n";
         let request = Request::try_from(request_bytes).unwrap();
         assert_eq!(request, expected_request);
@@ -413,9 +413,9 @@ mod tests {
 
         // Test for a request with the headers we are looking for.
         let request = Request::try_from(
-            b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                     Expect: 100-continue\r\n \
-                                     Transfer-Encoding: chunked\r\n \
+            b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                     Expect: 100-continue\r\n\
+                                     Transfer-Encoding: chunked\r\n\
                                      Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody",
         )
         .unwrap();
@@ -437,9 +437,9 @@ mod tests {
 
         // Test for an invalid encoding.
         let request = Request::try_from(
-            b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                     Expect: 100-continue\r\n \
-                                     Transfer-Encoding: identity; q=0\r\n \
+            b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                     Expect: 100-continue\r\n\
+                                     Transfer-Encoding: identity; q=0\r\n\
                                      Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody",
         )
         .unwrap_err();
@@ -447,8 +447,8 @@ mod tests {
 
         // Test for an invalid content length.
         let request = Request::try_from(
-            b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                     Expect: 100-continue\r\n \
+            b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                     Expect: 100-continue\r\n\
                                      Content-Length: 5000\r\n\r\nthis is a short body",
         )
         .unwrap_err();
@@ -456,7 +456,7 @@ mod tests {
 
         // Test for a request without a body and an optional header.
         let request = Request::try_from(
-            b"GET http://localhost/ HTTP/1.0\r\n \
+            b"GET http://localhost/ HTTP/1.0\r\n\
                                      Accept-Encoding: gzip\r\n\r\n",
         )
         .unwrap();

@@ -71,6 +71,11 @@ impl<T: Read + Write> HttpConnection<T> {
     /// Tries to read new bytes from the stream and automatically update the request.
     /// Meant to be used only with non-blocking streams and an `EPOLL` structure.
     /// Should be called whenever an `EPOLLIN` event is signaled.
+    ///
+    /// # Errors
+    /// `StreamError` is returned when an IO operation fails.
+    /// `ConnectionClosed` is returned when a client prematurely closes the connection.
+    /// `ParseError` is returned when a parsing operation fails.
     pub fn try_read(&mut self) -> Result<(), ConnectionError> {
         // Read some bytes from the stream, which will be appended to what is already
         // present in the buffer from a previous call of `try_read`. There are already
@@ -293,6 +298,12 @@ impl<T: Read + Write> HttpConnection<T> {
     /// Tries to write the first available response to the provided stream.
     /// Meant to be used only with non-blocking streams and an `EPOLL` structure.
     /// Should be called whenever an `EPOLLOUT` event is signaled.
+    ///
+    /// # Errors
+    /// `StreamError` is returned when an IO operation fails.
+    /// `ConnectionClosed` is returned when trying to write on a closed connection.
+    /// `InvalidWrite` is returned when trying to write on a connection with an
+    /// empty outgoing buffer.
     pub fn try_write(&mut self) -> Result<(), ConnectionError> {
         if self.response_buffer.is_none() {
             if let Some(response) = self.response_queue.pop_front() {
@@ -307,12 +318,13 @@ impl<T: Read + Write> HttpConnection<T> {
         }
 
         let mut response_fully_written = false;
+        let mut connection_closed = false;
 
         if let Some(response_buffer_vec) = self.response_buffer.as_mut() {
             let bytes_to_be_written = response_buffer_vec.len();
             match self.stream.write(response_buffer_vec.as_slice()) {
-                Ok(0) => {
-                    return Err(ConnectionError::ConnectionClosed);
+                Ok(0) | Err(_) => {
+                    connection_closed = true;
                 }
                 Ok(bytes_written) => {
                     if bytes_written != bytes_to_be_written {
@@ -321,17 +333,22 @@ impl<T: Read + Write> HttpConnection<T> {
                         response_fully_written = true;
                     }
                 }
-                Err(io_error) => {
-                    return Err(ConnectionError::StreamError(io_error));
-                }
             }
         }
 
-        if response_fully_written {
+        if connection_closed {
+            self.clear_write_buffer();
+            return Err(ConnectionError::ConnectionClosed);
+        } else if response_fully_written {
             self.response_buffer.take();
         }
 
         Ok(())
+    }
+
+    fn clear_write_buffer(&mut self) {
+        self.response_queue.clear();
+        self.response_buffer.take();
     }
 
     /// Send a response back to the source of a request.
@@ -357,9 +374,15 @@ impl<T: Read + Write> HttpConnection<T> {
         self.read_cursor = end_cursor - line_start_index;
     }
 
-    /// Returns the first parsed request in the queue.
+    /// Returns the first parsed request in the queue or `None` if the queue
+    /// is empty.
     pub fn pop_parsed_request(&mut self) -> Option<Request> {
         self.parsed_requests.pop_front()
+    }
+
+    /// Returns `true` if there are bytes waiting to be written into the stream.
+    pub fn pending_write(&self) -> bool {
+        self.response_buffer.is_some() || !self.response_queue.is_empty()
     }
 }
 
@@ -377,9 +400,9 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
-                                 Content-Length: 26\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
+                                 Content-Length: 26\r\n\
                                  Transfer-Encoding: chunked\r\n\r\n",
             )
             .unwrap();
@@ -406,8 +429,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n",
             )
             .unwrap();
@@ -441,8 +464,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n",
             )
             .unwrap();
@@ -474,8 +497,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n",
             )
             .unwrap();
@@ -504,9 +527,9 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
-                                 Transfer-Encoding: chunked\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
+                                 Transfer-Encoding: chunked\r\n\
                                  Content-Length: 1400\r\n\r\n",
             )
             .unwrap();
@@ -577,8 +600,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Expect: 100-continue\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
                                  Transfer-Encoding: chunked\r\n\r\n",
             )
             .unwrap();
@@ -667,8 +690,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Transfer-Encoding: chunked\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Transfer-Encoding: chunked\r\n\
                                  Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody",
             )
             .unwrap();
@@ -705,8 +728,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n \
-                                 Transfer-Encoding: chunked\r\n \
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Transfer-Encoding: chunked\r\n\
                                  Content-Len",
             )
             .unwrap();

@@ -68,15 +68,18 @@ just download the latest binary from our
 and run it on your x86_64 or aarch64 Linux machine.
 
 On the EC2 instance, this binary can be downloaded as:
+```
+latest=$(basename $(curl -fsSLI -o /dev/null -w  %{url_effective}  https://github.com/firecracker-microvm/firecracker/releases/latest))
+```
 
 ```
-curl -LOJ https://github.com/firecracker-microvm/firecracker/releases/download/v${latest}/firecracker-v${latest}
+curl -LOJ https://github.com/firecracker-microvm/firecracker/releases/download/${latest}/firecracker-${latest}
 ```
 
 Rename the binary to "firecracker":
 
 ```
-mv firecracker-v${latest} firecracker
+mv firecracker-${latest} firecracker
 ```
 
 Make the binary executable:

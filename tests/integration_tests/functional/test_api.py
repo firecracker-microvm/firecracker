@@ -50,8 +50,8 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         kernel_image_path='foo.bar'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "The kernel file cannot be opened due to invalid kernel path or " \
-           "invalid permissions" in response.text
+    assert "The kernel file cannot be opened: No such file or directory " \
+           "(os error 2)" in response.text
 
     # Updates to `kernel_image_path` with a valid path are allowed.
     response = test_microvm.boot.put(

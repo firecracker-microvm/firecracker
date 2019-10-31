@@ -10,6 +10,7 @@
 
 extern crate kvm_bindings;
 extern crate kvm_ioctls;
+extern crate vmm_sys_util;
 
 use kvm_ioctls::CpuId;
 
@@ -54,7 +55,7 @@ mod brand_string;
 /// filter_cpuid(&mut kvm_cpuid, &vm_spec).unwrap();
 ///
 /// // Get expected `kvm_cpuid` entries.
-/// let entries = kvm_cpuid.mut_entries_slice();
+/// let entries = kvm_cpuid.as_mut_slice();
 /// ```
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn filter_cpuid(kvm_cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {

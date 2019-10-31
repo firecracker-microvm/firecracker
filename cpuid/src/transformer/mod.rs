@@ -53,12 +53,12 @@ impl VmSpec {
 /// Errors associated with processing the CPUID leaves.
 #[derive(Debug, Clone)]
 pub enum Error {
-    /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
-    VcpuCountOverflow,
-    /// The max size has been exceeded
-    SizeLimitExceeded,
+    /// A FamStructWrapper operation has failed
+    FamError(vmm_sys_util::fam::Error),
     /// A call to an internal helper method failed
     InternalError(super::common::Error),
+    /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
+    VcpuCountOverflow,
 }
 
 pub type EntryTransformerFn =
@@ -77,7 +77,7 @@ pub trait CpuidTransformer {
     /// Iterates through all the cpuid entries and calls the associated transformer for each one.
     ///
     fn process_entries(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
-        for entry in cpuid.mut_entries_slice().iter_mut() {
+        for entry in cpuid.as_mut_slice().iter_mut() {
             let maybe_transformer_fn = self.entry_transformer_fn(entry);
 
             if let Some(transformer_fn) = maybe_transformer_fn {
@@ -126,13 +126,13 @@ mod test {
 
         let mut cpuid = CpuId::new(num_entries);
         let vm_spec = VmSpec::new(0, 1, false);
-        cpuid.mut_entries_slice()[0].function = PROCESSED_FN;
+        cpuid.as_mut_slice()[0].function = PROCESSED_FN;
         assert!(MockCpuidTransformer {}
             .process_cpuid(&mut cpuid, &vm_spec.unwrap())
             .is_ok());
 
-        assert!(cpuid.mut_entries_slice().len() == num_entries);
-        for entry in cpuid.mut_entries_slice().iter() {
+        assert!(cpuid.as_mut_slice().len() == num_entries);
+        for entry in cpuid.as_mut_slice().iter() {
             match entry.function {
                 PROCESSED_FN => {
                     assert_eq!(entry.index, EXPECTED_INDEX);

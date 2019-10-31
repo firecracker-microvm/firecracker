@@ -9,14 +9,14 @@ use std::io;
 use std::result;
 use std::sync::{Arc, Barrier};
 
-use super::{KvmContext, TimestampUs};
+use super::TimestampUs;
 use arch;
 #[cfg(target_arch = "x86_64")]
 use cpuid::{c3, filter_cpuid, t2, VmSpec};
 use default_syscalls;
-use kvm_bindings::kvm_userspace_memory_region;
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{kvm_pit_config, KVM_PIT_SPEAKER_DUMMY};
+use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{LogOption, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
@@ -43,6 +43,10 @@ pub enum Error {
     GuestMemory(GuestMemoryError),
     /// Hyperthreading flag is not initialized.
     HTNotInitialized,
+    /// The host kernel reports an invalid KVM API version.
+    KvmApiVersion(i32),
+    /// Cannot initialize the KVM context due to missing capabilities.
+    KvmCap(kvm_ioctls::Cap),
     /// vCPU count is not initialized.
     VcpuCountNotInitialized,
     /// Cannot open the VM file descriptor.
@@ -95,6 +99,52 @@ pub enum Error {
 }
 pub type Result<T> = result::Result<T, Error>;
 
+/// Describes a KVM context that gets attached to the microVM.
+/// It gives access to the functionality of the KVM wrapper as
+/// long as every required KVM capability is present on the host.
+pub struct KvmContext {
+    kvm: Kvm,
+    max_memslots: usize,
+}
+
+impl KvmContext {
+    pub fn new() -> Result<Self> {
+        use kvm_ioctls::Cap::*;
+        let kvm = Kvm::new().expect("Error creating the Kvm object");
+
+        // Check that KVM has the correct version.
+        if kvm.get_api_version() != KVM_API_VERSION as i32 {
+            return Err(Error::KvmApiVersion(kvm.get_api_version()));
+        }
+
+        // A list of KVM capabilities we want to check.
+        #[cfg(target_arch = "x86_64")]
+        let capabilities = vec![Irqchip, Ioeventfd, Irqfd, UserMemory, SetTssAddr];
+
+        #[cfg(target_arch = "aarch64")]
+        let capabilities = vec![Irqchip, Ioeventfd, Irqfd, UserMemory, ArmPsci02];
+
+        // Check that all desired capabilities are supported.
+        for capability in capabilities.iter() {
+            if !kvm.check_extension(*capability) {
+                return Err(Error::KvmCap(*capability));
+            }
+        }
+
+        let max_memslots = kvm.get_nr_memslots();
+        Ok(KvmContext { kvm, max_memslots })
+    }
+
+    pub fn fd(&self) -> &Kvm {
+        &self.kvm
+    }
+
+    /// Get the maximum number of memory slots reported by this KVM context.
+    fn max_memslots(&self) -> usize {
+        self.max_memslots
+    }
+}
+
 /// A wrapper around creating and using a VM.
 pub struct Vm {
     fd: VmFd,
@@ -115,24 +165,25 @@ impl Vm {
     pub fn new(kvm: &Kvm) -> Result<Self> {
         //create fd for interacting with kvm-vm specific functions
         let vm_fd = kvm.create_vm().map_err(Error::VmFd)?;
+
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        let cpuid = kvm
+        let supported_cpuid = kvm
             .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
             .map_err(Error::VmFd)?;
         Ok(Vm {
             fd: vm_fd,
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            supported_cpuid: cpuid,
+            supported_cpuid,
             guest_mem: None,
             #[cfg(target_arch = "aarch64")]
             irqchip_handle: None,
         })
     }
 
-    /// Returns a clone of the supported `CpuId` for this Vm.
+    /// Returns a ref to the supported `CpuId` for this Vm.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub fn get_supported_cpuid(&self) -> CpuId {
-        self.supported_cpuid.clone()
+    pub fn supported_cpuid(&self) -> &CpuId {
+        &self.supported_cpuid
     }
 
     /// Initializes the guest memory.
@@ -201,7 +252,7 @@ impl Vm {
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
     ///
-    pub fn get_fd(&self) -> &VmFd {
+    pub fn fd(&self) -> &VmFd {
         &self.fd
     }
 }
@@ -212,6 +263,7 @@ pub struct Vcpu {
     cpuid: CpuId,
     fd: VcpuFd,
     id: u8,
+    #[cfg(target_arch = "x86_64")]
     io_bus: devices::Bus,
     mmio_bus: Option<devices::Bus>,
     create_ts: TimestampUs,
@@ -223,14 +275,23 @@ impl Vcpu {
     /// # Arguments
     ///
     /// * `id` - Represents the CPU number between [0, max vcpus).
-    /// * `vm` - The virtual machine this vcpu will get attached to.
-    pub fn new(id: u8, vm: &Vm, io_bus: devices::Bus, create_ts: TimestampUs) -> Result<Self> {
-        let kvm_vcpu = vm.fd.create_vcpu(id).map_err(Error::VcpuFd)?;
+    /// * `vm_fd` - The kvm `VmFd` for the virtual machine this vcpu will get attached to.
+    /// * `cpuid` - The `CpuId` listing the supported capabilities of this vcpu.
+    /// * `io_bus` - The io-bus used to access port-io devices.
+    /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
+    #[cfg(target_arch = "x86_64")]
+    pub fn new_x86_64(
+        id: u8,
+        vm_fd: &VmFd,
+        cpuid: CpuId,
+        io_bus: devices::Bus,
+        create_ts: TimestampUs,
+    ) -> Result<Self> {
+        let kvm_vcpu = vm_fd.create_vcpu(id).map_err(Error::VcpuFd)?;
 
         // Initially the cpuid per vCPU is the one supported by this VM.
         Ok(Vcpu {
-            #[cfg(target_arch = "x86_64")]
-            cpuid: vm.get_supported_cpuid(),
+            cpuid,
             fd: kvm_vcpu,
             id,
             io_bus,
@@ -239,23 +300,43 @@ impl Vcpu {
         })
     }
 
+    /// Constructs a new VCPU for `vm`.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Represents the CPU number between [0, max vcpus).
+    /// * `vm_fd` - The kvm `VmFd` for the virtual machine this vcpu will get attached to.
+    /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
+    #[cfg(target_arch = "aarch64")]
+    pub fn new_aarch64(id: u8, vm_fd: &VmFd, create_ts: TimestampUs) -> Result<Self> {
+        let kvm_vcpu = vm_fd.create_vcpu(id).map_err(Error::VcpuFd)?;
+
+        Ok(Vcpu {
+            fd: kvm_vcpu,
+            id,
+            mmio_bus: None,
+            create_ts,
+        })
+    }
+
+    /// Sets a MMIO bus for this vcpu.
     pub fn set_mmio_bus(&mut self, mmio_bus: devices::Bus) {
         self.mmio_bus = Some(mmio_bus);
     }
 
     #[cfg(target_arch = "x86_64")]
-    /// Configures a x86_64 specific vcpu and should be called once per vcpu from the vcpu's thread.
+    /// Configures a x86_64 specific vcpu and should be called once per vcpu.
     ///
     /// # Arguments
     ///
-    /// * `machine_config` - Specifies necessary info used for the CPUID configuration.
+    /// * `machine_config` - The machine configuration of this microvm needed for the CPUID configuration.
+    /// * `guest_mem` - The guest memory used by this microvm.
     /// * `kernel_start_addr` - Offset from `guest_mem` at which the kernel starts.
-    /// * `vm` - The virtual machine this vcpu will get attached to.
-    pub fn configure(
+    pub fn configure_x86_64(
         &mut self,
         machine_config: &VmConfig,
+        guest_mem: &GuestMemory,
         kernel_start_addr: GuestAddress,
-        vm: &Vm,
     ) -> Result<()> {
         let cpuid_vm_spec = VmSpec::new(
             self.id,
@@ -288,14 +369,10 @@ impl Vcpu {
             .map_err(Error::SetSupportedCpusFailed)?;
 
         arch::x86_64::regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
-        // Safe to unwrap because this method is called after the VM is configured
-        let vm_memory = vm
-            .get_memory()
-            .ok_or(Error::GuestMemory(GuestMemoryError::MemoryNotInitialized))?;
         arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.offset() as u64)
             .map_err(Error::REGSConfiguration)?;
         arch::x86_64::regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;
-        arch::x86_64::regs::setup_sregs(vm_memory, &self.fd).map_err(Error::SREGSConfiguration)?;
+        arch::x86_64::regs::setup_sregs(guest_mem, &self.fd).map_err(Error::SREGSConfiguration)?;
         arch::x86_64::interrupts::set_lint(&self.fd).map_err(Error::LocalIntConfiguration)?;
         Ok(())
     }
@@ -305,23 +382,19 @@ impl Vcpu {
     ///
     /// # Arguments
     ///
-    /// * `_machine_config` - Specifies necessary info used for the CPUID configuration.
+    /// * `vm_fd` - The kvm `VmFd` for this microvm.
+    /// * `guest_mem` - The guest memory used by this microvm.
     /// * `kernel_load_addr` - Offset from `guest_mem` at which the kernel is loaded.
-    /// * `vm` - The virtual machine this vcpu will get attached to.
-    pub fn configure(
+    pub fn configure_aarch64(
         &mut self,
-        _machine_config: &VmConfig,
+        vm_fd: &VmFd,
+        guest_mem: &GuestMemory,
         kernel_load_addr: GuestAddress,
-        vm: &Vm,
     ) -> Result<()> {
-        let vm_memory = vm
-            .get_memory()
-            .ok_or(Error::GuestMemory(GuestMemoryError::MemoryNotInitialized))?;
-
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
 
         // This reads back the kernel's preferred target type.
-        vm.fd
+        vm_fd
             .get_preferred_target(&mut kvi)
             .map_err(Error::VcpuArmPreferredTarget)?;
         // We already checked that the capability is supported.
@@ -332,7 +405,7 @@ impl Vcpu {
         }
 
         self.fd.vcpu_init(&kvi).map_err(Error::VcpuArmInit)?;
-        arch::aarch64::regs::setup_regs(&self.fd, self.id, kernel_load_addr.offset(), vm_memory)
+        arch::aarch64::regs::setup_regs(&self.fd, self.id, kernel_load_addr.offset(), guest_mem)
             .map_err(Error::REGSConfiguration)?;
         Ok(())
     }
@@ -348,13 +421,14 @@ impl Vcpu {
     fn run_emulation(&mut self) -> Result<()> {
         match self.fd.run() {
             Ok(run) => match run {
+                #[cfg(target_arch = "x86_64")]
                 VcpuExit::IoIn(addr, data) => {
                     self.io_bus.read(u64::from(addr), data);
                     METRICS.vcpu.exit_io_in.inc();
                     Ok(())
                 }
+                #[cfg(target_arch = "x86_64")]
                 VcpuExit::IoOut(addr, data) => {
-                    #[cfg(target_arch = "x86_64")]
                     self.check_boot_complete_signal(u64::from(addr), data);
 
                     self.io_bus.write(u64::from(addr), data);
@@ -424,9 +498,7 @@ impl Vcpu {
 
     /// Main loop of the vCPU thread.
     ///
-    ///
     /// Runs the vCPU in KVM context in a loop. Handles KVM_EXITs then goes back in.
-    /// Also registers a signal handler to be able to kick this thread out of KVM_RUN.
     /// Note that the state of the VCPU and associated VM must be setup first for this to do
     /// anything useful.
     pub fn run(
@@ -459,6 +531,8 @@ impl Vcpu {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+
     use super::super::devices;
     use super::*;
 
@@ -469,17 +543,22 @@ mod tests {
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(gm, &kvm).is_ok());
 
+        let vcpu;
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        vm.setup_irqchip().unwrap();
-        let vcpu = Vcpu::new(
-            1,
-            &vm,
-            devices::Bus::new(),
-            super::super::TimestampUs::default(),
-        )
-        .unwrap();
+        {
+            vm.setup_irqchip().unwrap();
+            vcpu = Vcpu::new_x86_64(
+                1,
+                vm.fd(),
+                vm.supported_cpuid().clone(),
+                devices::Bus::new(),
+                super::super::TimestampUs::default(),
+            )
+            .unwrap();
+        }
         #[cfg(target_arch = "aarch64")]
         {
+            vcpu = Vcpu::new_aarch64(1, vm.fd(), super::super::TimestampUs::default()).unwrap();
             vm.setup_irqchip(1).expect("Cannot setup irqchip");
         }
 
@@ -499,14 +578,11 @@ mod tests {
     fn test_get_supported_cpuid() {
         let kvm = KvmContext::new().unwrap();
         let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-        let mut cpuid = kvm
+        let cpuid = kvm
             .kvm
             .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
             .expect("Cannot get supported cpuid");
-        assert_eq!(
-            vm.get_supported_cpuid().mut_entries_slice(),
-            cpuid.mut_entries_slice()
-        );
+        assert_eq!(vm.supported_cpuid().as_slice(), cpuid.as_slice());
     }
 
     #[test]
@@ -538,9 +614,10 @@ mod tests {
         // PartialEq.
         assert!(vm.setup_irqchip().is_err());
 
-        let _vcpu = Vcpu::new(
+        let _vcpu = Vcpu::new_x86_64(
             1,
-            &vm,
+            vm.fd(),
+            vm.supported_cpuid().clone(),
             devices::Bus::new(),
             super::super::TimestampUs::default(),
         )
@@ -556,13 +633,7 @@ mod tests {
 
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         let vcpu_count = 1;
-        let _vcpu = Vcpu::new(
-            1,
-            &vm,
-            devices::Bus::new(),
-            super::super::TimestampUs::default(),
-        )
-        .unwrap();
+        let _vcpu = Vcpu::new_aarch64(1, vm.fd(), super::super::TimestampUs::default()).unwrap();
 
         vm.setup_irqchip(vcpu_count).expect("Cannot setup irqchip");
         // Trying to setup two irqchips will result in EEXIST error.
@@ -575,17 +646,24 @@ mod tests {
         let (vm, mut vcpu) = setup_vcpu();
 
         let vm_config = VmConfig::default();
-        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
+        let vm_mem = vm.get_memory().unwrap();
+        assert!(vcpu
+            .configure_x86_64(&vm_config, vm_mem, GuestAddress(0))
+            .is_ok());
 
         // Test configure while using the T2 template.
         let mut vm_config = VmConfig::default();
         vm_config.cpu_template = Some(CpuFeaturesTemplate::T2);
-        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
+        assert!(vcpu
+            .configure_x86_64(&vm_config, vm_mem, GuestAddress(0))
+            .is_ok());
 
         // Test configure while using the C3 template.
         let mut vm_config = VmConfig::default();
         vm_config.cpu_template = Some(CpuFeaturesTemplate::C3);
-        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
+        assert!(vcpu
+            .configure_x86_64(&vm_config, vm_mem, GuestAddress(0))
+            .is_ok());
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -595,29 +673,22 @@ mod tests {
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
         assert!(vm.memory_init(gm, &kvm).is_ok());
+        let vm_mem = vm.get_memory().unwrap();
 
         // Try it for when vcpu id is 0.
-        let mut vcpu = Vcpu::new(
-            0,
-            &vm,
-            devices::Bus::new(),
-            super::super::TimestampUs::default(),
-        )
-        .unwrap();
+        let mut vcpu = Vcpu::new_aarch64(0, vm.fd(), super::super::TimestampUs::default()).unwrap();
 
         let vm_config = VmConfig::default();
-        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
+        assert!(vcpu
+            .configure_aarch64(vm.fd(), vm_mem, GuestAddress(0))
+            .is_ok());
 
         // Try it for when vcpu id is NOT 0.
-        let mut vcpu = Vcpu::new(
-            1,
-            &vm,
-            devices::Bus::new(),
-            super::super::TimestampUs::default(),
-        )
-        .unwrap();
+        let mut vcpu = Vcpu::new_aarch64(1, vm.fd(), super::super::TimestampUs::default()).unwrap();
 
-        assert!(vcpu.configure(&vm_config, GuestAddress(0), &vm).is_ok());
+        assert!(vcpu
+            .configure_aarch64(vm.fd(), vm_mem, GuestAddress(0))
+            .is_ok());
     }
 
     #[test]
@@ -630,5 +701,23 @@ mod tests {
             seccomp::SECCOMP_LEVEL_ADVANCED + 10,
             EventFd::new().unwrap(),
         );
+    }
+
+    #[test]
+    fn test_kvm_context() {
+        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::io::{AsRawFd, FromRawFd};
+
+        let c = KvmContext::new().unwrap();
+
+        assert!(c.max_memslots >= 32);
+
+        let kvm = Kvm::new().unwrap();
+        let f = unsafe { File::from_raw_fd(kvm.as_raw_fd()) };
+        let m1 = f.metadata().unwrap();
+        let m2 = File::open("/dev/kvm").unwrap().metadata().unwrap();
+
+        assert_eq!(m1.dev(), m2.dev());
+        assert_eq!(m1.ino(), m2.ino());
     }
 }

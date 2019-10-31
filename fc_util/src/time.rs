@@ -102,6 +102,24 @@ impl fmt::Display for LocalTime {
     }
 }
 
+/// Holds a micro-second resolution timestamp with both the real time and cpu time.
+#[derive(Clone)]
+pub struct TimestampUs {
+    /// Real time in microseconds.
+    pub time_us: u64,
+    /// Cpu time in microseconds.
+    pub cputime_us: u64,
+}
+
+impl Default for TimestampUs {
+    fn default() -> TimestampUs {
+        TimestampUs {
+            time_us: get_time(ClockType::Monotonic) / 1000,
+            cputime_us: get_time(ClockType::ProcessCpu) / 1000,
+        }
+    }
+}
+
 /// Returns a timestamp in nanoseconds from a monotonic clock.
 ///
 /// Uses `_rdstc` on `x86_64` and [`get_time`](fn.get_time.html) on other architectures.

@@ -1,55 +1,56 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::result;
-
-use futures::sync::oneshot;
-use hyper::Method;
-
-use super::{VmmAction, VmmRequest};
-use request::{IntoParsedRequest, ParsedRequest};
+use super::super::VmmAction;
+use logger::{Metric, METRICS};
+use request::{checked_id, Body, Error, ParsedRequest, StatusCode};
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
-impl IntoParsedRequest for NetworkInterfaceConfig {
-    fn into_parsed_request(
-        self,
-        id_from_path: Option<String>,
-        _: Method,
-    ) -> result::Result<ParsedRequest, String> {
-        let id_from_path = id_from_path.unwrap_or_default();
-        if id_from_path != self.iface_id {
-            return Err(String::from(
-                "The id from the path does not match the id from the body!",
-            ));
+pub fn parse_put_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
+    METRICS.patch_api_requests.network_count.inc();
+    let id = match id_from_path {
+        Some(&id) => checked_id(id)?,
+        None => {
+            return Err(Error::EmptyID);
         }
+    };
 
-        let (sender, receiver) = oneshot::channel();
-        Ok(ParsedRequest::Sync(
-            VmmRequest::new(VmmAction::InsertNetworkDevice(self), sender),
-            receiver,
-        ))
+    let netif = serde_json::from_slice::<NetworkInterfaceConfig>(body.raw()).map_err(|e| {
+        METRICS.put_api_requests.network_fails.inc();
+        Error::SerdeJson(e)
+    })?;
+    if id != netif.iface_id.as_str() {
+        return Err(Error::Generic(
+            StatusCode::BadRequest,
+            "The id from the path does not match the id from the body!".to_string(),
+        ));
     }
+    Ok(ParsedRequest::Sync(VmmAction::InsertNetworkDevice(netif)))
 }
 
-impl IntoParsedRequest for NetworkInterfaceUpdateConfig {
-    fn into_parsed_request(
-        self,
-        id_from_path: Option<String>,
-        _: Method,
-    ) -> result::Result<ParsedRequest, String> {
-        let id_from_path = id_from_path.unwrap_or_default();
-        if id_from_path != self.iface_id {
-            return Err(String::from(
-                "The id from the path does not match the id from the body!",
-            ));
+pub fn parse_patch_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
+    METRICS.put_api_requests.network_count.inc();
+    let id = match id_from_path {
+        Some(&id) => checked_id(id)?,
+        None => {
+            return Err(Error::EmptyID);
         }
+    };
 
-        let (sender, receiver) = oneshot::channel();
-        Ok(ParsedRequest::Sync(
-            VmmRequest::new(VmmAction::UpdateNetworkInterface(self), sender),
-            receiver,
-        ))
+    let netif =
+        serde_json::from_slice::<NetworkInterfaceUpdateConfig>(body.raw()).map_err(|e| {
+            METRICS.patch_api_requests.network_fails.inc();
+            Error::SerdeJson(e)
+        })?;
+    if id != netif.iface_id {
+        return Err(Error::Generic(
+            StatusCode::BadRequest,
+            "The id from the path does not match the id from the body!".to_string(),
+        ));
     }
+    Ok(ParsedRequest::Sync(VmmAction::UpdateNetworkInterface(
+        netif,
+    )))
 }
 
 #[cfg(test)]
@@ -80,39 +81,32 @@ mod tests {
     }
 
     #[test]
-    fn test_netif_into_parsed_request() {
-        let netif = get_dummy_netif(
-            String::from("foo"),
-            String::from("bar"),
-            "12:34:56:78:9A:BC",
-        );
-        assert!(netif
-            .into_parsed_request(Some(String::from("bar")), Method::Put)
-            .is_err());
+    fn test_parse_netif_request() {
+        let body = r#"{
+                "iface_id": "foo",
+                "host_dev_name": "bar",
+                "guest_mac": "12:34:56:78:9A:BC",
+                "allow_mmds_requests": false
+              }"#;
+        assert!(parse_put_net(&Body::new(body), Some(&"bar")).is_err());
+        assert!(parse_put_net(&Body::new(body), Some(&"foo")).is_ok());
 
-        let (sender, receiver) = oneshot::channel();
-        let netif = get_dummy_netif(
-            String::from("foo"),
-            String::from("bar"),
-            "12:34:56:78:9A:BC",
-        );
-        // NetworkInterfaceConfig does not implement clone, let's create the same object again.
         let netif_clone = get_dummy_netif(
             String::from("foo"),
             String::from("bar"),
             "12:34:56:78:9A:BC",
         );
-        assert!(netif
-            .into_parsed_request(Some(String::from("foo")), Method::Put)
-            .eq(&Ok(ParsedRequest::Sync(
-                VmmRequest::new(VmmAction::InsertNetworkDevice(netif_clone), sender),
-                receiver
-            ))));
+        match parse_put_net(&Body::new(body), Some(&"foo")) {
+            Ok(ParsedRequest::Sync(VmmAction::InsertNetworkDevice(netif))) => {
+                assert_eq!(netif, netif_clone)
+            }
+            _ => panic!("Test failed."),
+        }
     }
 
     #[test]
     fn test_network_interface_body_serialization_and_deserialization() {
-        let netif = NetworkInterfaceConfig {
+        let netif_clone = NetworkInterfaceConfig {
             iface_id: String::from("foo"),
             host_dev_name: String::from("bar"),
             guest_mac: Some(MacAddr::parse_str("12:34:56:78:9A:BC").unwrap()),
@@ -122,7 +116,7 @@ mod tests {
         };
 
         // This is the json encoding of the netif variable.
-        let jstr = r#"{
+        let body = r#"{
             "iface_id": "foo",
             "host_dev_name": "bar",
             "guest_mac": "12:34:56:78:9A:bc",
@@ -133,15 +127,22 @@ mod tests {
             "allow_mmds_requests": true
         }"#;
 
-        let x = serde_json::from_str(jstr).expect("deserialization failed.");
-        assert_eq!(netif, x);
+        match parse_put_net(&Body::new(body), Some(&"foo")) {
+            Ok(ParsedRequest::Sync(VmmAction::InsertNetworkDevice(netif))) => {
+                assert_eq!(netif, netif_clone)
+            }
+            _ => panic!("Test failed."),
+        }
 
         // Check that guest_mac and rate limiters are truly optional.
-        let jstr_no_mac = r#"{
+        let body_no_mac = r#"{
             "iface_id": "foo",
             "host_dev_name": "bar"
         }"#;
 
-        assert!(serde_json::from_str::<NetworkInterfaceConfig>(jstr_no_mac).is_ok())
+        assert!(serde_json::from_str::<NetworkInterfaceConfig>(body_no_mac).is_ok());
+
+        assert!(parse_put_net(&Body::new(body), Some(&"bar")).is_err());
+        assert!(parse_patch_net(&Body::new(body), Some(&"bar")).is_err());
     }
 }
