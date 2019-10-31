@@ -276,6 +276,8 @@ pub struct Vcpu {
     io_bus: devices::Bus,
     mmio_bus: Option<devices::Bus>,
     create_ts: TimestampUs,
+    #[cfg(target_arch = "aarch64")]
+    mpidr: u64,
 }
 
 impl Vcpu {
@@ -319,13 +321,20 @@ impl Vcpu {
     #[cfg(target_arch = "aarch64")]
     pub fn new_aarch64(id: u8, vm_fd: &VmFd, create_ts: TimestampUs) -> Result<Self> {
         let kvm_vcpu = vm_fd.create_vcpu(id).map_err(Error::VcpuFd)?;
-
         Ok(Vcpu {
             fd: kvm_vcpu,
             id,
             mmio_bus: None,
             create_ts,
+            mpidr: 0,
         })
+    }
+
+    /// Gets the MPIDR register value.
+    ///
+    #[cfg(target_arch = "aarch64")]
+    pub fn get_mpidr(&self) -> u64 {
+        self.mpidr
     }
 
     /// Sets a MMIO bus for this vcpu.
@@ -416,6 +425,9 @@ impl Vcpu {
         self.fd.vcpu_init(&kvi).map_err(Error::VcpuArmInit)?;
         arch::aarch64::regs::setup_regs(&self.fd, self.id, kernel_load_addr.offset(), guest_mem)
             .map_err(Error::REGSConfiguration)?;
+
+        self.mpidr = arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::REGSConfiguration)?;
+
         Ok(())
     }
 

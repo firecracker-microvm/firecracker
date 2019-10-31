@@ -1008,7 +1008,8 @@ impl Vmm {
         Ok(entry_addr)
     }
 
-    fn configure_system(&self) -> std::result::Result<(), StartMicrovmError> {
+    #[allow(unused_variables)]
+    fn configure_system(&self, vcpus: &[Vcpu]) -> std::result::Result<(), StartMicrovmError> {
         use StartMicrovmError::*;
 
         let kernel_config = self.kernel_config.as_ref().ok_or(MissingKernelConfig)?;
@@ -1032,13 +1033,14 @@ impl Vmm {
 
         #[cfg(target_arch = "aarch64")]
         {
+            let vcpu_mpidr = vcpus.into_iter().map(|cpu| cpu.get_mpidr()).collect();
             arch::aarch64::configure_system(
                 vm_memory,
                 &kernel_config
                     .cmdline
                     .as_cstring()
                     .map_err(LoadCommandline)?,
-                vcpu_count,
+                vcpu_mpidr,
                 self.get_mmio_device_info(),
                 self.vm.get_irqchip(),
             )
@@ -1136,7 +1138,7 @@ impl Vmm {
             self.attach_legacy_devices()?;
         }
 
-        self.configure_system()?;
+        self.configure_system(&vcpus)?;
 
         self.register_events()?;
 
@@ -2812,14 +2814,14 @@ mod tests {
     fn test_configure_system() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert_eq!(
-            vmm.configure_system().unwrap_err().to_string(),
+            vmm.configure_system(&Vec::new()).unwrap_err().to_string(),
             "Cannot start microvm without kernel configuration."
         );
 
         vmm.default_kernel_config(None);
 
         assert_eq!(
-            vmm.configure_system().unwrap_err().to_string(),
+            vmm.configure_system(&Vec::new()).unwrap_err().to_string(),
             "Invalid Memory Configuration: MemoryNotInitialized"
         );
 
@@ -2829,8 +2831,8 @@ mod tests {
         // We need this so that configure_system finds a properly setup GIC device
         #[cfg(target_arch = "aarch64")]
         assert!(vmm.vm.setup_irqchip(1).is_ok());
+        assert!(vmm.configure_system(&Vec::new()).is_ok());
 
-        assert!(vmm.configure_system().is_ok());
         vmm.stdin_handle.lock().set_canon_mode().unwrap();
     }
 

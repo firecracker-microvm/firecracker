@@ -7,10 +7,16 @@
 
 use std::{io, mem, result};
 
+use super::get_fdt_addr;
+use kvm_bindings::{
+    user_pt_regs, KVM_REG_ARM64, KVM_REG_ARM64_SYSREG, KVM_REG_ARM64_SYSREG_CRM_MASK,
+    KVM_REG_ARM64_SYSREG_CRM_SHIFT, KVM_REG_ARM64_SYSREG_CRN_MASK, KVM_REG_ARM64_SYSREG_CRN_SHIFT,
+    KVM_REG_ARM64_SYSREG_OP0_MASK, KVM_REG_ARM64_SYSREG_OP0_SHIFT, KVM_REG_ARM64_SYSREG_OP1_MASK,
+    KVM_REG_ARM64_SYSREG_OP1_SHIFT, KVM_REG_ARM64_SYSREG_OP2_MASK, KVM_REG_ARM64_SYSREG_OP2_SHIFT,
+    KVM_REG_ARM_CORE, KVM_REG_SIZE_U64,
+};
 use kvm_ioctls::VcpuFd;
 
-use super::get_fdt_addr;
-use kvm_bindings::{user_pt_regs, KVM_REG_ARM64, KVM_REG_ARM_CORE, KVM_REG_SIZE_U64};
 use memory_model::GuestMemory;
 
 /// Errors thrown while setting aarch64 registers.
@@ -18,6 +24,8 @@ use memory_model::GuestMemory;
 pub enum Error {
     /// Failed to set core register (PC, PSTATE or general purpose ones).
     SetCoreRegister(io::Error),
+    /// Failed to get a system register.
+    GetSysRegister(io::Error),
 }
 type Result<T> = result::Result<T, Error>;
 
@@ -81,6 +89,31 @@ macro_rules! arm64_core_reg {
     };
 }
 
+// This macro computes the ID of a specific ARM64 system register similar to how
+// the kernel C macro does.
+// https://elixir.bootlin.com/linux/v4.20.17/source/arch/arm64/include/uapi/asm/kvm.h#L203
+macro_rules! arm64_sys_reg {
+    ($name: tt, $op0: tt, $op1: tt, $crn: tt, $crm: tt, $op2: tt) => {
+        const $name: u64 = KVM_REG_ARM64 as u64
+            | KVM_REG_SIZE_U64 as u64
+            | KVM_REG_ARM64_SYSREG as u64
+            | ((($op0 as u64) << KVM_REG_ARM64_SYSREG_OP0_SHIFT)
+                & KVM_REG_ARM64_SYSREG_OP0_MASK as u64)
+            | ((($op1 as u64) << KVM_REG_ARM64_SYSREG_OP1_SHIFT)
+                & KVM_REG_ARM64_SYSREG_OP1_MASK as u64)
+            | ((($crn as u64) << KVM_REG_ARM64_SYSREG_CRN_SHIFT)
+                & KVM_REG_ARM64_SYSREG_CRN_MASK as u64)
+            | ((($crm as u64) << KVM_REG_ARM64_SYSREG_CRM_SHIFT)
+                & KVM_REG_ARM64_SYSREG_CRM_MASK as u64)
+            | ((($op2 as u64) << KVM_REG_ARM64_SYSREG_OP2_SHIFT)
+                & KVM_REG_ARM64_SYSREG_OP2_MASK as u64);
+    };
+}
+
+// Constant imported from the Linux kernel:
+// https://elixir.bootlin.com/linux/v4.20.17/source/arch/arm64/include/asm/sysreg.h#L135
+arm64_sys_reg!(MPIDR_EL1, 3, 0, 0, 0, 5);
+
 /// Configure core registers for a given CPU.
 ///
 /// # Arguments
@@ -110,6 +143,15 @@ pub fn setup_regs(vcpu: &VcpuFd, cpu_id: u8, boot_ip: usize, mem: &GuestMemory) 
     Ok(())
 }
 
+/// Read the MPIDR - Multiprocessor Affinity Register.
+///
+/// # Arguments
+///
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+pub fn read_mpidr(vcpu: &VcpuFd) -> Result<u64> {
+    vcpu.get_one_reg(MPIDR_EL1).map_err(Error::GetSysRegister)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,11 +168,26 @@ mod tests {
 
         match setup_regs(&vcpu, 0, 0x0, &mem).unwrap_err() {
             Error::SetCoreRegister(ref e) => assert_eq!(e.raw_os_error(), Some(libc::ENOEXEC)),
+            _ => panic!("Expected to receive Error::SetCoreRegister"),
         }
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
         vm.get_preferred_target(&mut kvi).unwrap();
         vcpu.vcpu_init(&kvi).unwrap();
 
         assert!(setup_regs(&vcpu, 0, 0x0, &mem).is_ok());
+    }
+    #[test]
+    fn test_read_mpidr() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
+        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
+        vm.get_preferred_target(&mut kvi).unwrap();
+
+        // Must fail when vcpu is not initialized yet.
+        assert!(read_mpidr(&vcpu).is_err());
+
+        vcpu.vcpu_init(&kvi).unwrap();
+        assert_eq!(read_mpidr(&vcpu).unwrap(), 0x80000000);
     }
 }
