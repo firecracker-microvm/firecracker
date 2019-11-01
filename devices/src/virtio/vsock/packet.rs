@@ -14,7 +14,6 @@
 /// `VsockPacket` wraps these two buffers and provides direct access to the data stored
 /// in guest memory. This is done to avoid unnecessarily copying data from guest memory
 /// to temporary buffers, before passing it on to the vsock backend.
-///
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::super::DescriptorChain;
@@ -89,7 +88,6 @@ const HDROFF_FWD_CNT: usize = 40;
 /// The vsock packet, implemented as a wrapper over a virtq descriptor chain:
 /// - the chain head, holding the packet header; and
 /// - (an optional) data/buffer descriptor, only present for data packets (VSOCK_OP_RW).
-///
 pub struct VsockPacket {
     hdr: *mut u8,
     buf: Option<*mut u8>,
@@ -102,7 +100,6 @@ impl VsockPacket {
     /// The chain head is expected to hold valid packet header data. A following packet buffer
     /// descriptor can optionally end the chain. Bounds and pointer checks are performed when
     /// creating the wrapper.
-    ///
     pub fn from_tx_virtq_head(head: &DescriptorChain) -> Result<Self> {
         // All buffers in the TX queue must be readable.
         //
@@ -164,7 +161,6 @@ impl VsockPacket {
     ///
     /// There must be two descriptors in the chain, both writable: a header descriptor and a data
     /// descriptor. Bounds and pointer checks are performed when creating the wrapper.
-    ///
     pub fn from_rx_virtq_head(head: &DescriptorChain) -> Result<Self> {
         // All RX buffers must be writable.
         //
@@ -199,7 +195,6 @@ impl VsockPacket {
     }
 
     /// Provides in-place, byte-slice, access to the vsock packet header.
-    ///
     pub fn hdr(&self) -> &[u8] {
         // This is safe since bound checks have already been performed when creating the packet
         // from the virtq descriptor.
@@ -207,7 +202,6 @@ impl VsockPacket {
     }
 
     /// Provides in-place, byte-slice, mutable access to the vsock packet header.
-    ///
     pub fn hdr_mut(&mut self) -> &mut [u8] {
         // This is safe since bound checks have already been performed when creating the packet
         // from the virtq descriptor.

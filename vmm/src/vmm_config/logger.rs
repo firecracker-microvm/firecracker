@@ -27,7 +27,6 @@ impl LoggerWriter {
     /// two pipes, we are opening them with `O_NONBLOCK` flag. In this case, writing to a pipe will
     /// start failing when reaching 64K of unconsumed content. Simultaneously,
     /// the `missed_metrics_count` metric will get increased.
-    ///
     pub fn new(fifo_path: &str) -> Result<LoggerWriter> {
         let fifo = PathBuf::from(fifo_path);
         OpenOptions::new()

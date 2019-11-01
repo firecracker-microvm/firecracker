@@ -144,7 +144,6 @@ fn update_extended_feature_info_entry(
 }
 
 /// Sets up the cpuid entries for a given VCPU following a T2 template.
-///
 struct T2CpuidTransformer {}
 
 impl CpuidTransformer for T2CpuidTransformer {

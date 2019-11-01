@@ -22,7 +22,6 @@
 ///         consume it.  If that data can't be forwarded straight to the host stream, we'll
 ///         have to store it in a buffer (and flush it at a later time). Vsock flow control
 ///         ensures that our TX buffer doesn't overflow.
-///
 // The code in this file is best read with a fresh memory of the vsock protocol inner-workings.
 // To help with that, here is a
 //
@@ -79,7 +78,6 @@
 //          2. The receiver can be proactive, and send VSOCK_OP_CREDIT_UPDATE packet, whenever
 //             it thinks its peer's information is out of date.
 //          Our implementation uses the proactive approach.
-//
 use std::io::{ErrorKind, Read, Write};
 use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -94,7 +92,6 @@ use super::{ConnState, Error, PendingRx, PendingRxSet, Result};
 
 /// A self-managing connection object, that handles communication between a guest-side AF_VSOCK
 /// socket and a host-side `Read + Write + AsRawFd` stream.
-///
 pub struct VsockConnection<S: Read + Write + AsRawFd> {
     /// The current connection state.
     state: ConnState,
@@ -150,7 +147,6 @@ where
     ///    packet;
     /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but
     ///    it is missing the data buffer.
-    ///
     fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> VsockResult<()> {
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
@@ -264,7 +260,6 @@ where
     ///
     /// Returns:
     /// always `Ok(())`: the packet has been consumed;
-    ///
     fn send_pkt(&mut self, pkt: &VsockPacket) -> VsockResult<()> {
         // Update the peer credit information.
         self.peer_buf_alloc = pkt.buf_alloc();
@@ -374,7 +369,6 @@ where
     }
 
     /// Check if the connection has any pending packet addressed to the peer.
-    ///
     fn has_pending_rx(&self) -> bool {
         !self.pending_rx.is_empty()
     }
@@ -388,7 +382,6 @@ where
     ///
     /// The connection is interested in being notified about EPOLLIN / EPOLLOUT events on the
     /// host stream.
-    ///
     fn get_polled_fd(&self) -> RawFd {
         self.stream.as_raw_fd()
     }
@@ -399,7 +392,6 @@ where
     /// - data is available to be read from the host stream, so that it can store an RW pending
     ///   RX indication; and
     /// - data can be written to the host stream, and the TX buffer needs to be flushed.
-    ///
     fn get_polled_evset(&self) -> epoll::Events {
         let mut evset = epoll::Events::empty();
         if !self.tx_buf.is_empty() {
@@ -418,7 +410,6 @@ where
     }
 
     /// Notify the connection about an event (or set of events) that it was interested in.
-    ///
     fn notify(&mut self, evset: epoll::Events) {
         if evset.contains(epoll::Events::EPOLLIN) {
             // Data can be read from the host stream. Setting a Rw pending indication, so that
@@ -464,7 +455,6 @@ where
     S: Read + Write + AsRawFd,
 {
     /// Create a new guest-initiated connection object.
-    ///
     pub fn new_peer_init(
         stream: S,
         local_cid: u64,
@@ -492,7 +482,6 @@ where
     }
 
     /// Create a new host-initiated connection object.
-    ///
     pub fn new_local_init(
         stream: S,
         local_cid: u64,
@@ -520,7 +509,6 @@ where
 
     /// Check if there is an expiry (kill) timer set for this connection, sometime in the
     /// future.
-    ///
     pub fn will_expire(&self) -> bool {
         match self.expiry {
             None => false,
@@ -530,7 +518,6 @@ where
 
     /// Check if this connection needs to be scheduled for forceful termination, due to its
     /// kill timer having expired.
-    ///
     pub fn has_expired(&self) -> bool {
         match self.expiry {
             None => false,
@@ -539,14 +526,12 @@ where
     }
 
     /// Get the kill timer value, if one is set.
-    ///
     pub fn expiry(&self) -> Option<Instant> {
         self.expiry
     }
 
     /// Schedule the connection to be forcefully terminated ASAP (i.e. the next time the
     /// connection is asked to yield a packet, via `recv_pkt()`).
-    ///
     pub fn kill(&mut self) {
         self.state = ConnState::Killed;
         self.pending_rx.insert(PendingRx::Rst);
@@ -556,7 +541,6 @@ where
     ///
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
-    ///
     fn send_bytes(&mut self, buf: &[u8]) -> Result<()> {
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
         // events on the underlying stream. Therefore, there's no point in attempting a write
@@ -593,27 +577,23 @@ where
     }
 
     /// Check if the credit information the peer has last received from us is outdated.
-    ///
     fn peer_needs_credit_update(&self) -> bool {
         (self.fwd_cnt - self.last_fwd_cnt_to_peer).0 as usize >= defs::CONN_CREDIT_UPDATE_THRESHOLD
     }
 
     /// Check if we need to ask the peer for a credit update before sending any more data its
     /// way.
-    ///
     fn need_credit_update_from_peer(&self) -> bool {
         self.peer_avail_credit() == 0
     }
 
     /// Get the maximum number of bytes that we can send to our peer, without overflowing its
     /// buffer.
-    ///
     fn peer_avail_credit(&self) -> usize {
         (Wrapping(self.peer_buf_alloc as u32) - (self.rx_cnt - self.peer_fwd_cnt)).0 as usize
     }
 
     /// Prepare a packet header for transmission to our peer.
-    ///
     fn init_pkt<'a>(&self, pkt: &'a mut VsockPacket) -> &'a mut VsockPacket {
         // Make sure the header is zeroed-out first.
         // This looks sub-optimal, but it is actually optimized-out in the compiled code to be

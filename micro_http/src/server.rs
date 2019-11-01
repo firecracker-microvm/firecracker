@@ -257,7 +257,6 @@ impl HttpServer {
     ///
     /// # Errors
     /// Returns an `IOError` when binding or `epoll::create` fails.
-    ///
     pub fn new<P: AsRef<Path>>(path_to_socket: P) -> Result<Self> {
         let socket = UnixListener::bind(path_to_socket).map_err(ServerError::IOError)?;
         let epoll_fd = epoll::create(true).map_err(ServerError::IOError)?;
@@ -397,11 +396,12 @@ impl HttpServer {
     ///
     /// // Add our server to the `epoll` manager.
     /// epoll::ctl(
-    ///            epoll_fd,
-    ///            epoll::ControlOptions::EPOLL_CTL_ADD,
-    ///            server.epoll_fd(),
-    ///            epoll::Event::new(epoll::Events::EPOLLIN, 1234u64),
-    ///        ).unwrap();
+    ///     epoll_fd,
+    ///     epoll::ControlOptions::EPOLL_CTL_ADD,
+    ///     server.epoll_fd(),
+    ///     epoll::Event::new(epoll::Events::EPOLLIN, 1234u64),
+    /// )
+    /// .unwrap();
     ///
     /// // Connect a client to the server so it doesn't block in our example.
     /// let mut socket = std::os::unix::net::UnixStream::connect(path_to_socket).unwrap();

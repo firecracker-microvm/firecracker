@@ -12,7 +12,6 @@ use super::{Error, Result};
 /// A simple ring-buffer implementation, used by vsock connections to buffer TX (guest -> host)
 /// data.  Memory for this buffer is allocated lazily, since buffering will only be needed when
 /// the host can't read fast enough.
-///
 pub struct TxBuf {
     /// The actual u8 buffer - only allocated after the first push.
     data: Option<Box<[u8; Self::SIZE]>>,
@@ -24,11 +23,9 @@ pub struct TxBuf {
 
 impl TxBuf {
     /// Total buffer size, in bytes.
-    ///
     const SIZE: usize = defs::CONN_TX_BUF_SIZE;
 
     /// Ring-buffer constructor.
-    ///
     pub fn new() -> Self {
         Self {
             data: None,
@@ -39,7 +36,6 @@ impl TxBuf {
 
     /// Get the used length of this buffer - number of bytes that have been pushed in, but not
     /// yet flushed out.
-    ///
     pub fn len(&self) -> usize {
         (self.head - self.tail).0 as usize
     }
@@ -48,7 +44,6 @@ impl TxBuf {
     ///
     /// Either the entire source slice will be pushed to the ring-buffer, or none of it, if
     /// there isn't enough room, in which case `Err(Error::TxBufFull)` is returned.
-    ///
     pub fn push(&mut self, src: &[u8]) -> Result<()> {
         // Error out if there's no room to push the entire slice.
         if self.len() + src.len() > Self::SIZE {
@@ -95,7 +90,6 @@ impl TxBuf {
     ///
     /// Return the number of bytes that have been transferred out of the ring-buffer and into
     /// the writable stream.
-    ///
     pub fn flush_to<W>(&mut self, sink: &mut W) -> Result<usize>
     where
         W: Write,
@@ -141,7 +135,6 @@ impl TxBuf {
     }
 
     /// Check if the buffer holds any data that hasn't yet been flushed out.
-    ///
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

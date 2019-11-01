@@ -30,7 +30,6 @@
 ///    other pollable FDs are then registered under this nested epoll FD.
 ///    To route all these events to their handlers, the muxer uses another `HashMap` object,
 ///    mapping `RawFd`s to `EpollListener`s.
-///
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -49,7 +48,6 @@ use super::{Error, Result};
 
 /// A unique identifier of a `MuxerConnection` object. Connections are stored in a hash map,
 /// keyed by a `ConnMapKey` object.
-///
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ConnMapKey {
     local_port: u32,
@@ -57,7 +55,6 @@ pub struct ConnMapKey {
 }
 
 /// A muxer RX queue item.
-///
 #[derive(Debug)]
 pub enum MuxerRx {
     /// The packet must be fetched from the connection identified by `ConnMapKey`.
@@ -67,7 +64,6 @@ pub enum MuxerRx {
 }
 
 /// An epoll listener, registered under the muxer's nested epoll FD.
-///
 enum EpollListener {
     /// The listener is a `MuxerConnection`, identified by `key`, and interested in the events
     /// in `evset`. Since `MuxerConnection` implements `VsockEpollListener`, notifications will
@@ -84,7 +80,6 @@ enum EpollListener {
 }
 
 /// The vsock connection multiplexer.
-///
 pub struct VsockMuxer {
     /// Guest CID.
     cid: u64,
@@ -122,7 +117,6 @@ impl VsockChannel for VsockMuxer {
     /// - `Ok(())`: `pkt` has been successfully filled in; or
     /// - `Err(VsockError::NoData)`: there was no available data with which to fill in the
     ///   packet.
-    ///
     fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> VsockResult<()> {
         // We'll look for instructions on how to build the RX packet in the RX queue. If the
         // queue is empty, that doesn't necessarily mean we don't have any pending RX, since
@@ -190,7 +184,6 @@ impl VsockChannel for VsockMuxer {
     /// Returns:
     /// always `Ok(())` - the packet has been consumed, and its virtio TX buffers can be
     /// returned to the guest vsock driver.
-    ///
     fn send_pkt(&mut self, pkt: &VsockPacket) -> VsockResult<()> {
         let conn_key = ConnMapKey {
             local_port: pkt.dst_port(),
@@ -253,7 +246,6 @@ impl VsockChannel for VsockMuxer {
 
     /// Check if the muxer has any pending RX data, with which to fill a guest-provided RX
     /// buffer.
-    ///
     fn has_pending_rx(&self) -> bool {
         !self.rxq.is_empty() || !self.rxq.is_synced()
     }
@@ -264,7 +256,6 @@ impl VsockEpollListener for VsockMuxer {
     /// case).
     ///
     /// This will be the muxer's nested epoll FD.
-    ///
     fn get_polled_fd(&self) -> RawFd {
         self.epoll_fd
     }
@@ -273,13 +264,11 @@ impl VsockEpollListener for VsockMuxer {
     ///
     /// Since the polled FD is a nested epoll FD, we're only interested in EPOLLIN events (i.e.
     /// some event occured on one of the FDs registered under our epoll FD).
-    ///
     fn get_polled_evset(&self) -> epoll::Events {
         epoll::Events::EPOLLIN
     }
 
     /// Notify the muxer about a pending event having occured under its nested epoll FD.
-    ///
     fn notify(&mut self, _: epoll::Events) {
         debug!("vsock: muxer received kick");
 
@@ -307,7 +296,6 @@ impl VsockBackend for VsockMuxer {}
 
 impl VsockMuxer {
     /// Muxer constructor.
-    ///
     pub fn new(cid: u64, host_sock_path: String) -> Result<Self> {
         // Create the nested epoll FD. This FD will be added to the VMM `EpollContext`, at
         // device activation time.
@@ -337,7 +325,6 @@ impl VsockMuxer {
     }
 
     /// Handle/dispatch an epoll event to its listener.
-    ///
     fn handle_event(&mut self, fd: RawFd, evset: epoll::Events) {
         debug!(
             "vsock: muxer processing event: fd={}, evset={:?}",
@@ -347,7 +334,6 @@ impl VsockMuxer {
         match self.listener_map.get_mut(&fd) {
             // This event needs to be forwarded to a `MuxerConnection` that is listening for
             // it.
-            //
             Some(EpollListener::Connection { key, evset }) => {
                 let key_copy = *key;
                 let evset_copy = *evset;
@@ -361,7 +347,6 @@ impl VsockMuxer {
             }
 
             // A new host-initiated connection is ready to be accepted.
-            //
             Some(EpollListener::HostSock) => {
                 if self.conn_map.len() == defs::MAX_CONNECTIONS {
                     // If we're already maxed-out on connections, we'll just accept and
@@ -425,7 +410,6 @@ impl VsockMuxer {
     }
 
     /// Parse a host "connect" command, and extract the destination vsock port.
-    ///
     fn read_local_stream_port(stream: &mut UnixStream) -> Result<u32> {
         let mut buf = [0u8; 32];
 
@@ -469,7 +453,6 @@ impl VsockMuxer {
     }
 
     /// Add a new connection to the active connection pool.
-    ///
     fn add_connection(&mut self, key: ConnMapKey, conn: MuxerConnection) -> Result<()> {
         // We might need to make room for this new connection, so let's sweep the kill queue
         // first.  It's fine to do this here because:
@@ -506,7 +489,6 @@ impl VsockMuxer {
     }
 
     /// Remove a connection from the active connection poll.
-    ///
     fn remove_connection(&mut self, key: ConnMapKey) {
         if let Some(conn) = self.conn_map.remove(&key) {
             self.remove_listener(conn.get_polled_fd());
@@ -517,7 +499,6 @@ impl VsockMuxer {
     /// Schedule a connection for immediate termination.
     /// I.e. as soon as we can also let our peer know we're dropping the connection, by sending
     /// it an RST packet.
-    ///
     fn kill_connection(&mut self, key: ConnMapKey) {
         let mut had_rx = false;
         self.conn_map.entry(key).and_modify(|conn| {
@@ -535,7 +516,6 @@ impl VsockMuxer {
     }
 
     /// Register a new epoll listener under the muxer's nested epoll FD.
-    ///
     fn add_listener(&mut self, fd: RawFd, listener: EpollListener) -> Result<()> {
         let evset = match listener {
             EpollListener::Connection { evset, .. } => evset,
@@ -559,7 +539,6 @@ impl VsockMuxer {
     }
 
     /// Remove (and return) a previously registered epoll listener.
-    ///
     fn remove_listener(&mut self, fd: RawFd) -> Option<EpollListener> {
         let maybe_listener = self.listener_map.remove(&fd);
 
@@ -582,8 +561,6 @@ impl VsockMuxer {
     }
 
     /// Allocate a host-side port to be assigned to a new host-initiated connection.
-    ///
-    ///
     fn allocate_local_port(&mut self) -> u32 {
         // TODO: this doesn't seem very space-efficient.
         // Mybe rewrite this to limit port range and use a bitmap?
@@ -599,7 +576,6 @@ impl VsockMuxer {
     }
 
     /// Mark a previously used host-side port as free.
-    ///
     fn free_local_port(&mut self, port: u32) {
         self.local_port_set.remove(&port);
     }
@@ -610,7 +586,6 @@ impl VsockMuxer {
     /// the file system path corresponing to the destination port. If successful, a new
     /// connection object will be created and added to the connection pool. On failure, a new
     /// RST packet will be scheduled for delivery to the guest.
-    ///
     fn handle_peer_request_pkt(&mut self, pkt: &VsockPacket) {
         let port_path = format!("{}_{}", self.host_sock_path, pkt.dst_port());
 
@@ -643,7 +618,6 @@ impl VsockMuxer {
     /// - update the connection's epoll listener;
     /// - schedule the connection to be queried for RX data;
     /// - kill the connection if an unrecoverable error occurs.
-    ///
     fn apply_conn_mutation<F>(&mut self, key: ConnMapKey, mut_fn: F)
     where
         F: FnOnce(&mut MuxerConnection),
@@ -724,7 +698,6 @@ impl VsockMuxer {
 
     /// Check if any connections have timed out, and if so, schedule them for immediate
     /// termination.
-    ///
     fn sweep_killq(&mut self) {
         while let Some(key) = self.killq.pop() {
             // Connections don't get removed from the kill queue when their kill timer is
@@ -752,7 +725,6 @@ impl VsockMuxer {
     /// Enqueue errors aren't propagated up the call chain, since there is nothing we can do to
     /// handle them. We do, however, log a warning, since not being able to enqueue an RST
     /// packet means we have to drop it, which is not normal operation.
-    ///
     fn enq_rst(&mut self, local_port: u32, peer_port: u32) {
         let pushed = self.rxq.push(MuxerRx::RstPkt {
             local_port,

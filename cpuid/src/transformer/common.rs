@@ -98,7 +98,6 @@ pub fn update_cache_parameters_entry(
 }
 
 /// Replaces the `cpuid` entries corresponding to `function` with the entries from the host's cpuid.
-///
 pub fn use_host_cpuid_function(
     cpuid: &mut CpuId,
     function: u32,

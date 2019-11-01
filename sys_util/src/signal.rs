@@ -45,7 +45,6 @@ fn SIGRTMAX() -> c_int {
 /// # Arguments
 ///
 /// * `signum`: signal number.
-///
 fn validate_vcpu_signal_num(signum: c_int) -> io::Result<c_int> {
     let actual_num = signum + SIGRTMIN();
     if actual_num <= SIGRTMAX() {
@@ -63,7 +62,6 @@ fn validate_vcpu_signal_num(signum: c_int) -> io::Result<c_int> {
 /// # Arguments
 ///
 /// * `signum`: signal number.
-///
 fn validate_signal_num(num: c_int) -> io::Result<c_int> {
     if num >= SIGHUP && num <= SIGSYS {
         Ok(num)
@@ -92,18 +90,21 @@ fn validate_signal_num(num: c_int) -> io::Result<c_int> {
 /// use sys_util::register_vcpu_signal_handler;
 ///
 /// extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {}
-/// extern "C" { fn __libc_current_sigrtmin() -> c_int; }
+/// extern "C" {
+///     fn __libc_current_sigrtmin() -> c_int;
+/// }
 ///
 /// fn main() {
 ///     // Register dummy signal handler for `SIGRTMIN`.
 ///     assert!(unsafe { register_vcpu_signal_handler(0, handle_signal).is_ok() });
 ///     // Raise `SIGRTMIN`.
-///     unsafe { raise(__libc_current_sigrtmin()); }
+///     unsafe {
+///         raise(__libc_current_sigrtmin());
+///     }
 ///     // Assert that the process is still alive.
 ///     assert!(true);
 /// }
 /// ```
-///
 pub unsafe fn register_vcpu_signal_handler(
     signum: c_int,
     handler: SignalHandler,
@@ -129,8 +130,8 @@ pub unsafe fn register_vcpu_signal_handler(
 /// extern crate libc;
 /// extern crate sys_util;
 ///
-/// use std::sync::atomic::{AtomicBool, Ordering, ATOMIC_BOOL_INIT};
 /// use libc::{c_int, c_void, raise, siginfo_t, SIGUSR1};
+/// use std::sync::atomic::{AtomicBool, Ordering, ATOMIC_BOOL_INIT};
 /// use sys_util::register_signal_handler;
 ///
 /// static HANDLER_CALLED: AtomicBool = ATOMIC_BOOL_INIT;
@@ -140,11 +141,12 @@ pub unsafe fn register_vcpu_signal_handler(
 ///
 /// fn main() {
 ///     assert!(unsafe { register_signal_handler(SIGUSR1, handle_signal).is_ok() });
-///     unsafe { raise(SIGUSR1); }
+///     unsafe {
+///         raise(SIGUSR1);
+///     }
 ///     assert!(HANDLER_CALLED.load(Ordering::SeqCst));
 /// }
 /// ```
-///
 pub fn register_signal_handler(signum: c_int, handler: SignalHandler) -> Result<(), io::Error> {
     let num = validate_signal_num(signum)?;
     // Safe, because this is a POD struct.

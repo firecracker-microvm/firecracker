@@ -53,7 +53,6 @@ impl Uri {
     ///
     /// # Errors
     /// Returns an empty byte array when the host or the path are empty/invalid.
-    ///
     pub fn get_abs_path(&self) -> &str {
         const HTTP_SCHEME_PREFIX: &str = "http://";
 
