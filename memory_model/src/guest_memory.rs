@@ -51,7 +51,9 @@ impl MemoryRegion {
 
 fn region_end(region: &MemoryRegion) -> GuestAddress {
     // unchecked_add is safe as the region bounds were checked when it was created.
-    region.guest_base.unchecked_add(region.mapping.size())
+    region
+        .guest_base
+        .unchecked_add(region.mapping.size() as u64)
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -73,7 +75,7 @@ impl GuestMemory {
             if let Some(last) = regions.last() {
                 if last
                     .guest_base
-                    .checked_add(last.mapping.size())
+                    .checked_add(last.mapping.size() as u64)
                     .map_or(true, |a| a > range.0)
                 {
                     return Err(Error::MemoryRegionOverlap);
@@ -124,7 +126,7 @@ impl GuestMemory {
 
     /// Returns the address plus the offset if it is in range.
     pub fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
-        if let Some(addr) = base.checked_add(offset) {
+        if let Some(addr) = base.checked_add(offset as u64) {
             for region in self.regions.iter() {
                 if addr >= region.guest_base && addr < region_end(region) {
                     return Some(addr);
@@ -445,7 +447,8 @@ impl GuestMemory {
             if guest_addr >= region.guest_base && guest_addr < region_end(region) {
                 // it's safe to use unchecked_offset_from because
                 // guest_addr >= region.guest_base
-                let offset = guest_addr.unchecked_offset_from(region.guest_base);
+                // it's safe to convert the result to usize since region.size() is usize
+                let offset = guest_addr.unchecked_offset_from(region.guest_base) as usize;
                 if size <= region.mapping.size() - offset {
                     return cb(&region.mapping, offset);
                 }
@@ -466,7 +469,8 @@ impl GuestMemory {
                     &region.mapping,
                     // it's safe to use unchecked_offset_from because
                     // guest_addr >= region.guest_base
-                    guest_addr.unchecked_offset_from(region.guest_base),
+                    // it's safe to convert the result to usize since region.size() is usize
+                    guest_addr.unchecked_offset_from(region.guest_base) as usize,
                 );
             }
         }
