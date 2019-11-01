@@ -200,7 +200,6 @@ impl Version {
     ///
     /// # Errors
     /// Returns a `RequestError` when the version is not supported.
-    ///
     pub fn try_from(bytes: &[u8]) -> Result<Self, RequestError> {
         match bytes {
             b"HTTP/1.0" => Ok(Version::Http10),

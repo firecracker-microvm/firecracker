@@ -260,7 +260,6 @@ impl Vm {
     }
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
-    ///
     pub fn fd(&self) -> &VmFd {
         &self.fd
     }
@@ -331,7 +330,6 @@ impl Vcpu {
     }
 
     /// Gets the MPIDR register value.
-    ///
     #[cfg(target_arch = "aarch64")]
     pub fn get_mpidr(&self) -> u64 {
         self.mpidr

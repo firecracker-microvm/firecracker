@@ -56,7 +56,7 @@
 //! ## Example for creating an HTTP Response
 //! ```
 //! extern crate micro_http;
-//! use micro_http::{Body, Response, StatusCode, Version, MediaType};
+//! use micro_http::{Body, MediaType, Response, StatusCode, Version};
 //!
 //! let mut response = Response::new(Version::Http10, StatusCode::OK);
 //! let body = String::from("This is a test");
@@ -108,7 +108,6 @@
 //!     break;
 //! }
 //! ```
-//!
 
 mod common;
 mod connection;

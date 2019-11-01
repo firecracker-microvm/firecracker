@@ -22,7 +22,6 @@
 /// - on backend event:
 ///   - forward the event to the backend; then
 ///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX buffers.
-///
 use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -62,7 +61,6 @@ where
 {
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
-    ///
     fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
         debug!("vsock: raising IRQ");
         self.interrupt_status
@@ -75,7 +73,6 @@ where
 
     /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
     /// have pending.
-    ///
     fn process_rx(&mut self) -> bool {
         debug!("vsock: epoll_handler::process_rx()");
 
@@ -108,7 +105,6 @@ where
 
     /// Walk the driver-provided TX queue buffers, package them up as vsock packets, and send them to
     /// the backend for processing.
-    ///
     fn process_tx(&mut self) -> bool {
         debug!("vsock: epoll_handler::process_tx()");
 
@@ -143,7 +139,6 @@ where
     B: VsockBackend,
 {
     /// Respond to a new event, coming from the main epoll loop (implemented by the VMM).
-    ///
     fn handle_event(
         &mut self,
         device_event: DeviceEventT,

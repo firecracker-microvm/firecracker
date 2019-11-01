@@ -26,7 +26,6 @@ const BRAND_STRING_AMD: &[u8] = b"AMD EPYC";
 ///
 /// This is achieved by bypassing the `O(n)` indexing, heap allocation, and the unicode checks
 /// done by `std::string::String`.
-///
 #[derive(Clone)]
 pub struct BrandString {
     /// Flattened buffer, holding an array of 32-bit register values.
@@ -62,7 +61,6 @@ impl BrandString {
     const MAX_LEN: usize = Self::REG_BUF_SIZE * 4 - 1;
 
     /// Creates an empty brand string (0-initialized)
-    ///
     fn new() -> Self {
         Self {
             reg_buf: [0; Self::REG_BUF_SIZE],

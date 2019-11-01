@@ -23,7 +23,6 @@
 /// - a TX queue FD;
 /// - an event queue FD; and
 /// - a backend FD.
-///
 use std::os::unix::io::AsRawFd;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;

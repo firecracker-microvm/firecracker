@@ -7,7 +7,6 @@
 /// `muxer::VsockMuxer`, a connection multiplexer that uses `super::csm::VsockConnection` for
 /// handling vsock connection states.
 /// Check out `muxer.rs` for a more detailed explanation of the inner workings of this backend.
-///
 mod muxer;
 mod muxer_killq;
 mod muxer_rxq;

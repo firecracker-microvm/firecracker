@@ -7,7 +7,6 @@
 /// [`Allow`]: enum.SeccompAction.html
 /// [`SeccompCondition`]: struct.SeccompCondition.html
 /// [`SeccompRule`]: struct.SeccompRule.html
-///
 macro_rules! and {
     ($($x:expr,)*) => (SeccompRule::new(vec![$($x),*], SeccompAction::Allow));
     ($($x:expr),*) => (SeccompRule::new(vec![$($x),*], SeccompAction::Allow))
@@ -17,7 +16,6 @@ macro_rules! and {
 ///
 /// [`SeccompFilter`]: struct.SeccompFilter.html
 /// [`SeccompRule`]: struct.SeccompRule.html
-///
 macro_rules! or {
     ($($x:expr,)*) => (vec![$($x),*]);
     ($($x:expr),*) => (vec![$($x),*])

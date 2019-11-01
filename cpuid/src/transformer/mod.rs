@@ -13,7 +13,6 @@ use brand_string::Reg as BsReg;
 use common::get_vendor_id;
 
 /// Structure containing the specifications of the VM
-///
 pub struct VmSpec {
     /// The vendor id of the CPU
     cpu_vendor_id: [u8; 12],
@@ -30,7 +29,6 @@ pub struct VmSpec {
 impl VmSpec {
     /// Creates a new instance of VmSpec with the specified parameters
     /// The brand string is deduced from the vendor_id
-    ///
     pub fn new(cpu_id: u8, cpu_count: u8, ht_enabled: bool) -> Result<VmSpec, Error> {
         let cpu_vendor_id = get_vendor_id().map_err(Error::InternalError)?;
 
@@ -44,7 +42,6 @@ impl VmSpec {
     }
 
     /// Returns an immutable reference to cpu_vendor_id
-    ///
     pub fn cpu_vendor_id(&self) -> &[u8; 12] {
         &self.cpu_vendor_id
     }
@@ -65,17 +62,14 @@ pub type EntryTransformerFn =
     fn(entry: &mut kvm_cpuid_entry2, vm_spec: &VmSpec) -> Result<(), Error>;
 
 /// Generic trait that provides methods for transforming the cpuid
-///
 pub trait CpuidTransformer {
     /// Trait main function. It processes the cpuid and makes the desired transformations.
     /// The default logic can be overwritten if needed. For example see `AmdCpuidTransformer`.
-    ///
     fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
         self.process_entries(cpuid, vm_spec)
     }
 
     /// Iterates through all the cpuid entries and calls the associated transformer for each one.
-    ///
     fn process_entries(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
         for entry in cpuid.as_mut_slice().iter_mut() {
             let maybe_transformer_fn = self.entry_transformer_fn(entry);
@@ -89,7 +83,6 @@ pub trait CpuidTransformer {
     }
 
     /// Gets the associated transformer for a cpuid entry
-    ///
     fn entry_transformer_fn(&self, _entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
         None
     }

@@ -42,8 +42,8 @@
 //! extern crate libc;
 //! extern crate tempfile;
 //!
-//! use std::io::Cursor;
 //! use libc::c_char;
+//! use std::io::Cursor;
 //!
 //! #[macro_use]
 //! extern crate logger;
@@ -54,11 +54,13 @@
 //!     let mut metrics = Cursor::new(vec![0; 15]);
 //!
 //!     // Initialize the logger to log to a FIFO that was created beforehand.
-//!     assert!(LOGGER.init(
-//!                 &AppInfo::new("Firecracker", "1.0"),
-//!                 Box::new(logs),
-//!                 Box::new(metrics),
-//!             ).is_ok());
+//!     assert!(LOGGER
+//!         .init(
+//!             &AppInfo::new("Firecracker", "1.0"),
+//!             Box::new(logs),
+//!             Box::new(metrics),
+//!         )
+//!         .is_ok());
 //!     // The following messages should appear in the in-memory buffer `logs`.
 //!     warn!("this is a warning");
 //!     error!("this is an error");
@@ -152,7 +154,6 @@ use log::{set_logger, set_max_level, Log, Metadata, Record};
 pub use metrics::{Metric, METRICS};
 
 /// Type for returning functions outcome.
-///
 pub type Result<T> = result::Result<T, LoggerError>;
 
 // Values used by the Logger.
@@ -182,7 +183,6 @@ lazy_static! {
 }
 
 /// Enum representing logging options that can be activated from the API.
-///
 #[repr(usize)]
 pub enum LogOption {
     /// Enable KVM dirty page tracking and a metric that counts dirty pages.
@@ -221,7 +221,6 @@ impl AppInfo {
 }
 
 /// Logger representing the logging subsystem.
-///
 // All member fields have types which are Sync, and exhibit interior mutability, so
 // we can call logging operations using a non-mut static global variable.
 pub struct Logger {
@@ -410,7 +409,6 @@ impl Logger {
 
     /// Creates the first portion (to the left of the separator)
     /// of the log statement based on the logger settings.
-    ///
     fn create_prefix(&self, record: &Record) -> String {
         let mut res = String::from(" [");
 
@@ -461,7 +459,6 @@ impl Logger {
 
     /// Try to change the state of the logger.
     /// This method will succeed only if the logger is UNINITIALIZED.
-    ///
     fn try_lock(&self, locked_state: usize) -> Result<()> {
         match STATE.compare_and_swap(UNINITIALIZED, locked_state, Ordering::SeqCst) {
             PREINITIALIZING => {
@@ -504,7 +501,10 @@ impl Logger {
     /// use std::ops::Deref;
     ///
     /// fn main() {
-    ///     LOGGER.deref().preinit(Some("MY-INSTANCE".to_string())).unwrap();
+    ///     LOGGER
+    ///         .deref()
+    ///         .preinit(Some("MY-INSTANCE".to_string()))
+    ///         .unwrap();
     /// }
     /// ```
     pub fn preinit(&self, instance_id: Option<String>) -> Result<()> {
@@ -541,8 +541,8 @@ impl Logger {
     /// use std::io::Cursor;
     ///
     /// fn main() {
-    /// let mut logs = Cursor::new(vec![0; 15]);
-    /// let mut metrics = Cursor::new(vec![0; 15]);
+    ///     let mut logs = Cursor::new(vec![0; 15]);
+    ///     let mut metrics = Cursor::new(vec![0; 15]);
     ///
     ///     LOGGER.init(
     ///         &AppInfo::new("Firecracker", "1.0"),
@@ -633,7 +633,6 @@ impl Logger {
 }
 
 /// Implements the "Log" trait from the externally used "log" crate.
-///
 impl Log for Logger {
     // Test whether the level of the log line should be outputted or not based on the currently
     // configured level. If the configured level is "warning" but the line is logged through "info!"

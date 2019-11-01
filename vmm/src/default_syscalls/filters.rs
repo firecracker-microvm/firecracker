@@ -8,7 +8,6 @@ use seccomp::{
 
 /// The default filter containing the white listed syscall rules required by `Firecracker` to
 /// function.
-///
 pub fn default_filter() -> Result<SeccompFilter, Error> {
     Ok(SeccompFilter::new(
         vec![

@@ -114,7 +114,6 @@ fn log_received_api_request(api_description: String) {
 /// * `method` - one of `GET`, `PATCH`, `PUT`
 /// * `path` - path of the API request
 /// * `body` - body of the API request
-///
 fn describe(method: Method, path: &str, body: Option<&Body>) -> String {
     match (path, body) {
         ("/mmds", Some(_)) | (_, None) => format!("synchronous {:?} request on {:?}", method, path),

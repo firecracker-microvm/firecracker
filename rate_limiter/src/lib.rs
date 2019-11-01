@@ -43,7 +43,6 @@
 //! It is meant to be used in an external event loop and thus implements the `AsRawFd`
 //! trait and provides an *event-handler* as part of its API. This *event-handler*
 //! needs to be called by the user on every event on the rate limiter's `AsRawFd` FD.
-//!
 
 extern crate timerfd;
 

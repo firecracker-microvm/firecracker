@@ -13,7 +13,6 @@ mod filters;
 pub use self::filters::default_filter;
 
 /// Applies the configured level of seccomp filtering to the current thread.
-///
 pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
     // Load seccomp filters before executing guest code.
     // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters

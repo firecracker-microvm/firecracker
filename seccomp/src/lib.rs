@@ -182,8 +182,15 @@
 //!             libc::SYS_write,
 //!             vec![SeccompRule::new(
 //!                 vec![
-//!                     SeccompCondition::new(0, SeccompCmpArgLen::DWORD, SeccompCmpOp::Eq, libc::STDOUT_FILENO as u64).unwrap(),
-//!                     SeccompCondition::new(2, SeccompCmpArgLen::QWORD, SeccompCmpOp::Eq, 13).unwrap(),
+//!                     SeccompCondition::new(
+//!                         0,
+//!                         SeccompCmpArgLen::DWORD,
+//!                         SeccompCmpOp::Eq,
+//!                         libc::STDOUT_FILENO as u64,
+//!                     )
+//!                     .unwrap(),
+//!                     SeccompCondition::new(2, SeccompCmpArgLen::QWORD, SeccompCmpOp::Eq, 13)
+//!                         .unwrap(),
 //!                 ],
 //!                 SeccompAction::Allow,
 //!             )],
@@ -232,7 +239,6 @@
 //! [`SeccompAction`]: enum.SeccompAction.html
 //! [`SeccompFilter`]: struct.SeccompFilter.html
 //! [`action`]: struct.SeccompRule.html#action
-//!
 
 extern crate libc;
 
@@ -430,11 +436,9 @@ pub struct SeccompRule {
 }
 
 /// Type that encapsulates a tuple (syscall number, rule set).
-///
 pub type SyscallRuleSet = (i64, Vec<SeccompRule>);
 
 /// Builds the (syscall, rules) tuple for allowing a syscall regardless of arguments.
-///
 #[inline(always)]
 pub fn allow_syscall(syscall_number: i64) -> SyscallRuleSet {
     (
@@ -444,14 +448,12 @@ pub fn allow_syscall(syscall_number: i64) -> SyscallRuleSet {
 }
 
 /// Builds the (syscall, rules) tuple for allowing a syscall with certain arguments.
-///
 #[inline(always)]
 pub fn allow_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> SyscallRuleSet {
     (syscall_number, rules)
 }
 
 /// Filter containing rules assigned to syscall numbers.
-///
 pub struct SeccompFilter {
     /// Map of syscall numbers and corresponding rule chains.
     rules: BTreeMap<i64, Vec<SeccompRule>>,
@@ -488,7 +490,6 @@ impl SeccompCondition {
     /// * `value` - The value against which the argument will be compared with `operator`.
     ///
     /// [`SeccompCondition`]: struct.SeccompCondition.html
-    ///
     pub fn new(
         arg_number: u8,
         arg_len: SeccompCmpArgLen,
@@ -516,7 +517,6 @@ impl SeccompCondition {
     /// the BPF program by the kernel.
     ///
     /// [`SeccompCondition`]: struct.SeccompCondition.html
-    ///
     fn value_segments(&self) -> (u32, u32, u8, u8) {
         // Splits the specified value into its most significant and least significant halves.
         let (msb, lsb) = ((self.value >> 32) as u32, self.value as u32);
@@ -553,7 +553,6 @@ impl SeccompCondition {
     ///
     /// The most significant and least significant halves of the argument value are compared
     /// separately since the BPF operand and accumulator are 4 bytes whereas an argument value is 8.
-    ///
     fn into_eq_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -577,7 +576,6 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
-    ///
     fn into_ge_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -602,7 +600,6 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
-    ///
     fn into_gt_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -627,7 +624,6 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
-    ///
     fn into_le_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -652,7 +648,6 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
-    ///
     fn into_lt_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -680,7 +675,6 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
-    ///
     fn into_masked_eq_bpf(self, offset: u8, mask: u64) -> Vec<sock_filter> {
         let (_, _, msb_offset, lsb_offset) = self.value_segments();
         let masked_value = self.value & mask;
@@ -709,7 +703,6 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `offset` - The given jump offset to the start of the next rule.
-    ///
     fn into_ne_bpf(self, offset: u8) -> Vec<sock_filter> {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
@@ -735,7 +728,6 @@ impl SeccompCondition {
     /// * `offset` - The given jump offset to the start of the next rule.
     ///
     /// [`SeccompCondition`]: struct.SeccompCondition.html
-    ///
     fn into_bpf(self, offset: u8) -> Vec<sock_filter> {
         let result = match self.operator {
             SeccompCmpOp::Eq => self.into_eq_bpf(offset),
@@ -762,7 +754,6 @@ impl From<SeccompAction> for u32 {
     /// * `action` - The [`SeccompAction`] that the kernel will take.
     ///
     /// [`SeccompAction`]: struct.SeccompAction.html
-    ///
     fn from(action: SeccompAction) -> Self {
         match action {
             SeccompAction::Allow => SECCOMP_RET_ALLOW,
@@ -785,7 +776,6 @@ impl SeccompRule {
     ///
     /// [`SeccompCondition`]: struct.SeccompCondition.html
     /// [`SeccompAction`]: struct.SeccompAction.html
-    ///
     pub fn new(conditions: Vec<SeccompCondition>, action: SeccompAction) -> Self {
         Self { conditions, action }
     }
@@ -797,7 +787,6 @@ impl SeccompRule {
     /// * The second jump points to the end of the rule chain for one syscall, into the rule chain
     ///   for the next syscall or the default action if the current syscall is the last one. It
     ///   essentially jumps out of the current rule chain.
-    ///
     fn into_bpf(self) -> Vec<sock_filter> {
         // Rule is built backwards, last statement is the action of the rule.
         // The offset to the next rule is 1.
@@ -843,7 +832,6 @@ impl SeccompRule {
     /// * `accumulator` - Accumulator of BPF statements that compose the BPF program.
     /// * `rule_len` - Number of conditions in the rule.
     /// * `offset` - Offset (in number of BPF statements) to the next rule.
-    ///
     fn append_condition(
         condition: SeccompCondition,
         accumulator: &mut Vec<Vec<sock_filter>>,
@@ -887,7 +875,6 @@ impl SeccompFilter {
     ///
     /// * `rules` - Map of syscall numbers and the rules that will be applied to each of them.
     /// * `default_action` - Action taken for all syscalls that do not match any rule.
-    ///
     pub fn new(
         rules: BTreeMap<i64, Vec<SeccompRule>>,
         default_action: SeccompAction,
@@ -911,7 +898,6 @@ impl SeccompFilter {
     ///
     /// * `syscall_number` - Syscall identifier.
     /// * `rules` - Rules to be applied to the syscall.
-    ///
     pub fn add_rules(&mut self, syscall_number: i64, mut rules: Vec<SeccompRule>) -> Result<()> {
         // All inserted syscalls must have at least one rule, otherwise BPF code will break.
         if rules.is_empty() {
@@ -931,7 +917,6 @@ impl SeccompFilter {
     /// # Arguments
     ///
     /// * `level` - Filtering level.
-    ///
     pub fn apply(self) -> Result<()> {
         let mut bpf_filter = Vec::new();
         bpf_filter.extend(VALIDATE_ARCHITECTURE());
@@ -966,7 +951,6 @@ impl SeccompFilter {
     }
 
     /// Translates filter into BPF instructions.
-    ///
     fn into_bpf(self) -> Result<Vec<sock_filter>> {
         // The called syscall number is loaded.
         let mut accumulator = Vec::with_capacity(1);
@@ -1012,7 +996,6 @@ impl SeccompFilter {
     /// * `accumulator` - The expanding BPF program.
     /// * `filter_len` - The size (in number of BPF statements) of the BPF program. This is
     ///                  limited to 4096. If the limit is exceeded, the filter is invalidated.
-    ///
     fn append_syscall_chain(
         syscall_number: i64,
         chain: Vec<SeccompRule>,
@@ -1056,7 +1039,6 @@ impl SeccompFilter {
     }
 
     /// Replaces the seccomp rules so as to allow every syscall contained in the rule set.
-    ///
     pub fn allow_all(mut self) -> SeccompFilter {
         // Pre-collect the keys to avoid the double borrow.
         let syscalls: Vec<i64> = self.rules.keys().cloned().collect();
@@ -1078,7 +1060,6 @@ impl SeccompFilter {
 /// * `jt` - The jump offset in case the operation returns `true`.
 /// * `jf` - The jump offset in case the operation returns `false`.
 /// * `k` - The operand.
-///
 #[allow(non_snake_case)]
 #[inline(always)]
 fn BPF_JUMP(code: u16, k: u32, jt: u8, jf: u8) -> sock_filter {
@@ -1091,7 +1072,6 @@ fn BPF_JUMP(code: u16, k: u32, jt: u8, jf: u8) -> sock_filter {
 ///
 /// * `code` - The operation code.
 /// * `k` - The operand.
-///
 #[allow(non_snake_case)]
 #[inline(always)]
 fn BPF_STMT(code: u16, k: u32) -> sock_filter {
@@ -1104,7 +1084,6 @@ fn BPF_STMT(code: u16, k: u32) -> sock_filter {
 }
 
 /// Builds a sequence of BPF instructions that validate the underlying architecture.
-///
 #[allow(non_snake_case)]
 #[inline(always)]
 fn VALIDATE_ARCHITECTURE() -> Vec<sock_filter> {
@@ -1119,7 +1098,6 @@ fn VALIDATE_ARCHITECTURE() -> Vec<sock_filter> {
 }
 
 /// Builds a sequence of BPF instructions that are followed by syscall examination.
-///
 #[allow(non_snake_case)]
 #[inline(always)]
 fn EXAMINE_SYSCALL() -> Vec<sock_filter> {

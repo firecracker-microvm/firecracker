@@ -64,11 +64,9 @@ pub trait BitRangeExt<T> {
     fn get_mask(&self) -> T;
 
     /// Checks if the current BitRange is valid for type `T`.
-    ///
     fn is_valid(&self) -> bool;
 
     /// Asserts if `self.is_valid()` returns true.
-    ///
     fn check(&self) {
         assert!(self.is_valid(), "Invalid BitRange");
     }
@@ -98,14 +96,11 @@ macro_rules! bit_range {
 }
 
 /// Trait containing helper methods for bit operations.
-///
 pub trait BitHelper {
     /// Reads the value of the bit at position `pos`
-    ///
     fn read_bit(&self, pos: u32) -> bool;
 
     /// Changes the value of the bit at position `pos` to `val`
-    ///
     fn write_bit(&mut self, pos: u32, val: bool) -> &mut Self;
 
     /// Reads the value stored within the specified range of bits

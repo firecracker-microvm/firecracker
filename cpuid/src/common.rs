@@ -56,7 +56,6 @@ pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
 }
 
 /// Extracts the CPU vendor id from leaf 0x0.
-///
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn get_vendor_id() -> Result<[u8; 12], Error> {
     match get_cpuid(0, 0) {
