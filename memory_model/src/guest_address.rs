@@ -72,10 +72,10 @@ pub trait Address:
 
 /// Represents an Address in the guest's memory.
 #[derive(Clone, Copy, Debug)]
-pub struct GuestAddress(pub usize);
+pub struct GuestAddress(pub u64);
 
 impl AddressValue for GuestAddress {
-    type V = usize;
+    type V = u64;
 }
 
 impl Address for GuestAddress {
