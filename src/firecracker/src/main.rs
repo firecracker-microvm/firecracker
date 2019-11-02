@@ -31,9 +31,10 @@ use mmds::MMDS;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
+use vmm::controller::VmmController;
 use vmm::signal_handler::register_signal_handlers;
-use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
-use vmm::{EventLoopExitReason, Vmm};
+use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::EventLoopExitReason;
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
@@ -174,8 +175,8 @@ fn main() {
     let no_api = cmd_arguments.is_present("no-api");
 
     let api_shared_info = Arc::new(RwLock::new(InstanceInfo {
-        state: InstanceState::Uninitialized,
         id: instance_id,
+        started: false,
         vmm_version: crate_version!().to_string(),
     }));
 
@@ -258,8 +259,8 @@ fn start_vmm(
     config_json: Option<String>,
 ) {
     // If this fails, consider it fatal. Use expect().
-    let mut vmm =
-        Vmm::new(api_shared_info, &api_event_fd, seccomp_level).expect("Cannot create VMM");
+    let mut vmm = VmmController::new(api_shared_info, &api_event_fd, seccomp_level)
+        .expect("Cannot create VMM");
 
     if let Some(json) = config_json {
         vmm.configure_from_json(json).unwrap_or_else(|err| {
@@ -308,7 +309,7 @@ fn start_vmm(
 /// Receives and runs the Vmm action and sends back a response.
 /// Provides program exit codes on errors.
 fn vmm_control_event(
-    vmm: &mut Vmm,
+    vmm: &mut VmmController,
     api_event_fd: &EventFd,
     from_api: &Receiver<VmmRequest>,
     to_api: &Sender<VmmResponse>,
