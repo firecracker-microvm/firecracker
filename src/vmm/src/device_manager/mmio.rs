@@ -13,9 +13,8 @@ use std::{fmt, io};
 use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
 use devices;
-use devices::virtio::TYPE_BLOCK;
 use devices::{BusDevice, RawIOHandler};
-use kernel_cmdline;
+use kernel::cmdline as kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
 #[cfg(target_arch = "aarch64")]
 use utils::eventfd::EventFd;
@@ -72,11 +71,12 @@ const MMIO_LEN: u64 = 0x1000;
 
 /// This represents the offset at which the device should call BusDevice::write in order to write
 /// to its configuration space.
-const MMIO_CFG_SPACE_OFF: u64 = 0x100;
+pub const MMIO_CFG_SPACE_OFF: u64 = 0x100;
 
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
     pub bus: devices::Bus,
+    #[allow(unused)]
     guest_mem: GuestMemoryMmap,
     mmio_base: u64,
     irq: u32,
@@ -106,11 +106,11 @@ impl MMIODeviceManager {
         }
     }
 
-    /// Register a virtio device to be used via MMIO transport.
-    pub fn register_virtio_device(
+    /// Register am already created MMIO device to be used via MMIO transport.
+    pub fn register_mmio_device(
         &mut self,
         vm: &VmFd,
-        device: Box<dyn devices::virtio::VirtioDevice>,
+        mmio_device: devices::virtio::MmioDevice,
         cmdline: &mut kernel_cmdline::Cmdline,
         type_id: u32,
         device_id: &str,
@@ -118,8 +118,7 @@ impl MMIODeviceManager {
         if self.irq > self.last_irq {
             return Err(Error::IrqsExhausted);
         }
-        let mmio_device = devices::virtio::MmioDevice::new(self.guest_mem.clone(), device)
-            .map_err(Error::CreateMmioDevice)?;
+
         for (i, queue_evt) in mmio_device.queue_evts().iter().enumerate() {
             let io_addr = IoEventAddress::Mmio(
                 self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
@@ -286,22 +285,6 @@ impl MMIODeviceManager {
         self.raw_io_handlers
             .get(&(device_type, device_type.to_string()))
     }
-
-    /// Update a drive by rebuilding its config space and rewriting it on the bus.
-    pub fn update_drive(&self, device_id: &str, new_size: u64) -> Result<()> {
-        match self.get_device(DeviceType::Virtio(TYPE_BLOCK), device_id) {
-            Some(device) => {
-                let data = devices::virtio::build_config_space(new_size);
-                let mut busdev = device.lock().map_err(|_| Error::UpdateFailed)?;
-
-                busdev.write(MMIO_CFG_SPACE_OFF, &data[..]);
-                busdev.interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG);
-
-                Ok(())
-            }
-            None => Err(Error::DeviceNotFound),
-        }
-    }
 }
 
 /// Private structure for storing information about the MMIO device registered at some address on the bus.
@@ -327,27 +310,46 @@ impl DeviceInfoForFDT for MMIODeviceInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::vmm_config::instance_info::{InstanceInfo, InstanceState};
     use super::super::super::Vmm;
+    use super::kernel_cmdline;
     use super::*;
     use arch;
     use devices::virtio::{ActivateResult, VirtioDevice, TYPE_BLOCK};
-    use kernel_cmdline;
     use std::sync::atomic::AtomicUsize;
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
     use utils::errno;
     use utils::eventfd::EventFd;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
     const QUEUE_SIZES: &[u16] = &[64];
 
     impl MMIODeviceManager {
-        // Removing the address of a device will generate an error when you try to update the
-        // drive. The purpose of this method is to test error scenarios and should otherwise
-        // not be used.
-        pub fn remove_device_info(&mut self, type_id: u32, id: &str) {
-            self.id_to_dev_info
-                .remove(&(DeviceType::Virtio(type_id), id.to_string()))
-                .unwrap();
+        fn register_virtio_device(
+            &mut self,
+            vm: &VmFd,
+            device: Box<dyn devices::virtio::VirtioDevice>,
+            cmdline: &mut kernel_cmdline::Cmdline,
+            type_id: u32,
+            device_id: &str,
+        ) -> Result<u64> {
+            let mmio_device = devices::virtio::MmioDevice::new(self.guest_mem.clone(), device)
+                .map_err(Error::CreateMmioDevice)?;
+
+            self.register_mmio_device(vm, mmio_device, cmdline, type_id, device_id)
+        }
+
+        fn update_drive(&self, device_id: &str, new_size: u64) -> Result<()> {
+            match self.get_device(DeviceType::Virtio(TYPE_BLOCK), device_id) {
+                Some(device) => {
+                    let data = devices::virtio::build_config_space(new_size);
+                    let mut busdev = device.lock().map_err(|_| Error::UpdateFailed)?;
+
+                    busdev.write(MMIO_CFG_SPACE_OFF, &data[..]);
+                    busdev.interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG);
+
+                    Ok(())
+                }
+                None => Err(Error::DeviceNotFound),
+            }
         }
     }
 
@@ -408,17 +410,8 @@ mod tests {
     impl devices::RawIOHandler for DummyDevice {}
 
     fn create_vmm_object() -> Vmm {
-        let shared_info = Arc::new(RwLock::new(InstanceInfo {
-            state: InstanceState::Uninitialized,
-            id: "TEST_ID".to_string(),
-            vmm_version: "1.0".to_string(),
-        }));
-
-        Vmm::new(
-            shared_info,
-            &EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD"),
-        )
-        .expect("Cannot Create VMM")
+        Vmm::new(&EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD"))
+            .expect("Cannot Create VMM")
     }
 
     #[test]

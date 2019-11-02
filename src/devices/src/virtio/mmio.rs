@@ -170,7 +170,12 @@ impl MmioDevice {
         })
     }
 
-    // Gets the encapsulated VirtioDevice
+    // Gets the encapsulated VirtioDevice.
+    pub fn device(&self) -> &dyn VirtioDevice {
+        &*self.device
+    }
+
+    // Gets a mutable handle to the encapsulated VirtioDevice.
     pub fn device_mut(&mut self) -> &mut dyn VirtioDevice {
         &mut *self.device
     }
