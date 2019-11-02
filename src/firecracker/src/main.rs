@@ -31,10 +31,11 @@ use utils::arg_parser::{ArgParser, Argument};
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
+use vmm::controller::VmmController;
 use vmm::default_syscalls::get_seccomp_filter;
 use vmm::signal_handler::register_signal_handlers;
-use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
-use vmm::{EventLoopExitReason, Vmm};
+use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::EventLoopExitReason;
 
 // The reason we place default API socket under /run is that API socket is a
 // runtime file.
@@ -186,8 +187,8 @@ fn main() {
     let no_api = arguments.value_as_bool("no-api").unwrap_or(false);
 
     let api_shared_info = Arc::new(RwLock::new(InstanceInfo {
-        state: InstanceState::Uninitialized,
-        id: instance_id.clone(),
+        id: instance_id,
+        started: false,
         vmm_version: FIRECRACKER_VERSION.to_string(),
     }));
 
@@ -269,10 +270,10 @@ fn start_vmm(
     seccomp_filter: BpfProgram,
     config_json: Option<String>,
 ) {
-    // If this fails, consider it fatal. Use expect().
-    let mut vmm = Vmm::new(api_shared_info, &api_event_fd).expect("Cannot create VMM");
     let vmm_seccomp_filter = seccomp_filter.clone();
     let vcpu_seccomp_filter = seccomp_filter.clone();
+    // If this fails, consider it fatal. Use expect().
+    let mut vmm = VmmController::new(api_shared_info, &api_event_fd).expect("Cannot create VMM");
 
     if let Some(json) = config_json {
         vmm.configure_from_json(json).unwrap_or_else(|err| {
@@ -327,7 +328,7 @@ fn start_vmm(
 /// Receives and runs the Vmm action and sends back a response.
 /// Provides program exit codes on errors.
 fn vmm_control_event(
-    vmm: &mut Vmm,
+    vmm: &mut VmmController,
     api_event_fd: &EventFd,
     from_api: &Receiver<VmmRequest>,
     to_api: &Sender<VmmResponse>,

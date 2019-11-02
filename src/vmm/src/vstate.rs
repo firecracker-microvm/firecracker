@@ -14,7 +14,10 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
 
 use super::TimestampUs;
+#[cfg(target_arch = "x86_64")]
+use super::VcpuConfig;
 use super::{FC_EXIT_CODE_GENERIC_ERROR, FC_EXIT_CODE_OK};
+use arch;
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "x86_64")]
@@ -38,7 +41,7 @@ use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
 };
 #[cfg(target_arch = "x86_64")]
-use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
+use vmm_config::machine_config::CpuFeaturesTemplate;
 
 #[cfg(target_arch = "x86_64")]
 const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x03f0;
@@ -662,18 +665,12 @@ impl Vcpu {
     /// * `kernel_start_addr` - Offset from `guest_mem` at which the kernel starts.
     pub fn configure_x86_64(
         &mut self,
-        machine_config: &VmConfig,
         guest_mem: &GuestMemoryMmap,
         kernel_start_addr: GuestAddress,
+        vcpu_config: &VcpuConfig,
     ) -> Result<()> {
-        let cpuid_vm_spec = VmSpec::new(
-            self.id,
-            machine_config
-                .vcpu_count
-                .ok_or(Error::VcpuCountNotInitialized)?,
-            machine_config.ht_enabled.ok_or(Error::HTNotInitialized)?,
-        )
-        .map_err(Error::CpuId)?;
+        let cpuid_vm_spec = VmSpec::new(self.id, vcpu_config.vcpu_count, vcpu_config.ht_enabled)
+            .map_err(Error::CpuId)?;
 
         filter_cpuid(&mut self.cpuid, &cpuid_vm_spec).map_err(|e| {
             METRICS.vcpu.filter_cpuid.inc();
@@ -681,7 +678,7 @@ impl Vcpu {
             Error::CpuId(e)
         })?;
 
-        if let Some(template) = machine_config.cpu_template {
+        if let Some(template) = vcpu_config.cpu_template {
             match template {
                 CpuFeaturesTemplate::T2 => {
                     t2::set_cpuid_entries(&mut self.cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
@@ -1195,6 +1192,7 @@ mod tests {
     use super::*;
 
     use utils::signal::validate_signal_num;
+    use vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
 
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu(mem_size: usize) -> (Vm, Vcpu) {
@@ -1321,24 +1319,28 @@ mod tests {
     fn test_configure_vcpu() {
         let (vm, mut vcpu) = setup_vcpu(0x10000);
 
-        let vm_config = VmConfig::default();
+        let mut vcpu_config = VcpuConfig {
+            vcpu_count: 1,
+            ht_enabled: false,
+            cpu_template: None,
+        };
+
         let vm_mem = vm.memory().unwrap();
+
         assert!(vcpu
-            .configure_x86_64(&vm_config, vm_mem, GuestAddress(0))
+            .configure_x86_64(vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
 
         // Test configure while using the T2 template.
-        let mut vm_config = VmConfig::default();
-        vm_config.cpu_template = Some(CpuFeaturesTemplate::T2);
+        vcpu_config.cpu_template = Some(CpuFeaturesTemplate::T2);
         assert!(vcpu
-            .configure_x86_64(&vm_config, vm_mem, GuestAddress(0))
+            .configure_x86_64(vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
 
         // Test configure while using the C3 template.
-        let mut vm_config = VmConfig::default();
-        vm_config.cpu_template = Some(CpuFeaturesTemplate::C3);
+        vcpu_config.cpu_template = Some(CpuFeaturesTemplate::C3);
         assert!(vcpu
-            .configure_x86_64(&vm_config, vm_mem, GuestAddress(0))
+            .configure_x86_64(vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
     }
 
@@ -1490,9 +1492,7 @@ mod tests {
 
         let mut kernel_file = File::open(kernel_path).expect("Cannot open kernel file");
         let mut cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-        assert!(cmdline
-            .insert_str(super::super::DEFAULT_KERNEL_CMDLINE)
-            .is_ok());
+        assert!(cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).is_ok());
         let cmdline_addr = GuestAddress(arch::x86_64::layout::CMDLINE_START);
 
         let entry_addr = kernel::loader::load_kernel(
@@ -1554,9 +1554,13 @@ mod tests {
         // Needs a kernel since we'll actually run this vcpu.
         let entry_addr = load_good_kernel(&vm);
 
-        let vm_config = VmConfig::default();
+        let vcpu_config = VcpuConfig {
+            vcpu_count: 1,
+            ht_enabled: false,
+            cpu_template: None,
+        };
         let vm_mem = vm.memory().unwrap();
-        vcpu.configure_x86_64(&vm_config, vm_mem, entry_addr)
+        vcpu.configure_x86_64(vm_mem, entry_addr, &vcpu_config)
             .expect("failed to configure vcpu");
 
         let seccomp_filter = seccomp::SeccompFilter::empty().try_into().unwrap();

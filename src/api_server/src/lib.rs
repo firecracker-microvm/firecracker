@@ -337,7 +337,7 @@ mod tests {
     use super::*;
     use micro_http::HttpConnection;
     use mmds::MMDS;
-    use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
+    use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::{ErrorKind, StartMicrovmError, VmmActionError};
 
     #[test]
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn test_serve_vmm_action_request() {
         let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
-            state: InstanceState::Uninitialized,
+            started: false,
             id: "test_serve_action_req".to_string(),
             vmm_version: "version 0.1.0".to_string(),
         }));
@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn test_get_instance_info() {
         let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
-            state: InstanceState::Uninitialized,
+            started: false,
             id: "test_get_instance_info".to_string(),
             vmm_version: "version 0.1.0".to_string(),
         }));
@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn test_get_mmds() {
         let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
-            state: InstanceState::Uninitialized,
+            started: false,
             id: "test_get_mmds".to_string(),
             vmm_version: "version 0.1.0".to_string(),
         }));
@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn test_put_mmds() {
         let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
-            state: InstanceState::Uninitialized,
+            started: false,
             id: "test_put_mmds".to_string(),
             vmm_version: "version 0.1.0".to_string(),
         }));
@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn test_patch_mmds() {
         let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
-            state: InstanceState::Uninitialized,
+            started: false,
             id: "test_patch_mmds".to_string(),
             vmm_version: "version 0.1.0".to_string(),
         }));
@@ -516,7 +516,7 @@ mod tests {
     #[test]
     fn test_handle_request() {
         let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
-            state: InstanceState::Uninitialized,
+            started: false,
             id: "test_handle_request".to_string(),
             vmm_version: "version 0.1.0".to_string(),
         }));
@@ -618,7 +618,7 @@ mod tests {
         let path_to_socket = "/tmp/api_server_test_socket.sock";
         fs::remove_file(path_to_socket).unwrap_or_default();
         let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
-            state: InstanceState::Uninitialized,
+            started: false,
             id: "test_handle_request".to_string(),
             vmm_version: "version 0.1.0".to_string(),
         }));
