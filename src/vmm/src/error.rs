@@ -99,6 +99,10 @@ pub enum StartMicrovmError {
     EventFd,
     /// Memory regions are overlapping or mmap fails.
     GuestMemory(GuestMemoryError),
+    // Temporarily added for mixing calls that may return an Error with others that may return a
+    // StartMicrovmError within the same function.
+    /// Internal error encountered while starting a microVM.
+    Internal(Error),
     /// The kernel command line is invalid.
     KernelCmdline(String),
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
@@ -189,6 +193,7 @@ impl Display for StartMicrovmError {
                 err_msg = err_msg.replace("\"", "");
                 write!(f, "Invalid Memory Configuration: {}", err_msg)
             }
+            Internal(ref err) => write!(f, "Internal error while starting microVM: {:?}", err),
             KernelCmdline(ref err) => write!(f, "Invalid kernel command line: {}", err),
             KernelLoader(ref err) => {
                 let mut err_msg = format!("{}", err);
@@ -424,6 +429,7 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             | DeviceManager
             | EventFd
             | GuestMemory(_)
+            | Internal(_)
             | RegisterBlockDevice(_)
             | RegisterEvent
             | RegisterMMIODevice(_)
