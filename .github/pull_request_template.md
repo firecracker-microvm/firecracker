@@ -29,3 +29,5 @@ the terms of the Apache 2.0 license.
       reflected in `firecracker/swagger.yaml`.
 - [ ] Either the changes in this PR have no user impact, or, the changes in
       this PR have user impact and have been added to the `CHANGELOG.md` file.
+- [ ] Either no new `unsafe` code has been added, or, the newly added `unsafe`
+      code is unavoidable and properly documented.
