@@ -4,6 +4,7 @@
 
 import os
 import shutil
+import stat
 
 from subprocess import run, PIPE
 
@@ -119,10 +120,11 @@ class JailerContext:
         return os.path.join(self.chroot_base_with_id(), 'root')
 
     def jailed_path(self, file_path, create=False, create_jail=False):
-        """Create a hard link owned by uid:gid.
+        """Create a hard link or block special device owned by uid:gid.
 
-        Create a hard link to the specified file, changes the owner to
-        uid:gid, and returns a path to the link which is valid within the jail.
+        Create a hard link or block special device from the specified file,
+        changes the owner to uid:gid, and returns a path to the file which is
+        valid within the jail.
         """
         file_name = os.path.basename(file_path)
         global_p = os.path.join(self.chroot_path(), file_name)
@@ -130,8 +132,17 @@ class JailerContext:
             os.makedirs(self.chroot_path(), exist_ok=True)
         jailed_p = os.path.join("/", file_name)
         if create:
-            cmd = 'ln -f {} {}'.format(file_path, global_p)
-            run(cmd, shell=True, check=True)
+            stat_result = os.stat(file_path)
+            if stat.S_ISBLK(stat_result.st_mode):
+                cmd = [
+                    'mknod', global_p, 'b',
+                    str(os.major(stat_result.st_rdev)),
+                    str(os.minor(stat_result.st_rdev))
+                ]
+                run(cmd, check=True)
+            else:
+                cmd = 'ln -f {} {}'.format(file_path, global_p)
+                run(cmd, shell=True, check=True)
             cmd = 'chown {}:{} {}'.format(self.uid, self.gid, global_p)
             run(cmd, shell=True, check=True)
         return jailed_p
