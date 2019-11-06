@@ -45,8 +45,9 @@ pub mod vmm_config;
 mod vstate;
 
 use std::collections::HashMap;
-use std::fs::{metadata, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io;
+use std::io::{Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::process;
@@ -1523,9 +1524,10 @@ impl Vmm {
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
         for drive_config in self.device_configs.block.config_list.iter() {
             if drive_config.drive_id == *drive_id {
-                let metadata = metadata(&drive_config.path_on_host)
+                // Use seek() instead of stat() (std::fs::Metadata) to support block devices.
+                let new_size = File::open(&drive_config.path_on_host)
+                    .and_then(|mut f| f.seek(SeekFrom::End(0)))
                     .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-                let new_size = metadata.len();
                 if new_size % virtio::block::SECTOR_SIZE != 0 {
                     warn!(
                         "Disk size {} is not a multiple of sector size {}; \
