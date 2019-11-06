@@ -85,7 +85,7 @@ type Result<T> = result::Result<T, Error>;
 /// Creates the flattened device tree for this aarch64 microVM.
 pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemory,
-    num_cpus: u32,
+    vcpu_mpidr: Vec<u64>,
     cmdline: &CStr,
     device_info: Option<&HashMap<(DeviceType, String), T>>,
     gic_device: &Box<dyn GICDevice>,
@@ -109,7 +109,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     // This is not mandatory but we use it to point the root node to the node
     // containing description of the interrupt controller for this VM.
     append_property_u32(&mut fdt, "interrupt-parent", GIC_PHANDLE)?;
-    create_cpu_nodes(&mut fdt, num_cpus)?;
+    create_cpu_nodes(&mut fdt, &vcpu_mpidr)?;
     create_memory_node(&mut fdt, guest_mem)?;
     create_chosen_node(&mut fdt, cmdline)?;
     create_gic_node(&mut fdt, gic_device)?;
@@ -302,15 +302,16 @@ fn generate_prop64(cells: &[u64]) -> Vec<u8> {
 }
 
 // Following are the auxiliary function for creating the different nodes that we append to our FDT.
-fn create_cpu_nodes(fdt: &mut Vec<u8>, num_cpus: u32) -> Result<()> {
+fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &Vec<u64>) -> Result<()> {
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/arm/cpus.yaml.
     append_begin_node(fdt, "cpus")?;
     // As per documentation, on ARM v8 64-bit systems value should be set to 2.
-    append_property_u32(fdt, "#address-cells", 0x2)?;
+    append_property_u32(fdt, "#address-cells", 0x02)?;
     append_property_u32(fdt, "#size-cells", 0x0)?;
+    let num_cpus = vcpu_mpidr.len();
 
-    for cpu_id in 0..num_cpus {
-        let cpu_name = format!("cpu@{:x}", cpu_id);
+    for cpu_index in 0..num_cpus {
+        let cpu_name = format!("cpu@{:x}", cpu_index);
         append_begin_node(fdt, &cpu_name)?;
         append_property_string(fdt, "device_type", "cpu")?;
         append_property_string(fdt, "compatible", "arm,arm-v8")?;
@@ -318,10 +319,9 @@ fn create_cpu_nodes(fdt: &mut Vec<u8>, num_cpus: u32) -> Result<()> {
             // This is required on armv8 64-bit. See aforementioned documentation.
             append_property_string(fdt, "enable-method", "psci")?;
         }
-        // If we ever see scheduling problems we might need to set the cpu reg property
-        // to contain data from the MPIDR - Multiprocessor Affinity Register
+        // Set the field to first 24 bits of the MPIDR - Multiprocessor Affinity Register.
         // See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488c/BABHBJCI.html.
-        append_property_u64(fdt, "reg", u64::from(cpu_id))?;
+        append_property_u64(fdt, "reg", vcpu_mpidr[cpu_index] & 0x7FFFFF)?;
         append_end_node(fdt)?;
     }
     append_end_node(fdt)?;
@@ -490,7 +490,7 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
     // Create one temp Vec to store all virtio devices
     let mut ordered_virtio_device: Vec<&T> = Vec::new();
 
-    for ((device_type, device_id), info) in dev_info {
+    for ((device_type, _device_id), info) in dev_info {
         match device_type {
             DeviceType::RTC => create_rtc_node(fdt, info)?,
             DeviceType::Serial => create_serial_node(fdt, info)?,
@@ -577,7 +577,7 @@ mod tests {
         let gic = create_gic(&vm, 1).unwrap();
         assert!(create_fdt(
             &mem,
-            1,
+            vec![0],
             &CString::new("console=tty0").unwrap(),
             Some(&dev_info),
             &gic,
@@ -594,7 +594,7 @@ mod tests {
         let gic = create_gic(&vm, 1).unwrap();
         let mut dtb = create_fdt(
             &mem,
-            1,
+            vec![0],
             &CString::new("console=tty0").unwrap(),
             None::<&std::collections::HashMap<(DeviceType, std::string::String), MMIODeviceInfo>>,
             &gic,
