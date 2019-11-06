@@ -54,7 +54,6 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
         'tests/,'
         'usr/lib/gcc,'
         'lib/x86_64-linux-gnu/,'
-        'pnet,'
         # The following files/directories are auto-generated
         'bootparam.rs,'
         'elf.rs,'
