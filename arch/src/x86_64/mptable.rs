@@ -267,6 +267,8 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
     {
         let mut mpc_table = MpcTableWrapper(mpspec::mpc_table::default());
         mpc_table.0.signature = MPC_SIGNATURE;
+        // it's safe to use unchecked_offset_from because
+        // table_end > table_base
         mpc_table.0.length = table_end.unchecked_offset_from(table_base) as u16;
         mpc_table.0.spec = MPC_SPEC;
         mpc_table.0.oem = MPC_OEM;
