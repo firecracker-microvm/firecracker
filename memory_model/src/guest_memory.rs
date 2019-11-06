@@ -437,6 +437,8 @@ impl GuestMemory {
     {
         for region in self.regions.iter() {
             if guest_addr >= region.guest_base && guest_addr < region_end(region) {
+                // it's safe to use unchecked_offset_from because
+                // guest_addr >= region.guest_base
                 let offset = guest_addr.unchecked_offset_from(region.guest_base);
                 if size <= region.mapping.size() - offset {
                     return cb(&region.mapping, offset);
@@ -456,6 +458,8 @@ impl GuestMemory {
             if guest_addr >= region.guest_base && guest_addr < region_end(region) {
                 return cb(
                     &region.mapping,
+                    // it's safe to use unchecked_offset_from because
+                    // guest_addr >= region.guest_base
                     guest_addr.unchecked_offset_from(region.guest_base),
                 );
             }

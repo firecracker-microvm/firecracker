@@ -67,6 +67,8 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
         regions.push((GuestAddress(0), memory_gap_start.raw_value()));
         regions.push((
             memory_gap_end,
+            // it's safe to use unchecked_offset_from because
+            // requested_memory_size > memory_gap_start
             requested_memory_size.unchecked_offset_from(memory_gap_start),
         ));
     }
@@ -126,6 +128,8 @@ pub fn configure_system(
         add_e820_entry(
             &mut params.0,
             himem_start.raw_value() as u64,
+            // it's safe to use unchecked_offset_from because
+            // mem_end > himem_start
             mem_end.unchecked_offset_from(himem_start) as u64,
             E820_RAM,
         )?;
@@ -133,6 +137,8 @@ pub fn configure_system(
         add_e820_entry(
             &mut params.0,
             himem_start.raw_value() as u64,
+            // it's safe to use unchecked_offset_from because
+            // end_32bit_gap_start > himem_start
             end_32bit_gap_start.unchecked_offset_from(himem_start) as u64,
             E820_RAM,
         )?;
@@ -140,6 +146,8 @@ pub fn configure_system(
             add_e820_entry(
                 &mut params.0,
                 first_addr_past_32bits.raw_value() as u64,
+                // it's safe to use unchecked_offset_from because
+                // mem_end > first_addr_past_32bits
                 mem_end.unchecked_offset_from(first_addr_past_32bits) as u64,
                 E820_RAM,
             )?;
