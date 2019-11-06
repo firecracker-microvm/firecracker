@@ -148,7 +148,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn equals() {
+    fn test_equals() {
         let a = GuestAddress(0x300);
         let b = GuestAddress(0x300);
         let c = GuestAddress(0x301);
@@ -160,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn cmp() {
+    fn test_cmp() {
         for i in 1..10 {
             for j in 1..10 {
                 assert_eq!(i < j, GuestAddress(i) < GuestAddress(j));
@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn add_sub() {
+    fn test_add_sub() {
         let a = GuestAddress(0x50);
         let b = GuestAddress(0x60);
         assert_eq!(Some(GuestAddress(0xb0)), a.checked_add(0x60));
@@ -178,33 +178,33 @@ mod tests {
     }
 
     #[test]
-    fn checked_add_overflow() {
+    fn test_checked_add_with_overflow() {
         let a = GuestAddress(0xffff_ffff_ffff_ff55);
         assert_eq!(Some(GuestAddress(0xffff_ffff_ffff_ff57)), a.checked_add(2));
         assert!(a.checked_add(0xf0).is_none());
     }
 
     #[test]
-    fn checked_sub_underflow() {
+    fn test_checked_sub_with_underflow() {
         let a = GuestAddress(0xff);
         assert_eq!(Some(GuestAddress(0x0f)), a.checked_sub(0xf0));
         assert!(a.checked_sub(0xffff).is_none());
     }
 
     #[test]
-    fn default() {
+    fn test_default() {
         assert_eq!(GuestAddress::default(), GuestAddress(0));
     }
 
     #[test]
-    fn and() {
+    fn test_bit_and() {
         let a = GuestAddress(0x00);
         let b = GuestAddress(0xff);
         assert_eq!(a & b.raw_value(), a);
     }
 
     #[test]
-    fn or() {
+    fn test_bit_or() {
         let a = GuestAddress(0x00);
         let b = GuestAddress(0xff);
         assert_eq!(a | b.raw_value(), b);
