@@ -53,11 +53,6 @@ pub trait Address:
     /// Get the raw value of the address.
     fn raw_value(&self) -> Self::V;
 
-    /// Returns the bitwise and of the address with the given mask.
-    fn mask(&self, mask: Self::V) -> Self::V {
-        self.raw_value() & mask
-    }
-
     /// Returns the offset from this address to the given base address.
     /// Only use this when `base` is guaranteed not to overflow.
     fn unchecked_offset_from(&self, base: Self) -> Self::V {
@@ -194,5 +189,24 @@ mod tests {
         let a = GuestAddress(0xff);
         assert_eq!(Some(GuestAddress(0x0f)), a.checked_sub(0xf0));
         assert!(a.checked_sub(0xffff).is_none());
+    }
+
+    #[test]
+    fn default() {
+        assert_eq!(GuestAddress::default(), GuestAddress(0));
+    }
+
+    #[test]
+    fn and() {
+        let a = GuestAddress(0x00);
+        let b = GuestAddress(0xff);
+        assert_eq!(a & b.raw_value(), a);
+    }
+
+    #[test]
+    fn or() {
+        let a = GuestAddress(0x00);
+        let b = GuestAddress(0xff);
+        assert_eq!(a | b.raw_value(), b);
     }
 }
