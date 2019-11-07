@@ -163,11 +163,11 @@ In your **second shell** prompt:
     echo "Saved kernel file to $dest_kernel and root block device to $dest_rootfs."
   ```
 
-- set the guest kernel:
+- set the guest kernel (assuming you are in the same directory as the above script was run):
 
   ```bash
     arch=`uname -m`
-    kernel_path="hello-vmlinux.bin"
+    kernel_path=$(pwd)"/hello-vmlinux.bin"
 
     if [ ${arch} = "x86_64" ]; then
       curl --unix-socket /tmp/firecracker.socket -i \
@@ -196,7 +196,7 @@ In your **second shell** prompt:
 - set the guest rootfs:
 
   ```bash
-    rootfs_path="hello-rootfs.ext4"
+    rootfs_path=$(pwd)"/hello-rootfs.ext4"
     curl --unix-socket /tmp/firecracker.socket -i \
       -X PUT 'http://localhost/drives/rootfs' \
       -H 'Accept: application/json'           \
