@@ -13,6 +13,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use memory_model::{GuestAddress, GuestMemory};
 use sys_util::EventFd;
 
+use super::device_status;
 use super::*;
 use crate::bus::BusDevice;
 
@@ -162,7 +163,7 @@ impl MmioDevice {
             queue_select: 0,
             interrupt_status: Arc::new(AtomicUsize::new(0)),
             interrupt_evt: Some(EventFd::new()?),
-            driver_status: DEVICE_INIT,
+            driver_status: device_status::INIT,
             config_generation: 0,
             queues,
             queue_evts,
@@ -219,7 +220,10 @@ impl MmioDevice {
     }
 
     fn update_queue_field<F: FnOnce(&mut Queue)>(&mut self, f: F) {
-        if self.check_driver_status(DEVICE_FEATURES_OK, DEVICE_DRIVER_OK | DEVICE_FAILED) {
+        if self.check_driver_status(
+            device_status::FEATURES_OK,
+            device_status::DRIVER_OK | device_status::FAILED,
+        ) {
             self.with_queue_mut(f);
         } else {
             warn!(
@@ -256,21 +260,19 @@ impl MmioDevice {
     /// a device status bit. If the driver sets the FAILED bit, the driver MUST later reset
     /// the device before attempting to re-initialize.
     fn update_driver_status(&mut self, v: u32) {
+        use device_status::*;
         // match changed bits
         match !self.driver_status & v {
-            DEVICE_ACKNOWLEDGE if self.driver_status == DEVICE_INIT => {
+            ACKNOWLEDGE if self.driver_status == INIT => {
                 self.driver_status = v;
             }
-            DEVICE_DRIVER if self.driver_status == DEVICE_ACKNOWLEDGE => {
+            DRIVER if self.driver_status == ACKNOWLEDGE => {
                 self.driver_status = v;
             }
-            DEVICE_FEATURES_OK if self.driver_status == (DEVICE_ACKNOWLEDGE | DEVICE_DRIVER) => {
+            FEATURES_OK if self.driver_status == (ACKNOWLEDGE | DRIVER) => {
                 self.driver_status = v;
             }
-            DEVICE_DRIVER_OK
-                if self.driver_status
-                    == (DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK) =>
-            {
+            DRIVER_OK if self.driver_status == (ACKNOWLEDGE | DRIVER | FEATURES_OK) => {
                 self.driver_status = v;
                 // If the driver incorrectly sets up the queues, the following
                 // check will fail and take the device into an unusable state.
@@ -291,9 +293,9 @@ impl MmioDevice {
                     }
                 }
             }
-            _ if (v & DEVICE_FAILED) != 0 => {
+            _ if (v & FAILED) != 0 => {
                 // TODO: notify backend driver to stop the device
-                self.driver_status |= DEVICE_FAILED;
+                self.driver_status |= FAILED;
             }
             _ if v == 0 => {
                 if self.device_activated {
@@ -305,7 +307,7 @@ impl MmioDevice {
                         // Backend device driver doesn't support reset,
                         // just mark the device as FAILED.
                         None => {
-                            self.driver_status |= DEVICE_FAILED;
+                            self.driver_status |= FAILED;
                             return;
                         }
                     }
@@ -376,9 +378,10 @@ impl BusDevice for MmioDevice {
                 match offset {
                     0x14 => self.features_select = v,
                     0x20 => {
-                        if self
-                            .check_driver_status(DEVICE_DRIVER, DEVICE_FEATURES_OK | DEVICE_FAILED)
-                        {
+                        if self.check_driver_status(
+                            device_status::DRIVER,
+                            device_status::FEATURES_OK | device_status::FAILED,
+                        ) {
                             self.device
                                 .ack_features_by_page(self.acked_features_select, v);
                         } else {
@@ -393,7 +396,7 @@ impl BusDevice for MmioDevice {
                     0x38 => self.update_queue_field(|q| q.size = v as u16),
                     0x44 => self.update_queue_field(|q| q.ready = v == 1),
                     0x64 => {
-                        if self.check_driver_status(DEVICE_DRIVER_OK, 0) {
+                        if self.check_driver_status(device_status::DRIVER_OK, 0) {
                             self.interrupt_status
                                 .fetch_and(!(v as usize), Ordering::SeqCst);
                         }
@@ -411,7 +414,7 @@ impl BusDevice for MmioDevice {
                 }
             }
             0x100..=0xfff => {
-                if self.check_driver_status(DEVICE_DRIVER, DEVICE_FAILED) {
+                if self.check_driver_status(device_status::DRIVER, device_status::FAILED) {
                     self.device.write_config(offset - 0x100, data)
                 } else {
                     warn!("can not write to device config data area before driver is ready");
@@ -535,11 +538,11 @@ mod tests {
 
         assert!(!d.are_queues_valid());
 
-        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE);
-        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
+        set_driver_status(&mut d, device_status::ACKNOWLEDGE);
+        set_driver_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
         set_driver_status(
             &mut d,
-            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
         );
 
         d.queue_select = 0;
@@ -658,8 +661,8 @@ mod tests {
 
         buf.pop();
 
-        assert_eq!(d.driver_status, DEVICE_INIT);
-        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE);
+        assert_eq!(d.driver_status, device_status::INIT);
+        set_driver_status(&mut d, device_status::ACKNOWLEDGE);
 
         // Acking features in invalid state shouldn't take effect.
         assert_eq!(unsafe { *dummy_dev_acked_features }, 0x0);
@@ -668,7 +671,7 @@ mod tests {
         d.write(0x20, &buf[..]);
         assert_eq!(unsafe { *dummy_dev_acked_features }, 0x0);
 
-        // Write to device specific configuration space should be ignored before setting DEVICE_DRIVER
+        // Write to device specific configuration space should be ignored before setting device_status::DRIVER
         let buf1 = vec![1; 0xeff];
         for i in (0..0xeff).rev() {
             let mut buf2 = vec![0; 0xeff];
@@ -681,8 +684,11 @@ mod tests {
             }
         }
 
-        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
-        assert_eq!(d.driver_status, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
+        set_driver_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
+        assert_eq!(
+            d.driver_status,
+            device_status::ACKNOWLEDGE | device_status::DRIVER
+        );
 
         // now writes should work
         d.features_select = 0;
@@ -708,7 +714,7 @@ mod tests {
 
         set_driver_status(
             &mut d,
-            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
         );
 
         // Acking features in invalid state shouldn't take effect.
@@ -758,7 +764,10 @@ mod tests {
 
         set_driver_status(
             &mut d,
-            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK,
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK,
         );
 
         d.interrupt_status.store(0b10_1010, Ordering::Relaxed);
@@ -799,26 +808,32 @@ mod tests {
 
         assert!(!d.are_queues_valid());
         assert!(!d.device_activated);
-        assert_eq!(d.driver_status, DEVICE_INIT);
+        assert_eq!(d.driver_status, device_status::INIT);
 
-        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE);
-        set_driver_status(&mut d, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
-        assert_eq!(d.driver_status, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
+        set_driver_status(&mut d, device_status::ACKNOWLEDGE);
+        set_driver_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
+        assert_eq!(
+            d.driver_status,
+            device_status::ACKNOWLEDGE | device_status::DRIVER
+        );
 
         // invalid state transition should have no effect
         set_driver_status(
             &mut d,
-            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_DRIVER_OK,
-        );
-        assert_eq!(d.driver_status, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
-
-        set_driver_status(
-            &mut d,
-            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::DRIVER_OK,
         );
         assert_eq!(
             d.driver_status,
-            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK
+            device_status::ACKNOWLEDGE | device_status::DRIVER
+        );
+
+        set_driver_status(
+            &mut d,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
+        );
+        assert_eq!(
+            d.driver_status,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK
         );
 
         let mut buf = vec![0; 4];
@@ -841,11 +856,17 @@ mod tests {
 
         set_driver_status(
             &mut d,
-            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK,
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK,
         );
         assert_eq!(
             d.driver_status,
-            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK
         );
         assert!(d.device_activated);
 
@@ -859,9 +880,12 @@ mod tests {
     }
 
     fn activate_device(d: &mut MmioDevice) {
-        set_driver_status(d, DEVICE_ACKNOWLEDGE);
-        set_driver_status(d, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER);
-        set_driver_status(d, DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK);
+        set_driver_status(d, device_status::ACKNOWLEDGE);
+        set_driver_status(d, device_status::ACKNOWLEDGE | device_status::DRIVER);
+        set_driver_status(
+            d,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
+        );
 
         // Setup queue data structures
         let mut buf = vec![0; 4];
@@ -878,11 +902,17 @@ mod tests {
         // Device should be ready for activation now.
         set_driver_status(
             d,
-            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK,
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK,
         );
         assert_eq!(
             d.driver_status,
-            DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_FEATURES_OK | DEVICE_DRIVER_OK
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK
         );
         assert!(d.device_activated);
     }
