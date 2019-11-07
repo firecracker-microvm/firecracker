@@ -32,8 +32,6 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                 ]],
             ),
             allow_syscall(libc::SYS_fstat),
-            #[cfg(target_arch = "aarch64")]
-            allow_syscall(libc::SYS_newfstatat),
             allow_syscall_if(
                 libc::SYS_futex,
                 or![
@@ -68,7 +66,10 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                 )?],],
             ),
             allow_syscall(libc::SYS_mmap),
+            allow_syscall(libc::SYS_mremap),
             allow_syscall(libc::SYS_munmap),
+            #[cfg(target_arch = "aarch64")]
+            allow_syscall(libc::SYS_newfstatat),
             #[cfg(target_arch = "x86_64")]
             allow_syscall(libc::SYS_open),
             allow_syscall(libc::SYS_openat),
