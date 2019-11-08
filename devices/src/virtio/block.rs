@@ -7,6 +7,7 @@
 
 use epoll;
 use std::cmp;
+use std::convert::From;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
@@ -17,7 +18,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 
 use logger::{Metric, METRICS};
-use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
+use memory_model::{DataInit, GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use sys_util::EventFd;
 use virtio_gen::virtio_blk::*;
@@ -46,8 +47,6 @@ pub const BLOCK_EVENTS_COUNT: usize = 2;
 enum Error {
     /// Guest gave us bad memory addresses.
     GuestMemory(GuestMemoryError),
-    /// Guest gave us offsets that would have overflowed a usize.
-    CheckedOffset(GuestAddress, usize),
     /// Guest gave us a write only descriptor that protocol says to read from.
     UnexpectedWriteOnlyDescriptor,
     /// Guest gave us a read only descriptor that protocol says to write to.
@@ -94,27 +93,16 @@ enum RequestType {
     Unsupported(u32),
 }
 
-fn request_type(mem: &GuestMemory, desc_addr: GuestAddress) -> result::Result<RequestType, Error> {
-    let type_ = mem
-        .read_obj_from_addr(desc_addr)
-        .map_err(Error::GuestMemory)?;
-    match type_ {
-        VIRTIO_BLK_T_IN => Ok(RequestType::In),
-        VIRTIO_BLK_T_OUT => Ok(RequestType::Out),
-        VIRTIO_BLK_T_FLUSH => Ok(RequestType::Flush),
-        VIRTIO_BLK_T_GET_ID => Ok(RequestType::GetDeviceID),
-        t => Ok(RequestType::Unsupported(t)),
+impl From<u32> for RequestType {
+    fn from(value: u32) -> Self {
+        match value {
+            VIRTIO_BLK_T_IN => RequestType::In,
+            VIRTIO_BLK_T_OUT => RequestType::Out,
+            VIRTIO_BLK_T_FLUSH => RequestType::Flush,
+            VIRTIO_BLK_T_GET_ID => RequestType::GetDeviceID,
+            t => RequestType::Unsupported(t),
+        }
     }
-}
-
-fn sector(mem: &GuestMemory, desc_addr: GuestAddress) -> result::Result<u64, Error> {
-    const SECTOR_OFFSET: usize = 8;
-    let addr = match mem.checked_offset(desc_addr, SECTOR_OFFSET) {
-        Some(v) => v,
-        None => return Err(Error::CheckedOffset(desc_addr, SECTOR_OFFSET)),
-    };
-
-    mem.read_obj_from_addr(addr).map_err(Error::GuestMemory)
 }
 
 fn build_device_id(disk_image: &File) -> result::Result<String, Error> {
@@ -158,6 +146,43 @@ struct Request {
     status_addr: GuestAddress,
 }
 
+/// The request header represents the mandatory fields of each block device request.
+///
+/// A request header contains the following fields:
+///   * request_type: an u32 value mapping to a read, write or flush operation.
+///   * reserved: 32 bits are reserved for future extensions of the Virtio Spec.
+///   * sector: an u64 value representing the offset where a read/write is to occur.
+///
+/// The header simplifies reading the request from memory as all request follow
+/// the same memory layout.
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct RequestHeader {
+    request_type: u32,
+    _reserved: u32,
+    sector: u64,
+}
+
+// Safe because RequestHeader only contains plain data.
+unsafe impl DataInit for RequestHeader {}
+
+impl RequestHeader {
+    /// Reads the request header from GuestMemory starting at `addr`.
+    ///
+    /// Virtio 1.0 specifies that the data is transmitted by the driver in little-endian
+    /// format. Firecracker currently runs only on little endian platforms so we don't
+    /// need to do an explicit little endian read as all reads are little endian by default.
+    /// When running on a big endian platform, this code should not compile, and support
+    /// for explicit little endian reads is required.
+    #[cfg(target_endian = "little")]
+    fn read_from(memory: &GuestMemory, addr: GuestAddress) -> result::Result<Self, Error> {
+        let request_header: RequestHeader = memory
+            .read_obj_from_addr(addr)
+            .map_err(Error::GuestMemory)?;
+        Ok(request_header)
+    }
+}
+
 impl Request {
     fn parse(avail_desc: &DescriptorChain, mem: &GuestMemory) -> result::Result<Request, Error> {
         // The head contains the request type which MUST be readable.
@@ -165,9 +190,10 @@ impl Request {
             return Err(Error::UnexpectedWriteOnlyDescriptor);
         }
 
+        let request_header = RequestHeader::read_from(mem, avail_desc.addr)?;
         let mut req = Request {
-            request_type: request_type(&mem, avail_desc.addr)?,
-            sector: sector(&mem, avail_desc.addr)?,
+            request_type: RequestType::from(request_header.request_type),
+            sector: request_header.sector,
             data_addr: GuestAddress(0),
             data_len: 0,
             status_addr: GuestAddress(0),
@@ -777,57 +803,52 @@ mod tests {
         assert_eq!(h.interrupt_evt.read().unwrap(), 2);
     }
 
-    #[test]
-    fn test_request_type() {
-        let m = &GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let a = GuestAddress(0);
+    // Writes at address 0x0 the request_type, reserved, sector.
+    fn write_request_header(mem: &GuestMemory, request_type: u32, sector: u64) {
+        let addr = GuestAddress(0);
 
-        // We write values associated with different request type at an address in memory,
-        // and verify the request type is parsed correctly.
-
-        m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, a).unwrap();
-        assert_eq!(request_type(m, a).unwrap(), RequestType::In);
-
-        m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, a).unwrap();
-        assert_eq!(request_type(m, a).unwrap(), RequestType::Out);
-
-        m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH, a).unwrap();
-        assert_eq!(request_type(m, a).unwrap(), RequestType::Flush);
-
-        m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_GET_ID, a).unwrap();
-        assert_eq!(request_type(m, a).unwrap(), RequestType::GetDeviceID);
-
-        // The value written here should be invalid.
-        m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH + 10, a)
+        mem.write_obj_at_addr::<u32>(request_type, addr).unwrap();
+        mem.write_obj_at_addr::<u64>(sector, addr.checked_add(8).unwrap())
             .unwrap();
-        assert_eq!(
-            request_type(m, a).unwrap(),
-            RequestType::Unsupported(VIRTIO_BLK_T_FLUSH + 10)
-        );
-
-        // The provided address cannot be read, as it's outside the memory space.
-        let a = GuestAddress(0x1000);
-        assert!(request_type(m, a).is_err())
     }
 
     #[test]
-    fn test_sector() {
-        let m = &GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let a = GuestAddress(0);
+    fn test_read_request_header() {
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let addr = GuestAddress(0);
+        let sector = 123_454_321;
 
-        // Here we test that a sector number is parsed correctly from memory. The actual sector
-        // number is expected to be found 8 bytes after the address provided as parameter to the
-        // sector() function.
+        // Test that all supported request types are read correctly from memory.
+        let supported_request_types = vec![
+            VIRTIO_BLK_T_IN,
+            VIRTIO_BLK_T_OUT,
+            VIRTIO_BLK_T_FLUSH,
+            VIRTIO_BLK_T_GET_ID,
+        ];
 
-        m.write_obj_at_addr::<u64>(123_454_321, a.checked_add(8).unwrap())
-            .unwrap();
-        assert_eq!(sector(m, a).unwrap(), 123_454_321);
+        for request_type in supported_request_types {
+            write_request_header(&mem, request_type, sector);
 
-        // Reading from a slightly different address should not lead a correct result in this case.
-        assert_ne!(sector(m, a.checked_add(1).unwrap()).unwrap(), 123_454_321);
+            let request_header = RequestHeader::read_from(&mem, addr).unwrap();
+            assert_eq!(request_header.request_type, request_type);
+            assert_eq!(request_header.sector, sector);
+        }
 
-        // The provided address is outside the valid memory range.
-        assert!(sector(m, a.checked_add(0x1000).unwrap()).is_err());
+        // Test that trying to read a request header that goes outside of the
+        // memory boundary fails.
+        assert!(RequestHeader::read_from(&mem, GuestAddress(0x1000)).is_err());
+    }
+
+    #[test]
+    fn test_request_type_from() {
+        assert_eq!(RequestType::from(VIRTIO_BLK_T_IN), RequestType::In);
+        assert_eq!(RequestType::from(VIRTIO_BLK_T_OUT), RequestType::Out);
+        assert_eq!(RequestType::from(VIRTIO_BLK_T_FLUSH), RequestType::Flush);
+        assert_eq!(
+            RequestType::from(VIRTIO_BLK_T_GET_ID),
+            RequestType::GetDeviceID
+        );
+        assert_eq!(RequestType::from(42), RequestType::Unsupported(42));
     }
 
     #[test]
