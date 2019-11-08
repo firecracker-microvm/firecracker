@@ -97,13 +97,13 @@ impl GuestMemory {
     /// # Examples
     ///
     /// ```
-    /// # use memory_model::{Address, GuestAddress, GuestMemory, MemoryMapping};
-    /// # fn test_end_addr() -> Result<(), ()> {
+    /// use memory_model::{Address, GuestAddress, GuestMemory, MemoryMapping};
+    /// fn test_end_addr() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
     ///     assert_eq!(start_addr.checked_add(0x400), Some(gm.end_addr()));
     ///     Ok(())
-    /// # }
+    /// }
     /// ```
     pub fn end_addr(&self) -> GuestAddress {
         self.regions
@@ -180,14 +180,16 @@ impl GuestMemory {
     /// * Write a slice at guestaddress 0x200.
     ///
     /// ```
-    /// # use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
-    /// # fn test_write_u64() -> Result<(), ()> {
-    /// #   let start_addr = GuestAddress(0x1000);
-    /// #   let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
-    ///     let res = gm.write_slice_at_addr(&[1,2,3,4,5], GuestAddress(0x200)).map_err(|_| ())?;
+    /// use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
+    /// fn test_write_u64() -> Result<(), ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let res = gm
+    ///         .write_slice_at_addr(&[1, 2, 3, 4, 5], GuestAddress(0x200))
+    ///         .map_err(|_| ())?;
     ///     assert_eq!(5, res);
     ///     Ok(())
-    /// # }
+    /// }
     /// ```
     pub fn write_slice_at_addr(&self, buf: &[u8], guest_addr: GuestAddress) -> Result<usize> {
         self.do_in_region_partial(guest_addr, move |mapping, offset| {
@@ -206,15 +208,17 @@ impl GuestMemory {
     /// * Read a slice of length 16 at guestaddress 0x200.
     ///
     /// ```
-    /// # use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
-    /// # fn test_write_u64() -> Result<(), ()> {
-    /// #   let start_addr = GuestAddress(0x1000);
-    /// #   let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    /// use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
+    /// fn test_write_u64() -> Result<(), ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
     ///     let buf = &mut [0u8; 16];
-    ///     let res = gm.read_slice_at_addr(buf, GuestAddress(0x200)).map_err(|_| ())?;
+    ///     let res = gm
+    ///         .read_slice_at_addr(buf, GuestAddress(0x200))
+    ///         .map_err(|_| ())?;
     ///     assert_eq!(16, res);
     ///     Ok(())
-    /// # }
+    /// }
     /// ```
     pub fn read_slice_at_addr(&self, buf: &mut [u8], guest_addr: GuestAddress) -> Result<usize> {
         self.do_in_region_partial(guest_addr, move |mapping, offset| {
@@ -236,16 +240,18 @@ impl GuestMemory {
     /// * Read a u64 from two areas of guest memory backed by separate mappings.
     ///
     /// ```
-    /// # use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
-    /// # fn test_read_u64() -> Result<u64, ()> {
-    /// #     let start_addr1 = GuestAddress(0x0);
-    /// #     let start_addr2 = GuestAddress(0x400);
-    /// #     let mut gm = GuestMemory::new(&vec![(start_addr1, 0x400), (start_addr2, 0x400)])
-    /// #         .map_err(|_| ())?;
-    ///       let num1: u64 = gm.read_obj_from_addr(GuestAddress(32)).map_err(|_| ())?;
-    ///       let num2: u64 = gm.read_obj_from_addr(GuestAddress(0x400+32)).map_err(|_| ())?;
-    /// #     Ok(num1 + num2)
-    /// # }
+    /// use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
+    /// fn test_read_u64() -> Result<u64, ()> {
+    ///     let start_addr1 = GuestAddress(0x0);
+    ///     let start_addr2 = GuestAddress(0x400);
+    ///     let mut gm =
+    ///         GuestMemory::new(&vec![(start_addr1, 0x400), (start_addr2, 0x400)]).map_err(|_| ())?;
+    ///     let num1: u64 = gm.read_obj_from_addr(GuestAddress(32)).map_err(|_| ())?;
+    ///     let num2: u64 = gm
+    ///         .read_obj_from_addr(GuestAddress(0x400 + 32))
+    ///         .map_err(|_| ())?;
+    ///     Ok(num1 + num2)
+    /// }
     /// ```
     pub fn read_obj_from_addr<T: DataInit>(&self, guest_addr: GuestAddress) -> Result<T> {
         self.do_in_region(guest_addr, mem::size_of::<T>(), |mapping, offset| {
@@ -265,13 +271,13 @@ impl GuestMemory {
     /// * Write a u64 at guest address 0x1100.
     ///
     /// ```
-    /// # use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
-    /// # fn test_write_u64() -> Result<(), ()> {
-    /// #   let start_addr = GuestAddress(0x1000);
-    /// #   let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    /// use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
+    /// fn test_write_u64() -> Result<(), ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
     ///     gm.write_obj_at_addr(55u64, GuestAddress(0x1100))
     ///         .map_err(|_| ())
-    /// # }
+    /// }
     /// ```
     pub fn write_obj_at_addr<T: DataInit>(&self, val: T, guest_addr: GuestAddress) -> Result<()> {
         self.do_in_region(guest_addr, mem::size_of::<T>(), move |mapping, offset| {
@@ -293,19 +299,19 @@ impl GuestMemory {
     /// * Read bytes from /dev/urandom
     ///
     /// ```
-    /// # use memory_model::{Address, GuestAddress, GuestMemory, MemoryMapping};
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// # fn test_read_random() -> Result<u32, ()> {
-    /// #     let start_addr = GuestAddress(0x1000);
-    /// #     let gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
-    ///       let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
-    ///       let addr = GuestAddress(0x1010);
-    ///       gm.read_to_memory(addr, &mut file, 128).map_err(|_| ())?;
-    ///       let read_addr = addr.checked_add(8).ok_or(())?;
-    ///       let rand_val: u32 = gm.read_obj_from_addr(read_addr).map_err(|_| ())?;
-    /// #     Ok(rand_val)
-    /// # }
+    /// use memory_model::{Address, GuestAddress, GuestMemory, MemoryMapping};
+    /// use std::fs::File;
+    /// use std::path::Path;
+    /// fn test_read_random() -> Result<u32, ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
+    ///     let addr = GuestAddress(0x1010);
+    ///     gm.read_to_memory(addr, &mut file, 128).map_err(|_| ())?;
+    ///     let read_addr = addr.checked_add(8).ok_or(())?;
+    ///     let rand_val: u32 = gm.read_obj_from_addr(read_addr).map_err(|_| ())?;
+    ///     Ok(rand_val)
+    /// }
     /// ```
     pub fn read_to_memory<F>(
         &self,
@@ -335,17 +341,17 @@ impl GuestMemory {
     /// * Write 128 bytes to /dev/null
     ///
     /// ```
-    /// # use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// # fn test_write_null() -> Result<(), ()> {
-    /// #     let start_addr = GuestAddress(0x1000);
-    /// #     let gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
-    ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
-    ///       let addr = GuestAddress(0x1010);
-    ///       gm.write_from_memory(addr, &mut file, 128).map_err(|_| ())?;
-    /// #     Ok(())
-    /// # }
+    /// use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
+    /// use std::fs::File;
+    /// use std::path::Path;
+    /// fn test_write_null() -> Result<(), ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
+    ///     let addr = GuestAddress(0x1010);
+    ///     gm.write_from_memory(addr, &mut file, 128).map_err(|_| ())?;
+    ///     Ok(())
+    /// }
     /// ```
     pub fn write_from_memory<F>(
         &self,
@@ -374,14 +380,14 @@ impl GuestMemory {
     /// # Examples
     ///
     /// ```
-    /// # use memory_model::{GuestAddress, GuestMemory};
-    /// # fn test_host_addr() -> Result<(), ()> {
+    /// use memory_model::{GuestAddress, GuestMemory};
+    /// fn test_host_addr() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
     ///     let addr = gm.get_host_address(GuestAddress(0x1200)).unwrap();
     ///     println!("Host address is {:p}", addr);
     ///     Ok(())
-    /// # }
+    /// }
     /// ```
     pub fn get_host_address(&self, guest_addr: GuestAddress) -> Result<*const u8> {
         self.do_in_region(guest_addr, 1, |mapping, offset| {
@@ -408,19 +414,19 @@ impl GuestMemory {
     ///   and dividing their sizes to 1024, then summing up the values in an accumulator.
     ///
     /// ```
-    /// # use memory_model::{GuestAddress, GuestMemory};
-    /// # fn test_map_fold() -> Result<(), ()> {
+    /// use memory_model::{GuestAddress, GuestMemory};
+    /// fn test_map_fold() -> Result<(), ()> {
     ///     let start_addr1 = GuestAddress(0x0);
     ///     let start_addr2 = GuestAddress(0x400);
     ///     let mem = GuestMemory::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
     ///     let total_size = mem.map_and_fold(
     ///         0,
     ///         |(_, region)| region.size() / 1024,
-    ///         |acc, size| acc + size
+    ///         |acc, size| acc + size,
     ///     );
     ///     println!("Total memory size = {} KB", total_size);
     ///     Ok(())
-    /// # }
+    /// }
     /// ```
     pub fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
     where

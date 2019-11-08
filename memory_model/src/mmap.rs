@@ -94,11 +94,11 @@ impl MemoryMapping {
     /// * Write a slice at offset 256.
     ///
     /// ```
-    /// #   use memory_model::MemoryMapping;
-    /// #   let mut mem_map = MemoryMapping::new(1024).unwrap();
-    ///     let res = mem_map.write_slice(&[1,2,3,4,5], 256);
-    ///     assert!(res.is_ok());
-    ///     assert_eq!(res.unwrap(), 5);
+    /// use memory_model::MemoryMapping;
+    /// let mut mem_map = MemoryMapping::new(1024).unwrap();
+    /// let res = mem_map.write_slice(&[1, 2, 3, 4, 5], 256);
+    /// assert!(res.is_ok());
+    /// assert_eq!(res.unwrap(), 5);
     /// ```
     pub fn write_slice(&self, buf: &[u8], offset: usize) -> Result<usize> {
         if offset >= self.size {
@@ -122,12 +122,12 @@ impl MemoryMapping {
     /// * Read a slice of size 16 at offset 256.
     ///
     /// ```
-    /// #   use memory_model::MemoryMapping;
-    /// #   let mut mem_map = MemoryMapping::new(1024).unwrap();
-    ///     let buf = &mut [0u8; 16];
-    ///     let res = mem_map.read_slice(buf, 256);
-    ///     assert!(res.is_ok());
-    ///     assert_eq!(res.unwrap(), 16);
+    /// use memory_model::MemoryMapping;
+    /// let mut mem_map = MemoryMapping::new(1024).unwrap();
+    /// let buf = &mut [0u8; 16];
+    /// let res = mem_map.read_slice(buf, 256);
+    /// assert!(res.is_ok());
+    /// assert_eq!(res.unwrap(), 16);
     /// ```
     pub fn read_slice(&self, mut buf: &mut [u8], offset: usize) -> Result<usize> {
         if offset >= self.size {
@@ -149,10 +149,10 @@ impl MemoryMapping {
     /// * Write a u64 at offset 16.
     ///
     /// ```
-    /// #   use memory_model::MemoryMapping;
-    /// #   let mut mem_map = MemoryMapping::new(1024).unwrap();
-    ///     let res = mem_map.write_obj(55u64, 16);
-    ///     assert!(res.is_ok());
+    /// use memory_model::MemoryMapping;
+    /// let mut mem_map = MemoryMapping::new(1024).unwrap();
+    /// let res = mem_map.write_obj(55u64, 16);
+    /// assert!(res.is_ok());
     /// ```
     pub fn write_obj<T: DataInit>(&self, val: T, offset: usize) -> Result<()> {
         unsafe {
@@ -177,12 +177,12 @@ impl MemoryMapping {
     /// * Read a u64 written to offset 32.
     ///
     /// ```
-    /// #   use memory_model::MemoryMapping;
-    /// #   let mut mem_map = MemoryMapping::new(1024).unwrap();
-    ///     let res = mem_map.write_obj(55u64, 32);
-    ///     assert!(res.is_ok());
-    ///     let num: u64 = mem_map.read_obj(32).unwrap();
-    ///     assert_eq!(55, num);
+    /// use memory_model::MemoryMapping;
+    /// let mut mem_map = MemoryMapping::new(1024).unwrap();
+    /// let res = mem_map.write_obj(55u64, 32);
+    /// assert!(res.is_ok());
+    /// let num: u64 = mem_map.read_obj(32).unwrap();
+    /// assert_eq!(55, num);
     /// ```
     pub fn read_obj<T: DataInit>(&self, offset: usize) -> Result<T> {
         let (end, fail) = offset.overflowing_add(std::mem::size_of::<T>());
@@ -210,16 +210,16 @@ impl MemoryMapping {
     /// * Read bytes from /dev/urandom
     ///
     /// ```
-    /// # use memory_model::MemoryMapping;
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// # fn test_read_random() -> Result<u32, ()> {
-    /// #     let mut mem_map = MemoryMapping::new(1024).unwrap();
-    ///       let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
-    ///       mem_map.read_to_memory(32, &mut file, 128).map_err(|_| ())?;
-    ///       let rand_val: u32 =  mem_map.read_obj(40).map_err(|_| ())?;
-    /// #     Ok(rand_val)
-    /// # }
+    /// use memory_model::MemoryMapping;
+    /// use std::fs::File;
+    /// use std::path::Path;
+    /// fn test_read_random() -> Result<u32, ()> {
+    ///     let mut mem_map = MemoryMapping::new(1024).unwrap();
+    ///     let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
+    ///     mem_map.read_to_memory(32, &mut file, 128).map_err(|_| ())?;
+    ///     let rand_val: u32 = mem_map.read_obj(40).map_err(|_| ())?;
+    ///     Ok(rand_val)
+    /// }
     /// ```
     pub fn read_to_memory<F>(&self, mem_offset: usize, src: &mut F, count: usize) -> Result<()>
     where
@@ -251,15 +251,17 @@ impl MemoryMapping {
     /// * Write 128 bytes to /dev/null
     ///
     /// ```
-    /// # use memory_model::MemoryMapping;
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// # fn test_write_null() -> Result<(), ()> {
-    /// #     let mut mem_map = MemoryMapping::new(1024).unwrap();
-    ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
-    ///       mem_map.write_from_memory(32, &mut file, 128).map_err(|_| ())?;
-    /// #     Ok(())
-    /// # }
+    /// use memory_model::MemoryMapping;
+    /// use std::fs::File;
+    /// use std::path::Path;
+    /// fn test_write_null() -> Result<(), ()> {
+    ///     let mut mem_map = MemoryMapping::new(1024).unwrap();
+    ///     let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
+    ///     mem_map
+    ///         .write_from_memory(32, &mut file, 128)
+    ///         .map_err(|_| ())?;
+    ///     Ok(())
+    /// }
     /// ```
     pub fn write_from_memory<F>(&self, mem_offset: usize, dst: &mut F, count: usize) -> Result<()>
     where
