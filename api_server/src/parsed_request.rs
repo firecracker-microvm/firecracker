@@ -593,14 +593,14 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         let req_as_bytes = b"PUT /logger HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
-                Content-Length: 142\r\n\r\n{ \
+                Content-Length: 149\r\n\r\n{ \
                 \"log_fifo\": \"string\", \
                 \"metrics_fifo\": \"string\", \
                 \"level\": \"Warning\", \
                 \"show_level\": false, \
                 \"show_log_origin\": false, \
                 \"options\": [ \
-                    \"string\" \
+                    \"LogDirtyPages\" \
                 ] \
             }";
         // `options` field in logger config is only available on x86_64.
@@ -619,6 +619,26 @@ mod tests {
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
+
+        // illegal options will get failed response
+        #[cfg(target_arch = "x86_64")]
+        {
+            let req_as_bytes = b"PUT /logger HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 137\r\n\r\n{ \
+                \"log_fifo\": \"string\", \
+                \"metrics_fifo\": \"string\", \
+                \"level\": \"Warning\", \
+                \"show_level\": false, \
+                \"show_log_origin\": false \
+                \"options\": \"foobar\" \
+            }";
+
+            sender.write_all(req_as_bytes).unwrap();
+            assert!(connection.try_read().is_ok());
+            let req = connection.pop_parsed_request().unwrap();
+            assert!(ParsedRequest::try_from_request(&req).is_err());
+        }
     }
 
     #[test]

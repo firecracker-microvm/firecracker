@@ -75,7 +75,6 @@ use error::{Error, Result, UserResult};
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
-#[cfg(target_arch = "x86_64")]
 use logger::LogOption;
 use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
@@ -1564,10 +1563,10 @@ impl Vmm {
         LOGGER.set_include_level(logger_cfg.show_level);
 
         #[cfg(target_arch = "aarch64")]
-        let options: &Vec<Value> = &vec![];
+        let options: &Vec<LogOption> = &vec![];
 
         #[cfg(target_arch = "x86_64")]
-        let options = logger_cfg.options.as_array().unwrap();
+        let options = &logger_cfg.options;
 
         LOGGER.set_flags(options).map_err(|e| {
             VmmActionError::Logger(
@@ -1661,7 +1660,6 @@ mod tests {
 
     use super::*;
 
-    use serde_json::Value;
     use std::fs::File;
     use std::io::BufRead;
     use std::io::BufReader;
@@ -2618,7 +2616,7 @@ mod tests {
             show_level: true,
             show_log_origin: true,
             #[cfg(target_arch = "x86_64")]
-            options: Value::Array(vec![]),
+            options: vec![],
         };
 
         let mut vmm = create_vmm_object(InstanceState::Running);
@@ -2635,7 +2633,7 @@ mod tests {
             show_level: false,
             show_log_origin: false,
             #[cfg(target_arch = "x86_64")]
-            options: Value::Array(vec![]),
+            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2647,11 +2645,11 @@ mod tests {
             show_level: false,
             show_log_origin: false,
             #[cfg(target_arch = "x86_64")]
-            options: Value::Array(vec![]),
+            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
-        // Error case: initializing logger with invalid option flags returns error.
+        // Error case: initializing logger with invalid metrics and log pipe returns error.
         let desc = LoggerConfig {
             log_fifo: String::from("not_found_file_log"),
             metrics_fifo: String::from("not_found_file_metrics"),
@@ -2659,7 +2657,7 @@ mod tests {
             show_level: false,
             show_log_origin: false,
             #[cfg(target_arch = "x86_64")]
-            options: Value::Array(vec![Value::String("foobar".to_string())]),
+            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2673,7 +2671,7 @@ mod tests {
             show_level: true,
             show_log_origin: true,
             #[cfg(target_arch = "x86_64")]
-            options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
+            options: vec![LogOption::LogDirtyPages],
         };
         // Flushing metrics before initializing logger is not erroneous.
         assert!(vmm.flush_metrics().is_ok());
