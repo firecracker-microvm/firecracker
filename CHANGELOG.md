@@ -6,6 +6,8 @@
 
 - Fixed #1283 - Can't start a VM in AARCH64 with vcpus number more than 16.
 - The backtrace are printed on `panic`, no longer causing a seccomp fault.
+- Fixed #1375 - Change logger options type from Value to Vec<LogOption> to
+  prevent potential unwrap on None panics.
 
 ## [0.19.0]
 

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Auxiliary module for configuring the logger.
-extern crate serde_json;
 
 use libc::O_NONBLOCK;
 use std::fmt::{Display, Formatter};
@@ -12,7 +11,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
-use self::serde_json::Value;
+use logger::LogOption;
 
 type Result<T> = std::result::Result<T, std::io::Error>;
 
@@ -97,15 +96,15 @@ pub struct LoggerConfig {
     /// Additional logging options.
     #[cfg(target_arch = "x86_64")]
     #[serde(default = "default_log_options")]
-    pub options: Value,
+    pub options: Vec<LogOption>,
 }
 
 fn default_level() -> LoggerLevel {
     LoggerLevel::Warning
 }
 
-fn default_log_options() -> Value {
-    Value::Array(vec![])
+fn default_log_options() -> Vec<LogOption> {
+    vec![]
 }
 
 /// Errors associated with actions on the `LoggerConfig`.

@@ -139,11 +139,8 @@ use std::error::Error;
 use std::io::Write;
 use std::ops::Deref;
 use std::result;
-use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, RwLock};
-
-use serde_json::Value;
 
 use error::LoggerError;
 pub use log::Level::*;
@@ -183,20 +180,10 @@ lazy_static! {
 
 /// Enum representing logging options that can be activated from the API.
 #[repr(usize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum LogOption {
     /// Enable KVM dirty page tracking and a metric that counts dirty pages.
     LogDirtyPages = 1,
-}
-
-impl FromStr for LogOption {
-    type Err = LoggerError;
-
-    fn from_str(s: &str) -> Result<LogOption> {
-        match s {
-            "LogDirtyPages" => Ok(LogOption::LogDirtyPages),
-            _ => Err(LoggerError::InvalidLogOption(s.to_string())),
-        }
-    }
 }
 
 /// A structure containing info about the App that uses the logger.
@@ -282,16 +269,10 @@ impl Logger {
     }
 
     /// Configure flags for the logger.
-    pub fn set_flags(&self, options: &[Value]) -> Result<()> {
+    pub fn set_flags(&self, options: &[LogOption]) -> Result<()> {
         let mut flags = 0;
         for option in options.iter() {
-            if let Value::String(s_opt) = option {
-                flags |= LogOption::from_str(s_opt.as_str())
-                    .map_err(|_| LoggerError::InvalidLogOption(s_opt.clone()))?
-                    as usize;
-            } else {
-                return Err(LoggerError::InvalidLogOption(format!("{:?}", option)));
-            }
+            flags |= option.clone() as usize;
         }
         self.flags.store(flags, Ordering::SeqCst);
         Ok(())
@@ -726,12 +707,10 @@ mod tests {
         l.set_instance_id(TEST_INSTANCE_ID.to_string());
 
         // Test flag configuration.
-        assert!(l.set_flags(&[Value::Bool(true)]).is_err());
-        assert!(l.set_flags(&[Value::String("foobar".to_string())]).is_err());
+        assert!(l.set_flags(&[]).is_ok());
         assert_eq!(l.flags(), 0);
-        assert!(l
-            .set_flags(&[Value::String("LogDirtyPages".to_string())])
-            .is_ok());
+        assert!(l.set_flags(&[LogOption::LogDirtyPages]).is_ok());
+        assert_eq!(l.flags(), LogOption::LogDirtyPages as usize);
 
         // Assert that metrics cannot be flushed to stdout/stderr.
         let res = l.log_metrics();
