@@ -149,12 +149,6 @@ fn main() {
     // It's safe to unwrap here because clap's been provided with a default value
     let instance_id = cmd_arguments.value_of("id").unwrap().to_string();
 
-    // We disable seccomp filtering when testing, because when running the test_gnutests
-    // integration test from test_unittests.py, an invalid syscall is issued, and we crash
-    // otherwise.
-    #[cfg(test)]
-    let seccomp_level = seccomp::SECCOMP_LEVEL_NONE;
-    #[cfg(not(test))]
     // It's safe to unwrap here because clap's been provided with a default value,
     // and allowed values are guaranteed to parse to u32.
     let seccomp_level = cmd_arguments
