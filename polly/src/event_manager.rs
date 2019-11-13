@@ -270,8 +270,7 @@ impl EventManager {
         Ok(())
     }
 
-    /// Process requests via the event channel.
-    fn process_api_channel(&mut self) -> Result<()> {
+    pub fn process_api_channel(&mut self) -> Result<()> {
         loop {
             let _events = self.api_channel_tx.read_event();
             match self.api_channel_rx.try_recv() {

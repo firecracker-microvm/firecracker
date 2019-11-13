@@ -1244,10 +1244,10 @@ impl Vmm {
 
             match self.epoll_context.dispatch_table[event.data as usize] {
                 Some(EpollDispatch::PollyEvent) => {
-                    self.event_manager.run_timeout(1).unwrap();
+                    self.event_manager.run().unwrap();
                 }
                 Some(EpollDispatch::PollyChannel) => {
-                    self.event_manager.run_timeout(1).unwrap();
+                    self.event_manager.process_api_channel();
                 }
                 Some(EpollDispatch::Exit) => {
                     match self.exit_evt {
