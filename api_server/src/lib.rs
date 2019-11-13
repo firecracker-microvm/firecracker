@@ -225,7 +225,10 @@ impl ApiServer {
             Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
             Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
             Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
-            Err(e) => e.into(),
+            Err(e) => {
+                error!("{}", e);
+                e.into()
+            }
         }
     }
 
