@@ -35,7 +35,7 @@ use DeviceType;
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
-    let dram_size = min(size, layout::DRAM_MEM_MAX_SIZE);
+    let dram_size = min(size as u64, layout::DRAM_MEM_MAX_SIZE) as usize;
     vec![(GuestAddress(layout::DRAM_MEM_START), dram_size)]
 }
 
@@ -67,17 +67,17 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
 }
 
 /// Returns the memory address where the kernel could be loaded.
-pub fn get_kernel_start() -> usize {
+pub fn get_kernel_start() -> u64 {
     layout::DRAM_MEM_START
 }
 
 // Auxiliary function to get the address where the device tree blob is loaded.
-fn get_fdt_addr(mem: &GuestMemory) -> usize {
+fn get_fdt_addr(mem: &GuestMemory) -> u64 {
     // If the memory allocated is smaller than the size allocated for the FDT,
     // we return the start of the DRAM so that
     // we allow the code to try and load the FDT.
 
-    if let Some(offset) = mem.end_addr().checked_sub(layout::FDT_MAX_SIZE) {
+    if let Some(offset) = mem.end_addr().checked_sub(layout::FDT_MAX_SIZE as u64) {
         if mem.address_in_range(offset) {
             return offset.raw_value();
         }
@@ -102,7 +102,7 @@ mod tests {
         let regions = arch_memory_regions(1usize << 41);
         assert_eq!(1, regions.len());
         assert_eq!(GuestAddress(super::layout::DRAM_MEM_START), regions[0].0);
-        assert_eq!(super::layout::DRAM_MEM_MAX_SIZE, regions[0].1);
+        assert_eq!(super::layout::DRAM_MEM_MAX_SIZE, regions[0].1 as u64);
     }
 
     #[test]
