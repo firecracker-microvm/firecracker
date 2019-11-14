@@ -1119,9 +1119,9 @@ mod tests {
         vq.avail.idx.set(1);
 
         // dtable[1] is the data descriptor
-        let data_addr = GuestAddress(vq.dtable[1].addr.get() as usize);
+        let data_addr = GuestAddress(vq.dtable[1].addr.get());
         // dtable[2] is the status descriptor
-        let status_addr = GuestAddress(vq.dtable[2].addr.get() as usize);
+        let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
         {
             // let's start with a request that does not parse
