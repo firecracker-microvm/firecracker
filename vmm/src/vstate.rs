@@ -222,7 +222,7 @@ impl Vm {
 
         #[cfg(target_arch = "x86_64")]
         self.fd
-            .set_tss_address(GuestAddress(arch::x86_64::layout::KVM_TSS_ADDRESS).raw_value())
+            .set_tss_address(arch::x86_64::layout::KVM_TSS_ADDRESS as usize)
             .map_err(Error::VmSetup)?;
 
         Ok(())
