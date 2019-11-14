@@ -92,7 +92,7 @@ impl<'a> DescriptorChain<'a> {
             queue_size,
             ttl: queue_size,
             index,
-            addr: GuestAddress(desc.addr as usize),
+            addr: GuestAddress(desc.addr),
             len: desc.len,
             flags: desc.flags,
             next: desc.next,
@@ -195,7 +195,7 @@ impl Queue {
     }
 
     pub fn is_valid(&self, mem: &GuestMemory) -> bool {
-        let queue_size = self.actual_size() as usize;
+        let queue_size = u64::from(self.actual_size());
         let desc_table = self.desc_table;
         let desc_table_size = 16 * queue_size;
         let avail_ring = self.avail_ring;
@@ -298,7 +298,7 @@ impl Queue {
         // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
         // offsets.
         let desc_index: u16 = mem
-            .read_obj_from_addr(self.avail_ring.unchecked_add(usize::from(index_offset)))
+            .read_obj_from_addr(self.avail_ring.unchecked_add(u64::from(index_offset)))
             .unwrap();
 
         DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
@@ -326,7 +326,7 @@ impl Queue {
         }
 
         let used_ring = self.used_ring;
-        let next_used = (self.next_used.0 % self.actual_size()) as usize;
+        let next_used = u64::from(self.next_used.0 % self.actual_size());
         let used_elem = used_ring.unchecked_add(4 + next_used * 8);
 
         // These writes can't fail as we are guaranteed to be within the descriptor ring.
@@ -409,7 +409,7 @@ pub mod tests {
         // offset bytes after the current location.
         fn map_offset<U>(&self, offset: usize) -> SomeplaceInMemory<'a, U> {
             SomeplaceInMemory {
-                location: self.location.checked_add(offset).unwrap(),
+                location: self.location.checked_add(offset as u64).unwrap(),
                 mem: self.mem,
                 phantom: PhantomData,
             }
@@ -422,7 +422,9 @@ pub mod tests {
         }
 
         fn end(&self) -> GuestAddress {
-            self.location.checked_add(mem::size_of::<T>()).unwrap()
+            self.location
+                .checked_add(mem::size_of::<T>() as u64)
+                .unwrap()
         }
     }
 
@@ -481,7 +483,7 @@ pub mod tests {
         T: memory_model::DataInit,
     {
         fn new(start: GuestAddress, mem: &'a GuestMemory, qsize: u16, alignment: usize) -> Self {
-            assert_eq!(start.0 & (alignment - 1), 0);
+            assert_eq!(start.0 & (alignment as u64 - 1), 0);
 
             let flags = SomeplaceInMemory::new(start, mem);
             let idx = flags.next_place();
@@ -552,12 +554,12 @@ pub mod tests {
 
             let avail = VirtqAvail::new(end, mem, qsize, AVAIL_ALIGN);
 
-            const USED_ALIGN: usize = 4;
+            const USED_ALIGN: u64 = 4;
 
             let mut x = avail.end().0;
             x = (x + USED_ALIGN - 1) & !(USED_ALIGN - 1);
 
-            let used = VirtqUsed::new(GuestAddress(x), mem, qsize, USED_ALIGN);
+            let used = VirtqUsed::new(GuestAddress(x), mem, qsize, USED_ALIGN as usize);
 
             VirtQueue {
                 dtable,
