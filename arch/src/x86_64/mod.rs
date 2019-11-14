@@ -45,29 +45,31 @@ pub enum Error {
 
 // Where BIOS/VGA magic would live on a real PC.
 const EBDA_START: u64 = 0x9fc00;
-const FIRST_ADDR_PAST_32BITS: usize = (1 << 32);
-const MEM_32BIT_GAP_SIZE: usize = (768 << 20);
+const FIRST_ADDR_PAST_32BITS: u64 = (1 << 32);
+const MEM_32BIT_GAP_SIZE: u64 = (768 << 20);
 /// The start of the memory area reserved for MMIO devices.
-pub const MMIO_MEM_START: usize = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
+pub const MMIO_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
 
 /// Returns a Vec of the valid memory addresses.
 /// These should be used to configure the GuestMemory structure for the platform.
 /// For x86_64 all addresses are valid from the start of the kernel except a
 /// carve out at the end of 32bit address space.
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
-    match size.checked_sub(MMIO_MEM_START) {
+    // It's safe to cast MMIO_MEM_START to usize because it fits in a u32 variable
+    // (It points to an address in the 32 bit space).
+    match size.checked_sub(MMIO_MEM_START as usize) {
         // case1: guest memory fits before the gap
         None | Some(0) => vec![(GuestAddress(0), size)],
         // case2: guest memory extends beyond the gap
         Some(remaining) => vec![
-            (GuestAddress(0), MMIO_MEM_START),
+            (GuestAddress(0), MMIO_MEM_START as usize),
             (GuestAddress(FIRST_ADDR_PAST_32BITS), remaining),
         ],
     }
 }
 
 /// Returns the memory address where the kernel could be loaded.
-pub fn get_kernel_start() -> usize {
+pub fn get_kernel_start() -> u64 {
     layout::HIMEM_START
 }
 
@@ -121,19 +123,19 @@ pub fn configure_system(
     } else {
         add_e820_entry(
             &mut params.0,
-            himem_start.raw_value() as u64,
+            himem_start.raw_value(),
             // it's safe to use unchecked_offset_from because
             // end_32bit_gap_start > himem_start
-            end_32bit_gap_start.unchecked_offset_from(himem_start) as u64,
+            end_32bit_gap_start.unchecked_offset_from(himem_start),
             E820_RAM,
         )?;
         if mem_end > first_addr_past_32bits {
             add_e820_entry(
                 &mut params.0,
-                first_addr_past_32bits.raw_value() as u64,
+                first_addr_past_32bits.raw_value(),
                 // it's safe to use unchecked_offset_from because
                 // mem_end > first_addr_past_32bits
-                mem_end.unchecked_offset_from(first_addr_past_32bits) as u64,
+                mem_end.unchecked_offset_from(first_addr_past_32bits),
                 E820_RAM,
             )?;
         }
@@ -188,7 +190,7 @@ mod tests {
         let regions = arch_memory_regions((1usize << 32) + 0x8000);
         assert_eq!(2, regions.len());
         assert_eq!(GuestAddress(0), regions[0].0);
-        assert_eq!(GuestAddress(1usize << 32), regions[1].0);
+        assert_eq!(GuestAddress(1u64 << 32), regions[1].0);
     }
 
     #[test]

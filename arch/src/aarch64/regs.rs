@@ -122,7 +122,7 @@ arm64_sys_reg!(MPIDR_EL1, 3, 0, 0, 0, 5);
 /// * `cpu_id` - Index of current vcpu.
 /// * `boot_ip` - Starting instruction pointer.
 /// * `mem` - Reserved DRAM for current VM.
-pub fn setup_regs(vcpu: &VcpuFd, cpu_id: u8, boot_ip: usize, mem: &GuestMemory) -> Result<()> {
+pub fn setup_regs(vcpu: &VcpuFd, cpu_id: u8, boot_ip: u64, mem: &GuestMemory) -> Result<()> {
     // Get the register index of the PSTATE (Processor State) register.
     vcpu.set_one_reg(arm64_core_reg!(pstate), PSTATE_FAULT_BITS_64)
         .map_err(Error::SetCoreRegister)?;
@@ -130,7 +130,7 @@ pub fn setup_regs(vcpu: &VcpuFd, cpu_id: u8, boot_ip: usize, mem: &GuestMemory) 
     // Other vCPUs are powered off initially awaiting PSCI wakeup.
     if cpu_id == 0 {
         // Setting the PC (Processor Counter) to the current program address (kernel address).
-        vcpu.set_one_reg(arm64_core_reg!(pc), boot_ip as u64)
+        vcpu.set_one_reg(arm64_core_reg!(pc), boot_ip)
             .map_err(Error::SetCoreRegister)?;
 
         // Last mandatory thing to set -> the address pointing to the FDT (also called DTB).

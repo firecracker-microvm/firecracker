@@ -15,9 +15,9 @@ use arch_gen::x86::msr_index;
 use memory_model::{Address, GuestAddress, GuestMemory};
 
 // Initial pagetables.
-const PML4_START: usize = 0x9000;
-const PDPTE_START: usize = 0xa000;
-const PDE_START: usize = 0xb000;
+const PML4_START: u64 = 0x9000;
+const PDPTE_START: u64 = 0xa000;
+const PDE_START: u64 = 0xb000;
 
 /// Errors thrown while setting up x86_64 registers.
 #[derive(Debug)]
@@ -138,8 +138,8 @@ pub fn setup_sregs(mem: &GuestMemory, vcpu: &VcpuFd) -> Result<()> {
     vcpu.set_sregs(&sregs).map_err(Error::SetStatusRegisters)
 }
 
-const BOOT_GDT_OFFSET: usize = 0x500;
-const BOOT_IDT_OFFSET: usize = 0x520;
+const BOOT_GDT_OFFSET: u64 = 0x500;
+const BOOT_IDT_OFFSET: u64 = 0x520;
 
 const BOOT_GDT_MAX: usize = 4;
 
@@ -222,11 +222,8 @@ fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
     // 512 2MB entries together covering VA [0..1GB). Note we are assuming
     // CPU supports 2MB pages (/proc/cpuinfo has 'pse'). All modern CPUs do.
     for i in 0..512 {
-        mem.write_obj_at_addr(
-            (i << 21) + 0x83u64,
-            boot_pde_addr.unchecked_add((i * 8) as usize),
-        )
-        .map_err(|_| Error::WritePDEAddress)?;
+        mem.write_obj_at_addr((i << 21) + 0x83u64, boot_pde_addr.unchecked_add(i * 8))
+            .map_err(|_| Error::WritePDEAddress)?;
     }
 
     sregs.cr3 = boot_pml4_addr.raw_value() as u64;
@@ -304,8 +301,8 @@ mod tests {
         GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap()
     }
 
-    fn read_u64(gm: &GuestMemory, offset: usize) -> u64 {
-        let read_addr = GuestAddress(offset);
+    fn read_u64(gm: &GuestMemory, offset: u64) -> u64 {
+        let read_addr = GuestAddress(offset as u64);
         gm.read_obj_from_addr(read_addr).unwrap()
     }
 
@@ -342,10 +339,7 @@ mod tests {
         assert_eq!(0xa003, read_u64(&gm, PML4_START));
         assert_eq!(0xb003, read_u64(&gm, PDPTE_START));
         for i in 0..512 {
-            assert_eq!(
-                (i << 21) + 0x83u64,
-                read_u64(&gm, PDE_START + (i * 8) as usize)
-            );
+            assert_eq!((i << 21) + 0x83u64, read_u64(&gm, PDE_START + (i * 8)));
         }
 
         assert_eq!(PML4_START as u64, sregs.cr3);
