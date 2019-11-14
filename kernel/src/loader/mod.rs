@@ -76,7 +76,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub fn load_kernel<F>(
     guest_mem: &GuestMemory,
     kernel_image: &mut F,
-    start_address: usize,
+    start_address: u64,
 ) -> Result<GuestAddress>
 where
     F: Read + Seek,
@@ -109,7 +109,7 @@ where
         // If the program header is backwards, bail.
         return Err(Error::InvalidProgramHeaderOffset);
     }
-    if (ehdr.e_entry as usize) < start_address {
+    if ehdr.e_entry < start_address {
         return Err(Error::InvalidEntryAddress);
     }
 
@@ -132,7 +132,7 @@ where
             .seek(SeekFrom::Start(phdr.p_offset))
             .map_err(|_| Error::SeekKernelStart)?;
 
-        let mem_offset = GuestAddress(phdr.p_paddr as usize);
+        let mem_offset = GuestAddress(phdr.p_paddr);
         if mem_offset.raw_value() < start_address {
             return Err(Error::InvalidProgramHeaderAddress);
         }
@@ -142,14 +142,14 @@ where
             .map_err(|_| Error::ReadKernelImage)?;
     }
 
-    Ok(GuestAddress(ehdr.e_entry as usize))
+    Ok(GuestAddress(ehdr.e_entry))
 }
 
 #[cfg(target_arch = "aarch64")]
 pub fn load_kernel<F>(
     guest_mem: &GuestMemory,
     kernel_image: &mut F,
-    start_address: usize,
+    start_address: u64,
 ) -> Result<GuestAddress>
 where
     F: Read + Seek,
@@ -170,7 +170,7 @@ where
     u32 res5;			/* reserved (used for PE COFF offset) */
     ====================================
      */
-    const AARCH64_KERNEL_LOAD_ADDR: usize = 0x80000;
+    const AARCH64_KERNEL_LOAD_ADDR: u64 = 0x80000;
     const AARCH64_MAGIC_NUMBER: u32 = 0x644d_5241;
     const AARCH64_MAGIC_OFFSET_HEADER: u64 =
         2 * mem::size_of::<u32>() as u64 + 6 * mem::size_of::<u64>() as u64; // This should total 56.
@@ -203,7 +203,7 @@ where
     }
     /* Following the boot protocol mentioned above. */
     if u64::from_le(hdrvals[1]) != 0 {
-        kernel_load_offset = u64::from_le(hdrvals[0]) as usize;
+        kernel_load_offset = u64::from_le(hdrvals[0]);
     }
     /* Get the total size of kernel image. */
     let kernel_size = kernel_image
@@ -245,7 +245,7 @@ pub fn load_cmdline(
     }
 
     let end = guest_addr
-        .checked_add(raw_cmdline.len())
+        .checked_add(raw_cmdline.len() as u64)
         .ok_or(CmdlineError::CommandLineOverflow)?; // Extra for null termination.
     if end > guest_mem.end_addr() {
         return Err(CmdlineError::CommandLineOverflow);
@@ -380,14 +380,14 @@ mod tests {
         let bad_image = make_test_bin();
         assert_eq!(
             Err(Error::InvalidEntryAddress),
-            load_kernel(&gm, &mut Cursor::new(&bad_image), std::usize::MAX)
+            load_kernel(&gm, &mut Cursor::new(&bad_image), std::u64::MAX)
         );
     }
 
     #[test]
     fn test_cmdline_overflow() {
         let gm = create_guest_mem();
-        let cmdline_address = GuestAddress(MEM_SIZE - 5);
+        let cmdline_address = GuestAddress((MEM_SIZE - 5) as u64);
         let mut cmdline = Cmdline::new(10);
         cmdline.insert_str("12345").unwrap();
         let cmdline = cmdline.as_cstring().unwrap();
