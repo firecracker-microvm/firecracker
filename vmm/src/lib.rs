@@ -2265,15 +2265,21 @@ mod tests {
     #[test]
     fn test_epoll_stdin_event() {
         let mut epoll_context = EpollContext::new().unwrap();
-        epoll_context.enable_stdin_event();
-        assert_eq!(
-            epoll_context.dispatch_table[epoll_context.stdin_index as usize].unwrap(),
-            EpollDispatch::Stdin
-        );
-        // This should trigger a warn!. When logger will not be a global var we will be able to test
-        // it.
-        epoll_context.enable_stdin_event();
 
+        // If this unit test is run without a terminal attached (i.e ssh without pseudo terminal,
+        // request, jailer with `--daemonize` flag on) EPOLL_CTL_ADD would return EPERM
+        // on STDIN_FILENO. So, we are using `isatty` to check whether STDIN_FILENO refers
+        // to a terminal. If it does not, we are no longer asserting against
+        // `epoll_context.dispatch_table[epoll_context.stdin_index as usize]` holding any value.
+        if unsafe { libc::isatty(libc::STDIN_FILENO as i32) } == 1 {
+            epoll_context.enable_stdin_event();
+            assert_eq!(
+                epoll_context.dispatch_table[epoll_context.stdin_index as usize].unwrap(),
+                EpollDispatch::Stdin
+            );
+        }
+
+        epoll_context.enable_stdin_event();
         epoll_context.disable_stdin_event();
         assert!(epoll_context.dispatch_table[epoll_context.stdin_index as usize].is_none());
     }
