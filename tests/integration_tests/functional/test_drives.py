@@ -4,6 +4,7 @@
 
 import os
 import platform
+from subprocess import run, CalledProcessError, PIPE
 
 import pytest
 
@@ -11,8 +12,8 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 
-def test_rescan(test_microvm_with_ssh, network_config):
-    """Verify that a block device rescan has guest seeing changes."""
+def test_rescan_file(test_microvm_with_ssh, network_config):
+    """Verify that rescan works with a file-backed virtio device."""
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -55,6 +56,62 @@ def test_rescan(test_microvm_with_ssh, network_config):
         ssh_connection,
         fs.size()
     )
+
+
+def test_rescan_dev(test_microvm_with_ssh, network_config):
+    """Verify that rescan works with a device-backed virtio device."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+    session = test_microvm.api_session
+
+    # Set up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
+    # a root file system with the rw permission. The network interface is
+    # added after we get a unique MAC and IP.
+    test_microvm.basic_config()
+
+    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
+
+    # Add a scratch block device.
+    fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, 'fs1'))
+    response = test_microvm.drive.put(
+        drive_id='scratch',
+        path_on_host=test_microvm.create_jailed_resource(fs1.path),
+        is_root_device=False,
+        is_read_only=False
+    )
+    assert session.is_status_no_content(response.status_code)
+
+    test_microvm.start()
+
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    _check_scratch_size(ssh_connection, fs1.size())
+
+    fs2 = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, 'fs2'),
+        size=512
+    )
+
+    losetup = ['losetup', '--find', '--show', fs2.path]
+    loopback_device = None
+    try:
+        result = run(losetup, check=True, stdout=PIPE, stderr=PIPE)
+        loopback_device = result.stdout.decode('utf-8').rstrip()
+    except CalledProcessError as error:
+        pytest.skip('failed to create a lookback device: ' +
+                    f'stdout={error.stdout}, stderr={error.stderr}')
+
+    try:
+        response = test_microvm.drive.patch(
+            drive_id='scratch',
+            path_on_host=test_microvm.create_jailed_resource(loopback_device),
+        )
+        assert session.is_status_no_content(response.status_code)
+
+        _check_scratch_size(ssh_connection, fs2.size())
+    finally:
+        if loopback_device:
+            run(['losetup', '--detach', loopback_device], check=True)
 
 
 def test_non_partuuid_boot(test_microvm_with_ssh, network_config):

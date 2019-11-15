@@ -26,12 +26,22 @@ pub use self::vsock::*;
 
 use super::EpollHandler;
 
-const DEVICE_INIT: u32 = 0x0;
-const DEVICE_ACKNOWLEDGE: u32 = 0x01;
-const DEVICE_DRIVER: u32 = 0x02;
-const DEVICE_DRIVER_OK: u32 = 0x04;
-const DEVICE_FEATURES_OK: u32 = 0x08;
-const DEVICE_FAILED: u32 = 0x80;
+/// When the driver initializes the device, it lets the device know about the
+/// completed stages using the Device Status Field.
+///
+/// These following consts are defined in the order in which the bits would
+/// typically be set by the driver. INIT -> ACKNOWLEDGE -> DRIVER and so on.
+///
+/// This module is a 1:1 mapping for the Device Status Field in the virtio 1.0
+/// specification, section 2.1.
+mod device_status {
+    pub const INIT: u32 = 0;
+    pub const ACKNOWLEDGE: u32 = 1;
+    pub const DRIVER: u32 = 2;
+    pub const FAILED: u32 = 128;
+    pub const FEATURES_OK: u32 = 8;
+    pub const DRIVER_OK: u32 = 4;
+}
 
 /// Types taken from linux/virtio_ids.h.
 /// Type 0 is not used by virtio. Use it as wildcard for non-virtio devices
