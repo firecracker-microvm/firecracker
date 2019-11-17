@@ -98,6 +98,7 @@ use vmm_config::net::{
     NetworkInterfaceUpdateConfig,
 };
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
+use vmm_config::syscall_whitelist_config::{SyscallWhitelistConfig};
 use vstate::{KvmContext, Vcpu, Vm};
 
 pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
@@ -379,6 +380,8 @@ pub struct VmmConfig {
     machine_config: Option<VmConfig>,
     #[serde(rename = "vsock")]
     vsock_device: Option<VsockDeviceConfig>,
+    #[serde(rename = "syscall-whitelist")]
+    syscall_whitelist: Vec<SyscallWhitelistConfig>,
 }
 
 /// Contains the state and associated methods required for the Firecracker VMM.
@@ -411,6 +414,7 @@ pub struct Vmm {
 
     // The level of seccomp filtering used. Seccomp filters are loaded before executing guest code.
     seccomp_level: u32,
+    syscall_whitelist: Vec<i64>,
 }
 
 impl Vmm {
@@ -463,6 +467,7 @@ impl Vmm {
             epoll_context,
             write_metrics_event_fd,
             seccomp_level,
+            syscall_whitelist: vec![],
         })
     }
 
@@ -955,11 +960,12 @@ impl Vmm {
             }
 
             let seccomp_level = self.seccomp_level;
+            let syscall_whitelist = self.syscall_whitelist.clone();
             self.vcpus_handles.push(
                 thread::Builder::new()
                     .name(format!("fc_vcpu{}", cpu_id))
                     .spawn(move || {
-                        vcpu.run(vcpu_thread_barrier, seccomp_level, vcpu_exit_evt);
+                        vcpu.run(vcpu_thread_barrier, seccomp_level, syscall_whitelist, vcpu_exit_evt);
                     })
                     .map_err(StartMicrovmError::VcpuSpawn)?,
             );
@@ -1482,6 +1488,19 @@ impl Vmm {
         }
     }
 
+    /// Set syscall whitelist for guest.
+    pub fn set_syscall_whitelist(&mut self, whitelist: SyscallWhitelistConfig) -> UserResult {
+        if self.is_instance_initialized() {
+            Err(VmmActionError::VsockConfig(
+                ErrorKind::User,
+                VsockError::UpdateNotAllowedPostBoot,
+            ))
+        } else {
+            self.syscall_whitelist = whitelist.syscalls.unwrap();
+            Ok(())
+        }
+    }
+
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     pub fn set_block_device_path(&mut self, drive_id: String, path_on_host: String) -> UserResult {
         // Get the block device configuration specified by drive_id.
@@ -1661,6 +1680,11 @@ impl Vmm {
         if let Some(vsock_config) = vmm_config.vsock_device {
             self.set_vsock_device(vsock_config)?;
         }
+        
+        // TODO: fix this hardcoded stuff
+        let first_whitelist_config = vmm_config.syscall_whitelist.into_iter().next();
+        self.set_syscall_whitelist(first_whitelist_config.unwrap())?;
+
         Ok(())
     }
 

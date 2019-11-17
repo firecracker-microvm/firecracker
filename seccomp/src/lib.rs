@@ -918,13 +918,15 @@ impl SeccompFilter {
     ///
     /// * `level` - Filtering level.
     pub fn apply(self) -> Result<()> {
+        println!("start");
         let mut bpf_filter = Vec::new();
         bpf_filter.extend(VALIDATE_ARCHITECTURE());
         bpf_filter.extend(self.into_bpf().map_err(|_| Error::Load(libc::EINVAL))?);
-
+        println!("before unsafe");
         unsafe {
             {
                 let rc = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+                println!("after prctl");
                 if rc != 0 {
                     return Err(Error::Load(*libc::__errno_location()));
                 }

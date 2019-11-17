@@ -524,12 +524,13 @@ impl Vcpu {
         &mut self,
         thread_barrier: Arc<Barrier>,
         seccomp_level: u32,
+        whitelist: Vec<i64>,
         vcpu_exit_evt: EventFd,
     ) {
         // Load seccomp filters for this vCPU thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
-        if let Err(e) = default_syscalls::set_seccomp_level(seccomp_level) {
+        if let Err(e) = default_syscalls::set_seccomp_level_and_whitelist(seccomp_level, whitelist.clone()) {
             panic!(
                 "Failed to set the requested seccomp filters on vCPU {}: Error: {}",
                 self.id, e

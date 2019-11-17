@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use seccomp::{
-    Error, SeccompAction, SeccompCmpArgLen as ArgLen, SeccompCmpOp::Eq, SeccompCondition as Cond,
-    SeccompRule, SECCOMP_LEVEL_ADVANCED, SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
+    allow_syscall, Error, SeccompAction, SeccompCmpArgLen as ArgLen, SeccompCmpOp::Eq, SeccompCondition as Cond,
+    SeccompFilter, SeccompRule, SECCOMP_LEVEL_ADVANCED, SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
 };
 
 #[macro_use]
@@ -23,6 +23,24 @@ pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
         SECCOMP_LEVEL_NONE => Ok(()),
         _ => Err(Error::InvalidLevel),
     }
+}
+
+/// Applies the configured level of seccomp filtering along with a custom syscall whitelist.
+pub fn set_seccomp_level_and_whitelist(seccomp_level: u32, whitelist: Vec<i64>) -> Result<(), Error> {
+    // TODO: dedupe whitelist with default list
+    set_seccomp_level(seccomp_level);
+    println!("{:?}", whitelist);
+    let custom_syscalls = whitelist
+        .into_iter()
+        .map(|syscall| allow_syscall(syscall))
+        .into_iter()
+        .collect();
+    
+    // TODO: make default action configurable as well
+    let custom_filter = SeccompFilter::new(custom_syscalls, SeccompAction::Trap);
+    println!("aaa");
+    custom_filter?.apply()
+    // println!("bbb");
 }
 
 // See include/uapi/asm-generic/fcntl.h in the kernel code.
