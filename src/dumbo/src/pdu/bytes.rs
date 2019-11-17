@@ -67,17 +67,11 @@
 use std::marker::PhantomData;
 use std::mem::replace;
 use std::ops::{Deref, DerefMut};
-
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use utils::byte_order;
 
 /// Represents an immutable view into a sequence of bytes which stands for different values packed
 /// together using network byte ordering.
 pub trait NetworkBytes: Deref<Target = [u8]> {
-    // TODO: We're relying on the byteorder crate for now, but we could switch to manually
-    // handling bytes, to remove the dependency and any potential unnecessary overhead. Before
-    // attempting this, we should have a look at the optimized assembly output for operations with
-    // byteorder, because they may already be as fast as they can get.
-
     /// Reads an `u16` value from the specified offset, converting it to host byte ordering.
     ///
     /// # Panics
@@ -88,7 +82,7 @@ pub trait NetworkBytes: Deref<Target = [u8]> {
         // The unwrap() can fail when the offset is invalid, or there aren't enough bytes (2 in this
         // case) left until the end of the slice. The caller must ensure this doesn't happen (hence
         // the `unchecked` suffix).
-        (&self[offset..]).read_u16::<BigEndian>().unwrap()
+        byte_order::read_be_u16(&self[offset..])
     }
 
     /// Reads an `u32` value from the specified offset, converting it to host byte ordering.
@@ -98,7 +92,7 @@ pub trait NetworkBytes: Deref<Target = [u8]> {
     /// This method will panic if `offset` is invalid.
     #[inline]
     fn ntohl_unchecked(&self, offset: usize) -> u32 {
-        (&self[offset..]).read_u32::<BigEndian>().unwrap()
+        byte_order::read_be_u32(&self[offset..])
     }
 
     /// Shrinks the current slice to the given `len`.
@@ -121,7 +115,7 @@ pub trait NetworkBytesMut: NetworkBytes + DerefMut<Target = [u8]> {
     /// This method will panic if `offset` is invalid.
     #[inline]
     fn htons_unchecked(&mut self, offset: usize, value: u16) {
-        (&mut self[offset..]).write_u16::<BigEndian>(value).unwrap()
+        byte_order::write_be_u16(&mut self[offset..], value)
     }
 
     /// Writes the given `u32` value at the specified `offset` using network byte ordering.
@@ -131,7 +125,7 @@ pub trait NetworkBytesMut: NetworkBytes + DerefMut<Target = [u8]> {
     /// This method will panic if `offset` is invalid.
     #[inline]
     fn htonl_unchecked(&mut self, offset: usize, value: u32) {
-        (&mut self[offset..]).write_u32::<BigEndian>(value).unwrap()
+        byte_order::write_be_u32(&mut self[offset..], value)
     }
 }
 

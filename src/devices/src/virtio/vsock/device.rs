@@ -27,8 +27,7 @@ use std::os::unix::io::AsRawFd;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use byteorder::{ByteOrder, LittleEndian};
-
+use utils::byte_order;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemory;
 
@@ -94,10 +93,10 @@ where
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
         match offset {
-            0 if data.len() == 8 => LittleEndian::write_u64(data, self.cid),
-            0 if data.len() == 4 => LittleEndian::write_u32(data, (self.cid & 0xffff_ffff) as u32),
+            0 if data.len() == 8 => byte_order::write_le_u64(data, self.cid),
+            0 if data.len() == 4 => byte_order::write_le_u32(data, (self.cid & 0xffff_ffff) as u32),
             4 if data.len() == 4 => {
-                LittleEndian::write_u32(data, ((self.cid >> 32) & 0xffff_ffff) as u32)
+                byte_order::write_le_u32(data, ((self.cid >> 32) & 0xffff_ffff) as u32)
             }
             _ => warn!(
                 "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
@@ -244,19 +243,19 @@ mod tests {
         let mut data = [0u8; 8];
         ctx.device.read_config(0, &mut data[..4]);
         assert_eq!(
-            u64::from(LittleEndian::read_u32(&data)),
+            u64::from(byte_order::read_le_u32(&data[..])),
             ctx.cid & 0xffff_ffff
         );
         ctx.device.read_config(4, &mut data[4..]);
         assert_eq!(
-            u64::from(LittleEndian::read_u32(&data[4..])),
+            u64::from(byte_order::read_le_u32(&data[4..])),
             (ctx.cid >> 32) & 0xffff_ffff
         );
 
         // Test reading 64-bit.
         let mut data = [0u8; 8];
         ctx.device.read_config(0, &mut data);
-        assert_eq!(LittleEndian::read_u64(&data), ctx.cid);
+        assert_eq!(byte_order::read_le_u64(&data), ctx.cid);
 
         // Check that out-of-bounds reading doesn't mutate the destination buffer.
         let mut data = [0u8, 1, 2, 3, 4, 5, 6, 7];
