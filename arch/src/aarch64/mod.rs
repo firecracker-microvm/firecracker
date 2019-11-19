@@ -26,6 +26,9 @@ pub enum Error {
     SetupFDT(fdt::Error),
 }
 
+/// The start of the memory area reserved for MMIO devices.
+pub const MMIO_MEM_START: u64 = layout::MAPPED_IO_START;
+
 pub use self::fdt::DeviceInfoForFDT;
 use DeviceType;
 
@@ -61,11 +64,6 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
     )
     .map_err(Error::SetupFDT)?;
     Ok(())
-}
-
-/// Function that returns the address reserved for MMIO devices.
-pub fn get_reserved_mem_addr() -> u64 {
-    layout::MAPPED_IO_START
 }
 
 /// Returns the memory address where the kernel could be loaded.
