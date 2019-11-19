@@ -116,7 +116,7 @@ If variable exists in `os.environ`, its value it will be used for the test
 session root and temporary directories.
 """
 
-DEFAULT_ROOT_TESTSESSION_PATH = '/tmp/firecracker_test_session/'
+DEFAULT_ROOT_TESTSESSION_PATH = '/srv/tmp/firecracker_test_session/'
 """If ENV_TMPDIR_VAR is not set, this path will be used instead."""
 
 IP4_GENERATOR_CREATE_LOCK = threading.Lock()
@@ -444,6 +444,31 @@ def pytest_generate_tests(metafunc):
                 item, how_many
             ) for item in image_list]
         )
+
+
+def pytest_addoption(parser):
+    """Implement pytest env option."""
+    parser.addoption(
+        "-E",
+        action="store",
+        metavar="NAME",
+        help="Only run tests matching the environment NAME.",
+    )
+
+
+def pytest_configure(config):
+    """Add a env test marker."""
+    config.addinivalue_line(
+        "markers", "env(name): mark test to run only on named environment"
+    )
+
+
+def pytest_runtest_setup(item):
+    """Skip a test based on env value."""
+    envnames = [mark.args[0] for mark in item.iter_markers(name="env")]
+    if envnames:
+        if item.config.getoption("-E") not in envnames:
+            pytest.skip("This test runs only in {!r} env".format(envnames))
 
 
 TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (

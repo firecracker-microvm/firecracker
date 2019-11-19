@@ -553,12 +553,14 @@ cmd_shell() {
 
     # By default, we run the container as the current user.
     privileged=false
+    ram_disk=false
 
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")          { cmd_help; exit 1; } ;;
             "-p"|"--privileged")    { privileged=true;  } ;;
+            "-r"|"--ramdisk")       { ram_disk=true;  } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
             ;;
@@ -569,6 +571,16 @@ cmd_shell() {
     # Make sure we have what we need to continue.
     ensure_devctr
     ensure_build_dir
+
+    extra_args=""
+    
+    # The ramdisk is used in performance tests.
+    if [[ $ram_disk = true ]]; then
+        umount /mnt/ramdisk
+        mkdir -p /mnt/ramdisk && mount -t tmpfs -o size=4096m tmpfs /mnt/ramdisk
+        mkdir -p /mnt/ramdisk/tmp
+        extra_args="--volume /mnt/ramdisk/srv:/srv"
+    fi
 
     if [[ $privileged = true ]]; then
         # If requested, spin up a privileged container.
@@ -581,6 +593,7 @@ cmd_shell() {
             --privileged \
             --security-opt seccomp=unconfined \
             --workdir "$CTR_FC_ROOT_DIR" \
+            ${extra_args} \
             -- \
             bash
         ret=$?
@@ -605,6 +618,7 @@ cmd_shell() {
             --device=/dev/kvm:/dev/kvm \
             --workdir "$CTR_FC_ROOT_DIR" \
             --env PS1="$(whoami)@\h:\w\$ " \
+            ${extra_args} \
             -- \
             bash --norc
         ret=$?
