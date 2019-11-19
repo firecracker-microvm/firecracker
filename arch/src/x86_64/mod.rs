@@ -47,13 +47,15 @@ pub enum Error {
 const EBDA_START: u64 = 0x9fc00;
 const FIRST_ADDR_PAST_32BITS: usize = (1 << 32);
 const MEM_32BIT_GAP_SIZE: usize = (768 << 20);
+/// The start of the memory area reserved for MMIO devices.
+pub const MMIO_MEM_START: usize = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
 
 /// Returns a Vec of the valid memory addresses.
 /// These should be used to configure the GuestMemory structure for the platform.
 /// For x86_64 all addresses are valid from the start of the kernel except a
 /// carve out at the end of 32bit address space.
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
-    let memory_gap_start = GuestAddress(FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE);
+    let memory_gap_start = GuestAddress(MMIO_MEM_START);
     let memory_gap_end = GuestAddress(FIRST_ADDR_PAST_32BITS);
     let requested_memory_size = GuestAddress(size);
     let mut regions = Vec::new();
@@ -74,11 +76,6 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     }
 
     regions
-}
-
-/// X86 specific memory hole/memory mapped devices/reserved area.
-pub fn get_32bit_gap_start() -> usize {
-    FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE
 }
 
 /// Returns the memory address where the kernel could be loaded.
@@ -105,7 +102,7 @@ pub fn configure_system(
     const KERNEL_LOADER_OTHER: u8 = 0xff;
     const KERNEL_MIN_ALIGNMENT_BYTES: u32 = 0x0100_0000; // Must be non-zero.
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
-    let end_32bit_gap_start = GuestAddress(get_32bit_gap_start());
+    let end_32bit_gap_start = GuestAddress(MMIO_MEM_START);
 
     let himem_start = GuestAddress(layout::HIMEM_START);
 
@@ -204,14 +201,6 @@ mod tests {
         assert_eq!(2, regions.len());
         assert_eq!(GuestAddress(0), regions[0].0);
         assert_eq!(GuestAddress(1usize << 32), regions[1].0);
-    }
-
-    #[test]
-    fn test_32bit_gap() {
-        assert_eq!(
-            get_32bit_gap_start(),
-            FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE
-        );
     }
 
     #[test]
