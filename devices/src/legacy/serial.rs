@@ -200,7 +200,7 @@ impl BusDevice for Serial {
             return;
         }
 
-        data[0] = match (offset as u64) as u8 {
+        data[0] = match offset as u8 {
             DLAB_LOW if self.is_dlab_set() => self.baud_divisor as u8,
             DLAB_HIGH if self.is_dlab_set() => (self.baud_divisor >> 8) as u8,
             DATA => {
@@ -231,7 +231,6 @@ impl BusDevice for Serial {
             METRICS.uart.missed_write_count.inc();
             return;
         }
-        let offset = offset as u64;
         if let Err(e) = self.handle_write(offset as u8, data[0]) {
             error!("Failed the write to serial: {:?}", e);
             METRICS.uart.error_count.inc();
