@@ -149,23 +149,24 @@ impl Serial {
         self.interrupt_identification = DEFAULT_INTERRUPT_IDENTIFICATION;
     }
 
-    fn handle_write(&mut self, offset: u8, v: u8) -> io::Result<()> {
+    // Handles a write request from the driver.
+    fn handle_write(&mut self, offset: u8, value: u8) -> io::Result<()> {
         match offset as u8 {
             DLAB_LOW if self.is_dlab_set() => {
-                self.baud_divisor = (self.baud_divisor & 0xff00) | u16::from(v)
+                self.baud_divisor = (self.baud_divisor & 0xff00) | u16::from(value)
             }
             DLAB_HIGH if self.is_dlab_set() => {
-                self.baud_divisor = (self.baud_divisor & 0x00ff) | (u16::from(v) << 8)
+                self.baud_divisor = (self.baud_divisor & 0x00ff) | (u16::from(value) << 8)
             }
             DATA => {
                 if self.is_loop() {
                     if self.in_buffer.len() < LOOP_SIZE {
-                        self.in_buffer.push_back(v);
+                        self.in_buffer.push_back(value);
                         self.recv_data()?;
                     }
                 } else {
                     if let Some(out) = self.out.as_mut() {
-                        out.write_all(&[v])?;
+                        out.write_all(&[value])?;
                         METRICS.uart.write_count.inc();
                         out.flush()?;
                         METRICS.uart.flush_count.inc();
@@ -173,34 +174,18 @@ impl Serial {
                     self.thr_empty()?;
                 }
             }
-            IER => self.interrupt_enable = v & IER_FIFO_BITS,
-            LCR => self.line_control = v,
-            MCR => self.modem_control = v,
-            SCR => self.scratch = v,
+            IER => self.interrupt_enable = value & IER_FIFO_BITS,
+            LCR => self.line_control = value,
+            MCR => self.modem_control = value,
+            SCR => self.scratch = value,
             _ => {}
         }
         Ok(())
     }
-}
 
-impl RawIOHandler for Serial {
-    fn raw_input(&mut self, data: &[u8]) -> io::Result<()> {
-        if !self.is_loop() {
-            self.in_buffer.extend(data);
-            self.recv_data()?;
-        }
-        Ok(())
-    }
-}
-
-impl BusDevice for Serial {
-    fn read(&mut self, offset: u64, data: &mut [u8]) {
-        if data.len() != 1 {
-            METRICS.uart.missed_read_count.inc();
-            return;
-        }
-
-        data[0] = match offset as u8 {
+    // Handles a read request from the driver.
+    fn handle_read(&mut self, offset: u8) -> u8 {
+        match offset as u8 {
             DLAB_LOW if self.is_dlab_set() => self.baud_divisor as u8,
             DLAB_HIGH if self.is_dlab_set() => (self.baud_divisor >> 8) as u8,
             DATA => {
@@ -223,7 +208,28 @@ impl BusDevice for Serial {
             MSR => self.modem_status,
             SCR => self.scratch,
             _ => 0,
-        };
+        }
+    }
+}
+
+impl RawIOHandler for Serial {
+    fn raw_input(&mut self, data: &[u8]) -> io::Result<()> {
+        if !self.is_loop() {
+            self.in_buffer.extend(data);
+            self.recv_data()?;
+        }
+        Ok(())
+    }
+}
+
+impl BusDevice for Serial {
+    fn read(&mut self, offset: u64, data: &mut [u8]) {
+        if data.len() != 1 {
+            METRICS.uart.missed_read_count.inc();
+            return;
+        }
+
+        data[0] = self.handle_read(offset as u8);
     }
 
     fn write(&mut self, offset: u64, data: &[u8]) {
