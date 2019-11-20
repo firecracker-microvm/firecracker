@@ -176,7 +176,6 @@ dependencies = [
  "api_server",
  "backtrace",
  "clap",
- "jailer",
  "libc",
  "logger",
  "mmds",

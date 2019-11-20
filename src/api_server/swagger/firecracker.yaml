@@ -357,8 +357,8 @@ paths:
     put:
       summary: Creates/updates a vsock device.
       description:
-        The first call creates the device with the configuration specified 
-        in body. Subsequent calls will update the device configuration. 
+        The first call creates the device with the configuration specified
+        in body. Subsequent calls will update the device configuration.
         May fail if update is not possible.
       operationId: putGuestVsock
       parameters:

@@ -666,16 +666,16 @@ cmd_prepare_release() {
     ensure_build_dir
 
     # Get current version from the swagger spec.
-    swagger="$FC_ROOT_DIR/api_server/swagger/firecracker.yaml"
+    swagger="$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"
     curr_ver=$(grep "version: " "$swagger" | awk -F : '{print $2}' | tr -d ' ')
 
     say "Updating from $curr_ver to $version ..."
     get_user_confirmation || die "Aborted."
 
     # Update version in files.
-    files_to_change=("$swagger"                         \
-                     "$FC_ROOT_DIR/Cargo.toml"          \
-                     "$FC_ROOT_DIR/jailer/Cargo.toml")
+    files_to_change=("$swagger"                                 \
+                     "$FC_ROOT_DIR/src/firecracker/Cargo.toml"  \
+                     "$FC_ROOT_DIR/src/jailer/Cargo.toml")
     say "Updating source files:"
     for file in "${files_to_change[@]}"; do
         say "- $file"
