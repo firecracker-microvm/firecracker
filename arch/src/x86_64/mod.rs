@@ -55,27 +55,15 @@ pub const MMIO_MEM_START: usize = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
 /// For x86_64 all addresses are valid from the start of the kernel except a
 /// carve out at the end of 32bit address space.
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
-    let memory_gap_start = GuestAddress(MMIO_MEM_START);
-    let memory_gap_end = GuestAddress(FIRST_ADDR_PAST_32BITS);
-    let requested_memory_size = GuestAddress(size);
-    let mut regions = Vec::new();
-
-    // case1: guest memory fits before the gap
-    if requested_memory_size <= memory_gap_start {
-        regions.push((GuestAddress(0), size));
-    // case2: guest memory extends beyond the gap
-    } else {
-        // push memory before the gap
-        regions.push((GuestAddress(0), memory_gap_start.raw_value()));
-        regions.push((
-            memory_gap_end,
-            // it's safe to use unchecked_offset_from because
-            // requested_memory_size > memory_gap_start
-            requested_memory_size.unchecked_offset_from(memory_gap_start),
-        ));
+    match size.checked_sub(MMIO_MEM_START) {
+        // case1: guest memory fits before the gap
+        None | Some(0) => vec![(GuestAddress(0), size)],
+        // case2: guest memory extends beyond the gap
+        Some(remaining) => vec![
+            (GuestAddress(0), MMIO_MEM_START),
+            (GuestAddress(FIRST_ADDR_PAST_32BITS), remaining),
+        ],
     }
-
-    regions
 }
 
 /// Returns the memory address where the kernel could be loaded.
