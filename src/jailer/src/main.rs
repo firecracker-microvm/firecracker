@@ -19,7 +19,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::result;
 
-use clap::{App, AppSettings, Arg, ArgMatches};
+use clap::{App, AppSettings, Arg};
 
 use env::Env;
 use utils::validators;
@@ -328,24 +328,6 @@ fn sanitize_process() {
     }
 }
 
-pub fn run(args: ArgMatches, start_time_us: u64, start_time_cpu_us: u64) -> Result<()> {
-    // We open /dev/kvm and create the listening socket. These file descriptors will be
-    // passed on to Firecracker post exec, and used via knowing their values in advance.
-
-    // TODO: can a malicious guest that takes over firecracker use its access to the KVM fd to
-    // starve the host of resources? (cgroups should take care of that, but do they currently?)
-
-    sanitize_process();
-
-    let env = Env::new(args, start_time_us, start_time_cpu_us)?;
-
-    // Ensure the folder exists.
-    fs::create_dir_all(env.chroot_dir())
-        .map_err(|e| Error::CreateDir(env.chroot_dir().to_owned(), e))?;
-
-    env.run(SOCKET_FILE_NAME)
-}
-
 /// Turns an AsRef<Path> into a CString (c style string).
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
@@ -357,6 +339,22 @@ fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
         .into_string()
         .map_err(|e| Error::OsStringParsing(path.as_ref().to_path_buf(), e))?;
     CString::new(path_str).map_err(Error::CStringParsing)
+}
+
+fn main() {
+    sanitize_process();
+
+    Env::new(
+        clap_app().get_matches(),
+        utils::time::get_time(utils::time::ClockType::Monotonic) / 1000,
+        utils::time::get_time(utils::time::ClockType::ProcessCpu) / 1000,
+    )
+    .and_then(|env| {
+        fs::create_dir_all(env.chroot_dir())
+            .map_err(|e| Error::CreateDir(env.chroot_dir().to_owned(), e))?;
+        env.run(SOCKET_FILE_NAME)
+    })
+    .unwrap_or_else(|err| panic!("Jailer error: {}", err));
 }
 
 #[cfg(test)]

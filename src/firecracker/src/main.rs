@@ -5,7 +5,6 @@ extern crate backtrace;
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
 extern crate api_server;
-extern crate jailer;
 extern crate libc;
 extern crate utils;
 #[macro_use]

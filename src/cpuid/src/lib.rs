@@ -8,6 +8,8 @@
 #![deny(missing_docs)]
 //! Utility for configuring the CPUID (CPU identification) for the guest microVM.
 
+#![cfg(target_arch = "x86_64")]
+
 extern crate kvm_bindings;
 extern crate kvm_ioctls;
 extern crate vmm_sys_util;
