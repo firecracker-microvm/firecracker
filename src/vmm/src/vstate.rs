@@ -871,15 +871,20 @@ enum VcpuEmulation {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
-    use std::sync::{Arc, Barrier};
+    use std::path::PathBuf;
+    use std::sync::{mpsc, Arc, Barrier};
+    use std::time::Duration;
 
     use super::super::devices;
     use super::*;
 
+    use kernel::cmdline as kernel_cmdline;
+    use kernel::loader as kernel_loader;
+
     // Auxiliary function being used throughout the tests.
-    fn setup_vcpu() -> (Vm, Vcpu) {
+    fn setup_vcpu(mem_size: usize) -> (Vm, Vcpu) {
         let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemory::new(&[(GuestAddress(0), mem_size)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(gm, &kvm).is_ok());
 
@@ -908,7 +913,7 @@ mod tests {
 
     #[test]
     fn test_set_mmio_bus() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu) = setup_vcpu(0x1000);
         assert!(vcpu.mmio_bus.is_none());
         vcpu.set_mmio_bus(devices::Bus::new());
         assert!(vcpu.mmio_bus.is_some());
@@ -985,7 +990,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_configure_vcpu() {
-        let (vm, mut vcpu) = setup_vcpu();
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
 
         let vm_config = VmConfig::default();
         let vm_mem = vm.memory().unwrap();
@@ -1035,7 +1040,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_vcpu_run_failed() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu) = setup_vcpu(0x1000);
         // Setting an invalid seccomp level should panic.
         vcpu.run(seccomp::SECCOMP_LEVEL_ADVANCED + 10);
     }
@@ -1060,7 +1065,7 @@ mod tests {
 
     #[test]
     fn test_vcpu_tls() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu) = setup_vcpu(0x1000);
 
         // Running on the TLS vcpu should fail before we actually initialize it.
         unsafe {
@@ -1091,7 +1096,7 @@ mod tests {
 
     #[test]
     fn test_invalid_tls() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu) = setup_vcpu(0x1000);
         // Initialize vcpu TLS.
         vcpu.init_thread_local_data().unwrap();
         // Trying to initialize non-empty TLS should error.
@@ -1101,7 +1106,7 @@ mod tests {
     #[test]
     fn test_vcpu_kick() {
         Vcpu::register_kick_signal_handler();
-        let (vm, mut vcpu) = setup_vcpu();
+        let (vm, mut vcpu) = setup_vcpu(0x1000);
 
         let kvm_run =
             KvmRunWrapper::mmap_from_fd(&vcpu.fd, vm.fd.run_size()).expect("cannot mmap kvm-run");
@@ -1137,5 +1142,127 @@ mod tests {
         handle.join().expect("failed to join thread");
         // Verify that the Vcpu saw its kvm immediate-exit as set.
         assert!(success.load(Ordering::Acquire));
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn load_good_kernel(vm: &Vm) -> GuestAddress {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let parent = path.parent().unwrap();
+
+        let kernel_path: PathBuf = [parent.to_str().unwrap(), "kernel/src/loader/test_elf.bin"]
+            .iter()
+            .collect();
+
+        let vm_memory = vm.memory().expect("vm memory not initialized");
+
+        let mut kernel_file = File::open(kernel_path).expect("Cannot open kernel file");
+        let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
+        assert!(cmdline
+            .insert_str(super::super::DEFAULT_KERNEL_CMDLINE)
+            .is_ok());
+        let cmdline_addr = GuestAddress(arch::x86_64::layout::CMDLINE_START);
+
+        let entry_addr = kernel_loader::load_kernel(
+            vm_memory,
+            &mut kernel_file,
+            arch::x86_64::layout::HIMEM_START,
+        )
+        .expect("failed to load kernel");
+
+        kernel_loader::load_cmdline(
+            vm_memory,
+            cmdline_addr,
+            &cmdline.as_cstring().expect("failed to convert to cstring"),
+        )
+        .expect("failed to load cmdline");
+
+        entry_addr
+    }
+
+    // Sends an event to a vcpu and expects a particular response.
+    fn queue_event_expect_response(handle: &VcpuHandle, event: VcpuEvent, response: VcpuResponse) {
+        handle
+            .send_event(event)
+            .expect("failed to send event to vcpu");
+        assert_eq!(
+            handle
+                .response_receiver()
+                .recv_timeout(Duration::from_millis(100))
+                .expect("did not receive event response from vcpu"),
+            response
+        );
+    }
+
+    // Sends an event to a vcpu and expects no response.
+    fn queue_event_expect_timeout(handle: &VcpuHandle, event: VcpuEvent) {
+        handle
+            .send_event(event)
+            .expect("failed to send event to vcpu");
+        assert_eq!(
+            handle
+                .response_receiver()
+                .recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        );
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn vcpu_pause_resume() {
+        Vcpu::register_kick_signal_handler();
+        // Need enough mem to boot linux.
+        let mem_size = 64 << 20;
+        let (vm, mut vcpu) = setup_vcpu(mem_size);
+
+        let vcpu_exit_evt = vcpu.exit_evt.try_clone().unwrap();
+
+        // Needs a kernel since we'll actually run this vcpu.
+        let entry_addr = load_good_kernel(&vm);
+
+        let vm_config = VmConfig::default();
+        let vm_mem = vm.memory().unwrap();
+        vcpu.configure_x86_64(&vm_config, vm_mem, entry_addr)
+            .expect("failed to configure vcpu");
+
+        let seccomp_level = 0;
+        let vcpu_handle = vcpu
+            .start_threaded(seccomp_level)
+            .expect("failed to start vcpu");
+
+        // Queue a Resume event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        // Queue a Pause event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
+
+        // Validate vcpu handled the EINTR gracefully and didn't exit.
+        let err = vcpu_exit_evt.read().unwrap_err();
+        assert_eq!(err.raw_os_error().unwrap(), libc::EAGAIN);
+
+        // Queue another Pause event, expect no answer.
+        queue_event_expect_timeout(&vcpu_handle, VcpuEvent::Pause);
+
+        // Queue a Resume event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        // Queue another Resume event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        // Queue another Pause event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
+
+        // Queue a Resume event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        // Stop it by sending exit.
+        assert!(vcpu_handle.send_event(VcpuEvent::Exit).is_ok());
+
+        // Validate vCPU thread ends execution.
+        vcpu_handle
+            .join_vcpu_thread()
+            .expect("failed to join thread");
+
+        // Validate that the vCPU signaled its exit.
+        assert_eq!(vcpu_exit_evt.read().unwrap(), 1);
     }
 }
