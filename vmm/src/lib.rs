@@ -45,8 +45,9 @@ pub mod vmm_config;
 mod vstate;
 
 use std::collections::HashMap;
-use std::fs::{metadata, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io;
+use std::io::{Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::process;
@@ -394,7 +395,6 @@ pub struct Vmm {
     stdin_handle: io::Stdin,
 
     // Guest VM core resources.
-    guest_memory: Option<GuestMemory>,
     kernel_config: Option<KernelConfig>,
     vcpus_handles: Vec<thread::JoinHandle<()>>,
     exit_evt: Option<EventFd>,
@@ -455,7 +455,6 @@ impl Vmm {
             vm_config: VmConfig::default(),
             shared_info,
             stdin_handle: io::stdin(),
-            guest_memory: None,
             kernel_config: None,
             vcpus_handles: vec![],
             exit_evt: None,
@@ -708,31 +707,26 @@ impl Vmm {
     }
 
     fn init_guest_memory(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        if self.guest_memory().is_none() {
-            let mem_size = self
-                .vm_config
-                .mem_size_mib
-                .ok_or(StartMicrovmError::GuestMemory(
-                    memory_model::GuestMemoryError::MemoryNotInitialized,
-                ))?
-                << 20;
-            let arch_mem_regions = arch::arch_memory_regions(mem_size);
-            self.set_guest_memory(
-                GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?,
-            );
+        // We are not allowing reinitialization of vm guest memory.
+        if self.vm.memory().is_some() {
+            return Ok(());
         }
+
+        // We are defaulting the mem_size_mib to 128 (search for `impl Default for VmConfig`) so
+        // we should panic when `None` (since it denotes programming error).
+        let mem_size = self
+            .vm_config
+            .mem_size_mib
+            .expect("The size of guest memory is not specified!")
+            << 20;
+        let arch_mem_regions = arch::arch_memory_regions(mem_size);
 
         self.vm
             .memory_init(
-                self.guest_memory
-                    .clone()
-                    .ok_or(StartMicrovmError::GuestMemory(
-                        memory_model::GuestMemoryError::MemoryNotInitialized,
-                    ))?,
+                GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?,
                 &self.kvm,
             )
-            .map_err(StartMicrovmError::ConfigureVm)?;
-        Ok(())
+            .map_err(StartMicrovmError::ConfigureVm)
     }
 
     fn check_health(&self) -> std::result::Result<(), StartMicrovmError> {
@@ -742,31 +736,30 @@ impl Vmm {
             .map(|_| ())
     }
 
-    fn init_mmio_device_manager(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        if self.mmio_device_manager.is_none() {
-            let guest_mem = self
-                .guest_memory
-                .clone()
-                .ok_or(StartMicrovmError::GuestMemory(
-                    memory_model::GuestMemoryError::MemoryNotInitialized,
-                ))?;
-
-            // Instantiate the MMIO device manager.
-            // 'mmio_base' address has to be an address which is protected by the kernel
-            // and is architectural specific.
-            let device_manager = MMIODeviceManager::new(
-                guest_mem.clone(),
-                &mut (arch::get_reserved_mem_addr() as u64),
-                (arch::IRQ_BASE, arch::IRQ_MAX),
-            );
-            self.mmio_device_manager = Some(device_manager);
+    fn init_mmio_device_manager(&mut self) {
+        if self.mmio_device_manager.is_some() {
+            return;
         }
 
-        Ok(())
+        let guest_mem = self
+            .vm
+            .memory()
+            .expect("Cannot initialize device manager prior to guest memory!")
+            .clone();
+
+        // Instantiate the MMIO device manager.
+        // 'mmio_base' address has to be an address which is protected by the kernel
+        // and is architectural specific.
+        let device_manager = MMIODeviceManager::new(
+            guest_mem,
+            &mut (arch::get_reserved_mem_addr() as u64),
+            (arch::IRQ_BASE, arch::IRQ_MAX),
+        );
+        self.mmio_device_manager = Some(device_manager);
     }
 
     fn attach_virtio_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        self.init_mmio_device_manager()?;
+        self.init_mmio_device_manager();
 
         self.attach_block_devices()?;
         self.attach_net_devices()?;
@@ -843,7 +836,7 @@ impl Vmm {
     fn attach_legacy_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
         use StartMicrovmError::*;
 
-        self.init_mmio_device_manager()?;
+        self.init_mmio_device_manager();
         // `unwrap` is suitable for this context since this should be called only after the
         // device manager has been initialized.
         let device_manager = self.mmio_device_manager.as_mut().unwrap();
@@ -878,9 +871,10 @@ impl Vmm {
             .vcpu_count
             .ok_or(StartMicrovmError::VcpusNotConfigured)?;
 
-        let vm_memory = self.vm.get_memory().ok_or(StartMicrovmError::GuestMemory(
-            memory_model::GuestMemoryError::MemoryNotInitialized,
-        ))?;
+        let vm_memory = self
+            .vm
+            .memory()
+            .expect("Cannot create vCPUs before guest memory initialization!");
 
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
 
@@ -985,13 +979,14 @@ impl Vmm {
     fn load_kernel(&mut self) -> std::result::Result<GuestAddress, StartMicrovmError> {
         use StartMicrovmError::*;
 
+        // Trying to load kernel before initialzing guest memory is a programming error.
+        let vm_memory = self
+            .vm
+            .memory()
+            .expect("Cannot load kernel prior allocating memory!");
+
         // This is the easy way out of consuming the value of the kernel_cmdline.
         let kernel_config = self.kernel_config.as_mut().ok_or(MissingKernelConfig)?;
-
-        // It is safe to unwrap because the VM memory was initialized before in vm.memory_init().
-        let vm_memory = self.vm.get_memory().ok_or(GuestMemory(
-            memory_model::GuestMemoryError::MemoryNotInitialized,
-        ))?;
 
         let entry_addr = kernel_loader::load_kernel(
             vm_memory,
@@ -1019,11 +1014,12 @@ impl Vmm {
     fn configure_system(&self, vcpus: &[Vcpu]) -> std::result::Result<(), StartMicrovmError> {
         use StartMicrovmError::*;
 
-        let kernel_config = self.kernel_config.as_ref().ok_or(MissingKernelConfig)?;
+        let vm_memory = self
+            .vm
+            .memory()
+            .expect("Cannot configure registers prior to allocating memory!");
 
-        let vm_memory = self.vm.get_memory().ok_or(GuestMemory(
-            memory_model::GuestMemoryError::MemoryNotInitialized,
-        ))?;
+        let kernel_config = self.kernel_config.as_ref().ok_or(MissingKernelConfig)?;
 
         // The vcpu_count has a default value. We shouldn't have gotten to this point without
         // having set the vcpu count.
@@ -1054,8 +1050,7 @@ impl Vmm {
             .map_err(ConfigureSystem)?;
         }
 
-        self.configure_stdin()?;
-        Ok(())
+        self.configure_stdin()
     }
 
     fn register_events(&mut self) -> std::result::Result<(), StartMicrovmError> {
@@ -1088,19 +1083,7 @@ impl Vmm {
         self.stdin_handle
             .lock()
             .set_raw_mode()
-            .map_err(StartMicrovmError::StdinHandle)?;
-
-        Ok(())
-    }
-
-    /// Set the guest memory based on a pre-constructed `GuestMemory` object.
-    pub fn set_guest_memory(&mut self, guest_memory: GuestMemory) {
-        self.guest_memory = Some(guest_memory);
-    }
-
-    /// Returns a reference to the inner `GuestMemory` object if present, or `None` otherwise.
-    pub fn guest_memory(&self) -> Option<&GuestMemory> {
-        self.guest_memory.as_ref()
+            .map_err(StartMicrovmError::StdinHandle)
     }
 
     /// Set up the initial microVM state and start the vCPU threads.
@@ -1321,7 +1304,8 @@ impl Vmm {
                     .unwrap_or(0 as usize)
             };
 
-        self.guest_memory()
+        self.vm
+            .memory()
             .map(|ref mem| mem.map_and_fold(0, dirty_pages_in_region, std::ops::Add::add))
             .unwrap_or(0)
     }
@@ -1542,9 +1526,10 @@ impl Vmm {
         let device_manager = self.mmio_device_manager.as_ref().unwrap();
         for drive_config in self.device_configs.block.config_list.iter() {
             if drive_config.drive_id == *drive_id {
-                let metadata = metadata(&drive_config.path_on_host)
+                // Use seek() instead of stat() (std::fs::Metadata) to support block devices.
+                let new_size = File::open(&drive_config.path_on_host)
+                    .and_then(|mut f| f.seek(SeekFrom::End(0)))
                     .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-                let new_size = metadata.len();
                 if new_size % virtio::block::SECTOR_SIZE != 0 {
                     warn!(
                         "Disk size {} is not a multiple of sector size {}; \
@@ -1686,11 +1671,6 @@ impl Vmm {
         self.set_syscall_whitelist(first_whitelist_config.unwrap())?;
 
         Ok(())
-    }
-
-    /// Returns a reference to the inner KVM Vm object.
-    pub fn kvm_vm(&self) -> &Vm {
-        &self.vm
     }
 }
 
@@ -2084,8 +2064,7 @@ mod tests {
         assert!(vmm.init_guest_memory().is_ok());
         assert!(vmm.setup_interrupt_controller().is_ok());
         vmm.default_kernel_config(None);
-        vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+        vmm.init_mmio_device_manager();
 
         vmm.attach_net_devices().unwrap();
         vmm.set_instance_state(InstanceState::Running);
@@ -2114,7 +2093,7 @@ mod tests {
             assert!(mmio_device
                 .device_mut()
                 .activate(
-                    vmm.guest_memory().unwrap().clone(),
+                    vmm.vm.memory().unwrap().clone(),
                     EventFd::new().unwrap(),
                     Arc::new(AtomicUsize::new(0)),
                     vec![Queue::new(0), Queue::new(0)],
@@ -2342,12 +2321,11 @@ mod tests {
         // Test that creating a new block device returns the correct output.
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory().is_some());
+        assert!(vmm.vm.memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
-        vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+        vmm.init_mmio_device_manager();
 
         assert!(vmm.attach_block_devices().is_ok());
         assert!(vmm.get_kernel_cmdline_str().contains("root=/dev/vda rw"));
@@ -2366,12 +2344,11 @@ mod tests {
         // Test that creating a new block device returns the correct output.
         assert!(vmm.insert_block_device(root_block_device.clone()).is_ok());
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory().is_some());
+        assert!(vmm.vm.memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
-        vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+        vmm.init_mmio_device_manager();
 
         assert!(vmm.attach_block_devices().is_ok());
         assert!(vmm
@@ -2394,12 +2371,11 @@ mod tests {
             .insert_block_device(non_root_block_device.clone())
             .is_ok());
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory().is_some());
+        assert!(vmm.vm.memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
         vmm.default_kernel_config(None);
-        vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+        vmm.init_mmio_device_manager();
 
         assert!(vmm.attach_block_devices().is_ok());
         // Test that kernel commandline does not contain either /dev/vda or PARTUUID.
@@ -2447,13 +2423,12 @@ mod tests {
     fn test_attach_net_devices() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory().is_some());
+        assert!(vmm.vm.memory().is_some());
 
         vmm.default_kernel_config(None);
         vmm.setup_interrupt_controller()
             .expect("Failed to setup interrupt controller");
-        vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+        vmm.init_mmio_device_manager();
 
         // test create network interface
         let network_interface = NetworkInterfaceConfig {
@@ -2481,8 +2456,7 @@ mod tests {
         vmm.setup_interrupt_controller()
             .expect("Failed to setup interrupt controller");
 
-        vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+        vmm.init_mmio_device_manager();
         assert!(vmm.attach_virtio_devices().is_ok());
     }
 
@@ -2565,11 +2539,10 @@ mod tests {
             .is_ok());
 
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory().is_some());
+        assert!(vmm.vm.memory().is_some());
         assert!(vmm.setup_interrupt_controller().is_ok());
 
-        vmm.init_mmio_device_manager()
-            .expect("Cannot initialize mmio device manager");
+        vmm.init_mmio_device_manager();
 
         {
             let dummy_box = Box::new(DummyDevice { dummy: 0 });
@@ -2788,7 +2761,7 @@ mod tests {
         vmm.default_kernel_config(None);
 
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.vm.get_memory().is_some());
+        assert!(vmm.vm.memory().is_some());
 
         #[cfg(target_arch = "x86_64")]
         // `KVM_CREATE_VCPU` fails if the irqchip is not created beforehand. This is x86_64 speciifc.
@@ -2802,22 +2775,24 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Cannot load kernel prior allocating memory!")]
+    fn test_load_kernel_no_mem() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.load_kernel().unwrap();
+    }
+
+    #[test]
     fn test_load_kernel() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.vm.memory().is_some());
+
         assert_eq!(
             vmm.load_kernel().unwrap_err().to_string(),
             "Cannot start microvm without kernel configuration."
         );
 
         vmm.default_kernel_config(None);
-
-        assert_eq!(
-            vmm.load_kernel().unwrap_err().to_string(),
-            "Invalid Memory Configuration: MemoryNotInitialized"
-        );
-
-        assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.vm.get_memory().is_some());
 
         #[cfg(target_arch = "aarch64")]
         assert_eq!(
@@ -2836,22 +2811,29 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Cannot configure registers prior to allocating memory!")]
+    fn test_configure_system_no_mem() {
+        let vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.configure_system(&Vec::new()).unwrap();
+    }
+
+    #[test]
     fn test_configure_system() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+
+        assert!(vmm.init_guest_memory().is_ok());
+
+        // test that we can do this any number of times we want.
+        assert!(vmm.init_guest_memory().is_ok());
+
+        assert!(vmm.vm.memory().is_some());
+
         assert_eq!(
             vmm.configure_system(&Vec::new()).unwrap_err().to_string(),
             "Cannot start microvm without kernel configuration."
         );
 
         vmm.default_kernel_config(None);
-
-        assert_eq!(
-            vmm.configure_system(&Vec::new()).unwrap_err().to_string(),
-            "Invalid Memory Configuration: MemoryNotInitialized"
-        );
-
-        assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.vm.get_memory().is_some());
 
         // We need this so that configure_system finds a properly setup GIC device
         #[cfg(target_arch = "aarch64")]
@@ -2867,7 +2849,7 @@ mod tests {
         vmm.default_kernel_config(None);
 
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.vm.get_memory().is_some());
+        assert!(vmm.vm.memory().is_some());
         vmm.setup_interrupt_controller()
             .expect("Failed to setup interrupt controller");
 
@@ -2909,9 +2891,9 @@ mod tests {
     fn test_attach_legacy_devices_without_uart() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory().is_some());
+        assert!(vmm.vm.memory().is_some());
 
-        let guest_mem = vmm.guest_memory().unwrap().clone();
+        let guest_mem = vmm.vm.memory().unwrap().clone();
         let device_manager = MMIODeviceManager::new(
             guest_mem,
             &mut (arch::get_reserved_mem_addr() as u64),
@@ -2947,9 +2929,9 @@ mod tests {
     fn test_attach_legacy_devices_with_uart() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.init_guest_memory().is_ok());
-        assert!(vmm.guest_memory().is_some());
+        assert!(vmm.vm.memory().is_some());
 
-        let guest_mem = vmm.guest_memory().unwrap().clone();
+        let guest_mem = vmm.vm.memory().unwrap().clone();
         let device_manager = MMIODeviceManager::new(
             guest_mem,
             &mut (arch::get_reserved_mem_addr() as u64),
@@ -3215,21 +3197,5 @@ mod tests {
         );
 
         assert!(vmm.configure_from_json(json).is_ok());
-    }
-
-    #[test]
-    fn test_misc() {
-        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-
-        assert!(vmm.guest_memory().is_none());
-
-        let mem = GuestMemory::new(&[(GuestAddress(0x1000), 0x100)]).unwrap();
-        vmm.set_guest_memory(mem);
-
-        let mem_ref = vmm.guest_memory().unwrap();
-        assert_eq!(mem_ref.num_regions(), 1);
-        assert_eq!(mem_ref.end_addr(), GuestAddress(0x1100));
-
-        assert_eq!(vmm.kvm_vm().fd().as_raw_fd(), vmm.vm.fd().as_raw_fd());
     }
 }
