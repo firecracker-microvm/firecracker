@@ -28,19 +28,28 @@ pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
 /// Applies the configured level of seccomp filtering along with a custom syscall whitelist.
 pub fn set_seccomp_level_and_whitelist(seccomp_level: u32, whitelist: Vec<i64>) -> Result<(), Error> {
     // TODO: dedupe whitelist with default list
-    set_seccomp_level(seccomp_level);
-    println!("{:?}", whitelist);
-    let custom_syscalls = whitelist
-        .into_iter()
-        .map(|syscall| allow_syscall(syscall))
-        .into_iter()
-        .collect();
-    
     // TODO: make default action configurable as well
-    let custom_filter = SeccompFilter::new(custom_syscalls, SeccompAction::Trap);
-    println!("aaa");
-    custom_filter?.apply()
-    // println!("bbb");
+    let mut base_filter = match seccomp_level {
+        SECCOMP_LEVEL_ADVANCED => default_filter()?,
+        SECCOMP_LEVEL_BASIC => default_filter()?.allow_all(),
+        _ => SeccompFilter::new(
+            vec![].into_iter().collect(), 
+            SeccompAction::Trap
+        ).unwrap(),
+    };
+    
+    println!("{:?}", whitelist);
+    for syscall in whitelist.into_iter() {
+        base_filter
+            .add_rules(
+                syscall,
+                vec![SeccompRule::new(vec![], SeccompAction::Allow)], // default to Allow for now
+            )
+            .unwrap();
+    }
+    
+
+    base_filter.apply()
 }
 
 // See include/uapi/asm-generic/fcntl.h in the kernel code.
