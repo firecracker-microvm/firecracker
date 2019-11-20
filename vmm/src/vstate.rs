@@ -127,14 +127,17 @@ impl KvmContext {
         let capabilities = vec![Irqchip, Ioeventfd, Irqfd, UserMemory, ArmPsci02];
 
         // Check that all desired capabilities are supported.
-        for capability in capabilities.iter() {
-            if !kvm.check_extension(*capability) {
-                return Err(Error::KvmCap(*capability));
+        match capabilities
+            .iter()
+            .find(|&capability| !kvm.check_extension(*capability))
+        {
+            None => {
+                let max_memslots = kvm.get_nr_memslots();
+                Ok(KvmContext { kvm, max_memslots })
             }
-        }
 
-        let max_memslots = kvm.get_nr_memslots();
-        Ok(KvmContext { kvm, max_memslots })
+            Some(c) => Err(Error::KvmCap(*c)),
+        }
     }
 
     pub fn fd(&self) -> &Kvm {
