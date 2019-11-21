@@ -312,6 +312,16 @@ name = "net_gen"
 version = "0.1.0"
 
 [[package]]
+name = "polly"
+version = "0.0.1"
+dependencies = [
+ "bitflags",
+ "epoll",
+ "libc",
+ "utils",
+]
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -562,6 +572,7 @@ dependencies = [
  "logger",
  "memory_model",
  "mmds",
+ "polly",
  "rate_limiter",
  "seccomp",
  "serde",
