@@ -10,7 +10,6 @@ use std::num::NonZeroUsize;
 use std::result::Result;
 
 use crate::MacAddr;
-use fc_util::time::timestamp_cycles;
 use logger::{Metric, METRICS};
 use pdu::arp::{test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
 use pdu::ethernet::{Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4};
@@ -19,6 +18,7 @@ use pdu::tcp::Error as TcpSegmentError;
 use pdu::Incomplete;
 use tcp::handler::{self, RecvEvent, TcpIPv4Handler, WriteEvent};
 use tcp::NextSegmentStatus;
+use utils::time::timestamp_cycles;
 
 const DEFAULT_MAC_ADDR: &str = "06:01:23:45:67:01";
 const DEFAULT_IPV4_ADDR: [u8; 4] = [169, 254, 169, 254];
