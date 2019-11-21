@@ -170,6 +170,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fc_util"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "firecracker"
 version = "0.19.0"
 dependencies = [
@@ -208,10 +215,11 @@ name = "jailer"
 version = "0.19.0"
 dependencies = [
  "clap",
+ "fc_util",
  "libc",
  "regex",
+ "sys_util",
  "tempfile",
- "utils",
 ]
 
 [[package]]
@@ -219,7 +227,7 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "memory_model",
- "utils",
+ "sys_util",
 ]
 
 [[package]]
@@ -264,6 +272,7 @@ dependencies = [
 name = "logger"
 version = "0.1.0"
 dependencies = [
+ "fc_util",
  "lazy_static",
  "libc",
  "log",
@@ -271,7 +280,6 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tempfile",
- "utils",
 ]
 
 [[package]]
@@ -286,7 +294,6 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tempfile",
- "utils",
 ]
 
 [[package]]
@@ -378,10 +385,10 @@ dependencies = [
 name = "rate_limiter"
 version = "0.1.0"
 dependencies = [
+ "fc_util",
  "libc",
  "logger",
  "timerfd",
- "utils",
 ]
 
 [[package]]
@@ -474,6 +481,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-xid",
+]
+
+[[package]]
+name = "sys_util"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "tempfile",
 ]
 
 [[package]]
