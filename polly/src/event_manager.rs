@@ -110,6 +110,10 @@ impl HandlerMap {
         }
     }
 
+    pub fn get_mut_ref(&mut self, id: &i32) -> Option<&mut EventHandlerData> {
+        self.handlers.get_mut(id)
+    }
+
     // Returns a copy of EventHandlerData instead of mut ref.
     pub fn get(&mut self, id: &i32) -> Option<EventHandlerData> {
         match self.handlers.get(id) {
@@ -270,18 +274,22 @@ impl EventManager {
         Ok(())
     }
 
-    pub fn process_api_channel(&mut self) -> Result<()> {
-        loop {
-            let _events = self.api_channel_tx.read_event();
+    pub fn process_api_channel(&mut self) -> Result<u64> {
+        let event_count = self.api_channel_tx.read_event();
+        for _ in 0..event_count {
             match self.api_channel_rx.try_recv() {
-                Ok((wrapped_handler, ops)) => Ok(self.run_pollable_ops(wrapped_handler, ops)?),
+                Ok((wrapped_handler, ops)) => {
+                    self.run_pollable_ops(wrapped_handler, ops)?;
+                    Ok(())
+                }
                 // We expect to try reading until TryRecvError::Empty.
                 Err(err) => match err {
-                    TryRecvError::Empty => return Ok(()),
+                    TryRecvError::Empty => Ok(()),
                     TryRecvError::Disconnected => Err(Error::ApiChannelDisconnect),
                 },
             }?
         }
+        Ok(event_count)
     }
 
     /// Update an event handler pollables and event sets.
@@ -327,7 +335,7 @@ impl EventManager {
     }
 
     fn update_event(&mut self, event: EventRegistrationData) -> Result<()> {
-        if let Some(_) = self.handlers.get(&event.0.as_raw_fd()) {
+        if let Some(handler_data) = self.handlers.get_mut_ref(&event.0.as_raw_fd()) {
             epoll::ctl(
                 self.fd.as_raw_fd(),
                 epoll::ControlOptions::EPOLL_CTL_MOD,
@@ -338,6 +346,7 @@ impl EventManager {
                 ),
             )
             .map_err(|_| Error::Poll(io::Error::last_os_error()))?;
+            handler_data.data = event;
         } else {
             return Err(Error::NotFound(event.0));
         }
@@ -431,7 +440,9 @@ impl EventManager {
             let evset = match Events::from_bits(event_mask) {
                 Some(evset) => evset,
                 None => {
-                    println!("epoll: ignoring unknown event set: 0x{:x}", event_mask);
+                    // Ignore unknown bits in event mask.
+                    // TODO: We might want to log this as a warning but that requires a logger
+                    // reference and a crate dependency.
                     continue;
                 }
             };
@@ -496,6 +507,76 @@ impl EventHandler for EventManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+
+    struct DummyEventConsumer {
+        pollable: Pollable,
+        event_fd: EventFd,
+        read: bool,
+        write: bool,
+        error: bool,
+        close: bool,
+    }
+
+    impl DummyEventConsumer {
+        pub fn new() -> Self {
+            DummyEventConsumer {
+                pollable: Pollable::from(&io::stdin()),
+                event_fd: EventFd::new().unwrap(),
+                read: false,
+                write: false,
+                error: false,
+                close: false,
+            }
+        }
+    }
+
+    impl EventHandler for DummyEventConsumer {
+        /// Handle a read event (EPOLLIN).
+        fn handle_read(&mut self, source: Pollable) -> Option<Vec<PollableOp>> {
+            if source.as_raw_fd() == self.event_fd.as_raw_fd() {
+                self.read = true;
+            }
+            None
+        }
+        /// Handle a write event (EPOLLOUT).
+        fn handle_write(&mut self, source: Pollable) -> Option<Vec<PollableOp>> {
+            if source.as_raw_fd() == self.event_fd.as_raw_fd() {
+                self.write = true;
+            }
+            None
+        }
+        /// Handle a close event (EPOLLRDHUP).
+        fn handle_close(&mut self, source: Pollable) -> Option<Vec<PollableOp>> {
+            if source.as_raw_fd() == self.event_fd.as_raw_fd() {
+                self.close = true;
+            }
+            None
+        }
+        /// Handle an error event (EPOLLERR).assert_ne!
+        fn handle_error(&mut self, source: Pollable) -> Option<Vec<PollableOp>> {
+            if source.as_raw_fd() == self.event_fd.as_raw_fd() {
+                self.error = true;
+            }
+            None
+        }
+
+        /// Initial registration of pollable objects.
+        /// Use the PollableOpBuilder to build the vector of PollableOps.
+        fn init(&self) -> Option<Vec<PollableOp>> {
+            Some(vec![
+                PollableOpBuilder::new(self.pollable.clone())
+                    .readable()
+                    .register(),
+                PollableOpBuilder::new(Pollable::from(&self.event_fd))
+                    .readable()
+                    .writeable()
+                    .closeable()
+                    .register(),
+            ])
+        }
+    }
+
     #[test]
     fn test_event_type_to_epoll_mask() {
         let mask = EventSet::READ | EventSet::WRITE | EventSet::CLOSE;
@@ -503,5 +584,210 @@ mod tests {
             epoll::Events::EPOLLIN | epoll::Events::EPOLLOUT | epoll::Events::EPOLLRDHUP;
 
         assert_eq!(EventManager::event_type_to_epoll_mask(mask), epoll_mask);
+    }
+
+    #[test]
+    fn test_channel() {
+        let mut em = EventManager::new().unwrap();
+        let mut channel = em.get_api_channel();
+
+        let handler = Arc::new(Mutex::new(DummyEventConsumer::new()));
+        let mut ops = vec![PollableOpBuilder::new(Pollable::from(&io::stdin()))
+            .readable()
+            .register()];
+        channel.send((handler.clone(), ops));
+        ops = vec![PollableOpBuilder::new(Pollable::from(&io::stdout()))
+            .readable()
+            .register()];
+        channel.send((handler.clone(), ops));
+
+        assert_eq!(em.process_api_channel().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_channel_api_register() {
+        let mut em = EventManager::new().unwrap();
+        let mut channel = em.get_api_channel();
+
+        let handler = Arc::new(Mutex::new(DummyEventConsumer::new()));
+
+        // Negative test: register the same handler twice.
+        let mut ops = vec![PollableOpBuilder::new(Pollable::from(&io::stdin()))
+            .readable()
+            .register()];
+        channel.send((handler.clone(), ops));
+        ops = vec![PollableOpBuilder::new(Pollable::from(&io::stdin()))
+            .readable()
+            .register()];
+        channel.send((handler.clone(), ops));
+
+        assert!(em.process_api_channel().is_err());
+
+        // Validate the handler is registered.
+        let pollable = Pollable::from(&io::stdout());
+        ops = vec![PollableOpBuilder::new(pollable.clone())
+            .writeable()
+            .register()];
+        channel.send((handler.clone(), ops));
+
+        assert_eq!(em.process_api_channel().unwrap(), 1);
+        assert!(em.handlers.get(&pollable.as_raw_fd()).is_some());
+    }
+
+    #[test]
+    fn test_callback_api_register() {
+        // Test registration via register()/init() callback api.
+        let mut em = EventManager::new().unwrap();
+        let mut channel = em.get_api_channel();
+
+        let handler = em.register(DummyEventConsumer::new()).unwrap();
+        let pollable = handler.lock().expect("Unlock failed.").pollable.clone();
+
+        assert!(em.handlers.get(&pollable.as_raw_fd()).is_some());
+    }
+
+    #[test]
+    fn test_update_api_register() {
+        // Test registration via update() api.
+        let mut em = EventManager::new().unwrap();
+
+        let handler = Arc::new(Mutex::new(DummyEventConsumer::new()));
+        let pollable = handler.lock().expect("Unlock failed.").pollable.clone();
+        let ops = handler.lock().expect("Unlock failed.").init().unwrap();
+        em.update(handler, ops);
+
+        let handler_data = em.handlers.get(&pollable.as_raw_fd());
+        assert!(handler_data.is_some());
+        let reg_data = handler_data.unwrap().data;
+        assert_eq!(reg_data, (pollable, EventSet::READ));
+    }
+
+    #[test]
+    fn test_update_api_unregister() {
+        // Test unregistration via update() api.
+        let mut em = EventManager::new().unwrap();
+
+        let handler = Arc::new(Mutex::new(DummyEventConsumer::new()));
+        let pollable = handler.lock().expect("Unlock failed.").pollable.clone();
+        let ops = handler.lock().expect("Unlock failed.").init().unwrap();
+        em.update(handler.clone(), ops);
+
+        let mut handler_data = em.handlers.get(&pollable.as_raw_fd());
+        assert!(handler_data.is_some());
+
+        assert!(em
+            .update(
+                handler.clone(),
+                vec![PollableOpBuilder::new(pollable.clone()).unregister()]
+            )
+            .is_ok());
+
+        handler_data = em.handlers.get(&pollable.as_raw_fd());
+        assert!(handler_data.is_none());
+    }
+
+    #[test]
+    fn test_channel_api_unregister() {
+        // Test unegistration via channel api.
+        let mut em = EventManager::new().unwrap();
+        let mut channel = em.get_api_channel();
+
+        let handler = em.register(DummyEventConsumer::new()).unwrap();
+        let pollable = handler.lock().expect("Unlock failed.").pollable.clone();
+        let ops = handler.lock().expect("Unlock failed.").init().unwrap();
+
+        let mut handler_data = em.handlers.get(&pollable.as_raw_fd());
+        assert!(handler_data.is_some());
+
+        channel
+            .send((
+                handler.clone(),
+                vec![PollableOpBuilder::new(pollable.clone()).unregister()],
+            ))
+            .unwrap();
+
+        assert_eq!(em.process_api_channel().unwrap(), 1);
+
+        handler_data = em.handlers.get(&pollable.as_raw_fd());
+        assert!(handler_data.is_none());
+    }
+
+    #[test]
+    fn test_channel_api_update() {
+        // Test update pollable eventset via channel api.
+        let mut em = EventManager::new().unwrap();
+        let mut channel = em.get_api_channel();
+
+        let handler = Arc::new(Mutex::new(DummyEventConsumer::new()));
+        let pollable = handler.lock().expect("Unlock failed.").pollable.clone();
+        let ops = handler.lock().expect("Unlock failed.").init().unwrap();
+        // register via update
+        em.update(handler.clone(), ops);
+
+        let mut handler_data = em.handlers.get(&pollable.as_raw_fd());
+        assert!(handler_data.is_some());
+
+        channel
+            .send((
+                handler.clone(),
+                vec![PollableOpBuilder::new(pollable.clone())
+                    .writeable()
+                    .update()],
+            ))
+            .unwrap();
+
+        assert_eq!(em.process_api_channel().unwrap(), 1);
+
+        handler_data = em.handlers.get(&pollable.as_raw_fd());
+        assert!(handler_data.is_some());
+        let reg_data = handler_data.unwrap().data;
+        assert_eq!(reg_data, (pollable, EventSet::WRITE));
+    }
+
+    #[test]
+    fn test_read_event() {
+        let mut em = EventManager::new().unwrap();
+        let mut channel = em.get_api_channel();
+        let handler = em.register(DummyEventConsumer::new()).unwrap();
+
+        handler
+            .lock()
+            .expect("Unlock failed")
+            .event_fd
+            .write(1)
+            .unwrap();
+
+        em.run_timeout(1).unwrap();
+        assert!(handler.lock().expect("Unlock failed").read);
+    }
+
+    #[test]
+    fn test_write_event() {
+        let mut em = EventManager::new().unwrap();
+        let mut channel = em.get_api_channel();
+        let handler = em.register(DummyEventConsumer::new()).unwrap();
+
+        em.run().unwrap();
+        assert!(handler.lock().expect("Unlock failed").write);
+    }
+
+    #[test]
+    fn test_cascaded_events() {
+        let mut root_em = EventManager::new().unwrap();
+        let mut em = EventManager::new().unwrap();
+        let mut channel = em.get_api_channel();
+        let handler = em.register(DummyEventConsumer::new()).unwrap();
+        handler
+            .lock()
+            .expect("Unlock failed")
+            .event_fd
+            .write(1)
+            .unwrap();
+
+        root_em.register(em).unwrap();
+
+        root_em.run().unwrap();
+        assert!(handler.lock().expect("Unlock failed").read);
+        assert!(handler.lock().expect("Unlock failed").write);
     }
 }
