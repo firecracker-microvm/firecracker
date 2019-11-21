@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use std::io;
 
 use logger::{Metric, METRICS};
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
 
 use crate::bus::{BusDevice, RawIOHandler};
 
@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn serial_output() {
-        let intr_evt = EventFd::new().unwrap();
+        let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_out = SharedBuffer::new();
 
         let mut serial = Serial::new_out(intr_evt, Box::new(serial_out.clone()));
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn serial_input() {
-        let intr_evt = EventFd::new().unwrap();
+        let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_out = SharedBuffer::new();
         let mut buffer: Vec<u8> = Vec::with_capacity(16);
 
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn serial_thr() {
-        let intr_evt = EventFd::new().unwrap();
+        let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let mut serial = Serial::new_sink(intr_evt.try_clone().unwrap());
 
         // write 1 to the interrupt event fd, so that read doesn't block in case the event fd
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn serial_dlab() {
-        let mut serial = Serial::new_sink(EventFd::new().unwrap());
+        let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         serial.write(u64::from(LCR), &[LCR_DLAB_BIT as u8]);
         serial.write(u64::from(DLAB_LOW), &[0x12 as u8]);
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn serial_modem() {
-        let mut serial = Serial::new_sink(EventFd::new().unwrap());
+        let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         serial.write(u64::from(MCR), &[MCR_LOOP_BIT as u8]);
         serial.write(u64::from(DATA), &[b'a']);
@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn serial_scratch() {
-        let mut serial = Serial::new_sink(EventFd::new().unwrap());
+        let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         serial.write(u64::from(SCR), &[0x12 as u8]);
 
@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn test_serial_data_len() {
         const LEN: usize = 1;
-        let mut serial = Serial::new_sink(EventFd::new().unwrap());
+        let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         let missed_writes_before = METRICS.uart.missed_write_count.count();
         // Trying to write data of length different than the one that we initialized the device with

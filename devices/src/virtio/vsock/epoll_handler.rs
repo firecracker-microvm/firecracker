@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use memory_model::GuestMemory;
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
 
 use super::super::super::{DeviceEventT, Error as DeviceError};
 use super::super::queue::Queue as VirtQueue;

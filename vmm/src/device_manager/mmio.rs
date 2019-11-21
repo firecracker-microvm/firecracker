@@ -19,6 +19,8 @@ use devices::{BusDevice, RawIOHandler};
 use kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
 use memory_model::GuestMemory;
+#[cfg(target_arch = "aarch64")]
+use utils::eventfd::EventFd;
 
 /// Errors for MMIO device manager.
 #[derive(Debug)]
@@ -178,7 +180,7 @@ impl MMIODeviceManager {
             return Err(Error::IrqsExhausted);
         }
 
-        let com_evt = sys_util::EventFd::new().map_err(Error::EventFd)?;
+        let com_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let device = devices::legacy::Serial::new_out(
             com_evt.try_clone().map_err(Error::EventFd)?,
             Box::new(io::stdout()),
@@ -228,7 +230,7 @@ impl MMIODeviceManager {
         }
 
         // Attaching the RTC device.
-        let rtc_evt = sys_util::EventFd::new().map_err(Error::EventFd)?;
+        let rtc_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let device = devices::legacy::RTC::new(rtc_evt.try_clone().map_err(Error::EventFd)?);
         vm.register_irqfd(rtc_evt.as_raw_fd(), self.irq)
             .map_err(Error::RegisterIrqFd)?;
@@ -335,7 +337,7 @@ mod tests {
     use memory_model::{GuestAddress, GuestMemory};
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, RwLock};
-    use sys_util::EventFd;
+    use utils::eventfd::EventFd;
     const QUEUE_SIZES: &[u16] = &[64];
 
     impl MMIODeviceManager {
@@ -414,7 +416,7 @@ mod tests {
 
         Vmm::new(
             shared_info,
-            &EventFd::new().expect("cannot create eventFD"),
+            &EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD"),
             0,
         )
         .expect("Cannot Create VMM")
@@ -481,9 +483,9 @@ mod tests {
 
         // test activate
         let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let ievt = EventFd::new().unwrap();
+        let ievt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let stat = Arc::new(AtomicUsize::new(0));
-        let queue_evts = vec![EventFd::new().unwrap()];
+        let queue_evts = vec![EventFd::new(libc::EFD_NONBLOCK).unwrap()];
         let result = dummy.activate(m.clone(), ievt, stat, Vec::with_capacity(1), queue_evts);
         assert!(result.is_ok());
     }

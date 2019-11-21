@@ -130,7 +130,6 @@ impl Display for LoggerConfigError {
 #[cfg(test)]
 mod tests {
     extern crate tempfile;
-
     use self::tempfile::NamedTempFile;
     use super::*;
 

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use byteorder::{ByteOrder, LittleEndian};
 
 use memory_model::{GuestAddress, GuestMemory};
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
 
 use super::device_status;
 use super::*;
@@ -148,7 +148,7 @@ impl MmioDevice {
     pub fn new(mem: GuestMemory, device: Box<dyn VirtioDevice>) -> std::io::Result<MmioDevice> {
         let mut queue_evts = Vec::new();
         for _ in device.queue_max_sizes().iter() {
-            queue_evts.push(EventFd::new()?)
+            queue_evts.push(EventFd::new(libc::EFD_NONBLOCK)?)
         }
         let queues = device
             .queue_max_sizes()
@@ -162,7 +162,7 @@ impl MmioDevice {
             acked_features_select: 0,
             queue_select: 0,
             interrupt_status: Arc::new(AtomicUsize::new(0)),
-            interrupt_evt: Some(EventFd::new()?),
+            interrupt_evt: Some(EventFd::new(libc::EFD_NONBLOCK)?),
             device_status: device_status::INIT,
             config_generation: 0,
             queues,

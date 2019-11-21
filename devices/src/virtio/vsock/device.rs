@@ -30,7 +30,7 @@ use std::sync::Arc;
 use byteorder::{ByteOrder, LittleEndian};
 
 use memory_model::GuestMemory;
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
 
 use super::super::{ActivateError, ActivateResult, Queue as VirtQueue, VirtioDevice};
 use super::epoll_handler::VsockEpollHandler;
@@ -270,7 +270,7 @@ mod tests {
         // Test a bad activation.
         let bad_activate = ctx.device.activate(
             ctx.mem.clone(),
-            EventFd::new().unwrap(),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
             Arc::new(AtomicUsize::new(0)),
             Vec::new(),
             Vec::new(),
@@ -284,7 +284,7 @@ mod tests {
         ctx.device
             .activate(
                 ctx.mem.clone(),
-                EventFd::new().unwrap(),
+                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                 Arc::new(AtomicUsize::new(0)),
                 vec![
                     VirtQueue::new(256),
@@ -292,9 +292,9 @@ mod tests {
                     VirtQueue::new(256),
                 ],
                 vec![
-                    EventFd::new().unwrap(),
-                    EventFd::new().unwrap(),
-                    EventFd::new().unwrap(),
+                    EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+                    EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+                    EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                 ],
             )
             .unwrap();

@@ -20,7 +20,7 @@ use std::sync::Arc;
 use logger::{Metric, METRICS};
 use memory_model::{DataInit, GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
 
 use super::{
@@ -741,8 +741,8 @@ mod tests {
         let mut disk_image = b.disk_image.take().unwrap();
         let disk_nsectors = disk_image.seek(SeekFrom::End(0)).unwrap() / SECTOR_SIZE;
         let status = Arc::new(AtomicUsize::new(0));
-        let interrupt_evt = EventFd::new().unwrap();
-        let queue_evt = EventFd::new().unwrap();
+        let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let queue_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         let disk_image_id_str = build_device_id(&disk_image).unwrap();
         let mut disk_image_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
@@ -772,12 +772,12 @@ mod tests {
         bad_evtlen: bool,
     ) -> ActivateResult {
         let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let ievt = EventFd::new().unwrap();
+        let ievt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let stat = Arc::new(AtomicUsize::new(0));
 
         let vq = VirtQueue::new(GuestAddress(0), &m, 16);
         let mut queues = vec![vq.create_queue()];
-        let mut queue_evts = vec![EventFd::new().unwrap()];
+        let mut queue_evts = vec![EventFd::new(libc::EFD_NONBLOCK).unwrap()];
 
         // Invalidate queues list to test this failure case.
         if bad_qlen {

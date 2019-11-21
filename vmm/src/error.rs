@@ -137,7 +137,7 @@ pub enum StartMicrovmError {
     /// Cannot spawn a new vCPU thread.
     VcpuSpawn(std::io::Error),
     /// Cannot set mode for terminal.
-    StdinHandle(std::io::Error),
+    StdinHandle(utils::errno::Error),
 }
 
 /// It's convenient to automatically convert `kernel::cmdline::Error`s
@@ -494,7 +494,6 @@ mod tests {
     use super::*;
 
     use kernel;
-    use net_util;
 
     // Helper function to get ErrorKind of error.
     fn error_kind<T: std::convert::Into<VmmActionError>>(err: T) -> ErrorKind {
@@ -573,32 +572,32 @@ mod tests {
         // NetworkInterfaceError::OpenTap can be of multiple kinds.
         {
             assert_eq!(
-                error_kind(NetworkInterfaceError::OpenTap(net_util::TapError::OpenTun(
-                    io::Error::from_raw_os_error(0)
-                ))),
-                ErrorKind::User
-            );
-            assert_eq!(
                 error_kind(NetworkInterfaceError::OpenTap(
-                    net_util::TapError::CreateTap(io::Error::from_raw_os_error(0))
+                    utils::net::TapError::OpenTun(io::Error::from_raw_os_error(0))
                 )),
                 ErrorKind::User
             );
             assert_eq!(
                 error_kind(NetworkInterfaceError::OpenTap(
-                    net_util::TapError::IoctlError(io::Error::from_raw_os_error(0))
+                    utils::net::TapError::CreateTap(io::Error::from_raw_os_error(0))
+                )),
+                ErrorKind::User
+            );
+            assert_eq!(
+                error_kind(NetworkInterfaceError::OpenTap(
+                    utils::net::TapError::IoctlError(io::Error::from_raw_os_error(0))
                 )),
                 ErrorKind::Internal
             );
             assert_eq!(
                 error_kind(NetworkInterfaceError::OpenTap(
-                    net_util::TapError::CreateSocket(io::Error::from_raw_os_error(0))
+                    utils::net::TapError::CreateSocket(io::Error::from_raw_os_error(0))
                 )),
                 ErrorKind::Internal
             );
             assert_eq!(
                 error_kind(NetworkInterfaceError::OpenTap(
-                    net_util::TapError::InvalidIfname
+                    utils::net::TapError::InvalidIfname
                 )),
                 ErrorKind::User
             );
@@ -640,7 +639,7 @@ mod tests {
         );
         assert_eq!(
             error_kind(StartMicrovmError::CreateNetDevice(
-                devices::virtio::Error::TapOpen(net_util::TapError::CreateTap(
+                devices::virtio::Error::TapOpen(utils::net::TapError::CreateTap(
                     io::Error::from_raw_os_error(0)
                 ))
             )),
@@ -780,10 +779,12 @@ mod tests {
             ))),
             ErrorKind::Internal
         );
+
+        let errno_err_res: utils::errno::Result<utils::errno::Error> = utils::errno::errno_result();
+        let errno_err = errno_err_res.unwrap_err();
+
         assert_eq!(
-            error_kind(StartMicrovmError::StdinHandle(
-                io::Error::from_raw_os_error(0)
-            )),
+            error_kind(StartMicrovmError::StdinHandle(errno_err)),
             ErrorKind::Internal
         );
     }

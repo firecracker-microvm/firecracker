@@ -22,7 +22,7 @@ use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{LogOption, Metric, LOGGER, METRICS};
 use memory_model::{Address, GuestAddress, GuestMemory, GuestMemoryError};
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
 #[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::CpuFeaturesTemplate;
 use vmm_config::machine_config::VmConfig;
@@ -721,7 +721,7 @@ mod tests {
         vcpu.run(
             Arc::new(Barrier::new(1)),
             seccomp::SECCOMP_LEVEL_ADVANCED + 10,
-            EventFd::new().unwrap(),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         );
     }
 

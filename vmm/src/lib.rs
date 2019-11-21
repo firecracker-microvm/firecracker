@@ -23,16 +23,14 @@ extern crate arch;
 #[cfg(target_arch = "x86_64")]
 extern crate cpuid;
 extern crate devices;
-extern crate fc_util;
 extern crate kernel;
 #[macro_use]
 extern crate logger;
 extern crate dumbo;
 extern crate memory_model;
-extern crate net_util;
 extern crate rate_limiter;
 extern crate seccomp;
-extern crate sys_util;
+extern crate utils;
 
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
@@ -74,7 +72,6 @@ use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
 use devices::RawIOHandler;
 use devices::{DeviceEventT, EpollHandler};
 use error::{Error, Result, UserResult};
-use fc_util::time::TimestampUs;
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
@@ -82,10 +79,12 @@ use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
-use net_util::TapError;
 #[cfg(target_arch = "aarch64")]
 use serde_json::Value;
-use sys_util::{EventFd, Terminal};
+use utils::eventfd::EventFd;
+use utils::net::TapError;
+use utils::terminal::Terminal;
+use utils::time::TimestampUs;
 use vmm_config::boot_source::{
     BootSourceConfig, BootSourceConfigError, KernelConfig, DEFAULT_KERNEL_CMDLINE,
 };
@@ -938,7 +937,8 @@ impl Vmm {
             // On aarch64 we don't support i8042. Use a dummy event nobody touches until
             // we get i8042 support.
             #[cfg(target_arch = "aarch64")]
-            let vcpu_exit_evt = EventFd::new().map_err(|_| StartMicrovmError::EventFd)?;
+            let vcpu_exit_evt =
+                EventFd::new(libc::EFD_NONBLOCK).map_err(|_| StartMicrovmError::EventFd)?;
 
             // `unwrap` is safe since we are asserting that the `vcpu_count` is equal to the number
             // of items of `vcpus` vector.
@@ -1820,7 +1820,7 @@ mod tests {
 
         Vmm::new(
             shared_info,
-            &EventFd::new().expect("Cannot create eventFD"),
+            &EventFd::new(libc::EFD_NONBLOCK).expect("Cannot create eventFD"),
             seccomp::SECCOMP_LEVEL_NONE,
         )
         .expect("Cannot Create VMM")
@@ -2065,10 +2065,13 @@ mod tests {
                 .device_mut()
                 .activate(
                     vmm.vm.memory().unwrap().clone(),
-                    EventFd::new().unwrap(),
+                    EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     Arc::new(AtomicUsize::new(0)),
                     vec![Queue::new(0), Queue::new(0)],
-                    vec![EventFd::new().unwrap(), EventFd::new().unwrap()],
+                    vec![
+                        EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+                        EventFd::new(libc::EFD_NONBLOCK).unwrap()
+                    ],
                 )
                 .is_ok());
         }
@@ -2196,7 +2199,7 @@ mod tests {
     #[test]
     fn add_epollin_event_test() {
         let mut ep = EpollContext::new().unwrap();
-        let evfd = EventFd::new().unwrap();
+        let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         // adding new event should work
         assert!(ep.add_epollin_event(&evfd, EpollDispatch::Exit).is_ok());
@@ -2205,7 +2208,7 @@ mod tests {
     #[test]
     fn epoll_event_test() {
         let mut ep = EpollContext::new().unwrap();
-        let evfd = EventFd::new().unwrap();
+        let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         // adding new event should work
         assert!(ep.add_epollin_event(&evfd, EpollDispatch::Exit).is_ok());

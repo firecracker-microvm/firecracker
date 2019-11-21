@@ -16,18 +16,17 @@ timerfd = ">=1.0"
 arch = { path = "../arch" }
 devices = { path = "../devices" }
 dumbo = { path = "../dumbo" }
-fc_util = { path = "../fc_util" }
 kernel = { path = "../kernel" }
 logger = { path = "../logger" }
 memory_model = { path = "../memory_model" }
 mmds = { path = "../mmds" }
-net_util = { path = "../net_util"}
+utils = { path = "../utils"}
 rate_limiter = { path = "../rate_limiter" }
 seccomp = { path = "../seccomp" }
-sys_util = { path = "../sys_util" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
+

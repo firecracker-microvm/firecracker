@@ -617,7 +617,7 @@ mod tests {
     use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
     use std::os::unix::io::RawFd;
     use std::time::{Duration, Instant};
-    use sys_util::EventFd;
+    use utils::eventfd::EventFd;
 
     use super::super::super::defs::uapi;
     use super::super::super::tests::TestContext;
@@ -647,7 +647,7 @@ mod tests {
     impl TestStream {
         fn new() -> Self {
             Self {
-                fd: EventFd::new().unwrap(),
+                fd: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                 read_state: StreamState::Ready,
                 write_state: StreamState::Ready,
                 read_buf: Vec::new(),
