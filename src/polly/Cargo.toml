@@ -1,0 +1,10 @@
+[package]
+name = "polly"
+version = "0.0.1"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+libc = ">=0.2.39"
+epoll = "4.0.1"
+bitflags = "1.2.0"
+utils = { path="../utils" }
