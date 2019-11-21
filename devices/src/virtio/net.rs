@@ -23,9 +23,9 @@ use dumbo::{ns::MmdsNetworkStack, EthernetFrame, MacAddr, MAC_ADDR_LEN};
 use logger::{Metric, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use net_gen;
-use net_util::{Tap, TapError};
 use rate_limiter::{RateLimiter, TokenBucket, TokenType};
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
+use utils::net::{Tap, TapError};
 use virtio_gen::virtio_net::*;
 
 use super::{
@@ -1081,7 +1081,7 @@ mod tests {
 
     fn activate_some_net(n: &mut Net, bad_qlen: bool, bad_evtlen: bool) -> ActivateResult {
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let interrupt_evt = EventFd::new().unwrap();
+        let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let status = Arc::new(AtomicUsize::new(0));
 
         let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1090,7 +1090,10 @@ mod tests {
         assert!(rxq.end().0 < txq.start().0);
 
         let mut queues = vec![rxq.create_queue(), txq.create_queue()];
-        let mut queue_evts = vec![EventFd::new().unwrap(), EventFd::new().unwrap()];
+        let mut queue_evts = vec![
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+        ];
 
         if bad_qlen {
             queues.pop();
@@ -1118,9 +1121,9 @@ mod tests {
         let rx_queue = rxq.create_queue();
         let tx_queue = txq.create_queue();
         let interrupt_status = Arc::new(AtomicUsize::new(0));
-        let interrupt_evt = EventFd::new().unwrap();
-        let rx_queue_evt = EventFd::new().unwrap();
-        let tx_queue_evt = EventFd::new().unwrap();
+        let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let rx_queue_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let tx_queue_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let epoll_fd = epoll::create(true).unwrap();
 
         (

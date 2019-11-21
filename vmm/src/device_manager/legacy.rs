@@ -11,7 +11,7 @@ use std::io::{self, stdout};
 use std::sync::{Arc, Mutex};
 
 use devices;
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
 
 /// Errors corresponding to the `PortIODeviceManager`.
 #[derive(Debug)]
@@ -52,16 +52,16 @@ impl PortIODeviceManager {
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
     pub fn new() -> Result<Self> {
         let io_bus = devices::Bus::new();
-        let com_evt_1_3 = EventFd::new().map_err(Error::EventFd)?;
-        let com_evt_2_4 = EventFd::new().map_err(Error::EventFd)?;
-        let kbd_evt = EventFd::new().map_err(Error::EventFd)?;
+        let com_evt_1_3 = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
+        let com_evt_2_4 = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
+        let kbd_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let stdio_serial = Arc::new(Mutex::new(devices::legacy::Serial::new_out(
             com_evt_1_3.try_clone().map_err(Error::EventFd)?,
             Box::new(stdout()),
         )));
 
         // Create exit event for i8042
-        let exit_evt = EventFd::new().map_err(Error::EventFd)?;
+        let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let i8042 = Arc::new(Mutex::new(devices::legacy::I8042Device::new(
             exit_evt,
             kbd_evt.try_clone().unwrap(),
