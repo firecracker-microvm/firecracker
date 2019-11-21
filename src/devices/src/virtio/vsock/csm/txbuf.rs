@@ -3,7 +3,6 @@
 //
 
 use std::io::Write;
-use std::mem;
 use std::num::Wrapping;
 
 use super::defs;
@@ -14,7 +13,7 @@ use super::{Error, Result};
 /// the host can't read fast enough.
 pub struct TxBuf {
     /// The actual u8 buffer - only allocated after the first push.
-    data: Option<Box<[u8; Self::SIZE]>>,
+    data: Option<Box<[u8]>>,
     /// Ring-buffer head offset - where new data is pushed to.
     head: Wrapping<u32>,
     /// Ring-buffer tail offset - where data is flushed from.
@@ -50,17 +49,9 @@ impl TxBuf {
             return Err(Error::TxBufFull);
         }
 
-        // We're using a closure here to return the boxed slice, instead of a value (i.e.
-        // `get_or_insert_with()` instead of `get_or_insert()`), because we only want the box
-        // created when `self.data` is None. If we were to use `get_or_insert(box)`, the box
-        // argument would always get evaluated (which implies a heap allocation), even though
-        // it would later be discarded (when `self.data.is_some()`). Apparently, clippy fails
-        // to see this, and insists on issuing some warning.
-        let data = self.data.get_or_insert_with(||
-                // Using uninitialized memory here is quite safe, since we never read from any
-                // area of the buffer before writing to it. First we push, then we flush only
-                // what had been prviously pushed.
-                Box::new(unsafe {mem::uninitialized::<[u8; Self::SIZE]>()}));
+        let data = self
+            .data
+            .get_or_insert_with(|| vec![0u8; Self::SIZE].into_boxed_slice());
 
         // Buffer head, as an offset into the data slice.
         let head_ofs = self.head.0 as usize % Self::SIZE;
