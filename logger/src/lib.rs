@@ -130,8 +130,7 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-
-extern crate fc_util;
+extern crate utils;
 
 pub mod error;
 pub mod metrics;
@@ -147,11 +146,11 @@ use std::sync::{Mutex, MutexGuard, RwLock};
 use serde_json::Value;
 
 use error::LoggerError;
-use fc_util::time::LocalTime;
 pub use log::Level::*;
 pub use log::*;
 use log::{set_logger, set_max_level, Log, Metadata, Record};
 pub use metrics::{Metric, METRICS};
+use utils::time::LocalTime;
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, LoggerError>;
@@ -661,7 +660,6 @@ impl Log for Logger {
 #[cfg(test)]
 mod tests {
     extern crate tempfile;
-
     use self::tempfile::NamedTempFile;
     use super::*;
     use log::MetadataBuilder;
