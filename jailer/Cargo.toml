@@ -8,8 +8,7 @@ clap = { version = ">=2.27.1", default-features = false}
 libc = ">=0.2.39"
 regex = ">=1.0.0"
 
-fc_util = { path = "../fc_util" }
-sys_util = { path = "../sys_util" }
+utils = { path = "../utils" }
 
 [dev-dependencies]
 tempfile = ">=3.0.2"

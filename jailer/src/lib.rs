@@ -6,8 +6,7 @@ extern crate clap;
 extern crate libc;
 extern crate regex;
 
-extern crate fc_util;
-extern crate sys_util;
+extern crate utils;
 
 mod cgroup;
 mod chroot;
@@ -23,7 +22,7 @@ use std::result;
 use clap::{App, AppSettings, Arg, ArgMatches};
 
 use env::Env;
-use fc_util::validators;
+use utils::validators;
 
 const SOCKET_FILE_NAME: &str = "api.socket";
 
