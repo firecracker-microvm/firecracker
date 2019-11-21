@@ -1,0 +1,15 @@
+[package]
+name = "utils"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2018"
+
+[dependencies]
+vmm-sys-util = "0.2.0"
+libc = ">=0.2.39"
+serde = ">=1.0.27"
+net_gen = { path = "../net_gen" }
+
+[dev-dependencies]
+dumbo = { path = "../dumbo" }
+serde_json = ">=1.0.9"
