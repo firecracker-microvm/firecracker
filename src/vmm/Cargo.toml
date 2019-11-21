@@ -23,6 +23,7 @@ mmds = { path = "../mmds" }
 utils = { path = "../utils"}
 rate_limiter = { path = "../rate_limiter" }
 seccomp = { path = "../seccomp" }
+polly = { path = "../polly" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }
