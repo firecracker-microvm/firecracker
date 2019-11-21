@@ -15,7 +15,7 @@ use std::mem;
 
 use super::cmdline::Error as CmdlineError;
 use memory_model::{Address, GuestAddress, GuestMemory};
-use sys_util;
+use utils::structs::{read_struct, read_struct_slice};
 
 #[allow(non_camel_case_types)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -87,7 +87,7 @@ where
         .map_err(|_| Error::SeekKernelImage)?;
     unsafe {
         // read_struct is safe when reading a POD struct.  It can be used and dropped without issue.
-        sys_util::read_struct(kernel_image, &mut ehdr)
+        read_struct(kernel_image, &mut ehdr)
             .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF header"))?;
     }
 
@@ -118,7 +118,7 @@ where
         .map_err(|_| Error::SeekProgramHeader)?;
     let phdrs: Vec<elf::Elf64_Phdr> = unsafe {
         // Reading the structs is safe for a slice of POD structs.
-        sys_util::read_struct_slice(kernel_image, ehdr.e_phnum as usize)
+        read_struct_slice(kernel_image, ehdr.e_phnum as usize)
             .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF program header"))?
     };
 
@@ -183,7 +183,7 @@ where
         .map_err(|_| Error::SeekKernelImage)?;
     let mut magic_number: u32 = 0;
     unsafe {
-        sys_util::read_struct(kernel_image, &mut magic_number)
+        read_struct(kernel_image, &mut magic_number)
             .map_err(|_| Error::ReadKernelDataStruct("Failed to read magic number"))?
     }
     if u32::from_le(magic_number) != AARCH64_MAGIC_NUMBER {
@@ -197,7 +197,7 @@ where
     let mut hdrvals: [u64; 2] = [0; 2];
     unsafe {
         /* `read_struct` is safe when reading a POD struct. It can be used and dropped without issue. */
-        sys_util::read_struct(kernel_image, &mut hdrvals).map_err(|_| {
+        read_struct(kernel_image, &mut hdrvals).map_err(|_| {
             Error::ReadKernelDataStruct("Failed to read kernel offset and image size")
         })?;
     }
