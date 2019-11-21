@@ -8,13 +8,14 @@ backtrace = {version = "=0.3.35", features = ["libunwind", "libbacktrace", "std"
 clap = { version = ">=2.27.1", default-features = false}
 
 api_server = { path = "api_server" }
-fc_util = { path = "fc_util" }
 jailer = { path = "jailer" }
 logger = { path = "logger" }
 mmds = { path = "mmds" }
 seccomp = { path = "seccomp" }
-sys_util = { path = "sys_util" }
+utils = { path = "utils" }
 vmm = { path = "vmm" }
+libc = ">=0.2.39"
+
 
 [dev-dependencies]
 tempfile = ">=3.0.2"

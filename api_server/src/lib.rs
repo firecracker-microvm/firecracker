@@ -6,12 +6,11 @@ extern crate serde_derive;
 extern crate serde_json;
 
 extern crate epoll;
-extern crate fc_util;
 #[macro_use]
 extern crate logger;
 extern crate micro_http;
 extern crate mmds;
-extern crate sys_util;
+extern crate utils;
 extern crate vmm;
 
 mod parsed_request;
@@ -29,7 +28,7 @@ pub use micro_http::{
 use mmds::data_store;
 use mmds::data_store::Mmds;
 use parsed_request::ParsedRequest;
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
 use vmm::default_syscalls;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::drive::BlockDeviceConfig;
@@ -166,7 +165,7 @@ impl ApiServer {
 
         if let Some(start_time) = start_time_us {
             let delta_us =
-                (fc_util::time::get_time(fc_util::time::ClockType::Monotonic) / 1000) - start_time;
+                (utils::time::get_time(utils::time::ClockType::Monotonic) / 1000) - start_time;
             METRICS
                 .api_server
                 .process_startup_time_us
@@ -174,8 +173,8 @@ impl ApiServer {
         }
 
         if let Some(cpu_start_time) = start_time_cpu_us {
-            let delta_us = fc_util::time::get_time(fc_util::time::ClockType::ProcessCpu) / 1000
-                - cpu_start_time;
+            let delta_us =
+                utils::time::get_time(utils::time::ClockType::ProcessCpu) / 1000 - cpu_start_time;
             METRICS
                 .api_server
                 .process_startup_time_cpu_us
@@ -378,7 +377,7 @@ mod tests {
             vmm_version: "version 0.1.0".to_string(),
         }));
 
-        let to_vmm_fd = EventFd::new().unwrap();
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
@@ -410,7 +409,7 @@ mod tests {
             vmm_version: "version 0.1.0".to_string(),
         }));
 
-        let to_vmm_fd = EventFd::new().unwrap();
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
@@ -436,7 +435,7 @@ mod tests {
             vmm_version: "version 0.1.0".to_string(),
         }));
 
-        let to_vmm_fd = EventFd::new().unwrap();
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
@@ -462,7 +461,7 @@ mod tests {
             vmm_version: "version 0.1.0".to_string(),
         }));
 
-        let to_vmm_fd = EventFd::new().unwrap();
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
@@ -491,7 +490,7 @@ mod tests {
             vmm_version: "version 0.1.0".to_string(),
         }));
 
-        let to_vmm_fd = EventFd::new().unwrap();
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
@@ -523,7 +522,7 @@ mod tests {
             vmm_version: "version 0.1.0".to_string(),
         }));
 
-        let to_vmm_fd = EventFd::new().unwrap();
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
@@ -625,7 +624,7 @@ mod tests {
             vmm_version: "version 0.1.0".to_string(),
         }));
 
-        let to_vmm_fd = EventFd::new().unwrap();
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
@@ -677,7 +676,7 @@ mod tests {
             vmm_version: "version 0.1.0".to_string(),
         }));
 
-        let to_vmm_fd = EventFd::new().unwrap();
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
