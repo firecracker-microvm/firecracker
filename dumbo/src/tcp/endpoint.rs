@@ -13,7 +13,6 @@
 
 use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 
-use fc_util::time::timestamp_cycles;
 use logger::{Metric, METRICS};
 use mmds::parse_request;
 use pdu::bytes::NetworkBytes;
@@ -21,6 +20,7 @@ use pdu::tcp::TcpSegment;
 use pdu::Incomplete;
 use tcp::connection::{Connection, PassiveOpenError, RecvStatusFlags};
 use tcp::{seq_after, NextSegmentStatus, MAX_WINDOW_SIZE};
+use utils::time::timestamp_cycles;
 
 // TODO: These are currently expressed in cycles. Normally, they would be the equivalent of a
 // certain duration, depending on the frequency of the CPU, but we still have a bit to go until

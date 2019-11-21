@@ -8,7 +8,7 @@ bitflags = ">=1.0.4"
 byteorder = ">=1.2.1"
 serde = ">=1.0.27"
 
-fc_util = { path = "../fc_util" }
+utils = { path = "../utils" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
 
