@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use seccomp::{
-    allow_syscall, Error, SeccompAction, SeccompCmpArgLen as ArgLen, SeccompCmpOp::Eq, SeccompCondition as Cond,
+    Error, SeccompAction, SeccompCmpArgLen as ArgLen, SeccompCmpOp::Eq, SeccompCondition as Cond,
     SeccompFilter, SeccompRule, SECCOMP_LEVEL_ADVANCED, SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
 };
 
@@ -26,7 +26,7 @@ pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
 }
 
 /// Applies the configured level of seccomp filtering along with a custom syscall whitelist.
-pub fn set_seccomp_level_and_whitelist(seccomp_level: u32, whitelist: Vec<i64>) -> Result<(), Error> {
+pub fn set_seccomp_level_and_whitelist(seccomp_level: u32, whitelist: &[i64]) -> Result<(), Error> {
     // TODO: dedupe whitelist with default list
     // TODO: make default action configurable as well
     let mut base_filter = match seccomp_level {
@@ -38,11 +38,10 @@ pub fn set_seccomp_level_and_whitelist(seccomp_level: u32, whitelist: Vec<i64>) 
         ).unwrap(),
     };
     
-    println!("{:?}", whitelist);
-    for syscall in whitelist.into_iter() {
+    for syscall in whitelist {
         base_filter
             .add_rules(
-                syscall,
+                *syscall,
                 vec![SeccompRule::new(vec![], SeccompAction::Allow)], // default to Allow for now
             )
             .unwrap();

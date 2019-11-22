@@ -3,6 +3,9 @@
 
 use serde::{de, Deserialize};
 use std::fmt;
+use vmm_config::machine_config::{VmConfigError};
+
+pub use error::{VmmActionError, ErrorKind};
 
 /// Configure a custom list of whitelisted syscalls for a specific architecture and toolchain.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -35,6 +38,36 @@ impl fmt::Display for SyscallWhitelistConfig {
 
         write!(f, "{{ \"arch\": {:?}, \"toolchain\": {:?},  \"syscalls\": {:?}",
                arch, toolchain, syscalls)
+    }
+}
+ 
+/// DOCUMENTATION
+pub fn get_whitelist_config_for_toolchain(configs: &[SyscallWhitelistConfig]) -> std::result::Result<Vec<i64>, VmmActionError> {
+    #[cfg(target_env = "musl")]
+    let toolchain = "musl";
+    #[cfg(target_env = "gnu")]
+    let toolchain = "gnu";
+
+    #[cfg(target_arch = "x86_64")]
+    let arch = "x86_64";
+    #[cfg(target_arch = "aarch64")]
+    let arch = "aarch64";
+
+    let config = configs.into_iter().find(| &config | {
+        let cfg_arch = config.arch.as_ref().map(|s| String::as_str(s)).unwrap();
+        let cfg_toolchain = config.toolchain.as_ref().map(|s| String::as_str(s)).unwrap();
+        cfg_arch == arch && cfg_toolchain == toolchain
+    });
+
+    //TODO: Create error types for the syscall whitelist error
+    let syscalls = match config {
+        Some(config) => &config.syscalls,
+        None => return Err(VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::InvalidVcpuCount))
+    };
+
+    match syscalls {
+        Some(syscalls) => Ok(syscalls.to_vec()),
+        None => Err(VmmActionError::MachineConfig(ErrorKind::User, VmConfigError::InvalidVcpuCount))
     }
 }
 

@@ -99,7 +99,7 @@ use vmm_config::net::{
     NetworkInterfaceUpdateConfig,
 };
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
-use vmm_config::syscall_whitelist_config::{SyscallWhitelistConfig};
+use vmm_config::syscall_whitelist_config::{SyscallWhitelistConfig, get_whitelist_config_for_toolchain};
 use vstate::{KvmContext, Vcpu, Vm};
 
 pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
@@ -381,7 +381,7 @@ pub struct VmmConfig {
     machine_config: Option<VmConfig>,
     #[serde(rename = "vsock")]
     vsock_device: Option<VsockDeviceConfig>,
-    #[serde(rename = "syscall-whitelist")]
+    #[serde(rename = "syscall-whitelist", default)]
     syscall_whitelist: Vec<SyscallWhitelistConfig>,
 }
 
@@ -959,7 +959,12 @@ impl Vmm {
                 thread::Builder::new()
                     .name(format!("fc_vcpu{}", cpu_id))
                     .spawn(move || {
-                        vcpu.run(vcpu_thread_barrier, seccomp_level, syscall_whitelist, vcpu_exit_evt);
+                        vcpu.run(
+                            vcpu_thread_barrier,
+                            seccomp_level,
+                            syscall_whitelist,
+                            vcpu_exit_evt
+                        );
                     })
                     .map_err(StartMicrovmError::VcpuSpawn)?,
             );
@@ -1473,14 +1478,15 @@ impl Vmm {
     }
 
     /// Set syscall whitelist for guest.
-    pub fn set_syscall_whitelist(&mut self, whitelist: SyscallWhitelistConfig) -> UserResult {
+    pub fn set_syscall_whitelist(&mut self, configs: &[SyscallWhitelistConfig]) -> UserResult {
         if self.is_instance_initialized() {
             Err(VmmActionError::VsockConfig(
                 ErrorKind::User,
                 VsockError::UpdateNotAllowedPostBoot,
             ))
         } else {
-            self.syscall_whitelist = whitelist.syscalls.unwrap();
+            let whitelist = get_whitelist_config_for_toolchain(configs)?;
+            self.syscall_whitelist = whitelist;
             Ok(())
         }
     }
@@ -1642,7 +1648,7 @@ impl Vmm {
     pub fn configure_from_json(
         &mut self,
         config_json: String,
-    ) -> std::result::Result<(), VmmActionError> {
+    ) -> UserResult {
         let vmm_config = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
             .unwrap_or_else(|e| {
                 error!("Invalid json: {}", e);
@@ -1666,9 +1672,10 @@ impl Vmm {
             self.set_vsock_device(vsock_config)?;
         }
         
-        // TODO: fix this hardcoded stuff
-        let first_whitelist_config = vmm_config.syscall_whitelist.into_iter().next();
-        self.set_syscall_whitelist(first_whitelist_config.unwrap())?;
+        // // TODO: fix this hardcoded stuff
+        // let first_whitelist_config = vmm_config.syscall_whitelist.into_iter().next();
+        // self.set_syscall_whitelist(first_whitelist_config.unwrap())?;
+        self.set_syscall_whitelist(&vmm_config.syscall_whitelist)?;
 
         Ok(())
     }
