@@ -116,9 +116,9 @@ fn log_received_api_request(api_description: String) {
 /// * `body` - body of the API request
 fn describe(method: Method, path: &str, body: Option<&Body>) -> String {
     match (path, body) {
-        ("/mmds", Some(_)) | (_, None) => format!("synchronous {:?} request on {:?}", method, path),
+        ("/mmds", Some(_)) | (_, None) => format!("{:?} request on {:?}", method, path),
         (_, Some(value)) => format!(
-            "synchronous {:?} request on {:?} with body {:?}",
+            "{:?} request on {:?} with body {:?}",
             method,
             path,
             std::str::from_utf8(value.body.as_slice())
@@ -160,35 +160,40 @@ pub enum Error {
     SerdeJson(serde_json::Error),
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            Error::Generic(_, ref desc) => write!(f, "{}", desc),
+            Error::EmptyID => write!(f, "The ID cannot be empty."),
+            Error::InvalidID => write!(
+                f,
+                "API Resource IDs can only contain alphanumeric characters and underscores."
+            ),
+            Error::InvalidPathMethod(ref path, ref method) => write!(
+                f,
+                "Invalid request method and/or path: {} {}.",
+                std::str::from_utf8(method.raw()).unwrap(),
+                path
+            ),
+            Error::SerdeJson(ref e) => write!(
+                f,
+                "An error occurred when deserializing the json body of a request: {}.",
+                e
+            ),
+        }
+    }
+}
+
 // It's convenient to turn errors into HTTP responses directly.
 impl Into<Response> for Error {
     fn into(self) -> Response {
+        let msg = ApiServer::json_fault_message(format!("{}", self));
         match self {
-            Error::Generic(status, msg) => {
-                ApiServer::json_response(status, ApiServer::json_fault_message(msg))
-            }
-            Error::EmptyID => ApiServer::json_response(
-                StatusCode::BadRequest,
-                ApiServer::json_fault_message("The ID cannot be empty."),
-            ),
-            Error::InvalidID => ApiServer::json_response(
-                StatusCode::BadRequest,
-                ApiServer::json_fault_message(
-                    "API Resource IDs can only contain alphanumeric characters and underscores.",
-                ),
-            ),
-            Error::InvalidPathMethod(path, method) => ApiServer::json_response(
-                StatusCode::BadRequest,
-                ApiServer::json_fault_message(format!(
-                    "Invalid request method and/or path: {} {}",
-                    std::str::from_utf8(method.raw()).unwrap(),
-                    path
-                )),
-            ),
-            Error::SerdeJson(e) => ApiServer::json_response(
-                StatusCode::BadRequest,
-                ApiServer::json_fault_message(e.to_string()),
-            ),
+            Error::Generic(status, _) => ApiServer::json_response(status, msg),
+            Error::EmptyID
+            | Error::InvalidID
+            | Error::InvalidPathMethod(_, _)
+            | Error::SerdeJson(_) => ApiServer::json_response(StatusCode::BadRequest, msg),
         }
     }
 }
@@ -336,6 +341,7 @@ mod tests {
              {}",
             ApiServer::basic_json_body("fault_message", "message")
         );
+
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Empty ID error.
@@ -372,7 +378,7 @@ mod tests {
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Invalid path or method error.
-        let mut buf: [u8; 187] = [0; 187];
+        let mut buf: [u8; 188] = [0; 188];
         let response: Response = Error::InvalidPathMethod("path".to_string(), Method::Get).into();
         assert!(response.write_all(&mut buf.as_mut()).is_ok());
         let expected_response = format!(
@@ -380,12 +386,12 @@ mod tests {
              Server: Firecracker API\r\n\
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
-             Content-Length: 69\r\n\r\n\
+             Content-Length: 70\r\n\r\n\
              {}",
             ApiServer::basic_json_body(
                 "fault_message",
                 format!(
-                    "Invalid request method and/or path: {} {}",
+                    "Invalid request method and/or path: {} {}.",
                     std::str::from_utf8(Method::Get.raw()).unwrap(),
                     "path"
                 )
@@ -394,7 +400,7 @@ mod tests {
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Serde error.
-        let mut buf: [u8; 187] = [0; 187];
+        let mut buf: [u8; 254] = [0; 254];
         let serde_error = serde_json::Value::from_str("").unwrap_err();
         let response: Response = Error::SerdeJson(serde_error).into();
         assert!(response.write_all(&mut buf.as_mut()).is_ok());
@@ -403,11 +409,12 @@ mod tests {
              Server: Firecracker API\r\n\
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
-             Content-Length: 69\r\n\r\n\
+             Content-Length: 135\r\n\r\n\
              {}",
             ApiServer::basic_json_body(
                 "fault_message",
-                "EOF while parsing a value at line 1 column 0"
+                "An error occurred when deserializing the json body of a request: \
+                 EOF while parsing a value at line 1 column 0."
             )
         );
         assert_eq!(&buf[..], expected_response.as_bytes());
@@ -417,15 +424,15 @@ mod tests {
     fn test_describe() {
         assert_eq!(
             describe(Method::Get, "path", None),
-            "synchronous Get request on \"path\""
+            "Get request on \"path\""
         );
         assert_eq!(
             describe(Method::Put, "/mmds", None),
-            "synchronous Put request on \"/mmds\""
+            "Put request on \"/mmds\""
         );
         assert_eq!(
             describe(Method::Put, "path", Some(&Body::new("body"))),
-            "synchronous Put request on \"path\" with body \"body\""
+            "Put request on \"path\" with body \"body\""
         );
     }
 
