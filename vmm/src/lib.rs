@@ -1004,7 +1004,6 @@ impl Vmm {
         Ok(entry_addr)
     }
 
-    #[allow(unused_variables)]
     fn configure_system(&self, vcpus: &[Vcpu]) -> std::result::Result<(), StartMicrovmError> {
         use StartMicrovmError::*;
 
@@ -1015,16 +1014,12 @@ impl Vmm {
 
         let kernel_config = self.kernel_config.as_ref().ok_or(MissingKernelConfig)?;
 
-        // The vcpu_count has a default value. We shouldn't have gotten to this point without
-        // having set the vcpu count.
-        let vcpu_count = self.vm_config.vcpu_count.ok_or(VcpusNotConfigured)?;
-
         #[cfg(target_arch = "x86_64")]
         arch::x86_64::configure_system(
             vm_memory,
             GuestAddress(arch::x86_64::layout::CMDLINE_START),
             kernel_config.cmdline.len() + 1,
-            vcpu_count,
+            vcpus.len() as u8,
         )
         .map_err(ConfigureSystem)?;
 
