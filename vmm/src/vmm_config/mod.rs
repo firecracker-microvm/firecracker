@@ -18,10 +18,10 @@ pub mod logger;
 pub mod machine_config;
 /// Wrapper for configuring the network devices attached to the microVM.
 pub mod net;
-/// Wrapper for configuring the vsock devices attached to the microVM.
-pub mod vsock;
 /// Wrapper for configuring syscall whitelist.
 pub mod syscall_whitelist_config;
+/// Wrapper for configuring the vsock devices attached to the microVM.
+pub mod vsock;
 
 // TODO: Migrate the VMM public-facing code (i.e. interface) to use stateless structures,
 // for receiving data/args, such as the below `RateLimiterConfig` and `TokenBucketConfig`.

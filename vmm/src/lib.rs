@@ -98,8 +98,10 @@ use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
     NetworkInterfaceUpdateConfig,
 };
+use vmm_config::syscall_whitelist_config::{
+    get_whitelist_config_for_toolchain, SyscallWhitelistConfig,
+};
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
-use vmm_config::syscall_whitelist_config::{SyscallWhitelistConfig, get_whitelist_config_for_toolchain};
 use vstate::{KvmContext, Vcpu, Vm};
 
 pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
@@ -963,7 +965,7 @@ impl Vmm {
                             vcpu_thread_barrier,
                             seccomp_level,
                             syscall_whitelist,
-                            vcpu_exit_evt
+                            vcpu_exit_evt,
                         );
                     })
                     .map_err(StartMicrovmError::VcpuSpawn)?,
@@ -1645,10 +1647,7 @@ impl Vmm {
     }
 
     /// Configures Vmm resources as described by the `config_json` param.
-    pub fn configure_from_json(
-        &mut self,
-        config_json: String,
-    ) -> UserResult {
+    pub fn configure_from_json(&mut self, config_json: String) -> UserResult {
         let vmm_config = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
             .unwrap_or_else(|e| {
                 error!("Invalid json: {}", e);
@@ -1671,10 +1670,6 @@ impl Vmm {
         if let Some(vsock_config) = vmm_config.vsock_device {
             self.set_vsock_device(vsock_config)?;
         }
-        
-        // // TODO: fix this hardcoded stuff
-        // let first_whitelist_config = vmm_config.syscall_whitelist.into_iter().next();
-        // self.set_syscall_whitelist(first_whitelist_config.unwrap())?;
         self.set_syscall_whitelist(&vmm_config.syscall_whitelist)?;
 
         Ok(())
