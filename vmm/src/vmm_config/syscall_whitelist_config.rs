@@ -94,7 +94,6 @@ pub fn get_whitelist_config_for_toolchain(
         cfg_arch == arch && cfg_toolchain == toolchain
     });
 
-    //TODO: Create error types for the syscall whitelist error
     let syscalls = match config {
         Some(config) => &config.syscalls,
         None => return Ok(vec![]), // default to empty list if we don't find a matching arch-toolchain tuple
@@ -142,16 +141,25 @@ where
     Ok(val)
 }
 
-// Run these tests for validation
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_whitelist_config_for_toolchain() {}
+    fn test_whitelist_config_for_toolchain() {
+        let test_configs = vec![SyscallWhitelistConfig {
+            "x86_64",
+            "musl",
+            vec![39, 40],
+        }];
+
+        let selected_config = get_whitelist_config_for_toolchain(&test_configs);
+        assert!(selected_config.is_ok());
+        assert_eq!(vec![39, 40], selected_config.unwrap().syscalls);
+    }
 
     #[test]
-    fn test_display_vm_config_error() {
+    fn test_display_whitelist_config_error() {
         let expected_str = "Supplied architecture for syscall whitelist config is unsupported. \
                             Only \"aarch64\" or \"x86_64\" are currently supported.";
         assert_eq!(VmConfigError::InvalidArchitecture.to_string(), expected_str);

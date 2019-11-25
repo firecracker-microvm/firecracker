@@ -9,7 +9,9 @@ use std::io;
 use super::{
     device_manager, vmm_config::boot_source::BootSourceConfigError, vmm_config::drive::DriveError,
     vmm_config::logger::LoggerConfigError, vmm_config::machine_config::VmConfigError,
-    vmm_config::net::NetworkInterfaceError, vmm_config::vsock::VsockError, vstate,
+    vmm_config::net::NetworkInterfaceError,
+    vmm_config::syscall_whitelist_config::SyscallWhitelistConfigError,
+    vmm_config::vsock::VsockError, vstate,
 };
 use devices::legacy::I8042DeviceError;
 use kernel::loader as kernel_loader;
@@ -327,6 +329,8 @@ pub enum VmmActionError {
     /// The action `set_vsock_device` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     VsockConfig(ErrorKind, VsockError),
+    /// The syscall whitelist could not be installed because of bad user input (`ErrorKind::User`)
+    SyscallWhitelist(ErrorKind, SyscallWhitelistConfigError),
 }
 
 // It's convenient to turn DriveErrors into VmmActionErrors directly.
@@ -399,6 +403,19 @@ impl std::convert::From<NetworkInterfaceError> for VmmActionError {
     }
 }
 
+// It's convenient to turn SyscallWhitelistConfigErrors into VmmActionErrors directly.
+impl std::convert::From<SyscallWhitelistConfigError> for VmmActionError {
+    fn from(e: SyscallWhitelistConfigError) -> Self {
+        use SyscallWhitelistConfigError::*;
+
+        let kind = match e {
+            InvalidArchitecture | InvalidToolchain => ErrorKind::User,
+        };
+
+        VmmActionError::SyscallWhitelist(kind, e)
+    }
+}
+
 // It's convenient to turn StartMicrovmErrors into VmmActionErrors directly.
 impl std::convert::From<StartMicrovmError> for VmmActionError {
     fn from(e: StartMicrovmError) -> Self {
@@ -460,6 +477,7 @@ impl VmmActionError {
             StartMicrovm(ref kind, _) => kind,
             SendCtrlAltDel(ref kind, _) => kind,
             VsockConfig(ref kind, _) => kind,
+            SyscallWhitelist(ref kind, _) => kind,
         }
     }
 }
@@ -477,6 +495,7 @@ impl Display for VmmActionError {
             StartMicrovm(_, ref err) => err,
             SendCtrlAltDel(_, ref err) => err,
             VsockConfig(_, ref err) => err,
+            SyscallWhitelist(_, ref err) => err,
         };
 
         write!(f, "{}", error.to_string())
