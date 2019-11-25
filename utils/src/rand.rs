@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::time;
+use crate::time;
 
 /// Generates pseudo random u32 numbers based on the current timestamp.
 pub fn xor_rng_u32() -> u32 {

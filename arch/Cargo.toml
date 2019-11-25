@@ -12,5 +12,5 @@ arch_gen = { path = "../arch_gen" }
 memory_model = { path = "../memory_model" }
 
 [dev-dependencies]
-fc_util = { path = "../fc_util" }
+utils = { path = "../utils" }
 device_tree = ">=1.1.0"

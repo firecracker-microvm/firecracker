@@ -9,7 +9,7 @@ use std::ptr::null;
 use libc;
 
 use super::{to_cstring, Error, Result};
-use sys_util::SyscallReturnCode;
+use utils::SyscallReturnCode;
 
 const OLD_ROOT_DIR_NAME_NUL_TERMINATED: &[u8] = b"old_root\0";
 const ROOT_DIR_NUL_TERMINATED: &[u8] = b"/\0";

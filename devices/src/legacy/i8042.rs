@@ -9,7 +9,7 @@ use logger::{Metric, METRICS};
 use std::fmt;
 use std::num::Wrapping;
 use std::{io, result};
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
 
 use crate::bus::BusDevice;
 
@@ -339,7 +339,10 @@ mod tests {
 
     #[test]
     fn test_i8042_read_write_and_event() {
-        let mut i8042 = I8042Device::new(EventFd::new().unwrap(), EventFd::new().unwrap());
+        let mut i8042 = I8042Device::new(
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+        );
         let reset_evt = i8042.get_reset_evt_clone().unwrap();
 
         // Check if reading in a 2-length array doesn't have side effects.
@@ -376,7 +379,10 @@ mod tests {
 
     #[test]
     fn test_i8042_commands() {
-        let mut i8042 = I8042Device::new(EventFd::new().unwrap(), EventFd::new().unwrap());
+        let mut i8042 = I8042Device::new(
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+        );
         let mut data = [1];
 
         // Test reading/writing the control register.
@@ -413,7 +419,10 @@ mod tests {
 
     #[test]
     fn test_i8042_buffer() {
-        let mut i8042 = I8042Device::new(EventFd::new().unwrap(), EventFd::new().unwrap());
+        let mut i8042 = I8042Device::new(
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+        );
 
         // Test push/pop.
         i8042.push_byte(52).unwrap();
@@ -434,7 +443,10 @@ mod tests {
 
     #[test]
     fn test_i8042_kbd() {
-        let mut i8042 = I8042Device::new(EventFd::new().unwrap(), EventFd::new().unwrap());
+        let mut i8042 = I8042Device::new(
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+        );
 
         fn expect_key(i8042: &mut I8042Device, key: u16) {
             let mut data = [1];

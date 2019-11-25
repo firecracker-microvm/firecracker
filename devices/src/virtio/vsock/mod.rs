@@ -201,7 +201,7 @@ mod tests {
     use std::os::unix::io::AsRawFd;
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
-    use sys_util::EventFd;
+    use utils::eventfd::EventFd;
 
     use crate::virtio::queue::tests::VirtQueue as GuestQ;
     use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
@@ -219,7 +219,7 @@ mod tests {
     impl TestBackend {
         pub fn new() -> Self {
             Self {
-                evfd: EventFd::new().unwrap(),
+                evfd: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                 rx_err: None,
                 tx_err: None,
                 pending_rx: false,
@@ -336,15 +336,15 @@ mod tests {
                 guest_evvq,
                 handler: VsockEpollHandler {
                     rxvq,
-                    rxvq_evt: EventFd::new().unwrap(),
+                    rxvq_evt: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     txvq,
-                    txvq_evt: EventFd::new().unwrap(),
+                    txvq_evt: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     evvq,
-                    evvq_evt: EventFd::new().unwrap(),
+                    evvq_evt: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     cid: self.cid,
                     mem: self.mem.clone(),
                     interrupt_status: Arc::new(AtomicUsize::new(0)),
-                    interrupt_evt: EventFd::new().unwrap(),
+                    interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     backend: TestBackend::new(),
                 },
             }

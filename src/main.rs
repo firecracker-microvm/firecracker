@@ -4,15 +4,14 @@
 extern crate backtrace;
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
-
 extern crate api_server;
-extern crate fc_util;
 extern crate jailer;
+extern crate libc;
+extern crate utils;
 #[macro_use]
 extern crate logger;
 extern crate mmds;
 extern crate seccomp;
-extern crate sys_util;
 extern crate vmm;
 
 use backtrace::Backtrace;
@@ -28,10 +27,11 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 
 use api_server::{ApiServer, Error, VmmRequest, VmmResponse};
-use fc_util::validators::validate_instance_id;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
-use sys_util::{EventFd, Terminal};
+use utils::eventfd::EventFd;
+use utils::terminal::Terminal;
+use utils::validators::validate_instance_id;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
 use vmm::{EventLoopExitReason, Vmm};
@@ -180,7 +180,7 @@ fn main() {
         vmm_version: crate_version!().to_string(),
     }));
 
-    let request_event_fd = EventFd::new()
+    let request_event_fd = EventFd::new(libc::EFD_NONBLOCK)
         .map_err(Error::Eventfd)
         .expect("Cannot create API Eventfd.");
     let (to_vmm, from_api) = channel();

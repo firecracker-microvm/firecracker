@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use std::io;
 
 use logger::{Metric, METRICS};
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
 
 use crate::bus::{BusDevice, RawIOHandler};
 
@@ -149,23 +149,24 @@ impl Serial {
         self.interrupt_identification = DEFAULT_INTERRUPT_IDENTIFICATION;
     }
 
-    fn handle_write(&mut self, offset: u8, v: u8) -> io::Result<()> {
+    // Handles a write request from the driver.
+    fn handle_write(&mut self, offset: u8, value: u8) -> io::Result<()> {
         match offset as u8 {
             DLAB_LOW if self.is_dlab_set() => {
-                self.baud_divisor = (self.baud_divisor & 0xff00) | u16::from(v)
+                self.baud_divisor = (self.baud_divisor & 0xff00) | u16::from(value)
             }
             DLAB_HIGH if self.is_dlab_set() => {
-                self.baud_divisor = (self.baud_divisor & 0x00ff) | (u16::from(v) << 8)
+                self.baud_divisor = (self.baud_divisor & 0x00ff) | (u16::from(value) << 8)
             }
             DATA => {
                 if self.is_loop() {
                     if self.in_buffer.len() < LOOP_SIZE {
-                        self.in_buffer.push_back(v);
+                        self.in_buffer.push_back(value);
                         self.recv_data()?;
                     }
                 } else {
                     if let Some(out) = self.out.as_mut() {
-                        out.write_all(&[v])?;
+                        out.write_all(&[value])?;
                         METRICS.uart.write_count.inc();
                         out.flush()?;
                         METRICS.uart.flush_count.inc();
@@ -173,34 +174,18 @@ impl Serial {
                     self.thr_empty()?;
                 }
             }
-            IER => self.interrupt_enable = v & IER_FIFO_BITS,
-            LCR => self.line_control = v,
-            MCR => self.modem_control = v,
-            SCR => self.scratch = v,
+            IER => self.interrupt_enable = value & IER_FIFO_BITS,
+            LCR => self.line_control = value,
+            MCR => self.modem_control = value,
+            SCR => self.scratch = value,
             _ => {}
         }
         Ok(())
     }
-}
 
-impl RawIOHandler for Serial {
-    fn raw_input(&mut self, data: &[u8]) -> io::Result<()> {
-        if !self.is_loop() {
-            self.in_buffer.extend(data);
-            self.recv_data()?;
-        }
-        Ok(())
-    }
-}
-
-impl BusDevice for Serial {
-    fn read(&mut self, offset: u64, data: &mut [u8]) {
-        if data.len() != 1 {
-            METRICS.uart.missed_read_count.inc();
-            return;
-        }
-
-        data[0] = match (offset as u64) as u8 {
+    // Handles a read request from the driver.
+    fn handle_read(&mut self, offset: u8) -> u8 {
+        match offset as u8 {
             DLAB_LOW if self.is_dlab_set() => self.baud_divisor as u8,
             DLAB_HIGH if self.is_dlab_set() => (self.baud_divisor >> 8) as u8,
             DATA => {
@@ -223,7 +208,28 @@ impl BusDevice for Serial {
             MSR => self.modem_status,
             SCR => self.scratch,
             _ => 0,
-        };
+        }
+    }
+}
+
+impl RawIOHandler for Serial {
+    fn raw_input(&mut self, data: &[u8]) -> io::Result<()> {
+        if !self.is_loop() {
+            self.in_buffer.extend(data);
+            self.recv_data()?;
+        }
+        Ok(())
+    }
+}
+
+impl BusDevice for Serial {
+    fn read(&mut self, offset: u64, data: &mut [u8]) {
+        if data.len() != 1 {
+            METRICS.uart.missed_read_count.inc();
+            return;
+        }
+
+        data[0] = self.handle_read(offset as u8);
     }
 
     fn write(&mut self, offset: u64, data: &[u8]) {
@@ -231,9 +237,8 @@ impl BusDevice for Serial {
             METRICS.uart.missed_write_count.inc();
             return;
         }
-        let offset = offset as u64;
         if let Err(e) = self.handle_write(offset as u8, data[0]) {
-            error!("Failed the write to serial: {:?}", e);
+            error!("Failed the write to serial: {}", e);
             METRICS.uart.error_count.inc();
         }
     }
@@ -269,7 +274,7 @@ mod tests {
 
     #[test]
     fn serial_output() {
-        let intr_evt = EventFd::new().unwrap();
+        let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_out = SharedBuffer::new();
 
         let mut serial = Serial::new_out(intr_evt, Box::new(serial_out.clone()));
@@ -286,7 +291,7 @@ mod tests {
 
     #[test]
     fn serial_input() {
-        let intr_evt = EventFd::new().unwrap();
+        let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_out = SharedBuffer::new();
         let mut buffer: Vec<u8> = Vec::with_capacity(16);
 
@@ -324,7 +329,7 @@ mod tests {
 
     #[test]
     fn serial_thr() {
-        let intr_evt = EventFd::new().unwrap();
+        let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let mut serial = Serial::new_sink(intr_evt.try_clone().unwrap());
 
         // write 1 to the interrupt event fd, so that read doesn't block in case the event fd
@@ -343,7 +348,7 @@ mod tests {
 
     #[test]
     fn serial_dlab() {
-        let mut serial = Serial::new_sink(EventFd::new().unwrap());
+        let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         serial.write(u64::from(LCR), &[LCR_DLAB_BIT as u8]);
         serial.write(u64::from(DLAB_LOW), &[0x12 as u8]);
@@ -360,7 +365,7 @@ mod tests {
 
     #[test]
     fn serial_modem() {
-        let mut serial = Serial::new_sink(EventFd::new().unwrap());
+        let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         serial.write(u64::from(MCR), &[MCR_LOOP_BIT as u8]);
         serial.write(u64::from(DATA), &[b'a']);
@@ -382,7 +387,7 @@ mod tests {
 
     #[test]
     fn serial_scratch() {
-        let mut serial = Serial::new_sink(EventFd::new().unwrap());
+        let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         serial.write(u64::from(SCR), &[0x12 as u8]);
 
@@ -394,7 +399,7 @@ mod tests {
     #[test]
     fn test_serial_data_len() {
         const LEN: usize = 1;
-        let mut serial = Serial::new_sink(EventFd::new().unwrap());
+        let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         let missed_writes_before = METRICS.uart.missed_write_count.count();
         // Trying to write data of length different than the one that we initialized the device with

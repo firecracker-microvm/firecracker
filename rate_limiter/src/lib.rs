@@ -46,7 +46,7 @@
 
 extern crate timerfd;
 
-extern crate fc_util;
+extern crate utils;
 #[macro_use]
 extern crate logger;
 

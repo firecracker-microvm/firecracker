@@ -22,7 +22,7 @@ use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{LogOption, Metric, LOGGER, METRICS};
 use memory_model::{Address, GuestAddress, GuestMemory, GuestMemoryError};
-use sys_util::EventFd;
+use utils::eventfd::EventFd;
 #[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::CpuFeaturesTemplate;
 use vmm_config::machine_config::VmConfig;
@@ -127,14 +127,17 @@ impl KvmContext {
         let capabilities = vec![Irqchip, Ioeventfd, Irqfd, UserMemory, ArmPsci02];
 
         // Check that all desired capabilities are supported.
-        for capability in capabilities.iter() {
-            if !kvm.check_extension(*capability) {
-                return Err(Error::KvmCap(*capability));
+        match capabilities
+            .iter()
+            .find(|&capability| !kvm.check_extension(*capability))
+        {
+            None => {
+                let max_memslots = kvm.get_nr_memslots();
+                Ok(KvmContext { kvm, max_memslots })
             }
-        }
 
-        let max_memslots = kvm.get_nr_memslots();
-        Ok(KvmContext { kvm, max_memslots })
+            Some(c) => Err(Error::KvmCap(*c)),
+        }
     }
 
     pub fn fd(&self) -> &Kvm {
@@ -721,7 +724,7 @@ mod tests {
             Arc::new(Barrier::new(1)),
             seccomp::SECCOMP_LEVEL_ADVANCED + 10,
             vec![],
-            EventFd::new().unwrap(),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         );
     }
 

@@ -8,7 +8,7 @@ use super::super::error::Error as VmmInternalError;
 use super::RateLimiterConfig;
 use devices;
 use dumbo::MacAddr;
-use net_util::{Tap, TapError};
+use utils::net::{Tap, TapError};
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.

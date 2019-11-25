@@ -9,10 +9,10 @@
 extern crate bitflags;
 extern crate byteorder;
 
-extern crate fc_util;
 extern crate logger;
 extern crate mmds;
 extern crate serde;
+extern crate utils;
 
 mod mac;
 pub mod ns;

@@ -2,15 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 extern crate logger;
-extern crate sys_util;
-
-use std::io;
-use std::result::Result;
+extern crate utils;
 
 use libc::{_exit, c_int, c_void, siginfo_t, SIGBUS, SIGSEGV, SIGSYS};
 
 use logger::{Metric, LOGGER, METRICS};
-use sys_util::register_signal_handler;
+use utils::signal::register_signal_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
 // expressed as an `(u)int*`.
@@ -103,10 +100,36 @@ extern "C" fn sigbus_sigsegv_handler(num: c_int, info: *mut siginfo_t, _unused: 
 /// Registers all the required signal handlers.
 ///
 /// Custom handlers are installed for: `SIGBUS`, `SIGSEGV`, `SIGSYS`.
-pub fn register_signal_handlers() -> Result<(), io::Error> {
-    register_signal_handler(SIGSYS, sigsys_handler)?;
-    register_signal_handler(SIGBUS, sigbus_sigsegv_handler)?;
-    register_signal_handler(SIGSEGV, sigbus_sigsegv_handler)?;
+pub fn register_signal_handlers() -> utils::errno::Result<()> {
+    // Call to unsafe register_signal_handler which is considered unsafe because it will
+    // register a signal handler which will be called in the current thread and will interrupt
+    // whatever work is done on the current thread, so we have to keep in mind that the registered
+    // signal handler must only do async-signal-safe operations.
+    unsafe {
+        register_signal_handler(
+            SIGSYS,
+            utils::signal::SignalHandler::Siginfo(sigsys_handler),
+            false,
+            libc::SA_SIGINFO,
+        )?;
+    }
+    unsafe {
+        register_signal_handler(
+            SIGBUS,
+            utils::signal::SignalHandler::Siginfo(sigbus_sigsegv_handler),
+            false,
+            libc::SA_SIGINFO,
+        )?;
+    }
+    unsafe {
+        register_signal_handler(
+            SIGSEGV,
+            utils::signal::SignalHandler::Siginfo(sigbus_sigsegv_handler),
+            false,
+            libc::SA_SIGINFO,
+        )?;
+    }
+
     Ok(())
 }
 

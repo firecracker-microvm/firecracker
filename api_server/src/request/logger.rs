@@ -19,9 +19,6 @@ pub fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(target_arch = "x86_64")]
-    use serde_json::Value;
     use vmm::vmm_config::logger::LoggerLevel;
 
     #[test]
@@ -43,7 +40,7 @@ mod tests {
             show_level: false,
             show_log_origin: false,
             #[cfg(target_arch = "x86_64")]
-            options: Value::Array(vec![]),
+            options: vec![],
         };
         match parse_put_logger(&Body::new(body)) {
             Ok(ParsedRequest::Sync(VmmAction::ConfigureLogger(desc))) => {

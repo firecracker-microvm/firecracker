@@ -11,13 +11,5 @@
 //! Provides tools for representing and handling network related concepts like MAC addresses and
 //! network interfaces.
 
-extern crate libc;
-extern crate serde;
-
-extern crate net_gen;
-#[macro_use]
-extern crate sys_util;
-
 mod tap;
-
-pub use tap::{Error as TapError, Tap};
+pub use self::tap::{Error as TapError, Tap};

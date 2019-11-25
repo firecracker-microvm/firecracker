@@ -23,16 +23,14 @@ extern crate arch;
 #[cfg(target_arch = "x86_64")]
 extern crate cpuid;
 extern crate devices;
-extern crate fc_util;
 extern crate kernel;
 #[macro_use]
 extern crate logger;
 extern crate dumbo;
 extern crate memory_model;
-extern crate net_util;
 extern crate rate_limiter;
 extern crate seccomp;
-extern crate sys_util;
+extern crate utils;
 
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
@@ -74,18 +72,18 @@ use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
 use devices::RawIOHandler;
 use devices::{DeviceEventT, EpollHandler};
 use error::{Error, Result, UserResult};
-use fc_util::time::TimestampUs;
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
-#[cfg(target_arch = "x86_64")]
 use logger::LogOption;
 use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
-use net_util::TapError;
 #[cfg(target_arch = "aarch64")]
 use serde_json::Value;
-use sys_util::{EventFd, Terminal};
+use utils::eventfd::EventFd;
+use utils::net::TapError;
+use utils::terminal::Terminal;
+use utils::time::TimestampUs;
 use vmm_config::boot_source::{
     BootSourceConfig, BootSourceConfigError, KernelConfig, DEFAULT_KERNEL_CMDLINE,
 };
@@ -945,7 +943,8 @@ impl Vmm {
             // On aarch64 we don't support i8042. Use a dummy event nobody touches until
             // we get i8042 support.
             #[cfg(target_arch = "aarch64")]
-            let vcpu_exit_evt = EventFd::new().map_err(|_| StartMicrovmError::EventFd)?;
+            let vcpu_exit_evt =
+                EventFd::new(libc::EFD_NONBLOCK).map_err(|_| StartMicrovmError::EventFd)?;
 
             // `unwrap` is safe since we are asserting that the `vcpu_count` is equal to the number
             // of items of `vcpus` vector.
@@ -1017,7 +1016,6 @@ impl Vmm {
         Ok(entry_addr)
     }
 
-    #[allow(unused_variables)]
     fn configure_system(&self, vcpus: &[Vcpu]) -> std::result::Result<(), StartMicrovmError> {
         use StartMicrovmError::*;
 
@@ -1028,16 +1026,12 @@ impl Vmm {
 
         let kernel_config = self.kernel_config.as_ref().ok_or(MissingKernelConfig)?;
 
-        // The vcpu_count has a default value. We shouldn't have gotten to this point without
-        // having set the vcpu count.
-        let vcpu_count = self.vm_config.vcpu_count.ok_or(VcpusNotConfigured)?;
-
         #[cfg(target_arch = "x86_64")]
         arch::x86_64::configure_system(
             vm_memory,
             GuestAddress(arch::x86_64::layout::CMDLINE_START),
             kernel_config.cmdline.len() + 1,
-            vcpu_count,
+            vcpus.len() as u8,
         )
         .map_err(ConfigureSystem)?;
 
@@ -1596,10 +1590,10 @@ impl Vmm {
         LOGGER.set_include_level(logger_cfg.show_level);
 
         #[cfg(target_arch = "aarch64")]
-        let options: &Vec<Value> = &vec![];
+        let options: &Vec<LogOption> = &vec![];
 
         #[cfg(target_arch = "x86_64")]
-        let options = logger_cfg.options.as_array().unwrap();
+        let options = &logger_cfg.options;
 
         LOGGER.set_flags(options).map_err(|e| {
             VmmActionError::Logger(
@@ -1692,7 +1686,6 @@ mod tests {
 
     use super::*;
 
-    use serde_json::Value;
     use std::fs::File;
     use std::io::BufRead;
     use std::io::BufReader;
@@ -1851,7 +1844,7 @@ mod tests {
 
         Vmm::new(
             shared_info,
-            &EventFd::new().expect("Cannot create eventFD"),
+            &EventFd::new(libc::EFD_NONBLOCK).expect("Cannot create eventFD"),
             seccomp::SECCOMP_LEVEL_NONE,
         )
         .expect("Cannot Create VMM")
@@ -2096,10 +2089,13 @@ mod tests {
                 .device_mut()
                 .activate(
                     vmm.vm.memory().unwrap().clone(),
-                    EventFd::new().unwrap(),
+                    EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     Arc::new(AtomicUsize::new(0)),
                     vec![Queue::new(0), Queue::new(0)],
-                    vec![EventFd::new().unwrap(), EventFd::new().unwrap()],
+                    vec![
+                        EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+                        EventFd::new(libc::EFD_NONBLOCK).unwrap()
+                    ],
                 )
                 .is_ok());
         }
@@ -2227,7 +2223,7 @@ mod tests {
     #[test]
     fn add_epollin_event_test() {
         let mut ep = EpollContext::new().unwrap();
-        let evfd = EventFd::new().unwrap();
+        let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         // adding new event should work
         assert!(ep.add_epollin_event(&evfd, EpollDispatch::Exit).is_ok());
@@ -2236,7 +2232,7 @@ mod tests {
     #[test]
     fn epoll_event_test() {
         let mut ep = EpollContext::new().unwrap();
-        let evfd = EventFd::new().unwrap();
+        let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
         // adding new event should work
         assert!(ep.add_epollin_event(&evfd, EpollDispatch::Exit).is_ok());
@@ -2293,15 +2289,21 @@ mod tests {
     #[test]
     fn test_epoll_stdin_event() {
         let mut epoll_context = EpollContext::new().unwrap();
-        epoll_context.enable_stdin_event();
-        assert_eq!(
-            epoll_context.dispatch_table[epoll_context.stdin_index as usize].unwrap(),
-            EpollDispatch::Stdin
-        );
-        // This should trigger a warn!. When logger will not be a global var we will be able to test
-        // it.
-        epoll_context.enable_stdin_event();
 
+        // If this unit test is run without a terminal attached (i.e ssh without pseudo terminal,
+        // request, jailer with `--daemonize` flag on) EPOLL_CTL_ADD would return EPERM
+        // on STDIN_FILENO. So, we are using `isatty` to check whether STDIN_FILENO refers
+        // to a terminal. If it does not, we are no longer asserting against
+        // `epoll_context.dispatch_table[epoll_context.stdin_index as usize]` holding any value.
+        if unsafe { libc::isatty(libc::STDIN_FILENO as i32) } == 1 {
+            epoll_context.enable_stdin_event();
+            assert_eq!(
+                epoll_context.dispatch_table[epoll_context.stdin_index as usize].unwrap(),
+                EpollDispatch::Stdin
+            );
+        }
+
+        epoll_context.enable_stdin_event();
         epoll_context.disable_stdin_event();
         assert!(epoll_context.dispatch_table[epoll_context.stdin_index as usize].is_none());
     }
@@ -2640,7 +2642,7 @@ mod tests {
             show_level: true,
             show_log_origin: true,
             #[cfg(target_arch = "x86_64")]
-            options: Value::Array(vec![]),
+            options: vec![],
         };
 
         let mut vmm = create_vmm_object(InstanceState::Running);
@@ -2657,7 +2659,7 @@ mod tests {
             show_level: false,
             show_log_origin: false,
             #[cfg(target_arch = "x86_64")]
-            options: Value::Array(vec![]),
+            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2669,11 +2671,11 @@ mod tests {
             show_level: false,
             show_log_origin: false,
             #[cfg(target_arch = "x86_64")]
-            options: Value::Array(vec![]),
+            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
-        // Error case: initializing logger with invalid option flags returns error.
+        // Error case: initializing logger with invalid metrics and log pipe returns error.
         let desc = LoggerConfig {
             log_fifo: String::from("not_found_file_log"),
             metrics_fifo: String::from("not_found_file_metrics"),
@@ -2681,7 +2683,7 @@ mod tests {
             show_level: false,
             show_log_origin: false,
             #[cfg(target_arch = "x86_64")]
-            options: Value::Array(vec![Value::String("foobar".to_string())]),
+            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2695,7 +2697,7 @@ mod tests {
             show_level: true,
             show_log_origin: true,
             #[cfg(target_arch = "x86_64")]
-            options: Value::Array(vec![Value::String("LogDirtyPages".to_string())]),
+            options: vec![LogOption::LogDirtyPages],
         };
         // Flushing metrics before initializing logger is not erroneous.
         assert!(vmm.flush_metrics().is_ok());
