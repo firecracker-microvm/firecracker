@@ -3167,41 +3167,6 @@ mod tests {
             _ => unreachable!(),
         }
 
-        // Unsupported architecture in whitelist
-        json = format!(
-            r#"{{
-                    "boot-source": {{
-                        "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
-                    }},
-                    "drives": [
-                        {{
-                            "drive_id": "rootfs",
-                            "path_on_host": "{}",
-                            "is_root_device": true,
-                            "is_read_only": false
-                        }}
-                    ],
-                    "syscall-whitelist": [
-                        {{
-                            "arch": "unsupported",
-                            "toolchain": "musl",
-                            "syscalls": [39, 40]
-                        }}
-                    ]
-            }}"#,
-            kernel_file.path().to_str().unwrap(),
-            rootfs_file.path().to_str().unwrap()
-        );
-
-        match vmm.configure_from_json(json) {
-            Err(VmmActionError::SyscallWhitelist(
-                ErrorKind::User,
-                SyscallWhitelistConfigError::InvalidArchitecture { .. },
-            )) => (),
-            _ => unreachable!(),
-        }
-
         // Let's try now passing a valid configuration. We won't include any logger
         // configuration because the logger was already initialized in another test
         // of this module and the reinitialization of it will cause crashing.

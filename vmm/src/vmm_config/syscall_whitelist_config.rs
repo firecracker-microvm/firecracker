@@ -84,7 +84,7 @@ pub fn get_whitelist_config_for_toolchain(
     #[cfg(target_arch = "aarch64")]
     let arch = "aarch64";
 
-    let config = configs.into_iter().find(|&config| {
+    let config = configs.iter().find(|&config| {
         let cfg_arch = config.arch.as_ref().map(|s| String::as_str(s)).unwrap();
         let cfg_toolchain = config
             .toolchain
@@ -147,25 +147,34 @@ mod tests {
 
     #[test]
     fn test_whitelist_config_for_toolchain() {
-        let test_configs = vec![SyscallWhitelistConfig {
-            "x86_64",
-            "musl",
-            vec![39, 40],
+        // Assuming we are running on an x86-gnu target
+        let mut test_configs = vec![SyscallWhitelistConfig {
+            arch: Some(String::from("x86_64")),
+            toolchain: Some(String::from("gnu")),
+            syscalls: Some(vec![39, 40]),
         }];
 
-        let selected_config = get_whitelist_config_for_toolchain(&test_configs);
+        let mut selected_config = get_whitelist_config_for_toolchain(&test_configs);
         assert!(selected_config.is_ok());
-        assert_eq!(vec![39, 40], selected_config.unwrap().syscalls);
+        assert_eq!(vec![39, 40], selected_config.unwrap());
+
+
+        test_configs = vec![];
+
+        selected_config = get_whitelist_config_for_toolchain(&test_configs);
+        assert!(selected_config.is_ok());
+        let empty_vec: Vec<i64> = vec![];
+        assert_eq!(empty_vec, selected_config.unwrap());
     }
 
     #[test]
     fn test_display_whitelist_config_error() {
         let expected_str = "Supplied architecture for syscall whitelist config is unsupported. \
                             Only \"aarch64\" or \"x86_64\" are currently supported.";
-        assert_eq!(VmConfigError::InvalidArchitecture.to_string(), expected_str);
+        assert_eq!(SyscallWhitelistConfigError::InvalidArchitecture.to_string(), expected_str);
 
         let expected_str = "Supplied toolchain for syscall whitelist config is unsupported. \
                             Only \"musl\" or \"gnu\" are currently supported.";
-        assert_eq!(VmConfigError::InvalidToolchain.to_string(), expected_str);
+        assert_eq!(SyscallWhitelistConfigError::InvalidToolchain.to_string(), expected_str);
     }
 }
