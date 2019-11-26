@@ -80,6 +80,5 @@ RUN mkdir "$TMP_BUILD_DIR" \
         && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git" \
     && cd / \
     && rm -rf "$TMP_BUILD_DIR"
-    
-WORKDIR "$FIRECRACKER_SRC_DIR"
 
+WORKDIR "$FIRECRACKER_SRC_DIR"

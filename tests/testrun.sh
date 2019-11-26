@@ -16,7 +16,7 @@
 #   attempt not to litter.
 #
 # # Solution
-# 
+#
 # - Everything that can go in a temporary directory will go in a temporary
 #   directory.
 # - Use environment variables for state (to benefit form bash dynamic scoping).
@@ -27,7 +27,7 @@
 # - All arguments given to this script are passed to the test runner.
 #
 # # Caveats
-# 
+#
 # - You need to run this script in the `tests/` dir of the `firecracker` repo.
 # - Dependencies installed via the system's package manager (e.g., `python3`)
 #   are not uninstalled.
@@ -100,7 +100,7 @@ main() {
 
     setup
     say "Starting testrun: pytest $*"
-    
+
     pytest "$@"
     # Run the test runner, `pytest`, passing the non-option arguments.
 
@@ -135,7 +135,7 @@ parse_options() {
 
     set -- $opt
     # Sets $opt as the options string.
-    
+
     while true; do
         case "$1" in
             -h | --help)
@@ -233,7 +233,7 @@ exit_if_in_rust_tmpenv() {
 
 ensure_root() {
     if [[ $EUID -ne 0 ]]; then
-        err "$0 must be run as root." 
+        err "$0 must be run as root."
     fi
 }
 
@@ -347,8 +347,8 @@ create_rust_tmpenv() {
 
     export CARGO_HOME="$RUST_TMPENV/cargo"
     record_global_symbol CARGO_HOME
-    
-    export ORIGINAL_PATH=$PATH 
+
+    export ORIGINAL_PATH=$PATH
     record_global_symbol ORIGINAL_PATH
     export PATH="$CARGO_HOME/bin:$PATH"
     # Bash executes the first matching executable found in the PATH dir list,
@@ -362,7 +362,7 @@ install_rust_and_deps() {
     say "Setup: Installing Rust to: $RUST_TMPENV"
 
     ensure curl $RUSTUP_URL -sSf | sh -s -- -y --no-modify-path >/dev/null 2>&1
- 
+
     ensure_cmd rustup
     ensure_cmd cargo
     ensure_cmd rustc
@@ -378,7 +378,7 @@ install_rust_and_deps() {
         declare deps="${KCOV_YUM_DEPS[@]}"
     elif [ $PKG_MANAGER == "apt-get" ]; then
         declare deps="${KCOV_APT_GET_DEPS[@]}"
-    fi    
+    fi
 
     ensure $PKG_MANAGER install -q -y $deps >/dev/null 2>&1
     ensure cargo install -f -q cargo-kcov
@@ -471,7 +471,7 @@ ensure() {
 ensure_cmd() {
     # Ensures the existence of a command in the current environment. If it does
     # not exist, terminate with an error showing the missing command.
-    if ! check_cmd "$1"; then 
+    if ! check_cmd "$1"; then
         err "Need '$1' (command not found)."
     fi
 }

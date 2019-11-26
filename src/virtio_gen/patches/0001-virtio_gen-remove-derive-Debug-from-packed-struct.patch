@@ -26,6 +26,5 @@ index 0b68d09..a1c9dca 100644
  pub struct virtio_net_ctrl_mac {
      pub entries: __virtio32,
      pub macs: __IncompleteArrayField<[__u8; 6usize]>,
--- 
+--
 2.7.4
-

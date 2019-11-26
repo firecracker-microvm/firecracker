@@ -71,6 +71,5 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOL
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
         && rm -rf "$CARGO_HOME/git" \
         && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git"
- 
-WORKDIR "$FIRECRACKER_SRC_DIR"
 
+WORKDIR "$FIRECRACKER_SRC_DIR"

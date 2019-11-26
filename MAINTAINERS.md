@@ -9,4 +9,3 @@ Firecracker is maintained by a dedicated team within Amazon:
 - Dan Horobeanu <dhr@amazon.com>
 - Diana Popa <dpopa@amazon.com>
 - Andreea Florescu <fandree@amazon.com>
-
