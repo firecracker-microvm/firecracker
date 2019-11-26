@@ -23,7 +23,7 @@ commit-based feedback for a contribution, follow the
 Firecracker uses the “fork-and-pull” development model. Follow these steps if
 you want to merge your changes to Firecracker:
 
-1. Within your fork of 
+1. Within your fork of
    [Firecracker](https://github.com/firecracker-microvm/firecracker), create a
    branch for your contribution. Use a meaningful name.
 1. Create your contribution, meeting all
@@ -43,7 +43,7 @@ you want to merge your changes to Firecracker:
 If you just want to receive feedback for a contribution proposal, open an “RFC”
 (“Request for Comments”) pull request:
 
-1. On your fork of 
+1. On your fork of
    [Firecracker](https://github.com/firecracker-microvm/firecracker), create a
    branch for the contribution you want feedback on. Use a meaningful name.
 1. Create your proposal based on the existing codebase.
@@ -74,4 +74,3 @@ testing. Your contribution needs to meet the following standards:
   part of your contribution contravenes this license by signing off on all your
   commits with `git -s`. Ensure that every file in your pull request has a
   header referring to the repository license file.
-

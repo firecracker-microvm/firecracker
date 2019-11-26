@@ -17,26 +17,26 @@ can boot:
    git clone https://github.com/torvalds/linux.git linux.git
    cd linux.git
    ```
-   
+
 2. Check out the Linux version you want to build (e.g. we'll be using v4.20
    here):
-   
+
    ```bash
    git checkout v4.20
    ```
-   
+
 3. You will need to configure your Linux build. You can start from
    [our recommended config](../resources/microvm-kernel-config) - just copy
    it to `.config` (under the Linux sources dir). You can make interactive
    config adjustments using:
-   
+
    ```bash
    make menuconfig
    ```
-   
+
    *Note*: there are many ways of building a kernel config file, other than
    `menuconfig`. You are free to use whichever one you choose.
-   
+
 4. Build the uncompressed kernel image:
 
    ```bash
@@ -58,11 +58,11 @@ at boot time.
 To build an EXT4 image:
 1. Prepare a properly-sized file. We'll use 50MiB here, but this depends
    on how much data you'll want to fit inside:
-   
+
    ```bash
    dd if=/dev/zero of=/rootfs.ext4 bs=1M count=50
    ```
-   
+
 2. Create an empty file system on the file you created:
 
    ```bash
@@ -109,12 +109,12 @@ Alpine Linux:
    ln -s agetty /etc/init.d/agetty.ttyS0
    echo ttyS0 > /etc/securetty
    rc-update add agetty.ttyS0 default
-  
+
    # Make sure special file systems are mounted on boot:
    rc-update add devfs boot
    rc-update add procfs boot
    rc-update add sysfs boot
-  
+
    # Then, copy the newly configured system to the rootfs image:
    for d in bin etc lib root sbin usr; do tar c "/$d" | tar x -C /my-rootfs; done
    for dir in dev proc run sys var; do mkdir /my-rootfs/${dir}; done
@@ -131,4 +131,3 @@ Alpine Linux:
 
 You should now have a kernel image (`vmlinux`) and a rootfs image
 (`rootfs.ext4`), that you can boot with Firecracker.
-

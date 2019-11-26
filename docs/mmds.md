@@ -7,8 +7,8 @@ the data store, and the minimalist HTTP/TCP/IPv4 stack (named *Dumbo*). They
 all exist within the Firecracker process, and outside the KVM boundary; the
 first is a part of the API server, the data store is a global entity for a
 single microVM, and the last is a part of the device model.
-When the API server is disabled by passing `--no-api` parameter to Firecracker, 
-MMDS is no longer available. 
+When the API server is disabled by passing `--no-api` parameter to Firecracker,
+MMDS is no longer available.
 
 ## The MMDS backend
 
