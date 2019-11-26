@@ -13,8 +13,8 @@ use libc;
 
 use cgroup::Cgroup;
 use chroot::chroot;
+use utils::syscall::SyscallReturnCode;
 use utils::validators;
-use utils::SyscallReturnCode;
 use {Error, Result};
 
 const STDIN_FILENO: libc::c_int = 0;
