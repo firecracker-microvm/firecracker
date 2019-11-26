@@ -1,20 +1,32 @@
 # Changelog
 
-## [Unreleased]
+## [0.20.0]
+
+### Added
+
+- Added support for GICv2.
 
 ### Fixed
 
-- Fixed a logical error in bounds checking performed on vsock virtio
-  descriptors (CVE-2019-18960).
+- Fixed CVE-2019-18960 - Fixed a logical error in bounds checking performed 
+  on vsock virtio descriptors.
 - Fixed #1283 - Can't start a VM in AARCH64 with vcpus number more than 16.
-- The backtrace are printed on `panic`, no longer causing a seccomp fault.
+- Fixed #1088 - The backtrace are printed on `panic`, no longer causing a 
+  seccomp fault.
 - Fixed #1375 - Change logger options type from Value to Vec<LogOption> to
   prevent potential unwrap on None panics.
-- Raise interrupt for TX queue used descriptors - Github issue #1436
-- Fixed a bug that causes 100% cpu load when the net device rx is throttled
-  by the ratelimiter - Github issue #1439
-- Invalid fields in rate limiter related API requests are now failing with
-  a proper error message.
+- Fixed #1436 - Raise interrupt for TX queue used descriptors
+- Fixed #1439 - Prevent achieving 100% cpu load when the net device rx is 
+  throttled by the ratelimiter
+- Fixed #1437 - Invalid fields in rate limiter related API requests are 
+  now failing with a proper error message.
+- Fixed #1316 - correctly determine the size of a virtio device backed 
+  by a block device.
+- Fixed #1383 - Log failed api requests.
+
+### Changed
+
+- Decreased release binary size by 10%.
 
 ## [0.19.0]
 
