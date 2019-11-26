@@ -1654,19 +1654,16 @@ mod tests {
         }};
     }
 
-    extern crate tempfile;
-
-    use super::*;
-
     use std::fs::File;
     use std::io::BufRead;
     use std::io::BufReader;
     use std::sync::atomic::AtomicUsize;
 
-    use self::tempfile::NamedTempFile;
+    use super::*;
     use arch::DeviceType;
     use devices::virtio::{ActivateResult, MmioDevice, Queue};
     use dumbo::MacAddr;
+    use utils::tempfile::TempFile;
     use vmm_config::drive::DriveError;
     use vmm_config::machine_config::CpuFeaturesTemplate;
     use vmm_config::{RateLimiterConfig, TokenBucketConfig};
@@ -1703,10 +1700,10 @@ mod tests {
 
         fn default_kernel_config(&mut self, cust_kernel_path: Option<PathBuf>) {
             let kernel_temp_file =
-                NamedTempFile::new().expect("Failed to create temporary kernel file.");
+                TempFile::new().expect("Failed to create temporary kernel file.");
             let kernel_path = match cust_kernel_path {
                 Some(kernel_path) => kernel_path,
-                None => kernel_temp_file.path().to_path_buf(),
+                None => kernel_temp_file.as_path().to_path_buf(),
             };
             let kernel_file = File::open(kernel_path).expect("Cannot open kernel file");
             let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
@@ -1837,11 +1834,11 @@ mod tests {
     #[test]
     fn test_insert_block_device() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-        let f = NamedTempFile::new().unwrap();
+        let f = TempFile::new().unwrap();
         // Test that creating a new block device returns the correct output.
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
-            path_on_host: f.path().to_path_buf(),
+            path_on_host: f.as_path().to_path_buf(),
             is_root_device: true,
             partuuid: None,
             is_read_only: false,
@@ -1857,7 +1854,7 @@ mod tests {
         // Test that updating a block device returns the correct output.
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
-            path_on_host: f.path().to_path_buf(),
+            path_on_host: f.as_path().to_path_buf(),
             is_root_device: true,
             partuuid: None,
             is_read_only: true,
@@ -1873,7 +1870,7 @@ mod tests {
         // Test insert second drive with the same path fails.
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("dummy_dev"),
-            path_on_host: f.path().to_path_buf(),
+            path_on_host: f.as_path().to_path_buf(),
             is_root_device: false,
             partuuid: None,
             is_read_only: true,
@@ -1882,11 +1879,11 @@ mod tests {
         assert!(vmm.insert_block_device(root_block_device.clone()).is_err());
 
         // Test inserting a second drive is ok.
-        let f = NamedTempFile::new().unwrap();
+        let f = TempFile::new().unwrap();
         // Test that creating a new block device returns the correct output.
         let non_root = BlockDeviceConfig {
             drive_id: String::from("non_root"),
-            path_on_host: f.path().to_path_buf(),
+            path_on_host: f.as_path().to_path_buf(),
             is_root_device: false,
             partuuid: None,
             is_read_only: false,
@@ -1898,7 +1895,7 @@ mod tests {
         // devices.
         let non_root = BlockDeviceConfig {
             drive_id: String::from("non_root"),
-            path_on_host: f.path().to_path_buf(),
+            path_on_host: f.as_path().to_path_buf(),
             is_root_device: true,
             partuuid: None,
             is_read_only: false,
@@ -1910,7 +1907,7 @@ mod tests {
         vmm.set_instance_state(InstanceState::Running);
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
-            path_on_host: f.path().to_path_buf(),
+            path_on_host: f.as_path().to_path_buf(),
             is_root_device: false,
             partuuid: None,
             is_read_only: true,
@@ -2239,9 +2236,10 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         assert!(vmm.check_health().is_err());
 
+        let kernel_file_temp = TempFile::new().unwrap();
         vmm.set_kernel_config(KernelConfig {
             cmdline: kernel_cmdline::Cmdline::new(10),
-            kernel_file: tempfile::tempfile().unwrap(),
+            kernel_file: File::open(kernel_file_temp.as_path()).unwrap(),
         });
         assert!(vmm.check_health().is_ok());
     }
@@ -2283,12 +2281,12 @@ mod tests {
     #[test]
     fn test_attach_block_devices() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-        let block_file = NamedTempFile::new().unwrap();
+        let block_file = TempFile::new().unwrap();
 
         // Use Case 1: Root Block Device is not specified through PARTUUID.
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
-            path_on_host: block_file.path().to_path_buf(),
+            path_on_host: block_file.as_path().to_path_buf(),
             is_root_device: true,
             partuuid: None,
             is_read_only: false,
@@ -2310,7 +2308,7 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
-            path_on_host: block_file.path().to_path_buf(),
+            path_on_host: block_file.as_path().to_path_buf(),
             is_root_device: true,
             partuuid: Some("0eaa91a0-01".to_string()),
             is_read_only: false,
@@ -2335,7 +2333,7 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         let non_root_block_device = BlockDeviceConfig {
             drive_id: String::from("not_root"),
-            path_on_host: block_file.path().to_path_buf(),
+            path_on_host: block_file.as_path().to_path_buf(),
             is_root_device: false,
             partuuid: Some("0eaa91a0-01".to_string()),
             is_read_only: false,
@@ -2370,8 +2368,8 @@ mod tests {
         }
 
         // Test partial update of block devices.
-        let new_block = NamedTempFile::new().unwrap();
-        let path = String::from(new_block.path().to_path_buf().to_str().unwrap());
+        let new_block = TempFile::new().unwrap();
+        let path = String::from(new_block.as_path().to_path_buf().to_str().unwrap());
         assert!(vmm
             .set_block_device_path("not_root".to_string(), path)
             .is_ok());
@@ -2384,7 +2382,7 @@ mod tests {
         vmm.set_instance_state(InstanceState::Running);
 
         // Test updating the block device path, after instance start.
-        let path = String::from(new_block.path().to_path_buf().to_str().unwrap());
+        let path = String::from(new_block.as_path().to_path_buf().to_str().unwrap());
         match vmm.set_block_device_path("not_root".to_string(), path) {
             Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::EpollHandlerNotFound)) => {
             }
@@ -2449,8 +2447,8 @@ mod tests {
             .is_err());
 
         // Test valid kernel path and invalid cmdline.
-        let kernel_file = NamedTempFile::new().expect("Failed to create temporary kernel file.");
-        let kernel_path = String::from(kernel_file.path().to_path_buf().to_str().unwrap());
+        let kernel_file = TempFile::new().expect("Failed to create temporary kernel file.");
+        let kernel_path = String::from(kernel_file.as_path().to_path_buf().to_str().unwrap());
         let invalid_cmdline = String::from_utf8(vec![b'X'; arch::CMDLINE_MAX_SIZE + 1]).unwrap();
         assert!(vmm
             .configure_boot_source(BootSourceConfig {
@@ -2488,13 +2486,13 @@ mod tests {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
         vmm.default_kernel_config(None);
 
-        let root_file = NamedTempFile::new().unwrap();
-        let scratch_file = NamedTempFile::new().unwrap();
+        let root_file = TempFile::new().unwrap();
+        let scratch_file = TempFile::new().unwrap();
         let scratch_id = "not_root".to_string();
 
         let root_block_device = BlockDeviceConfig {
             drive_id: String::from("root"),
-            path_on_host: root_file.path().to_path_buf(),
+            path_on_host: root_file.as_path().to_path_buf(),
             is_root_device: true,
             partuuid: None,
             is_read_only: false,
@@ -2502,7 +2500,7 @@ mod tests {
         };
         let non_root_block_device = BlockDeviceConfig {
             drive_id: scratch_id.clone(),
-            path_on_host: scratch_file.path().to_path_buf(),
+            path_on_host: scratch_file.as_path().to_path_buf(),
             is_root_device: false,
             partuuid: None,
             is_read_only: true,
@@ -2605,11 +2603,11 @@ mod tests {
     #[test]
     fn test_init_logger() {
         // Error case: update after instance is running
-        let log_file = NamedTempFile::new().unwrap();
-        let metrics_file = NamedTempFile::new().unwrap();
+        let log_file = TempFile::new().unwrap();
+        let metrics_file = TempFile::new().unwrap();
         let desc = LoggerConfig {
-            log_fifo: log_file.path().to_str().unwrap().to_string(),
-            metrics_fifo: metrics_file.path().to_str().unwrap().to_string(),
+            log_fifo: log_file.as_path().to_str().unwrap().to_string(),
+            metrics_fifo: metrics_file.as_path().to_str().unwrap().to_string(),
             level: LoggerLevel::Warning,
             show_level: true,
             show_log_origin: true,
@@ -2626,7 +2624,7 @@ mod tests {
         // Error case: initializing logger with invalid log pipe returns error.
         let desc = LoggerConfig {
             log_fifo: String::from("not_found_file_log"),
-            metrics_fifo: metrics_file.path().to_str().unwrap().to_string(),
+            metrics_fifo: metrics_file.as_path().to_str().unwrap().to_string(),
             level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
@@ -2637,7 +2635,7 @@ mod tests {
 
         // Error case: initializing logger with invalid metrics pipe returns error.
         let desc = LoggerConfig {
-            log_fifo: log_file.path().to_str().unwrap().to_string(),
+            log_fifo: log_file.as_path().to_str().unwrap().to_string(),
             metrics_fifo: String::from("not_found_file_metrics"),
             level: LoggerLevel::Debug,
             show_level: false,
@@ -2660,11 +2658,11 @@ mod tests {
         assert!(vmm.init_logger(desc).is_err());
 
         // Initializing logger with valid pipes is ok.
-        let log_file = NamedTempFile::new().unwrap();
-        let metrics_file = NamedTempFile::new().unwrap();
+        let log_file = TempFile::new().unwrap();
+        let metrics_file = TempFile::new().unwrap();
         let desc = LoggerConfig {
-            log_fifo: log_file.path().to_str().unwrap().to_string(),
-            metrics_fifo: metrics_file.path().to_str().unwrap().to_string(),
+            log_fifo: log_file.as_path().to_str().unwrap().to_string(),
+            metrics_fifo: metrics_file.as_path().to_str().unwrap().to_string(),
             level: LoggerLevel::Info,
             show_level: true,
             show_log_origin: true,
@@ -2679,7 +2677,7 @@ mod tests {
 
         assert!(vmm.flush_metrics().is_ok());
 
-        let f = File::open(metrics_file).unwrap();
+        let f = File::open(metrics_file.as_path()).unwrap();
         let mut reader = BufReader::new(f);
 
         let mut line = String::new();
@@ -2695,7 +2693,7 @@ mod tests {
         // Validate logfile works.
         warn!("this is a test");
 
-        let f = File::open(log_file).unwrap();
+        let f = File::open(log_file.as_path()).unwrap();
         let mut reader = BufReader::new(f);
 
         let mut line = String::new();
@@ -2937,8 +2935,8 @@ mod tests {
     fn test_configure_vmm_from_json() {
         let mut vmm = create_vmm_object(InstanceState::Uninitialized);
 
-        let kernel_file = NamedTempFile::new().unwrap();
-        let rootfs_file = NamedTempFile::new().unwrap();
+        let kernel_file = TempFile::new().unwrap();
+        let rootfs_file = TempFile::new().unwrap();
 
         // We will test different scenarios with invalid resources configuration and
         // check the expected errors. We include configuration for the kernel and rootfs
@@ -2961,7 +2959,7 @@ mod tests {
                         }}
                     ]
             }}"#,
-            rootfs_file.path().to_str().unwrap()
+            rootfs_file.as_path().to_str().unwrap()
         );
 
         match vmm.configure_from_json(json) {
@@ -2988,7 +2986,7 @@ mod tests {
                         }}
                     ]
             }}"#,
-            kernel_file.path().to_str().unwrap()
+            kernel_file.as_path().to_str().unwrap()
         );
 
         match vmm.configure_from_json(json) {
@@ -3020,8 +3018,8 @@ mod tests {
                         "ht_enabled": false
                     }}
             }}"#,
-            kernel_file.path().to_str().unwrap(),
-            rootfs_file.path().to_str().unwrap()
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
         );
 
         match vmm.configure_from_json(json) {
@@ -3053,8 +3051,8 @@ mod tests {
                         "ht_enabled": false
                     }}
             }}"#,
-            kernel_file.path().to_str().unwrap(),
-            rootfs_file.path().to_str().unwrap()
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
         );
 
         match vmm.configure_from_json(json) {
@@ -3085,8 +3083,8 @@ mod tests {
                         "metrics_fifo": "metrics.fifo"
                     }}
             }}"#,
-            kernel_file.path().to_str().unwrap(),
-            rootfs_file.path().to_str().unwrap()
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
         );
 
         match vmm.configure_from_json(json) {
@@ -3123,8 +3121,8 @@ mod tests {
                         }}
                     ]
             }}"#,
-            kernel_file.path().to_str().unwrap(),
-            rootfs_file.path().to_str().unwrap()
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
         );
 
         match vmm.configure_from_json(json) {
@@ -3164,8 +3162,8 @@ mod tests {
                             "ht_enabled": false
                      }}
             }}"#,
-            kernel_file.path().to_str().unwrap(),
-            rootfs_file.path().to_str().unwrap()
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
         );
 
         assert!(vmm.configure_from_json(json).is_ok());

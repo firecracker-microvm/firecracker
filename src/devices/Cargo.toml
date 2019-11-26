@@ -16,7 +16,3 @@ utils = { path = "../utils" }
 net_gen = { path = "../net_gen" }
 rate_limiter = { path = "../rate_limiter" }
 virtio_gen = { path = "../virtio_gen" }
-
-[dev-dependencies]
-utils = { path = "../utils" }
-tempfile = ">=3.0.2"

@@ -5,7 +5,6 @@ authors = ["The Chromium OS Authors"]
 
 [dependencies]
 libc = ">=0.2.39"
-utils = { path = "../utils" }
 
 [dev-dependencies]
-tempfile = ">=3.0.2"
+utils = { path = "../utils" }

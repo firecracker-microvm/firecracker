@@ -4,10 +4,11 @@
 #[macro_use]
 extern crate vmm_sys_util;
 
-pub use vmm_sys_util::{errno, eventfd, ioctl, signal, terminal};
+pub use vmm_sys_util::{errno, eventfd, ioctl, tempdir, tempfile, terminal};
 
 pub mod net;
 pub mod rand;
+pub mod signal;
 pub mod sm;
 pub mod structs;
 pub mod syscall;
