@@ -40,7 +40,7 @@
 //!
 //! ```
 //! extern crate libc;
-//! extern crate tempfile;
+//! extern crate utils;
 //!
 //! use libc::c_char;
 //! use std::io::Cursor;
@@ -643,14 +643,14 @@ impl Log for Logger {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
-    use self::tempfile::NamedTempFile;
-    use super::*;
-    use log::MetadataBuilder;
-
-    use std::fs::File;
+    use std::fs::{File, OpenOptions};
     use std::io::BufRead;
     use std::io::BufReader;
+
+    use log::MetadataBuilder;
+
+    use super::*;
+    use utils::tempfile::TempFile;
 
     const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
     const TEST_APP_NAME: &str = "Firecracker";
@@ -729,28 +729,56 @@ mod tests {
         error!("error");
 
         // Assert that initialization works only once.
+
         let log_file_temp =
-            NamedTempFile::new().expect("Failed to create temporary output logging file.");
-        let log_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
+            TempFile::new().expect("Failed to create temporary output logging file.");
+        let log_file = String::from(log_file_temp.as_path().to_path_buf().to_str().unwrap());
         let metrics_file_temp =
-            NamedTempFile::new().expect("Failed to create temporary metrics logging file.");
+            TempFile::new().expect("Failed to create temporary metrics logging file.");
         l.set_instance_id(TEST_INSTANCE_ID.to_string());
         assert!(l
             .init(
                 &app_info,
-                Box::new(log_file_temp),
-                Box::new(metrics_file_temp),
+                Box::new(
+                    OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(&log_file)
+                        .unwrap()
+                ),
+                Box::new(
+                    OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(metrics_file_temp.as_path())
+                        .unwrap()
+                ),
             )
             .is_ok());
 
         info!("info");
         warn!("warning");
 
+        let log_file_temp2 = TempFile::new().unwrap();
+        let metrics_file_temp2 = TempFile::new().unwrap();
+
         assert!(l
             .init(
                 &app_info,
-                Box::new(NamedTempFile::new().unwrap()),
-                Box::new(NamedTempFile::new().unwrap()),
+                Box::new(
+                    OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(log_file_temp2.as_path())
+                        .unwrap()
+                ),
+                Box::new(
+                    OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(metrics_file_temp2.as_path())
+                        .unwrap()
+                ),
             )
             .is_err());
 

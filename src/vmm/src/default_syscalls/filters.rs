@@ -1,10 +1,14 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+extern crate libc;
+extern crate utils;
+
 use seccomp::{
     allow_syscall, allow_syscall_if, Error, SeccompAction, SeccompCmpArgLen as ArgLen,
     SeccompCmpOp::Eq, SeccompCondition as Cond, SeccompFilter, SeccompRule,
 };
+use utils::signal::sigrtmin;
 
 /// The default filter containing the white listed syscall rules required by `Firecracker` to
 /// function.
@@ -93,11 +97,7 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     1,
                     ArgLen::DWORD,
                     Eq,
-                    utils::signal::validate_signal_num(
-                        super::super::vstate::VCPU_RTSIG_OFFSET,
-                        true
-                    )
-                    .map_err(|_| Error::InvalidArgumentNumber)? as u64,
+                    (sigrtmin() + super::super::vstate::VCPU_RTSIG_OFFSET) as u64
                 )?]],
             ),
             allow_syscall(libc::SYS_timerfd_create),

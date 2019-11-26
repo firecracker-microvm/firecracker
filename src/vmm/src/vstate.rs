@@ -27,7 +27,7 @@ use kvm_ioctls::*;
 use logger::{LogOption, Metric, LOGGER, METRICS};
 use memory_model::{Address, GuestAddress, GuestMemory, GuestMemoryError};
 use utils::eventfd::EventFd;
-use utils::signal::{register_signal_handler, Killable, SignalHandler};
+use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
 #[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
@@ -390,16 +390,9 @@ impl Vcpu {
                 });
             }
         }
-        unsafe {
-            // This uses an async signal safe handler to kill the vcpu handles.
-            register_signal_handler(
-                VCPU_RTSIG_OFFSET,
-                SignalHandler::Siginfo(handle_signal),
-                true,
-                libc::SA_SIGINFO,
-            )
+
+        register_signal_handler(sigrtmin() + VCPU_RTSIG_OFFSET, handle_signal)
             .expect("Failed to register vcpu signal handler");
-        }
     }
 
     /// Constructs a new VCPU for `vm`.
@@ -842,7 +835,7 @@ impl VcpuHandle {
             .expect("event sender channel closed on vcpu end.");
         // Kick the vcpu so it picks up the message.
         self.vcpu_thread
-            .kill(VCPU_RTSIG_OFFSET)
+            .kill(sigrtmin() + VCPU_RTSIG_OFFSET)
             .map_err(Error::SignalVcpu)?;
         Ok(())
     }
@@ -880,6 +873,7 @@ mod tests {
 
     use kernel::cmdline as kernel_cmdline;
     use kernel::loader as kernel_loader;
+    use utils::signal::validate_signal_num;
 
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu(mem_size: usize) -> (Vm, Vcpu) {
@@ -1137,7 +1131,7 @@ mod tests {
         barrier.wait();
         // Kick the Vcpu using the custom signal.
         handle
-            .kill(VCPU_RTSIG_OFFSET)
+            .kill(sigrtmin() + VCPU_RTSIG_OFFSET)
             .expect("failed to signal thread");
         handle.join().expect("failed to join thread");
         // Verify that the Vcpu saw its kvm immediate-exit as set.
@@ -1264,5 +1258,10 @@ mod tests {
 
         // Validate that the vCPU signaled its exit.
         assert_eq!(vcpu_exit_evt.read().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_vcpu_rtsig_offset() {
+        assert!(validate_signal_num(sigrtmin() + VCPU_RTSIG_OFFSET).is_ok());
     }
 }

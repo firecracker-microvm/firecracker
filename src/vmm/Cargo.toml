@@ -28,4 +28,4 @@ seccomp = { path = "../seccomp" }
 cpuid = { path = "../cpuid" }
 
 [dev-dependencies]
-tempfile = ">=3.0.2"
+libc = ">=0.2.39"

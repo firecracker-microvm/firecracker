@@ -1,9 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-extern crate logger;
-extern crate utils;
-
 use libc::{_exit, c_int, c_void, siginfo_t, SIGBUS, SIGSEGV, SIGSYS};
 
 use logger::{Metric, LOGGER, METRICS};
@@ -105,30 +102,9 @@ pub fn register_signal_handlers() -> utils::errno::Result<()> {
     // register a signal handler which will be called in the current thread and will interrupt
     // whatever work is done on the current thread, so we have to keep in mind that the registered
     // signal handler must only do async-signal-safe operations.
-    unsafe {
-        register_signal_handler(
-            SIGSYS,
-            utils::signal::SignalHandler::Siginfo(sigsys_handler),
-            false,
-            libc::SA_SIGINFO,
-        )?;
-    }
-    unsafe {
-        register_signal_handler(
-            SIGBUS,
-            utils::signal::SignalHandler::Siginfo(sigbus_sigsegv_handler),
-            false,
-            libc::SA_SIGINFO,
-        )?;
-    }
-    unsafe {
-        register_signal_handler(
-            SIGSEGV,
-            utils::signal::SignalHandler::Siginfo(sigbus_sigsegv_handler),
-            false,
-            libc::SA_SIGINFO,
-        )?;
-    }
+    register_signal_handler(SIGSYS, sigsys_handler)?;
+    register_signal_handler(SIGBUS, sigbus_sigsegv_handler)?;
+    register_signal_handler(SIGSEGV, sigbus_sigsegv_handler)?;
 
     Ok(())
 }
