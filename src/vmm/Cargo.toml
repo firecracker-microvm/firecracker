@@ -4,10 +4,10 @@ version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-kvm-bindings = "0.1"
-kvm-ioctls = "0.3.0"
+kvm-bindings = ">=0.1"
+kvm-ioctls = ">=0.3.0"
 libc = ">=0.2.39"
-epoll = "=4.0.1"
+epoll = ">=4.0.1"
 serde = ">=1.0.27"
 serde_derive = ">=1.0.27"
 serde_json = ">=1.0.9"
