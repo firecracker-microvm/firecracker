@@ -5,8 +5,7 @@ use super::*;
 use bit_helper::BitHelper;
 use common::get_cpuid;
 
-use kvm_bindings::kvm_cpuid_entry2;
-use kvm_ioctls::CpuId;
+use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 use transformer::Error::FamError;
 
 // constants for setting the fields of kvm_cpuid2 structures
@@ -295,7 +294,7 @@ mod test {
     fn test_use_host_cpuid_function_err() {
         let topoext_fn = get_topoext_fn();
         // check that it returns Err when there are too many entriesentry.function == topoext_fn
-        let mut cpuid = CpuId::new(kvm_ioctls::MAX_KVM_CPUID_ENTRIES);
+        let mut cpuid = CpuId::new(kvm_bindings::KVM_MAX_CPUID_ENTRIES);
         match use_host_cpuid_function(&mut cpuid, topoext_fn, true) {
             Err(Error::FamError(vmm_sys_util::fam::Error::SizeLimitExceeded)) => {}
             _ => panic!("Wrong behavior"),

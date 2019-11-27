@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{io, mem, result};
+use std::{mem, result};
 
 use super::get_fdt_addr;
 use kvm_bindings::{
@@ -23,9 +23,9 @@ use memory_model::GuestMemory;
 #[derive(Debug)]
 pub enum Error {
     /// Failed to set core register (PC, PSTATE or general purpose ones).
-    SetCoreRegister(io::Error),
+    SetCoreRegister(kvm_ioctls::Error),
     /// Failed to get a system register.
-    GetSysRegister(io::Error),
+    GetSysRegister(kvm_ioctls::Error),
 }
 type Result<T> = result::Result<T, Error>;
 
@@ -167,7 +167,7 @@ mod tests {
         let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
 
         match setup_regs(&vcpu, 0, 0x0, &mem).unwrap_err() {
-            Error::SetCoreRegister(ref e) => assert_eq!(e.raw_os_error(), Some(libc::ENOEXEC)),
+            Error::SetCoreRegister(ref e) => assert_eq!(e.errno(), libc::ENOEXEC),
             _ => panic!("Expected to receive Error::SetCoreRegister"),
         }
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
