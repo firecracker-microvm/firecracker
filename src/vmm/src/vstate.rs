@@ -17,15 +17,14 @@ use arch::aarch64::gic::GICDevice;
 use cpuid::{c3, filter_cpuid, t2, VmSpec};
 use default_syscalls;
 #[cfg(target_arch = "x86_64")]
-use kvm_bindings::{kvm_pit_config, KVM_PIT_SPEAKER_DUMMY};
+use kvm_bindings::{kvm_pit_config, CpuId, KVM_MAX_CPUID_ENTRIES, KVM_PIT_SPEAKER_DUMMY};
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{LogOption, Metric, LOGGER, METRICS};
 use memory_model::{Address, GuestAddress, GuestMemory, GuestMemoryError};
 use utils::eventfd::EventFd;
 #[cfg(target_arch = "x86_64")]
-use vmm_config::machine_config::CpuFeaturesTemplate;
-use vmm_config::machine_config::VmConfig;
+use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
 
 const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
 
@@ -52,22 +51,22 @@ pub enum Error {
     /// vCPU count is not initialized.
     VcpuCountNotInitialized,
     /// Cannot open the VM file descriptor.
-    VmFd(io::Error),
+    VmFd(kvm_ioctls::Error),
     /// Cannot open the VCPU file descriptor.
-    VcpuFd(io::Error),
+    VcpuFd(kvm_ioctls::Error),
     /// Cannot configure the microvm.
-    VmSetup(io::Error),
+    VmSetup(kvm_ioctls::Error),
     /// Cannot run the VCPUs.
-    VcpuRun(io::Error),
+    VcpuRun(kvm_ioctls::Error),
     /// The call to KVM_SET_CPUID2 failed.
-    SetSupportedCpusFailed(io::Error),
+    SetSupportedCpusFailed(kvm_ioctls::Error),
     /// The number of configured slots is bigger than the maximum reported by KVM.
     NotEnoughMemorySlots,
     #[cfg(target_arch = "x86_64")]
     /// Cannot set the local interruption due to bad configuration.
     LocalIntConfiguration(arch::x86_64::interrupts::Error),
     /// Cannot set the memory regions.
-    SetUserMemoryRegion(io::Error),
+    SetUserMemoryRegion(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the MSR registers
     MSRSConfiguration(arch::x86_64::regs::Error),
@@ -84,7 +83,7 @@ pub enum Error {
     /// Error configuring the floating point related registers
     FPUConfiguration(arch::x86_64::regs::Error),
     /// Cannot configure the IRQ.
-    Irq(io::Error),
+    Irq(kvm_ioctls::Error),
     /// Cannot spawn a new vCPU thread.
     VcpuSpawn(io::Error),
     /// Unexpected KVM_RUN exit reason
@@ -94,10 +93,10 @@ pub enum Error {
     SetupGIC(arch::aarch64::gic::Error),
     #[cfg(target_arch = "aarch64")]
     /// Error getting the Vcpu preferred target on Arm.
-    VcpuArmPreferredTarget(io::Error),
+    VcpuArmPreferredTarget(kvm_ioctls::Error),
     #[cfg(target_arch = "aarch64")]
     /// Error doing Vcpu Init on Arm.
-    VcpuArmInit(io::Error),
+    VcpuArmInit(kvm_ioctls::Error),
 }
 pub type Result<T> = result::Result<T, Error>;
 
@@ -173,7 +172,7 @@ impl Vm {
 
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         let supported_cpuid = kvm
-            .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
+            .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::VmFd)?;
         Ok(Vm {
             fd: vm_fd,
@@ -505,7 +504,7 @@ impl Vcpu {
             // The unwrap on raw_os_error can only fail if we have a logic
             // error in our code in which case it is better to panic.
             Err(ref e) => {
-                match e.raw_os_error().unwrap() {
+                match e.errno() {
                     // Why do we check for these if we only return EINVAL?
                     libc::EAGAIN | libc::EINTR => Ok(()),
                     _ => {
@@ -557,6 +556,7 @@ mod tests {
 
     use super::super::devices;
     use super::*;
+    use vmm_config::machine_config::VmConfig;
 
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu() -> (Vm, Vcpu) {
@@ -602,7 +602,7 @@ mod tests {
         let vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         let cpuid = kvm
             .kvm
-            .get_supported_cpuid(MAX_KVM_CPUID_ENTRIES)
+            .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .expect("Cannot get supported cpuid");
         assert_eq!(vm.supported_cpuid().as_slice(), cpuid.as_slice());
     }

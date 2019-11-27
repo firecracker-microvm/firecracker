@@ -3,8 +3,7 @@
 
 use bit_helper::BitHelper;
 use cpu_leaf::*;
-use kvm_bindings::kvm_cpuid_entry2;
-use kvm_ioctls::CpuId;
+use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 use transformer::*;
 
 fn update_feature_info_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) -> Result<(), Error> {

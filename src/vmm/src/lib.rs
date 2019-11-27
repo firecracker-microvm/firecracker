@@ -812,9 +812,11 @@ impl Vmm {
             ($evt: ident, $index: expr) => {{
                 self.vm
                     .fd()
-                    .register_irqfd(self.pio_device_manager.$evt.as_raw_fd(), $index)
+                    .register_irqfd(&self.pio_device_manager.$evt, $index)
                     .map_err(|e| {
-                        StartMicrovmError::LegacyIOBus(device_manager::legacy::Error::EventFd(e))
+                        StartMicrovmError::LegacyIOBus(device_manager::legacy::Error::EventFd(
+                            io::Error::from_raw_os_error(e.errno()),
+                        ))
                     })?;
             }};
         }

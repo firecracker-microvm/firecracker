@@ -5,8 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{io, result};
-
 use kvm_bindings::kvm_lapic_state;
 use kvm_ioctls::VcpuFd;
 
@@ -14,11 +12,11 @@ use kvm_ioctls::VcpuFd;
 #[derive(Debug)]
 pub enum Error {
     /// Failure in retrieving the LAPIC configuration.
-    GetLapic(io::Error),
+    GetLapic(kvm_ioctls::Error),
     /// Failure in modifying the LAPIC configuration.
-    SetLapic(io::Error),
+    SetLapic(kvm_ioctls::Error),
 }
-type Result<T> = result::Result<T, Error>;
+type Result<T> = std::result::Result<T, Error>;
 
 // Defines poached from apicdef.h kernel header.
 const APIC_LVT0: usize = 0x350;

@@ -14,7 +14,7 @@ extern crate kvm_bindings;
 extern crate kvm_ioctls;
 extern crate vmm_sys_util;
 
-use kvm_ioctls::CpuId;
+use kvm_bindings::CpuId;
 
 mod common;
 use common::*;
@@ -44,13 +44,15 @@ mod brand_string;
 /// # Example
 /// ```
 /// extern crate cpuid;
+/// extern crate kvm_bindings;
 /// extern crate kvm_ioctls;
 ///
 /// use cpuid::{filter_cpuid, VmSpec};
-/// use kvm_ioctls::{CpuId, Kvm, MAX_KVM_CPUID_ENTRIES};
+/// use kvm_bindings::{CpuId, KVM_MAX_CPUID_ENTRIES};
+/// use kvm_ioctls::Kvm;
 ///
 /// let kvm = Kvm::new().unwrap();
-/// let mut kvm_cpuid: CpuId = kvm.get_supported_cpuid(MAX_KVM_CPUID_ENTRIES).unwrap();
+/// let mut kvm_cpuid: CpuId = kvm.get_supported_cpuid(KVM_MAX_CPUID_ENTRIES).unwrap();
 ///
 /// let vm_spec = VmSpec::new(0, 1, true).unwrap();
 ///
