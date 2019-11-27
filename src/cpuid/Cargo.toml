@@ -4,6 +4,6 @@ version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-kvm-bindings = ">=0.1"
+kvm-bindings = { version = ">=0.2", features = ["fam-wrappers"] }
 kvm-ioctls = ">=0.3"
-vmm-sys-util = ">=0.2.0"
+vmm-sys-util = ">=0.2.1"

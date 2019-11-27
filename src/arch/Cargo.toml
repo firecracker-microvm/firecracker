@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["The Chromium OS Authors"]
 
 [dependencies]
-kvm-bindings = ">=0.1"
+kvm-bindings = { version = ">=0.2", features = ["fam-wrappers"] }
 kvm-ioctls = ">=0.3"
 libc = ">=0.2.39"
 

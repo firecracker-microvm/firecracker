@@ -3,7 +3,7 @@
 
 use std::{boxed::Box, result};
 
-use kvm_ioctls::{DeviceFd, VmFd};
+use kvm_ioctls::DeviceFd;
 
 use super::gic::{Error, GICDevice};
 
