@@ -1526,7 +1526,7 @@ mod tests {
         let (mut h, txq, rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 
         let daddr = 0x2000;
-        assert!(daddr as usize > txq.end().0);
+        assert!(daddr > txq.end().0);
 
         // Some corner cases for rx_single_frame().
         {
@@ -1675,7 +1675,7 @@ mod tests {
         let (mut h, txq, rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 
         let daddr = 0x2000;
-        assert!(daddr as usize > txq.end().0);
+        assert!(daddr > txq.end().0);
 
         // Test TX bandwidth rate limiting
         {
@@ -1783,7 +1783,7 @@ mod tests {
         let (mut h, txq, rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 
         let daddr = 0x2000;
-        assert!(daddr as usize > txq.end().0);
+        assert!(daddr > txq.end().0);
 
         // Test TX ops rate limiting
         {

@@ -371,7 +371,7 @@ mod tests {
     }
 
     fn set_pkt_len(len: u32, guest_desc: &GuestQDesc, mem: &GuestMemory) {
-        let hdr_gpa = guest_desc.addr.get() as usize;
+        let hdr_gpa = guest_desc.addr.get();
         let hdr_ptr = mem.get_host_address(GuestAddress(hdr_gpa)).unwrap() as *mut u8;
         let len_ptr = unsafe { hdr_ptr.add(HDROFF_LEN) };
 

@@ -745,7 +745,7 @@ impl Vmm {
         // and is architectural specific.
         let device_manager = MMIODeviceManager::new(
             guest_mem,
-            &mut (arch::get_reserved_mem_addr() as u64),
+            &mut (arch::MMIO_MEM_START as u64),
             (arch::IRQ_BASE, arch::IRQ_MAX),
         );
         self.mmio_device_manager = Some(device_manager);
@@ -2874,7 +2874,7 @@ mod tests {
         let guest_mem = vmm.vm.memory().unwrap().clone();
         let device_manager = MMIODeviceManager::new(
             guest_mem,
-            &mut (arch::get_reserved_mem_addr() as u64),
+            &mut (arch::MMIO_MEM_START),
             (arch::IRQ_BASE, arch::IRQ_MAX),
         );
         vmm.mmio_device_manager = Some(device_manager);
@@ -2888,10 +2888,7 @@ mod tests {
         let dev_man = vmm.mmio_device_manager.as_ref().unwrap();
         // On aarch64, we are using first region of the memory
         // reserved for attaching MMIO devices for measuring boot time.
-        assert!(dev_man
-            .bus
-            .get_device(arch::get_reserved_mem_addr() as u64)
-            .is_none());
+        assert!(dev_man.bus.get_device(arch::MMIO_MEM_START).is_none());
         assert!(dev_man
             .get_device_info()
             .get(&(DeviceType::Serial, DeviceType::Serial.to_string()))
@@ -2912,7 +2909,7 @@ mod tests {
         let guest_mem = vmm.vm.memory().unwrap().clone();
         let device_manager = MMIODeviceManager::new(
             guest_mem,
-            &mut (arch::get_reserved_mem_addr() as u64),
+            &mut (arch::MMIO_MEM_START),
             (arch::IRQ_BASE, arch::IRQ_MAX),
         );
         vmm.mmio_device_manager = Some(device_manager);
