@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use serde::{de, Deserialize};
-use std::env;
 use std::fmt;
 
 pub use error::{ErrorKind, VmmActionError};
@@ -159,8 +158,6 @@ mod tests {
         let arch = "x86_64";
         #[cfg(target_arch = "aarch64")]
         let arch = "aarch64";
-
-        println!("{}, {}", arch, toolchain);
 
         let mut test_configs = vec![SyscallWhitelistConfig {
             arch: Some(String::from(arch)),
