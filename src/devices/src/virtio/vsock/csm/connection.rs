@@ -125,6 +125,8 @@ pub struct VsockConnection<S: Read + Write + AsRawFd> {
     /// Instant when this connection should be scheduled for immediate termination, due to some
     /// timeout condition having been fulfilled.
     expiry: Option<Instant>,
+    /// If this true, Reply the connection status before transfer data or close this connection.
+    need_reply: bool,
 }
 
 impl<S> VsockChannel for VsockConnection<S>
@@ -304,9 +306,30 @@ where
             // Next up: receiving a response / confirmation for a host-initiated connection.
             // We'll move to an Established state, and pass on the good news through the host
             // stream.
-            ConnState::LocalInit if pkt.op() == uapi::VSOCK_OP_RESPONSE => {
-                self.expiry = None;
-                self.state = ConnState::Established;
+            ConnState::LocalInit
+                if pkt.op() == uapi::VSOCK_OP_RESPONSE || pkt.op() == uapi::VSOCK_OP_RST =>
+            {
+                let is_response = pkt.op() == uapi::VSOCK_OP_RESPONSE;
+                if self.need_reply {
+                    self.need_reply = false;
+                    if let Err(err) = self.send_bytes(if is_response { b"101\n" } else { b"503\n" })
+                    {
+                        // If we can't write to the host stream, that's an unrecoverable error, so
+                        // we'll terminate this connection.
+                        warn!(
+                            "vsock: error writing to local stream (lp={}, pp={}): {:?}",
+                            self.local_port, self.peer_port, err
+                        );
+                        if is_response {
+                            self.kill();
+                        }
+                        return Ok(());
+                    }
+                }
+                if is_response {
+                    self.expiry = None;
+                    self.state = ConnState::Established;
+                }
             }
 
             // The peer wants to shut down an established connection.  If they have nothing
@@ -478,6 +501,7 @@ where
             last_fwd_cnt_to_peer: Wrapping(0),
             pending_rx: PendingRxSet::from(PendingRx::Response),
             expiry: None,
+            need_reply: false,
         }
     }
 
@@ -488,6 +512,7 @@ where
         peer_cid: u64,
         local_port: u32,
         peer_port: u32,
+        need_reply: bool,
     ) -> Self {
         Self {
             local_cid,
@@ -504,6 +529,7 @@ where
             last_fwd_cnt_to_peer: Wrapping(0),
             pending_rx: PendingRxSet::from(PendingRx::Request),
             expiry: None,
+            need_reply,
         }
     }
 
@@ -756,7 +782,7 @@ mod tests {
                     PEER_BUF_ALLOC,
                 ),
                 ConnState::LocalInit => VsockConnection::<TestStream>::new_local_init(
-                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT,
+                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT, false,
                 ),
                 ConnState::Established => {
                     let mut conn = VsockConnection::<TestStream>::new_peer_init(

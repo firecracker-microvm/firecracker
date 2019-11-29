@@ -227,19 +227,18 @@ impl VsockChannel for VsockMuxer {
             return Ok(());
         }
 
-        // Right, we know where to send this packet, then (to `conn_key`).
-        // However, if this is an RST, we have to forcefully terminate the connection, so
-        // there's no point in forwarding it the packet.
-        if pkt.op() == uapi::VSOCK_OP_RST {
-            self.remove_connection(conn_key);
-            return Ok(());
-        }
-
         // Alright, everything looks in order - forward this packet to its owning connection.
         let mut res: VsockResult<()> = Ok(());
         self.apply_conn_mutation(conn_key, |conn| {
             res = conn.send_pkt(pkt);
         });
+
+        // Right, we know where to send this packet, then (to `conn_key`).
+        // However, if this is an RST, we have to forcefully terminate the connection, so
+        // there's no point in forwarding it the packet.
+        if pkt.op() == uapi::VSOCK_OP_RST {
+            self.remove_connection(conn_key);
+        }
 
         res
     }
@@ -381,8 +380,10 @@ impl VsockMuxer {
             Some(EpollListener::LocalStream(_)) => {
                 if let Some(EpollListener::LocalStream(mut stream)) = self.remove_listener(fd) {
                     Self::read_local_stream_port(&mut stream)
-                        .and_then(|peer_port| Ok((self.allocate_local_port(), peer_port)))
-                        .and_then(|(local_port, peer_port)| {
+                        .and_then(|(peer_port, need_reply)| {
+                            Ok((self.allocate_local_port(), peer_port, need_reply))
+                        })
+                        .and_then(|(local_port, peer_port, need_reply)| {
                             self.add_connection(
                                 ConnMapKey {
                                     local_port,
@@ -394,6 +395,7 @@ impl VsockMuxer {
                                     self.cid,
                                     local_port,
                                     peer_port,
+                                    need_reply,
                                 ),
                             )
                         })
@@ -409,8 +411,8 @@ impl VsockMuxer {
         }
     }
 
-    /// Parse a host "connect" command, and extract the destination vsock port.
-    fn read_local_stream_port(stream: &mut UnixStream) -> Result<u32> {
+    /// Parse a host "connect" and "upgrade" command, and extract the destination vsock port.
+    fn read_local_stream_port(stream: &mut UnixStream) -> Result<(u32, bool)> {
         let mut buf = [0u8; 32];
 
         // This is the minimum number of bytes that we should be able to read, when parsing a
@@ -437,11 +439,15 @@ impl VsockMuxer {
             .map_err(|_| Error::InvalidPortRequest)?
             .split_whitespace();
 
-        word_iter
+        let mut need_reply = false;
+        let port = word_iter
             .next()
             .ok_or(Error::InvalidPortRequest)
             .and_then(|word| {
                 if word.to_lowercase() == "connect" {
+                    Ok(())
+                } else if word.to_lowercase() == "upgrade" {
+                    need_reply = true;
                     Ok(())
                 } else {
                     Err(Error::InvalidPortRequest)
@@ -449,7 +455,9 @@ impl VsockMuxer {
             })
             .and_then(|_| word_iter.next().ok_or(Error::InvalidPortRequest))
             .and_then(|word| word.parse::<u32>().map_err(|_| Error::InvalidPortRequest))
-            .map_err(|_| Error::InvalidPortRequest)
+            .map_err(|_| Error::InvalidPortRequest)?;
+
+        Ok((port, need_reply))
     }
 
     /// Add a new connection to the active connection pool.
