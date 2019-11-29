@@ -1,0 +1,26 @@
+[package]
+name = "api_server"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+serde = ">=1.0.27"
+serde_derive = ">=1.0.27"
+serde_json = ">=1.0.9"
+epoll = ">=4.0.1"
+libc = ">=0.2.39"
+
+logger = { path = "../logger" }
+micro_http = { path = "../micro_http" }
+mmds = { path = "../mmds" }
+utils = { path = "../utils" }
+vmm = { path = "../vmm" }
+
+[dev-dependencies]
+arch = { path = "../arch" }
+devices = { path = "../devices" }
+dumbo = { path = "../dumbo" }
+kernel = { path = "../kernel" }
+memory_model = { path = "../memory_model" }
+utils = { path = "../utils" }
+rate_limiter = { path = "../rate_limiter" }

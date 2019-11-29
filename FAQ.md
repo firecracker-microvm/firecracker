@@ -168,7 +168,7 @@ You can see more info about the `refclock` parameters
 [here](https://chrony.tuxfamily.org/doc/3.4/chrony.conf.html#refclock).
 Adjust them according to your needs.
 
-### Each Firecracker opens 20+ file descriptors. Is this an issue?  
+### Each Firecracker opens 20+ file descriptors. Is this an issue?
 
 The relatively high FD usage is expected and correct. Firecracker heavily
 relies on event file descriptors to drive device emulation.
@@ -230,7 +230,7 @@ Possible mitigations are:
 
 ### How can I configure and start a microVM without sending API calls?
 
-Passing an optional command line parameter, `--config-file`, to the Firecracker 
-process allows this type of configuration. This parameter must be the path to a 
-file that contains the JSON specification that will be used to configure and start 
-the microVM. One example of such file can be found at `tests/framework/vm_config.json`. 
+Passing an optional command line parameter, `--config-file`, to the Firecracker
+process allows this type of configuration. This parameter must be the path to a
+file that contains the JSON specification that will be used to configure and start
+the microVM. One example of such file can be found at `tests/framework/vm_config.json`.

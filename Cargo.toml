@@ -1,30 +1,9 @@
-[package]
-name = "firecracker"
-version = "0.19.0"
-authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-
-[dependencies]
-backtrace = {version = "=0.3.35", features = ["libunwind", "libbacktrace", "std"], default-features = false}
-clap = { version = ">=2.27.1", default-features = false}
-
-api_server = { path = "api_server" }
-jailer = { path = "jailer" }
-logger = { path = "logger" }
-mmds = { path = "mmds" }
-seccomp = { path = "seccomp" }
-utils = { path = "utils" }
-vmm = { path = "vmm" }
-libc = ">=0.2.39"
-
-
-[dev-dependencies]
-tempfile = ">=3.0.2"
+[workspace]
+members = ["src/firecracker", "src/jailer"]
 
 [profile.dev]
 panic = "abort"
 
 [profile.release]
-lto = true
 panic = "abort"
-
-[workspace]
+lto = true

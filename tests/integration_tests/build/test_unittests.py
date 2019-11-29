@@ -36,12 +36,6 @@ def test_unittests(test_session_root_path, target):
                         " are already run as part of testing"
                         " code-coverage.")
 
-    if MACHINE == "x86_64":
-        extra_args += "--all-features "
-
-    if MACHINE == "aarch64":
-        extra_args += "--exclude cpuid "
-
     host.cargo_test(
         test_session_root_path,
         extra_args=extra_args,

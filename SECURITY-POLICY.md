@@ -20,4 +20,3 @@ vulnerability during the embargo period.
 
 At the end of the embargo period, maintainers will publicly release information
 about the vulnerability together with the Firecracker patches that mitigate it.
-

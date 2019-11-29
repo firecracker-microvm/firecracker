@@ -116,6 +116,6 @@ def check_swagger_style(yaml_spec):
 def test_firecracker_swagger():
     """Fail if Firecracker swagger specification is malformed."""
     yaml_spec = os.path.normpath(
-        os.path.join(os.getcwd(), '../api_server/swagger/firecracker.yaml')
+        os.path.join(os.getcwd(), '../src/api_server/swagger/firecracker.yaml')
     )
     check_swagger_style(yaml_spec)

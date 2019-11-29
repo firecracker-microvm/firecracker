@@ -1,0 +1,22 @@
+[package]
+name = "devices"
+version = "0.1.0"
+authors = ["The Chromium OS Authors"]
+edition = "2018"
+
+[dependencies]
+byteorder = ">=1.2.1"
+epoll = ">=4.0.1"
+libc = ">=0.2.39"
+
+dumbo = { path = "../dumbo" }
+logger = { path = "../logger" }
+memory_model = { path = "../memory_model" }
+utils = { path = "../utils" }
+net_gen = { path = "../net_gen" }
+rate_limiter = { path = "../rate_limiter" }
+virtio_gen = { path = "../virtio_gen" }
+
+[dev-dependencies]
+utils = { path = "../utils" }
+tempfile = ">=3.0.2"
