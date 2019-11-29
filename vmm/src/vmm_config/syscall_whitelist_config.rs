@@ -70,7 +70,9 @@ impl fmt::Display for SyscallWhitelistConfig {
     }
 }
 
-/// DOCUMENTATION
+/// Given a list of syscalls config objects, finds the config object
+/// matching target toolchain and architecture. If no matching object
+/// is found, return an empty vector by default.
 pub fn get_whitelist_config_for_toolchain(
     configs: &[SyscallWhitelistConfig],
 ) -> std::result::Result<Vec<i64>, VmmActionError> {

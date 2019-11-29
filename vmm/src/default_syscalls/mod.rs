@@ -32,7 +32,8 @@ pub fn set_seccomp_level_and_whitelist(seccomp_level: u32, whitelist: &[i64]) ->
     let mut base_filter = match seccomp_level {
         SECCOMP_LEVEL_ADVANCED => default_filter()?,
         SECCOMP_LEVEL_BASIC => default_filter()?.allow_all(),
-        _ => SeccompFilter::new(vec![].into_iter().collect(), SeccompAction::Trap).unwrap(),
+        SECCOMP_LEVEL_NONE => SeccompFilter::new(vec![].into_iter().collect(), SeccompAction::Trap).unwrap(),
+        _ => return Err(Error::InvalidLevel),
     };
 
     for syscall in whitelist {
