@@ -106,9 +106,11 @@ pub fn get_whitelist_config_for_toolchain(
     }
 }
 
-/// Validates a list of syscall whitelist configs so that user errors such as 
+/// Validates a list of syscall whitelist configs so that user errors such as
 /// configuring unsupported architectures do not fail silently.
-pub fn validate_whitelist_configs(configs: &[SyscallWhitelistConfig]) -> std::result::Result<(), VmmActionError> {
+pub fn validate_whitelist_configs(
+    configs: &[SyscallWhitelistConfig],
+) -> std::result::Result<(), VmmActionError> {
     for config in configs.iter() {
         let cfg_arch = config.arch.as_ref().map(|s| String::as_str(s)).unwrap();
         let cfg_toolchain = config
@@ -120,15 +122,15 @@ pub fn validate_whitelist_configs(configs: &[SyscallWhitelistConfig]) -> std::re
         if cfg_arch != "x86_64" && cfg_arch != "aarch64" {
             return Err(VmmActionError::SyscallWhitelist(
                 ErrorKind::User,
-                SyscallWhitelistConfigError::InvalidArchitecture
-            ))
+                SyscallWhitelistConfigError::InvalidArchitecture,
+            ));
         }
 
         if cfg_toolchain != "gnu" && cfg_toolchain != "musl" {
             return Err(VmmActionError::SyscallWhitelist(
                 ErrorKind::User,
-                SyscallWhitelistConfigError::InvalidToolchain
-            ))
+                SyscallWhitelistConfigError::InvalidToolchain,
+            ));
         }
     }
 
@@ -174,29 +176,29 @@ mod tests {
         let mut test_configs = vec![SyscallWhitelistConfig {
             arch: Some(String::from("unknown")),
             toolchain: Some(String::from("musl")),
-            syscalls: Some(vec![1,2,3])
+            syscalls: Some(vec![1, 2, 3]),
         }];
 
         match validate_whitelist_configs(&test_configs) {
             Err(VmmActionError::SyscallWhitelist(
                 ErrorKind::User,
-                SyscallWhitelistConfigError::InvalidArchitecture
+                SyscallWhitelistConfigError::InvalidArchitecture,
             )) => (),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
 
         test_configs = vec![SyscallWhitelistConfig {
             arch: Some(String::from("x86_64")),
             toolchain: Some(String::from("unknown")),
-            syscalls: Some(vec![1,2,3])
+            syscalls: Some(vec![1, 2, 3]),
         }];
 
         match validate_whitelist_configs(&test_configs) {
             Err(VmmActionError::SyscallWhitelist(
                 ErrorKind::User,
-                SyscallWhitelistConfigError::InvalidToolchain
+                SyscallWhitelistConfigError::InvalidToolchain,
             )) => (),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 

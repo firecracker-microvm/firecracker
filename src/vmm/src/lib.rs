@@ -97,8 +97,8 @@ use vmm_config::net::{
     NetworkInterfaceUpdateConfig,
 };
 use vmm_config::syscall_whitelist_config::{
-    get_whitelist_config_for_toolchain, validate_whitelist_configs, 
-    SyscallWhitelistConfig, SyscallWhitelistConfigError,
+    get_whitelist_config_for_toolchain, validate_whitelist_configs, SyscallWhitelistConfig,
+    SyscallWhitelistConfigError,
 };
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 use vstate::{KvmContext, Vcpu, Vm};
@@ -1483,7 +1483,7 @@ impl Vmm {
             ))
         } else {
             validate_whitelist_configs(configs)?;
-            
+
             // Choose config object matching build target env and toolchain.
             let whitelist = get_whitelist_config_for_toolchain(configs)?;
             self.syscall_whitelist = whitelist;
